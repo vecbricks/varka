@@ -46,10 +46,47 @@ public final class DateVectorOps {
   private static final VectorSpecies<Integer> SPECIES = IntVector.SPECIES_PREFERRED;
   private static final ByteOrder ORDER = ByteOrder.LITTLE_ENDIAN;
   // Arrow validity buffers are not guaranteed 8-byte aligned; unaligned layout skips the
-  // alignment check (bit offsets i/8 are still within bounds thanks to the vector-loop guard).
+  // alignment check (word offsets stay within bounds thanks to the vector-loop guard, see
+  // wordAlignedEnd).
   private static final ValueLayout.OfLong UNALIGNED_LONG = ValueLayout.JAVA_LONG_UNALIGNED;
 
   private DateVectorOps() {}
+
+  /**
+   * The validity bits for the lane group starting at row {@code row}, shifted so that lane 0 is
+   * bit 0. {@link VectorMask#fromLong} reads only the lowest {@code SPECIES.length()} bits, so
+   * the group's first lane must be moved to bit 0 before the mask is built.
+   *
+   * <p>The bitmap is addressed one 64-bit word at a time rather than at byte {@code row / 8}: a
+   * lane group only starts on a byte boundary when the species is 8 lanes or wider, and a 4-lane
+   * species (aarch64 NEON, x86 without AVX2) would otherwise read the bits of an earlier group.
+   * Callers must keep {@code row} below {@link #wordAlignedEnd} so the word read is in bounds.
+   */
+  static long validityBitsAt(MemorySegment validity, long row) {
+    return validity.get(UNALIGNED_LONG, (row / 64) * 8L) >>> (row % 64);
+  }
+
+  /**
+   * ORs {@code laneBits} (lane 0 == row {@code row}) into the bit-packed validity at {@code row},
+   * the inverse of {@link #validityBitsAt}. {@code laneBits} holds the mask's lanes in its lowest
+   * {@code SPECIES.length()} bits, and {@code row} is a multiple of that width, so the shifted
+   * lanes always stay inside one 64-bit word.
+   */
+  static void orValidityBitsAt(MemorySegment validity, long row, long laneBits) {
+    long wordOffset = (row / 64) * 8L;
+    validity.set(UNALIGNED_LONG, wordOffset,
+        validity.get(UNALIGNED_LONG, wordOffset) | (laneBits << (row % 64)));
+  }
+
+  /**
+   * The first row NOT covered by a whole 64-bit word of a {@code (length + 7) / 8}-byte validity
+   * bitmap. The vector loop stops here because {@link #validityBitsAt} and
+   * {@link #orValidityBitsAt} read and write a full 8-byte word; the strict scalar tail, which
+   * touches one byte at a time, finishes the rest.
+   */
+  static long wordAlignedEnd(int length) {
+    return ((length + 7) / 8 / 8) * 64L;
+  }
 
   /**
    * dst[i] = src[i] + daysOffset; dst null iff src null.
@@ -81,19 +118,17 @@ public final class DateVectorOps {
     MemorySegment validity = hasNulls ? ofAddress(srcValidity, (length + 7) / 8L) : null;
     IntVector offsetVec = IntVector.broadcast(SPECIES, daysOffset);
 
-    int validityBytes = (length + 7) / 8;
     long loopBound = SPECIES.loopBound(length);
-    long safeEnd = (validityBytes - 8L) * 8L;
+    long wordEnd = wordAlignedEnd(length);
     long i = 0;
-    for (; i < loopBound && i <= safeEnd; i += SPECIES.length()) {
+    for (; i < loopBound && i < wordEnd; i += SPECIES.length()) {
       VectorMask<Integer> mask = hasNulls
-          ? VectorMask.fromLong(SPECIES, validity.get(UNALIGNED_LONG, i / 8L))
+          ? VectorMask.fromLong(SPECIES, validityBitsAt(validity, i))
           : VectorMask.fromLong(SPECIES, -1L);  // all-true mask
       long byteOffset = i * 4L;
       IntVector va = IntVector.fromMemorySegment(SPECIES, src, byteOffset, ORDER, mask);
       va.add(offsetVec, mask).intoMemorySegment(dst, byteOffset, ORDER, mask);
-      dstValiditySeg.set(UNALIGNED_LONG, i / 8L,
-          dstValiditySeg.get(UNALIGNED_LONG, i / 8L) | mask.toLong());
+      orValidityBitsAt(dstValiditySeg, i, mask.toLong());
     }
     for (; i < length; i++) {
       boolean valid = !hasNulls || isBitSet(validity, (int) i);
@@ -153,24 +188,22 @@ public final class DateVectorOps {
     MemorySegment validityBseg =
         hasNullB ? ofAddress(validityB, (length + 7) / 8L) : null;
 
-    int validityBytes = (length + 7) / 8;
     long loopBound = SPECIES.loopBound(length);
-    long safeEnd = (validityBytes - 8L) * 8L;
+    long wordEnd = wordAlignedEnd(length);
     long i = 0;
-    for (; i < loopBound && i <= safeEnd; i += SPECIES.length()) {
+    for (; i < loopBound && i < wordEnd; i += SPECIES.length()) {
       VectorMask<Integer> maskA = hasNullA
-          ? VectorMask.fromLong(SPECIES, validityAseg.get(UNALIGNED_LONG, i / 8L))
+          ? VectorMask.fromLong(SPECIES, validityBitsAt(validityAseg, i))
           : VectorMask.fromLong(SPECIES, -1L);  // all-true mask
       VectorMask<Integer> maskB = hasNullB
-          ? VectorMask.fromLong(SPECIES, validityBseg.get(UNALIGNED_LONG, i / 8L))
+          ? VectorMask.fromLong(SPECIES, validityBitsAt(validityBseg, i))
           : VectorMask.fromLong(SPECIES, -1L);  // all-true mask
       VectorMask<Integer> mask = maskA.and(maskB);
       long byteOffset = i * 4L;
       IntVector va = IntVector.fromMemorySegment(SPECIES, a, byteOffset, ORDER, mask);
       IntVector vb = IntVector.fromMemorySegment(SPECIES, b, byteOffset, ORDER, mask);
       va.sub(vb, mask).intoMemorySegment(dst, byteOffset, ORDER, mask);
-      dstValiditySeg.set(UNALIGNED_LONG, i / 8L,
-          dstValiditySeg.get(UNALIGNED_LONG, i / 8L) | mask.toLong());
+      orValidityBitsAt(dstValiditySeg, i, mask.toLong());
     }
     for (; i < length; i++) {
       boolean validA = !hasNullA || isBitSet(validityAseg, (int) i);
