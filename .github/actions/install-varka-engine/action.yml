@@ -1,0 +1,48 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+name: 'Install the Varka engine'
+description: >-
+  Build sql/varka/engine and install it into the local Maven repository.
+  sql/catalyst and sql/core declare a test-scope dependency on
+  org.apache.spark.varka:varka-engine, but the engine is a standalone Maven
+  module outside the Spark reactor (its sources need --add-modules
+  jdk.incubator.vector, and its tests need native-access flags the Spark build
+  does not set), so no Spark build produces it. Without this step both sbt and
+  Maven fail to resolve the artifact before compiling anything. Must run after
+  the job's JDK is installed: the engine targets release 25.
+inputs:
+  run-tests:
+    description: >-
+      Run the engine test suite as part of the install. Off by default so the
+      jobs that only need the jar stay fast; the dedicated varka-engine job
+      turns it on.
+    required: false
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install the Varka engine into the local Maven repository
+      shell: bash
+      run: |
+        if [ "${{ inputs.run-tests }}" = "true" ]; then
+          ./build/mvn -B -f sql/varka/engine/pom.xml install
+        else
+          ./build/mvn -B -f sql/varka/engine/pom.xml -Dmaven.test.skip=true install
+        fi
