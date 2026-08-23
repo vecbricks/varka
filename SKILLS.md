@@ -127,6 +127,41 @@ Each step either pins the fault or narrows it.
   deliberate `NoClassDefFoundError` test hook, wrap the throw in
   `// scalastyle:off throwerror` / `// scalastyle:on throwerror`.
 
+## Build Performance (measured, Aug 2026)
+
+Benchmarked on a ThinkPad P16s Gen 4 (Ryzen AI 9 HX PRO 370, 12c/24t, 96 GB, NVMe).
+Numbers are wall-clock for a cold `sql/compile` chain unless noted.
+
+- The ceiling is Scala 2's single-threaded compiler frontend plus Spark's serial module
+  graph (core -> catalyst -> sql/core). CPU sits at 350-570% out of a possible 2400%,
+  so most of a build is one core running scalac.
+- **Background CPU contention was the single largest effect.** The same cold build took
+  103.9 s while three runaway browser tabs ate ~1.3 cores, and 89 s once they were gone
+  (-14%). It also widened run-to-run spread from +/-1.7% to +/-15%.
+- **One-shot `build/sbt` invocations cost ~9.3 s each** in JVM startup and build-definition
+  loading. A no-op `sql/compile` is 11.0 s standalone but ~1.7 s as another command in a
+  live session.
+- **sbt beats Maven** for the same chain: 103.9 s vs 139.5 s, plus real incremental
+  compilation. When Maven is required, `MAVEN_ARGS="-T 1C"` builds independent modules in
+  parallel (CPU 551% -> 817%); `build/mvn` also ships a 4 GB heap and a 128 MB code cache,
+  which `MAVEN_OPTS` can raise.
+
+Tuning knobs that were tested and made **no measurable difference** -- do not re-litigate
+these without new evidence:
+
+- `-Ybackend-parallelism` (verified it reached scalac via `show sql/scalacOptions`)
+- raising the sbt heap above the 8 GB set in `.sbtopts`
+- Zinc's `recompileAllFraction` (0.2 / 0.5 / 1.0 all identical)
+- scalac warning analysis: `-Wunused:imports` and the whole `-Wconf` list cost nothing
+- JVM transparent huge pages, CPU governor / power profile, AC vs battery
+- I/O, swap and filesystem tuning -- a cold build takes 62 major page faults and writes
+  ~2 MB/s, so the kernel is not in the path at all
+- genjavadoc is already gated to the unidoc config and does not run on normal compiles
+
+Benchmarking method: compare interleaved A/B runs by their minimums. Single-run
+comparisons on a contended machine carried a +/-15% noise band, large enough that several
+apparent small wins turned out to be noise.
+
 ## Repo Workflow (vecbricks/varka)
 
 - Remotes here: `origin` = `vecbricks/varka` (PR base, `master`), `fork` =

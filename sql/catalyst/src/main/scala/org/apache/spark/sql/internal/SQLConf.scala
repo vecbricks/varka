@@ -2930,6 +2930,9 @@ object SQLConf {
       " VarkaColumnarToRowExec that runs the SIMD kernels instead of per-row codegen." +
       " Batches that are not Arrow-backed fall back to the standard per-row path.")
     .version("5.0.0")
+    // The Varka rule runs in postColumnarTransitions, long after analysis, and only swaps one
+    // physical operator for another, so it cannot change what a view body resolves to.
+    .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
     .booleanConf
     .createWithDefault(false)
 

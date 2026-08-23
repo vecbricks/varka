@@ -129,11 +129,19 @@ Run test cases in an optional module:
 
     build/sbt -P<maven-profiles> '<module>/testOnly *MySuite'
 
-For faster iteration, keep SBT open in interactive mode:
+For faster iteration, keep SBT open in interactive mode. Each one-shot `build/sbt <cmd>`
+pays JVM startup and build-definition loading again -- roughly 9 seconds before any work
+starts -- so once you expect more than a single command, keep one session open instead:
 
     build/sbt
     > project <module>
     > testOnly *MySuite
+    > ~compile            # recompile on every save
+
+Build the narrowest target that answers the question. `<module>/Test/compile` is much
+cheaper than `package`, and compiling one module beats compiling its whole dependency
+chain. Most of a Spark build is a single core running scalac, so the way to spend less
+time is to compile less, not to add build flags.
 
 ### PySpark Tests
 

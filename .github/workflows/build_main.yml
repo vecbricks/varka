@@ -35,3 +35,8 @@ jobs:
       github.repository == 'apache/spark'
       || github.ref != 'refs/heads/master'
     uses: ./.github/workflows/build_and_test.yml
+    with:
+      # The root pom sets java.version=25, which drives both maven.compiler.release
+      # and the enforcer's requireJavaVersion rule, so Spark no longer builds on the
+      # workflow's default JDK of 17. The Varka engine targets release 25 as well.
+      java: 25

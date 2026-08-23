@@ -39,7 +39,8 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  *
  * To run this benchmark:
  * {{{
- *   1. build/sbt "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark"
+ *   1. build/sbt
+ *        "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark"
  *   2. generate result:
  *        SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "sql/test:runMain ..."
  *      Results will be written to "benchmarks/VarkaThroughputBenchmark-jdk<NN>-results.txt".

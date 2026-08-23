@@ -17,10 +17,10 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
-import scala.jdk.CollectionConverters._
-
 import java.lang.management.ManagementFactory
 import java.lang.ref.{ReferenceQueue, WeakReference}
+
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 

@@ -103,6 +103,8 @@ jobs:
         with:
           distribution: zulu
           java-version: ${{ inputs.java }}
+      - name: Install the Varka engine
+        uses: ./.github/actions/install-varka-engine
       - name: Build Spark with Maven
         shell: |
           bash -c "if script -qec true 2>/dev/null; then script -qec bash\ {0}; else script -qe /dev/null bash {0}; fi"
@@ -247,6 +249,8 @@ jobs:
         with:
           distribution: zulu
           java-version: ${{ matrix.java }}
+      - name: Install the Varka engine
+        uses: ./.github/actions/install-varka-engine
       - name: Install Python 3.12
         uses: actions/setup-python@v6
         # We should install one Python that is higher than 3+ for SQL and Yarn because:

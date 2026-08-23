@@ -385,6 +385,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ matrix.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Install Python 3.12
       uses: actions/setup-python@v6
       # We should install one Python that is higher than 3+ for SQL and Yarn because:
@@ -578,6 +580,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Build Spark
       run: |
         ./build/sbt -Phadoop-3 -Pyarn -Pspark-ganglia-lgpl -Phadoop-cloud -Phive \
@@ -702,6 +706,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ matrix.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: List Python packages (${{ env.PYTHON_TO_TEST }})
       if: ${{ env.PYTHON_TO_TEST != '' }}
       env: ${{ fromJSON(inputs.envs) }}
@@ -858,6 +864,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Download precompiled artifact
       uses: actions/download-artifact@v8
       with:
@@ -984,6 +992,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: License test
       run: ./dev/check-license
     - name: Dependencies test
@@ -1057,11 +1067,38 @@ jobs:
       with:
         distribution: zulu
         java-version: 25
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Build with Maven
       run: |
         export MAVEN_OPTS="-Xss64m -Xmx4g -Xms4g -XX:ReservedCodeCacheSize=128m -Dorg.slf4j.simpleLogger.defaultLogLevel=WARN"
         export MAVEN_CLI_OPTS="--no-transfer-progress"
         ./build/mvn $MAVEN_CLI_OPTS -DskipTests -Pyarn -Pkubernetes -Pvolcano -Phive -Phive-thriftserver -Phadoop-cloud -Pjvm-profiler -Pspark-ganglia-lgpl -Pkinesis-asl -Pcredential-aws clean install
+
+  # The Varka engine is a standalone Maven module outside the Spark reactor, so no
+  # Spark build compiles or tests it. Give it its own job: this is the only place
+  # its SIMD kernel, morsel and class-loader suites run.
+  varka-engine:
+    needs: [precondition]
+    name: Varka engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Bootstrap composite actions
+      uses: actions/checkout@v6
+    - name: Checkout and sync Spark repository
+      uses: ./.github/actions/checkout-and-sync
+      with:
+        ref: ${{ needs.precondition.outputs.head_sha }}
+    - name: Install Java ${{ inputs.java }}
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: ${{ inputs.java }}
+    - name: Build and test the Varka engine
+      uses: ./.github/actions/install-varka-engine
+      with:
+        run-tests: 'true'
 
   # Documentation build
   docs:
@@ -1120,6 +1157,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: List Python packages
       run: |
         lsb_release -a
@@ -1204,6 +1243,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Download precompiled artifact
       uses: actions/download-artifact@v8
       with:
@@ -1327,6 +1368,8 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
     - name: Download precompiled artifact
       uses: actions/download-artifact@v8
       with:
@@ -1405,6 +1448,8 @@ jobs:
         with:
           distribution: zulu
           java-version: ${{ inputs.java }}
+      - name: Install the Varka engine
+        uses: ./.github/actions/install-varka-engine
       - name: Download precompiled artifact
         uses: actions/download-artifact@v8
         with:

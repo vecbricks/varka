@@ -107,6 +107,8 @@ jobs:
         with:
           distribution: zulu
           java-version: ${{ inputs.java }}
+      - name: Install the Varka engine
+        uses: ./.github/actions/install-varka-engine
       - name: Build Spark
         run: |
           ./build/sbt -Phadoop-3 -Pyarn -Pspark-ganglia-lgpl -Phadoop-cloud -Phive \
@@ -210,6 +212,8 @@ jobs:
         with:
           distribution: zulu
           java-version: ${{ matrix.java }}
+      - name: Install the Varka engine
+        uses: ./.github/actions/install-varka-engine
       - name: Install Python ${{matrix.python}}
         uses: actions/setup-python@v6
         with:
