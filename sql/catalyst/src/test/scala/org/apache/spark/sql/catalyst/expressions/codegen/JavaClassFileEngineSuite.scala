@@ -23,12 +23,13 @@ import org.apache.spark.sql.catalyst.expressions.{AttributeReference, DateAdd, D
 import org.apache.spark.sql.types.DateType
 
 /**
- * Task 5: the Varka Class-File assembly engine and its routing through the
- * [[CodeGenerator]] compile funnel. Asserts that routing is inert by default, that an
- * eligible projection is assembled (cached) when routing is enabled, that an assembly
- * failure (or the explicit test injection) falls back to the string backend without
- * crashing, and that the assembled classes expose the full [[GeneratedClass]] shape (via
- * the Java [[ClassFileShapeVerifier]] helper) on a [[VarkaGeneratedClassLoader]].
+ * Task 5: the Varka Class-File assembly engine. Asserts that the [[CodeGenerator]] compile
+ * funnel never routes a Class-File-eligible unit to the engine, that [[JavaClassFileEngine]]
+ * assembles and loads the full [[GeneratedClass]] shell, that the assembled `apply` is still a
+ * stub - which is exactly why the funnel does not route to it - that a rejected class
+ * definition surfaces as a [[LinkageError]], and that the assembled classes expose the full
+ * [[GeneratedClass]] shape (via the Java [[ClassFileShapeVerifier]] helper) on a
+ * [[VarkaGeneratedClassLoader]].
  */
 class JavaClassFileEngineSuite extends SparkFunSuite {
 
@@ -40,15 +41,11 @@ class JavaClassFileEngineSuite extends SparkFunSuite {
   override def beforeEach(): Unit = {
     super.beforeEach()
     CodeGenerator.invalidateCodegenCache()
-    routingEnabledForTesting = false
-    failAssemblyForTesting = false
     corruptAssemblyForTesting = false
     assemblyAttempts.set(0)
   }
 
   override def afterEach(): Unit = {
-    routingEnabledForTesting = false
-    failAssemblyForTesting = false
     corruptAssemblyForTesting = false
     super.afterEach()
   }
@@ -59,51 +56,51 @@ class JavaClassFileEngineSuite extends SparkFunSuite {
     row
   }
 
-  test("routing is off by default: the eligible projection goes through Janino") {
+  test("the compile funnel never routes a Class-File-eligible unit to the engine") {
     val proj = GenerateUnsafeProjection.generate(Seq(DateAdd(startAttr, Literal(3))), schema)
     assert(!proj.getClass.getName.startsWith("org.apache.spark.sql.varka"))
     assert(assemblyAttempts.get() == 0)
     assert(proj.apply(dateRow(19244)).getInt(0) == 19247)
+    // A second compile of the same body hits the cache, and still assembles nothing.
+    GenerateUnsafeProjection.generate(Seq(DateAdd(startAttr, Literal(3))), schema)
+    assert(assemblyAttempts.get() == 0)
   }
 
-  test("routing assembles the Varka shell and caches the result") {
-    routingEnabledForTesting = true
-    val proj = GenerateUnsafeProjection.generate(Seq(DateSub(startAttr, Literal(5))), schema)
-    assert(proj.getClass.getName == "org.apache.spark.sql.varka.execution.VarkaProjection")
+  test("assembleAndLoad returns a shell whose apply is still a stub") {
+    val (generated, stats) = assembleAndLoad()
     assert(assemblyAttempts.get() == 1)
+    assert(stats.maxMethodCodeSize > 0)
+    val proj = generated.generate(Array.empty[Any]).asInstanceOf[UnsafeProjection]
+    assert(proj.getClass.getName == "org.apache.spark.sql.varka.execution.VarkaProjection")
+    // This is why the funnel does not route here: assembly, loading and construction all
+    // succeed, so a fallback around them sees no failure at all, and the throw lands at
+    // row-evaluation time where nothing can recover from it.
     val e = intercept[UnsupportedOperationException] {
       proj.apply(dateRow(19244))
     }
     assert(e.getMessage.contains("Varka batch execution wired in Task 6"))
-    // A second compile with the same code body hits the cache: no re-assembly.
-    GenerateUnsafeProjection.generate(Seq(DateSub(startAttr, Literal(5))), schema)
-    assert(assemblyAttempts.get() == 1)
   }
 
-  test("assembly failure falls back to the string backend and is cached") {
-    routingEnabledForTesting = true
-    failAssemblyForTesting = true
-    val proj = GenerateUnsafeProjection.generate(Seq(DateAdd(startAttr, Literal(9))), schema)
-    assert(!proj.getClass.getName.startsWith("org.apache.spark.sql.varka"))
-    assert(assemblyAttempts.get() == 0)
-    assert(proj.apply(dateRow(19244)).getInt(0) == 19253)
-    // The failed attempt's Janino result is cached under the same key.
-    GenerateUnsafeProjection.generate(Seq(DateAdd(startAttr, Literal(9))), schema)
-    assert(assemblyAttempts.get() == 0)
-  }
-
-  test("a LinkageError during class definition falls back to the string backend") {
-    routingEnabledForTesting = true
+  test("a rejected class definition surfaces as a LinkageError") {
     corruptAssemblyForTesting = true
-    val proj = GenerateUnsafeProjection.generate(Seq(DateSub(startAttr, Literal(5))), schema)
-    assert(!proj.getClass.getName.startsWith("org.apache.spark.sql.varka"))
-    // Unlike failAssemblyForTesting (which short-circuits), assembly was actually attempted
-    // and the JVM rejected the corrupt bytes with a ClassFormatError (a LinkageError).
+    intercept[LinkageError] {
+      assembleAndLoad()
+    }
+    // Assembly was attempted; the JVM rejected the corrupt bytes with a ClassFormatError, and
+    // `assembleAndLoad` released the loader before rethrowing.
     assert(assemblyAttempts.get() == 1)
-    assert(proj.apply(dateRow(19244)).getInt(0) == 19239)
-    // The failed attempt's Janino result is cached under the same key.
-    GenerateUnsafeProjection.generate(Seq(DateSub(startAttr, Literal(5))), schema)
-    assert(assemblyAttempts.get() == 1)
+  }
+
+  test("CodeAndComment keys the compile cache on the Class-File ops, not the body alone") {
+    val op = DateSub(startAttr, Literal(5)).classFileGenOp
+    val plain = new CodeAndComment("body", Map.empty)
+    val withOps = new CodeAndComment("body", Map.empty, Seq(op))
+    assert(plain != withOps)
+    assert(plain.hashCode != withOps.hashCode)
+    assert(withOps == new CodeAndComment("body", Map.empty, Seq(op)))
+    assert(withOps.hashCode == new CodeAndComment("body", Map.empty, Seq(op)).hashCode)
+    // The comment map is debug metadata for the same source, so it stays out of the key.
+    assert(plain == new CodeAndComment("body", Map("placeholder" -> "// a comment")))
   }
 
   test("assembleGeneratedClass exposes the full GeneratedClass shape") {

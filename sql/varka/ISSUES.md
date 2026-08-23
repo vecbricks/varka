@@ -4,10 +4,11 @@ Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, 
 `sql/core` exec node and rule, and `docs/sql-varka.md`).
 
 The review itself was a reading of the code; nothing was built or run to produce it.
-Findings 1, 2, 4 and 5 have since been fixed and merged - PRs #11, #13, #12 and #14 -
-and finding 3 is fixed by the change this file ships with. The engine test suite and the
-`sql/core` Varka suites were built and run as part of those fixes. Line references below
-were refreshed against `c6fbfe34d88`.
+Findings 1 to 5 have since been fixed and merged - PRs #11, #13, #16, #12 and #14 -
+and findings 6 and 7 are fixed by the change this file ships with. The engine test suite
+and the `sql/core` Varka suites were built and run as part of those fixes. Line
+references below were refreshed against `c6fbfe34d88`; entries marked "pre-fix line
+numbers" point into the code as it stood before that finding's fix.
 
 Ordering inside each section is by severity, not by file. Findings are open unless a
 **Status** line says otherwise.
@@ -103,7 +104,7 @@ The `numVarkaBatches > 1` test (`VarkaDifferentialSuite.scala:192`) exercises th
 
 ### 3. `outputPartitioning` / `outputOrdering` are not alias-aware
 
-**Status: FIXED**. `VarkaColumnarToRowExec` now mixes in
+**Status: FIXED** in `1d3c0c40052` (PR #16). `VarkaColumnarToRowExec` now mixes in
 `PartitioningPreservingUnaryExecNode` and `OrderPreservingUnaryExecNode` and supplies
 `outputExpressions = projectList` and `orderingExpressions = child.outputOrdering`,
 exactly as `ProjectExec` does; both traits declare `outputPartitioning` /
@@ -217,15 +218,37 @@ test - with no duplication.
 
 ### 6. `JavaClassFileEngine`'s ghost fallback does not cover the stub
 
-`JavaClassFileEngine.scala:129-146` catches assembly and *load* failures, but the
-assembled `VarkaProjection.apply` unconditionally throws `UnsupportedOperationException`
-(`ClassFileAssembler.java:102-108`). Assembly and loading both succeed, so
-`assembleOrFallback` returns a working-looking `GeneratedClass` and the failure surfaces
-at row-evaluation time, past the fallback, with no recovery.
+**Status: FIXED**, by the first of the two fixes below: the funnel routing is gone.
+`CodeGenerator.compile`'s cache loader is back to a plain `backend.compile(code)`, and
+`assembleOrFallback`, `routingEnabledForTesting` and `failAssemblyForTesting` are deleted
+with it. `assembleGeneratedClass` and `assembleAndLoad` stay - they are Task 5's
+deliverable and the piece a later change will wire up - and `assembleAndLoad` no longer
+takes the `CodeAndComment` it never used.
 
-The only thing preventing that today is that `CodeGenerator.compile` gates routing on
+Removal was chosen over guarding because the routing has no production caller at all:
+Task 6 wired the live path elsewhere (`VarkaColumnarToRowExec` assembles per-op kernel
+dispatchers with `VarkaClassFileGen.assembleKernelClass`). Every guard that keeps the
+funnel also makes the funnel's own fallback tests vacuous, because nothing can reach the
+catch any more.
+
+`JavaClassFileEngineSuite` is re-pointed at the engine itself: the funnel never assembles
+for a Class-File-eligible unit, `assembleAndLoad` returns a shell whose `apply` still
+throws - documenting *why* the funnel does not route to it, since assembly, loading and
+construction all succeed and a fallback around them sees no failure - and a corrupt
+assembly surfaces as a `LinkageError` after the loader is released.
+
+`JavaClassFileEngine.scala:129-146` (pre-fix line numbers) caught assembly and *load*
+failures, but the assembled `VarkaProjection.apply` unconditionally throws
+`UnsupportedOperationException` (`ClassFileAssembler.java:102-108`). Assembly and
+loading both succeeded, so `assembleOrFallback` returned a working-looking
+`GeneratedClass` and the failure surfaced at row-evaluation time, past the fallback,
+with no recovery. Nothing catches it there either:
+`CodeGeneratorWithInterpretedFallback.createObject` wraps only the *construction* of the
+projection, not the per-row `apply`.
+
+The only thing preventing that was that `CodeGenerator.compile` gated routing on
 `JavaClassFileEngine.routingEnabledForTesting`, a thread-local test flag
-(`CodeGenerator.scala:1628`). That is a lot of production code whose sole guard is a
+(`CodeGenerator.scala:1628`). That was a lot of production code whose sole guard was a
 test knob.
 
 Fix: either delete the funnel routing until `apply` is real, or make
@@ -233,9 +256,25 @@ Fix: either delete the funnel routing until `apply` is real, or make
 
 ### 7. `CodeAndComment` ignores `classFileGenOps` in `equals` / `hashCode`
 
-`CodeGenerator.scala:1451-1462`. The compile cache is keyed on `CodeAndComment`, and
-`equals` compares only `body`. The doc's claim that "the winning path is cached under
-the same key so a failed assembly is never retried" is precisely the hazard: once
+**Status: FIXED**, with a caveat worth recording. `equals` and `hashCode` now cover
+`classFileGenOps` as well as `body`, so the key spans every field that can change what
+compiling the unit produces, and `JavaClassFileEngineSuite` pins that. Hit rates are
+unchanged: a `body` is generated from the same expressions that yield the ops, so equal
+bodies already carry equal ops.
+
+The caveat: that alone does *not* separate an assembled entry from a Janino-compiled one.
+Routing is decided outside `CodeAndComment`, and both outcomes carry the same `body` and
+the same ops, so they would still collide on the key. The parenthetical in the fix below
+- key the cache on the routing decision, the way the active `CodeCompiler` backend
+already is - is the part that actually separates them, and it belongs with the change
+that wires routing back in. With the funnel routing deleted (finding 6) there is a single
+backend again, so nothing can collide today. The class scaladoc says as much, so the
+equality fix is not read as more than it is.
+
+`CodeGenerator.scala:1451-1462` (pre-fix line numbers). The compile cache is keyed on
+`CodeAndComment`, and `equals` compared only `body`. The doc's claim that "the winning
+path is cached under the same key so a failed assembly is never retried" is precisely
+the hazard: once
 routing is real, a Janino-compiled entry and a Varka-assembled entry for the same body
 become interchangeable in the cache.
 
@@ -362,7 +401,8 @@ note. That candour is worth keeping.
 3. ~~Get the engine into CI (finding 4) so 1 and 2 stay fixed.~~ Done in `48a9886051b`,
    apart from the reactor module and an aarch64 runner.
 4. ~~Move the registration point (finding 5).~~ Done in `c6fbfe34d88`.
-5. ~~Alias-awareness (finding 3).~~ Done.
-6. Next: the `numRows == valueCount` invariant (8) and the `.copy()` removal (9), both in
-   `VarkaColumnarToRowExec.scala`. Findings 6 and 7 both gate turning class-file routing
-   on and both touch `CodeGenerator.scala`, so they belong in one change.
+5. ~~Alias-awareness (finding 3).~~ Done in `1d3c0c40052`.
+6. ~~The class-file routing pair (findings 6 and 7).~~ Done together, as one change:
+   both gated turning class-file routing on and both touched `CodeGenerator.scala`.
+7. Next: the `numRows == valueCount` invariant (8) and the `.copy()` removal (9), both in
+   `VarkaColumnarToRowExec.scala`.

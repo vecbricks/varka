@@ -21,22 +21,26 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import scala.util.control.NonFatal
 
-import org.apache.spark.internal.Logging
 import org.apache.spark.util.Utils
 
 /**
- * The Varka Class-File assembly engine (Task 5). It routes Varka-eligible codegen units
- * through the [[CodeGenerator.compile]] funnel (see [[CodeGenerator.compile]]): when a
- * [[CodeAndComment]] carries Class-File ops and routing is enabled, the [[GeneratedClass]]
- * shell is assembled with the Class-File API (see [[ClassFileAssembler]]), loaded via a
- * [[VarkaGeneratedClassLoader]] and cached under the same key as the string backend's. Any
- * failure (or the explicit test injection) falls back to the string backend, so a Varka
- * assembly problem can never break codegen.
+ * The Varka Class-File assembly engine (Task 5). It assembles a full [[GeneratedClass]] shell
+ * with the Class-File API (see [[ClassFileAssembler]]) and loads it through a
+ * [[VarkaGeneratedClassLoader]].
  *
- * The assembled evaluator body is a stub for now: `apply` throws
- * `UnsupportedOperationException` because the actual batch execution is wired in Task 6.
+ * It is deliberately *not* wired into the [[CodeGenerator.compile]] funnel. The assembled
+ * `VarkaProjection.apply` is still a stub that throws `UnsupportedOperationException`, so a
+ * successful assembly would be a ghost: assembly and loading both succeed, no fallback sees a
+ * failure, and the projection blows up at row-evaluation time with no way to recover. Routing
+ * belongs in the change that gives `apply` a real body. That change also has to make the
+ * compile cache tell an assembled entry from a Janino-compiled one, by putting the routing
+ * decision in the key - see the note on [[CodeAndComment]], whose `classFileGenOps` are part
+ * of the key but do not by themselves separate the two.
+ *
+ * The live Varka execution path does not come through here: `VarkaColumnarToRowExec` (Task 6)
+ * assembles its per-op kernel dispatchers with `VarkaClassFileGen.assembleKernelClass`.
  */
-private[expressions] object JavaClassFileEngine extends Logging {
+private[expressions] object JavaClassFileEngine {
 
   /** The binary name of the assembled wrapper class. */
   private val WrapperClassName = "org.apache.spark.sql.varka.execution.GeneratedClass"
@@ -45,40 +49,10 @@ private[expressions] object JavaClassFileEngine extends Logging {
   private val SpecClassName = "org.apache.spark.sql.varka.execution.VarkaProjection"
 
   /**
-   * Whether the `CodeGenerator.compile` funnel routes Class-File-eligible units through
-   * this engine. Off by default so the Varka machinery is fully inert until a later task
-   * wires the actual batch execution; tests enable it explicitly.
-   *
-   * Thread-scoped: sbt runs test suites in parallel within one JVM (`Test / parallelExecution`
-   * is true by default), and the funnel reads this flag on the compiling thread. Scoping it
-   * to the thread keeps the test knob from ever leaking into a concurrently-running suite.
-   */
-  private val routingEnabledForTestingLocal = new ThreadLocal[Boolean] {
-    override def initialValue(): Boolean = false
-  }
-  private[expressions] def routingEnabledForTesting: Boolean =
-    routingEnabledForTestingLocal.get()
-  private[expressions] def routingEnabledForTesting_=(value: Boolean): Unit =
-    routingEnabledForTestingLocal.set(value)
-
-  /**
-   * Test injection: when true, `assembleOrFallback` skips assembly and falls back to the
-   * string backend. Exercises the ghost-fallback path of the compile funnel. Thread-scoped
-   * like [[routingEnabledForTesting]].
-   */
-  private val failAssemblyForTestingLocal = new ThreadLocal[Boolean] {
-    override def initialValue(): Boolean = false
-  }
-  private[expressions] def failAssemblyForTesting: Boolean = failAssemblyForTestingLocal.get()
-  private[expressions] def failAssemblyForTesting_=(value: Boolean): Unit =
-    failAssemblyForTestingLocal.set(value)
-
-  /**
    * Test injection: when true, `assembleGeneratedClass` flips the wrapper class's magic
    * number so the JVM rejects the bytes at definition time with a `ClassFormatError` (a
-   * [[LinkageError]]). Exercises the real assembly/load catch path of the funnel, as opposed
-   * to [[failAssemblyForTesting]], which short-circuits before assembly. Only reachable when
-   * routing is enabled on the same thread, so it cannot affect concurrent suites.
+   * [[LinkageError]]). Exercises the load-failure path of [[assembleAndLoad]], which releases
+   * the loader and rethrows.
    */
   @volatile private[expressions] var corruptAssemblyForTesting: Boolean = false
 
@@ -102,12 +76,16 @@ private[expressions] object JavaClassFileEngine extends Logging {
     }
   }
 
-  /** Fallback-catchable failures: [[NonFatal]] plus [[LinkageError]] (bad bytecode surfaces
-   * as `VerifyError`/`ClassFormatError`, a missing class as `NoClassDefFoundError`). */
+  /** Failures worth releasing the loader for: [[NonFatal]] plus [[LinkageError]] (bad bytecode
+   * surfaces as `VerifyError`/`ClassFormatError`, a missing class as `NoClassDefFoundError`). */
   private def isCatchable(e: Throwable): Boolean = NonFatal(e) || e.isInstanceOf[LinkageError]
 
-  /** Assembles, loads and instantiates the [[GeneratedClass]] for `code`. */
-  def assembleAndLoad(code: CodeAndComment): (GeneratedClass, ByteCodeStats) = {
+  /**
+   * Assembles, loads and instantiates the [[GeneratedClass]] shell. On a load failure the
+   * loader is released before the error is rethrown, so a rejected class definition does not
+   * strand a Metaspace-holding loader.
+   */
+  def assembleAndLoad(): (GeneratedClass, ByteCodeStats) = {
     val classes = assembleGeneratedClass(WrapperClassName)
     val loader = new VarkaGeneratedClassLoader(Utils.getContextOrSparkClassLoader)
     try {
@@ -119,29 +97,6 @@ private[expressions] object JavaClassFileEngine extends Logging {
       case e: Throwable if isCatchable(e) =>
         loader.release()
         throw e
-    }
-  }
-
-  /**
-   * The `CodeGenerator.compile` funnel entry point. Assembles and loads when the unit is
-   * Varka-eligible; on any failure falls back to `fallback.compile(code)`. Never throws.
-   */
-  def assembleOrFallback(
-      code: CodeAndComment,
-      fallback: CodeCompiler): (GeneratedClass, ByteCodeStats) = {
-    if (failAssemblyForTesting) {
-      logWarning("Varka Class-File assembly is disabled for testing; " +
-        "falling back to the string codegen backend.")
-      fallback.compile(code)
-    } else {
-      try {
-        assembleAndLoad(code)
-      } catch {
-        case e: Throwable if isCatchable(e) =>
-          logWarning("Varka Class-File assembly failed; " +
-            "falling back to the string codegen backend.", e)
-          fallback.compile(code)
-      }
     }
   }
 }

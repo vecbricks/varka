@@ -98,9 +98,11 @@ that forward to the kernels; no external bytecode library is used:
 `ClassFileAssembler`/`JavaClassFileEngine` assemble the full class, and
 `VarkaClassFileGen.assembleKernelClass` builds the small per-op dispatchers.
 
-Note on status: the class-file routing inside the `CodeGenerator.compile`
-funnel (`JavaClassFileEngine.assembleOrFallback`) remains test-gated and its
-assembled `VarkaProjection.apply` is still a stub. The live execution path is
+Note on status: `JavaClassFileEngine` is not wired into the `CodeGenerator.compile`
+funnel. Its assembled `VarkaProjection.apply` is still a stub that throws, and
+assembly, loading and construction all succeed, so routing to it would hand back a
+class that fails only at row-evaluation time, past any fallback. Wiring the funnel
+belongs with the change that gives `apply` a real body. The live execution path is
 the columnar-to-row node described next.
 
 ### Execution integration

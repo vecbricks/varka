@@ -1444,9 +1444,20 @@ abstract class GeneratedClass {
 /**
  * A wrapper for the source code to be compiled by [[CodeGenerator]].
  *
+ * Instances are the key of [[CodeGenerator]]'s compile cache, so `equals` / `hashCode` cover
+ * every field that can change what compiling the unit produces - `body` and `classFileGenOps`,
+ * not `body` alone. This costs nothing in practice and changes no hit rate: a `body` is
+ * generated from the same expressions that yield the ops, so equal bodies already carry equal
+ * ops. The `comment` map stays out of the key; it is debug metadata for the same source.
+ *
+ * Note what keying on the ops does *not* buy. If Class-File routing is ever wired back into the
+ * compile funnel, whether a unit is assembled or compiled with Janino is decided outside this
+ * class, and both outcomes carry the same `body` and the same ops. Keeping those two apart in
+ * the cache needs the routing decision in the key - the way the active [[CodeCompiler]] backend
+ * already is - not the ops.
+ *
  * @param classFileGenOps Class-File operations discovered while generating `body`. Non-empty
- *                        only when the codegen funnel may assemble a Varka batch kernel class
- *                        instead of compiling the string with Janino.
+ *                        only when the unit contains Varka-eligible expressions.
  */
 class CodeAndComment(
     val body: String,
@@ -1454,11 +1465,11 @@ class CodeAndComment(
     val classFileGenOps: Seq[ClassFileGenOp] = Nil)
   extends Serializable {
   override def equals(that: Any): Boolean = that match {
-    case t: CodeAndComment if t.body == body => true
+    case t: CodeAndComment => t.body == body && t.classFileGenOps == classFileGenOps
     case _ => false
   }
 
-  override def hashCode(): Int = body.hashCode
+  override def hashCode(): Int = 31 * body.hashCode + classFileGenOps.hashCode
 }
 
 /**
@@ -1624,12 +1635,7 @@ object CodeGenerator extends Logging {
         => (GeneratedClass, ByteCodeStats) = {
       case (_, backend, code) =>
         val startTime = System.nanoTime()
-        val result =
-          if (code.classFileGenOps.nonEmpty && JavaClassFileEngine.routingEnabledForTesting) {
-            JavaClassFileEngine.assembleOrFallback(code, backend)
-          } else {
-            backend.compile(code)
-          }
+        val result = backend.compile(code)
         val endTime = System.nanoTime()
         val duration = endTime - startTime
         val timeMs: Double = duration.toDouble / NANOS_PER_MILLIS
