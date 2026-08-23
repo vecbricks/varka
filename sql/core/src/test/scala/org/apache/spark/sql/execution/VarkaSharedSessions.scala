@@ -30,9 +30,11 @@ import org.apache.spark.sql.test.SharedSparkSession
  *
  *   - `spark`: the base `SharedSparkSession` session (Arrow serializer, Varka off) - the
  *     expected (row-engine) side;
- *   - `varkaSpark`: `spark.sql.codegen.varka.enabled=true` with `VarkaColumnarRule` injected -
- *     the actual (fused) side;
- *   - `disabledSpark`: Varka disabled but the rule injected - proves the config gate.
+ *   - `varkaSpark`: `spark.sql.codegen.varka.enabled=true` - the actual (fused) side;
+ *   - `disabledSpark`: the same session shape with Varka disabled - proves the config gate.
+ *
+ * None of them injects [[VarkaColumnarRule]] by hand: it is registered for every session by
+ * `BaseSessionStateBuilder.columnarRules` and is inert unless the config is set.
  *
  * AQE is off on the custom sessions so the physical plan is materialized deterministically and
  * the Varka fusion boundary is visible in the executed plan. `InMemoryRelation.clearSerializer()`
@@ -78,7 +80,6 @@ trait VarkaSharedSessions extends SharedSparkSession {
     .config(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
     .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
     .config(SQLConf.VARKA_ENABLED.key, varkaEnabled.toString)
-    .withExtensions(_.injectColumnar(_ => VarkaColumnarRule))
     .getOrCreate()
 
   protected def date(value: String): java.sql.Date = java.sql.Date.valueOf(value)

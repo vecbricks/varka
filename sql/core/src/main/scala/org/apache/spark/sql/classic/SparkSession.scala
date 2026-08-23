@@ -1054,10 +1054,6 @@ object SparkSession extends SparkSessionCompanion with Logging {
 
         loadExtensions(extensions)
         applyExtensions(sparkContext, extensions)
-        // Varka is always available (Task 8): the columnar rule is inert unless
-        // `spark.sql.codegen.varka.enabled` is set, so registering it on every session is
-        // harmless and lets users enable the SIMD path purely via the config.
-        extensions.injectColumnar(_ => VarkaColumnarRule)
 
         val session = new SparkSession(sparkContext,
           existingSharedState = None,

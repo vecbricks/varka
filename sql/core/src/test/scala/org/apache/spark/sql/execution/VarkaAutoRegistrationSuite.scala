@@ -18,17 +18,23 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
+import org.apache.spark.sql.classic.{SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryRelation}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 
 /**
- * Task 8: config-driven activation of Varka. [[VarkaColumnarRule]] is auto-registered when a
- * session is built through the public `SparkSession.builder().getOrCreate()` path, so a user
- * enables Varka purely with `spark.sql.codegen.varka.enabled` - no manual extension injection.
- * This suite builds its session that way (unlike the base test session) and asserts that an
- * eligible projection is fused into [[VarkaColumnarToRowExec]] and runs the SIMD kernels only
- * when the config is on, and that the rule is inert otherwise.
+ * Task 8: config-driven activation of Varka. [[VarkaColumnarRule]] is registered by
+ * `BaseSessionStateBuilder.columnarRules`, so a user enables Varka purely with
+ * `spark.sql.codegen.varka.enabled` - no manual extension injection. This suite builds its
+ * session through the public builder (unlike the base test session) and asserts that an eligible
+ * projection is fused into [[VarkaColumnarToRowExec]] and runs the SIMD kernels only when the
+ * config is on, and that the rule is inert otherwise.
+ *
+ * The registration point matters as much as the registration: the rule used to be injected into
+ * the `SparkSessionExtensions` inside `SparkSession.Builder.getOrCreate`, which skipped sessions
+ * built any other way, registered twice when `getOrCreate` was called twice on one builder, and
+ * mutated a user-supplied extensions object. The last three tests pin those down.
  */
 class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession {
 
@@ -69,6 +75,9 @@ class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession {
     session.catalog.cacheTable("varka_dates")
   }
 
+  private def varkaRuleCount(s: SparkSession): Int =
+    s.sessionState.columnarRules.count(_ eq VarkaColumnarRule)
+
   private def withVarkaEnabled(enabled: Boolean)(f: => Unit): Unit = {
     session.conf.set(SQLConf.VARKA_ENABLED.key, enabled.toString)
     try f finally session.conf.unset(SQLConf.VARKA_ENABLED.key)
@@ -97,6 +106,65 @@ class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession {
         Row(date("2024-01-05"))))
       assert(node.metrics("numVarkaBatches").value > 0,
         "the SIMD kernels must process the cached Arrow batches")
+    }
+  }
+
+  test("a cloned session gets the rule exactly once") {
+    val cloned = session.asInstanceOf[ClassicSparkSession].cloneSession()
+    assert(varkaRuleCount(cloned) === 1, "a cloned session must carry one VarkaColumnarRule")
+    cacheDates()
+    cloned.conf.set(SQLConf.VARKA_ENABLED.key, "true")
+    try {
+      val plan = cloned.sql("SELECT date_add(d, 3) AS a FROM varka_dates ORDER BY a")
+        .queryExecution.executedPlan
+      assert(plan.find(_.isInstanceOf[VarkaColumnarToRowExec]).isDefined,
+        s"expected a fused plan on the cloned session:\n${plan.treeString}")
+    } finally {
+      cloned.conf.unset(SQLConf.VARKA_ENABLED.key)
+    }
+  }
+
+  test("a builder reused for a second session does not register the rule twice") {
+    // The classic builder holds one `SparkSessionExtensions` for its whole lifetime, so it is the
+    // shape that exposes a per-build injection. (`org.apache.spark.sql.SparkSession.builder()`
+    // makes a fresh classic builder per `getOrCreate`, and so hides it.)
+    val builder = ClassicSparkSession.builder()
+      .sparkContext(spark.sparkContext)
+      .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
+    try {
+      val first = builder.getOrCreate()
+      assert(varkaRuleCount(first) === 1, "the first session must carry one VarkaColumnarRule")
+      // Dropping the default session makes the same builder - and so the same extensions object -
+      // build a second session. Injecting the rule per build would give this one two copies.
+      SparkSession.clearActiveSession()
+      SparkSession.clearDefaultSession()
+      val second = builder.getOrCreate()
+      assert(varkaRuleCount(second) === 1, "the second session must carry one VarkaColumnarRule")
+    } finally {
+      SparkSession.clearActiveSession()
+      SparkSession.clearDefaultSession()
+    }
+  }
+
+  test("building a session does not mutate its SparkSessionExtensions") {
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
+    try {
+      val built = SparkSession.builder()
+        .sparkContext(spark.sparkContext)
+        .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
+        .getOrCreate()
+        .asInstanceOf[ClassicSparkSession]
+      assert(varkaRuleCount(built) === 1, "the built session must carry one VarkaColumnarRule")
+      // `spark.extensions` must list only what the user added: the built-in rule comes from the
+      // session state, not from an extensions object Spark mutated behind the user's back.
+      assert(!built.extensions.buildColumnarRules(built).exists(_ eq VarkaColumnarRule),
+        "the user-visible extensions must not carry the built-in Varka rule")
+    } finally {
+      SparkSession.clearActiveSession()
+      SparkSession.clearDefaultSession()
     }
   }
 

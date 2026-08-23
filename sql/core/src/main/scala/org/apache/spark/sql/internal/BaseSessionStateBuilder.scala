@@ -31,7 +31,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.classic.{SparkSession, Strategy, StreamingCheckpointManager, StreamingQueryManager, UDFRegistration}
 import org.apache.spark.sql.connector.catalog.DefaultCatalogManager
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.{ColumnarRule, CommandExecutionMode, QueryExecution, SparkOptimizer, SparkPlanner, SparkSqlParser}
+import org.apache.spark.sql.execution.{ColumnarRule, CommandExecutionMode, QueryExecution, SparkOptimizer, SparkPlanner, SparkSqlParser, VarkaColumnarRule}
 import org.apache.spark.sql.execution.adaptive.AdaptiveRulesHolder
 import org.apache.spark.sql.execution.aggregate.{ResolveEncodersInScalaAgg, ScalaUDAF}
 import org.apache.spark.sql.execution.analysis.DetectAmbiguousSelfJoin
@@ -403,8 +403,22 @@ abstract class BaseSessionStateBuilder(
     extensions.buildPlannerStrategies(session)
   }
 
+  /**
+   * Columnar rules for this session: the user-injected rules plus the built-in
+   * [[VarkaColumnarRule]] (Task 8).
+   *
+   * Varka is registered here, on the designed session-state hook, rather than in
+   * `SparkSession.Builder`, so that every session gets it exactly once - cloned, Connect, Hive
+   * and test sessions included - without mutating a user-supplied `SparkSessionExtensions`. The
+   * rule is inert unless `spark.sql.codegen.varka.enabled` is set, so users enable the SIMD path
+   * purely via the config.
+   *
+   * It goes last because `ApplyColumnarRulesAndInsertTransitions` applies
+   * `postColumnarTransitions` in reverse list order: a trailing entry runs its post transition
+   * first, which leaves user-injected rules the final say over the plan.
+   */
   protected def columnarRules: Seq[ColumnarRule] = {
-    extensions.buildColumnarRules(session)
+    extensions.buildColumnarRules(session) :+ VarkaColumnarRule
   }
 
   protected def adaptiveRulesHolder: AdaptiveRulesHolder = {
