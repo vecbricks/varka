@@ -26,6 +26,7 @@ import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, Literal, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.ClassFileGenOp
+import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
@@ -155,6 +156,88 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       assert(node.metrics("numVarkaBatches").value === 0)
     } finally {
       VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
+  }
+
+  test("each kernel result batch is released as soon as its rows are consumed") {
+    val numBatches = 16
+    val rowsPerBatch = 512
+    val specs = (0 until numBatches).map { b =>
+      BatchSpec("arrow", Seq((0 until rowsPerBatch).map(i => Int.box(b * rowsPerBatch + i))))
+    }
+    val initial = ArrowUtils.rootAllocator.getAllocatedMemory
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val inputs = specs.map(VarkaColumnarToRowExecSuite.buildBatch(_, Seq(attrD), allocator))
+      // Everything allocated from here on is the kernel path's own output.
+      val baseline = ArrowUtils.rootAllocator.getAllocatedMemory
+      val factory = new VarkaColumnarToRowEvaluatorFactory(
+        project(Alias(DateAdd(attrD, Literal(3)), "add")()),
+        Seq(attrD),
+        SQLMetrics.createMetric(sparkContext, "rows"),
+        SQLMetrics.createMetric(sparkContext, "batches"),
+        SQLMetrics.createMetric(sparkContext, "varkaBatches"))
+      val rows = factory.createEvaluator().eval(0, inputs.iterator)
+
+      var count = 0
+      var peak = 0L
+      rows.foreach { row =>
+        assert(row.getInt(0) === count + 3)
+        count += 1
+        peak = math.max(peak, ArrowUtils.rootAllocator.getAllocatedMemory - baseline)
+      }
+      assert(count === numBatches * rowsPerBatch)
+      // The iterator is drained, so every result batch has been closed - without waiting for the
+      // task to complete. A per-batch task-completion listener would leave all of them open.
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === baseline,
+        "the kernel result batches were not released when their rows ran out")
+      // Only one result batch is live at a time; allow generous slack for Arrow's power-of-two
+      // buffer rounding, but stay far below the numBatches-times figure the leak would reach.
+      val oneBatch = 4L * rowsPerBatch
+      assert(peak < 4 * oneBatch,
+        s"peak Varka off-heap use was $peak bytes for a ${oneBatch}-byte batch")
+
+      inputs.foreach(_.close())
+      context.markTaskCompleted(None)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === initial,
+        "the task-completion listener did not release the Varka child allocator")
+    } finally {
+      TaskContext.unset()
+      allocator.close()
+    }
+  }
+
+  test("an unfinished kernel iterator is released when the task completes") {
+    val specs = Seq(
+      BatchSpec("arrow", Seq((0 until 128).map(Int.box))),
+      BatchSpec("arrow", Seq((128 until 256).map(Int.box))))
+    val initial = ArrowUtils.rootAllocator.getAllocatedMemory
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val inputs = specs.map(VarkaColumnarToRowExecSuite.buildBatch(_, Seq(attrD), allocator))
+      val baseline = ArrowUtils.rootAllocator.getAllocatedMemory
+      val factory = new VarkaColumnarToRowEvaluatorFactory(
+        project(Alias(DateAdd(attrD, Literal(3)), "add")()),
+        Seq(attrD),
+        SQLMetrics.createMetric(sparkContext, "rows"),
+        SQLMetrics.createMetric(sparkContext, "batches"),
+        SQLMetrics.createMetric(sparkContext, "varkaBatches"))
+      // Stop after the first row, like a LIMIT would: the batch stays open.
+      val rows = factory.createEvaluator().eval(0, inputs.iterator)
+      assert(rows.next().getInt(0) === 3)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory > baseline)
+
+      inputs.foreach(_.close())
+      context.markTaskCompleted(None)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === initial,
+        "the task-completion listener did not release the open Varka batch")
+    } finally {
+      TaskContext.unset()
+      allocator.close()
     }
   }
 

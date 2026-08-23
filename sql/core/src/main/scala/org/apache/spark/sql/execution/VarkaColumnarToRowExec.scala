@@ -21,6 +21,7 @@ import java.lang.foreign.MemorySegment
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
@@ -38,7 +39,7 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.{DataType, DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{CompletionIterator, Utils}
 
 /**
  * The Varka columnar-to-row transition (Task 6). It projects an Arrow-backed `ColumnarBatch`
@@ -51,9 +52,10 @@ import org.apache.spark.util.Utils
  * the node runs the kernels by writing each projected column directly into the buffers of a
  * freshly allocated Arrow vector (via a task-lifetime assembled runner class per distinct op,
  * invoked reflectively - see `VarkaClassFileGen.assembleKernelClass`). The result batch is
- * converted to rows with the standard copy projection. Anything else - a non-Arrow batch, an
- * empty batch, a kernel failure - falls back to the standard per-row projection over the input
- * batch.
+ * converted to rows with the standard copy projection and released as soon as its rows are
+ * consumed, so only one batch of kernel output is held at a time. Anything else - a non-Arrow
+ * batch, an empty batch, a kernel failure - falls back to the standard per-row projection over
+ * the input batch.
  *
  * The node is not `CodegenSupport`; whole-stage codegen splits at this boundary (correctness
  * first, codegen support is a follow-up).
@@ -143,6 +145,17 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // (should not happen given [[VarkaColumnarRule]], but be safe).
     private lazy val outputPlan: Option[Seq[OutputOp]] = buildOutputPlan()
 
+    // One Arrow child allocator for the whole task, created on the first kernel batch. Allocating
+    // one per batch - and registering a task-completion listener per batch to close it - would
+    // hold every result batch off-heap until the task ended, which is exactly what the streaming
+    // iterator model exists to avoid.
+    private var kernelAllocator: BufferAllocator = null
+
+    // Result batches whose rows have not been fully consumed yet. A batch is normally closed by
+    // the `CompletionIterator` wrapping its rows; this set is the safety net for a task that
+    // stops reading early (a LIMIT, a failure) and is drained by the task-completion listener.
+    private val openBatches = mutable.Set.empty[ColumnarBatch]
+
     // Task-lifetime assembled runner classes, one per distinct op. None when assembly failed,
     // in which case every batch takes the fallback path.
     private lazy val kernelRunners: Option[KernelRunners] = {
@@ -202,37 +215,56 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       }
     }
 
+    /**
+     * Returns the task's Arrow child allocator, creating it - and the single task-completion
+     * listener that closes any batch still open and then the allocator itself - on first use.
+     */
+    private def taskAllocator(): BufferAllocator = {
+      if (kernelAllocator == null) {
+        kernelAllocator =
+          ArrowUtils.rootAllocator.newChildAllocator("varka-kernels", 0, Long.MaxValue)
+        TaskContext.get().addTaskCompletionListener[Unit] { _ =>
+          openBatches.foreach(_.close())
+          openBatches.clear()
+          kernelAllocator.close()
+          kernelAllocator = null
+        }
+      }
+      kernelAllocator
+    }
+
     private def runKernels(
         ops: Seq[OutputOp],
         runners: KernelRunners,
         input: ColumnarBatch): Iterator[InternalRow] = {
       val len = input.numRows()
-      val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-kernels", 0, Long.MaxValue)
+      val alloc = taskAllocator()
       val vectors = new java.util.ArrayList[ColumnVector]()
-      var resultBatch: ColumnarBatch = null
+      var batch: ColumnarBatch = null
       try {
         ops.foreach { op =>
-          vectors.add(buildVector(op, runners, input, len, allocator))
+          vectors.add(buildVector(op, runners, input, len, alloc))
         }
-        resultBatch = new ColumnarBatch(vectors.toArray(new Array[ColumnVector](vectors.size())))
-        resultBatch.setNumRows(len)
-        // The rows stream lazily, so close the batch and its child allocator when the task
-        // completes rather than in a finally here.
-        TaskContext.get().addTaskCompletionListener[Unit] { _ =>
-          resultBatch.close()
-          allocator.close()
-        }
-        resultBatch.rowIterator().asScala.map(r => toRow(r).copy())
+        batch = new ColumnarBatch(vectors.toArray(new Array[ColumnVector](vectors.size())))
+        batch.setNumRows(len)
       } catch {
         case e: Throwable =>
-          if (resultBatch != null) {
-            resultBatch.close()
+          if (batch != null) {
+            batch.close()
           } else {
             vectors.forEach(_.close())
           }
-          allocator.close()
           throw e
       }
+      // The rows stream lazily, so the batch is released when its rows run out rather than in a
+      // finally here; the task-completion listener closes it if the task stops reading early.
+      val resultBatch = batch
+      openBatches += resultBatch
+      CompletionIterator[InternalRow, Iterator[InternalRow]](
+        resultBatch.rowIterator().asScala.map(r => toRow(r).copy()), {
+          openBatches -= resultBatch
+          resultBatch.close()
+        })
     }
 
     /**
