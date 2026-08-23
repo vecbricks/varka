@@ -143,6 +143,67 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     assert(node.metrics("numVarkaBatches").value === 0)
   }
 
+  test("a vector holding rows beyond the batch falls back instead of trusting its null count") {
+    // The vector holds 20 rows - ten dates, then ten nulls - but the batch says ten. The whole
+    // vector's null count is therefore 10, which equals the batch's row count, so handing that
+    // count to the kernels would trip their all-null shortcut and emit ten nulls for ten rows
+    // that are not null.
+    val dates: Seq[java.lang.Integer] =
+      (0 until 10).map(java.lang.Integer.valueOf) ++ Seq.fill[java.lang.Integer](10)(null)
+    val child = TestColumnarBatchPlan(
+      Seq(BatchSpec("arrow", Seq(dates), numRows = Some(10))), Seq(attrD))
+    val node = VarkaColumnarToRowExec(
+      project(Alias(DateAdd(attrD, Literal(3)), "add")()), child)
+    assert(values(run(node)) === (0 until 10).map(_ + 3))
+    assert(node.metrics("numVarkaBatches").value === 0)
+  }
+
+  test("rows are emitted uncopied, like the standard columnar-to-row path") {
+    // Two batches: the Arrow one takes the kernel path, the on-heap one the per-row fallback.
+    // Both must hand back the projection's own row, rewritten per row, the way
+    // `ColumnarToRowEvaluatorFactory` does.
+    val specs = Seq(
+      BatchSpec("arrow", Seq((0 until 8).map(Int.box))),
+      BatchSpec("onheap", Seq((8 until 16).map(Int.box))))
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val inputs = specs.map(VarkaColumnarToRowExecSuite.buildBatch(_, Seq(attrD), allocator))
+      val varkaBatches = SQLMetrics.createMetric(sparkContext, "varkaBatches")
+      val factory = new VarkaColumnarToRowEvaluatorFactory(
+        project(Alias(DateAdd(attrD, Literal(3)), "add")()),
+        Seq(attrD),
+        SQLMetrics.createMetric(sparkContext, "rows"),
+        SQLMetrics.createMetric(sparkContext, "batches"),
+        varkaBatches)
+      val rows = factory.createEvaluator().eval(0, inputs.iterator)
+
+      val kernelRow = rows.next()
+      assert(kernelRow.getInt(0) === 3)
+      assert((rows.next() eq kernelRow), "the kernel path copied the row")
+      assert(kernelRow.getInt(0) === 4, "the shared row was not rewritten in place")
+      assert((2 until 8).map(_ => rows.next().getInt(0)) === (2 until 8).map(_ + 3))
+
+      val fallbackRow = rows.next()
+      assert(fallbackRow.getInt(0) === 11)
+      assert((rows.next() eq fallbackRow), "the fallback path copied the row")
+      assert(fallbackRow.getInt(0) === 12)
+      assert(varkaBatches.value === 1, "the Arrow batch did not take the kernel path")
+      // Pulling a fallback row drained the kernel iterator, so its result batch is closed by
+      // now. The row it handed back holds its own bytes rather than a view of that batch, and
+      // still reads back the last kernel row - which is what makes emitting it uncopied safe
+      // and not merely cheaper.
+      assert(kernelRow.getInt(0) === 10)
+
+      inputs.foreach(_.close())
+      context.markTaskCompleted(None)
+    } finally {
+      TaskContext.unset()
+      allocator.close()
+    }
+  }
+
   test("an injected kernel failure falls back per batch without crashing") {
     val dates: Seq[java.lang.Integer] = Seq(0, 1, -5, 20000)
     val child = TestColumnarBatchPlan(
@@ -302,8 +363,16 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
   }
 }
 
-/** A serializable description of one batch: its kind and the per-column integer values. */
-private[sql] case class BatchSpec(kind: String, columns: Seq[Seq[java.lang.Integer]])
+/**
+ * A serializable description of one batch: its kind and the per-column integer values.
+ *
+ * `numRows` defaults to the number of values, which is the shape every real Arrow producer
+ * builds; set it lower to describe a batch whose vectors hold rows beyond the batch's own.
+ */
+private[sql] case class BatchSpec(
+    kind: String,
+    columns: Seq[Seq[java.lang.Integer]],
+    numRows: Option[Int] = None)
 
 /**
  * A columnar-only child plan that builds batches from [[BatchSpec]]s inside the task, like a
@@ -366,7 +435,7 @@ object VarkaColumnarToRowExecSuite {
       }
     }
     val batch = new ColumnarBatch(columns.toArray)
-    batch.setNumRows(spec.columns.head.length)
+    batch.setNumRows(spec.numRows.getOrElse(spec.columns.head.length))
     batch
   }
 }

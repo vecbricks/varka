@@ -4,8 +4,8 @@ Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, 
 `sql/core` exec node and rule, and `docs/sql-varka.md`).
 
 The review itself was a reading of the code; nothing was built or run to produce it.
-Findings 1 to 5 have since been fixed and merged - PRs #11, #13, #16, #12 and #14 -
-and findings 6 and 7 are fixed by the change this file ships with. The engine test suite
+Findings 1 to 7 have since been fixed and merged - PRs #11, #13, #16, #12, #14 and #17 -
+and findings 8 and 9 are fixed by the change this file ships with. The engine test suite
 and the `sql/core` Varka suites were built and run as part of those fixes. Line
 references below were refreshed against `c6fbfe34d88`; entries marked "pre-fix line
 numbers" point into the code as it stood before that finding's fix.
@@ -283,7 +283,23 @@ enabling routing.
 
 ### 8. `extractMorsel` assumes `numRows == valueCount`
 
-`VarkaColumnarToRowExec.scala:344-350`. `nullCount` comes from the whole Arrow vector
+**Status: FIXED**. `isArrowBacked` - the per-batch eligibility guard - now also requires
+`ddv.getValueCount() == input.numRows()`, so a vector holding rows beyond the batch takes
+the per-row fallback and never reaches the kernels; the `require` in `extractMorsel` was
+tightened from `<=` to `==` to state the same invariant where the null count is read. The
+guard was the better of the two places the finding suggests: rejecting the batch before
+`buildVector` allocates the destination vector avoids throwing an
+`IllegalArgumentException` through the kernel-failure path, which would have logged a
+misleading "the Varka SIMD kernels failed on this batch". Serving such a batch from the
+kernels instead - the finding's other option - means counting nulls over `[0, len)`, and
+is worth doing if a producer of these batches ever turns up.
+
+`VarkaColumnarToRowExecSuite` gained a test over a vector of 20 rows - ten dates, then ten
+nulls - in a batch declaring ten. Verified to catch the original defect: on the pre-fix
+code it returns ten nulls where the ten dates should be.
+
+`VarkaColumnarToRowExec.scala:344-350` (pre-fix line numbers). `nullCount` comes from the
+whole Arrow vector
 but is compared against the batch's `len`:
 
 ```scala
@@ -302,7 +318,27 @@ Fix: make it `require(len == ddv.getValueCount())`, or compute the null count ov
 
 ### 9. Both paths add a per-row `.copy()` that the standard path does not have
 
-`VarkaColumnarToRowExec.scala:204` and `:264`:
+**Status: FIXED**. Both branches now emit the projection's own row - `map(toRow)` and
+`map(fallbackProjection)` - exactly as `ColumnarToRowEvaluatorFactory` does. Dropping the
+copy is safe as well as cheaper: an `UnsafeProjection` writes into its own buffer rather
+than a view of the batch, so the row it hands back outlives the release of the kernel
+result batch it came from. `VarkaColumnarToRowExecSuite` gained a test that pulls rows
+from both paths and asserts the same row object comes back rewritten in place, and that a
+kernel row still reads correctly after its batch has been closed. Verified to catch the
+original defect: it fails on the pre-fix code.
+
+One existing test had to change with it. `VarkaDifferentialSuite` collected its rows
+with `queryExecution.toRdd.collect()`, which builds an array of row references per
+partition and so needs the rows copied first; the removed `.copy()` had been masking
+that. This is not a Varka rule - collecting the same query from the row engine that way
+returns two distinct row objects for five rows, with wrong values - so the test now
+copies, as Spark's own `Dataset.collect` does. Anything reading `toRdd` directly is
+subject to the same contract it always was under `ColumnarToRowExec`.
+
+The end-to-end effect on the 1.1-1.2x figure has not been measured; that wants a
+benchmark run, not a unit test.
+
+`VarkaColumnarToRowExec.scala:204` and `:264` (pre-fix line numbers):
 
 ```scala
 input.rowIterator().asScala.map(r => fallbackProjection(r).copy())   // fallback
@@ -404,5 +440,7 @@ note. That candour is worth keeping.
 5. ~~Alias-awareness (finding 3).~~ Done in `1d3c0c40052`.
 6. ~~The class-file routing pair (findings 6 and 7).~~ Done together, as one change:
    both gated turning class-file routing on and both touched `CodeGenerator.scala`.
-7. Next: the `numRows == valueCount` invariant (8) and the `.copy()` removal (9), both in
-   `VarkaColumnarToRowExec.scala`.
+7. ~~The `numRows == valueCount` invariant (8) and the `.copy()` removal (9).~~ Done
+   together, both in `VarkaColumnarToRowExec.scala`.
+8. Next: the sub-57-row vector loop (10), which is engine-only, then the reflective
+   `Method.invoke` (11).

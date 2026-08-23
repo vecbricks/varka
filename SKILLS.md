@@ -29,11 +29,23 @@ reusable debugging lessons and project-specific gotchas. Not instructions; see
   `UnsafeRow` buffer across calls. Materializing results into an `Array` without
   copying yields an array whose elements all alias the last row's buffer: every
   output shows the last value.
-- Spark's own `ColumnarToRowEvaluator` avoids this by streaming rows for immediate
-  consumption. When materializing (our evaluator does `process(...).toArray`), call
-  `.copy()` per row: `input.rowIterator().asScala.map(r => proj(r).copy()).toArray`.
-- Same fix required on the kernel path (`resultBatch.rowIterator().asScala.map(r =>
-  toRow(r).copy()).toArray`).
+- The copy belongs to whoever *materializes*, not to the operator. Spark operators
+  stream reused rows deliberately: `ColumnarToRowEvaluatorFactory` is
+  `input.rowIterator().asScala.map(toUnsafe)`, with no copy. `VarkaColumnarToRowExec`
+  copied per row on both its kernel and fallback paths until finding 9 removed it; that
+  cost an `UnsafeRow` allocation plus a memcpy per row on the hot path and bought a
+  guarantee the standard path never gave. (Earlier revisions of this file prescribed the
+  copy, from when the evaluator materialized with `process(...).toArray`; it streams now.)
+- `QueryExecution.toRdd`'s scaladoc states the contract and names `collect()` as "one of
+  known bad usage" - `RDD.collect` is `iter.toArray` per partition, so it aliases. Use
+  `Dataset.collect` (which serializes each row as it iterates), or, in a test that wants
+  `InternalRow`s, `toRdd.map(_.copy()).collect()`.
+- Not a Varka rule: collecting a plain row-engine query that way returns 2 distinct row
+  objects for 5 rows, with wrong values. `SparkContext.hadoopRDD`'s scaladoc documents
+  the same hazard for reused Hadoop `Writable`s.
+- Corollary for tests: a suite that materializes rows can pass for the wrong reason while
+  an operator copies. `VarkaDifferentialSuite` did, and only failed once the operator
+  stopped - the copy had been masking an unsound `toRdd.collect()` in the test itself.
 
 ## Alias Unwrap Is Needed at Two Layers
 

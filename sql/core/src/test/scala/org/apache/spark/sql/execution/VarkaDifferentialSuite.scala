@@ -88,7 +88,11 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
       val actual = varkaSpark.sql(query)
       val plan = actual.queryExecution.executedPlan
       assertFused(plan)
-      val rows = actual.queryExecution.toRdd.collect()
+      // `toRdd` hands back the projection's own row, rewritten per row, so the rows have to be
+      // copied before they are collected into an array. This is not a Varka rule: the row engine
+      // reuses rows here too, and collecting this query from it without the copy yields two
+      // distinct row objects for five rows.
+      val rows = actual.queryExecution.toRdd.map(_.copy()).collect()
       assert(rows.length == inputDays.length,
         s"expected ${inputDays.length} rows for offset $off but got ${rows.length}")
       rows.zip(inputDays).foreach { case (a, d) =>

@@ -140,10 +140,17 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
   private class VarkaColumnarToRowEvaluator
       extends PartitionEvaluator[ColumnarBatch, InternalRow] {
 
-    // The standard per-row (Janino) projection over the input batch, used as the fallback.
+    // The two projections that turn batch rows into rows: the standard per-row (Janino)
+    // projection over the input batch, used as the fallback, and the copy projection that
+    // converts the result batch to rows, mirroring `ColumnarToRowEvaluatorFactory`.
+    //
+    // Both hand back their own `UnsafeRow`, rewritten on every call, and the rows are emitted as
+    // they come - uncopied, exactly as `ColumnarToRowExec` emits them. A `.copy()` per row would
+    // add an allocation plus a memcpy to the hot path for a guarantee this operator's consumers
+    // do not get from the standard path either. The projected row holds its own bytes rather
+    // than a view of the batch, so it also outlives the release of the kernel result batch it
+    // came from.
     private val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
-    // The copy projection that converts the result batch to rows, mirroring
-    // `ColumnarToRowEvaluatorFactory`.
     private val outputAttrs = projectList.map(_.toAttribute)
     private val toRow = UnsafeProjection.create(outputAttrs, outputAttrs)
 
@@ -207,14 +214,30 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private def fallback(input: ColumnarBatch): Iterator[InternalRow] = {
-      input.rowIterator().asScala.map(r => fallbackProjection(r).copy())
+      input.rowIterator().asScala.map(fallbackProjection)
     }
 
+    /**
+     * Whether the kernels can run over this batch: every referenced column must be an Arrow
+     * `DateDayVector` holding exactly the batch's rows, no more.
+     *
+     * The row count matters because the kernels take a null count for the rows they are given,
+     * while a vector's null count covers all `valueCount` of its rows. A vector longer than the
+     * batch would hand them a count for rows that are not in it - and a vector whose extra rows
+     * happen to hold every null would make that count equal the batch's row count, tripping the
+     * kernels' all-null shortcut over rows that are not null at all. Such a batch takes the
+     * per-row fallback; serving it from the kernels would mean counting nulls over `[0, len)`
+     * here instead.
+     */
     private def isArrowBacked(ops: Seq[OutputOp], input: ColumnarBatch): Boolean = {
       ops.forall { op =>
         op.inputOrdinals.forall { ordinal =>
           input.column(ordinal) match {
-            case acv: ArrowColumnVector => acv.getValueVector().isInstanceOf[DateDayVector]
+            case acv: ArrowColumnVector =>
+              acv.getValueVector() match {
+                case ddv: DateDayVector => ddv.getValueCount() == input.numRows()
+                case _ => false
+              }
             case _ => false
           }
         }
@@ -267,7 +290,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       val resultBatch = batch
       openBatches += resultBatch
       CompletionIterator[InternalRow, Iterator[InternalRow]](
-        resultBatch.rowIterator().asScala.map(r => toRow(r).copy()), {
+        resultBatch.rowIterator().asScala.map(toRow), {
           openBatches -= resultBatch
           resultBatch.close()
         })
@@ -346,10 +369,14 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
      * engine's `VarkaMorsel.extractDate` contract: the validity segment is null for an all-null
      * column, and callers pass a `0L` address in that case because the kernels never
      * dereference it then.
+     *
+     * The vector must hold exactly the batch's rows, which `isArrowBacked` has already checked -
+     * that is what makes the vector's null count the batch's null count, and so what makes the
+     * all-null test below sound.
      */
     private def extractMorsel(ddv: DateDayVector, len: Int): Morsel = {
-      require(len <= ddv.getValueCount(),
-        s"rowCount $len exceeds the vector value count ${ddv.getValueCount()}")
+      require(len == ddv.getValueCount(),
+        s"rowCount $len does not match the vector value count ${ddv.getValueCount()}")
       val data = ofAddress(ddv.getDataBuffer())
       val nullCount = ddv.getNullCount()
       val validity = if (nullCount == len) null else ofAddress(ddv.getValidityBuffer())
