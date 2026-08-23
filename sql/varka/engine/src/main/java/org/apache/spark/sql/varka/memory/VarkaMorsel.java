@@ -35,10 +35,13 @@ import org.apache.arrow.vector.ValueVector;
  * array; the validity buffer is bit-packed (1 bit per row, bit set means valid).
  *
  * <p>Segments are sized to the underlying {@link ArrowBuf} capacity rather than the
- * nominal {@code rowCount * 4} / {@code (rowCount + 7) / 8}, so that Task 2 masked reads
- * never trip a bounds check on the last validity long. Consumers must still bound their
- * reads to {@code rowCount} and, for the validity buffer, guard tail reads with
- * {@code validity.byteSize()}.
+ * nominal {@code rowCount * 4} / {@code (rowCount + 7) / 8}, because the capacity is what
+ * the buffer actually owns. Consumers must still bound their reads to {@code rowCount}.
+ *
+ * <p>That extra capacity is not a licence to over-read, and nothing depends on it: the
+ * kernels re-wrap the raw addresses at the nominal sizes and address the validity bitmap
+ * one lane group at a time, so they stay inside {@code (rowCount + 7) / 8} bytes even for
+ * a batch whose bitmap is shorter than a single 64-bit word.
  */
 public final class VarkaMorsel {
 

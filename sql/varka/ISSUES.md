@@ -27,9 +27,11 @@ Ordering inside each section is by severity, not by file. Findings are open unle
 
 ### 1. The SIMD kernels are wrong on any machine with fewer than 8 int lanes
 
-**Status: FIXED** in `a6b7f7d3541` (PR #11). The bitmap is now addressed one
-64-bit word at a time with an explicit shift, via the `validityBitsAt` /
-`orValidityBitsAt` / `wordAlignedEnd` helpers, which both kernels share.
+**Status: FIXED** in `a6b7f7d3541` (PR #11). The bitmap is addressed with an explicit
+shift rather than at byte `row / 8`, via the `validityBitsAt` / `orValidityBitsAt`
+helpers, which both kernels share. (The fix for finding 10 later narrowed those helpers
+from a 64-bit word to the bytes each lane group occupies, and dropped the
+`wordAlignedEnd` bound they needed; the shift, and this fix, are unchanged.)
 `DateVectorOpsBitmapTest` walks every lane width from 1 to 64 over the bitmaps the
 kernels see, so the widths this host's species cannot produce are covered. Verified to
 catch the original defect: restoring the pre-fix arithmetic fails the new test at
@@ -319,6 +321,46 @@ Fix: drop the copies unless a specific consumer needs them (and if one does, tha
 `ColumnarToRowExec`'s problem too, not Varka's).
 
 ### 10. The vector loop is disabled entirely for batches under 57 rows
+
+**Status: FIXED**. `validityBitsAt` and `orValidityBitsAt` now take the lane width and
+touch only the bytes that group occupies - one byte for widths up to 8, two for 16, four
+for 32, eight for 64 - at byte `row / 8`, rather than always addressing a 64-bit word. A
+group whose rows are all below `length` can then only touch bytes below `(length + 7) /
+8`, so the vector loop runs to `SPECIES.loopBound(length)` and `wordAlignedEnd` is gone.
+Both the sub-57-row range and the tail of every larger batch are vectorized.
+
+This is a third option, not either of the two the finding suggests. Passing the buffer
+capacities through would change the kernel ABI, which the codegen descriptors and the
+exec node both pin; reinterpreting to a rounded-up size would stop the *segment* bounds
+check without making the memory beyond the bitmap any more real. Reading only the bytes
+the group occupies needs neither, and stays inside the nominal bitmap.
+
+`DateVectorOpsBitmapTest` allocates every bitmap at exactly `(length + 7) / 8` bytes, so
+an overrun throws rather than reading a neighbouring allocation, and walks every lane
+group of every length from 1 to 200 across all seven lane widths. Verified to catch the
+original defect twice over: restoring word addressing under the unbounded loop fails the
+new test at `byteSize: 1` for the sub-57-row lengths, and also breaks `DateVectorOpsTest`
+end to end at `byteSize: 2` - which is exactly why the bound existed.
+
+Measured with the JMH harness, which gained a 32-row size for this (it had only 10000 and
+1000000, so it could not see the defect at all). At 32 rows, throughput in ops/ms, three
+iterations:
+
+| kernel | before | after |
+|---|---|---|
+| `vectorAddDays` NULL_FREE | 34576 | 110612 |
+| `vectorAddDays` MIXED_NULL | 21620 | 72660 |
+| `vectorSubDays` NULL_FREE | 20996 | 73862 |
+| `vectorSubDays` MIXED_NULL | 19685 | 78211 |
+| `vectorDateDiff` NULL_FREE | 31711 | 72067 |
+| `vectorDateDiff` MIXED_NULL | 18430 | 62630 |
+
+The telling comparison is against the scalar kernels at the same size, which ran at 27000
+to 36000 ops/ms: before the fix the vector kernels matched them, because at 32 rows they
+*were* the scalar path. After it they are roughly 3x faster, which is what the
+microbenchmark reports at large sizes. The 10000- and 1000000-row numbers moved within
+their error bars, so this run says nothing about the tail; only the small-batch effect is
+measured here.
 
 The vector loop stops at the last row covered by a whole 64-bit word of the validity
 bitmap (`DateVectorOps.wordAlignedEnd`, previously the equivalent `safeEnd`). A batch of

@@ -18,7 +18,7 @@
 package org.apache.spark.sql.varka.vector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -29,12 +29,18 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests the bit-packed validity arithmetic behind the SIMD loops of {@link DateVectorOps}.
  *
- * <p>Each kernel builds its {@code VectorMask} from the lowest {@code SPECIES.length()} bits of a
- * 64-bit word, so the lane group starting at row {@code i} has to be shifted to bit 0 first, and
- * the resulting mask has to be shifted back when the output validity is written. That only
- * degenerates into a plain byte-indexed read when a lane group happens to start on a byte
- * boundary: {@code IntVector.SPECIES_PREFERRED} is 8 lanes on AVX2 and 16 on AVX-512, but 4 on
- * aarch64 NEON and on x86 without AVX2, and a 4-lane group does not.
+ * <p>Each kernel builds its {@code VectorMask} from the lowest {@code SPECIES.length()} bits of
+ * the bitmap at row {@code i}, so that group has to be shifted to bit 0 first, and the resulting
+ * mask has to be shifted back when the output validity is written. That only degenerates into a
+ * plain byte-indexed read when a lane group happens to start on a byte boundary:
+ * {@code IntVector.SPECIES_PREFERRED} is 8 lanes on AVX2 and 16 on AVX-512, but 4 on aarch64
+ * NEON and on x86 without AVX2, and a 4-lane group does not.
+ *
+ * <p>The helpers must also stay inside a nominally sized {@code (length + 7) / 8}-byte bitmap for
+ * every group the vector loop can reach, which is what lets that loop run to
+ * {@code SPECIES.loopBound(length)} instead of stopping at the last whole 64-bit word. Every
+ * bitmap here is allocated at exactly that size, so an overrun fails the test rather than
+ * silently reading a neighbouring allocation.
  *
  * <p>{@link DateVectorOpsTest} covers the kernels end to end, but only ever at the host's own
  * species, so it is blind to the widths that host cannot produce. This suite closes that gap
@@ -52,10 +58,9 @@ public class DateVectorOpsBitmapTest {
     try (Arena arena = Arena.ofConfined()) {
       for (int length : LENGTHS) {
         MemorySegment bitmap = bitmapOf(arena, length);
-        long wordEnd = DateVectorOps.wordAlignedEnd(length);
         for (int width : LANE_WIDTHS) {
-          for (long row = 0; row < wordEnd; row += width) {
-            long actual = DateVectorOps.validityBitsAt(bitmap, row) & laneMask(width);
+          for (long row = 0; row + width <= length; row += width) {
+            long actual = DateVectorOps.validityBitsAt(bitmap, row, width) & laneMask(width);
             long expected = 0L;
             for (int lane = 0; lane < width; lane++) {
               if (isBitSet(bitmap, (int) row + lane)) {
@@ -80,14 +85,14 @@ public class DateVectorOpsBitmapTest {
     try (Arena arena = Arena.ofConfined()) {
       for (int length : LENGTHS) {
         MemorySegment source = bitmapOf(arena, length);
-        long wordEnd = DateVectorOps.wordAlignedEnd(length);
         for (int width : LANE_WIDTHS) {
           MemorySegment target = arena.allocate(bitmapBytes(length));
-          for (long row = 0; row < wordEnd; row += width) {
-            long laneBits = DateVectorOps.validityBitsAt(source, row) & laneMask(width);
-            DateVectorOps.orValidityBitsAt(target, row, laneBits);
+          long covered = (length / width) * (long) width;
+          for (long row = 0; row + width <= length; row += width) {
+            long laneBits = DateVectorOps.validityBitsAt(source, row, width);
+            DateVectorOps.orValidityBitsAt(target, row, laneBits, width);
           }
-          for (int bit = 0; bit < wordEnd; bit++) {
+          for (int bit = 0; bit < covered; bit++) {
             assertEquals(isBitSet(source, bit), isBitSet(target, bit),
                 "lane width " + width + ", length " + length + ", bit " + bit);
           }
@@ -96,30 +101,36 @@ public class DateVectorOpsBitmapTest {
     }
   }
 
-  @Test
-  void wordAlignedEndCoversWholeWordsOnly() {
-    assertEquals(0L, DateVectorOps.wordAlignedEnd(1));
-    assertEquals(0L, DateVectorOps.wordAlignedEnd(56));
-    assertEquals(64L, DateVectorOps.wordAlignedEnd(57));
-    assertEquals(64L, DateVectorOps.wordAlignedEnd(64));
-    assertEquals(64L, DateVectorOps.wordAlignedEnd(120));
-    assertEquals(128L, DateVectorOps.wordAlignedEnd(121));
-    assertEquals(960L, DateVectorOps.wordAlignedEnd(1000));
-  }
-
   /**
-   * The vector loop's only bounds guard: the 8-byte word holding the last permitted row must fit
-   * inside a {@code (length + 7) / 8}-byte validity buffer.
+   * Every lane group the vector loop can reach must be readable and writable inside a bitmap
+   * sized to the batch and nothing more - including the batches under 57 rows whose bitmap is
+   * shorter than a single 64-bit word, which is precisely the range the old word-addressed
+   * helpers could not serve. A `MemorySegment` sized to {@code bitmapBytes(length)} throws on
+   * any overrun, so reaching the end of the loop is the assertion.
    */
   @Test
-  void wordAlignedEndKeepsTheLastWordInBounds() {
-    for (int length = 1; length <= 2048; length++) {
-      long wordEnd = DateVectorOps.wordAlignedEnd(length);
-      if (wordEnd > 0) {
-        long lastWordOffset = ((wordEnd - 1) / 64) * 8L;
-        assertTrue(lastWordOffset + 8 <= bitmapBytes(length),
-            "length " + length + " admits a word read at byte " + lastWordOffset
-                + " but the bitmap is only " + bitmapBytes(length) + " bytes");
+  void everyLaneGroupStaysInsideABitmapSizedToTheBatch() {
+    try (Arena arena = Arena.ofConfined()) {
+      for (int length = 1; length <= 200; length++) {
+        MemorySegment source = bitmapOf(arena, length);
+        for (int width : LANE_WIDTHS) {
+          MemorySegment target = arena.allocate(bitmapBytes(length));
+          for (long row = 0; row + width <= length; row += width) {
+            DateVectorOps.orValidityBitsAt(
+                target, row, DateVectorOps.validityBitsAt(source, row, width), width);
+          }
+          long covered = (length / width) * (long) width;
+          for (int bit = 0; bit < covered; bit++) {
+            assertEquals(isBitSet(source, bit), isBitSet(target, bit),
+                "lane width " + width + ", length " + length + ", bit " + bit);
+          }
+          // Nothing beyond the groups that ran may have been set.
+          for (long bit = covered; bit < (long) bitmapBytes(length) * 8; bit++) {
+            assertFalse(isBitSet(target, (int) bit),
+                "lane width " + width + ", length " + length + " set bit " + bit
+                    + " beyond the " + covered + " rows its groups cover");
+          }
+        }
       }
     }
   }
