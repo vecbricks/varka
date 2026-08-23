@@ -24,8 +24,9 @@ import org.apache.spark.{Partition, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Ascending, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, Literal, NamedExpression, SortOrder}
 import org.apache.spark.sql.catalyst.expressions.codegen.ClassFileGenOp
+import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
@@ -241,6 +242,36 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     }
   }
 
+  test("output partitioning and ordering are projected through the aliases") {
+    val add = Alias(DateAdd(attrD, Literal(3)), "add")()
+    // The child is partitioned and ordered by the very expression the projection aliases, so
+    // both properties survive - restated in terms of the output attribute.
+    val child = TestColumnarBatchPlan(
+      Nil,
+      Seq(attrD),
+      HashPartitioning(Seq(DateAdd(attrD, Literal(3))), 5),
+      Seq(SortOrder(DateAdd(attrD, Literal(3)), Ascending)))
+    val node = VarkaColumnarToRowExec(project(add), child)
+
+    assert(node.outputPartitioning === HashPartitioning(Seq(add.toAttribute), 5))
+    assert(node.outputOrdering === Seq(SortOrder(add.toAttribute, Ascending)))
+  }
+
+  test("output partitioning and ordering drop attributes the projection does not output") {
+    // `d` does not survive the projection, so neither property can be advertised: passing the
+    // child's through verbatim would describe this node's output by a column it does not have.
+    val child = TestColumnarBatchPlan(
+      Nil,
+      Seq(attrD),
+      HashPartitioning(Seq(attrD), 5),
+      Seq(SortOrder(attrD, Ascending)))
+    val node = VarkaColumnarToRowExec(
+      project(Alias(DateAdd(attrD, Literal(3)), "add")()), child)
+
+    assert(node.outputPartitioning === UnknownPartitioning(5))
+    assert(node.outputOrdering === Nil)
+  }
+
   test("VarkaColumnarRule rewrites only fully eligible projections when enabled") {
     val child = TestColumnarBatchPlan(Nil, Seq(attrD))
     val eligible = ProjectExec(
@@ -280,7 +311,9 @@ private[sql] case class BatchSpec(kind: String, columns: Seq[Seq[java.lang.Integ
  */
 private[sql] case class TestColumnarBatchPlan(
     specs: Seq[BatchSpec],
-    output: Seq[Attribute])
+    output: Seq[Attribute],
+    override val outputPartitioning: Partitioning = UnknownPartitioning(0),
+    override val outputOrdering: Seq[SortOrder] = Nil)
     extends SparkPlan {
   override def supportsColumnar: Boolean = true
   override def children: Seq[SparkPlan] = Seq.empty

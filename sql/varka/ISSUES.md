@@ -5,8 +5,9 @@ Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, 
 
 The review itself was a reading of the code; nothing was built or run to produce it.
 Findings 1, 2, 4 and 5 have since been fixed and merged - PRs #11, #13, #12 and #14 -
-and the engine test suite and the `sql/core` Varka suites were built and run as part of
-those fixes. Line references below were refreshed against `c6fbfe34d88`.
+and finding 3 is fixed by the change this file ships with. The engine test suite and the
+`sql/core` Varka suites were built and run as part of those fixes. Line references below
+were refreshed against `c6fbfe34d88`.
 
 Ordering inside each section is by severity, not by file. Findings are open unless a
 **Status** line says otherwise.
@@ -102,14 +103,25 @@ The `numVarkaBatches > 1` test (`VarkaDifferentialSuite.scala:192`) exercises th
 
 ### 3. `outputPartitioning` / `outputOrdering` are not alias-aware
 
-`VarkaColumnarToRowExec.scala:75-77`
+**Status: FIXED**. `VarkaColumnarToRowExec` now mixes in
+`PartitioningPreservingUnaryExecNode` and `OrderPreservingUnaryExecNode` and supplies
+`outputExpressions = projectList` and `orderingExpressions = child.outputOrdering`,
+exactly as `ProjectExec` does; both traits declare `outputPartitioning` /
+`outputOrdering` `final`, so the two pass-through overrides are gone.
+`VarkaColumnarToRowExecSuite` gained two tests over a child plan with a real partitioning
+and ordering: one where the child is partitioned and ordered by the aliased expression
+and both properties survive restated over the output attribute, and one where they are
+over `d`, which the projection drops, so they collapse to `UnknownPartitioning` and
+`Nil`. Verified to catch the original defect: both fail on the pre-fix code.
+
+`VarkaColumnarToRowExec.scala:75-77` (pre-fix line numbers)
 
 ```scala
 override def outputPartitioning: Partitioning = child.outputPartitioning
 override def outputOrdering: Seq[SortOrder] = child.outputOrdering
 ```
 
-This node *is* a projection: it renames and drops columns. But it reports its child's
+This node *is* a projection: it renames and drops columns. But it reported its child's
 partitioning and ordering verbatim. `ProjectExec` deliberately mixes in
 `PartitioningPreservingUnaryExecNode` and `OrderPreservingUnaryExecNode`
 (`basicPhysicalOperators.scala:46-51`) to map these through the alias mapping and drop
@@ -117,13 +129,9 @@ whatever is no longer in `output`. Copying `ColumnarToRowExec`'s pass-through
 implementations is the wrong model, because `ColumnarToRowExec` does not change the
 column set.
 
-Today this mostly fails *conservatively* (`EnsureRequirements` will not match a
-partitioning over an attribute that is not in `output`, so it adds an exchange), but it
-advertises properties over dead attributes into `EliminateSorts`, exchange reuse and
-AQE.
-
-Fix: mix in the two alias-aware traits, or - safest for the MVP - return
-`UnknownPartitioning(child.outputPartitioning.numPartitions)` and `Nil`.
+This mostly failed *conservatively* (`EnsureRequirements` will not match a partitioning
+over an attribute that is not in `output`, so it adds an exchange), but it advertised
+properties over dead attributes into `EliminateSorts`, exchange reuse and AQE.
 
 ## Build and integration
 
@@ -354,7 +362,7 @@ note. That candour is worth keeping.
 3. ~~Get the engine into CI (finding 4) so 1 and 2 stay fixed.~~ Done in `48a9886051b`,
    apart from the reactor module and an aarch64 runner.
 4. ~~Move the registration point (finding 5).~~ Done in `c6fbfe34d88`.
-5. Next: alias-awareness (3), the `numRows == valueCount` invariant (8), and the
-   `.copy()` removal (9) - all in `VarkaColumnarToRowExec.scala`, so they land in that
-   order. Findings 6 and 7 both gate turning class-file routing on and both touch
-   `CodeGenerator.scala`, so they belong in one change.
+5. ~~Alias-awareness (finding 3).~~ Done.
+6. Next: the `numRows == valueCount` invariant (8) and the `.copy()` removal (9), both in
+   `VarkaColumnarToRowExec.scala`. Findings 6 and 7 both gate turning class-file routing
+   on and both touch `CodeGenerator.scala`, so they belong in one change.

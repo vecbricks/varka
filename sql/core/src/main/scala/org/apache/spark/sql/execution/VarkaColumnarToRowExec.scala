@@ -34,7 +34,6 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, DateAdd, DateDiff, DateSub, Expression, Literal, NamedExpression, SortOrder, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileCodegenSupport, ClassFileGenOp, VarkaClassFileGen, VarkaGeneratedClassLoader}
-import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.{DataType, DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
@@ -68,13 +67,20 @@ import org.apache.spark.util.{CompletionIterator, Utils}
 case class VarkaColumnarToRowExec(
     projectList: Seq[NamedExpression],
     child: SparkPlan)
-    extends ColumnarToRowTransition with SafeForKWayMerge {
+    extends ColumnarToRowTransition
+    with SafeForKWayMerge
+    with PartitioningPreservingUnaryExecNode
+    with OrderPreservingUnaryExecNode {
 
   override def output: Seq[Attribute] = projectList.map(_.toAttribute)
 
-  override def outputPartitioning: Partitioning = child.outputPartitioning
+  // This node is a projection: it renames and drops columns, so it cannot report the child's
+  // partitioning and ordering verbatim the way `ColumnarToRowExec` does. The two alias-aware
+  // traits above map them through the projection's alias mapping and drop whatever is no longer
+  // in `output`, which is what the `ProjectExec` fused away here would have done.
+  override protected def outputExpressions: Seq[NamedExpression] = projectList
 
-  override def outputOrdering: Seq[SortOrder] = child.outputOrdering
+  override protected def orderingExpressions: Seq[SortOrder] = child.outputOrdering
 
   override protected def withNewChildInternal(newChild: SparkPlan): VarkaColumnarToRowExec = {
     copy(child = newChild)
