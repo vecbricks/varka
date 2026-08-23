@@ -4,8 +4,9 @@ Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, 
 `sql/core` exec node and rule, and `docs/sql-varka.md`).
 
 The review itself was a reading of the code; nothing was built or run to produce it.
-The engine test suite has since been run while fixing finding 1, but the `sql/core`
-Varka suites still have not been executed.
+Findings 1, 2, 4 and 5 have since been fixed and merged - PRs #11, #13, #12 and #14 -
+and the engine test suite and the `sql/core` Varka suites were built and run as part of
+those fixes. Line references below were refreshed against `c6fbfe34d88`.
 
 Ordering inside each section is by severity, not by file. Findings are open unless a
 **Status** line says otherwise.
@@ -24,7 +25,7 @@ Ordering inside each section is by severity, not by file. Findings are open unle
 
 ### 1. The SIMD kernels are wrong on any machine with fewer than 8 int lanes
 
-**Status: FIXED** on branch `varka-simd-lane-mask`. The bitmap is now addressed one
+**Status: FIXED** in `a6b7f7d3541` (PR #11). The bitmap is now addressed one
 64-bit word at a time with an explicit shift, via the `validityBitsAt` /
 `orValidityBitsAt` / `wordAlignedEnd` helpers, which both kernels share.
 `DateVectorOpsBitmapTest` walks every lane width from 1 to 64 over the bitmaps the
@@ -74,26 +75,34 @@ SSE-only runner, which depends on finding 4.
 
 ### 2. Per-batch `addTaskCompletionListener` retains every result batch for the whole task
 
-`sql/core/src/main/scala/org/apache/spark/sql/execution/VarkaColumnarToRowExec.scala:205-236`
+**Status: FIXED** in `25f2feb4999` (PR #13). The evaluator now holds a single Arrow
+child allocator for the whole task, created lazily on the first kernel batch and closed
+by one task-completion listener. Each result batch's rows are wrapped in a
+`CompletionIterator` that closes that batch when they run out, and an `openBatches` set
+is the safety net the task-completion listener drains when a task stops reading early (a
+LIMIT, a failure). `VarkaColumnarToRowExecSuite` gained two tests that assert on
+`ArrowUtils.rootAllocator.getAllocatedMemory`: one drains 16 batches and requires the
+peak to stay near a single batch and the allocation to return to its baseline, the other
+abandons a partly-read iterator and requires task completion to release it. Verified to
+catch the original defect: on the pre-fix code the first fails with "the kernel result
+batches were not released when their rows ran out".
 
-`runKernels` is called **once per input batch**, and each call allocates a fresh Arrow
-child allocator and registers a fresh task-completion listener that closes the batch and
-the allocator. Nothing is released until the task ends. A partition with 1000 batches
-therefore accumulates 1000 listeners and holds 1000 batches worth of off-heap Arrow
-memory concurrently: the entire partition's projected output is materialized off-heap,
-which is exactly what the streaming iterator model exists to avoid.
+`sql/core/src/main/scala/org/apache/spark/sql/execution/VarkaColumnarToRowExec.scala:205-236`
+(pre-fix line numbers)
+
+`runKernels` was called **once per input batch**, and each call allocated a fresh Arrow
+child allocator and registered a fresh task-completion listener that closed the batch
+and the allocator. Nothing was released until the task ended. A partition with 1000
+batches therefore accumulated 1000 listeners and held 1000 batches worth of off-heap
+Arrow memory concurrently: the entire partition's projected output was materialized
+off-heap, which is exactly what the streaming iterator model exists to avoid.
 
 The `numVarkaBatches > 1` test (`VarkaDifferentialSuite.scala:192`) exercises this shape
 (32 batches) but asserts nothing about memory.
 
-Fix: hoist one child allocator to the evaluator (closed by a single task-completion
-listener) and wrap each batch's row iterator in a `CompletionIterator` that closes that
-batch when its rows are exhausted. Keep the task-completion listener only as a safety
-net for early task termination.
-
 ### 3. `outputPartitioning` / `outputOrdering` are not alias-aware
 
-`VarkaColumnarToRowExec.scala:73-75`
+`VarkaColumnarToRowExec.scala:75-77`
 
 ```scala
 override def outputPartitioning: Partitioning = child.outputPartitioning
@@ -120,6 +129,22 @@ Fix: mix in the two alias-aware traits, or - safest for the MVP - return
 
 ### 4. `varka-engine` is not in the Maven reactor, and no CI builds it
 
+**Status: PARTIALLY FIXED** in `48a9886051b` (PR #12). A composite action,
+`.github/actions/install-varka-engine`, builds `sql/varka/engine` and installs it into
+the local Maven repository. It runs in every job that compiles or tests Spark
+(`build_and_test.yml`, `maven_test.yml`, `python_hosted_runner_test.yml`), and
+`build_main.yml` pins the workflow JDK to 25 so the engine's `release 25` sources
+compile. A dedicated `varka-engine` job runs the engine's own test suite by passing
+`run-tests: 'true'`; the other jobs skip those tests to stay fast. The `sql/core` Varka
+suites run with the rest of the `sql` module, so `dev/sparktestsupport/modules.py` needs
+no entry of its own.
+
+Still open: the engine is not a reactor module - the root `pom.xml` `<modules>` list is
+unchanged - so a Maven build outside CI still depends on the manual install; and every
+runner is x86_64, so the residual 4-lane risk from finding 1 remains unexercised.
+
+The original state:
+
 The root `pom.xml` `<modules>` list does not include `sql/varka/engine`, yet
 `sql/catalyst/pom.xml:155-160` and `sql/core/pom.xml:301-306` declare a hard
 `org.apache.spark.varka:varka-engine:0.1.0-SNAPSHOT` test-scope dependency. sbt resolves
@@ -142,22 +167,43 @@ actually execute the kernels at 4 lanes.
 
 ### 5. `VarkaColumnarRule` is registered in one code path, not "on every SparkSession"
 
-`sql/core/src/main/scala/org/apache/spark/sql/classic/SparkSession.scala:1057-1060`
+**Status: FIXED** in `c6fbfe34d88` (PR #14). The `extensions.injectColumnar` call is
+gone from `SparkSession.Builder`, and `BaseSessionStateBuilder.columnarRules` now
+returns `extensions.buildColumnarRules(session) :+ VarkaColumnarRule`, so every session
+gets the rule exactly once and no user-supplied extensions object is mutated.
+`VarkaSharedSessions` no longer injects it by hand.
 
-`extensions.injectColumnar(_ => VarkaColumnarRule)` sits inside `Builder.getOrCreate`,
+The rule is *appended*, not prepended as suggested below.
+`ApplyColumnarRulesAndInsertTransitions` applies `postColumnarTransitions` in reverse
+list order (`Columnar.scala:618-620`), so a trailing entry runs its post transition
+first, which leaves user-injected rules the final say over the plan; prepending would
+invert that and change the existing ordering. `VarkaAutoRegistrationSuite` gained three
+tests: a cloned session carries exactly one rule and still fuses, a classic builder
+reused for a second session does not register the rule twice, and `spark.extensions`
+does not list the built-in rule. Verified to catch the original defect: the last two
+fail on the pre-fix code.
+
+Of the three consequences below, the first is the weakest: sessions made by
+`newSession()` / `cloneSession()` inherit the parent's (already mutated) extensions, so
+they did get the rule. The double registration and the extensions mutation were the real
+defects.
+
+`sql/core/src/main/scala/org/apache/spark/sql/classic/SparkSession.scala:1057-1060`
+(pre-fix line numbers)
+
+`extensions.injectColumnar(_ => VarkaColumnarRule)` sat inside `Builder.getOrCreate`,
 in the branch that constructs a brand-new session. Consequences:
 
-* sessions built any other way do not get it, which is exactly why
-  `VarkaSharedSessions.scala:81` has to inject it manually on top of
-  `SharedSparkSession`;
-* calling `getOrCreate` twice on the same builder injects the rule twice into the same
-  `SparkSessionExtensions`;
-* it mutates a user-supplied extensions object, so `spark.extensions` shows a rule the
+* sessions built any other way appeared not to get it, which is why
+  `VarkaSharedSessions.scala:81` injected it manually on top of `SharedSparkSession`;
+* calling `getOrCreate` twice on the same classic builder injected the rule twice into
+  the same `SparkSessionExtensions`;
+* it mutated a user-supplied extensions object, so `spark.extensions` showed a rule the
   user never added.
 
 The designed hook is `BaseSessionStateBuilder.columnarRules`
-(`BaseSessionStateBuilder.scala:406`). Prepending `VarkaColumnarRule` there covers every
-session - cloned, Connect, and test - with no duplication.
+(`BaseSessionStateBuilder.scala:420`), which covers every session - cloned, Connect, and
+test - with no duplication.
 
 ## Design landmines
 
@@ -190,7 +236,7 @@ enabling routing.
 
 ### 8. `extractMorsel` assumes `numRows == valueCount`
 
-`VarkaColumnarToRowExec.scala:312-319`. `nullCount` comes from the whole Arrow vector
+`VarkaColumnarToRowExec.scala:344-350`. `nullCount` comes from the whole Arrow vector
 but is compared against the batch's `len`:
 
 ```scala
@@ -209,7 +255,7 @@ Fix: make it `require(len == ddv.getValueCount())`, or compute the null count ov
 
 ### 9. Both paths add a per-row `.copy()` that the standard path does not have
 
-`VarkaColumnarToRowExec.scala:191` and `:225`:
+`VarkaColumnarToRowExec.scala:204` and `:264`:
 
 ```scala
 input.rowIterator().asScala.map(r => fallbackProjection(r).copy())   // fallback
@@ -249,7 +295,7 @@ immediately after `BaseFixedWidthVector.allocateNew` has already zeroed it. Use
 
 ### 11. Reflective `Method.invoke` with boxed arguments
 
-`VarkaColumnarToRowExec.scala:287-298` and `:373-375` box every argument into
+`VarkaColumnarToRowExec.scala:319-329` and `:405-406` box every argument into
 `java.lang.Long` / `java.lang.Integer` per batch. Per batch this is noise, but the whole
 point of the generated dispatcher was an `invokestatic` with a primitive stack, and
 reaching it through `Method.invoke` undoes that.
@@ -259,10 +305,11 @@ so the primitive path survives.
 
 ## Smaller things
 
-* **Scalastyle will fail**: `VarkaThroughputBenchmark.scala:42` is 102 characters.
+* ~~**Scalastyle will fail**: `VarkaThroughputBenchmark.scala:42` is 102 characters.~~
+  Fixed in `48a9886051b` (PR #12).
 * **`docs/sql-varka.md` is orphaned**: no entry in `docs/_data/menu-sql.yaml`, so the
   page never appears in the site navigation.
-* **Duplicated eligibility logic**: `VarkaColumnarToRowExec.foldDaysOffset` (`:325-328`)
+* **Duplicated eligibility logic**: `VarkaColumnarToRowExec.foldDaysOffset` (`:357-360`)
   is a verbatim copy of `DateVarkaSupport.foldDaysOffset`
   (`datetimeExpressions.scala:521-524`), because the latter is `private[expressions]`.
   Widen the visibility rather than forking the rule - the two must stay in lockstep or
@@ -272,7 +319,7 @@ so the primitive path survives.
   exercised only by its own test. If it is meant as the shared contract, only one should
   exist.
 * **Non-local return in a closure**: `buildOutputPlan`
-  (`VarkaColumnarToRowExec.scala:350`) uses `return None` inside a `map`. It works on
+  (`VarkaColumnarToRowExec.scala:382`) uses `return None` inside a `map`. It works on
   2.13 via an exception and is deprecated in 3; `collectFirst` / `traverse` reads better.
 * **Redundant node rebuild**: `VarkaColumnarRule.scala:47` returns
   `ProjectExec(projectList, child)` in the not-columnar branch, allocating an equal copy
@@ -301,9 +348,13 @@ note. That candour is worth keeping.
 
 ## Suggested order
 
-1. ~~Fix the lane-alignment bug (finding 1) and add a narrow-species test.~~ Done on
-   branch `varka-simd-lane-mask`; the residual 4-lane hardware coverage depends on
-   finding 4.
-2. Fix the per-batch listener leak (finding 2).
-3. Get the engine into CI (finding 4) so 1 and 2 stay fixed.
-4. Then alias-awareness (3), the registration point (5), and the `.copy()` removal (9).
+1. ~~Fix the lane-alignment bug (finding 1) and add a narrow-species test.~~ Done in
+   `a6b7f7d3541`; the residual 4-lane hardware coverage still depends on finding 4.
+2. ~~Fix the per-batch listener leak (finding 2).~~ Done in `25f2feb4999`.
+3. ~~Get the engine into CI (finding 4) so 1 and 2 stay fixed.~~ Done in `48a9886051b`,
+   apart from the reactor module and an aarch64 runner.
+4. ~~Move the registration point (finding 5).~~ Done in `c6fbfe34d88`.
+5. Next: alias-awareness (3), the `numRows == valueCount` invariant (8), and the
+   `.copy()` removal (9) - all in `VarkaColumnarToRowExec.scala`, so they land in that
+   order. Findings 6 and 7 both gate turning class-file routing on and both touch
+   `CodeGenerator.scala`, so they belong in one change.
