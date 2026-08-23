@@ -38,6 +38,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Check the engine builds against Spark's Arrow
+      shell: bash
+      run: ./dev/check_varka_arrow_version.py
     - name: Install the Varka engine into the local Maven repository
       shell: bash
       run: |

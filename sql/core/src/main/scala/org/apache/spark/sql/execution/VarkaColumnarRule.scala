@@ -36,7 +36,7 @@ object VarkaColumnarRule extends ColumnarRule {
   override def postColumnarTransitions: Rule[SparkPlan] = { plan =>
     if (SQLConf.get.varkaEnabled) {
       plan.transformUp {
-        case ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
+        case project @ ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
           val columnarChild = child match {
             case ColumnarToRowExec(inner) => inner
             case other => other
@@ -44,7 +44,7 @@ object VarkaColumnarRule extends ColumnarRule {
           if (columnarChild.supportsColumnar) {
             VarkaColumnarToRowExec(projectList, columnarChild)
           } else {
-            ProjectExec(projectList, child)
+            project
           }
       }
     } else {

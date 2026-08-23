@@ -34,6 +34,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>The registry + {@link #findClass(String)} mirror Spark's
  * {@code InMemoryClassLoader} (CodeCompiler.scala), so callers can use
  * {@code loadClass(name)} after {@link #defineGeneratedClass(String, byte[])}.
+ *
+ * <p>Catalyst carries an identical copy, {@code VarkaGeneratedClassLoader}, which is the one
+ * the live execution path uses. The duplication is deliberate, not an oversight waiting to be
+ * deduplicated: neither module can depend on the other. This module is standalone, outside the
+ * Spark reactor, a test-scope dependency of catalyst and deployed externally at runtime, so
+ * catalyst cannot compile against it; and it cannot depend on catalyst either. The two are kept
+ * deliberately identical in behaviour, and a change to one belongs in the other. This copy is
+ * what {@code VarkaClassLoaderTest} pins - including the Metaspace-unload proof - and what
+ * {@code DateVectorOpsEmissionTest} loads its probe class through.
  */
 public final class VarkaClassLoader extends ClassLoader {
 

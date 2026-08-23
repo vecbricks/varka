@@ -41,6 +41,12 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>25</maven.compiler.release>
+    <!--
+      Must match <arrow.version> in the root pom: the kernels write into Arrow buffers that
+      Spark allocated, so a mismatch is not benign. There is no parent pom to inherit it from
+      (see the note above), so dev/check_varka_arrow_version.py guards it instead, and CI runs
+      that check before building the engine.
+    -->
     <arrow.version>19.0.0</arrow.version>
     <junit.version>5.10.2</junit.version>
     <maven.surefire.version>3.2.5</maven.surefire.version>

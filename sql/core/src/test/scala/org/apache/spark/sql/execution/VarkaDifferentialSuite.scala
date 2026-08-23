@@ -71,11 +71,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
         expectFused = true)
     }
     // Extreme offsets wrap the int32 day arithmetic. Spark's own DateAdd semantics (and the SIMD
-// kernel) are a plain int add that wraps mod 2^32, but the end-to-end row engine applies an extra
-// calendar-day rebase to DATE results outside its representable range, so the row engine is NOT
-// the right oracle at the overflow boundary (and those days cannot be decoded to java.sql.Date).
-// The oracle here is therefore the plain int32 wrap - DateAdd.eval and this kernel agree - computed
-// in Scala over the fixed `cacheDates` input, null-aware, in deterministic input order.
+    // kernel) are a plain int add that wraps mod 2^32, but the end-to-end row engine applies an
+    // extra calendar-day rebase to DATE results outside its representable range, so the row
+    // engine is NOT the right oracle at the overflow boundary (and those days cannot be decoded
+    // to java.sql.Date). The oracle here is therefore the plain int32 wrap - DateAdd.eval and
+    // this kernel agree - computed in Scala over the fixed `cacheDates` input, null-aware, in
+    // deterministic input order.
     val inputDays: Seq[java.lang.Integer] = Seq(
       "2024-01-01", "2024-01-02", "2023-12-27", "1969-12-31", null).map { v =>
         if (v == null) null else java.time.LocalDate.parse(v).toEpochDay.toInt

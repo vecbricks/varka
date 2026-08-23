@@ -354,28 +354,45 @@ so the primitive path survives.
 
 * ~~**Scalastyle will fail**: `VarkaThroughputBenchmark.scala:42` is 102 characters.~~
   Fixed in `48a9886051b` (PR #12).
-* **`docs/sql-varka.md` is orphaned**: no entry in `docs/_data/menu-sql.yaml`, so the
-  page never appears in the site navigation.
+* ~~**`docs/sql-varka.md` is orphaned**: no entry in `docs/_data/menu-sql.yaml`, so the
+  page never appears in the site navigation.~~ Fixed: listed under Performance Tuning,
+  next to Arrow Cache Format. The page already had the `title` / `displayTitle` front
+  matter the layout needs, so the menu entry was all that was missing.
 * **Duplicated eligibility logic**: `VarkaColumnarToRowExec.foldDaysOffset` (`:357-360`)
   is a verbatim copy of `DateVarkaSupport.foldDaysOffset`
   (`datetimeExpressions.scala:521-524`), because the latter is `private[expressions]`.
   Widen the visibility rather than forking the rule - the two must stay in lockstep or
   the rule and the exec will disagree about eligibility.
-* **Two identical class loaders**: `VarkaGeneratedClassLoader.scala` (catalyst) and
+* ~~**Two identical class loaders**: `VarkaGeneratedClassLoader.scala` (catalyst) and
   `VarkaClassLoader.java` (engine) are the same class; the engine copy is currently
   exercised only by its own test. If it is meant as the shared contract, only one should
-  exist.
+  exist.~~ Resolved as by-design, and documented as such on both sides. Neither can be
+  the shared one: the engine is a standalone module outside the reactor, a test-scope
+  dependency of catalyst, and deployed externally at runtime, so catalyst cannot compile
+  against it - and the engine cannot depend on catalyst either. Deleting the engine copy
+  would also cost real coverage: `VarkaClassLoaderTest` pins the define/release semantics
+  and the Metaspace-unload proof against it, and `DateVectorOpsEmissionTest` loads its
+  probe class through it. Both javadocs now say the duplication is deliberate and that a
+  change to one belongs in the other.
 * **Non-local return in a closure**: `buildOutputPlan`
   (`VarkaColumnarToRowExec.scala:382`) uses `return None` inside a `map`. It works on
   2.13 via an exception and is deprecated in 3; `collectFirst` / `traverse` reads better.
-* **Redundant node rebuild**: `VarkaColumnarRule.scala:47` returns
+* ~~**Redundant node rebuild**: `VarkaColumnarRule.scala:47` returns
   `ProjectExec(projectList, child)` in the not-columnar branch, allocating an equal copy
-  of the node instead of leaving it alone.
-* **Mis-indented comment block**: `VarkaDifferentialSuite.scala:73-78` starts at column 0
-  inside a method body.
-* **`arrow.version` is hardcoded to 19.0.0** in `sql/varka/engine/pom.xml` and happens to
-  match the root pom today. It will drift silently the next time Spark bumps Arrow, and
-  the engine writes into Spark-allocated Arrow buffers, so a mismatch is not benign.
+  of the node instead of leaving it alone.~~ Fixed: the case binds the matched node and
+  returns it.
+* ~~**Mis-indented comment block**: `VarkaDifferentialSuite.scala:73-78` starts at
+  column 0 inside a method body.~~ Fixed: reflowed at the enclosing indentation.
+* ~~**`arrow.version` is hardcoded to 19.0.0** in `sql/varka/engine/pom.xml` and
+  happens to match the root pom today. It will drift silently the next time Spark bumps
+  Arrow, and the engine writes into Spark-allocated Arrow buffers, so a mismatch is not
+  benign.~~
+  Fixed as far as it can be: the engine has no parent pom to inherit the property from
+  (that is finding 4's design), so the value still has to be repeated, but it can no
+  longer drift silently. `dev/check_varka_arrow_version.py` compares the two poms and
+  fails with the value to change; the `install-varka-engine` CI action runs it before
+  building, so every job that needs the engine checks it, and the engine pom now says
+  what the value is coupled to.
 
 ## What is solid
 

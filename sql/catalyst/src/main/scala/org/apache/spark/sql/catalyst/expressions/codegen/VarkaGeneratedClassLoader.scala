@@ -25,6 +25,13 @@ import java.util.concurrent.ConcurrentHashMap
  * MVP share the same unload contract. The registry + `findClass` mirror Spark's
  * `InMemoryClassLoader` (CodeCompiler.scala), so callers can use `loadClass(name)` after
  * [[defineGeneratedClass]].
+ *
+ * The duplication with the engine's copy is deliberate, not an oversight waiting to be
+ * deduplicated: neither module can depend on the other. The engine is a standalone Maven
+ * module outside the Spark reactor, is only a test-scope dependency here, and at runtime is
+ * deployed externally (`--jars`) - so catalyst cannot compile against it - while the engine
+ * in turn cannot depend on catalyst. The two classes are therefore kept deliberately
+ * identical in behaviour, and a change to one belongs in the other.
  */
 private[sql] class VarkaGeneratedClassLoader(parent: ClassLoader) extends ClassLoader(parent) {
 
