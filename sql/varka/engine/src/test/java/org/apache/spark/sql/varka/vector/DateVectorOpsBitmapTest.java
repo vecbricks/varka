@@ -60,7 +60,7 @@ public class DateVectorOpsBitmapTest {
         MemorySegment bitmap = bitmapOf(arena, length);
         for (int width : LANE_WIDTHS) {
           for (long row = 0; row + width <= length; row += width) {
-            long actual = DateVectorOps.validityBitsAt(bitmap, row, width) & laneMask(width);
+            long actual = VarkaVectorSupport.validityBitsAt(bitmap, row, width) & laneMask(width);
             long expected = 0L;
             for (int lane = 0; lane < width; lane++) {
               if (isBitSet(bitmap, (int) row + lane)) {
@@ -89,8 +89,8 @@ public class DateVectorOpsBitmapTest {
           MemorySegment target = arena.allocate(bitmapBytes(length));
           long covered = (length / width) * (long) width;
           for (long row = 0; row + width <= length; row += width) {
-            long laneBits = DateVectorOps.validityBitsAt(source, row, width);
-            DateVectorOps.orValidityBitsAt(target, row, laneBits, width);
+            long laneBits = VarkaVectorSupport.validityBitsAt(source, row, width);
+            VarkaVectorSupport.orValidityBitsAt(target, row, laneBits, width);
           }
           for (int bit = 0; bit < covered; bit++) {
             assertEquals(isBitSet(source, bit), isBitSet(target, bit),
@@ -116,8 +116,8 @@ public class DateVectorOpsBitmapTest {
         for (int width : LANE_WIDTHS) {
           MemorySegment target = arena.allocate(bitmapBytes(length));
           for (long row = 0; row + width <= length; row += width) {
-            DateVectorOps.orValidityBitsAt(
-                target, row, DateVectorOps.validityBitsAt(source, row, width), width);
+            VarkaVectorSupport.orValidityBitsAt(
+                target, row, VarkaVectorSupport.validityBitsAt(source, row, width), width);
           }
           long covered = (length / width) * (long) width;
           for (int bit = 0; bit < covered; bit++) {

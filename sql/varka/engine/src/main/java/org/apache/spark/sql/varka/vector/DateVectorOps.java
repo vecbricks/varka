@@ -17,6 +17,13 @@
 
 package org.apache.spark.sql.varka.vector;
 
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.isBitSet;
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.ofAddress;
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.orValidityBitsAt;
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.setBit;
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.validityBitsAt;
+import static org.apache.spark.sql.varka.vector.VarkaVectorSupport.zero;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
@@ -50,8 +57,9 @@ import jdk.incubator.vector.VectorSpecies;
  *   <li><b>Return early on an empty batch.</b> There is nothing to write, and every step below
  *       assumes at least one row.</li>
  *   <li><b>Wrap each address at its nominal size</b> - {@code length * 4} bytes for data,
- *       {@code (length + 7) / 8} for a bitmap - with {@link #ofAddress}. That size is the only
- *       bounds check a kernel gets, because the caller hands over a bare {@code long}. Sizing a
+ *       {@code (length + 7) / 8} for a bitmap - with {@link VarkaVectorSupport#ofAddress}. That
+ *       size is the only bounds check a kernel gets, because the caller hands over a bare
+ *       {@code long}. Sizing a
  *       segment to whatever the underlying buffer happens to have allocated would turn reads
  *       past the end of the batch into silent successes.</li>
  *   <li><b>Zero the destination validity before any early return</b>, so that every path which
@@ -74,87 +82,16 @@ import jdk.incubator.vector.VectorSpecies;
  * <p>Three things are easy to get wrong and hard to see afterwards. The destination data of a
  * null row is undefined - never assert on it - because the masked store skips those lanes. Every
  * validity access has to be bounded by the lane group rather than by a machine word, or the
- * kernel reads past a short bitmap (see {@link #validityBitsAt}). And the lane count is a
- * property of the host, not a constant: it is 4 on aarch64 NEON and on x86 without AVX2, 8 on
+ * kernel reads past a short bitmap (see {@link VarkaVectorSupport#validityBitsAt}). And the
+ * lane count is a property of the host, not a constant: it is 4 on aarch64 NEON and on x86
+ * without AVX2, 8 on
  * AVX2 and 16 on AVX-512, so anything derived from it must be computed, never assumed.
  */
 public final class DateVectorOps {
 
   private static final VectorSpecies<Integer> SPECIES = IntVector.SPECIES_PREFERRED;
   private static final ByteOrder ORDER = ByteOrder.LITTLE_ENDIAN;
-  // Arrow validity buffers are not guaranteed to be aligned to the width they are read at, so
-  // every multi-byte validity access uses an unaligned layout to skip the alignment check.
-  private static final ValueLayout.OfShort UNALIGNED_SHORT = ValueLayout.JAVA_SHORT_UNALIGNED;
-  private static final ValueLayout.OfInt UNALIGNED_INT = ValueLayout.JAVA_INT_UNALIGNED;
-  private static final ValueLayout.OfLong UNALIGNED_LONG = ValueLayout.JAVA_LONG_UNALIGNED;
-
   private DateVectorOps() {}
-
-  /**
-   * The number of bitmap bytes a {@code lanes}-wide group occupies. A group starts on a byte
-   * boundary once the species is 8 lanes or wider, so it spans exactly {@code lanes / 8} bytes;
-   * a narrower group (4 lanes on aarch64 NEON and on x86 without AVX2, and the 1- and 2-lane
-   * widths the Vector API admits) starts mid-byte but still fits inside a single one.
-   *
-   * <p>A species length is always a power of two, so this is always 1, 2, 4 or 8; the helpers
-   * below reject anything else rather than over-reading the bitmap on a width they cannot map.
-   */
-  private static int groupBytes(int lanes) {
-    return Math.max(1, lanes / 8);
-  }
-
-  /** A mask of the low {@code lanes} bits. */
-  private static long laneMask(int lanes) {
-    return lanes >= 64 ? -1L : (1L << lanes) - 1;
-  }
-
-  /**
-   * The validity bits for the {@code lanes}-wide group starting at row {@code row}, shifted so
-   * that lane 0 is bit 0. {@link VectorMask#fromLong} reads only the lowest {@code lanes} bits,
-   * so the group's first lane must be moved to bit 0 before the mask is built.
-   *
-   * <p>Only the {@link #groupBytes} bytes the group itself occupies are read, at byte
-   * {@code row / 8} - never a fixed 64-bit word. That is what lets the vector loop run to
-   * {@code SPECIES.loopBound(length)} over a nominally sized {@code (length + 7) / 8}-byte
-   * bitmap: a group whose rows are all below {@code length} can only touch bytes below
-   * {@code (length + 7) / 8}. Addressing a whole word instead would read past the end of the
-   * bitmap near it, which is why this used to need a word-alignment bound and left every batch
-   * under 57 rows to the scalar path.
-   */
-  static long validityBitsAt(MemorySegment validity, long row, int lanes) {
-    long byteOffset = row / 8;
-    long bits = switch (groupBytes(lanes)) {
-      case 1 -> validity.get(ValueLayout.JAVA_BYTE, byteOffset) & 0xFFL;
-      case 2 -> validity.get(UNALIGNED_SHORT, byteOffset) & 0xFFFFL;
-      case 4 -> validity.get(UNALIGNED_INT, byteOffset) & 0xFFFFFFFFL;
-      case 8 -> validity.get(UNALIGNED_LONG, byteOffset);
-      default -> throw new IllegalArgumentException("Unsupported lane width " + lanes);
-    };
-    // Zero for every width of 8 lanes or more, where the group is already byte-aligned.
-    return bits >>> (row % 8);
-  }
-
-  /**
-   * ORs {@code laneBits} (lane 0 == row {@code row}) into the bit-packed validity at {@code row},
-   * the inverse of {@link #validityBitsAt}. Only the lowest {@code lanes} bits are used, and only
-   * the bytes that group occupies are touched, so ORing every group of a bitmap in turn sets
-   * exactly the rows those groups cover.
-   */
-  static void orValidityBitsAt(MemorySegment validity, long row, long laneBits, int lanes) {
-    long byteOffset = row / 8;
-    long bits = (laneBits & laneMask(lanes)) << (row % 8);
-    switch (groupBytes(lanes)) {
-      case 1 -> validity.set(ValueLayout.JAVA_BYTE, byteOffset,
-          (byte) (validity.get(ValueLayout.JAVA_BYTE, byteOffset) | bits));
-      case 2 -> validity.set(UNALIGNED_SHORT, byteOffset,
-          (short) (validity.get(UNALIGNED_SHORT, byteOffset) | bits));
-      case 4 -> validity.set(UNALIGNED_INT, byteOffset,
-          (int) (validity.get(UNALIGNED_INT, byteOffset) | bits));
-      case 8 -> validity.set(UNALIGNED_LONG, byteOffset,
-          validity.get(UNALIGNED_LONG, byteOffset) | bits);
-      default -> throw new IllegalArgumentException("Unsupported lane width " + lanes);
-    }
-  }
 
   /**
    * dst[i] = src[i] + daysOffset; dst null iff src null.
@@ -308,38 +245,4 @@ public final class DateVectorOps {
     }
   }
 
-  /**
-   * Whether row {@code i} is valid. The scalar tail's counterpart to {@link #validityBitsAt}:
-   * one row, so one byte, and no lane-width arithmetic to get right.
-   */
-  private static boolean isBitSet(MemorySegment validity, int i) {
-    return (validity.get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0;
-  }
-
-  /**
-   * Marks row {@code i} valid. The scalar tail's counterpart to {@link #orValidityBitsAt}, and
-   * likewise an OR: it can only add validity, never clear a bit a previous row set in this byte.
-   */
-  private static void setBit(MemorySegment validity, int i) {
-    long off = i / 8L;
-    validity.set(ValueLayout.JAVA_BYTE, off,
-        (byte) (validity.get(ValueLayout.JAVA_BYTE, off) | (1 << (i % 8))));
-  }
-
-  /**
-   * Clears a destination validity bitmap. Every kernel calls this before writing anything,
-   * because both loops only OR bits in: a row nobody writes has to already read as null.
-   */
-  private static void zero(MemorySegment seg) {
-    seg.fill((byte) 0);
-  }
-
-  /**
-   * Maps a raw address as a segment of exactly {@code bytes} bytes. The size is the whole point:
-   * the caller passes a bare {@code long}, so this is where a kernel says how far it is entitled
-   * to read, and the {@link MemorySegment} bounds check enforces it from there on.
-   */
-  private static MemorySegment ofAddress(long addr, long bytes) {
-    return MemorySegment.ofAddress(addr).reinterpret(bytes);
-  }
 }

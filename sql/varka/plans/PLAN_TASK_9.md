@@ -1,8 +1,9 @@
 # Task 9: the IR + emitter spike
 
-**Status: PLANNED.** See `PLAN_MILESTONE_2.md` for the milestone this task
-opens. This file is the plan; on completion it is updated with what was actually
-built, the measurement tables, and any deviations - the milestone 1 convention.
+**Status: DONE.** See `PLAN_MILESTONE_2.md` for the milestone this task opens.
+Sections 1-4 are the plan as written before implementation; section 5 records
+what was built, the measurements behind both gates, the deviations, and the
+decision the milestone deferred to this task.
 
 ## 1. Why this task exists, and why first
 
@@ -178,8 +179,8 @@ species stopped being a JIT constant), and do not build task 10 on top.
 ./build/mvn -f sql/varka/engine/pom.xml test -Dvarka.jmh=true
 build/sbt "catalyst/testOnly *VarkaLoopEmitterSuite *ClassFileCodegenSupportSuite \
   *VarkaGeneratedClassLoaderSuite *JavaClassFileEngineSuite"
-build/sbt 'set catalyst/Test/javaOptions += "-XX:MaxVectorSize=16"' \
-  "catalyst/testOnly *VarkaLoopEmitterSuite"
+build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' \
+  "testOnly *VarkaLoopEmitterSuite"
 SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt \
   "catalyst/Test/runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
 build/sbt "sql/testOnly *Varka*"        # helper promotion changed nothing downstream
@@ -192,3 +193,82 @@ Catalyst-to-IR compilation, any rule or evaluator wiring, DAG interning,
 predication, partial eligibility, multi-output, telemetry attributes, the
 `lazy val` drive-by - tasks 10 to 15. The diff should review as: one engine
 refactor, four new catalyst files, one suite, one benchmark, two docs.
+
+## 5. Outcome
+
+Everything in section 2 exists as planned; the differences are listed under
+deviations. `VarkaLoopEmitterSuite` runs 6 tests green at the preferred width
+and again under `-XX:MaxVectorSize=16`; the engine suite stays green (28 tests,
+both executions) after the helper promotion, and the sql/core Varka suites are
+unchanged.
+
+### 5.1 The intrinsification gate: passed at both widths
+
+`VarkaEmitterParityBenchmark`, 1M rows, best-time throughput in M rows/s
+(AMD Ryzen AI 9 HX PRO 370, JDK 25.0.3, `performance` governor; committed
+results file for the preferred width, this table for both):
+
+| case | hand-written kernel | emitted loop | ratio |
+| :--- | ---: | ---: | ---: |
+| 16 lanes, null-free | 5564 | 6270 | 1.13x |
+| 16 lanes, mixed nulls | 4659 | 8183 | 1.76x |
+| 4 lanes, null-free | 1827 | 1954 | 1.07x |
+| 4 lanes, mixed nulls | 1386 | 2400 | 1.73x |
+
+The acceptance was 0.9x; every case clears 1.0x, so C2 intrinsified the emitted
+Vector API calls at both widths. That the emitted loop *beats* the hand-written
+kernel on mixed nulls was not predicted. The likely mechanism - a hypothesis,
+not a measurement: each emitted class is its own compilation unit with clean
+branch profiles, while `DateVectorOps.vectorAddDays` is one method serving every
+caller in the process, so its `hasNulls` branches carry mixed profiles. If real,
+that is an argument for per-shape generated code beyond fusion itself.
+
+### 5.2 The fusion preview and the chain-depth cap
+
+Fused chain vs the same chain as sequential kernel passes, 1M mixed-null rows,
+M rows/s:
+
+| depth | fused (16 lanes) | sequential (16) | fused (4 lanes) | sequential (4) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 7895 | 4570 | 2545 | 1408 |
+| 2 | 7969 | 2257 | 2470 | 663 |
+| 4 | 7670 | 628 | 2472 | 299 |
+| 8 | 7152 | 230 | 2376 | 151 |
+| 16 | 5583 | 123 | 1842 | 74 |
+
+Fused throughput is nearly flat with depth; sequential passes collapse linearly,
+exactly as the bandwidth argument predicts (each pass re-reads and re-writes the
+batch). At depth 16 the fused loop is 45x the sequential passes. No spill cliff
+appears at either width through depth 16 - the roughly 30% decline is the one
+live broadcast register each literal adds - so `MAX_CHAIN_DEPTH = 16` stands,
+bounding method size and register pressure by policy rather than marking a
+performance edge.
+
+### 5.3 Deviations from the plan
+
+* `ofAddress` was promoted along with the seven planned helpers: generated code
+  then makes one `invokestatic` instead of an interface-static call plus an
+  `invokeinterface`, and the descriptor table loses an entry.
+* `ClassFile.verify` also trips Scala 2.13's cyclic-reference bug on the
+  Class-File API's sealed hierarchy (the bug `ClassFileAssembler` documents), so
+  the suite calls it through a small Java shim, `VarkaEmitterTestSupport`.
+* The four-lane run needs `build/sbt "project catalyst" 'set Test/javaOptions
+  += ...'`; the single-command `set catalyst/Test/javaOptions` form cannot
+  resolve pom-reader project ids inside a `set` expression.
+* The sabotaged-descriptor control surfaces as a `NoSuchMethodError` naming
+  `IntVector.add` on first execution - member resolution is link-time work, so
+  the class still passes `ClassFile.verify`, and the suite pins both halves of
+  that.
+* The unload test needed the loader suite's `var loader = ...; loader = null`
+  pattern; a block-scoped `val` kept the frame slot alive through the GC loop.
+
+### 5.4 The deferred decision: the `VarkaProjection` shell
+
+Recommendation: delete `JavaClassFileEngine` / `ClassFileAssembler` and their
+suites in a small follow-up PR. The emitter now demonstrates the real thing the
+shell only gestured at - Class-File-API-generated compute - while the shell's
+`apply` remains a stub that throws, unrouted since the compile-funnel routing
+was removed. A milestone-3 row-path generator, if it happens, would be built on
+the emitter and the IR, not on the shell. Not deleted in this task's diff, per
+the milestone plan: recorded here, to be executed once the milestone owner
+agrees.

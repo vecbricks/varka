@@ -1,0 +1,34 @@
+================================================================================================
+single op: emitted loop vs hand-written kernel
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+date_add over 1000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+hand-written kernel, null-free                        0              0           0       5563.7           0.2       1.0X
+emitted loop, null-free                               0              0           0       6269.7           0.2       1.1X
+hand-written kernel, mixed nulls                      0              0           0       4658.9           0.2       0.8X
+emitted loop, mixed nulls                             0              0           0       8182.8           0.1       1.5X
+
+
+================================================================================================
+fused chain vs sequential kernel passes
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+chain over 1000000 rows, mixed nulls:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+fused, depth 1                                        0              0           0       7894.7           0.1       1.0X
+sequential kernels, depth 1                           0              0           0       4570.2           0.2       0.6X
+fused, depth 2                                        0              0           0       7969.1           0.1       1.0X
+sequential kernels, depth 2                           0              1           0       2257.2           0.4       0.3X
+fused, depth 4                                        0              0           0       7670.2           0.1       1.0X
+sequential kernels, depth 4                           2              2           0        628.3           1.6       0.1X
+fused, depth 8                                        0              0           0       7152.0           0.1       0.9X
+sequential kernels, depth 8                           4              5           1        229.8           4.4       0.0X
+fused, depth 16                                       0              0           0       5583.3           0.2       0.7X
+sequential kernels, depth 16                          8              9           0        123.0           8.1       0.0X
+
+
