@@ -1509,7 +1509,12 @@ object VarkaEngine {
     // The module has no Scala, and no parent pom to name a Scala version, so sbt-pom-reader
     // falls back to its own default. Keep it on the version the rest of the build uses, so it
     // does not pull a second scala-library onto catalyst's classpath.
-    scalaVersion := (LocalProject("catalyst") / scalaVersion).value
+    scalaVersion := (LocalProject("catalyst") / scalaVersion).value,
+    // `dev/mima` runs `mimaReportBinaryIssues` over the whole build, and the task fails a
+    // project that has no previous artifact to compare against unless told otherwise.
+    // `sharedSettings` turns this off for every other module; the engine is not in that list,
+    // and it publishes nothing that a previous release could be checked against.
+    MimaKeys.mimaFailOnNoPrevious := false
   )
 }
 
