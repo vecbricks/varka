@@ -5,6 +5,10 @@ tasks 1-8) is in `PLAN_MILESTONE_1.md`; `VISION.md` remains the architectural
 source of truth. Per-task detail will live in `PLAN_TASK_9.md` onward, each
 committed with the task it describes.
 
+The work depends on the columnar-write split (`VarkaProjectExec`,
+`VarkaKernelEvaluator`) landing first: several files this plan changes exist
+only on that branch, so milestone 2 branches from master after it merges.
+
 ## 1. Why
 
 Milestone 1 shipped a working vertical slice: three hand-written SIMD kernels in
@@ -33,51 +37,73 @@ emits a class whose `run` pushes its parameters and does one `invokestatic` into
   is the flat "mixed projection" row in the committed throughput results.
 
 Milestone 2 closes those three. The hand-written kernels stay as the reference
-semantics and the per-batch fallback. Scope is int32 date ops; wider species
-(Long, Double), aggregation, filters and joins are milestone 3.
+semantics and the per-batch fallback. Scope is int32 date ops. Deliberately
+deferred to milestone 3: wider species (Long, Double), aggregation, filters,
+joins, cross-task caching of assembled classes (see 2.6), and 64-byte buffer
+alignment (today observed but not enforced - `VarkaMorsel.reportAlignment`
+regularly prints `cacheLineAligned=false`). The 64 KB method limit is addressed
+by neither milestone: nothing here generates the whole-stage class.
 
 ## 2. Design
 
 ### 2.1 A vector IR, in Java, built from Catalyst
 
 `sealed interface VarkaVectorIR` with records `ColumnRef(int ordinal)`,
-`IntLiteral(int value)`, `AddDays(node, node)`, `SubDays(node, node)`,
+`LiteralSlot(int index)`, `AddDays(node, node)`, `SubDays(node, node)`,
 `DateDiff(node, node)`. Java, so the emitter can pattern-match records;
 constructed from bound Catalyst expressions by a Scala
 `VarkaExpressionCompiler`, which replaces the flat `VarkaKernelEvaluator.outputOp`
-matcher and recurses instead of demanding bare attributes. Literal folding keeps
-using `DateVarkaSupport.foldDaysOffset`, so eligibility cannot drift from what
-the rule matched on.
+matcher and recurses instead of demanding bare attributes.
+
+Literal values never enter the IR. Folding a literal (via
+`DateVarkaSupport.foldDaysOffset`, so eligibility cannot drift from what the
+rule matched on) assigns it a slot in a per-chain argument table, and the
+generated code reads it from the `scalarArgs` parameter at run time - exactly as
+`daysOffset` is a runtime argument of today's dispatchers, and for the same
+reason: one generated class serves every literal a query might use, and a
+chain's identity is its shape, not its constants. That identity is also what
+milestone 3's cache will key on, so this is decided now even though the cache is
+not built now.
 
 ### 2.2 An emitter that writes the loop
 
-`VarkaLoopEmitter` (Java, Class-File API) turns a list of output IR nodes into
-one class implementing a single new shape:
+`VarkaLoopEmitter` (Java, Class-File API) turns a list of output IR nodes plus
+the argument table into one class implementing a single new shape:
 
 ```java
 public interface VarkaFusedKernel {
   void run(long[] srcData, long[] srcValidity, int[] srcNullCount,
-           long[] dstData, long[] dstValidity, int length);
+           long[] dstData, long[] dstValidity, int[] scalarArgs, int length);
 }
 ```
 
-Arrays are unpacked into locals at method entry and never indexed inside the
-loop (loop-invariant code motion, as the design notes require). Per lane group
-the generated body builds each referenced column's mask once and ANDs them for
-null-intolerant ops; loads each referenced column once with
+The arrays are primitive and are unpacked into locals at method entry, never
+indexed inside the loop (loop-invariant code motion, as the design notes
+require); the caller reuses the arrays across batches, so nothing is allocated
+per call. Per lane group the generated body builds each referenced column's mask
+once and ANDs them for null-intolerant ops (all three milestone-2 ops are);
+loads each referenced column once with
 `IntVector.fromMemorySegment(SPECIES, seg, off, ORDER, mask)`; applies the op
 chain leaving intermediates on the operand stack; stores once per output column;
 and ORs the mask into that output's validity. A scalar tail then mirrors the
-chain row for row. `IntVector.SPECIES_PREFERRED` is read with `getstatic` so it
-stays a JIT constant, which is what lets C2 intrinsify the calls.
+chain row for row.
+
+Two emitter invariants, stated because getting them wrong is silent: every
+output's validity buffer is zeroed before the loop, unconditionally - with
+multiple inputs the all-null shortcut is per *output*, not per kernel, and a
+skipped output must still read as all-null; and `IntVector.SPECIES_PREFERRED`
+is read with `getstatic` so it stays a JIT constant, which is what lets C2
+intrinsify the calls.
 
 ### 2.3 Runtime support stays in the engine
 
-Promote `DateVectorOps`' package-private `validityBitsAt`, `orValidityBitsAt`,
-`laneMask` and `groupBytes` into a public `VarkaVectorSupport` in the same
-module, which generated code calls by name the way it already calls
-`DateVectorOps`. Static calls on a final class are monomorphic and inline;
-emitting that bit math inline would triple the generated bytecode for no gain.
+Promote `DateVectorOps`' package-private helpers into a public
+`VarkaVectorSupport` in the same module: `validityBitsAt`, `orValidityBitsAt`,
+`laneMask`, `groupBytes`, plus `zero` (the pre-loop validity clear) and
+`isBitSet` / `setBit` (the scalar tail's counterparts). Generated code calls
+them by name, the way it already calls `DateVectorOps`; `DateVectorOps` keeps
+using them. Static calls on a final class are monomorphic and inline; emitting
+that bit math inline would triple the generated bytecode for no gain.
 
 ### 2.4 The obvious alternative, and why it is a trap
 
@@ -97,20 +123,38 @@ loop, plain `AttributeReference`s forwarded as the input's own `ColumnVector`
 machinery the columnar-write change already added (`RowToColumnConverter`,
 `OnHeapColumnVector` / `OffHeapColumnVector`).
 
-Two consequences. Forwarded vectors alias the input batch, which the
-producer-owns convention allows but which needs its own lifetime test. And with
-a batch assembled whenever at least one column is eligible,
-`VarkaColumnarToRowExec` becomes "build the batch, then convert" - except when
-the input is not Arrow-backed at all, where it keeps today's straight per-row
-projection.
+Batch ownership needs an explicit design here, because
+`ColumnarBatch.close()` closes every column unconditionally: an output batch
+holding forwarded input vectors must not close them - that would free the input
+producer's buffers out from under it. The output batch therefore closes only the
+vectors it owns (kernel outputs and fallback vectors), with forwarded columns
+either wrapped in a non-owning view or tracked on an owned-columns list. This
+gets its own lifetime test, on both the drained and the abandoned-iterator
+paths.
 
-### 2.6 Cross-task cache of assembled bytes
+For the row-output node the escape hatch is a measured decision, not a default.
+Today a mixed projection under `VarkaColumnarToRowExec` is one per-row pass;
+naively applying the batch assembly gives the residual columns per-row
+evaluation *into a vector* and then a read back out to rows - an extra
+materialisation for exactly the columns that gained nothing. Task 11 therefore
+benchmarks "mixed projection, row consumer" and either evaluates residual
+expressions directly during the row conversion or keeps the batch assembly,
+whichever measures better. The columnar node has no such choice; it must
+materialise.
 
-Keyed on the chain signature (IR shape, input ordinals, output types), never on
-the literals - those stay runtime arguments, as `daysOffset` already is. The
-cache holds `byte[]`, not `Class`: defining is cheap, assembling is the ~13 us
-the Gen-time benchmark measures, and caching loaded classes would defeat the
-per-task loader's Metaspace guarantee.
+### 2.6 Caching is milestone 3
+
+Milestone 2 keeps the MVP's model: assembled per task, ~13 us per class (the
+Gen-time benchmark's number), unloaded with the task. A cross-task cache of
+assembled bytes - keyed on the chain signature that 2.1's literal slots make
+well-defined - moves to milestone 3, for two reasons. It is pure amortisation
+with no correctness content, so it dilutes a milestone whose risk is the
+emitter. And it collides with this milestone's telemetry: 2.7 bakes the operator
+and stage into the class bytes, which byte-level caching would either defeat
+(stage in the key) or falsify (a cached class reporting another query's stage).
+Milestone 3 has to reconcile the two - most likely by patching or externalising
+the debug attributes on cache hits - and that reconciliation is part of the
+cache's design, not something to bolt on here.
 
 ### 2.7 Telemetry
 
@@ -126,13 +170,12 @@ Numbering continues from milestone 1, whose last task was 8.
 
 | # | Task | Deliverable | Validation |
 | :--- | :--- | :--- | :--- |
-| 9 | **IR + emitter spike** | `VarkaVectorIR`, `VarkaLoopEmitter`, `VarkaFusedKernel`, `VarkaVectorSupport`; single op, single output | Generated class verifies and matches `DateVectorOps` row for row; the intrinsification gate below |
-| 10 | Chains and mask algebra | Recursive `VarkaExpressionCompiler`; nested ops; mask AND across inputs; scalar tail mirrors the chain | Differential vs Janino over a nested-expression matrix; null, all-null and empty batches |
-| 11 | Multi-output, passthrough, escape hatch | Partial eligibility in `VarkaColumnarRule` and both exec nodes | Plan tests on both sides of the fork; the mixed projection is fused; batch-lifetime test for forwarded vectors |
-| 12 | Assembled-bytes cache | Chain-signature cache in `VarkaClassFileGen` | Assembly count per JVM asserted (the `assemblyAttempts` counter pattern already exists) |
-| 13 | Telemetry | `SourceFileAttribute` and the `VarkaDebugInfo` attribute plus its reader | Round-trip test: parse the attribute back off a generated class |
-| 14 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested and mixed projections; regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file | Committed results show the chain speedup |
-| 15 | Drive-by | `fallbackProjection` becomes a `lazy val` in both Varka evaluators | A kernel-only task compiles no Janino projection |
+| 9 | **IR + emitter spike** | `VarkaVectorIR`, `VarkaLoopEmitter`, `VarkaFusedKernel`, `VarkaVectorSupport`; single op, single output | Generated class verifies and matches `DateVectorOps` row for row; the intrinsification gate below; the chain-depth cap measured and fixed as a number |
+| 10 | Chains and mask algebra | Recursive `VarkaExpressionCompiler`; nested ops; mask AND across inputs; scalar tail mirrors the chain | Differential vs Janino over a nested-expression matrix; null, all-null and empty batches; the fusion gate below |
+| 11 | Multi-output, passthrough, escape hatch | Partial eligibility in `VarkaColumnarRule` and both exec nodes; owned-columns batch release | Plan tests on both sides of the fork; the mixed projection is fused; lifetime tests for forwarded vectors (drained and abandoned); the row-node escape-hatch decision, benchmarked |
+| 12 | Telemetry | `SourceFileAttribute` and the `VarkaDebugInfo` attribute plus its reader | Round-trip test: parse the attribute back off a generated class |
+| 13 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested and mixed projections; regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file | Committed results show the chain speedup |
+| 14 | Drive-by | `fallbackProjection` becomes a `lazy val` in both Varka evaluators | A kernel-only task compiles no Janino projection |
 
 Task 9 carries the milestone's real risk, so it ships first and alone.
 
@@ -143,12 +186,19 @@ Task 9 carries the milestone's real risk, so it ships first and alone.
 * **New (catalyst, Scala):** `expressions/codegen/VarkaExpressionCompiler.scala`.
 * **New (engine):** `vector/VarkaVectorSupport.java`, holding the helpers
   promoted from `DateVectorOps`, which keeps using them.
-* **Changed:** `ClassFileCodegenSupport.scala` (`eligibleOps` recursion, the
-  cache, `kernelInterface` gains the fused shape); `datetimeExpressions.scala`
-  (`isClassFileGenEligible` recurses); `VarkaKernelEvaluator.scala` (drives the
-  fused kernel; `OutputOp` gives way to the IR); `VarkaProjectExec.scala` and
+* **Changed:** `ClassFileCodegenSupport.scala` (`kernelInterface` gains the
+  fused shape); `VarkaKernelEvaluator.scala` (drives the fused kernel;
+  `OutputOp` gives way to the IR); `VarkaProjectExec.scala` and
   `VarkaColumnarToRowExec.scala` (multi-source batch assembly);
-  `VarkaColumnarRule.scala` (partial eligibility).
+  `VarkaColumnarRule.scala` (partial eligibility, via a *new* recursive
+  eligibility check owned by the rule and the IR compiler).
+* **Deliberately unchanged:** the expressions' `isClassFileGenEligible` and its
+  genCode-time registration. Those feed the Janino compile-cache key
+  (`CodeAndComment.classFileGenOps` is in `equals`/`hashCode`,
+  `CodeGenerator.scala:1465-1472`, populated via
+  `CodegenContext.isClassFileGenEligible` at `:163`), so widening them would
+  change cache-key shape for every query containing these expressions, Varka on
+  or off. Recursion lives in the new check instead.
 
 ## 5. Verification
 
@@ -164,11 +214,14 @@ build/sbt "sql/scalastyle" "sql/Test/scalastyle" && dev/lint-java
 Two gates decide whether the milestone works at all:
 
 * **Intrinsification gate (task 9).** The generated single-op loop must reach the
-  hand-written `DateVectorOps` kernel's JMH throughput within noise. If it lands
-  3x to 5x slower, C2 did not intrinsify the emitted Vector API calls and the
-  emitter is wrong, most likely because the species stopped being a JIT
-  constant. Check with `-XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics`
-  before changing anything else.
+  hand-written `DateVectorOps` kernel's JMH throughput within noise - at the
+  host's preferred width *and* under `-XX:MaxVectorSize=16`, the four-lane shape
+  the engine's narrow-vector run already pins (milestone 1's finding 1 is the
+  reason: the narrow shape is where bugs hide). If it lands 3x to 5x slower, C2
+  did not intrinsify the emitted Vector API calls and the emitter is wrong, most
+  likely because the species stopped being a JIT constant. Check with
+  `-XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics` before changing anything
+  else.
 * **Fusion gate (task 10).** A two-op chain over 1M rows must beat two separate
   kernel passes by clearly more than noise, since the point is one less write
   and read of an intermediate.
@@ -187,10 +240,8 @@ confirm the new tests fail for the stated reason.
   tests must assert the kernel path *ran* rather than only that results were
   right. `numVarkaBatches` already exists for that.
 * Register pressure on long chains. Date chains are shallow, but the emitter
-  should cap chain depth and fall back rather than spill.
-* The 64 KB method limit is not a concern at this size, and this milestone does
-  not address it: neither milestone 1 nor 2 generates the whole-stage class.
-  `VISION.md` should say so, so that the limit is not read as solved.
+  caps chain depth and falls back rather than spills; the cap is a concrete
+  number measured in task 9, not a guess.
 
 ## 7. Open question, to settle in task 9
 
