@@ -1,0 +1,47 @@
+================================================================================================
+DateVectorOps kernels (JMH)
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+JMH 1.37, throughput mode, forks=0 (in-process, on the surefire JVM), 1 thread,
+2 x 500 ms warmup, 3 x 500 ms measurement. Higher is better.
+Run: ./build/mvn -f sql/varka/engine/pom.xml test -Dvarka.jmh=true
+
+Benchmark                              (nullPattern)   (size)   Mode  Cnt      Score       Error   Units
+DateVectorOpsBenchmark.scalarAddDays       NULL_FREE       32  thrpt    3  32430.035 ±  9570.555  ops/ms
+DateVectorOpsBenchmark.scalarAddDays       NULL_FREE    10000  thrpt    3    141.770 ±     6.321  ops/ms
+DateVectorOpsBenchmark.scalarAddDays       NULL_FREE  1000000  thrpt    3      1.371 ±     1.118  ops/ms
+DateVectorOpsBenchmark.scalarAddDays      MIXED_NULL       32  thrpt    3  14500.658 ±  1201.158  ops/ms
+DateVectorOpsBenchmark.scalarAddDays      MIXED_NULL    10000  thrpt    3     48.922 ±     4.447  ops/ms
+DateVectorOpsBenchmark.scalarAddDays      MIXED_NULL  1000000  thrpt    3      0.462 ±     0.695  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff      NULL_FREE       32  thrpt    3  28771.066 ± 44362.858  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff      NULL_FREE    10000  thrpt    3    142.757 ±     5.973  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff      NULL_FREE  1000000  thrpt    3      1.405 ±     0.016  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff     MIXED_NULL       32  thrpt    3   8774.381 ±   628.577  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff     MIXED_NULL    10000  thrpt    3     30.090 ±     0.804  ops/ms
+DateVectorOpsBenchmark.scalarDateDiff     MIXED_NULL  1000000  thrpt    3      0.253 ±     0.095  ops/ms
+DateVectorOpsBenchmark.scalarSubDays       NULL_FREE       32  thrpt    3  35036.905 ±   552.888  ops/ms
+DateVectorOpsBenchmark.scalarSubDays       NULL_FREE    10000  thrpt    3    153.124 ±     0.985  ops/ms
+DateVectorOpsBenchmark.scalarSubDays       NULL_FREE  1000000  thrpt    3      1.529 ±     0.086  ops/ms
+DateVectorOpsBenchmark.scalarSubDays      MIXED_NULL       32  thrpt    3   9255.586 ±  2568.775  ops/ms
+DateVectorOpsBenchmark.scalarSubDays      MIXED_NULL    10000  thrpt    3     32.466 ±     0.206  ops/ms
+DateVectorOpsBenchmark.scalarSubDays      MIXED_NULL  1000000  thrpt    3      0.325 ±     0.042  ops/ms
+DateVectorOpsBenchmark.vectorAddDays       NULL_FREE       32  thrpt    3  72319.905 ± 26379.089  ops/ms
+DateVectorOpsBenchmark.vectorAddDays       NULL_FREE    10000  thrpt    3    424.227 ±     3.581  ops/ms
+DateVectorOpsBenchmark.vectorAddDays       NULL_FREE  1000000  thrpt    3      3.965 ±     0.087  ops/ms
+DateVectorOpsBenchmark.vectorAddDays      MIXED_NULL       32  thrpt    3  64027.669 ±  1077.943  ops/ms
+DateVectorOpsBenchmark.vectorAddDays      MIXED_NULL    10000  thrpt    3    421.837 ±    97.683  ops/ms
+DateVectorOpsBenchmark.vectorAddDays      MIXED_NULL  1000000  thrpt    3      3.925 ±     0.183  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff      NULL_FREE       32  thrpt    3  75149.198 ±  5093.485  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff      NULL_FREE    10000  thrpt    3    430.754 ±   146.433  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff      NULL_FREE  1000000  thrpt    3      3.303 ±     0.477  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff     MIXED_NULL       32  thrpt    3  57079.835 ±  4589.646  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff     MIXED_NULL    10000  thrpt    3    344.656 ±    53.146  ops/ms
+DateVectorOpsBenchmark.vectorDateDiff     MIXED_NULL  1000000  thrpt    3      2.596 ±     1.221  ops/ms
+DateVectorOpsBenchmark.vectorSubDays       NULL_FREE       32  thrpt    3  76110.095 ±  9173.342  ops/ms
+DateVectorOpsBenchmark.vectorSubDays       NULL_FREE    10000  thrpt    3    420.680 ±    20.805  ops/ms
+DateVectorOpsBenchmark.vectorSubDays       NULL_FREE  1000000  thrpt    3      4.198 ±     0.173  ops/ms
+DateVectorOpsBenchmark.vectorSubDays      MIXED_NULL       32  thrpt    3  63538.002 ± 15790.559  ops/ms
+DateVectorOpsBenchmark.vectorSubDays      MIXED_NULL    10000  thrpt    3    419.257 ±    24.612  ops/ms
+DateVectorOpsBenchmark.vectorSubDays      MIXED_NULL  1000000  thrpt    3      3.844 ±     4.227  ops/ms

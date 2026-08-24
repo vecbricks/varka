@@ -35,7 +35,16 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  *
  * The cache serializer is resolved process-wide on first use, so this benchmark manages its own
  * sessions (two Arrow-backed sessions on a shared context: a baseline without the Varka rule and
- * a fused varka session) and stops the inherited `SqlBasedBenchmark` session first.
+ * a fused varka session) and stops the inherited `SqlBasedBenchmark` session first. The active
+ * and default session are cleared around each `getOrCreate`, without which the second call
+ * returns the first session with the Varka config applied to it - two names for one session, and
+ * a "baseline" that is not one.
+ *
+ * Every case writes to `noop`, and `noop` accepts columnar batches, so the varka cases hand the
+ * kernels' own Arrow batches to the sink through
+ * [[org.apache.spark.sql.execution.VarkaProjectExec]] - no columnar-to-row conversion is inside
+ * the measurement. The baseline writes rows, as it must, and so does the mixed projection on both
+ * sides: it is not Varka-eligible, so nothing about it changes.
  *
  * To run this benchmark:
  * {{{
@@ -76,6 +85,9 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         |from range(0, 2000000)""".stripMargin)
       .createOrReplaceTempView("varka_dates")
     session.catalog.cacheTable("varka_dates")
+    // `cacheTable` is lazy, and the first case measured would otherwise pay for building the
+    // whole 2M-row Arrow cache.
+    session.sql("select count(*) from varka_dates").collect()
   }
 
   private def cacheDatePairs(session: SparkSession): Unit = {
@@ -86,6 +98,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         |from range(0, 2000000)""".stripMargin)
       .createOrReplaceTempView("varka_date_pairs")
     session.catalog.cacheTable("varka_date_pairs")
+    session.sql("select count(*) from varka_date_pairs").collect()
   }
 
   private def runQueries(
@@ -114,7 +127,12 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
     SparkSession.clearDefaultSession()
 
     val baseline = createSession("VarkaThroughputTrace-baseline", varkaEnabled = false)
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
     val varka = createSession("VarkaThroughputTrace-varka", varkaEnabled = true)
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
+    require(baseline ne varka, "the two sessions must be distinct or there is no baseline")
     try {
       cacheDates(baseline)
       cacheDates(varka)

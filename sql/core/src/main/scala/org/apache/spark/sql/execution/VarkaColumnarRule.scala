@@ -23,19 +23,51 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * Varka plan-level fusion (Task 6). When `spark.sql.codegen.varka.enabled` is set, rewrites a
- * fully Varka-eligible projection sitting directly above a columnar source into a
- * [[VarkaColumnarToRowExec]] so the projection runs the SIMD kernels over the Arrow
- * `DateDayVector` buffers instead of per-row codegen. A columnar-to-row transition above the
- * source is absorbed (the node consumes the columnar child directly); a dual-mode source that
- * currently feeds rows is switched to its columnar output. Projections that are not fully
- * eligible are left untouched.
+ * Varka plan-level fusion (Task 6). When `spark.sql.codegen.varka.enabled` is set, a fully
+ * Varka-eligible projection sitting above a columnar source runs the SIMD kernels over the Arrow
+ * `DateDayVector` buffers instead of per-row codegen. A dual-mode source that currently feeds
+ * rows is switched to its columnar output; projections that are not fully eligible are left
+ * untouched.
+ *
+ * The rewrite happens in two stages, on either side of the transition insertion that
+ * [[ApplyColumnarRulesAndInsertTransitions]] does between them, because which of the two Varka
+ * nodes belongs in the plan depends on what the consumer above the projection wants:
+ *
+ *  - before transitions, the projection becomes a [[VarkaProjectExec]], which is columnar in and
+ *    columnar out. Spark then treats it like any other columnar node: a consumer that takes
+ *    batches - a DSv2 write whose connector declares `supportsColumnarWrite` - gets the kernels'
+ *    output batches directly, with no transition at all;
+ *  - after transitions, a to-row transition that did get inserted above such a node is fused with
+ *    it into a [[VarkaColumnarToRowExec]], which runs the same kernels and converts their output
+ *    to rows in one node. That is the plan a row consumer got before this two-stage split existed,
+ *    unchanged.
+ *
+ * The post stage also still matches a plain projection over a to-row transition, for a projection
+ * the pre stage did not see - another columnar rule may have introduced it, and post rules run in
+ * reverse rule order, so this rule sees the plan before rules listed after it in that stage.
  */
 object VarkaColumnarRule extends ColumnarRule {
+
+  override def preColumnarTransitions: Rule[SparkPlan] = { plan =>
+    if (SQLConf.get.varkaEnabled) {
+      plan.transformUp {
+        case project @ ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
+          if (child.supportsColumnar) {
+            VarkaProjectExec(projectList, child)
+          } else {
+            project
+          }
+      }
+    } else {
+      plan
+    }
+  }
 
   override def postColumnarTransitions: Rule[SparkPlan] = { plan =>
     if (SQLConf.get.varkaEnabled) {
       plan.transformUp {
+        case ColumnarToRowExec(varka: VarkaProjectExec) =>
+          VarkaColumnarToRowExec(varka.projectList, varka.child)
         case project @ ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
           val columnarChild = child match {
             case ColumnarToRowExec(inner) => inner
