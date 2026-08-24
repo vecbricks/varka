@@ -352,6 +352,40 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     }
   }
 
+  test("the pre-transition stage rewrites an eligible projection to the columnar-out node") {
+    val child = TestColumnarBatchPlan(Nil, Seq(attrD))
+    val eligible = ProjectExec(project(Alias(DateAdd(attrD, Literal(3)), "add")()), child)
+    val ineligible = ProjectExec(project(Alias(Add(attrD, Literal(3)), "add")()), child)
+    // A child that only produces rows has nothing for the kernels to read.
+    val rowChild = ProjectExec(
+      project(Alias(DateAdd(attrD, Literal(3)), "add")()), ColumnarToRowExec(child))
+
+    withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
+      assert(VarkaColumnarRule.preColumnarTransitions(eligible).isInstanceOf[VarkaProjectExec])
+      assert(VarkaColumnarRule.preColumnarTransitions(ineligible).isInstanceOf[ProjectExec])
+      assert(VarkaColumnarRule.preColumnarTransitions(rowChild).isInstanceOf[ProjectExec])
+    }
+    withSQLConf(SQLConf.VARKA_ENABLED.key -> "false") {
+      assert(VarkaColumnarRule.preColumnarTransitions(eligible).isInstanceOf[ProjectExec])
+    }
+  }
+
+  test("a to-row transition over the columnar-out node is fused back into one node") {
+    val child = TestColumnarBatchPlan(Nil, Seq(attrD))
+    val projectList = project(Alias(DateAdd(attrD, Literal(3)), "add")())
+    val transition = ColumnarToRowExec(VarkaProjectExec(projectList, child))
+
+    withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
+      val fused = VarkaColumnarRule.postColumnarTransitions(transition)
+      assert(fused === VarkaColumnarToRowExec(projectList, child))
+    }
+    // With the config off the plan is left alone, transition and all: the pre stage cannot have
+    // produced this shape, but a config flipped between the two stages must not corrupt it.
+    withSQLConf(SQLConf.VARKA_ENABLED.key -> "false") {
+      assert(VarkaColumnarRule.postColumnarTransitions(transition) === transition)
+    }
+  }
+
   test("Varka kernel descriptors match the engine signatures") {
     val owner = "org.apache.spark.sql.varka.vector.DateVectorOps"
     assert(DateAdd(attrD, Literal(3)).classFileGenOp ===

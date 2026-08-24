@@ -114,15 +114,31 @@ the columnar-to-row node described next.
 ### Execution integration
 
 `VarkaColumnarRule` (a `ColumnarRule`) rewrites a fully Varka-eligible
-projection sitting directly above a columnar-to-row transition:
+projection over a columnar source when `spark.sql.codegen.varka.enabled` is set.
+It works in two stages, on either side of Spark's transition insertion, because
+which node belongs in the plan depends on what the consumer above wants:
 
-    ProjectExec(projectList, ColumnarToRowExec(child))
+    // preColumnarTransitions: columnar in, columnar out
+    ProjectExec(projectList, columnarChild)
+      -> VarkaProjectExec(projectList, columnarChild)
+
+    // postColumnarTransitions: a to-row transition that was inserted anyway is fused in
+    ColumnarToRowExec(VarkaProjectExec(projectList, child))
       -> VarkaColumnarToRowExec(projectList, child)
 
-when `spark.sql.codegen.varka.enabled` is set. The rule is registered on every
-`SparkSession` but is inert while the config is off.
+A consumer that takes batches - a DSv2 write whose connector declares
+`supportsColumnarWrite`, such as `noop` - therefore receives the kernels' own
+Arrow batches with no transition at all, while a row consumer gets the single
+fused node. The rule is registered on every `SparkSession` but is inert while
+the config is off.
 
-`VarkaColumnarToRowExec` runs per Arrow-supported batch:
+Both nodes run the same kernels through `VarkaKernelEvaluator`, and differ only
+in what they do with its output batch and in how they fall back:
+`VarkaColumnarToRowExec` converts to rows and, when the kernels cannot serve a
+batch, projects the input's rows one by one; `VarkaProjectExec` passes the batch
+on and has to materialise its fallback into a writable batch instead.
+
+Per Arrow-supported batch:
 
 1. Bind the projection and match each expression to a kernel op.
 2. Guard that every referenced column is an `ArrowColumnVector` backed by a
@@ -131,13 +147,14 @@ when `spark.sql.codegen.varka.enabled` is set. The rule is registered on every
    loader (`VarkaGeneratedClassLoader`) and invoke it with the input addresses
    and the days offset as runtime arguments.
 4. Write each projected column into a freshly allocated Arrow vector
-   (zero-copy), wrap the result batch, and convert it to rows with the standard
-   copy projection.
+   (zero-copy) and wrap the result batch - which `VarkaColumnarToRowExec` then
+   converts to rows with the standard copy projection, and `VarkaProjectExec`
+   hands to its consumer, closing it when the next batch is asked for.
 5. Track `numVarkaBatches`, which only counts batches where the kernels
    succeeded, and release the per-task loader on task completion.
 
-The node is not `CodegenSupport`; whole-stage codegen splits at its boundary
-from the columnar producer. The node depends on the engine only by kernel
+Neither node is `CodegenSupport`; whole-stage codegen splits at the boundary
+with the columnar producer. They depend on the engine only by kernel
 descriptors (strings), so a missing engine jar degrades to the fallback.
 
 ## Key design decisions
@@ -151,9 +168,11 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
   serializer) map directly to segments. Vectorized Parquet produces
   `OnHeapColumnVector`/`OffHeapColumnVector`, not Arrow, so those batches fall
   back per batch.
-* **Plan-level interception.** The fusion happens in a `ColumnarRule`
-  (`postColumnarTransitions`) that unifies the projection with the transition,
-  rather than editing `ColumnarToRowExec` itself.
+* **Plan-level interception.** The rewrite happens in a `ColumnarRule` rather
+  than by editing `ColumnarToRowExec` itself, and it straddles Spark's
+  transition insertion: the projection becomes columnar-out before transitions,
+  and a transition inserted above it is fused back in afterwards. That way the
+  decision of whether rows are needed at all stays Spark's.
 * **Ghost fallback and caching.** Any assembly or load failure lazily routes to
   Janino; the winning path is cached under the same key so a failed assembly is
   never retried and the job never crashes.
@@ -170,7 +189,7 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 | :--- | :--- |
 | `sql/varka/engine` | Standalone Java 25 module (`varka-engine`, Arrow 19.0.0): `VarkaMorsel`, `DateVectorOps`, `VarkaClassLoader` and their tests. |
 | `sql/catalyst` | `ClassFileCodegenSupport` + `VarkaClassFileGen`, `ClassFileAssembler`/`JavaClassFileEngine`, `VarkaGeneratedClassLoader`, config `spark.sql.codegen.varka.enabled`. |
-| `sql/core` | `VarkaColumnarRule`, `VarkaColumnarToRowExec`, end-to-end test suites and benchmarks. |
+| `sql/core` | `VarkaColumnarRule`, `VarkaProjectExec`, `VarkaColumnarToRowExec`, `VarkaKernelEvaluator`, end-to-end test suites and benchmarks. |
 | `sql/varka` | `VISION.md`, `Varka_MVP.md`, `IMPLEMENTATION_PLAN.md` and per-task plans. |
 
 ## Configuration
@@ -179,7 +198,7 @@ There is only one Varka configuration and it is internal:
 
 | Config | Default | Description |
 | :--- | :--- | :--- |
-| `spark.sql.codegen.varka.enabled` | `false` | When true, a fully eligible projection over Arrow `DateDayVector` columns is fused into `VarkaColumnarToRowExec` and runs the SIMD kernels instead of per-row codegen; non-Arrow batches fall back to the standard per-row path. |
+| `spark.sql.codegen.varka.enabled` | `false` | When true, a fully eligible projection over Arrow `DateDayVector` columns runs the SIMD kernels instead of per-row codegen - as `VarkaProjectExec` where the consumer takes batches, and as `VarkaColumnarToRowExec` where it wants rows; non-Arrow batches fall back to the standard per-row path. |
 
 The rule is registered on every `SparkSession` but does nothing while the
 config is off, so enabling the config is all that is needed:
@@ -213,7 +232,8 @@ exist.
   `Integer.MAX_VALUE`.
 * **Catalyst tests** check bytecode shape by disassembly, the loader
   define/release lifecycle, and ghost-fallback injection.
-* **sql/core tests** (`VarkaColumnarToRowExecSuite`, `VarkaEndToEndSuite`,
+* **sql/core tests** (`VarkaColumnarToRowExecSuite`, `VarkaProjectExecSuite`,
+  `VarkaColumnarWriteSuite`, `VarkaEndToEndSuite`,
   `VarkaDifferentialSuite`, `VarkaAutoRegistrationSuite`) prove plan fusion,
   `checkAnswer` equality over a query matrix, `numVarkaBatches > 0` on fused
   plans, Metaspace bounds, and config-driven activation.
@@ -247,7 +267,7 @@ Benchmark highlights on a Ryzen AI 9 HX PRO 370 (JDK 25, indicative):
 * Only the three date expressions; only integer day offsets; no
   `CalendarInterval`, strings, decimals or nested types.
 * Vectorized Parquet (`OnHeap/OffHeapColumnVector`) is not Arrow and falls back.
-* `VarkaColumnarToRowExec` is not `CodegenSupport`, so whole-stage codegen
+* The Varka nodes are not `CodegenSupport`, so whole-stage codegen
   splits at the boundary, and the codegen-funnel class-file routing is still a
   stub.
 * The end-to-end speedup is bounded by row-conversion overhead on row-based
