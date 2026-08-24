@@ -2236,6 +2236,12 @@
     ],
     "sqlState" : "0A000"
   },
+  "DATA_SOURCE_COLUMNAR_WRITER_NOT_SUPPORTED" : {
+    "message" : [
+      "<class> cannot create columnar writer."
+    ],
+    "sqlState" : "0A000"
+  },
   "DATA_SOURCE_CONTINUOUS_SCAN_NOT_SUPPORTED" : {
     "message" : [
       "<description>: Continuous scan is not supported."

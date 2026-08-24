@@ -27,6 +27,7 @@ import org.apache.spark.sql.internal.connector.{SimpleTableProvider, SupportsStr
 import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.Utils
 
 /**
@@ -61,6 +62,11 @@ private[noop] object NoopWriteBuilder extends WriteBuilder
 private[noop] object NoopWrite extends Write {
   override def toBatch: BatchWrite = NoopBatchWrite
   override def toStreaming: StreamingWrite = NoopStreamingWrite
+  // A sink that discards its input can discard batches as easily as rows, and doing so keeps a
+  // columnar plan columnar all the way down. That matters for what this source is for: with the
+  // row path, benchmarking a columnar query against `noop` measures the columnar-to-row
+  // transition as much as the query.
+  override def supportsColumnarWrite: Boolean = true
   override def toString: String = Utils.getFormattedClassName(this)
 }
 
@@ -75,10 +81,21 @@ private[noop] object NoopBatchWrite extends BatchWrite {
 
 private[noop] object NoopWriterFactory extends DataWriterFactory {
   override def createWriter(partitionId: Int, taskId: Long): DataWriter[InternalRow] = NoopWriter
+  override def createColumnarWriter(
+      partitionId: Int, taskId: Long): DataWriter[ColumnarBatch] = NoopColumnarWriter
 }
 
 private[noop] object NoopWriter extends DataWriter[InternalRow] {
   override def write(record: InternalRow): Unit = {}
+  override def commit(): WriterCommitMessage = null
+  override def abort(): Unit = {}
+  override def close(): Unit = {}
+}
+
+// Discards batches, as NoopWriter discards rows. It holds on to nothing, which is also what the
+// contract requires: the batch belongs to the plan that produced it.
+private[noop] object NoopColumnarWriter extends DataWriter[ColumnarBatch] {
+  override def write(record: ColumnarBatch): Unit = {}
   override def commit(): WriterCommitMessage = null
   override def abort(): Unit = {}
   override def close(): Unit = {}

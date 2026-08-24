@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.metric.{CustomMetrics, SQLLastAttemptMetri
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.util.SchemaValidationMode.PROHIBIT_CHANGES
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.ArrayImplicits._
 import org.apache.spark.util.Utils
 
@@ -382,7 +383,7 @@ case class ReplaceDataExec(
     tableName: String,
     transaction: Option[Transaction] = None) extends RowLevelWriteExec {
 
-  override def writingTask: WritingSparkTask[_] = {
+  override def writingTask: WritingSparkTask[InternalRow, _] = {
     projections.metadataProjection match {
       case Some(metadataProj) =>
         DataAndMetadataWritingSparkTask(projections.rowProjection, metadataProj, sparkMetrics)
@@ -429,7 +430,7 @@ case class WriteDeltaExec(
     tableName: String,
     transaction: Option[Transaction] = None) extends RowLevelWriteExec {
 
-  override lazy val writingTask: WritingSparkTask[_] = {
+  override lazy val writingTask: WritingSparkTask[InternalRow, _] = {
     if (projections.metadataProjection.isDefined) {
       DeltaWithMetadataWritingSparkTask(projections, sparkMetrics)
     } else {
@@ -487,6 +488,8 @@ trait V2ExistingTableWriteExec extends V2TableWriteExec with TransactionalExec {
 
   override def nodeName: String = s"${super.nodeName} $tableName"
 
+  override def supportsColumnarWrite: Boolean = write.supportsColumnarWrite()
+
   override lazy val customMetrics: Map[String, SQLMetric] =
     createCustomMetrics(write.supportedCustomMetrics())
 
@@ -507,6 +510,11 @@ trait V2ExistingTableWriteExec extends V2TableWriteExec with TransactionalExec {
  */
 trait RowLevelWriteExec extends V2ExistingTableWriteExec {
   def rowLevelCommand: RowLevelOperation.Command
+
+  // Row-level operations carry an operation id in the record itself, which the writing tasks
+  // below read with `row.getInt(0)`. That protocol is row-shaped, so these writes stay on the
+  // row path even against a connector whose `Write` declares columnar support.
+  override def supportsColumnarWrite: Boolean = false
 
   override protected lazy val sparkMetrics: Map[String, SQLMetric] = super.sparkMetrics ++ (
     rowLevelCommand match {
@@ -585,7 +593,19 @@ trait V2TableWriteExec
   with SupportsCustomDriverMetrics {
 
   def query: SparkPlan
-  def writingTask: WritingSparkTask[_] = DataWritingSparkTask
+  def writingTask: WritingSparkTask[InternalRow, _] = DataWritingSparkTask
+
+  /**
+   * Whether the write this node runs can accept columnar batches. Only consulted together with
+   * `query.supportsColumnar`: the columnar path is taken when both hold, and a row-producing
+   * plan writes rows into the same write. Declared here rather than read off the `Write`
+   * directly because `WriteToDataSourceV2Exec` holds a `BatchWrite` and has no `Write` to ask.
+   *
+   * `ApplyColumnarRulesAndInsertTransitions` reads this during planning to decide whether to
+   * leave the child columnar, so it must not depend on anything that only exists at execution
+   * time - in particular it must not call `Write.toBatch`.
+   */
+  def supportsColumnarWrite: Boolean = false
 
   var commitProgress: Option[StreamWriterCommitProgress] = None
 
@@ -601,16 +621,40 @@ trait V2TableWriteExec
     "numOutputRows" -> numOutputRowsMetric)
 
   protected def writeWithV2(batchWrite: BatchWrite): Seq[InternalRow] = {
-    val rdd: RDD[InternalRow] = {
-      val tempRdd = query.execute()
-      // SPARK-23271 If we are attempting to write a zero partition rdd, create a dummy single
-      // partition rdd to make sure we at least set up one write task to write the metadata.
-      if (tempRdd.partitions.length == 0) {
-        new EmptyRDDWithPartitions(sparkContext, 1)
+    if (supportsColumnarWrite && query.supportsColumnar) {
+      val rdd = query.executeColumnar()
+      if (rdd.partitions.nonEmpty) {
+        runWriteJob(batchWrite, rdd, ColumnarDataWritingSparkTask)
       } else {
-        tempRdd
+        // SPARK-23271 A zero-partition write still needs one task, to write the metadata. That
+        // task writes no records at all, so it goes through the row writer and a connector does
+        // not have to produce a columnar writer just for the empty case.
+        runWriteJob(batchWrite, new EmptyRDDWithPartitions(sparkContext, 1), DataWritingSparkTask)
       }
+    } else {
+      val rdd: RDD[InternalRow] = {
+        val tempRdd = query.execute()
+        // SPARK-23271 If we are attempting to write a zero partition rdd, create a dummy single
+        // partition rdd to make sure we at least set up one write task to write the metadata.
+        if (tempRdd.partitions.length == 0) {
+          new EmptyRDDWithPartitions(sparkContext, 1)
+        } else {
+          tempRdd
+        }
+      }
+      runWriteJob(batchWrite, rdd, writingTask)
     }
+  }
+
+  /**
+   * Runs the write job over `rdd`, whose records are whatever `writingTask` consumes - rows on
+   * the row path, `ColumnarBatch`es on the columnar one. Everything below this point is common
+   * to both: the record type reaches the executors only through the task.
+   */
+  private def runWriteJob[T](
+      batchWrite: BatchWrite,
+      rdd: RDD[T],
+      writingTask: WritingSparkTask[T, _]): Seq[InternalRow] = {
     // introduce a local var to avoid serializing the whole class
     val task = writingTask
     val writerFactory = batchWrite.createBatchWriterFactory(
@@ -628,7 +672,7 @@ trait V2TableWriteExec
     try {
       sparkContext.runJob(
         rdd,
-        (context: TaskContext, iter: Iterator[InternalRow]) =>
+        (context: TaskContext, iter: Iterator[T]) =>
           task.run(writerFactory, context, iter, useCommitCoordinator, writeMetrics),
         rdd.partitions.indices,
         (index, result: DataWritingSparkTaskResult) => {
@@ -673,14 +717,33 @@ trait V2TableWriteExec
   protected def getWriteSummary(): Option[WriteSummary] = None
 }
 
-trait WritingSparkTask[W <: DataWriter[InternalRow]] extends Logging with Serializable {
+/**
+ * The executor side of a write: it takes the records of one partition and feeds them to one
+ * [[DataWriter]], then commits or aborts it.
+ *
+ * `T` is the record type the connector's writer consumes - [[InternalRow]] for a row write,
+ * [[ColumnarBatch]] for a columnar one. Everything that differs between the two is behind the
+ * three members below; the commit, abort and metrics handling in `run` is shared.
+ */
+trait WritingSparkTask[T, W <: DataWriter[T]] extends Logging with Serializable {
 
-  protected def write(writer: W, iter: java.util.Iterator[InternalRow]): Unit
+  protected def write(writer: W, iter: java.util.Iterator[T]): Unit
+
+  /** Asks the factory for the writer of this task's record type. */
+  protected def createDataWriter(
+      writerFactory: DataWriterFactory, partId: Int, taskId: Long): DataWriter[T]
+
+  /**
+   * How many table rows one record carries: one for a row, the batch's row count for a batch.
+   * `numOutputRows` and the custom-metric update cadence are both counted with this, so that a
+   * columnar write reports rows written rather than batches written.
+   */
+  protected def numRows(record: T): Long
 
   def run(
       writerFactory: DataWriterFactory,
       context: TaskContext,
-      iter: Iterator[InternalRow],
+      iter: Iterator[T],
       useCommitCoordinator: Boolean,
       customMetrics: Map[String, SQLMetric]): DataWritingSparkTaskResult = {
     val stageId = context.stageId()
@@ -688,7 +751,7 @@ trait WritingSparkTask[W <: DataWriter[InternalRow]] extends Logging with Serial
     val partId = context.partitionId()
     val taskId = context.taskAttemptId()
     val attemptId = context.attemptNumber()
-    val dataWriter = writerFactory.createWriter(partId, taskId).asInstanceOf[W]
+    val dataWriter = createDataWriter(writerFactory, partId, taskId).asInstanceOf[W]
 
     val iterWithMetrics = IteratorWithMetrics(iter, dataWriter, customMetrics)
 
@@ -751,29 +814,53 @@ trait WritingSparkTask[W <: DataWriter[InternalRow]] extends Logging with Serial
   }
 
   private case class IteratorWithMetrics(
-      iter: Iterator[InternalRow],
+      iter: Iterator[T],
       dataWriter: W,
-      customMetrics: Map[String, SQLMetric]) extends java.util.Iterator[InternalRow] {
+      customMetrics: Map[String, SQLMetric]) extends java.util.Iterator[T] {
+    // Rows, not records: a batch advances this by its row count. Read back as the task's
+    // `numRows`, which becomes `numOutputRows`.
     var count = 0L
+
+    // The row count at which the custom metrics are refreshed next. A threshold rather than
+    // `count % NUM_ROWS_PER_UPDATE`, because `count` no longer advances one at a time and would
+    // step over the multiple.
+    private var nextMetricsUpdate = 0L
 
     override def hasNext: Boolean = iter.hasNext
 
-    override def next(): InternalRow = {
-      if (count % CustomMetrics.NUM_ROWS_PER_UPDATE == 0) {
+    override def next(): T = {
+      if (count >= nextMetricsUpdate) {
         CustomMetrics.updateMetrics(
           dataWriter.currentMetricsValues.toImmutableArraySeq, customMetrics)
+        nextMetricsUpdate = count + CustomMetrics.NUM_ROWS_PER_UPDATE
       }
-      count += 1
-      iter.next()
+      val record = iter.next()
+      count += numRows(record)
+      record
     }
   }
+}
+
+/**
+ * A [[WritingSparkTask]] over rows, which is every write except the columnar one. Fixes the two
+ * record-type members so the row tasks below only have to say how they write.
+ */
+trait RowWritingSparkTask[W <: DataWriter[InternalRow]]
+  extends WritingSparkTask[InternalRow, W] {
+
+  override protected def createDataWriter(
+      writerFactory: DataWriterFactory, partId: Int, taskId: Long): DataWriter[InternalRow] = {
+    writerFactory.createWriter(partId, taskId)
+  }
+
+  override protected def numRows(record: InternalRow): Long = 1L
 }
 
 case class DataAndMetadataWritingSparkTask(
     dataProj: ProjectingInternalRow,
     metadataProj: ProjectingInternalRow,
     sparkMetrics: Map[String, SQLMetric])
-  extends WritingSparkTask[DataWriter[InternalRow]] {
+  extends RowWritingSparkTask[DataWriter[InternalRow]] {
 
   override protected def write(
       writer: DataWriter[InternalRow], iter: java.util.Iterator[InternalRow]): Unit = {
@@ -814,7 +901,7 @@ case class DataAndMetadataWritingSparkTask(
 case class DataWithProjectionWritingSparkTask(
     dataProj: ProjectingInternalRow,
     sparkMetrics: Map[String, SQLMetric])
-  extends WritingSparkTask[DataWriter[InternalRow]] {
+  extends RowWritingSparkTask[DataWriter[InternalRow]] {
 
   override protected def write(
       writer: DataWriter[InternalRow], iter: java.util.Iterator[InternalRow]): Unit = {
@@ -850,9 +937,33 @@ case class DataWithProjectionWritingSparkTask(
   }
 }
 
-object DataWritingSparkTask extends WritingSparkTask[DataWriter[InternalRow]] {
+object DataWritingSparkTask extends RowWritingSparkTask[DataWriter[InternalRow]] {
   override protected def write(
       writer: DataWriter[InternalRow], iter: java.util.Iterator[InternalRow]): Unit = {
+    writer.writeAll(iter)
+  }
+}
+
+/**
+ * The columnar counterpart of [[DataWritingSparkTask]]: it hands whole [[ColumnarBatch]]es to a
+ * writer from `DataWriterFactory.createColumnarWriter`. Used only when the write declares
+ * `supportsColumnarWrite` and the plan under it already produces batches.
+ *
+ * Batches belong to the plan that produced them and are reused or released as the query runs,
+ * so nothing here retains one past the `write` call.
+ */
+object ColumnarDataWritingSparkTask
+  extends WritingSparkTask[ColumnarBatch, DataWriter[ColumnarBatch]] {
+
+  override protected def createDataWriter(
+      writerFactory: DataWriterFactory, partId: Int, taskId: Long): DataWriter[ColumnarBatch] = {
+    writerFactory.createColumnarWriter(partId, taskId)
+  }
+
+  override protected def numRows(record: ColumnarBatch): Long = record.numRows()
+
+  override protected def write(
+      writer: DataWriter[ColumnarBatch], iter: java.util.Iterator[ColumnarBatch]): Unit = {
     writer.writeAll(iter)
   }
 }
@@ -860,7 +971,7 @@ object DataWritingSparkTask extends WritingSparkTask[DataWriter[InternalRow]] {
 case class DeltaWritingSparkTask(
     projections: WriteDeltaProjections,
     sparkMetrics: Map[String, SQLMetric])
-  extends WritingSparkTask[DeltaWriter[InternalRow]] {
+  extends RowWritingSparkTask[DeltaWriter[InternalRow]] {
 
   private lazy val rowProjection = projections.rowProjection.orNull
   private lazy val rowIdProjection = projections.rowIdProjection
@@ -910,7 +1021,7 @@ case class DeltaWritingSparkTask(
 case class DeltaWithMetadataWritingSparkTask(
     projections: WriteDeltaProjections,
     sparkMetrics: Map[String, SQLMetric])
-  extends WritingSparkTask[DeltaWriter[InternalRow]] {
+  extends RowWritingSparkTask[DeltaWriter[InternalRow]] {
 
   private lazy val rowProjection = projections.rowProjection.orNull
   private lazy val rowIdProjection = projections.rowIdProjection

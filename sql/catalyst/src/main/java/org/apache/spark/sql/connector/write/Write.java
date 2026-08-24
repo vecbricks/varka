@@ -25,7 +25,9 @@ import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableCapability;
 import org.apache.spark.sql.connector.metric.CustomMetric;
 import org.apache.spark.sql.connector.metric.CustomTaskMetric;
+import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.write.streaming.StreamingWrite;
+import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 /**
  * A logical representation of a data source write.
@@ -68,6 +70,32 @@ public interface Write {
   default StreamingWrite toStreaming() {
     throw new SparkUnsupportedOperationException(
       "DATA_SOURCE_STREAMING_WRITE_NOT_SUPPORTED", Map.of("description", description()));
+  }
+
+  /**
+   * Returns whether this write can accept {@link ColumnarBatch}es instead of rows.
+   * <p>
+   * This is the write-side counterpart of {@link Scan#columnarSupportMode()}, and like it, it is
+   * a property of one write rather than of the {@link Table} - the same table may produce a
+   * columnar write for one schema and a row write for another. There is therefore no
+   * {@link TableCapability} for it: {@link TableCapability#BATCH_WRITE} remains the only
+   * table-level declaration a batch write needs.
+   * <p>
+   * The columnar path is an opt-in fast path, not a requirement. Spark takes it only when the
+   * plan feeding the write already produces columnar batches; it never inserts a transition to
+   * manufacture them. A write that returns true must therefore still be able to write rows,
+   * because a row-producing plan falls back to {@link DataWriterFactory#createWriter(int, long)}.
+   * <p>
+   * A write that returns true must also override
+   * {@link DataWriterFactory#createColumnarWriter(int, long)} on the factory its
+   * {@link BatchWrite} produces, or the write fails at task start.
+   * <p>
+   * The default is false, which is the row-only behaviour every existing write has.
+   *
+   * @since 5.0.0
+   */
+  default boolean supportsColumnarWrite() {
+    return false;
   }
 
   /**

@@ -28,6 +28,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.errors.ExecutionErrors
 import org.apache.spark.sql.execution.command.DataWritingCommandExec
 import org.apache.spark.sql.execution.datasources.V1WriteCommand
+import org.apache.spark.sql.execution.datasources.v2.V2TableWriteExec
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.WritableColumnVector
 import org.apache.spark.sql.types._
@@ -588,6 +589,13 @@ case class ApplyColumnarRulesAndInsertTransitions(
         // neither columnar nor row-based.
         case write: DataWritingCommandExec
             if write.cmd.isInstanceOf[V1WriteCommand] && conf.plannedWriteEnabled =>
+          write.child.supportsColumnar
+        // A DSv2 write whose connector accepts columnar batches leaves its child columnar, so
+        // the batches reach the writer instead of being converted to rows first. Like the V1
+        // case above, the write node asks its child rather than reporting `supportsColumnar`
+        // itself: it consumes the batches and produces no rows at all, so reporting columnar
+        // output would have this rule wrap the write node in a to-row transition instead.
+        case write: V2TableWriteExec if write.supportsColumnarWrite =>
           write.child.supportsColumnar
         // If it is not required to output columnar (`outputsColumnar` is false), and the plan
         // supports row-based and columnar, we don't need to output row-based data on its children

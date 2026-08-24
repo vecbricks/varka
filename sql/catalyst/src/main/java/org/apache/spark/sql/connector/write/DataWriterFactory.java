@@ -18,10 +18,13 @@
 package org.apache.spark.sql.connector.write;
 
 import java.io.Serializable;
+import java.util.Map;
 
+import org.apache.spark.SparkUnsupportedOperationException;
 import org.apache.spark.TaskContext;
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 /**
  * A factory of {@link DataWriter} returned by
@@ -55,4 +58,28 @@ public interface DataWriterFactory extends Serializable {
    *               for example).
    */
   DataWriter<InternalRow> createWriter(int partitionId, long taskId);
+
+  /**
+   * Returns a data writer that accepts {@link ColumnarBatch}es rather than rows.
+   * <p>
+   * Spark calls this instead of {@link #createWriter(int, long)} when the {@link Write} that
+   * produced this factory returns true from {@link Write#supportsColumnarWrite()} and the plan
+   * feeding the write already produces columnar batches. A factory whose write declares
+   * columnar support must override this; the default throws.
+   * <p>
+   * Unlike a row writer, a columnar writer does not own the batch it is handed. Spark reuses and
+   * releases batches as the query runs, so the writer must consume a batch within the
+   * {@link DataWriter#write(Object)} call and must not retain it, or any of its
+   * {@link org.apache.spark.sql.vectorized.ColumnVector}s, afterwards. Copy out what has to
+   * outlive the call.
+   *
+   * @param partitionId A unique id of the RDD partition that the returned writer will process.
+   * @param taskId The task id returned by {@link TaskContext#taskAttemptId()}.
+   *
+   * @since 5.0.0
+   */
+  default DataWriter<ColumnarBatch> createColumnarWriter(int partitionId, long taskId) {
+    throw new SparkUnsupportedOperationException(
+      "DATA_SOURCE_COLUMNAR_WRITER_NOT_SUPPORTED", Map.of("class", getClass().getName()));
+  }
 }

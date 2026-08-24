@@ -57,8 +57,13 @@ import org.apache.spark.sql.connector.metric.CustomTaskMetric;
  * successfully, and have a way to revert committed data writers without the commit message, because
  * Spark only accepts the commit message that arrives first and ignore others.
  * <p>
- * Note that, Currently the type {@code T} can only be
- * {@link org.apache.spark.sql.catalyst.InternalRow}.
+ * Note that the type {@code T} can only be {@link org.apache.spark.sql.catalyst.InternalRow},
+ * for a writer from {@link DataWriterFactory#createWriter(int, long)}, or
+ * {@link org.apache.spark.sql.vectorized.ColumnarBatch}, for one from
+ * {@link DataWriterFactory#createColumnarWriter(int, long)}. The two differ in who owns the
+ * record: a row writer may keep the {@code InternalRow} it is given as long as it copies it
+ * first, whereas a {@code ColumnarBatch} belongs to the plan that produced it and is reused or
+ * released once {@link #write(Object)} returns, so a columnar writer must not retain it.
  *
  * @since 3.0.0
  */
