@@ -23,11 +23,11 @@ Checks that the Varka engine builds against the same Arrow as Spark.
     $ dev/check_varka_arrow_version.py
     arrow.version matches: 19.0.0 (pom.xml and sql/varka/engine/pom.xml)
 
-The engine is a standalone Maven module outside the Spark reactor - its sources need
+The engine is a reactor module but keeps its own pom with no parent - its sources need
 --add-modules jdk.incubator.vector and its tests need native-access flags the Spark build
-does not set - so it has no parent pom to inherit `arrow.version` from and must repeat the
-value. A mismatch is not benign: the kernels write into Arrow buffers that Spark allocated,
-so the two sides have to agree on the memory layout and on the ArrowBuf API.
+does not set - so it has no `arrow.version` to inherit and must repeat the value. A mismatch
+is not benign: the kernels write into Arrow buffers that Spark allocated, so the two sides
+have to agree on the memory layout and on the ArrowBuf API.
 
 Exits 0 when the versions match, 1 when they diverge or either cannot be read. Run from
 anywhere inside the repository.

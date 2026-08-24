@@ -21,12 +21,10 @@ name: 'Install the Varka engine'
 description: >-
   Build sql/varka/engine and install it into the local Maven repository.
   sql/catalyst and sql/core declare a test-scope dependency on
-  org.apache.spark.varka:varka-engine, but the engine is a standalone Maven
-  module outside the Spark reactor (its sources need --add-modules
-  jdk.incubator.vector, and its tests need native-access flags the Spark build
-  does not set), so no Spark build produces it. Without this step both sbt and
-  Maven fail to resolve the artifact before compiling anything. Must run after
-  the job's JDK is installed: the engine targets release 25.
+  org.apache.spark.varka:varka-engine. A Maven build resolves it from the
+  reactor, but sbt resolves it from the local Maven repository, so an sbt job
+  still fails to resolve the artifact before compiling anything unless this has
+  run. Must run after the job's JDK is installed: the engine targets release 25.
 inputs:
   run-tests:
     description: >-

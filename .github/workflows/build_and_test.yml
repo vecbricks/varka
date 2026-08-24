@@ -1075,13 +1075,28 @@ jobs:
         export MAVEN_CLI_OPTS="--no-transfer-progress"
         ./build/mvn $MAVEN_CLI_OPTS -DskipTests -Pyarn -Pkubernetes -Pvolcano -Phive -Phive-thriftserver -Phadoop-cloud -Pjvm-profiler -Pspark-ganglia-lgpl -Pkinesis-asl -Pcredential-aws clean install
 
-  # The Varka engine is a standalone Maven module outside the Spark reactor, so no
-  # Spark build compiles or tests it. Give it its own job: this is the only place
-  # its SIMD kernel, morsel and class-loader suites run.
+  # The Varka engine's own job: the only place its SIMD kernel, morsel and class-loader
+  # suites run. The engine is a reactor module, but every Spark job builds it with
+  # -Dmaven.test.skip=true to stay fast, so nothing else executes these tests.
+  #
+  # It runs on both architectures because the kernels behave differently on each. An x86_64
+  # runner has 8 or 16 int lanes (AVX2 / AVX-512); aarch64 with NEON has 4, which is the
+  # narrow-species shape the kernels were once wrong on. The engine's own build also re-runs
+  # the suite with the vector width capped, so the four-lane code path is covered on either
+  # architecture - but only real aarch64 hardware executes the kernels the way an ARM
+  # deployment would.
   varka-engine:
     needs: [precondition]
-    name: Varka engine
-    runs-on: ubuntu-latest
+    name: Varka engine (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
     - name: Bootstrap composite actions
