@@ -18,7 +18,6 @@
 package org.apache.spark.sql.execution
 
 import java.lang.foreign.MemorySegment
-import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.mutable
@@ -32,8 +31,8 @@ import org.apache.spark.{PartitionEvaluator, PartitionEvaluatorFactory, TaskCont
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, DateAdd, DateDiff, DateSub, Expression, Literal, NamedExpression, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileCodegenSupport, ClassFileGenOp, VarkaClassFileGen, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, DateAdd, DateDiff, DateSub, DateVarkaSupport, Expression, NamedExpression, SortOrder, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileCodegenSupport, ClassFileGenOp, VarkaBinaryKernel, VarkaClassFileGen, VarkaGeneratedClassLoader, VarkaUnaryKernel}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.{DataType, DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
@@ -50,11 +49,11 @@ import org.apache.spark.util.{CompletionIterator, Utils}
  * [[ArrowColumnVector]] over an Arrow `DateDayVector`, and the projection is fully Varka-eligible,
  * the node runs the kernels by writing each projected column directly into the buffers of a
  * freshly allocated Arrow vector (via a task-lifetime assembled runner class per distinct op,
- * invoked reflectively - see `VarkaClassFileGen.assembleKernelClass`). The result batch is
- * converted to rows with the standard copy projection and released as soon as its rows are
- * consumed, so only one batch of kernel output is held at a time. Anything else - a non-Arrow
- * batch, an empty batch, a kernel failure - falls back to the standard per-row projection over
- * the input batch.
+ * called through a kernel-shape interface - see `VarkaClassFileGen.assembleKernelClass`). The
+ * result batch is converted to rows with the standard copy projection and released as soon as
+ * its rows are consumed, so only one batch of kernel output is held at a time. Anything else -
+ * a non-Arrow batch, an empty batch, a kernel failure - falls back to the standard per-row
+ * projection over the input batch.
  *
  * The node is not `CodegenSupport`; whole-stage codegen splits at this boundary (correctness
  * first, codegen support is a follow-up).
@@ -345,18 +344,16 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       op.kind match {
         case AddDays | SubDays =>
           val m = morsels.head
-          runners.invoke(op.op, Seq(
-            Long.box(m.data.address()), Long.box(m.validityAddress), Int.box(m.nullCount.toInt),
-            Long.box(dstData), Long.box(dstValidity), Int.box(len), Int.box(op.daysOffset.get)))
+          runners.unary(op.op).run(
+            m.data.address(), m.validityAddress, m.nullCount.toInt,
+            dstData, dstValidity, len, op.daysOffset.get)
         case DateDiffKernel =>
           val end = morsels(0)
           val start = morsels(1)
-          runners.invoke(op.op, Seq(
-            Long.box(end.data.address()), Long.box(end.validityAddress),
-            Int.box(end.nullCount.toInt),
-            Long.box(start.data.address()), Long.box(start.validityAddress),
-            Int.box(start.nullCount.toInt),
-            Long.box(dstData), Long.box(dstValidity), Int.box(len)))
+          runners.binary(op.op).run(
+            end.data.address(), end.validityAddress, end.nullCount.toInt,
+            start.data.address(), start.validityAddress, start.nullCount.toInt,
+            dstData, dstValidity, len)
       }
     }
 
@@ -387,40 +384,58 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       MemorySegment.ofAddress(buf.memoryAddress()).reinterpret(buf.capacity())
     }
 
-    private def foldDaysOffset(days: Expression): Option[Int] = days match {
-      case Literal(value: Number, _) => Some(value.intValue())
-      case _ => None
-    }
-
+    /**
+     * The kernel plan of the whole projection, or `None` if any expression in it is not one the
+     * kernels can serve. All or nothing: a partially eligible projection takes the fallback,
+     * because the fallback projects the entire list in one pass anyway.
+     */
     private def buildOutputPlan(): Option[Seq[OutputOp]] = {
-      val ops = projectList.map { expr =>
-        val bound: Expression = BindReferences.bindReference(expr, childOutput)
-        val inner = bound match {
-          case Alias(child, _) => child
-          case e => e
-        }
-        inner match {
-          case DateAdd(br: BoundReference, days) if br.dataType == DateType
-              && foldDaysOffset(days).isDefined =>
-            OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, AddDays,
-              Seq(br.ordinal), foldDaysOffset(days), DateType)
-          case DateSub(br: BoundReference, days) if br.dataType == DateType
-              && foldDaysOffset(days).isDefined =>
-            OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, SubDays,
-              Seq(br.ordinal), foldDaysOffset(days), DateType)
-          case DateDiff(endBr: BoundReference, startBr: BoundReference)
-              if endBr.dataType == DateType && startBr.dataType == DateType =>
-            OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, DateDiffKernel,
-              Seq(endBr.ordinal, startBr.ordinal), None, IntegerType)
-          case _ => return None
-        }
-      }
-      Some(ops)
+      val ops = projectList.map(outputOp)
+      Option.when(ops.forall(_.isDefined))(ops.flatten)
     }
 
+    /** The kernel this projection expression maps to, or `None` if it maps to none. */
+    private def outputOp(expr: NamedExpression): Option[OutputOp] = {
+      val bound: Expression = BindReferences.bindReference(expr, childOutput)
+      val inner = bound match {
+        case Alias(child, _) => child
+        case e => e
+      }
+      // The conditions must agree with the expressions' own `isClassFileGenEligible`, which is
+      // what `VarkaColumnarRule` matched on when it fused this node into the plan. The day
+      // offset is folded with `DateVarkaSupport.foldDaysOffset` for that reason: a second copy
+      // of the folding rule here could drift from the one the rule consulted.
+      inner match {
+        case DateAdd(br: BoundReference, days) if br.dataType == DateType
+            && DateVarkaSupport.foldDaysOffset(days).isDefined =>
+          Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, AddDays,
+            Seq(br.ordinal), DateVarkaSupport.foldDaysOffset(days), DateType))
+        case DateSub(br: BoundReference, days) if br.dataType == DateType
+            && DateVarkaSupport.foldDaysOffset(days).isDefined =>
+          Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, SubDays,
+            Seq(br.ordinal), DateVarkaSupport.foldDaysOffset(days), DateType))
+        case DateDiff(endBr: BoundReference, startBr: BoundReference)
+            if endBr.dataType == DateType && startBr.dataType == DateType =>
+          Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, DateDiffKernel,
+            Seq(endBr.ordinal, startBr.ordinal), None, IntegerType))
+        case _ => None
+      }
+    }
+
+    /**
+     * The assembled kernel dispatchers of one task, one per distinct op. Each is an instance of
+     * a freshly generated class implementing the kernel-shape interface for its op, so a call
+     * goes straight into the kernel with a primitive stack - see
+     * `VarkaClassFileGen.assembleKernelClass`. The runners and the classes behind them live for
+     * the task: the loader is released on completion so they unload from Metaspace.
+     *
+     * The instance is stored untyped because the two shapes have no common supertype; `unary`
+     * and `binary` are the typed views, and which one is right for an op is decided once, when
+     * the plan is built, by `OutputOp.kind`.
+     */
     private class KernelRunners(ops: Seq[ClassFileGenOp]) {
       private val loader = new VarkaGeneratedClassLoader(Utils.getContextOrSparkClassLoader)
-      private val methods = new ConcurrentHashMap[ClassFileGenOp, Method]()
+      private val runners = new ConcurrentHashMap[ClassFileGenOp, AnyRef]()
       private var index = 0
 
       ops.foreach { op =>
@@ -428,24 +443,19 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
         index += 1
         loader.defineGeneratedClass(className, VarkaClassFileGen.assembleKernelClass(className, op))
         val clazz = loader.loadClass(className)
-        methods.put(op, clazz.getMethod("run", paramClasses(op.methodDescriptor): _*))
+        runners.put(op, clazz.getConstructor().newInstance().asInstanceOf[AnyRef])
       }
 
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
         loader.release()
       }
 
-      def invoke(op: ClassFileGenOp, args: Seq[Any]): Unit = {
-        methods.get(op).invoke(null, args.map(_.asInstanceOf[AnyRef]): _*)
+      def unary(op: ClassFileGenOp): VarkaUnaryKernel = {
+        runners.get(op).asInstanceOf[VarkaUnaryKernel]
       }
-    }
 
-    private def paramClasses(descriptor: String): Seq[Class[_]] = {
-      descriptor.substring(descriptor.indexOf('(') + 1, descriptor.indexOf(')')).map {
-        case 'J' => java.lang.Long.TYPE
-        case 'I' => java.lang.Integer.TYPE
-        case c => throw new IllegalStateException(
-          s"Unsupported Varka kernel parameter type '$c' in descriptor $descriptor")
+      def binary(op: ClassFileGenOp): VarkaBinaryKernel = {
+        runners.get(op).asInstanceOf[VarkaBinaryKernel]
       }
     }
   }

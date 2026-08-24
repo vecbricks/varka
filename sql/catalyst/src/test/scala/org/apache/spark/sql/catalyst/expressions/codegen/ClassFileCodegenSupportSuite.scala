@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import java.lang.invoke.MethodType
+
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BoundReference, DateAdd, DateDiff, DateSub, DateVarkaSupport, Literal}
 import org.apache.spark.sql.types.{DateType, IntegerType}
@@ -63,6 +65,50 @@ class ClassFileCodegenSupportSuite extends SparkFunSuite {
       val bytes = VarkaClassFileGen.assembleKernelClass("EmissionProbe", op)
       ClassFileGenOpVerifier.assertKernelInvocation(
         bytes, op.ownerClassName.replace('.', '/'), op.methodName, op.methodDescriptor)
+    }
+  }
+
+  test("assembleKernelClass implements the kernel-shape interface of the op") {
+    val expected = Seq(
+      DateAdd(startAttr, Literal(3)).classFileGenOp -> classOf[VarkaUnaryKernel],
+      DateSub(startAttr, Literal(3)).classFileGenOp -> classOf[VarkaUnaryKernel],
+      DateDiff(endAttr, otherDateAttr).classFileGenOp -> classOf[VarkaBinaryKernel])
+    val loader = new VarkaGeneratedClassLoader(Thread.currentThread().getContextClassLoader)
+    try {
+      expected.zipWithIndex.foreach { case ((op, iface), i) =>
+        val name = s"org.apache.spark.sql.varka.gen.InterfaceProbe$i"
+        val clazz = loader.defineGeneratedClass(name,
+          VarkaClassFileGen.assembleKernelClass(name, op))
+        assert(VarkaClassFileGen.kernelInterface(op) == iface)
+        // Instantiating links the class, so this also proves the generated `run` really
+        // implements the interface method rather than merely sharing its name.
+        assert(iface.isInstance(clazz.getConstructor().newInstance()))
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  test("assembleKernelClass rejects a descriptor with no kernel-shape interface") {
+    val op = ClassFileGenOp(
+      "org.apache.spark.sql.varka.vector.DateVectorOps", "vectorAddDays", "(JJI)V")
+    val e = intercept[IllegalArgumentException] {
+      VarkaClassFileGen.assembleKernelClass("org.apache.spark.sql.varka.gen.NoShape", op)
+    }
+    assert(e.getMessage.contains("(JJI)V"))
+    assert(e.getMessage.contains(VarkaUnaryKernel.DESCRIPTOR))
+  }
+
+  test("the kernel-shape interfaces match their DESCRIPTOR constants") {
+    Seq(
+      classOf[VarkaUnaryKernel] -> VarkaUnaryKernel.DESCRIPTOR,
+      classOf[VarkaBinaryKernel] -> VarkaBinaryKernel.DESCRIPTOR).foreach { case (iface, desc) =>
+      val run = iface.getMethods.filter(_.getName == "run")
+      assert(run.length == 1, s"$iface must declare exactly one `run`")
+      val actual = MethodType
+        .methodType(run.head.getReturnType, run.head.getParameterTypes)
+        .toMethodDescriptorString
+      assert(actual == desc, s"$iface.DESCRIPTOR is stale")
     }
   }
 

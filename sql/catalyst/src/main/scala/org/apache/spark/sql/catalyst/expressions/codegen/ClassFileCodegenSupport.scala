@@ -66,6 +66,16 @@ trait ClassFileCodegenSupport extends Expression {
  */
 object VarkaClassFileGen {
 
+  /**
+   * The interface a generated runner implements, keyed by the descriptor of the kernel it
+   * dispatches to. The descriptor is the whole of the kernel's shape - argument order IS the
+   * JVM stack order - so it is also what selects the call-site view the execution path uses.
+   * A new kernel shape means a new interface here.
+   */
+  private val kernelInterfaces: Map[String, Class[_]] = Map(
+    VarkaUnaryKernel.DESCRIPTOR -> classOf[VarkaUnaryKernel],
+    VarkaBinaryKernel.DESCRIPTOR -> classOf[VarkaBinaryKernel])
+
   /** The Varka-eligible ops of a projection's expression list, in order. */
   def eligibleOps(projectList: Seq[Expression]): Seq[ClassFileGenOp] = {
     projectList.collect {
@@ -75,16 +85,37 @@ object VarkaClassFileGen {
   }
 
   /**
-   * Assembles the class bytes of a probe that invokes the op's kernel: a public class with a
-   * default constructor and a static `run` method that loads the kernel parameters in order
-   * and invokes them with a single `invokestatic`. A later task routes eligible expressions
-   * to this and defines the result via the engine's VarkaClassLoader.
+   * The interface that a runner assembled for this op implements, i.e. the type the execution
+   * path casts the instantiated runner to. Throws if the op's descriptor is not one of the
+   * known kernel shapes, rather than assembling a class that implements nothing.
+   */
+  def kernelInterface(op: ClassFileGenOp): Class[_] = {
+    kernelInterfaces.getOrElse(op.methodDescriptor,
+      throw new IllegalArgumentException(
+        s"No Varka kernel interface for the descriptor ${op.methodDescriptor} of " +
+          s"${op.ownerClassName}.${op.methodName}; the known kernel shapes are " +
+          kernelInterfaces.keys.toSeq.sorted.mkString(", ")))
+  }
+
+  /**
+   * Assembles the class bytes of a runner that invokes the op's kernel: a public class with a
+   * default constructor, implementing the [[kernelInterface]] for the op's shape, whose `run`
+   * method loads the kernel parameters in order and invokes them with a single `invokestatic`.
+   *
+   * The method is an instance method implementing the interface rather than a static one so
+   * that the execution path can reach it with an ordinary interface call, keeping the
+   * arguments primitive from the caller's stack all the way into the kernel. Reflection would
+   * box each of them and allocate an argument array per batch, which is precisely what the
+   * generated dispatcher exists to avoid. Slot 0 therefore holds `this`, and the parameters
+   * start at slot 1.
    */
   def assembleKernelClass(className: String, op: ClassFileGenOp): Array[Byte] = {
     val classDesc = ClassDesc.of(className)
     val kernelDesc = MethodTypeDesc.ofDescriptor(op.methodDescriptor)
+    val interfaceDesc = ClassDesc.of(kernelInterface(op).getName)
     ClassFile.of().build(classDesc, (b: ClassBuilder) => b
       .withFlags(AccessFlag.PUBLIC)
+      .withInterfaceSymbols(interfaceDesc)
       .withMethodBody("<init>", MethodTypeDesc.of(ConstantDescs.CD_void),
         AccessFlag.PUBLIC.mask(),
         (cb: CodeBuilder) => {
@@ -94,9 +125,9 @@ object VarkaClassFileGen {
           cb.return_()
           ()
         })
-      .withMethodBody("run", kernelDesc, AccessFlag.PUBLIC.mask() | AccessFlag.STATIC.mask(),
+      .withMethodBody("run", kernelDesc, AccessFlag.PUBLIC.mask(),
         (cb: CodeBuilder) => {
-          var slot = 0
+          var slot = 1
           var i = 0
           while (i < kernelDesc.parameterCount()) {
             val pDesc = kernelDesc.parameterList().get(i).descriptorString()

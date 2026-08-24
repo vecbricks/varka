@@ -506,8 +506,12 @@ case class CurrentBatchTimestamp(
  * Varka batch-kernel eligibility helpers for the date expressions (Task 4). Kept with the
  * date expressions, not on the generic [[ClassFileCodegenSupport]] trait nor in the generic
  * [[VarkaClassFileGen]] assembler.
+ *
+ * Visible to the whole of `sql` because `VarkaColumnarToRowExec` in `sql/core` has to decide
+ * eligibility exactly as the expressions do here - if the two ever disagree, the rule fuses a
+ * projection the exec node then refuses to serve from the kernels.
  */
-private[expressions] object DateVarkaSupport {
+private[sql] object DateVarkaSupport {
 
   /** A plain date attribute: an [[Attribute]] or a bound column reference of [[DateType]].
    * The batch kernels read a whole Arrow column's buffers, so only direct column references

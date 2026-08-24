@@ -4,8 +4,9 @@ Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, 
 `sql/core` exec node and rule, and `docs/sql-varka.md`).
 
 The review itself was a reading of the code; nothing was built or run to produce it.
-Findings 1 to 7 have since been fixed and merged - PRs #11, #13, #16, #12, #14 and #17 -
-and findings 8 and 9 are fixed by the change this file ships with. The engine test suite
+Every numbered finding has since been fixed and merged - PRs #11, #13, #16, #12, #14,
+#17, #18, #19 and, for finding 11, the change this file ships with - apart from the
+residual part of finding 4, which is recorded in its own section. The engine test suite
 and the `sql/core` Varka suites were built and run as part of those fixes. Line
 references below were refreshed against `c6fbfe34d88`; entries marked "pre-fix line
 numbers" point into the code as it stood before that finding's fix.
@@ -420,13 +421,30 @@ immediately after `BaseFixedWidthVector.allocateNew` has already zeroed it. Use
 
 ### 11. Reflective `Method.invoke` with boxed arguments
 
-`VarkaColumnarToRowExec.scala:319-329` and `:405-406` box every argument into
-`java.lang.Long` / `java.lang.Integer` per batch. Per batch this is noise, but the whole
-point of the generated dispatcher was an `invokestatic` with a primitive stack, and
-reaching it through `Method.invoke` undoes that.
+**Status: FIXED**. The second of the two options the finding lists. Each generated runner
+now implements the kernel-shape interface matching its descriptor - `VarkaUnaryKernel`
+for a one-input kernel with a scalar argument, `VarkaBinaryKernel` for a two-input one -
+so `invokeKernel` reaches the kernel with an ordinary interface call and the arguments
+stay primitive from the caller's stack into the kernel. Nothing is boxed and no argument
+array is allocated per batch.
 
-Fix: use a `MethodHandle`, or have the dispatcher implement a small generated interface,
-so the primitive path survives.
+The generated `run` became an instance method to implement the interface, so the
+parameters start at slot 1; `ClassFileGenOpVerifier` reads the first slot off the method's
+own static flag rather than assuming one. Two things fell out with the reflection:
+`paramClasses`, which parsed the descriptor at runtime to find the `Method`, and the
+`java.lang.reflect` import.
+
+A `MethodHandle` - the finding's other option - would have kept the descriptor parsing and
+needed `invokeExact` to avoid boxing, which is awkward to reach from Scala. The interface
+also states the kernel contract in one readable place, which is where the null and address
+conventions now live.
+
+`ClassFileCodegenSupportSuite` gained three tests: that a runner assembled for each op
+really implements the expected interface (it is instantiated, so the class is linked and
+a merely same-named method would not pass), that an unknown descriptor is rejected rather
+than producing a class implementing nothing, and that each interface's `DESCRIPTOR`
+constant still matches its `run` signature - the constant is what matches kernels to
+interfaces, so a drifted one would silently mis-dispatch.
 
 ## Smaller things
 
@@ -436,11 +454,13 @@ so the primitive path survives.
   page never appears in the site navigation.~~ Fixed: listed under Performance Tuning,
   next to Arrow Cache Format. The page already had the `title` / `displayTitle` front
   matter the layout needs, so the menu entry was all that was missing.
-* **Duplicated eligibility logic**: `VarkaColumnarToRowExec.foldDaysOffset` (`:357-360`)
+* ~~**Duplicated eligibility logic**: `VarkaColumnarToRowExec.foldDaysOffset` (`:357-360`)
   is a verbatim copy of `DateVarkaSupport.foldDaysOffset`
   (`datetimeExpressions.scala:521-524`), because the latter is `private[expressions]`.
   Widen the visibility rather than forking the rule - the two must stay in lockstep or
-  the rule and the exec will disagree about eligibility.
+  the rule and the exec will disagree about eligibility.~~ Fixed as suggested:
+  `DateVarkaSupport` is now `private[sql]`, its scaladoc says why, and the copy in the
+  exec node is gone.
 * ~~**Two identical class loaders**: `VarkaGeneratedClassLoader.scala` (catalyst) and
   `VarkaClassLoader.java` (engine) are the same class; the engine copy is currently
   exercised only by its own test. If it is meant as the shared contract, only one should
@@ -452,9 +472,11 @@ so the primitive path survives.
   and the Metaspace-unload proof against it, and `DateVectorOpsEmissionTest` loads its
   probe class through it. Both javadocs now say the duplication is deliberate and that a
   change to one belongs in the other.
-* **Non-local return in a closure**: `buildOutputPlan`
+* ~~**Non-local return in a closure**: `buildOutputPlan`
   (`VarkaColumnarToRowExec.scala:382`) uses `return None` inside a `map`. It works on
-  2.13 via an exception and is deprecated in 3; `collectFirst` / `traverse` reads better.
+  2.13 via an exception and is deprecated in 3; `collectFirst` / `traverse` reads
+  better.~~ Fixed: the per-expression match moved to an `outputOp` helper returning
+  `Option[OutputOp]`, and `buildOutputPlan` is `Option.when(ops.forall(_.isDefined))`.
 * ~~**Redundant node rebuild**: `VarkaColumnarRule.scala:47` returns
   `ProjectExec(projectList, child)` in the not-columnar branch, allocating an equal copy
   of the node instead of leaving it alone.~~ Fixed: the case binds the matched node and
@@ -501,5 +523,8 @@ note. That candour is worth keeping.
    both gated turning class-file routing on and both touched `CodeGenerator.scala`.
 7. ~~The `numRows == valueCount` invariant (8) and the `.copy()` removal (9).~~ Done
    together, both in `VarkaColumnarToRowExec.scala`.
-8. Next: the sub-57-row vector loop (10), which is engine-only, then the reflective
-   `Method.invoke` (11).
+8. ~~The sub-57-row vector loop (10), which is engine-only, then the reflective
+   `Method.invoke` (11).~~ Done in `b58bc2fc87e` and in the change this file ships with.
+9. Left: the residual half of finding 4 - `sql/varka/engine` as a reactor module, and an
+   aarch64 runner to exercise the kernels at 4 lanes. Both are build and CI work rather
+   than code fixes, and the aarch64 half depends on runner availability.

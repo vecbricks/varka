@@ -47,11 +47,15 @@ import org.apache.spark.sql.varka.execution.VarkaClassLoader;
 /**
  * Task 4: define-and-run integration of the DateVectorOps kernels. Catalyst owns the
  * Class-File assembly (Java 25+ baseline; see VarkaClassFileGen.assembleKernelClass), so
- * this test independently assembles a probe class of the same shape (mirroring the catalyst
- * assembler, which this module cannot depend on), defines it via {@link VarkaClassLoader},
- * runs it against native memory, and asserts the result. It also pins the kernel descriptors
- * from the actual methods via reflection, so the contract strings on the catalyst side
- * cannot silently drift.
+ * this test independently assembles a probe class (mirroring the catalyst assembler, which
+ * this module cannot depend on), defines it via {@link VarkaClassLoader}, runs it against
+ * native memory, and asserts the result. It also pins the kernel descriptors from the actual
+ * methods via reflection, so the contract strings on the catalyst side cannot silently drift.
+ *
+ * <p>What is mirrored is the body: the parameter loads in argument order followed by a single
+ * invokestatic to the kernel. The probe's {@code run} is static, whereas catalyst's runner
+ * implements a kernel-shape interface declared in catalyst - a type this module has no way to
+ * reference. That difference is in the calling convention, not in how the kernel is reached.
  */
 class DateVectorOpsEmissionTest {
 

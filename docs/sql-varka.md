@@ -98,6 +98,12 @@ that forward to the kernels; no external bytecode library is used:
 `ClassFileAssembler`/`JavaClassFileEngine` assemble the full class, and
 `VarkaClassFileGen.assembleKernelClass` builds the small per-op dispatchers.
 
+Each dispatcher implements the kernel-shape interface matching its descriptor -
+`VarkaUnaryKernel` for a one-input kernel with a scalar argument,
+`VarkaBinaryKernel` for a two-input one - so the execution path reaches the
+kernel with an ordinary interface call and the arguments stay primitive from the
+caller's stack into the kernel. A new kernel shape means a new interface.
+
 Note on status: `JavaClassFileEngine` is not wired into the `CodeGenerator.compile`
 funnel. Its assembled `VarkaProjection.apply` is still a stub that throws, and
 assembly, loading and construction all succeed, so routing to it would hand back a
