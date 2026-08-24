@@ -61,14 +61,12 @@ showcase what fusion uniquely buys:
   does not just fuse; it replaces an allocating path.
 
 The hand-written kernels stay as the reference semantics and the per-batch
-fallback. Scope remains int32 in and int32 out. Deliberately deferred to
-milestone 3: boolean *outputs* (comparisons as projection results), calendar
-field extraction (`year`/`month`/`quarter` need the civil-from-days algorithm),
-`date_trunc`, `months_between`, wider species (Long, Double), aggregation,
-filters, joins, cross-task caching of assembled classes (see 2.7), and 64-byte
-buffer alignment (today observed but not enforced - `VarkaMorsel.reportAlignment`
-regularly prints `cacheLineAligned=false`). The 64 KB method limit is addressed
-by neither milestone: nothing here generates the whole-stage class.
+fallback. Scope remains int32 in and int32 out. Everything deliberately deferred
+- int64 lanes (timestamps) first, then caching, filters, boolean outputs,
+calendar field extraction and the rest - is collected with rationale and
+ordering in `PLAN_MILESTONE_3.md`, so a deferral here always has a landing place
+there. The 64 KB method limit is addressed by neither milestone: nothing here
+generates the whole-stage class.
 
 ## 2. Design
 
@@ -77,12 +75,24 @@ by neither milestone: nothing here generates the whole-stage class.
 `sealed interface VarkaVectorIR` with records `ColumnRef(int ordinal)`,
 `LiteralSlot(int index)`, `AddDays(node, node)`, `SubDays(node, node)`,
 `DateDiff(node, node)`, `Compare(op, node, node)` (interior only - it produces a
-mask, never a stored column), `IfElse(cond, thenNode, elseNode)`,
+mask, never a stored column), `And(cond, cond)`, `Or(cond, cond)`, `Not(cond)`
+(interior, mask-valued - what makes `CASE WHEN` conditions realistic, and what
+`BETWEEN` rewrites to), `IfElse(cond, thenNode, elseNode)`,
 `Greatest(node, node)`, `Least(node, node)`, `DayOfWeek(node)`,
 `WeekDay(node)`. Java, so the emitter can pattern-match records; constructed
 from bound Catalyst expressions by a Scala `VarkaExpressionCompiler`, which
 replaces the flat `VarkaKernelEvaluator.outputOp` matcher and recurses instead
 of demanding bare attributes.
+
+The IR is a DAG, not a forest: the compiler interns identical subtrees, so a
+subchain shared by several outputs - `SELECT date_add(d, 1) AS a,
+datediff(date_add(d, 1), d2) AS b` - is computed once per lane group and stored
+twice. That is the register-residency claim extended *across* outputs, which
+neither the per-op kernels nor Janino's per-row subexpression elimination can
+match inside a vector loop. Every node also carries its lane type - always
+`INT` in this milestone, and the emitter rejects anything else. One field, no
+speculative code paths; it exists so milestone 3's int64 lanes extend the IR
+instead of reworking it.
 
 The new expressions (`CaseWhen`, `If`, the binary comparisons, `Greatest`,
 `Least`, `DayOfWeek`, `WeekDay`) are matched *structurally* by the compiler;
@@ -117,10 +127,10 @@ indexed inside the loop (loop-invariant code motion, as the design notes
 require); the caller reuses the arrays across batches, so nothing is allocated
 per call. Per lane group the generated body builds each referenced column's
 validity mask once; loads each referenced column once with
-`IntVector.fromMemorySegment(SPECIES, seg, off, ORDER, mask)`; applies the op
-chain leaving intermediates - `IntVector`s and `VectorMask`s both - on the
-operand stack or in locals; stores once per output column; and writes each
-output's validity. A scalar tail then mirrors the chain row for row, including
+`IntVector.fromMemorySegment(SPECIES, seg, off, ORDER, mask)`; computes each
+distinct IR node once, reusing shared subchains across outputs, with
+intermediates - `IntVector`s and `VectorMask`s both - on the operand stack or
+in locals; stores once per output column; and writes each output's validity. A scalar tail then mirrors the chain row for row, including
 the predication and null-skipping semantics of 2.6.
 
 Mask algebra is per node, not global: the arithmetic ops are null-intolerant and
@@ -201,6 +211,20 @@ written down rather than discovered in review.
   `valid = validA OR validB`; value `max(select(a, validA, b),
   select(b, validB, a))` - substituting the other lane's value where one input
   is null reduces every case (both valid, only A, only B) to a plain `max`.
+* **The connectives follow SQL's three-valued logic, tracked as mask pairs.**
+  Each condition node carries a known-true and a known-false mask:
+  `knownTrue(A AND B) = knownTrue(A) AND knownTrue(B)`, dually for `OR`, and
+  `knownTrue(NOT A) = knownFalse(A)` - which is why known-false must be tracked
+  at all. The effective condition feeding a blend is the known-true mask, which
+  preserves the rule that an unknown condition falls through to ELSE.
+* **Plain integer arithmetic on `datediff` outputs is a trap, and stays out.**
+  `datediff(d2, d1) + 1` looks like a free chain extension on the same lanes,
+  but Spark's `Add` on integers throws on overflow under ANSI mode - the
+  default - and a SIMD lane cannot throw row-accurately without overflow
+  detection and a row index for the error. If it is ever added it must be gated
+  on `ansiEnabled = false`; the ANSI-correct version, with vectorised overflow
+  detection, is milestone 3's problem. `date_add` itself is exempt: it wraps by
+  spec regardless of ANSI.
 * **`dayofweek`/`weekday` are `floorMod`, not `%`.** Java's `%` is wrong for
   negative epoch days (dates before 1970), so the emitted sequence is the
   two-instruction floorMod, and the differential test range must include
@@ -228,7 +252,7 @@ and stage into the class bytes, which byte-level caching would either defeat
 (stage in the key) or falsify (a cached class reporting another query's stage).
 Milestone 3 has to reconcile the two - most likely by patching or externalising
 the debug attributes on cache hits - and that reconciliation is part of the
-cache's design, not something to bolt on here.
+cache's design, not something to bolt on here (`PLAN_MILESTONE_3.md`, item 2).
 
 ### 2.8 Telemetry
 
@@ -245,11 +269,11 @@ Numbering continues from milestone 1, whose last task was 8.
 | # | Task | Deliverable | Validation |
 | :--- | :--- | :--- | :--- |
 | 9 | **IR + emitter spike** | `VarkaVectorIR`, `VarkaLoopEmitter`, `VarkaFusedKernel`, `VarkaVectorSupport`; single op, single output | Generated class verifies and matches `DateVectorOps` row for row; the intrinsification gate below; the chain-depth cap measured and fixed as a number |
-| 10 | Chains and mask algebra | Recursive `VarkaExpressionCompiler`; nested arithmetic ops; per-node mask algebra; scalar tail mirrors the chain | Differential vs Janino over a nested-expression matrix; null, all-null and empty batches; the fusion gate below |
-| 11 | Predication and null-skipping ops | Interior comparisons; `If`/`CaseWhen` via `VectorMask.blend`; `greatest`/`least`; `dayofweek`/`weekday` via floorMod | The 2.6 null-pattern matrix on both the vector loop and the scalar tail; `dayofweek` differential vs the `LocalDate` oracle including negative epoch days |
+| 10 | Chains, DAG-CSE and mask algebra | Recursive `VarkaExpressionCompiler`; nested arithmetic ops; interned subtrees computed once per lane group; per-node mask algebra; scalar tail mirrors the chain; dense-path specialisation (an unmasked body selected when `nullCount == 0`) if task 9's JMH delta justifies it | Differential vs Janino over a nested-expression matrix including shared subchains; null, all-null and empty batches; the fusion gate below |
+| 11 | Predication and null-skipping ops | Interior comparisons and `AND`/`OR`/`NOT` with the known-true/known-false mask pairs; `If`/`CaseWhen` via `VectorMask.blend`; `greatest`/`least`; `dayofweek`/`weekday` via floorMod | The 2.6 null-pattern matrix - three-valued connectives included - on both the vector loop and the scalar tail; `dayofweek` differential vs the `LocalDate` oracle including negative epoch days |
 | 12 | Multi-output, passthrough, escape hatch | Partial eligibility in `VarkaColumnarRule` and both exec nodes; owned-columns batch release | Plan tests on both sides of the fork; the mixed projection is fused; lifetime tests for forwarded vectors (drained and abandoned); the row-node escape-hatch decision, benchmarked |
 | 13 | Telemetry | `SourceFileAttribute` and the `VarkaDebugInfo` attribute plus its reader | Round-trip test: parse the attribute back off a generated class |
-| 14 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested, `CASE WHEN` and mixed projections; regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file | Committed results show the chain speedup; the `CASE WHEN` case is the headline fusion number - branch-free blend against Janino's per-row branches |
+| 14 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested, shared-subchain, `CASE WHEN` and mixed projections; a chain-depth scaling case (depth 1-4, fused vs per-op passes); a cold-query latency case (first execution of a fresh plan shape, Varka vs Janino); regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file | Committed results show the chain speedup and its scaling with depth; the `CASE WHEN` case is the headline fusion number - branch-free blend against Janino's per-row branches; the cold-latency case turns the 636x generation-time figure into a query-level number |
 | 15 | Drive-by | `fallbackProjection` becomes a `lazy val` in both Varka evaluators | A kernel-only task compiles no Janino projection |
 
 Task 9 carries the milestone's real risk, so it ships first and alone. Task 11
