@@ -141,7 +141,67 @@ properties over dead attributes into `EliminateSorts`, exchange reuse and AQE.
 
 ### 4. `varka-engine` is not in the Maven reactor, and no CI builds it
 
-**Status: PARTIALLY FIXED** in `48a9886051b` (PR #12). A composite action,
+**Status: FIXED**. `48a9886051b` (PR #12) put the engine in CI; the change this file ships
+with closes the two parts that were left over.
+
+`sql/varka/engine` is now a module of the root `pom.xml`, listed before `sql/api` and
+`sql/catalyst`. Maven orders it ahead of catalyst on its own, from catalyst's declared
+dependency on it, so a plain `./build/mvn install` builds and installs the engine before
+anything that needs it and no manual step is left in a Maven build. It keeps its own pom
+rather than inheriting `spark-parent`, because its sources need the incubator Vector API and
+its tests need native-access flags the Spark build does not set, and because inheriting
+would apply the Scala, shading and packaging plugins it has no use for. It therefore still
+builds standalone with `-f sql/varka/engine/pom.xml`, which is how the composite action puts
+it into the local Maven repository; the Maven test jobs build a subset of modules with `-pl`
+and no `-am`, so they resolve it from there and the action stays.
+
+Adding the module changes the sbt build too, because sbt reads its projects from the same
+poms (sbt-pom-reader): the engine became an sbt project named `engine`, and the aggregate root
+now compiles it. It needs three things `project/SparkBuild.scala` did not give it, all in
+`VarkaEngine.settings`, since the engine is deliberately not in `allProjects` - it is a plain
+Java module none of the publishing, genjavadoc, MiMa or scalastyle settings apply to. javac
+needs `--add-modules jdk.incubator.vector`, which sbt does not take from the pom.
+`src/jmh/java` has to come back out of `Compile`: it is a Maven *test* source directory, added
+by build-helper, and sbt-pom-reader maps it into `Compile`, where its test-scope jmh-core
+dependency is not on the classpath. And the module names no Scala version, so pom-reader falls
+back to its own default and would otherwise put a second scala-library on catalyst's
+classpath. The engine is also excluded from unidoc, which is a deny-list.
+
+Two more consequences, neither of them a setting on the engine project. sbt-pom-reader does
+not turn catalyst's and `sql/core`'s test-scope dependency on the engine into a project
+dependency once the engine is a module of the same build - it drops it, so the Varka suites
+lose the classes they load by name and fail with
+`ClassNotFoundException: org.apache.spark.sql.varka.vector.DateVectorOps`. Both modules now
+put the engine project's jar on their test classpath explicitly
+(`VarkaEngineDependency.settings`), which is also better than what they had: the suites run
+against the engine in the working tree rather than against whatever the local Maven repository
+holds. And zinc extracts a compiled Java class's API by loading it in the sbt JVM, so that JVM
+needs the incubator module too - without it the engine's sources compile and the compile task
+then dies with `NoClassDefFoundError: jdk/incubator/vector/Vector`. `.sbtopts` passes
+`-J--add-modules=jdk.incubator.vector`.
+
+Having no parent has a cost that being in the reactor makes visible: `dev/lint-java` runs
+`checkstyle:check` over every module, and the plugin resolves a relative `configLocation`
+against the *parent* project's directory. With no parent the engine was checked against the
+plugin's default sun_checks - 294 violations. The engine pom now configures checkstyle
+itself, pointing at `${maven.multiModuleProjectDirectory}/dev/checkstyle.xml`, which is the
+repository root whether the reactor or that pom alone is built. Against Spark's actual rules
+the engine had two violations, both missing trailing newlines, now fixed. The engine's Java
+is linted by `dev/lint-java` from here on.
+
+The 4-lane risk is covered from two directions. The engine's own build now runs its suite
+twice: once at the host's preferred vector width, and once with `-XX:MaxVectorSize=16`,
+which makes `IntVector.SPECIES_PREFERRED` four lanes - the shape of a 128-bit NEON machine.
+That second run passes `-Dvarka.expected.int.lanes=4`, and
+`DateVectorOpsTest.preferredSpeciesIsTheWidthTheRunAskedFor` fails if the JVM did not honour
+it, so the run cannot silently degrade into a duplicate of the first. Independently, the
+`varka-engine` CI job is now a matrix over `ubuntu-latest` and `ubuntu-24.04-arm`, so the
+kernels also execute on real aarch64 hardware. Both were needed: the capped-width run covers
+the four-lane *code path* on every runner, and the arm runner covers the four-lane *machine*.
+
+The original partial fix:
+
+A composite action,
 `.github/actions/install-varka-engine`, builds `sql/varka/engine` and installs it into
 the local Maven repository. It runs in every job that compiles or tests Spark
 (`build_and_test.yml`, `maven_test.yml`, `python_hosted_runner_test.yml`), and
@@ -151,9 +211,10 @@ compile. A dedicated `varka-engine` job runs the engine's own test suite by pass
 suites run with the rest of the `sql` module, so `dev/sparktestsupport/modules.py` needs
 no entry of its own.
 
-Still open: the engine is not a reactor module - the root `pom.xml` `<modules>` list is
-unchanged - so a Maven build outside CI still depends on the manual install; and every
-runner is x86_64, so the residual 4-lane risk from finding 1 remains unexercised.
+What that left open, and what the change this file ships with closes: the engine was not a
+reactor module - the root `pom.xml` `<modules>` list was unchanged - so a Maven build outside
+CI still depended on the manual install; and every runner was x86_64, so the residual 4-lane
+risk from finding 1 was unexercised.
 
 The original state:
 
@@ -465,9 +526,8 @@ interfaces, so a drifted one would silently mis-dispatch.
   `VarkaClassLoader.java` (engine) are the same class; the engine copy is currently
   exercised only by its own test. If it is meant as the shared contract, only one should
   exist.~~ Resolved as by-design, and documented as such on both sides. Neither can be
-  the shared one: the engine is a standalone module outside the reactor, a test-scope
-  dependency of catalyst, and deployed externally at runtime, so catalyst cannot compile
-  against it - and the engine cannot depend on catalyst either. Deleting the engine copy
+  the shared one: the engine is only a test-scope dependency of catalyst and is deployed
+  externally at runtime, so catalyst cannot compile against it - and the engine cannot depend on catalyst either. Deleting the engine copy
   would also cost real coverage: `VarkaClassLoaderTest` pins the define/release semantics
   and the Metaspace-unload proof against it, and `DateVectorOpsEmissionTest` loads its
   probe class through it. Both javadocs now say the duplication is deliberate and that a
@@ -513,10 +573,12 @@ note. That candour is worth keeping.
 ## Suggested order
 
 1. ~~Fix the lane-alignment bug (finding 1) and add a narrow-species test.~~ Done in
-   `a6b7f7d3541`; the residual 4-lane hardware coverage still depends on finding 4.
+   `a6b7f7d3541`; the 4-lane coverage it depended on finding 4 for is in place too - a
+   capped-width test run and an aarch64 CI runner.
 2. ~~Fix the per-batch listener leak (finding 2).~~ Done in `25f2feb4999`.
-3. ~~Get the engine into CI (finding 4) so 1 and 2 stay fixed.~~ Done in `48a9886051b`,
-   apart from the reactor module and an aarch64 runner.
+3. ~~Get the engine into CI (finding 4) so 1 and 2 stay fixed.~~ Done in `48a9886051b`, and
+   completed by the change this file ships with: reactor module, and 4-lane coverage from
+   both a capped-width test run and an aarch64 runner.
 4. ~~Move the registration point (finding 5).~~ Done in `c6fbfe34d88`.
 5. ~~Alias-awareness (finding 3).~~ Done in `1d3c0c40052`.
 6. ~~The class-file routing pair (findings 6 and 7).~~ Done together, as one change:

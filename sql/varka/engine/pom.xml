@@ -21,11 +21,19 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    Standalone Java 25 engine for the Varka project. Built with the Maven wrapper via
-    `./build/mvn -f sql/varka/engine/pom.xml`. The Spark reactor shares the Java 25 baseline
-    (root pom java.version), but the engine stays a separate module by design; its tests need
-    the native-access and incubator-vector flags, which are not part of the Spark build.
-    See sql/varka/IMPLEMENTATION_PLAN.md.
+    The Java 25 SIMD engine for the Varka project. A module of the Spark reactor (root pom
+    `<modules>`), so `./build/mvn install` builds and installs it before sql/catalyst and
+    sql/core, which declare it as a test-scope dependency. It also still builds on its own -
+    `./build/mvn -f sql/varka/engine/pom.xml install` - which is how CI puts it in the local
+    repository for the sbt builds.
+
+    It keeps its own pom instead of inheriting spark-parent: the Spark reactor shares the
+    Java 25 baseline (root pom java.version), but the engine's sources need the incubator
+    Vector API module and its tests need native-access flags that the Spark build does not
+    set, and inheriting spark-parent would also apply the Scala, shading and packaging
+    plugins that this module has no use for. The cost of having no parent is that a few
+    settings have to be repeated here rather than inherited - see arrow.version below and
+    the checkstyle plugin. See sql/varka/IMPLEMENTATION_PLAN.md.
   -->
   <groupId>org.apache.spark.varka</groupId>
   <artifactId>varka-engine</artifactId>
@@ -51,6 +59,8 @@
     <junit.version>5.10.2</junit.version>
     <maven.surefire.version>3.2.5</maven.surefire.version>
     <jmh.version>1.37</jmh.version>
+    <!-- Shared by both surefire executions; see the note on the surefire plugin below. -->
+    <varka.surefire.argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -Dio.netty.tryReflectionSetAccessible=true --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED</varka.surefire.argLine>
   </properties>
 
   <dependencies>
@@ -106,13 +116,72 @@
           </compilerArgs>
         </configuration>
       </plugin>
+      <!--
+        Checkstyle with Spark's rules. Needed explicitly because this module has no parent to
+        inherit the root pom's configuration from: `dev/lint-java` runs `checkstyle:check` over
+        the whole reactor, and without this the module would be checked against the plugin's
+        default sun_checks instead. Kept in step with the root pom's plugin block, except for
+        the config location: the root pom can say `dev/checkstyle.xml` because the plugin
+        resolves a relative path against the parent project's directory, which a module with
+        no parent does not have. `maven.multiModuleProjectDirectory` is the repository root
+        (the directory holding `.mvn`) whether the reactor or this pom alone is built.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <failOnViolation>false</failOnViolation>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <sourceDirectories>
+            <directory>${basedir}/src/main/java</directory>
+          </sourceDirectories>
+          <testSourceDirectories>
+            <directory>${basedir}/src/test/java</directory>
+          </testSourceDirectories>
+          <configLocation>${maven.multiModuleProjectDirectory}/dev/checkstyle.xml</configLocation>
+          <outputFile>${basedir}/target/checkstyle-output.xml</outputFile>
+          <inputEncoding>${project.build.sourceEncoding}</inputEncoding>
+          <outputEncoding>${project.build.sourceEncoding}</outputEncoding>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>11.0.1</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <!--
+        The suite runs twice. The default execution uses whatever vector width the host
+        prefers; `narrow-vector` re-runs it with the widest vector capped at 16 bytes, which
+        makes IntVector.SPECIES_PREFERRED four lanes - the shape of a 128-bit NEON machine,
+        and the narrow-species case the kernels were once wrong on. Every CI runner is x86_64
+        with 8 or 16 int lanes, so without this the four-lane path of the kernels themselves
+        is never executed. `IgnoreUnrecognizedVMOptions` keeps the second run harmless on a
+        JVM with no MaxVectorSize: it just repeats the first at the host's own width.
+      -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven.surefire.version}</version>
         <configuration>
-          <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -Dio.netty.tryReflectionSetAccessible=true --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED</argLine>
+          <argLine>${varka.surefire.argLine}</argLine>
         </configuration>
+        <executions>
+          <execution>
+            <id>narrow-vector</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <argLine>${varka.surefire.argLine} -XX:+IgnoreUnrecognizedVMOptions -XX:MaxVectorSize=16
+                -Dvarka.expected.int.lanes=4</argLine>
+              <reportsDirectory>${project.build.directory}/surefire-reports-narrow-vector</reportsDirectory>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <!-- The JMH benchmark sources live under `src/jmh/java`, added as a test source dir so they
            compile (and jmh-generator-annprocess produces the `*_jmhType*` classes) without

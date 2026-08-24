@@ -18,6 +18,7 @@
 package org.apache.spark.sql.varka.vector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -32,6 +33,8 @@ import org.apache.arrow.vector.DateDayVector;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import jdk.incubator.vector.IntVector;
 
 import org.apache.spark.sql.varka.memory.VarkaMorsel;
 import org.apache.spark.sql.varka.memory.VarkaMorsel.DateMorsel;
@@ -60,6 +63,23 @@ public class DateVectorOpsTest {
       v.close();
     }
     allocator.close();
+  }
+
+  /**
+   * Guards the narrow-vector surefire execution, which caps the vector width so that the
+   * kernels run at four int lanes - the shape of a 128-bit NEON machine, which no CI runner
+   * is. That execution passes {@code varka.expected.int.lanes}; if the width it asks for is
+   * not the width it got, the run silently repeats the default one instead of covering the
+   * narrow-species path, and this fails rather than letting the coverage disappear. The
+   * default execution does not set the property, so this is skipped there.
+   */
+  @Test
+  void preferredSpeciesIsTheWidthTheRunAskedFor() {
+    String expected = System.getProperty("varka.expected.int.lanes");
+    assumeTrue(expected != null, "only checked by a run that pins the vector width");
+    assertEquals(Integer.parseInt(expected), IntVector.SPECIES_PREFERRED.length(),
+        "the JVM did not honour the requested vector width, so this run duplicates the "
+            + "default one instead of exercising the narrow-species path");
   }
 
   @Test

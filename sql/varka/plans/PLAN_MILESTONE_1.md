@@ -51,8 +51,9 @@ sql/varka/
     PLAN_TASK_2.md               <- Task 2 detail
     PLAN_TASK_3.md               <- Task 3 detail (completed)
     PLAN_TASK_4.md               <- Task 4 detail (implemented, PR #5)
-  engine/                        <- STANDALONE Java 25 module (Tasks 1-3). NOT in Spark reactor
-                                    (by design: needs native-access test flags).
+  engine/                        <- Java 25 module (Tasks 1-3). A Spark reactor module, but
+                                    with its own pom rather than spark-parent (by design:
+                                    needs incubator-vector and native-access test flags).
     pom.xml                      (--release 25, --add-modules jdk.incubator.vector)
     src/main/java/org/apache/spark/sql/varka/
       memory/VarkaMorsel.java    (Task 1)

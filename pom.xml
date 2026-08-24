@@ -93,6 +93,11 @@
     <module>mllib-local</module>
     <module>tools</module>
     <module>streaming</module>
+    <!-- The Varka SIMD engine. A test-scope dependency of sql/catalyst and sql/core, so the
+         reactor builds it before them. It keeps its own pom rather than inheriting
+         spark-parent: its sources need the incubator Vector API module and its tests need
+         native-access flags that the Spark build does not set. -->
+    <module>sql/varka/engine</module>
     <module>sql/api</module>
     <module>sql/catalyst</module>
     <module>sql/core</module>

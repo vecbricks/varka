@@ -159,11 +159,12 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 
 ## Key design decisions
 
-* **Java 25 baseline and a standalone engine.** The Vector API and the
-  Class-File API require a recent JDK. The engine is a standalone Maven module
-  outside the Spark reactor so its tests can use the native-access and
-  incubator-vector flags; catalyst uses `java.lang.classfile` on the Java 25
-  baseline.
+* **Java 25 baseline and a self-contained engine.** The Vector API and the
+  Class-File API require a recent JDK. `sql/varka/engine` is a module of the
+  Spark reactor, so a plain `./build/mvn install` builds it, but it keeps its
+  own pom rather than inheriting `spark-parent` so its sources and tests can use
+  the incubator-vector and native-access flags the Spark build does not set;
+  catalyst uses `java.lang.classfile` on the Java 25 baseline.
 * **Arrow-only fast path.** Arrow-backed batches (for example the Arrow cache
   serializer) map directly to segments. Vectorized Parquet produces
   `OnHeapColumnVector`/`OffHeapColumnVector`, not Arrow, so those batches fall

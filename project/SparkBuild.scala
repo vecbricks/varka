@@ -86,6 +86,11 @@ object BuildCommons {
     .map(ProjectRef(buildLocation, _))
 
   val tools = ProjectRef(buildLocation, "tools")
+  // The Varka SIMD engine, `sql/varka/engine`. sbt sees it because it is a module of the root
+  // pom; it is kept out of `allProjects` on purpose, since it is a plain Java module with its
+  // own pom and none of what those settings provide - publishing, genjavadoc, MiMa, scalastyle
+  // - applies to it.
+  val varkaEngine = ProjectRef(buildLocation, "engine")
   // Root project.
   val spark = ProjectRef(buildLocation, "spark")
   val sparkHome = buildLocation
@@ -457,6 +462,11 @@ object SparkBuild extends PomBuild {
 
   /* Spark SQL Core settings */
   enable(SQL.settings)(sql)
+
+  /* Varka SIMD engine settings, and the engine on the test classpath of the two modules
+   * whose poms declare it */
+  enable(VarkaEngine.settings)(varkaEngine)
+  Seq(catalyst, sql).foreach(enable(VarkaEngineDependency.settings))
 
   /* Hive console settings */
   enable(Hive.settings)(hive)
@@ -1485,6 +1495,44 @@ object SQL {
   }
 }
 
+object VarkaEngine {
+  lazy val settings = Seq(
+    // The kernels compile against the incubating Vector API. The module's pom passes this to
+    // Maven; sbt takes a module's dependencies from its pom but not its compiler arguments.
+    javacOptions ++= Seq("--add-modules", "jdk.incubator.vector"),
+    // `src/jmh/java` is a Maven *test* source directory, added by build-helper, and jmh-core is
+    // a test-scope dependency. sbt-pom-reader maps that directory into `Compile`, where it
+    // cannot compile. The benchmarks stay a Maven concern:
+    // `./build/mvn -f sql/varka/engine/pom.xml test -Dvarka.jmh=true`.
+    (Compile / unmanagedSourceDirectories) := (Compile / unmanagedSourceDirectories).value
+      .filterNot(_ == baseDirectory.value / "src" / "jmh" / "java"),
+    // The module has no Scala, and no parent pom to name a Scala version, so sbt-pom-reader
+    // falls back to its own default. Keep it on the version the rest of the build uses, so it
+    // does not pull a second scala-library onto catalyst's classpath.
+    scalaVersion := (LocalProject("catalyst") / scalaVersion).value,
+    // `dev/mima` runs `mimaReportBinaryIssues` over the whole build, and the task fails a
+    // project that has no previous artifact to compare against unless told otherwise.
+    // `sharedSettings` turns this off for every other module; the engine is not in that list,
+    // and it publishes nothing that a previous release could be checked against.
+    MimaKeys.mimaFailOnNoPrevious := false
+  )
+}
+
+/**
+ * The test-scope dependency on the engine that `sql/catalyst/pom.xml` and `sql/core/pom.xml`
+ * declare. sbt-pom-reader drops a dependency on a module of the same build rather than turning
+ * it into a project dependency, so without this the Varka suites lose the classes they load by
+ * name - `DateVectorOps` above all - and fall through to the non-Varka path. Taking the jar
+ * from the project also means the suites run against the engine in the working tree, not
+ * against whatever the local Maven repository happens to hold.
+ */
+object VarkaEngineDependency {
+  lazy val settings = Seq(
+    (Test / unmanagedJars) +=
+      Attributed.blank((LocalProject("engine") / Compile / packageBin).value)
+  )
+}
+
 object Hive {
 
   lazy val settings = Seq(
@@ -1844,12 +1892,12 @@ object Unidoc {
     (ScalaUnidoc / unidoc / unidocProjectFilter) :=
       inAnyProject -- inProjects(OldDeps.project, repl, examples, tools, kubernetes,
         yarn, tags, streamingKafka010, sqlKafka010, connectCommon, connect, connectJdbc,
-        connectClient, connectShims, protobuf, profiler),
+        connectClient, connectShims, protobuf, profiler, varkaEngine),
     (JavaUnidoc / unidoc / unidocProjectFilter) :=
       inAnyProject -- inProjects(OldDeps.project, repl, examples, tools, kubernetes,
         yarn, tags, streamingKafka010, sqlKafka010, connectCommon, connect, connectJdbc,
         connectClient, connectShims, protobuf, profiler, udfWorkerProto, udfWorkerCore,
-        udfWorkerGrpc),
+        udfWorkerGrpc, varkaEngine),
   )
 }
 
