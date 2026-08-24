@@ -1,7 +1,7 @@
 # Varka Task 3 - `VarkaClassLoader` + per-task class lifecycle
 
 **Status: PLAN SAVED - implementation not started.** See
-`IMPLEMENTATION_PLAN.md` for the high-level MVP plan. The Spark-side
+`PLAN_MILESTONE_1.md` for the high-level MVP plan. The Spark-side
 `TaskCompletionListener` wiring and the integrated Metaspace stress loop are
 follow-ups to the Spark-side integration (Tasks 4-7); Task 3 delivers the
 standalone Java loader plus unloadability proof.
@@ -172,7 +172,7 @@ A test helper builds a minimal public class,
 - `./build/mvn -f sql/varka/engine/pom.xml test` green (all existing + new
   tests).
 - No changes outside `sql/varka/`.
-- Docs in place: `IMPLEMENTATION_PLAN.md` (task table, updated),
+- Docs in place: `PLAN_MILESTONE_1.md` (task table, updated),
   `PLAN_TASK_3.md` (this file).
 
 ## 8. Follow-ups (not in this task)

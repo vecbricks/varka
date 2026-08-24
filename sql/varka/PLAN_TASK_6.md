@@ -1,6 +1,6 @@
 # Varka Task 6 - Execution-path integration
 
-**Status: DONE** (implementation + tests landed). See `IMPLEMENTATION_PLAN.md` for the
+**Status: DONE** (implementation + tests landed). See `PLAN_MILESTONE_1.md` for the
 high-level MVP plan. Task 6 wires the Task 5 machinery into the real query
 path so `SELECT date_add(d, 3)` over an Arrow-backed `ColumnarBatch` runs the
 `DateVectorOps` SIMD kernels instead of per-row codegen, with graceful
@@ -24,7 +24,7 @@ per-batch fallback and an end-to-end test that matches the Janino result.
 
 ## 2. Corrections to earlier assumptions (ground truth in this tree)
 
-- `IMPLEMENTATION_PLAN.md` says "Intercept in `ColumnarToRowExec`
+- `PLAN_MILESTONE_1.md` says "Intercept in `ColumnarToRowExec`
   (Columnar.scala:134)". In this tree the classic `BatchToRowConverter`/
   `generateProjection` is gone. `ColumnarToRowExec` converts via a copy
   projection `UnsafeProjection.create(childOutput, childOutput)` in
@@ -180,7 +180,7 @@ sql/core/src/test/scala/org/apache/spark/sql/execution/
   VarkaColumnarToRowExecSuite.scala   (new unit tests)
   VarkaEndToEndSuite.scala            (new e2e tests)
 sql/varka/PLAN_TASK_6.md              (this file)
-sql/varka/IMPLEMENTATION_PLAN.md      (task table update)
+sql/varka/PLAN_MILESTONE_1.md      (task table update)
 ```
 
 ## 6. Definition of done (Task 6)
@@ -190,7 +190,7 @@ sql/varka/IMPLEMENTATION_PLAN.md      (task table update)
 - Per-batch fallback proven for non-Arrow batches and for injected kernel
   failure (no crash, no wrong rows).
 - Existing columnar/codegen suites and engine tests green; style clean.
-- `IMPLEMENTATION_PLAN.md` task 6 marked DONE.
+- `PLAN_MILESTONE_1.md` task 6 marked DONE.
 
 ## 7. Explicitly deferred (Tasks 7/8)
 

@@ -1,6 +1,6 @@
 # Varka Task 8 - Config-driven activation + comprehensive docs
 
-**Status: DONE**. See `IMPLEMENTATION_PLAN.md` for the high-level MVP plan.
+**Status: DONE**. See `PLAN_MILESTONE_1.md` for the high-level MVP plan.
 Task 8 makes the Varka integration activation work **out of the box** (a
 `SparkSession` needs only `spark.sql.codegen.varka.enabled=true` - no manual
 extension injection), adds flag-toggling coverage proving the rule is inert
@@ -73,7 +73,7 @@ commands.
 ### 3.4 Plan/Done bookkeeping
 
 - `PLAN_TASK_8.md` (this file).
-- `IMPLEMENTATION_PLAN.md`: task 8 row reworded to the actual scope and marked
+- `PLAN_MILESTONE_1.md`: task 8 row reworded to the actual scope and marked
   DONE; the "Explicitly deferred (Task 6)" note on the full flag set and
   config-driven auto-registration resolved; the `VARKA_ENABLED` config row/
   docs references aligned (no `patch.threshold` / `fallback.ghost.enabled`).
@@ -87,7 +87,7 @@ sql/core/src/test/scala/org/apache/spark/sql/execution/
   VarkaAutoRegistrationSuite.scala        (new; config-driven activation)
 docs/sql-varka.md                         (new; comprehensive project docs)
 sql/varka/PLAN_TASK_8.md                  (this file)
-sql/varka/IMPLEMENTATION_PLAN.md          (task 8 row -> DONE)
+sql/varka/PLAN_MILESTONE_1.md          (task 8 row -> DONE)
 ```
 
 ## 5. Verification
@@ -108,4 +108,4 @@ sql/varka/IMPLEMENTATION_PLAN.md          (task 8 row -> DONE)
   `numVarkaBatches > 0` - no manual extension injection.
 - No unused `spark.sql.codegen.varka.*` configs: only `varka.enabled`.
 - `docs/sql-varka.md` is a comprehensive, accurate project reference.
-- `IMPLEMENTATION_PLAN.md` task 8 marked DONE; style clean.
+- `PLAN_MILESTONE_1.md` task 8 marked DONE; style clean.

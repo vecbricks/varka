@@ -1,7 +1,7 @@
 # Varka Task 7 - Differential + perf testing
 
 **Status: DONE** (implementation landed; see "Implementation notes" in section 3.5).
-See `IMPLEMENTATION_PLAN.md` for the
+See `PLAN_MILESTONE_1.md` for the
 high-level MVP plan. Task 7 proves the Task 6 integration differentially
 (Varka on/off answer equality over a wider query matrix), bounds the per-task
 classloader Metaspace footprint (the engine's `VarkaClassLoaderTest` covers the
@@ -174,7 +174,7 @@ sql/varka/engine/
   src/jmh/java/org/apache/spark/sql/varka/vector/
     DateVectorOpsBenchmark.java        (new kernel microbenchmark)
 sql/varka/PLAN_TASK_7.md               (this file)
-sql/varka/IMPLEMENTATION_PLAN.md       (task 7 row update)
+sql/varka/PLAN_MILESTONE_1.md       (task 7 row update)
 ```
 
 ## 5. Verification
@@ -199,4 +199,4 @@ sql/varka/IMPLEMENTATION_PLAN.md       (task 7 row update)
 - Engine JMH benchmark compiles and runs; Spark benchmarks run via
   `test:runMain` and emit results.
 - Full regression (engine + catalyst + sql/core) and style clean.
-- `IMPLEMENTATION_PLAN.md` task 7 marked DONE.
+- `PLAN_MILESTONE_1.md` task 7 marked DONE.

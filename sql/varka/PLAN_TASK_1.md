@@ -1,6 +1,6 @@
 # Varka Task 1 - Standalone module + `VarkaMorsel`
 
-**Status: COMPLETED** (merged via PR #2). See also `IMPLEMENTATION_PLAN.md`
+**Status: COMPLETED** (merged via PR #2). See also `PLAN_MILESTONE_1.md`
 for the high-level MVP plan.
 
 ## 1. Goal

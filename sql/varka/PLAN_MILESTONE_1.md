@@ -1,8 +1,10 @@
-# Varka MVP Implementation Plan
+# Varka Milestone 1 (MVP) Implementation Plan
 
 This is the implementation plan for the Varka MVP (Date Arithmetic Over
-ArrowColumnarBatch). It supersedes the sketch in `Varka_MVP.md` where the
-two disagree; `VISION.md` remains the architectural source of truth.
+ArrowColumnarBatch), the project's first milestone. It supersedes the sketch in
+`Varka_MVP.md` where the two disagree; `VISION.md` remains the architectural
+source of truth. All eight tasks are complete; the work that follows them is
+planned in `PLAN_MILESTONE_2.md`.
 
 Per-task detail lives in separate files:
 
@@ -41,7 +43,8 @@ contain details that do not match this codebase; they are corrected here:
 sql/varka/
   VISION.md                      (unchanged)
   Varka_MVP.md                   (unchanged)
-  IMPLEMENTATION_PLAN.md         <- this file (high-level)
+  PLAN_MILESTONE_1.md            <- this file (high-level)
+  PLAN_MILESTONE_2.md            <- the next milestone's plan
   PLAN_TASK_1.md                 <- Task 1 detail (completed)
   PLAN_TASK_2.md                 <- Task 2 detail
   PLAN_TASK_3.md                 <- Task 3 detail (completed)

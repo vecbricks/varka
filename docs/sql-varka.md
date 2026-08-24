@@ -171,7 +171,7 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 | `sql/varka/engine` | Standalone Java 25 module (`varka-engine`, Arrow 19.0.0): `VarkaMorsel`, `DateVectorOps`, `VarkaClassLoader` and their tests. |
 | `sql/catalyst` | `ClassFileCodegenSupport` + `VarkaClassFileGen`, `ClassFileAssembler`/`JavaClassFileEngine`, `VarkaGeneratedClassLoader`, config `spark.sql.codegen.varka.enabled`. |
 | `sql/core` | `VarkaColumnarRule`, `VarkaColumnarToRowExec`, end-to-end test suites and benchmarks. |
-| `sql/varka` | `VISION.md`, `Varka_MVP.md`, `IMPLEMENTATION_PLAN.md` and per-task plans. |
+| `sql/varka` | `VISION.md`, `Varka_MVP.md`, `PLAN_MILESTONE_1.md` (the MVP), `PLAN_MILESTONE_2.md` (the next milestone) and per-task plans. |
 
 ## Configuration
 

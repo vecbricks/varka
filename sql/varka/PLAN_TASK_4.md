@@ -1,7 +1,7 @@
 # Varka Task 4 - Catalyst hooks (`ClassFileCodegenSupport`)
 
 **Status: IMPLEMENTED (PR #5), updated after the Java 25 baseline decision.**
-See `IMPLEMENTATION_PLAN.md` for the high-level MVP plan. Task 4 is the
+See `PLAN_MILESTONE_1.md` for the high-level MVP plan. Task 4 is the
 declarative Catalyst hook: a marker trait + emission contract that marks
 `DateAdd` / `DateSub` / `DateDiff` as Varka-eligible, pins the exact
 `invokestatic` stack order for the `DateVectorOps` batch kernels, and
@@ -166,7 +166,7 @@ sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/
 sql/varka/engine/src/test/java/org/apache/spark/sql/varka/vector/
   DateVectorOpsEmissionTest.java
 sql/varka/PLAN_TASK_4.md
-sql/varka/IMPLEMENTATION_PLAN.md   (task table update)
+sql/varka/PLAN_MILESTONE_1.md   (task table update)
 ```
 
 No new modules: `sql/catalyst` and the engine are existing modules. The root

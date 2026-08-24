@@ -1,7 +1,7 @@
 # Varka Task 5 - Class assembly + Ghost fallback
 
 **Status: DONE** (see "Implementation notes" in 3.6 for the decisions resolved
-during implementation). See `IMPLEMENTATION_PLAN.md` for the high-level MVP
+during implementation). See `PLAN_MILESTONE_1.md` for the high-level MVP
 plan. Task 5 builds on the Task 4 hooks: a Class-File API engine that
 assembles the full `GeneratedClass` shape, routing in the single
 `CodeGenerator.compile` funnel, a lazy Janino ghost fallback, and a
@@ -218,7 +218,7 @@ sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/
   ClassFileCodegenSupportSuite.scala   (BoundReference eligibility tests)
   JavaClassFileEngineSuite.scala       (new)
 sql/varka/PLAN_TASK_5.md               (this file)
-sql/varka/IMPLEMENTATION_PLAN.md       (task table update)
+sql/varka/PLAN_MILESTONE_1.md       (task table update)
 ```
 
 ## 6. Definition of done (Task 5)

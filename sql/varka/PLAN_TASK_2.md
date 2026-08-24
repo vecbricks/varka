@@ -1,6 +1,6 @@
 # Varka Task 2 - `DateVectorOps` SIMD kernels
 
-**Status: IN PROGRESS.** See `IMPLEMENTATION_PLAN.md` for the high-level MVP
+**Status: IN PROGRESS.** See `PLAN_MILESTONE_1.md` for the high-level MVP
 plan. JMH benchmarking is a **follow-up** to this task (not included here).
 
 ## 1. Goal
@@ -104,7 +104,7 @@ confined `Arena`. Expected values are computed two ways: Arrow's own
 - `DateVectorOps.java` compiles at `--release 25`; `DateVectorOpsTest` passes
   via `build/mvn -f sql/varka/engine/pom.xml test` (alongside `VarkaMorselTest`).
 - No changes outside `sql/varka/`.
-- Document restructuring in place: `IMPLEMENTATION_PLAN.md` (high-level),
+- Document restructuring in place: `PLAN_MILESTONE_1.md` (high-level),
   `PLAN_TASK_1.md` (completed Task 1 + findings), `PLAN_TASK_2.md` (this file).
 
 ## 7. Follow-ups (not in this task)
