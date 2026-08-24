@@ -18,3 +18,8 @@
 -J-Xmx8g
 -J-Xms4g
 -J-XX:MaxMetaspaceSize=1g
+
+# The Varka engine's kernels are compiled against the incubating Vector API, and zinc extracts
+# a compiled Java class's API by loading it in this JVM - which needs the module too, or the
+# `sql/varka/engine` compile fails with NoClassDefFoundError on jdk.incubator.vector.
+-J--add-modules=jdk.incubator.vector

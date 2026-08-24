@@ -150,9 +150,34 @@ anything that needs it and no manual step is left in a Maven build. It keeps its
 rather than inheriting `spark-parent`, because its sources need the incubator Vector API and
 its tests need native-access flags the Spark build does not set, and because inheriting
 would apply the Scala, shading and packaging plugins it has no use for. It therefore still
-builds standalone with `-f sql/varka/engine/pom.xml`, which is how CI puts it into the local
-Maven repository - sbt resolves it from there, not from the reactor, so the composite action
-stays.
+builds standalone with `-f sql/varka/engine/pom.xml`, which is how the composite action puts
+it into the local Maven repository; the Maven test jobs build a subset of modules with `-pl`
+and no `-am`, so they resolve it from there and the action stays.
+
+Adding the module changes the sbt build too, because sbt reads its projects from the same
+poms (sbt-pom-reader): the engine became an sbt project named `engine`, and the aggregate root
+now compiles it. It needs three things `project/SparkBuild.scala` did not give it, all in
+`VarkaEngine.settings`, since the engine is deliberately not in `allProjects` - it is a plain
+Java module none of the publishing, genjavadoc, MiMa or scalastyle settings apply to. javac
+needs `--add-modules jdk.incubator.vector`, which sbt does not take from the pom.
+`src/jmh/java` has to come back out of `Compile`: it is a Maven *test* source directory, added
+by build-helper, and sbt-pom-reader maps it into `Compile`, where its test-scope jmh-core
+dependency is not on the classpath. And the module names no Scala version, so pom-reader falls
+back to its own default and would otherwise put a second scala-library on catalyst's
+classpath. The engine is also excluded from unidoc, which is a deny-list.
+
+Two more consequences, neither of them a setting on the engine project. sbt-pom-reader does
+not turn catalyst's and `sql/core`'s test-scope dependency on the engine into a project
+dependency once the engine is a module of the same build - it drops it, so the Varka suites
+lose the classes they load by name and fail with
+`ClassNotFoundException: org.apache.spark.sql.varka.vector.DateVectorOps`. Both modules now
+put the engine project's jar on their test classpath explicitly
+(`VarkaEngineDependency.settings`), which is also better than what they had: the suites run
+against the engine in the working tree rather than against whatever the local Maven repository
+holds. And zinc extracts a compiled Java class's API by loading it in the sbt JVM, so that JVM
+needs the incubator module too - without it the engine's sources compile and the compile task
+then dies with `NoClassDefFoundError: jdk/incubator/vector/Vector`. `.sbtopts` passes
+`-J--add-modules=jdk.incubator.vector`.
 
 Having no parent has a cost that being in the reactor makes visible: `dev/lint-java` runs
 `checkstyle:check` over every module, and the plugin resolves a relative `configLocation`
