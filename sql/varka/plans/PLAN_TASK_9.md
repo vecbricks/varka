@@ -21,11 +21,11 @@ Build facts this plan rests on, verified: test JVMs get
 catalyst tests; catalyst already hosts `BenchmarkBase` benchmarks
 (`CalendarIntervalBenchmark`) with results in `sql/catalyst/benchmarks/`.
 
-Preconditions are met: the columnar-write split is merged into master, though
-the spike would not have needed it - it touches catalyst and the engine only.
-The work branches from current master. The engine is not yet a reactor module
-on master, so the jar is installed first:
-`./build/mvn -f sql/varka/engine/pom.xml -Dmaven.test.skip=true install`.
+Preconditions are met: the columnar-write split and the reactor change are both
+merged into master, which closes milestone 1 entirely. The work branches from
+current master. With the reactor change in, sbt builds the engine in-tree and
+puts its jar on catalyst's test classpath itself - no manual install step
+remains.
 
 ## 2. Deliverables
 
@@ -174,7 +174,7 @@ species stopped being a JIT constant), and do not build task 10 on top.
 ## 3. Verification
 
 ```
-./build/mvn -f sql/varka/engine/pom.xml install
+./build/mvn -f sql/varka/engine/pom.xml test          # helpers promoted, engine green
 ./build/mvn -f sql/varka/engine/pom.xml test -Dvarka.jmh=true
 build/sbt "catalyst/testOnly *VarkaLoopEmitterSuite *ClassFileCodegenSupportSuite \
   *VarkaGeneratedClassLoaderSuite *JavaClassFileEngineSuite"
