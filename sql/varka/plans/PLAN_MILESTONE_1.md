@@ -43,13 +43,14 @@ contain details that do not match this codebase; they are corrected here:
 sql/varka/
   VISION.md                      (unchanged)
   Varka_MVP.md                   (unchanged)
-  PLAN_MILESTONE_1.md            <- this file (high-level)
-  PLAN_MILESTONE_2.md            <- milestone 2 (task plan)
-  PLAN_MILESTONE_3.md            <- milestone 3 (scope and ordering)
-  PLAN_TASK_1.md                 <- Task 1 detail (completed)
-  PLAN_TASK_2.md                 <- Task 2 detail
-  PLAN_TASK_3.md                 <- Task 3 detail (completed)
-  PLAN_TASK_4.md                 <- Task 4 detail (implemented, PR #5)
+  plans/
+    PLAN_MILESTONE_1.md          <- this file (high-level)
+    PLAN_MILESTONE_2.md          <- milestone 2 (task plan)
+    PLAN_MILESTONE_3.md          <- milestone 3 (scope and ordering)
+    PLAN_TASK_1.md               <- Task 1 detail (completed)
+    PLAN_TASK_2.md               <- Task 2 detail
+    PLAN_TASK_3.md               <- Task 3 detail (completed)
+    PLAN_TASK_4.md               <- Task 4 detail (implemented, PR #5)
   engine/                        <- STANDALONE Java 25 module (Tasks 1-3). NOT in Spark reactor
                                     (by design: needs native-access test flags).
     pom.xml                      (--release 25, --add-modules jdk.incubator.vector)
