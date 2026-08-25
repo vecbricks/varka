@@ -156,9 +156,19 @@ milestone plan, all in long arithmetic:
   780 M/s, only 2.9x scalar `Math.floorMod` (271 M/s) at 16 lanes - the `DIV`
   lanes do not vectorize - yet still 12x the allocating `LocalDate` baseline
   (62 M/s). Variant 3 runs 6.9 G/s on non-negative inputs, 8.8x variant 1 and
-  111x the baseline, so the implementation order is: ship variant 3 with the
-  negative-input bias worked out (its remaining open point), keep variant 1
-  as the tested reference, and drop variant 2.
+  111x the baseline, so the implementation order is: ship variant 3, keep
+  variant 1 as the tested reference, and drop variant 2.
+
+  **The negative-input bias is worked out and validated.** The unsigned folds
+  compute `unsigned(v) mod 7`, and `unsigned(v) = v + 2^32 * [v < 0]` with
+  `2^32 = 4 (mod 7)`, so the correction is one masked *add of 3* (`-4 = +3
+  (mod 7)`) where `v < 0`, before the final compare-subtract fixup (whose
+  input then peaks at 12, still within one subtraction). Verified over 1M
+  random full-range ints plus the pinned edges `Int.MinValue`,
+  `Int.MaxValue`, `-1`, `0` and `+-7` against `Math.floorMod`: exact, at
+  6.2 G/s - 7.7x the `DIV` variant and 100x the `LocalDate` baseline. What
+  remains for the task is reproducing this inside the emitted loop and its
+  differential.
 
 `VectorMask.toLong` re-enters the descriptor table (task 10 removed it);
 `compare` (which takes the *erased* `Vector` and a
@@ -250,6 +260,13 @@ declines the projection.
 * `dayofweek`/`weekday` over a date range crossing 1970, against the row
   engine; `expectFused = true` is again itself the new behavior.
 * The negative control (`isFailKernelForTesting`) on a predicated plan.
+* One differential with AQE *enabled*. Every Varka suite session disables AQE
+  for plan determinism, so nothing pinned the default-config path until a
+  scratch experiment during planning confirmed it: under AQE the rule fires
+  inside query stages and the kernels run (`numVarkaBatches > 0`; note that
+  a query stage is a leaf node, so the assertion helpers must traverse with
+  `AdaptiveSparkPlanHelper`, not `SparkPlan.collect`). This task adds the
+  permanent test so the guarantee outlives the experiment.
 
 ### 3.4 Benchmark (`VarkaEmitterParityBenchmark`, extended) and the gate
 
@@ -308,9 +325,11 @@ benchmark and docs refresh (task 14). The `lazy val` drive-by (task 15).
   why that matrix is written into the plan.
 * The `DIV`-scalarization risk is measured rather than open (2.3): confirmed
   real, and confirmed survivable - even scalarized `DIV` clears the
-  `LocalDate` bar 12x. What remains is the digit-sum variant's negative-input
-  bias, which is where a subtly wrong mod-7 passes every post-1970 test; the
-  negative-days differential is the specific defense.
+  `LocalDate` bar 12x. The digit-sum variant's negative-input bias - the spot
+  where a subtly wrong mod-7 passes every post-1970 test - is likewise
+  pre-validated in scratch (2.3); the negative-days differential re-proves it
+  in the emitted loop, where the construction could still be transcribed
+  wrong.
 * Vector API erasure again, now for `compare`/`blend`/`max`/`min` and the
   `VectorOperators$Comparison` constants: same defense as before - one
   descriptor table line per call, and the misdescribe-style test discipline.

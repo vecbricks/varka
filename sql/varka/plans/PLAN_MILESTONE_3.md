@@ -128,7 +128,24 @@ full apparatus) or whether its identity is the columnar fast path beside
 whole-stage, with the limit explicitly out of charter. Both are defensible;
 leaving it unstated is not.
 
-## 11. SWAR string-to-date parsing
+## 11. Non-Arrow columnar sources (vectorized Parquet)
+
+The Varka path today serves only Arrow-backed batches - in practice, tables
+cached with `ArrowCachedBatchSerializer`. Vectorized Parquet produces
+`OnHeapColumnVector`/`OffHeapColumnVector` and falls back
+(`docs/sql-varka.md` records the limitation, but until this item nothing
+recorded the reach): serving the off-heap variant would take the kernels to
+real scans, which is where most real workloads live. Two design questions
+make it an item and not a patch. `OffHeapColumnVector` exposes raw native
+addresses, but its null encoding is one *byte* per row, not Arrow's
+bit-packed validity - so either the kernel contract grows a validity-format
+dimension, or a byte-to-bit repack pass runs per batch (and has to beat the
+fallback to be worth it), or the emitted loop reads byte-nulls directly as a
+third mask source. And `OnHeapColumnVector` has no stable address at all, so
+the on-heap default either stays on the fallback or goes through the same
+repack. Measure the repack cost first; the answer decides the shape.
+
+## 12. SWAR string-to-date parsing
 
 `CAST(string AS DATE)` / `to_date` on `yyyy-MM-dd` input, from the datetime
 vector-algorithms note (group 3): load the digit bytes as one word, subtract
