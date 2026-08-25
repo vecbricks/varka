@@ -58,13 +58,16 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  * projection - predication included - runs in one pass with its intermediates in vector
  * registers.
  *
- * <p><b>Twin bodies</b> (task 10, plan 2.5): {@code run} is a dispatcher over two private
- * sibling methods, selected per batch by one loop-invariant test - are all referenced inputs
- * null-free? {@code runDense} then runs with no validity bookkeeping at all, which task 11's
- * invariant keeps sound: every node maps valid inputs to valid outputs (there is no
- * null-literal node), so null-free in means all-valid out. Sibling <i>methods</i>, not two
- * loops in one method: each body gets its own C2 compilation, so one body's node and inlining
- * budgets cannot starve the other's intrinsics.
+ * <p><b>Method layout</b> (task 10's twin bodies, split further in task 11): {@code run}
+ * dispatches per batch on one loop-invariant test - are all referenced inputs null-free? - to
+ * a dense or masked <i>driver</i>, which zeroes the output validity, takes the all-null
+ * shortcut, then calls one sibling <i>loop</i> method per output group (at most
+ * {@link #GROUP_BUDGET} ops each; see that constant for the measured reason) and finally the
+ * sibling <i>tail</i> method. The dense side runs with no validity bookkeeping at all, which
+ * task 11's invariant keeps sound: every node maps valid inputs to valid outputs (there is no
+ * null-literal node), so null-free in means all-valid out. Separate methods, not one big one:
+ * each gets its own C2 compilation, so no method's node and inlining budgets can starve
+ * another's intrinsics.
  *
  * <p><b>Unmasked compute</b> (task 11, plan 2.4): both bodies run unmasked loads, lanewise ops
  * and stores. Inside {@code loopBound} every access is in bounds, an all-null column still has
@@ -118,13 +121,30 @@ public final class VarkaLoopEmitter {
   public static final int MAX_CHAIN_DEPTH = 16;
 
   /**
-   * The most distinct op nodes one emitted loop may hold, across all outputs after CSE
+   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE
    * (task 10). Depth alone no longer bounds method size once outputs multiply, so this is the
-   * total-size counterpart of {@link #MAX_CHAIN_DEPTH}: the same policy bound on bytecode size
-   * and register pressure, far past any real projection, kept honest by the widest-shape case
-   * in the parity benchmark.
+   * total-size counterpart of {@link #MAX_CHAIN_DEPTH}: a policy bound far past any real
+   * projection, kept honest by the widest-shape case in the parity benchmark. Since task 11
+   * the ops are spread over loop methods of at most {@link #GROUP_BUDGET} ops each, so this
+   * caps the kernel, not any one compiled method.
    */
   public static final int MAX_FUSED_NODES = 64;
+
+  /**
+   * The most op nodes one emitted <i>loop method</i> carries; outputs are partitioned into
+   * sibling loop methods within this budget (task 11). Measured reason: a single loop with all
+   * 64 ops runs 1.0 G rows/s in a fresh JVM but collapses about 100x once the JVM has compiled
+   * a handful of other emitted vector kernels - history-dependent JIT inlining behavior - and
+   * where that cliff sits moves with JVM history, so no kernel-level cap can dodge it. A
+   * 16-op loop method is the largest shape measured healthy under the heaviest pollution we
+   * produce (the full parity-benchmark JVM), so every hot loop stays at or under it by
+   * construction. Grouping is greedy over the output order and counts only nodes new to the
+   * group, so outputs sharing subtrees tend to land together and keep their cross-output CSE;
+   * a single output wider than the budget gets its own group untouched - splitting inside an
+   * output would forfeit the register residency that is the point. Numbers in
+   * PLAN_TASK_11.md section 6.
+   */
+  public static final int GROUP_BUDGET = 16;
 
   /**
    * The most input columns one emitted loop may read. A node's referenced-column set is a long
@@ -311,11 +331,16 @@ public final class VarkaLoopEmitter {
       analysis.analyzeRoot(root);
     }
 
-    // The dense and masked bodies are separate private methods, not two loops in one method:
-    // each gets its own C2 compilation, so the node and inlining budgets of one cannot starve
-    // the other (measured in task 10: 3x to 4x loss on the second-emitted loop otherwise).
+    // Method layout, all sharing the seven-parameter shape so slots line up everywhere:
+    // `run` dispatches per batch to a dense or masked *driver*; the driver zeroes the output
+    // validity, takes the all-null shortcut, then calls one sibling *loop* method per output
+    // group (each at most GROUP_BUDGET ops - see that constant for the measured reason) and
+    // finally the sibling *tail* method. Separate methods, not one big one: each gets its own
+    // C2 compilation, so no method's node and inlining budgets can starve another's
+    // intrinsics (task 10 measured 3x to 4x on exactly that).
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
+    List<List<Integer>> groups = groupOutputs(outputs);
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
@@ -327,20 +352,96 @@ public final class VarkaLoopEmitter {
           .withMethodBody("run", RUN, AccessFlag.PUBLIC.mask(),
               (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis))
           .withMethodBody("runDense", RUN, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> emitBody(cb, true, false, classDesc, outputs, analysis,
-                  numLiterals))
+              (CodeBuilder cb) -> emitBody(cb, true, BodyMode.DRIVER, -1, classDesc, outputs,
+                  analysis, numLiterals, groups))
           .withMethodBody("tailDense", RUN, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> emitBody(cb, true, true, classDesc, outputs, analysis,
-                  numLiterals));
+              (CodeBuilder cb) -> emitBody(cb, true, BodyMode.TAIL, -1, classDesc, outputs,
+                  analysis, numLiterals, groups));
+      for (int g = 0; g < groups.size(); g++) {
+        final int group = g;
+        b.withMethodBody("loopDense" + g, RUN, AccessFlag.PRIVATE.mask(),
+            (CodeBuilder cb) -> emitBody(cb, true, BodyMode.LOOP, group, classDesc, outputs,
+                analysis, numLiterals, groups));
+      }
       if (anyColumns) {
         b.withMethodBody("runMasked", RUN, AccessFlag.PRIVATE.mask(),
-            (CodeBuilder cb) -> emitBody(cb, false, false, classDesc, outputs, analysis,
-                numLiterals))
+            (CodeBuilder cb) -> emitBody(cb, false, BodyMode.DRIVER, -1, classDesc, outputs,
+                analysis, numLiterals, groups))
             .withMethodBody("tailMasked", RUN, AccessFlag.PRIVATE.mask(),
-                (CodeBuilder cb) -> emitBody(cb, false, true, classDesc, outputs, analysis,
-                    numLiterals));
+                (CodeBuilder cb) -> emitBody(cb, false, BodyMode.TAIL, -1, classDesc, outputs,
+                    analysis, numLiterals, groups));
+        for (int g = 0; g < groups.size(); g++) {
+          final int group = g;
+          b.withMethodBody("loopMasked" + g, RUN, AccessFlag.PRIVATE.mask(),
+              (CodeBuilder cb) -> emitBody(cb, false, BodyMode.LOOP, group, classDesc, outputs,
+                  analysis, numLiterals, groups));
+        }
       }
     });
+  }
+
+  /** The three body-method roles; see the method-layout note in {@link #emit}. */
+  private enum BodyMode { DRIVER, LOOP, TAIL }
+
+  /**
+   * Partitions the outputs into loop-method groups of at most {@link #GROUP_BUDGET} ops,
+   * greedily in output order, counting only ops new to the group so shared subtrees keep
+   * their outputs together (and their cross-output CSE). An output wider than the budget on
+   * its own still forms a group: splitting inside one output would forfeit the register
+   * residency that is the point.
+   */
+  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs) {
+    List<List<Integer>> groups = new ArrayList<>();
+    List<Integer> current = new ArrayList<>();
+    Set<VarkaVectorIR> seen = new HashSet<>();
+    int ops = 0;
+    for (int o = 0; o < outputs.size(); o++) {
+      Set<VarkaVectorIR> withNext = new HashSet<>(seen);
+      int marginal = addOps(outputs.get(o), withNext);
+      if (!current.isEmpty() && ops + marginal > GROUP_BUDGET) {
+        groups.add(current);
+        current = new ArrayList<>();
+        withNext = new HashSet<>();
+        marginal = addOps(outputs.get(o), withNext);
+        ops = 0;
+      }
+      current.add(o);
+      seen = withNext;
+      ops += marginal;
+    }
+    groups.add(current);
+    return groups;
+  }
+
+  /** Adds the subtree's distinct nodes to {@code seen}; returns how many op nodes were new. */
+  private static int addOps(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (!seen.add(node)) {
+      return 0;
+    }
+    int count = node instanceof ColumnRef || node instanceof LiteralSlot ? 0 : 1;
+    for (VarkaVectorIR child : childrenOf(node)) {
+      count += addOps(child, seen);
+    }
+    return count;
+  }
+
+  private static VarkaVectorIR[] childrenOf(VarkaVectorIR node) {
+    return switch (node) {
+      case ColumnRef c -> new VarkaVectorIR[0];
+      case LiteralSlot l -> new VarkaVectorIR[0];
+      case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
+      case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
+      case WeekDay n -> new VarkaVectorIR[] {n.days()};
+      case Greatest n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
+      case Compare n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case And n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Not n -> new VarkaVectorIR[] {n.child()};
+    };
   }
 
   /**
@@ -367,8 +468,8 @@ public final class VarkaLoopEmitter {
     // unreachable code has no stack frame to compute.
   }
 
-  /** {@code return this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
-  private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name) {
+  /** {@code this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
+  private static void invokeCall(CodeBuilder cb, ClassDesc classDesc, String name) {
     cb.aload(0);
     cb.aload(P_SRC_DATA);
     cb.aload(P_SRC_VALIDITY);
@@ -378,6 +479,11 @@ public final class VarkaLoopEmitter {
     cb.aload(P_SCALAR_ARGS);
     cb.iload(P_LENGTH);
     cb.invokespecial(classDesc, name, RUN);
+  }
+
+  /** {@link #invokeCall} followed by {@code return}. */
+  private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name) {
+    invokeCall(cb, classDesc, name);
     cb.return_();
   }
 
@@ -726,18 +832,17 @@ public final class VarkaLoopEmitter {
   private static final int VALIDITY_BYTES = 10;
 
   /**
-   * One body method. The dense variants run only when the dispatcher has proven every
-   * referenced input null-free, so they emit no per-input null state, no all-null shortcut and
-   * no validity words at all; the masked variants are the general ones, and the pairs must
-   * agree wherever both could run. The scalar tail is a <i>sibling method</i>
-   * ({@code tailOnly}), not the end of the loop method, for the same reason the bodies are
-   * siblings of {@code run}: a wide shape's tail would push the loop method past C2's size
-   * budgets and cost the loop its intrinsics. The tail re-derives the prologue state from the
-   * same seven parameters and starts its row loop at {@code loopBound}; it must not zero the
-   * destination validity (the loop method already did, and has written bits since).
+   * One body method in one of the three roles of the method layout (see {@link #emit}). The
+   * dense variants run only when the dispatcher has proven every referenced input null-free,
+   * so they emit no all-null shortcut and no validity words; the masked variants are the
+   * general ones, and the pairs must agree wherever both could run. Every method re-derives
+   * the prologue state from the same seven parameters; only the driver zeroes the destination
+   * validity (the loop and tail methods run after bits were written and must not), and the
+   * tail starts its row loop at {@code loopBound}.
    */
-  private static void emitBody(CodeBuilder cb, boolean dense, boolean tailOnly,
-      ClassDesc classDesc, List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals) {
+  private static void emitBody(CodeBuilder cb, boolean dense, BodyMode mode, int group,
+      ClassDesc classDesc, List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
+      List<List<Integer>> groups) {
     int numInputs = analysis.numInputs;
     int numOutputs = outputs.size();
     Slots s = planSlots(dense, outputs, analysis, numLiterals);
@@ -763,13 +868,13 @@ public final class VarkaLoopEmitter {
     cb.ldiv();
     cb.lstore(VALIDITY_BYTES);
 
-    // (3) Per output: segments, and - in the loop methods only - zero(dstValidity) before any
+    // (3) Per output: segments, and - in the driver only - zero(dstValidity) before any
     // return below, the emitter invariant: an output nothing writes must still read as
-    // all-null. The tail methods run after the loop has written validity bits and must not.
+    // all-null. The loop and tail methods run after bits were written and must not.
     for (int o = 0; o < numOutputs; o++) {
       loadSegment(cb, P_DST_DATA, o, DATA_BYTES, s.dstSeg[o]);
       loadSegment(cb, P_DST_VALIDITY, o, VALIDITY_BYTES, s.dstValSeg[o]);
-      if (!tailOnly) {
+      if (mode == BodyMode.DRIVER) {
         cb.aload(s.dstValSeg[o]);
         cb.invokestatic(SUPPORT, "zero", ZERO);
       }
@@ -829,10 +934,10 @@ public final class VarkaLoopEmitter {
 
     // (5) All-null shortcut: return iff every output reads at least one all-null column.
     // Sound only for null-intolerant outputs - a null-skipping subtree (greatest, IfElse) can
-    // be valid over an all-null column - and skipped in the dense body (nothing is null), in
-    // the tail methods (the loop method already returned before calling them), or when some
-    // output references no column at all.
-    boolean shortcutApplies = !dense && !tailOnly;
+    // be valid over an all-null column - and emitted in the masked driver only (the dense
+    // body has nothing null; the loop and tail methods are never called when it fires), and
+    // only when every output references a column.
+    boolean shortcutApplies = !dense && mode == BodyMode.DRIVER;
     for (VarkaVectorIR root : outputs) {
       shortcutApplies &= analysis.columns.get(root) != 0L && !analysis.skipping.get(root);
     }
@@ -877,7 +982,7 @@ public final class VarkaLoopEmitter {
       cb.loadConstant(j);
       cb.iaload();
       cb.istore(s.scalarArg[j]);
-      if (!tailOnly && s.broadcastSlot != null) {
+      if (mode == BodyMode.LOOP && s.broadcastSlot != null) {
         cb.aload(s.species);
         cb.iload(s.scalarArg[j]);
         cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
@@ -885,19 +990,25 @@ public final class VarkaLoopEmitter {
       }
     }
 
-    if (tailOnly) {
-      emitTailLoop(cb, dense, outputs, analysis, s);
-    } else {
-      emitVectorLoop(cb, dense, outputs, analysis, s);
-      // The rows past loopBound belong to the sibling tail method.
-      invokeBody(cb, classDesc, dense ? "tailDense" : "tailMasked");
+    switch (mode) {
+      case DRIVER -> {
+        for (int g = 0; g < groups.size(); g++) {
+          invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g);
+        }
+        // The rows past loopBound belong to the sibling tail method.
+        invokeBody(cb, classDesc, dense ? "tailDense" : "tailMasked");
+      }
+      case LOOP -> {
+        emitVectorLoop(cb, dense, outputs, groups.get(group), analysis, s);
+        cb.return_();
+      }
+      case TAIL -> emitTailLoop(cb, dense, outputs, analysis, s);
     }
   }
 
   private static void emitVectorLoop(CodeBuilder cb, boolean dense,
-      List<VarkaVectorIR> outputs, Analysis analysis, Slots s) {
+      List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
     int numInputs = analysis.numInputs;
-    int numOutputs = outputs.size();
 
     // (6) The lane-group loop: for (i = 0; i < loopBound; i += lanes).
     cb.loadConstant(0);
@@ -946,11 +1057,11 @@ public final class VarkaLoopEmitter {
       }
     }
 
-    // Each output: the DAG post-order with intermediates on the operand stack (or in a shared
-    // node's local), one unmasked store, and this group's validity bits - the root's word
-    // (all-true when dense), which orValidityBitsAt truncates to the lane count itself.
+    // Each output of this group: the DAG post-order with intermediates on the operand stack
+    // (or in a shared node's local), one unmasked store, and this lane group's validity bits -
+    // the root's word (all-true when dense), which orValidityBitsAt truncates itself.
     Set<VarkaVectorIR> computed = new HashSet<>();
-    for (int o = 0; o < numOutputs; o++) {
+    for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       emitValue(cb, root, dense, analysis, s, computed);
       cb.aload(s.dstSeg[o]);

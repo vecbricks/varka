@@ -1,9 +1,10 @@
 # Task 11: predication and null-skipping ops
 
-**Status: PLANNED.** See `PLAN_MILESTONE_2.md` (task row 11, section 2.6) for
+**Status: DONE.** See `PLAN_MILESTONE_2.md` (task row 11, section 2.6) for
 the milestone context and `PLAN_TASK_10.md` for the emitter this task extends.
-Sections 1-4 are the plan; a section 5 will record the outcome. Implementation
-branches from master once task 10 (PR #28) is merged.
+Sections 1-5 are the plan as written before implementation; section 6 records
+what was built, the measurements, and the deviations - including a JIT finding
+(6.3) that reshaped the emitted method layout.
 
 ## 1. Why this task, and what it carries
 
@@ -333,3 +334,97 @@ benchmark and docs refresh (task 14). The `lazy val` drive-by (task 15).
 * Vector API erasure again, now for `compare`/`blend`/`max`/`min` and the
   `VectorOperators$Comparison` constants: same defense as before - one
   descriptor table line per call, and the misdescribe-style test discipline.
+
+## 6. Outcome
+
+Everything in section 2 exists as planned; section 6.4 lists the deviations.
+All suites green at the preferred width and under `-XX:MaxVectorSize=16`:
+`VarkaLoopEmitterSuite` (17 tests, seven new, against an in-suite reference
+evaluator implementing the 2.6 semantics independently),
+`VarkaExpressionCompilerSuite` (9), the sql/core Varka suites (69, including
+seven new differentials and the AQE test), the engine untouched (28),
+scalastyle and lint-java clean.
+
+### 6.1 The numbers
+
+`VarkaEmitterParityBenchmark`, 1M rows, best-time M rows/s, emitted loop vs
+the hand-written kernel (committed file carries the preferred width; the
+four-lane run in parentheses):
+
+| case | kernel | emitted | ratio | (4-lane ratio) |
+| :--- | ---: | ---: | ---: | ---: |
+| date_add, null-free | 6243 | 15285 | 2.4x | (3.7x) |
+| date_add, mixed | 5072 | 16761 | 3.3x | (3.2x) |
+| datediff, null-free | 4109 | 6397 | 1.6x | (3.9x) |
+| datediff, mixed | 3109 | 9413 | 3.0x | (3.8x) |
+
+Predication and the new ops, preferred width: `CASE WHEN` with depth-4 arms
+runs at 0.9x the same-depth plain arithmetic on null-free input (10778 vs
+12016 M rows/s) *while computing both arms plus the compare and blend* - the
+gate asked for "within a small factor" and this is within noise of free.
+`dayofweek` runs 3598 M rows/s - 5.5x the lanewise-`DIV` reference variant
+(659, confirming the scalarization in-loop) and **36x** the per-row
+`LocalDate` path (100) Spark uses today. Chains: depth-16 fused 7819 vs 115
+sequential (68x); the DAG pair 3348 with CSE vs 2767 without (+21%; +200% at
+four lanes, where compute is scarcer) vs 197 sequential. The widest shape (64
+ops) runs 986 vs 29 sequential - see 6.3 for why that number exists at all.
+
+### 6.2 The plan's other measured decision: unmasked compute shipped
+
+Section 2.4 predicted the masked body could drop masked ops for word
+bookkeeping and win; it did, decisively: against task 10's committed numbers,
+mixed-null `date_add` went from 8367 to 16761 M rows/s and mixed `datediff`
+from 3779 to 9413 - roughly 2x across every nulled case - and the masked body
+became structurally "the dense body plus validity words", with `VectorMask`
+materialized only at compare, blend and substitute sites. The scalar tail was
+rebuilt as a per-row topological pass over the node slots, mirroring the word
+algebra rule for rule (and CSE-ing shared subtrees per row, which task 10's
+recursive tail did not).
+
+### 6.3 The JIT finding: loop methods must be small by construction
+
+The widest-shape case collapsed ~100x mid-task, and the collapse was
+*history-dependent*: a 64-op loop method ran 1.0 G rows/s in a fresh JVM, 9
+M rows/s after the same JVM had compiled and hot-run just seven other emitted
+kernels, and 13 M rows/s in the full benchmark JVM - while 16-op loop methods
+were healthy under every pollution level measured. Splitting the scalar tail
+into a sibling method (the first suspect) was correct layering but not the
+cure; capping `MAX_FUSED_NODES` at 48 failed too, because the cliff moves
+with JVM history. The shipped fix is structural: outputs are partitioned into
+sibling *loop methods* of at most `GROUP_BUDGET = 16` ops each (greedy in
+output order, counting only nodes new to the group so shared subtrees keep
+their cross-output CSE), with a driver method zeroing validity, taking the
+all-null shortcut, and calling the loops and the tail in sequence. With the
+split, the 64-op kernel runs 986 M rows/s *in the fully polluted benchmark
+JVM* - matching its fresh-JVM number - and `MAX_FUSED_NODES = 64` stands with
+an honest story. Recorded for milestone 3: per-task loaders make every query
+a fresh set of compiled vector methods, so an executor JVM accumulates
+exactly the pollution this reproduces - the byte cache (item 2), which
+shrinks the set of distinct compiled classes per JVM, gains a second
+motivation beyond amortization.
+
+### 6.4 Deviations from the plan
+
+* `CaseWhen` compiles branches in query order (left to right, then ELSE), so
+  input ordinals and literal slots register deterministically in reading
+  order; only the fold into nested `IfElse` is right-associative.
+* `Cond` extends `VarkaVectorIR` rather than standing apart: the shared memo
+  and analysis machinery must see condition nodes. The typed field on
+  `IfElse` enforces one direction statically; the emitter's analysis rejects
+  the other (a condition as a root or value operand), and the suite pins the
+  rejections.
+* The emitter's method layout is driver + loop groups + tail (6.3), not the
+  planned single body per variant.
+* One emitter bug found by machinery, not review: an early digit-sum draft
+  double-stored the child vector, and the Class-File API's stack-map
+  generation rejected the class at build time - the fail-fast the descriptor
+  discipline was designed for, one layer earlier than expected.
+* The AQE differential (planned during the pre-task investigation) is in:
+  the rule fires inside query stages and the kernels run, asserted through
+  `AdaptiveSparkPlanHelper` because a query stage is a leaf node that plain
+  `SparkPlan.collect` never descends into.
+* The mod-7 A/B ran in-loop as planned: digit sum 5.5x the `DIV` variant;
+  the sign bias (`+3` where negative, `2^32 = 4 mod 7`) validated in-suite
+  against `Math.floorMod` and `LocalDate` across `Int.MinValue`/`MaxValue`
+  and both null shapes. The `DIV` variant stays behind a test hook as the
+  tested reference.

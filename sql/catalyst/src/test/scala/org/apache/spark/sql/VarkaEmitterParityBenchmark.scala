@@ -309,10 +309,11 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
-      runBenchmark("widest shape: MAX_FUSED_NODES ops in one loop") {
-        // Four disjoint depth-16 chains: 64 distinct ops, the cap exactly. The fused loop must
-        // scale with its op count (roughly a quarter of one depth-16 chain's rate), not fall
-        // off a cliff at the cap; the sequential version is the same 64 kernel passes.
+      runBenchmark("widest shape: MAX_FUSED_NODES ops in one kernel") {
+        // Four disjoint depth-16 chains: 64 distinct ops, the cap exactly - emitted as four
+        // GROUP_BUDGET-sized loop methods since task 11, which is what keeps this case honest
+        // in a JVM that has compiled every other kernel in this file first (see
+        // PLAN_TASK_11.md section 6). The sequential version is the same 64 kernel passes.
         val benchmark = new Benchmark(s"4 outputs x depth 16 over $numRows rows", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val roots = (0 until 4).map(k => chain(16, slotBase = k * 16))

@@ -648,7 +648,7 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)),
       VarkaLoopEmitter.MAX_INPUTS + 1, 1), "numInputs")
     // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap. The cap
-    // counts nodes after CSE: the same 5 chains repeated as 10 outputs stay within it.
+    // counts nodes after CSE: the same 4 chains repeated as 8 outputs stay within it.
     val disjointChains = (0 until 5).map(k => chain(13, slotBase = k * 13))
     rejects(emitMulti(disjointChains, 1, 65), "MAX_FUSED_NODES")
     val (_, sharedOk) = emitMulti(
