@@ -95,7 +95,6 @@ call that the batch kernel embodies.
 
 The `java.lang.classfile` API (JEP 484, JDK 25) assembles dispatch classes
 that forward to the kernels; no external bytecode library is used:
-`ClassFileAssembler`/`JavaClassFileEngine` assemble the full class, and
 `VarkaClassFileGen.assembleKernelClass` builds the small per-op dispatchers.
 
 Each dispatcher implements the kernel-shape interface matching its descriptor -
@@ -104,12 +103,12 @@ Each dispatcher implements the kernel-shape interface matching its descriptor -
 kernel with an ordinary interface call and the arguments stay primitive from the
 caller's stack into the kernel. A new kernel shape means a new interface.
 
-Note on status: `JavaClassFileEngine` is not wired into the `CodeGenerator.compile`
-funnel. Its assembled `VarkaProjection.apply` is still a stub that throws, and
-assembly, loading and construction all succeed, so routing to it would hand back a
-class that fails only at row-evaluation time, past any fallback. Wiring the funnel
-belongs with the change that gives `apply` a real body. The live execution path is
-the columnar-to-row node described next.
+Note on status: an earlier `JavaClassFileEngine`/`ClassFileAssembler` pair that
+assembled a full `GeneratedClass` shell (its `VarkaProjection.apply` a stub that
+throws, never routed from the `CodeGenerator.compile` funnel) was deleted once
+the milestone-2 loop emitter demonstrated real Class-File-API-generated compute;
+see `sql/varka/plans/PLAN_TASK_9.md` section 5.4 for the rationale. The live
+execution path is the columnar-to-row node described next.
 
 ### Execution integration
 
@@ -189,7 +188,7 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 | Location | Responsibility |
 | :--- | :--- |
 | `sql/varka/engine` | Standalone Java 25 module (`varka-engine`, Arrow 19.0.0): `VarkaMorsel`, `DateVectorOps`, `VarkaClassLoader` and their tests. |
-| `sql/catalyst` | `ClassFileCodegenSupport` + `VarkaClassFileGen`, `ClassFileAssembler`/`JavaClassFileEngine`, `VarkaGeneratedClassLoader`, config `spark.sql.codegen.varka.enabled`. |
+| `sql/catalyst` | `ClassFileCodegenSupport` + `VarkaClassFileGen`, `VarkaGeneratedClassLoader`, the vector IR and loop emitter under `codegen/varka/`, config `spark.sql.codegen.varka.enabled`. |
 | `sql/core` | `VarkaColumnarRule`, `VarkaColumnarToRowExec`, end-to-end test suites and benchmarks. |
 | `sql/varka` | `VISION.md`, `Varka_MVP.md`, and `plans/` with the milestone plans (`PLAN_MILESTONE_1.md` is the MVP) and per-task plans. |
 

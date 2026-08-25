@@ -272,3 +272,9 @@ was removed. A milestone-3 row-path generator, if it happens, would be built on
 the emitter and the IR, not on the shell. Not deleted in this task's diff, per
 the milestone plan: recorded here, to be executed once the milestone owner
 agrees.
+
+**Executed:** the milestone owner agreed after task 10 landed, and the shell -
+`JavaClassFileEngine`, `ClassFileAssembler`, `JavaClassFileEngineSuite` and
+`ClassFileShapeVerifier` - was deleted in a follow-up PR, with
+`docs/sql-varka.md` updated to match. Milestone 3's item 9 (the row-path
+generator question) is thereby closed on the "deleted" branch.

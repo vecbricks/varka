@@ -289,6 +289,10 @@ with it. `assembleGeneratedClass` and `assembleAndLoad` stay - they are Task 5's
 deliverable and the piece a later change will wire up - and `assembleAndLoad` no longer
 takes the `CodeAndComment` it never used.
 
+*(Later, milestone 2: nothing ever wired them up. The whole shell - engine, assembler
+and their suites - was deleted after the task-10 loop emitter shipped the real
+Class-File-API-generated compute; see `plans/PLAN_TASK_9.md` section 5.4.)*
+
 Removal was chosen over guarding because the routing has no production caller at all:
 Task 6 wired the live path elsewhere (`VarkaColumnarToRowExec` assembles per-op kernel
 dispatchers with `VarkaClassFileGen.assembleKernelClass`). Every guard that keeps the
