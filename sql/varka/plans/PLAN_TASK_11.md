@@ -134,18 +134,31 @@ milestone plan, all in long arithmetic:
      the Vector API may scalarize the `DIV` lanes.
   2. *Granlund-Montgomery magic multiply*: replace `v / 7` with a multiply by
      a magic constant plus shifts. Only viable if the Vector API exposes a
-     multiply-high on int lanes (to be verified at implementation time; the
-     low-half `MUL` alone is not enough for 32-bit magic division).
+     multiply-high on int lanes (the low-half `MUL` alone is not enough for
+     32-bit magic division).
   3. *Base-8 digit sum*: `7 = 2^3 - 1`, so mod-7 reduces to summing 3-bit
-     chunks (`(v & 7) + (v >>> 3)`, iterated, then one final compare-subtract
-     fixup) - shifts, ands and adds only, all cheap lane ops with no
-     multiply-high dependency.
+     chunks - fold 15-bit halves twice (`2^15 = 1 mod 7`), then 6- and 3-bit
+     chunks, then one compare-subtract fixup - shifts, ands and adds only,
+     all cheap lane ops with no multiply-high dependency.
 
   Both strength-reduced variants need a careful treatment of negative inputs
   (an unsigned bias must preserve congruence mod 7, and `2^32 mod 7 = 4`, so
   a wrap-around bias is *not* congruence-preserving for free) - which is why
   the negative-days differential is mandatory for whichever variant ships,
   and why variant 1 is the reference the others are tested against.
+
+  **Pre-measured** (standalone scratch bench, 1M ints, 16 int lanes, the
+  task-10 host; numbers to be reconfirmed in the task's committed benchmark):
+  variant 2 is off the table as written - JDK 25's `VectorOperators` has no
+  multiply-high on any lane type (verified against the module; only low-half
+  `MUL` exists), leaving only an `I2L`-widening detour that halves lane
+  throughput before it starts. Variant 1 confirms the scalarization worry:
+  780 M/s, only 2.9x scalar `Math.floorMod` (271 M/s) at 16 lanes - the `DIV`
+  lanes do not vectorize - yet still 12x the allocating `LocalDate` baseline
+  (62 M/s). Variant 3 runs 6.9 G/s on non-negative inputs, 8.8x variant 1 and
+  111x the baseline, so the implementation order is: ship variant 3 with the
+  negative-input bias worked out (its remaining open point), keep variant 1
+  as the tested reference, and drop variant 2.
 
 `VectorMask.toLong` re-enters the descriptor table (task 10 removed it);
 `compare` (which takes the *erased* `Vector` and a
@@ -245,11 +258,11 @@ declines the projection.
 * A `dayofweek` case with a per-row `LocalDate.ofEpochDay` loop as baseline -
   the allocating path the SIMD version replaces, and the task's headline
   number candidate.
-* The mod-7 three-way A/B from 2.3: lanewise `DIV` vs the strength-reduced
-  variants (magic multiply where expressible, base-8 digit sum), same inputs,
-  both widths. The winner ships; the others' numbers are recorded in
-  section 5 so the choice is re-checkable when the Vector API or hardware
-  moves.
+* The mod-7 A/B from 2.3, now two-way after the pre-measurement (lanewise
+  `DIV` vs the base-8 digit sum; the magic multiply is dropped for lack of a
+  multiply-high), re-run inside the emitted loop at both widths. The winner
+  ships; both numbers are recorded in section 5 so the choice is
+  re-checkable when the Vector API or hardware moves.
 * The 2.4 A/B on mixed-null cases, recorded either way.
 
 Gate: the predicated dense case must stay within a small factor of the
@@ -293,12 +306,11 @@ benchmark and docs refresh (task 14). The `lazy val` drive-by (task 15).
   `NOT`, and a wrong pair silently gives two-valued logic that agrees with SQL
   on every null-free input. Only the 3.1 unknown-matrix catches it - which is
   why that matrix is written into the plan.
-* Lanewise integer `DIV` (the `floorMod` step) may not map to a hardware
-  instruction on x86 and could scalarize inside the Vector API. The bar is the
-  allocating `LocalDate` path, which even a scalarized `DIV` should clear; the
-  2.3 strength-reduced variants are the prepared answer if it does not, with
-  their own risk - the negative-input bias is where a subtly wrong mod-7
-  passes every post-1970 test.
+* The `DIV`-scalarization risk is measured rather than open (2.3): confirmed
+  real, and confirmed survivable - even scalarized `DIV` clears the
+  `LocalDate` bar 12x. What remains is the digit-sum variant's negative-input
+  bias, which is where a subtly wrong mod-7 passes every post-1970 test; the
+  negative-days differential is the specific defense.
 * Vector API erasure again, now for `compare`/`blend`/`max`/`min` and the
   `VectorOperators$Comparison` constants: same defense as before - one
   descriptor table line per call, and the misdescribe-style test discipline.

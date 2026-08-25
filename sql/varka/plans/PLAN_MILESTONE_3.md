@@ -33,8 +33,11 @@ a SIMD binary search, instead of per-row `ZoneRules` lookups. That is a design
 input for the zoned follow-on, not for the NTZ subset this item starts with.
 The second-to-day and micros-to-second conversions this item needs are
 divisions by invariant constants (86400, 60) - Granlund-Montgomery magic
-multiplies (Hacker's Delight chapter 10), the same technique task 11 weighs
-for mod-7, subject to the same multiply-high-on-lanes question.
+multiplies (Hacker's Delight chapter 10). Task 11's pre-measurement settled
+the enabling question for int lanes: JDK 25's Vector API has no multiply-high
+operator, so on long lanes this either waits for one or goes through 128-bit
+tricks; the fallback ladder task 11 measured (lanewise `DIV` scalarizes but
+still beats allocating paths comfortably) applies here too.
 
 ## 2. Cross-task cache of assembled bytes
 
