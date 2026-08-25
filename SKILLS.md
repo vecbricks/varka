@@ -177,24 +177,32 @@ Benchmarking method: compare interleaved A/B runs by their minimums. Single-run
 comparisons on a contended machine carried a +/-15% noise band, large enough that several
 apparent small wins turned out to be noise.
 
-## JIT Compilation of Generated Vector Code Is History-Dependent
+## C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)
 
-- The same emitted loop method can run at full intrinsified speed or ~100x slower
-  *depending on what the JVM compiled before it*. Measured (task 11): a 64-op vector
-  loop ran 1.0 G rows/s in a fresh JVM, 9 M rows/s after the same JVM had compiled and
-  hot-run just seven other emitted kernels, 13 M rows/s in the full benchmark JVM -
-  while 16-op loop methods stayed healthy under every pollution level tried.
-- No size cap can dodge this: the cliff's position moves with JVM history (48 ops
-  survived light pollution and collapsed under heavy). The structural fix is to keep
-  every *hot loop method* small by construction - the emitter splits outputs across
-  sibling loop methods of at most `GROUP_BUDGET` ops each, called from a driver.
-- Corollary for benchmarks: a fresh-JVM microbenchmark of generated code is the
-  best case, not the truth. Long-lived executor JVMs accumulate one fresh set of
-  compiled vector methods per query (per-task loaders guarantee it), which is exactly
-  the pollution to reproduce deliberately before trusting a number.
+- A 64-op emitted vector loop ran 1.0 G rows/s in one JVM and 9-13 M rows/s in
+  another. First hypothesis - "history-dependent inlining", suspecting
+  `InlineSmallCode` - was *refuted* by experiment: raising it changed nothing. The
+  proven mechanism (`-XX:+PrintCompilation`): the method's tier-4 OSR compile takes
+  ~10 seconds for a 1457-byte method whose 64 Vector API call sites each expand into
+  large intrinsic graphs, and until it lands the loop runs the C1 version with boxed
+  vectors. A 30-second window showed the rate jump 9 -> ~1000 M rows/s at t=12s.
+  "JVM history" only shifted when the compile started relative to the measurement
+  window - fresh JVMs got it in during warmup, busy ones did not.
+- The structural fix stands regardless: keep every hot loop method small by
+  construction (the emitter splits outputs across sibling loop methods of at most
+  `GROUP_BUDGET = 16` ops, called from a driver). Small methods compile in
+  moments; the 64-op kernel as four 16-op methods hits ~1 G rows/s in the same
+  polluted JVM that showed the cliff.
+- Corollary for benchmarks of generated code: a case that never speeds up may be
+  waiting on a compile, not hitting a wall. Distinguish with a long window and
+  periodic rate reporting before concluding anything; then read
+  `-XX:+PrintCompilation` (a repeated OSR task line marked `blocked` was the tell).
+- Related cost numbers: emitting + defining + loading + instantiating a fused kernel
+  class is 130-450 us even for the widest shape - class *generation* is never the
+  cold-start cost; C2 compile latency is.
 - Same family, earlier finding (task 10): two vector loops emitted into one method
-  starve each other's inlining/intrinsic budgets (3x-4x on the second loop); one
-  C2 compilation per hot loop, always - sibling methods, not longer methods.
+  also degrade each other (3x-4x on the second loop). One C2 compilation per hot
+  loop, always - sibling methods, not longer methods.
 
 ## Vector API on HotSpot, Measured (JDK 25, x86-64)
 

@@ -60,6 +60,19 @@ interior comparisons stop being interior: a filter consumes the mask itself.
 Depends on nothing in this list but deserves its own plan-shape design pass -
 `VarkaColumnarRule` today only ever rewrites a `ProjectExec`.
 
+A survey of the in-repo TPC-DS/TPC-H query resources (157 files, done after
+task 11) hardens this item's priority with numbers: 53-78% of all
+date-column references sit in WHERE clauses, and the corpus contains exactly
+*five* DATE-typed projection expressions total - while `d_date BETWEEN`
+predicates (41) and date `+/- INTERVAL` arithmetic (~55 sites, essentially
+all in WHERE) are everywhere. Two gating shapes for that reach, both cheap:
+`cast(string AS DATE)` folding (85 sites wrap date expressions in it) and
+`BETWEEN`'s rewrite to paired comparisons. A second reach lever the survey
+exposed: `CASE WHEN <date cmp> THEN x ELSE 0 END` inside `sum(...)`
+(TPC-DS q21/q40) is aggregate-*input* fusion, a different wiring than the
+projection path. Projection-side date *functions* buy almost nothing in these
+benchmarks; the leverage is filters, then aggregate inputs.
+
 ## 4. Boolean outputs
 
 Comparisons as projection results. Excluded from milestone 2 to avoid bit-packed
@@ -82,6 +95,14 @@ from a linear formula like `(5 * d + 2) / 153`), and Howard Hinnant's
 on division by invariant constants, so the Granlund-Montgomery machinery from
 item 1 is a prerequisite worth building once and sharing; whichever ships, the
 `LocalDate` differential stays the oracle.
+
+A calibration from the TPC-DS/TPC-H survey (see item 3): TPC-DS
+pre-materializes calendar parts as *integer* dimension columns (`d_year`,
+`d_moy`, `d_dom`, `d_qoy`, `d_dow`), so extraction functions appear zero
+times there - intuition overweights this item for benchmark coverage. The one
+projection-resident extraction in the corpus is `year(date)` in TPC-H
+q7/q8/q9: small, but the single unsupported function standing between Varka
+and a real benchmark projection, so `year` leads whenever this item starts.
 
 ## 6. Plain integer arithmetic, ANSI-correct
 

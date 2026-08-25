@@ -132,17 +132,17 @@ public final class VarkaLoopEmitter {
 
   /**
    * The most op nodes one emitted <i>loop method</i> carries; outputs are partitioned into
-   * sibling loop methods within this budget (task 11). Measured reason: a single loop with all
-   * 64 ops runs 1.0 G rows/s in a fresh JVM but collapses about 100x once the JVM has compiled
-   * a handful of other emitted vector kernels - history-dependent JIT inlining behavior - and
-   * where that cliff sits moves with JVM history, so no kernel-level cap can dodge it. A
-   * 16-op loop method is the largest shape measured healthy under the heaviest pollution we
-   * produce (the full parity-benchmark JVM), so every hot loop stays at or under it by
-   * construction. Grouping is greedy over the output order and counts only nodes new to the
-   * group, so outputs sharing subtrees tend to land together and keep their cross-output CSE;
-   * a single output wider than the budget gets its own group untouched - splitting inside an
-   * output would forfeit the register residency that is the point. Numbers in
-   * PLAN_TASK_11.md section 6.
+   * sibling loop methods within this budget (task 11). Measured reason: each Vector API call
+   * site expands into a large intrinsic graph, so C2's compile time grows steeply with op
+   * count - the tier-4 compile of a single 64-op loop took ~10 seconds, during which the
+   * loop ran the C1 version with boxed vectors at ~1% speed ({@code -XX:+PrintCompilation}
+   * shows the OSR task pending; whether a run sees the cliff depends only on when that
+   * compile lands relative to it). A 16-op loop method compiles promptly under every load
+   * tried, so every hot loop stays at or under it by construction. Grouping is greedy over
+   * the output order and counts only nodes new to the group, so outputs sharing subtrees
+   * tend to land together and keep their cross-output CSE; a single output wider than the
+   * budget gets its own group untouched - splitting inside an output would forfeit the
+   * register residency that is the point. Numbers in PLAN_TASK_11.md section 6.
    */
   public static final int GROUP_BUDGET = 16;
 

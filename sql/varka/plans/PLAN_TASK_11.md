@@ -383,25 +383,38 @@ recursive tail did not).
 
 ### 6.3 The JIT finding: loop methods must be small by construction
 
-The widest-shape case collapsed ~100x mid-task, and the collapse was
+The widest-shape case collapsed ~100x mid-task, and the collapse looked
 *history-dependent*: a 64-op loop method ran 1.0 G rows/s in a fresh JVM, 9
 M rows/s after the same JVM had compiled and hot-run just seven other emitted
 kernels, and 13 M rows/s in the full benchmark JVM - while 16-op loop methods
-were healthy under every pollution level measured. Splitting the scalar tail
-into a sibling method (the first suspect) was correct layering but not the
-cure; capping `MAX_FUSED_NODES` at 48 failed too, because the cliff moves
-with JVM history. The shipped fix is structural: outputs are partitioned into
-sibling *loop methods* of at most `GROUP_BUDGET = 16` ops each (greedy in
-output order, counting only nodes new to the group so shared subtrees keep
-their cross-output CSE), with a driver method zeroing validity, taking the
-all-null shortcut, and calling the loops and the tail in sequence. With the
-split, the 64-op kernel runs 986 M rows/s *in the fully polluted benchmark
-JVM* - matching its fresh-JVM number - and `MAX_FUSED_NODES = 64` stands with
-an honest story. Recorded for milestone 3: per-task loaders make every query
-a fresh set of compiled vector methods, so an executor JVM accumulates
-exactly the pollution this reproduces - the byte cache (item 2), which
-shrinks the set of distinct compiled classes per JVM, gains a second
-motivation beyond amortization.
+were healthy everywhere. Splitting the scalar tail into a sibling method (the
+first suspect) was correct layering but not the cure; capping
+`MAX_FUSED_NODES` at 48 failed too, because the cliff's apparent position
+moved between environments. The shipped fix is structural: outputs are
+partitioned into sibling *loop methods* of at most `GROUP_BUDGET = 16` ops
+each (greedy in output order, counting only nodes new to the group so shared
+subtrees keep their cross-output CSE), with a driver method zeroing validity,
+taking the all-null shortcut, and calling the loops and the tail in sequence.
+With the split, the 64-op kernel runs 986 M rows/s *in the fully polluted
+benchmark JVM* - matching its fresh-JVM number - and `MAX_FUSED_NODES = 64`
+stands with an honest story.
+
+The root cause was then pinned by experiment, and it is not inlining (raising
+`InlineSmallCode` changed nothing): each Vector API call site expands into a
+large intrinsic graph, so **C2's compile time grows steeply with op count -
+the tier-4 OSR compile of the monolithic 64-op method took ~10 seconds**
+(`-XX:+PrintCompilation` shows the task pending; a 30-second run watched the
+rate jump 9 to ~1000 M rows/s at t=12s when it finally installed), and until
+it lands the loop runs the C1 version with boxed vectors. The "history
+dependence" was only whether the compile landed inside the measurement
+window. Two corollaries, recorded: a benchmark case that never speeds up may
+be *waiting* on a compile, not hitting a wall - distinguish with a long
+window and periodic rate reporting; and class *generation* is never the
+cold-start cost (emit + define + load + instantiate measures 130-450 us even
+for the widest shape) - C2 compile latency is, and the group split is what
+bounds it per method. For milestone 3: the byte cache (item 2) shrinks the
+set of distinct compilation units an executor JVM accumulates, which now has
+a measured cost attached beyond amortization.
 
 ### 6.4 Deviations from the plan
 
