@@ -129,11 +129,14 @@ Each step either pins the fault or narrows it.
 
 ## Build Gotchas
 
-- The engine module is built with Maven, not sbt: `./build/mvn -o -f
-  sql/varka/engine/pom.xml install -DskipTests`. `mvn` is not on `PATH`; use
-  `./build/mvn`.
-- sql/core test-scope depends on the engine jar from `~/.m2`; after editing engine
-  sources, rebuild + reinstall or the test classpath keeps the old bytes.
+- The engine module is a reactor module since the sbt wiring change: sbt builds it
+  in-tree and puts its jar on the catalyst/sql test classpaths itself
+  (`VarkaEngine`/`VarkaEngineDependency` in `project/SparkBuild.scala`), so no manual
+  install step remains. Maven still builds it standalone
+  (`./build/mvn -f sql/varka/engine/pom.xml test`; `mvn` is not on `PATH`, use
+  `./build/mvn`), which is how the engine-only suites and JMH run.
+  (Earlier revisions of this file described a `~/.m2` install cycle from before the
+  reactor change.)
 - scalastyle requires a trailing newline at EOF ("File must end with newline
   character") and rejects `throw new XxxError` via the `throwerror` rule. For a
   deliberate `NoClassDefFoundError` test hook, wrap the throw in
@@ -174,12 +177,101 @@ Benchmarking method: compare interleaved A/B runs by their minimums. Single-run
 comparisons on a contended machine carried a +/-15% noise band, large enough that several
 apparent small wins turned out to be noise.
 
+## JIT Compilation of Generated Vector Code Is History-Dependent
+
+- The same emitted loop method can run at full intrinsified speed or ~100x slower
+  *depending on what the JVM compiled before it*. Measured (task 11): a 64-op vector
+  loop ran 1.0 G rows/s in a fresh JVM, 9 M rows/s after the same JVM had compiled and
+  hot-run just seven other emitted kernels, 13 M rows/s in the full benchmark JVM -
+  while 16-op loop methods stayed healthy under every pollution level tried.
+- No size cap can dodge this: the cliff's position moves with JVM history (48 ops
+  survived light pollution and collapsed under heavy). The structural fix is to keep
+  every *hot loop method* small by construction - the emitter splits outputs across
+  sibling loop methods of at most `GROUP_BUDGET` ops each, called from a driver.
+- Corollary for benchmarks: a fresh-JVM microbenchmark of generated code is the
+  best case, not the truth. Long-lived executor JVMs accumulate one fresh set of
+  compiled vector methods per query (per-task loaders guarantee it), which is exactly
+  the pollution to reproduce deliberately before trusting a number.
+- Same family, earlier finding (task 10): two vector loops emitted into one method
+  starve each other's inlining/intrinsic budgets (3x-4x on the second loop); one
+  C2 compilation per hot loop, always - sibling methods, not longer methods.
+
+## Vector API on HotSpot, Measured (JDK 25, x86-64)
+
+- `VectorOperators` has no multiply-high on any lane type, so Granlund-Montgomery
+  magic division is not expressible on int lanes; strength-reduce another way. Mod-7
+  by base-8 digit sum (`2^(3k) = 1 mod 7`: fold 15/6/3-bit chunks, `+3` where the
+  input is negative since `2^32 = 4 mod 7`, one compare-subtract fixup) measured
+  6.9 G elems/s vs 0.78 G for lanewise `DIV` - which has no SIMD instruction on x86
+  and effectively scalarizes.
+- Masked lanewise ops and masked stores cost 2.3x-2.9x even when the mask is all-true:
+  a runtime mask is opaque to C2 and a masked store never becomes a plain store. If
+  masks carry no correctness (in-bounds accesses, invalid destination lanes declared
+  undefined), run unmasked and keep validity in long words on the side.
+- A vector held in a Java local across a loop pins one register for the whole body and
+  blocks C2's rematerialization; ~32 such broadcasts collapsed throughput 7x. Emitted
+  at each use, a loop-invariant broadcast gets hoisted when registers allow and
+  rematerialized (one instruction) when they do not. Hoist only in measured-small
+  regimes.
+- Apply constant offsets *after* a mod, not before: `floorMod(days + 4, 7)` overflows
+  int for days near `Int.MaxValue`, while `(floorMod(days, 7) + 4) mod 7` cannot.
+  Negative inputs are where every strength-reduced mod goes wrong silently - a test
+  range that never crosses zero proves nothing.
+
+## The Class-File API's Stack-Map Generator Is a Free Verifier
+
+- `ClassFile.of().build(...)` computes stack map frames and rejects inconsistent
+  operand stacks at *emit* time (`IllegalArgumentException` naming the bytecode
+  offset, with a full instruction dump). A double-store bug in task 11 never reached
+  the JVM - one layer earlier than the `ClassFile.verify`-before-load discipline,
+  and two earlier than a runtime `VerifyError`.
+- Member-resolution mistakes (wrong erased descriptor) still pass both build and
+  verify and surface at first execution as `NoSuchMethodError`; keep the
+  wrong-descriptor negative-control test so that failure mode stays diagnosable.
+
+## Independent Reference Evaluators as Test Oracles
+
+- For an algebraic surface (three-valued logic, null-skipping picks, blend
+  semantics), implement the semantics *twice*: the generated code, and a tiny
+  interpreter over the same IR inside the test suite (`Option[Int]` values,
+  `Option[Boolean]` Kleene conditions). Run matrices against it row for row. Wrong-
+  in-the-same-way bugs are unlikely across two representations that share nothing.
+- A fold's *association* is not its *effect order*: a monadic `foldRight` over
+  CASE branches evaluated the ELSE first and registered input ordinals right-to-left.
+  Where side effects assign identities (ordinals, slots), compile in source order
+  explicitly, then fold the already-compiled pieces.
+
+## Testing Under AQE
+
+- Every Varka suite session disables AQE for plan determinism, which silently leaves
+  the default-config path (AQE on) unpinned. It worked - but only an experiment
+  proved it.
+- Under AQE the fused node sits inside a query stage, and a query stage is a *leaf*:
+  `SparkPlan.collect`/`collectFirst` never descend into it, so a naive assertion
+  reports "not fused" while the node is right there in `treeString`. Traverse with
+  `AdaptiveSparkPlanHelper` in AQE tests.
+
+## Write the Prediction Down, Then Measure
+
+- Three perf predictions in this repo's plans were reversed by measurement: "the
+  dense path won't beat masked-with-all-true" (it won 2.3x-2.9x), "the masked body
+  needs masked ops" (unmasked + validity words doubled mixed-null throughput), and
+  "no cliff at the op cap" (there was one, and it moved). JIT-adjacent performance
+  intuition loses often enough that the plan should record the expectation, the A/B,
+  and ship whichever wins - the written-down prediction is what makes the reversal
+  visible and the numbers re-checkable.
+- Debugging corollary from the same stretch: before concluding files changed or
+  vanished, verify the working directory. A shell whose cwd resets between commands
+  plus relative paths fabricates convincing evidence of disaster; absolute paths in
+  forensics, always.
+
 ## Repo Workflow (vecbricks/varka)
 
 - Remotes here: `origin` = `vecbricks/varka` (PR base, `master`), `fork` =
   `MaxGekk/spark` (PR head). Push the PR branch to `fork`, then open against
   `vecbricks/varka:master`.
 - No JIRA IDs. Titles are `[VARKA] <short summary>`; PR descriptions are prose in
-  the five standard template sections; sign off with `Generated-by: opencode`.
+  the five standard template sections; sign off with a `Generated-by:` line naming
+  the actual tool (recent PRs: `Generated-by: Claude Code (Claude Fable 5)`).
 - Branch naming: `varka-<topic>` tracks `origin/master` and stays one commit ahead
   per PR.
