@@ -21,6 +21,8 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, Literal, NamedExpression}
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
@@ -135,6 +137,32 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
       assert(values(plan) === Seq(4, null, 8))
     } finally {
       VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
+  }
+
+  test("the fallback projection is compiled lazily, only when a batch falls back") {
+    // Same construction as the VarkaColumnarToRowExecSuite counterpart: under CODEGEN_ONLY,
+    // [[ExplodingCodegenExpression]] makes building the fallback projection throw, so the
+    // evaluator constructor succeeding proves the compile is deferred (task 15), and the
+    // failure surfacing on an ineligible batch proves it is deferred exactly to the fallback.
+    withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
+      val factory = new VarkaProjectEvaluatorFactory(
+        project(Alias(ExplodingCodegenExpression(), "boom")()), Seq(intAttr),
+        offHeapColumnVectorEnabled = false,
+        SQLMetrics.createMetric(sparkContext, "rows"),
+        SQLMetrics.createMetric(sparkContext, "batches"),
+        SQLMetrics.createMetric(sparkContext, "varka"))
+      // Before task 15 this constructor compiled the fallback eagerly and threw.
+      val evaluator = factory.createEvaluator()
+      val column = new OnHeapColumnVector(1, IntegerType)
+      column.putInt(0, 7)
+      val batch = new ColumnarBatch(Array(column), 1)
+      val e = intercept[Throwable] {
+        evaluator.eval(0, Iterator(batch)).next()
+      }
+      val chain = Iterator.iterate(e)(_.getCause).takeWhile(_ != null).take(10).toSeq
+      assert(chain.exists(_.getMessage.contains("exploding-codegen")),
+        s"expected the codegen failure to surface on the fallback path, got: $e")
     }
   }
 

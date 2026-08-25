@@ -24,8 +24,8 @@ import org.apache.spark.{Partition, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Ascending, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, Literal, NamedExpression, SortOrder}
-import org.apache.spark.sql.catalyst.expressions.codegen.ClassFileGenOp
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Ascending, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, LeafExpression, Literal, NamedExpression, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileGenOp, CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -220,6 +220,35 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       VarkaColumnarToRowExec.setFailKernelForTesting(false)
     }
   }
+
+  test("the fallback projection is compiled lazily, only when a batch falls back") {
+    // An expression whose codegen throws stands in for "Janino was invoked": under CODEGEN_ONLY
+    // there is no interpreted safety net, so building the fallback projection fails loudly.
+    // Constructing the evaluator must succeed anyway - a task the kernels serve end to end
+    // never pays that compile (task 15) - and the failure must surface exactly when a batch
+    // takes the fallback path.
+    withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
+      val factory = new VarkaColumnarToRowEvaluatorFactory(
+        project(Alias(ExplodingCodegenExpression(), "boom")()), Seq(intAttr),
+        SQLMetrics.createMetric(sparkContext, "rows"),
+        SQLMetrics.createMetric(sparkContext, "batches"),
+        SQLMetrics.createMetric(sparkContext, "varka"))
+      // Before task 15 this constructor compiled the fallback eagerly and threw.
+      val evaluator = factory.createEvaluator()
+      val column = new OnHeapColumnVector(1, IntegerType)
+      column.putInt(0, 7)
+      val batch = new ColumnarBatch(Array(column), 1)
+      val e = intercept[Throwable] {
+        // An int batch is not kernel-servable, so consuming it forces the fallback projection.
+        evaluator.eval(0, Iterator(batch)).toArray
+      }
+      assert(causeChain(e).exists(_.getMessage.contains("exploding-codegen")),
+        s"expected the codegen failure to surface on the fallback path, got: $e")
+    }
+  }
+
+  private def causeChain(t: Throwable): Seq[Throwable] =
+    Iterator.iterate(t)(_.getCause).takeWhile(_ != null).take(10).toSeq
 
   test("each kernel result batch is released as soon as its rows are consumed") {
     val numBatches = 16
@@ -472,4 +501,19 @@ object VarkaColumnarToRowExecSuite {
     batch.setNumRows(spec.numRows.getOrElse(spec.columns.head.length))
     batch
   }
+}
+
+/**
+ * An expression whose codegen throws, standing in for "Janino was invoked" in the laziness
+ * tests here and in [[VarkaProjectExecSuite]]: under `CODEGEN_ONLY` a projection over it
+ * cannot be built at all, so the exact moment the fallback projection is constructed is
+ * observable. `eval` throws too, so an interpreted path cannot silently pass either.
+ */
+private[sql] case class ExplodingCodegenExpression() extends LeafExpression {
+  override def nullable: Boolean = false
+  override def dataType: org.apache.spark.sql.types.DataType = IntegerType
+  override def eval(input: InternalRow): Any =
+    throw new IllegalStateException("exploding-codegen: eval")
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    throw new IllegalStateException("exploding-codegen")
 }

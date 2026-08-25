@@ -122,7 +122,9 @@ private[sql] class VarkaProjectEvaluatorFactory(
     private val kernels = new VarkaKernelEvaluator(projectList, childOutput)
 
     // The per-row projection behind the fallback, and the schema its rows are written back into.
-    private val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
+    // Lazy (task 15): a task the kernels serve end to end never compiles it, so the Janino
+    // compile is paid only by tasks that actually fall back.
+    private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
     private val outputSchema: StructType =
       DataTypeUtils.fromAttributes(projectList.map(_.toAttribute))
     private val converter = new RowToColumnConverter(outputSchema)

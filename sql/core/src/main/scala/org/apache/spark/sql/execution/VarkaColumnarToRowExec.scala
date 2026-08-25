@@ -137,7 +137,9 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // do not get from the standard path either. The projected row holds its own bytes rather
     // than a view of the batch, so it also outlives the release of the kernel result batch it
     // came from.
-    private val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
+    // The fallback projection is lazy (task 15): a task the kernels serve end to end never
+    // compiles it. `toRow` stays eager - the kernel path itself needs it for every batch.
+    private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
     private val outputAttrs = projectList.map(_.toAttribute)
     private val toRow = UnsafeProjection.create(outputAttrs, outputAttrs)
 
