@@ -18,9 +18,9 @@
 package org.apache.spark.sql.execution
 
 import java.lang.foreign.MemorySegment
-import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
 import org.apache.arrow.memory.{ArrowBuf, BufferAllocator}
@@ -28,17 +28,25 @@ import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntVector, 
 
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, DateAdd, DateDiff, DateSub, DateVarkaSupport, Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileCodegenSupport, ClassFileGenOp, VarkaBinaryKernel, VarkaClassFileGen, VarkaGeneratedClassLoader, VarkaUnaryKernel}
-import org.apache.spark.sql.types.{DataType, DateType, IntegerType}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFusedKernel, VarkaLoopEmitter}
+import org.apache.spark.sql.types.{DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 import org.apache.spark.util.Utils
 
 /**
  * The kernel half of the Varka projection, for one partition: it turns an input `ColumnarBatch`
- * into a batch of kernel output, and owns everything that costs a task to set up - the dispatch
- * plan, the assembled runner classes, the Arrow allocator and the batches handed out.
+ * into a batch of kernel output, and owns everything that costs a task to set up - the compiled
+ * IR, the emitted fused-loop class, the Arrow allocator and the batches handed out.
+ *
+ * Since task 10 the compute is one [[VarkaFusedKernel]] emitted by
+ * [[VarkaLoopEmitter]] for the whole projection - every output computed in a single pass with
+ * intermediates in vector registers - instead of one dispatcher call per output op. The
+ * projection is compiled to IR by [[VarkaExpressionCompiler]], the same call
+ * `VarkaColumnarRule` decided eligibility with, so the plan the rule fused is by construction a
+ * plan this evaluator serves.
  *
  * Two nodes share it, and they share only this. [[VarkaColumnarToRowExec]] converts the result
  * batch to rows; [[VarkaProjectExec]] passes it on as a batch. What each does when the kernels
@@ -54,9 +62,10 @@ private[sql] class VarkaKernelEvaluator(
     childOutput: Seq[Attribute])
     extends Logging {
 
-  // Per-output-column dispatch plan; None when the projection is not fully Varka-eligible
-  // (should not happen given [[VarkaColumnarRule]], but be safe).
-  private lazy val outputPlan: Option[Seq[OutputOp]] = buildOutputPlan()
+  // The projection compiled to vector IR; None when it is not fully Varka-eligible (should not
+  // happen given [[VarkaColumnarRule]], but be safe).
+  private lazy val compiled: Option[CompiledVarkaProjection] =
+    VarkaExpressionCompiler.compile(projectList, childOutput)
 
   // One Arrow child allocator for the whole task, created on the first kernel batch. Allocating
   // one per batch - and registering a task-completion listener per batch to close it - would
@@ -71,15 +80,16 @@ private[sql] class VarkaKernelEvaluator(
 
   private var cleanupRegistered = false
 
-  // Task-lifetime assembled runner classes, one per distinct op. None when assembly failed,
-  // in which case every batch takes the caller's fallback path.
-  private lazy val kernelRunners: Option[KernelRunners] = {
-    outputPlan.flatMap { ops =>
+  // The task-lifetime emitted fused loop and its reused argument arrays. None when emission
+  // failed - an IR shape past the emitter's caps, or any linkage problem - in which case every
+  // batch takes the caller's fallback path.
+  private lazy val fusedRunner: Option[FusedRunner] = {
+    compiled.flatMap { plan =>
       try {
-        Some(new KernelRunners(ops.map(_.op).distinct))
+        Some(new FusedRunner(plan))
       } catch {
         case e if isCatchable(e) =>
-          logWarning("Failed to assemble the Varka kernel runners; falling back to the " +
+          logWarning("Failed to emit the Varka fused kernel; falling back to the " +
             "per-row projection.", e)
           None
       }
@@ -88,28 +98,47 @@ private[sql] class VarkaKernelEvaluator(
 
   /** Whether [[project]] can serve this batch, or the caller has to fall back. */
   def canRun(input: ColumnarBatch): Boolean = {
-    (outputPlan, kernelRunners) match {
-      case (Some(ops), Some(_)) => input.numRows() > 0 && isArrowBacked(ops, input)
+    (compiled, fusedRunner) match {
+      case (Some(plan), Some(_)) => input.numRows() > 0 && isArrowBacked(plan, input)
       case _ => false
     }
   }
 
   /**
-   * Runs the kernels over the input batch and returns a new batch of their output, tracked here
-   * until the caller [[release]]s it. Callers must have asked [[canRun]] first, and must treat a
-   * throw as "this batch could not be served": nothing is left allocated by a failed call.
+   * Runs the fused kernel over the input batch and returns a new batch of its output, tracked
+   * here until the caller [[release]]s it. Callers must have asked [[canRun]] first, and must
+   * treat a throw as "this batch could not be served": nothing is left allocated by a failed
+   * call.
    */
   def project(input: ColumnarBatch): ColumnarBatch = {
-    val ops = outputPlan.get
-    val runners = kernelRunners.get
+    val plan = compiled.get
+    val runner = fusedRunner.get
     val len = input.numRows()
     val alloc = taskAllocator()
     val vectors = new java.util.ArrayList[ColumnVector]()
+    val fixed = new Array[BaseFixedWidthVector](plan.outputs.size)
     var batch: ColumnarBatch = null
     try {
-      ops.foreach { op =>
-        vectors.add(buildVector(op, runners, input, len, alloc))
+      var i = 0
+      plan.inputOrdinals.foreach { ordinal =>
+        val acv = input.column(ordinal).asInstanceOf[ArrowColumnVector]
+        val morsel = extractMorsel(acv.getValueVector().asInstanceOf[DateDayVector], len)
+        runner.srcData(i) = morsel.data.address()
+        runner.srcValidity(i) = morsel.validityAddress
+        runner.srcNullCount(i) = morsel.nullCount.toInt
+        i += 1
       }
+      var o = 0
+      plan.outputTypes.foreach { dataType =>
+        val vector = allocateVector(dataType, o, len, alloc)
+        fixed(o) = vector
+        vectors.add(new ArrowColumnVector(vector))
+        runner.dstData(o) = vector.getDataBuffer().memoryAddress()
+        runner.dstValidity(o) = vector.getValidityBuffer().memoryAddress()
+        o += 1
+      }
+      invokeFused(runner, len)
+      fixed.foreach(_.setValueCount(len))
       batch = new ColumnarBatch(vectors.toArray(new Array[ColumnVector](vectors.size())))
       batch.setNumRows(len)
     } catch {
@@ -149,25 +178,23 @@ private[sql] class VarkaKernelEvaluator(
    * Whether the kernels can run over this batch: every referenced column must be an Arrow
    * `DateDayVector` holding exactly the batch's rows, no more.
    *
-   * The row count matters because the kernels take a null count for the rows they are given,
+   * The row count matters because the kernel takes a null count for the rows it is given,
    * while a vector's null count covers all `valueCount` of its rows. A vector longer than the
-   * batch would hand them a count for rows that are not in it - and a vector whose extra rows
+   * batch would hand it a count for rows that are not in it - and a vector whose extra rows
    * happen to hold every null would make that count equal the batch's row count, tripping the
-   * kernels' all-null shortcut over rows that are not null at all. Such a batch takes the
-   * caller's fallback; serving it from the kernels would mean counting nulls over `[0, len)`
-   * here instead.
+   * all-null shortcut over rows that are not null at all. Such a batch takes the caller's
+   * fallback; serving it from the kernels would mean counting nulls over `[0, len)` here
+   * instead.
    */
-  private def isArrowBacked(ops: Seq[OutputOp], input: ColumnarBatch): Boolean = {
-    ops.forall { op =>
-      op.inputOrdinals.forall { ordinal =>
-        input.column(ordinal) match {
-          case acv: ArrowColumnVector =>
-            acv.getValueVector() match {
-              case ddv: DateDayVector => ddv.getValueCount() == input.numRows()
-              case _ => false
-            }
-          case _ => false
-        }
+  private def isArrowBacked(plan: CompiledVarkaProjection, input: ColumnarBatch): Boolean = {
+    plan.inputOrdinals.forall { ordinal =>
+      input.column(ordinal) match {
+        case acv: ArrowColumnVector =>
+          acv.getValueVector() match {
+            case ddv: DateDayVector => ddv.getValueCount() == input.numRows()
+            case _ => false
+          }
+        case _ => false
       }
     }
   }
@@ -201,65 +228,39 @@ private[sql] class VarkaKernelEvaluator(
   }
 
   /**
-   * Allocates the destination Arrow vector and runs the op's kernel directly into its validity
-   * and data buffers (zero-copy), then wraps it for the result batch. The kernel zeroes the
-   * destination validity buffer first, so only the valid rows get set bits; null lanes of the
-   * data buffer are undefined, matching the engine contract.
+   * Allocates one destination Arrow vector: a `DateDayVector` for a date output, an `IntVector`
+   * for a `datediff` day count. The fused loop writes its validity and data buffers directly
+   * (zero-copy); it zeroes every destination validity first, so only the valid rows get set
+   * bits, and null lanes of the data buffer are undefined, matching the engine contract.
    */
-  private def buildVector(
-      op: OutputOp,
-      runners: KernelRunners,
-      input: ColumnarBatch,
+  private def allocateVector(
+      dataType: org.apache.spark.sql.types.DataType,
+      ordinal: Int,
       len: Int,
-      allocator: BufferAllocator): ArrowColumnVector = {
-    val vector: ValueVector = op.dataType match {
-      case DateType => new DateDayVector(s"varka${op.inputOrdinals.mkString}", allocator)
-      case IntegerType => new IntVector(s"varka${op.inputOrdinals.mkString}", allocator)
+      allocator: BufferAllocator): BaseFixedWidthVector = {
+    val vector: ValueVector = dataType match {
+      case DateType => new DateDayVector(s"varka$ordinal", allocator)
+      case IntegerType => new IntVector(s"varka$ordinal", allocator)
     }
     val fixed = vector.asInstanceOf[BaseFixedWidthVector]
     try {
       fixed.allocateNew(len)
-      val morsels = op.inputOrdinals.map { ordinal =>
-        val acv = input.column(ordinal).asInstanceOf[ArrowColumnVector]
-        extractMorsel(acv.getValueVector().asInstanceOf[DateDayVector], len)
-      }
-      invokeKernel(runners, op, morsels,
-        fixed.getDataBuffer().memoryAddress(), fixed.getValidityBuffer().memoryAddress(), len)
-      fixed.setValueCount(len)
     } catch {
       case e: Throwable =>
         vector.close()
         throw e
     }
-    new ArrowColumnVector(vector)
+    fixed
   }
 
-  private def invokeKernel(
-      runners: KernelRunners,
-      op: OutputOp,
-      morsels: Seq[Morsel],
-      dstData: Long,
-      dstValidity: Long,
-      len: Int): Unit = {
+  private def invokeFused(runner: FusedRunner, len: Int): Unit = {
     if (VarkaColumnarToRowExec.isFailKernelForTesting) {
       // scalastyle:off throwerror
       throw new NoClassDefFoundError("injected Varka kernel failure")
       // scalastyle:on throwerror
     }
-    op.kind match {
-      case AddDays | SubDays =>
-        val m = morsels.head
-        runners.unary(op.op).run(
-          m.data.address(), m.validityAddress, m.nullCount.toInt,
-          dstData, dstValidity, len, op.daysOffset.get)
-      case DateDiffKernel =>
-        val end = morsels(0)
-        val start = morsels(1)
-        runners.binary(op.op).run(
-          end.data.address(), end.validityAddress, end.nullCount.toInt,
-          start.data.address(), start.validityAddress, start.nullCount.toInt,
-          dstData, dstValidity, len)
-    }
+    runner.kernel.run(runner.srcData, runner.srcValidity, runner.srcNullCount,
+      runner.dstData, runner.dstValidity, runner.scalarArgs, len)
   }
 
   /**
@@ -286,92 +287,33 @@ private[sql] class VarkaKernelEvaluator(
   }
 
   /**
-   * The kernel plan of the whole projection, or `None` if any expression in it is not one the
-   * kernels can serve. All or nothing: a partially eligible projection takes the fallback,
-   * because the fallback projects the entire list in one pass anyway.
+   * The emitted fused loop of one task, plus the `run` argument arrays, allocated once here and
+   * refilled per batch - nothing is allocated per call. The class behind the kernel lives for
+   * the task: the loader is released on completion so it unloads from Metaspace, exactly as the
+   * per-op dispatcher classes did before task 10.
    */
-  private def buildOutputPlan(): Option[Seq[OutputOp]] = {
-    val ops = projectList.map(outputOp)
-    Option.when(ops.forall(_.isDefined))(ops.flatten)
-  }
-
-  /** The kernel this projection expression maps to, or `None` if it maps to none. */
-  private def outputOp(expr: NamedExpression): Option[OutputOp] = {
-    val bound: Expression = BindReferences.bindReference(expr, childOutput)
-    val inner = bound match {
-      case Alias(child, _) => child
-      case e => e
-    }
-    // The conditions must agree with the expressions' own `isClassFileGenEligible`, which is
-    // what `VarkaColumnarRule` matched on when it put one of the Varka nodes in the plan. The day
-    // offset is folded with `DateVarkaSupport.foldDaysOffset` for that reason: a second copy
-    // of the folding rule here could drift from the one the rule consulted.
-    inner match {
-      case DateAdd(br: BoundReference, days) if br.dataType == DateType
-          && DateVarkaSupport.foldDaysOffset(days).isDefined =>
-        Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, AddDays,
-          Seq(br.ordinal), DateVarkaSupport.foldDaysOffset(days), DateType))
-      case DateSub(br: BoundReference, days) if br.dataType == DateType
-          && DateVarkaSupport.foldDaysOffset(days).isDefined =>
-        Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, SubDays,
-          Seq(br.ordinal), DateVarkaSupport.foldDaysOffset(days), DateType))
-      case DateDiff(endBr: BoundReference, startBr: BoundReference)
-          if endBr.dataType == DateType && startBr.dataType == DateType =>
-        Some(OutputOp(inner.asInstanceOf[ClassFileCodegenSupport].classFileGenOp, DateDiffKernel,
-          Seq(endBr.ordinal, startBr.ordinal), None, IntegerType))
-      case _ => None
-    }
-  }
-
-  /**
-   * The assembled kernel dispatchers of one task, one per distinct op. Each is an instance of
-   * a freshly generated class implementing the kernel-shape interface for its op, so a call
-   * goes straight into the kernel with a primitive stack - see
-   * `VarkaClassFileGen.assembleKernelClass`. The runners and the classes behind them live for
-   * the task: the loader is released on completion so they unload from Metaspace.
-   *
-   * The instance is stored untyped because the two shapes have no common supertype; `unary`
-   * and `binary` are the typed views, and which one is right for an op is decided once, when
-   * the plan is built, by `OutputOp.kind`.
-   */
-  private class KernelRunners(ops: Seq[ClassFileGenOp]) {
+  private class FusedRunner(plan: CompiledVarkaProjection) {
     private val loader = new VarkaGeneratedClassLoader(Utils.getContextOrSparkClassLoader)
-    private val runners = new ConcurrentHashMap[ClassFileGenOp, AnyRef]()
-    private var index = 0
 
-    ops.foreach { op =>
-      val className = s"org.apache.spark.sql.varka.execution.VarkaKernelRunner$index"
-      index += 1
-      loader.defineGeneratedClass(className, VarkaClassFileGen.assembleKernelClass(className, op))
-      val clazz = loader.loadClass(className)
-      runners.put(op, clazz.getConstructor().newInstance().asInstanceOf[AnyRef])
+    val kernel: VarkaFusedKernel = {
+      val className = "org.apache.spark.sql.varka.execution.VarkaFusedProjection"
+      loader.defineGeneratedClass(className, VarkaLoopEmitter.emit(
+        className, plan.outputs.asJava, plan.inputOrdinals.size, plan.literals.size))
+      loader.loadClass(className).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
     }
+
+    val srcData = new Array[Long](plan.inputOrdinals.size)
+    val srcValidity = new Array[Long](plan.inputOrdinals.size)
+    val srcNullCount = new Array[Int](plan.inputOrdinals.size)
+    val dstData = new Array[Long](plan.outputs.size)
+    val dstValidity = new Array[Long](plan.outputs.size)
+    val scalarArgs: Array[Int] = plan.literals.toArray
 
     TaskContext.get().addTaskCompletionListener[Unit] { _ =>
       loader.release()
     }
-
-    def unary(op: ClassFileGenOp): VarkaUnaryKernel = {
-      runners.get(op).asInstanceOf[VarkaUnaryKernel]
-    }
-
-    def binary(op: ClassFileGenOp): VarkaBinaryKernel = {
-      runners.get(op).asInstanceOf[VarkaBinaryKernel]
-    }
   }
 }
-
-private sealed trait KernelKind
-private case object AddDays extends KernelKind
-private case object SubDays extends KernelKind
-private case object DateDiffKernel extends KernelKind
-
-private case class OutputOp(
-    op: ClassFileGenOp,
-    kind: KernelKind,
-    inputOrdinals: Seq[Int],
-    daysOffset: Option[Int],
-    dataType: DataType)
 
 private case class Morsel(data: MemorySegment, validity: MemorySegment, nullCount: Long) {
   def validityAddress: Long = if (validity == null) 0L else validity.address()

@@ -17,8 +17,8 @@
 
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaClassFileGen
+import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 
@@ -51,7 +51,8 @@ object VarkaColumnarRule extends ColumnarRule {
   override def preColumnarTransitions: Rule[SparkPlan] = { plan =>
     if (SQLConf.get.varkaEnabled) {
       plan.transformUp {
-        case project @ ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
+        case project @ ProjectExec(projectList, child)
+            if isFullyVarkaEligible(projectList, child.output) =>
           if (child.supportsColumnar) {
             VarkaProjectExec(projectList, child)
           } else {
@@ -68,7 +69,8 @@ object VarkaColumnarRule extends ColumnarRule {
       plan.transformUp {
         case ColumnarToRowExec(varka: VarkaProjectExec) =>
           VarkaColumnarToRowExec(varka.projectList, varka.child)
-        case project @ ProjectExec(projectList, child) if isFullyVarkaEligible(projectList) =>
+        case project @ ProjectExec(projectList, child)
+            if isFullyVarkaEligible(projectList, child.output) =>
           val columnarChild = child match {
             case ColumnarToRowExec(inner) => inner
             case other => other
@@ -84,7 +86,11 @@ object VarkaColumnarRule extends ColumnarRule {
     }
   }
 
-  private def isFullyVarkaEligible(projectList: Seq[Expression]): Boolean = {
-    projectList.nonEmpty && VarkaClassFileGen.eligibleOps(projectList).size == projectList.size
+  // The compiler is the single eligibility oracle (task 10): a projection is fused exactly when
+  // the whole list compiles to the vector IR, nested chains and shared subtrees included. Still
+  // all or nothing - partial eligibility is task 12.
+  private def isFullyVarkaEligible(
+      projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean = {
+    VarkaExpressionCompiler.compile(projectList, childOutput).isDefined
   }
 }

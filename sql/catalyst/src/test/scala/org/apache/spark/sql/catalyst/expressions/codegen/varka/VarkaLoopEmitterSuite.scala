@@ -29,10 +29,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.varka.vector.DateVectorOps
 
 /**
- * Unit tests for [[VarkaLoopEmitter]] (milestone 2, task 9): the emitted fused loop must match
- * the hand-written `DateVectorOps` kernels - the reference semantics - row for row and bit for
- * bit, across lengths that straddle every lane and byte boundary of the 4-, 8- and 16-lane
- * species, every null pattern, and offsets including int wrap-around.
+ * Unit tests for [[VarkaLoopEmitter]] (milestone 2, tasks 9 and 10): the emitted fused loop must
+ * match the hand-written `DateVectorOps` kernels - the reference semantics - row for row and bit
+ * for bit, across lengths that straddle every lane and byte boundary of the 4-, 8- and 16-lane
+ * species, every null pattern (applied independently per column for the multi-input shapes),
+ * and offsets including int wrap-around.
  *
  * The suite must also run green under `-XX:MaxVectorSize=16` (the four-lane shape; milestone 1's
  * finding 1 is why that width is where bugs hide):
@@ -63,19 +64,24 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     new AddDays(new ColumnRef(0), new LiteralSlot(offsetSlot))
 
   /** An `AddDays`/`SubDays` chain of the given depth, alternating so C2 cannot reassociate it. */
-  private def chain(depth: Int): VarkaVectorIR = {
+  private def chain(depth: Int, slotBase: Int = 0): VarkaVectorIR = {
     var node: VarkaVectorIR = new ColumnRef(0)
     for (level <- 0 until depth) {
-      node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(level))
-      else new SubDays(node, new LiteralSlot(level))
+      node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(slotBase + level))
+      else new SubDays(node, new LiteralSlot(slotBase + level))
     }
     node
   }
 
   /** Emits the chain into a uniquely named class; returns the name with the bytes. */
-  private def emit(root: VarkaVectorIR, numLiterals: Int): (String, Array[Byte]) = {
+  private def emit(root: VarkaVectorIR, numLiterals: Int): (String, Array[Byte]) =
+    emitMulti(Seq(root), 1, numLiterals)
+
+  /** The multi-output, multi-input version of [[emit]] (task 10). */
+  private def emitMulti(
+      roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int): (String, Array[Byte]) = {
     val name = s"org.apache.spark.sql.varka.execution.VarkaFusedTest${classCounter.addAndGet(1)}"
-    (name, VarkaLoopEmitter.emit(name, java.util.List.of(root), 1, numLiterals))
+    (name, VarkaLoopEmitter.emit(name, roots.asJava, numInputs, numLiterals))
   }
 
   /** Loads an emitted class through the per-task loader and instantiates it. */
@@ -220,19 +226,207 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
-  test("IR outside the task-9 shape is rejected with a reason, not emitted wrong") {
+  test("DateDiff matches vectorDateDiff across lengths and per-column null patterns") {
+    val root = new DateDiff(new ColumnRef(0), new ColumnRef(1))
+    val (kernel, loader) = load(emitMulti(Seq(root), 2, 0))
+    try {
+      for {
+        length <- lengths
+        (endName, endNull) <- nullPatterns
+        (startName, startNull) <- nullPatterns
+      } {
+        val arena = Arena.ofConfined()
+        try {
+          val end = makeInput(arena, length, endNull)
+          val start = makeInput(arena, length, startNull)
+          val expected = makeOutput(arena, length)
+          val actual = makeOutput(arena, length)
+          DateVectorOps.vectorDateDiff(
+            end.data.address(), end.validityAddress(length), end.nullCount,
+            start.data.address(), start.validityAddress(length), start.nullCount,
+            expected._1.address(), expected._2.address(), length)
+          kernel.run(
+            Array(end.data.address(), start.data.address()),
+            Array(end.validityAddress(length), start.validityAddress(length)),
+            Array(end.nullCount, start.nullCount),
+            Array(actual._1.address()), Array(actual._2.address()), Array.empty[Int], length)
+          assertSameOutput(length, expected, actual,
+            s"length=$length end=$endName start=$startName")
+        } finally {
+          arena.close()
+        }
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  test("two outputs sharing a subchain match sequential kernel passes, types independent") {
+    // a = date_add(d, off); b = datediff(date_add(d, off), d2) - the milestone's DAG example:
+    // the shared subchain is computed once per lane group and stored into both outputs' math.
+    val shared = new AddDays(new ColumnRef(0), new LiteralSlot(0))
+    val roots = Seq[VarkaVectorIR](shared, new DateDiff(shared, new ColumnRef(1)))
+    val (kernel, loader) = load(emitMulti(roots, 2, 1))
+    try {
+      for ((patternName, isNull) <- nullPatterns) {
+        val arena = Arena.ofConfined()
+        try {
+          val length = 1000
+          val offset = 11
+          val d = makeInput(arena, length, isNull)
+          val d2 = makeInput(arena, length, i => i % 3 == 0)
+          val actualA = makeOutput(arena, length)
+          val actualB = makeOutput(arena, length)
+          kernel.run(
+            Array(d.data.address(), d2.data.address()),
+            Array(d.validityAddress(length), d2.validityAddress(length)),
+            Array(d.nullCount, d2.nullCount),
+            Array(actualA._1.address(), actualB._1.address()),
+            Array(actualA._2.address(), actualB._2.address()),
+            Array(offset), length)
+
+          // Oracle: the same DAG as two hand-written kernel passes through a temp buffer.
+          val expectedA = makeOutput(arena, length)
+          val expectedB = makeOutput(arena, length)
+          DateVectorOps.vectorAddDays(
+            d.data.address(), d.validityAddress(length), d.nullCount,
+            expectedA._1.address(), expectedA._2.address(), length, offset)
+          DateVectorOps.vectorDateDiff(
+            expectedA._1.address(), if (d.nullCount == 0) 0L else expectedA._2.address(),
+            d.nullCount,
+            d2.data.address(), d2.validityAddress(length), d2.nullCount,
+            expectedB._1.address(), expectedB._2.address(), length)
+          assertSameOutput(length, expectedA, actualA, s"pattern=$patternName output a")
+          assertSameOutput(length, expectedB, actualB, s"pattern=$patternName output b")
+        } finally {
+          arena.close()
+        }
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  test("an all-null input kills only the outputs that read it") {
+    // a reads column 0 only; b reads both. With column 1 all-null, a is served and b reads
+    // back all-null - through the mask algebra alone, with no dedicated dead-output code.
+    val roots = Seq[VarkaVectorIR](
+      new AddDays(new ColumnRef(0), new LiteralSlot(0)),
+      new DateDiff(new ColumnRef(0), new ColumnRef(1)))
+    val (kernel, loader) = load(emitMulti(roots, 2, 1))
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val length = 1000
+        val offset = 5
+        val d = makeInput(arena, length, i => i % 5 == 0)
+        val allNull = makeInput(arena, length, _ => true)
+        val actualA = makeOutput(arena, length)
+        val actualB = makeOutput(arena, length)
+        kernel.run(
+          Array(d.data.address(), allNull.data.address()),
+          Array(d.validityAddress(length), allNull.validityAddress(length)),
+          Array(d.nullCount, allNull.nullCount),
+          Array(actualA._1.address(), actualB._1.address()),
+          Array(actualA._2.address(), actualB._2.address()),
+          Array(offset), length)
+        val expectedA = makeOutput(arena, length)
+        DateVectorOps.vectorAddDays(
+          d.data.address(), d.validityAddress(length), d.nullCount,
+          expectedA._1.address(), expectedA._2.address(), length, offset)
+        assertSameOutput(length, expectedA, actualA, "the live output")
+        for (b <- 0L until (length + 7) / 8L) {
+          assert(actualB._2.get(ValueLayout.JAVA_BYTE, b) === 0.toByte,
+            s"dead output validity byte $b not zero")
+        }
+
+        // Both inputs all-null: the generalized all-null shortcut returns early, and both
+        // outputs must still read as all-null (their validity was pre-filled with stale bits).
+        val actualC = makeOutput(arena, length)
+        val actualD = makeOutput(arena, length)
+        kernel.run(
+          Array(allNull.data.address(), allNull.data.address()),
+          Array(0L, 0L), Array(length, length),
+          Array(actualC._1.address(), actualD._1.address()),
+          Array(actualC._2.address(), actualD._2.address()),
+          Array(offset), length)
+        for (b <- 0L until (length + 7) / 8L) {
+          assert(actualC._2.get(ValueLayout.JAVA_BYTE, b) === 0.toByte)
+          assert(actualD._2.get(ValueLayout.JAVA_BYTE, b) === 0.toByte)
+        }
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  test("disabling CSE changes the bytecode but never the results") {
+    val shared = new AddDays(new ColumnRef(0), new LiteralSlot(0))
+    val roots = Seq[VarkaVectorIR](shared, new DateDiff(shared, new ColumnRef(1)))
+    val withCse = emitMulti(roots, 2, 1)
+    VarkaLoopEmitter.disableCseForTesting = true
+    val withoutCse =
+      try emitMulti(roots, 2, 1) finally VarkaLoopEmitter.disableCseForTesting = false
+    assert(!java.util.Arrays.equals(withCse._2, withoutCse._2),
+      "disabling the memo left the bytecode unchanged - CSE was not exercised")
+    val (kernelCse, loaderCse) = load(withCse)
+    val (kernelNoCse, loaderNoCse) = load(withoutCse)
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val length = 1000
+        val d = makeInput(arena, length, i => i % 5 == 0)
+        val d2 = makeInput(arena, length, i => i % 3 == 0)
+        def run(kernel: VarkaFusedKernel): ((MemorySegment, MemorySegment),
+            (MemorySegment, MemorySegment)) = {
+          val a = makeOutput(arena, length)
+          val b = makeOutput(arena, length)
+          kernel.run(
+            Array(d.data.address(), d2.data.address()),
+            Array(d.validityAddress(length), d2.validityAddress(length)),
+            Array(d.nullCount, d2.nullCount),
+            Array(a._1.address(), b._1.address()),
+            Array(a._2.address(), b._2.address()),
+            Array(7), length)
+          (a, b)
+        }
+        val (cseA, cseB) = run(kernelCse)
+        val (plainA, plainB) = run(kernelNoCse)
+        assertSameOutput(length, plainA, cseA, "output a")
+        assertSameOutput(length, plainB, cseB, "output b")
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loaderCse.release()
+      loaderNoCse.release()
+    }
+  }
+
+  test("IR outside the emitter's shape is rejected with a reason, not emitted wrong") {
     def rejects(body: => Unit, fragment: String): Unit = {
       val e = intercept[IllegalArgumentException](body)
       assert(e.getMessage.contains(fragment), s"message was: ${e.getMessage}")
     }
     rejects(emit(chain(VarkaLoopEmitter.MAX_CHAIN_DEPTH + 1),
       VarkaLoopEmitter.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
-    rejects(emit(new AddDays(new ColumnRef(1), new LiteralSlot(0)), 1), "column 0")
+    rejects(emit(new AddDays(new ColumnRef(1), new LiteralSlot(0)), 1), "column ordinal")
     rejects(emit(new AddDays(new ColumnRef(0), new LiteralSlot(1)), 1), "literal slot")
     rejects(emit(new AddDays(new ColumnRef(0), new ColumnRef(0)), 1), "literal slots")
-    rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)), 2, 1), "single input")
-    rejects(VarkaLoopEmitter.emit("t",
-      java.util.List.of(addDays(0), addDays(0)), 1, 1), "single output")
+    rejects(VarkaLoopEmitter.emit("t", java.util.List.of[VarkaVectorIR](), 1, 0),
+      "no output chains")
+    rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)), 0, 1), "numInputs")
+    rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)),
+      VarkaLoopEmitter.MAX_INPUTS + 1, 1), "numInputs")
+    // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap. The cap
+    // counts nodes after CSE: the same 5 chains repeated as 10 outputs stay within it.
+    val disjointChains = (0 until 5).map(k => chain(13, slotBase = k * 13))
+    rejects(emitMulti(disjointChains, 1, 65), "MAX_FUSED_NODES")
+    val (_, sharedOk) = emitMulti(
+      disjointChains.take(4) ++ disjointChains.take(4), 1, 52)
+    assert(sharedOk.nonEmpty)
   }
 
   test("a wrong descriptor fails naming the call, not as an anonymous VerifyError") {

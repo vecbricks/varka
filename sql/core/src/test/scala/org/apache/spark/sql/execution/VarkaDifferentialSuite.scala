@@ -169,15 +169,90 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
       expectFused = true)
   }
 
-  test("nested date expressions are not fused but match the row engine") {
+  test("nested date expressions are fused and match the row engine") {
+    // These planned as a plain per-row Project until task 10: the recursive compiler is what
+    // makes `expectFused = true` hold here at all.
     cacheDates(spark)
     cacheDates(varkaSpark)
     checkDifferential(spark, varkaSpark,
       "SELECT date_add(date_add(d, 1), 2) AS a FROM varka_dates ORDER BY a",
-      expectFused = false)
+      expectFused = true)
     checkDifferential(spark, varkaSpark,
       "SELECT date_sub(date_add(d, 5), 5) AS a FROM varka_dates ORDER BY a",
+      expectFused = true)
+    checkDifferential(spark, varkaSpark,
+      "SELECT date_sub(date_add(date_sub(date_add(d, 1), 2), 3), 4) AS a " +
+        "FROM varka_dates ORDER BY a",
+      expectFused = true)
+  }
+
+  test("datediff over nested chains is fused in both argument orders with nulls") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT datediff(date_add(d, 7), d2) AS diff FROM varka_date_pairs ORDER BY diff",
+      expectFused = true)
+    checkDifferential(spark, varkaSpark,
+      "SELECT datediff(d2, date_sub(d, 7)) AS diff FROM varka_date_pairs ORDER BY diff",
+      expectFused = true)
+    checkDifferential(spark, varkaSpark,
+      "SELECT datediff(date_add(d, 3), date_sub(d2, 3)) AS diff " +
+        "FROM varka_date_pairs ORDER BY diff",
+      expectFused = true)
+  }
+
+  test("a shared subchain across outputs is fused and matches the row engine") {
+    // The milestone's DAG example: `date_add(d, 1)` feeds both outputs and the emitted loop
+    // computes it once per lane group. Correctness here; the CSE mechanics are pinned in
+    // VarkaLoopEmitterSuite and the win is priced in VarkaEmitterParityBenchmark.
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT date_add(d, 1) AS a, datediff(date_add(d, 1), d2) AS b " +
+        "FROM varka_date_pairs ORDER BY a, b",
+      expectFused = true)
+  }
+
+  test("a nested chain wraps int32 day arithmetic exactly like the row engine") {
+    // The inner add leaves the representable date range and the outer sub wraps it back, so the
+    // end-to-end result is decodable and the row engine is a valid oracle for the round trip -
+    // unlike a one-way extreme offset (see the wrap-around block in the date_add test above).
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    val off = Int.MaxValue - 1
+    checkDifferential(spark, varkaSpark,
+      s"SELECT date_sub(date_add(d, $off), $off) AS a FROM varka_dates ORDER BY a",
+      expectFused = true)
+  }
+
+  test("a projection with a bare date column stays unfused until task 12") {
+    // A bare column output compiles to nothing on purpose: emitting it would be a copy loop,
+    // while task 12 forwards it zero-copy. All-or-nothing eligibility then leaves the whole
+    // projection to the row engine. When task 12 lands, this flips to expectFused = true.
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT date_add(d, 3) AS a, d FROM varka_dates ORDER BY a",
       expectFused = false)
+  }
+
+  test("a kernel failure on a nested plan falls back per batch with correct results") {
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    VarkaColumnarToRowExec.setFailKernelForTesting(true)
+    try {
+      val query = "SELECT datediff(date_add(d, 1), d) AS a FROM varka_dates ORDER BY a"
+      val expected = spark.sql(query)
+      val actual = varkaSpark.sql(query)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      val batches = plan.collectFirst { case v: VarkaColumnarToRowExec => v }
+        .flatMap(_.metrics.get("numVarkaBatches")).map(_.value).getOrElse(0L)
+      assert(batches === 0L, s"expected the fallback to serve every batch, got $batches")
+    } finally {
+      VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
   }
 
   test("filters and aggregation match the row engine") {

@@ -23,18 +23,23 @@ import scala.concurrent.duration._
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.varka.vector.DateVectorOps
 
 /**
- * Task 9's two gates as a benchmark (see `sql/varka/plans/PLAN_TASK_9.md`).
+ * The emitter's gates as a benchmark (see `sql/varka/plans/PLAN_TASK_9.md` and
+ * `PLAN_TASK_10.md`).
  *
- * The parity gate: the emitted depth-1 loop must reach the hand-written `vectorAddDays` within
- * noise (acceptance: at least 0.9x its best-time throughput) - anything worse means C2 did not
- * intrinsify the emitted Vector API calls and the emitter is wrong. The chain cases are the
- * fusion preview and the data behind `MAX_CHAIN_DEPTH`: a fused depth-N chain against N
- * sequential kernel passes over the same buffers.
+ * The parity gates: an emitted single-op loop must reach the hand-written kernel within noise
+ * (acceptance: at least 0.9x its best-time throughput) - anything worse means C2 did not
+ * intrinsify the emitted Vector API calls and the emitter is wrong. Task 9 measured `date_add`;
+ * task 10 adds the two-input `datediff`. The chain cases are the fusion gate and the data
+ * behind `MAX_CHAIN_DEPTH`: a fused depth-N chain against N sequential kernel passes over the
+ * same buffers. Task 10 adds the DAG cases: a subchain shared by two outputs with CSE on, with
+ * the memo disabled (pricing CSE itself), and as sequential kernel passes; and the widest shape
+ * the emitter accepts (`MAX_FUSED_NODES` ops), which must scale with its op count rather than
+ * fall off a cliff at the cap.
  *
  * To run this benchmark:
  * {{{
@@ -43,7 +48,7 @@ import org.apache.spark.sql.varka.vector.DateVectorOps
  *        SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt
  *          "catalyst/Test/runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
  *      Results will be written to "benchmarks/VarkaEmitterParityBenchmark-results.txt".
- *   3. the four-lane shape (numbers recorded in PLAN_TASK_9.md):
+ *   3. the four-lane shape (numbers recorded in the task plans):
  *        build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"'
  *          "Test/runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
  * }}}
@@ -52,20 +57,22 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
 
   private val numRows = 1_000_000
 
-  private def chain(depth: Int): VarkaVectorIR = {
+  private def chain(depth: Int, slotBase: Int = 0): VarkaVectorIR = {
     var node: VarkaVectorIR = new ColumnRef(0)
     for (level <- 0 until depth) {
-      node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(level))
-      else new SubDays(node, new LiteralSlot(level))
+      node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(slotBase + level))
+      else new SubDays(node, new LiteralSlot(slotBase + level))
     }
     node
   }
 
-  private def emit(root: VarkaVectorIR, numLiterals: Int,
+  private def emit(roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int,
       loader: VarkaGeneratedClassLoader, n: Int): VarkaFusedKernel = {
     val name = s"org.apache.spark.sql.varka.execution.VarkaFusedBench$n"
+    val javaRoots = new java.util.ArrayList[VarkaVectorIR]()
+    roots.foreach(javaRoots.add)
     loader.defineGeneratedClass(name,
-      VarkaLoopEmitter.emit(name, java.util.List.of(root), 1, numLiterals))
+      VarkaLoopEmitter.emit(name, javaRoots, numInputs, numLiterals))
     loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
   }
 
@@ -93,17 +100,44 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
     try {
       val (nfData, _, _) = fill(arena, _ => false)
       val (mxData, mxValidity, mxNulls) = fill(arena, i => i % 7 == 0)
+      val (nf2Data, _, _) = fill(arena, _ => false)
+      val (mx2Data, mx2Validity, mx2Nulls) = fill(arena, i => i % 11 == 0)
       val dst = arena.allocate(numRows * 4L, 8)
       val dstValidity = arena.allocate((numRows + 7) / 8L, 8)
-      // Sequential-pass temporaries, one pair per intermediate of the deepest chain.
+      val dst2 = arena.allocate(numRows * 4L, 8)
+      val dst2Validity = arena.allocate((numRows + 7) / 8L, 8)
+      // Sequential-pass temporaries, one pair per intermediate of the deepest chain, and the
+      // per-output destinations of the widest shape.
       val maxDepth = 16
       val tmpData = Array.fill(maxDepth)(arena.allocate(numRows * 4L, 8))
       val tmpValidity = Array.fill(maxDepth)(arena.allocate((numRows + 7) / 8L, 8))
+      val wideDst = Array.fill(4)(arena.allocate(numRows * 4L, 8))
+      val wideDstValidity = Array.fill(4)(arena.allocate((numRows + 7) / 8L, 8))
+
+      /** The chain as `depth` hand-written kernel passes, `src` to `dst` through the temps. */
+      def sequentialChain(depth: Int, offsets: Array[Int], srcData: Long, srcValidity: Long,
+          srcNulls: Int, dstData: Long, dstVal: Long): Unit = {
+        var srcD = srcData
+        var srcV = srcValidity
+        for (level <- 0 until depth) {
+          val (outD, outV) = if (level == depth - 1) (dstData, dstVal)
+          else (tmpData(level).address(), tmpValidity(level).address())
+          if (level % 2 == 0) {
+            DateVectorOps.vectorAddDays(srcD, srcV, srcNulls, outD, outV, numRows,
+              offsets(level))
+          } else {
+            DateVectorOps.vectorSubDays(srcD, srcV, srcNulls, outD, outV, numRows,
+              offsets(level))
+          }
+          srcD = outD
+          srcV = outV
+        }
+      }
 
       runBenchmark("single op: emitted loop vs hand-written kernel") {
         val benchmark = new Benchmark(s"date_add over $numRows rows", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        val depth1 = emit(chain(1), 1, loader, 0)
+        val depth1 = emit(Seq(chain(1)), 1, 1, loader, 0)
         benchmark.addCase("hand-written kernel, null-free") { _ =>
           DateVectorOps.vectorAddDays(nfData.address(), 0L, 0,
             dst.address(), dstValidity.address(), numRows, 3)
@@ -123,32 +157,100 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
+      runBenchmark("datediff: emitted loop vs hand-written kernel") {
+        val benchmark = new Benchmark(s"datediff over $numRows rows", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val diff = emit(
+          Seq(new DateDiff(new ColumnRef(0), new ColumnRef(1))), 2, 0, loader, 100)
+        benchmark.addCase("hand-written kernel, null-free") { _ =>
+          DateVectorOps.vectorDateDiff(nfData.address(), 0L, 0, nf2Data.address(), 0L, 0,
+            dst.address(), dstValidity.address(), numRows)
+        }
+        benchmark.addCase("emitted loop, null-free") { _ =>
+          diff.run(Array(nfData.address(), nf2Data.address()), Array(0L, 0L), Array(0, 0),
+            Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
+        }
+        benchmark.addCase("hand-written kernel, mixed nulls") { _ =>
+          DateVectorOps.vectorDateDiff(mxData.address(), mxValidity.address(), mxNulls,
+            mx2Data.address(), mx2Validity.address(), mx2Nulls,
+            dst.address(), dstValidity.address(), numRows)
+        }
+        benchmark.addCase("emitted loop, mixed nulls") { _ =>
+          diff.run(Array(mxData.address(), mx2Data.address()),
+            Array(mxValidity.address(), mx2Validity.address()), Array(mxNulls, mx2Nulls),
+            Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
+        }
+        benchmark.run()
+      }
+
       runBenchmark("fused chain vs sequential kernel passes") {
         val benchmark = new Benchmark(s"chain over $numRows rows, mixed nulls", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         for (depth <- Seq(1, 2, 4, 8, 16)) {
           val offsets = (0 until depth).map(level => level * 13 + 1).toArray
-          val fused = emit(chain(depth), depth, loader, depth)
+          val fused = emit(Seq(chain(depth)), 1, depth, loader, depth)
           benchmark.addCase(s"fused, depth $depth") { _ =>
             fused.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
               Array(dst.address()), Array(dstValidity.address()), offsets, numRows)
           }
           benchmark.addCase(s"sequential kernels, depth $depth") { _ =>
-            var srcD = mxData.address()
-            var srcV = mxValidity.address()
-            for (level <- 0 until depth) {
-              val (outD, outV) = if (level == depth - 1) (dst, dstValidity)
-              else (tmpData(level), tmpValidity(level))
-              if (level % 2 == 0) {
-                DateVectorOps.vectorAddDays(srcD, srcV, mxNulls,
-                  outD.address(), outV.address(), numRows, offsets(level))
-              } else {
-                DateVectorOps.vectorSubDays(srcD, srcV, mxNulls,
-                  outD.address(), outV.address(), numRows, offsets(level))
-              }
-              srcD = outD.address()
-              srcV = outV.address()
-            }
+            sequentialChain(depth, offsets, mxData.address(), mxValidity.address(), mxNulls,
+              dst.address(), dstValidity.address())
+          }
+        }
+        benchmark.run()
+      }
+
+      runBenchmark("shared subchain across two outputs (DAG-CSE)") {
+        // a = chain8(d); b = datediff(chain8(d), d2): 9 distinct ops. With the memo disabled
+        // the same trees emit 17 op calls - the delta prices CSE itself, separately from
+        // fusion. The sequential oracle is 9 kernel passes.
+        val benchmark = new Benchmark(s"two outputs over $numRows rows, mixed nulls", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val shared = chain(8)
+        val roots = Seq[VarkaVectorIR](shared, new DateDiff(shared, new ColumnRef(1)))
+        val offsets = (0 until 8).map(level => level * 13 + 1).toArray
+        val fused = emit(roots, 2, 8, loader, 200)
+        VarkaEmitterTestSupport.setDisableCse(true)
+        val fusedNoCse =
+          try emit(roots, 2, 8, loader, 201)
+          finally VarkaEmitterTestSupport.setDisableCse(false)
+        def runFused(kernel: VarkaFusedKernel): Unit = {
+          kernel.run(Array(mxData.address(), mx2Data.address()),
+            Array(mxValidity.address(), mx2Validity.address()), Array(mxNulls, mx2Nulls),
+            Array(dst.address(), dst2.address()),
+            Array(dstValidity.address(), dst2Validity.address()), offsets, numRows)
+        }
+        benchmark.addCase("fused, CSE") { _ => runFused(fused) }
+        benchmark.addCase("fused, memo disabled") { _ => runFused(fusedNoCse) }
+        benchmark.addCase("sequential kernels (9 passes)") { _ =>
+          sequentialChain(8, offsets, mxData.address(), mxValidity.address(), mxNulls,
+            dst.address(), dstValidity.address())
+          DateVectorOps.vectorDateDiff(dst.address(), dstValidity.address(), mxNulls,
+            mx2Data.address(), mx2Validity.address(), mx2Nulls,
+            dst2.address(), dst2Validity.address(), numRows)
+        }
+        benchmark.run()
+      }
+
+      runBenchmark("widest shape: MAX_FUSED_NODES ops in one loop") {
+        // Four disjoint depth-16 chains: 64 distinct ops, the cap exactly. The fused loop must
+        // scale with its op count (roughly a quarter of one depth-16 chain's rate), not fall
+        // off a cliff at the cap; the sequential version is the same 64 kernel passes.
+        val benchmark = new Benchmark(s"4 outputs x depth 16 over $numRows rows", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val roots = (0 until 4).map(k => chain(16, slotBase = k * 16))
+        val offsets = (0 until 64).map(level => level * 7 + 1).toArray
+        val fused = emit(roots, 1, 64, loader, 300)
+        benchmark.addCase("fused, 64 ops") { _ =>
+          fused.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
+            wideDst.map(_.address()), wideDstValidity.map(_.address()), offsets, numRows)
+        }
+        benchmark.addCase("sequential kernels, 64 passes") { _ =>
+          for (k <- 0 until 4) {
+            sequentialChain(16, offsets.slice(k * 16, k * 16 + 16),
+              mxData.address(), mxValidity.address(), mxNulls,
+              wideDst(k).address(), wideDstValidity(k).address())
           }
         }
         benchmark.run()

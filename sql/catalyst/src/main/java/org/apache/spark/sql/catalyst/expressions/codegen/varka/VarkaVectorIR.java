@@ -31,14 +31,15 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * emitter rejects anything else. The field is carried from day one so that wider lanes extend
  * the IR instead of reworking it.
  *
- * <p>Task 9 defines only what its emitter serves: a chain of day arithmetic over one column.
- * Task 10 adds the remaining nodes (comparisons, blend, the null-skipping ops) as new
- * {@code permits} entries, together with the Catalyst-to-IR compiler; until then IR trees are
- * built by hand in tests.
+ * <p>The IR is a DAG in effect if not in shape: the records carry structural
+ * {@code equals}/{@code hashCode}, and the emitter memoizes on them, so a subtree appearing in
+ * several outputs is computed once per lane group no matter how the caller built the trees
+ * (task 10). Task 11 adds the predication nodes (comparisons, the connectives, blend, the
+ * null-skipping ops) as new {@code permits} entries.
  */
 public sealed interface VarkaVectorIR
     permits VarkaVectorIR.ColumnRef, VarkaVectorIR.LiteralSlot,
-            VarkaVectorIR.AddDays, VarkaVectorIR.SubDays {
+            VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff {
 
   /** The lane type a node evaluates to. Only 32-bit int lanes exist in milestone 2. */
   enum LaneType { INT }
@@ -58,10 +59,18 @@ public sealed interface VarkaVectorIR
 
   /**
    * {@code days + offset}, lane-wise, wrapping on overflow exactly as Spark's {@code DateAdd}
-   * does. In task 9 {@code offset} must be a {@link LiteralSlot}.
+   * does. The {@code offset} must be a {@link LiteralSlot}.
    */
   record AddDays(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {}
 
   /** {@code days - offset}, lane-wise; the {@code DateSub} counterpart of {@link AddDays}. */
   record SubDays(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {}
+
+  /**
+   * {@code end - start}, lane-wise, over two date operands - Spark's {@code DateDiff}
+   * (task 10). Lane math is the same {@code isub} as {@link SubDays}; the difference is at the
+   * Spark level, where the result is an {@code IntegerType} day count rather than a date, which
+   * the compiler tracks per output so the evaluator allocates the right vector.
+   */
+  record DateDiff(VarkaVectorIR end, VarkaVectorIR start) implements VarkaVectorIR {}
 }

@@ -38,4 +38,12 @@ public final class VarkaEmitterTestSupport {
         .map(Throwable::getMessage)
         .collect(Collectors.toList());
   }
+
+  /**
+   * Toggles {@link VarkaLoopEmitter#disableCseForTesting} for callers outside the emitter's
+   * package - the parity benchmark prices CSE by emitting the same trees with the memo off.
+   */
+  public static void setDisableCse(boolean disable) {
+    VarkaLoopEmitter.disableCseForTesting = disable;
+  }
 }
