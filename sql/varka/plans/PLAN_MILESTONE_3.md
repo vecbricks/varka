@@ -128,22 +128,29 @@ full apparatus) or whether its identity is the columnar fast path beside
 whole-stage, with the limit explicitly out of charter. Both are defensible;
 leaving it unstated is not.
 
-## 11. Non-Arrow columnar sources (vectorized Parquet)
+## 11. Reaching real Parquet scans: the Arrow-native reader/writer
 
 The Varka path today serves only Arrow-backed batches - in practice, tables
 cached with `ArrowCachedBatchSerializer`. Vectorized Parquet produces
 `OnHeapColumnVector`/`OffHeapColumnVector` and falls back
 (`docs/sql-varka.md` records the limitation, but until this item nothing
-recorded the reach): serving the off-heap variant would take the kernels to
-real scans, which is where most real workloads live. Two design questions
-make it an item and not a patch. `OffHeapColumnVector` exposes raw native
-addresses, but its null encoding is one *byte* per row, not Arrow's
-bit-packed validity - so either the kernel contract grows a validity-format
-dimension, or a byte-to-bit repack pass runs per batch (and has to beat the
-fallback to be worth it), or the emitted loop reads byte-nulls directly as a
-third mask source. And `OnHeapColumnVector` has no stable address at all, so
-the on-heap default either stays on the fallback or goes through the same
-repack. Measure the repack cost first; the answer decides the shape.
+recorded the reach) - and real workloads live on scans, not cached tables.
+
+The direction is decided: a new vectorized Parquet reader and writer that
+returns and accepts *Arrow* batches, planned by the project owner. The data
+arrives Arrow-shaped and the Varka path stays Arrow-only - the kernels, the
+emitted loops and the morsel contract change not at all, which is the point.
+The write side pairs with the columnar-write split already in the tree (a
+DSv2 write has no columnar API, so the plan-level route `VarkaProjectExec`
+feeds is the landing zone).
+
+The alternative that is *not* the plan, recorded so it is not re-proposed:
+adapting the kernel contract to Spark's writable column vectors. Their null
+encoding is one byte per row, not bit-packed validity, so that road means a
+validity-format dimension in the contract or a byte-to-bit repack per batch
+- complexity the Arrow-native reader makes unnecessary. It would return only
+if the reader plan were abandoned and a measurement showed the repack beats
+the fallback.
 
 ## 12. SWAR string-to-date parsing
 
