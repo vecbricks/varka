@@ -189,3 +189,45 @@ discipline, which is why the idea fits the project at all. Deferred past the
 items above because it is the first work outside int lanes: variable-width
 Arrow string vectors, byte-lane processing, and Spark's cast-error semantics
 under ANSI all need design before any kernel is written.
+
+## 13. Debt register (audit after task 11)
+
+Unowned debts found by an explicit audit, recorded here so they carry the
+same paper trail as the deferrals above. Each is small; none blocks
+milestone 2's remaining tasks.
+
+* **Two generations of codegen coexist.** The milestone-1 dispatcher
+  machinery (`VarkaClassFileGen.assembleKernelClass`, `VarkaUnaryKernel` /
+  `VarkaBinaryKernel`) lost its production caller in task 10 and survives
+  only for its own tests; the `ClassFileCodegenSupport` trait and its
+  genCode-time registration persist solely to keep Janino's compile-cache
+  key shape stable. Retire the dispatchers and decide the trait's fate in a
+  small dedicated PR once milestone 2 closes - the same reasoning that
+  deleted the `VarkaProjection` shell.
+* **Benchmark variance is unmanaged.** The committed parity-results file is
+  a single run, and the same case has swung meaningfully between runs (the
+  DAG case ranged 1.5 to 3.3 G rows/s across one day). Ratios quoted near
+  1.0x carry that noise. Cheap fix: longer minTime / more iterations for
+  committed runs, or interleaved-minimum methodology as `SKILLS.md` already
+  prescribes for build benchmarks.
+* **`GROUP_BUDGET` tuning - measured, mostly closed.** Follow-up data
+  (PLAN_TASK_11.md 6.3): single-output loop methods are healthy at every
+  width tried (59 ops reach 80% of peak in under 400 ms, throughput
+  proportional to op count); the pathological multi-second compiles were
+  specific to multi-output monolithic loops. The one candidate left is
+  raising the budget to ~24 so two outputs sharing a deep chain keep their
+  cross-output CSE - only with a multi-output compile-latency measurement at
+  that width first, since 48-op multi-output loops were healthy in one
+  environment and collapsed in another.
+* **AQE-blind test helpers.** `assertFused` / `assertKernelsRan` in
+  `VarkaSharedSessions` use plain `SparkPlan.collect`, which silently misses
+  nodes inside AQE query stages - the trap the task-11 AQE test dodged by
+  hand with `AdaptiveSparkPlanHelper`. Make the shared helpers stage-aware
+  before more AQE coverage lands, or a future test can pass for the wrong
+  reason.
+* **Emitter slot-planning untidiness.** `planSlots` allocates scalar-tail
+  slots in loop methods and vector-walk slots in tail methods (dead slots,
+  harmless); the masked body computes validity words for inputs the current
+  loop group does not reference; `DATA_BYTES`/`VALIDITY_BYTES` couple two
+  methods through a fixed-slot convention. All cosmetic; sweep them in
+  task 13's emitter visit, which touches `emit()` anyway.

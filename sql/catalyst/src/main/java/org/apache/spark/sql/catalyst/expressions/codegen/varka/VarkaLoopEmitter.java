@@ -142,7 +142,10 @@ public final class VarkaLoopEmitter {
    * the output order and counts only nodes new to the group, so outputs sharing subtrees
    * tend to land together and keep their cross-output CSE; a single output wider than the
    * budget gets its own group untouched - splitting inside an output would forfeit the
-   * register residency that is the point. Numbers in PLAN_TASK_11.md section 6.
+   * register residency that is the point, and single-output loops measured healthy at every
+   * width tried (59 ops: 80% of peak within 400 ms, throughput proportional to op count) -
+   * the slow compiles were specific to multi-output loops. Numbers in PLAN_TASK_11.md
+   * section 6.
    */
   public static final int GROUP_BUDGET = 16;
 

@@ -416,6 +416,19 @@ bounds it per method. For milestone 3: the byte cache (item 2) shrinks the
 set of distinct compilation units an executor JVM accumulates, which now has
 a measured cost attached beyond amortization.
 
+A follow-up tuning measurement sharpened the boundary: *single-output* loop
+methods are healthy at any width tried - balanced single-root trees of 25,
+31, 41, 55 and 59 ops all reached 80% of their peak within 207-382 ms, with
+peaks scaling almost exactly proportionally to op count (7576 M rows/s at 16
+ops, 1943 at 59 - the 16/59 ratio). The multi-second compiles were specific
+to multi-output monolithic loops (four roots, four stores in one method). So
+`GROUP_BUDGET = 16` constrains exactly the shape that was pathological, a
+single output wider than the budget rightly bypasses grouping, and the one
+tuning candidate left for milestone 3 is a modest raise (to ~24) so that two
+outputs sharing a deep chain stay in one group for CSE - to be taken only
+with a multi-output compile-latency measurement at that width, since 48-op
+multi-output loops were healthy in one environment and collapsed in another.
+
 ### 6.4 Deviations from the plan
 
 * `CaseWhen` compiles branches in query order (left to right, then ELSE), so
