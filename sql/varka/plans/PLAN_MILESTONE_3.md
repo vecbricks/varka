@@ -94,6 +94,10 @@ deleted it, this item is closed; if it kept it, milestone 3 either gives `apply`
 a real body (a row-path generator - the whole-stage direction) or removes it.
 Tied to item 10.
 
+**Closed: milestone 2 deleted the shell** (after task 10, per `PLAN_TASK_9.md`
+section 5.4). Item 10's question stands on its own: a row-path or whole-stage
+generator, if ever built, starts from the vector IR and the loop emitter.
+
 ## 10. The whole-stage question, answered honestly
 
 The original design documents' headline motivations include the 64 KB method

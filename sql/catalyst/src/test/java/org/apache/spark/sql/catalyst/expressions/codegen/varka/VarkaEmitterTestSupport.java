@@ -24,8 +24,8 @@ import java.util.stream.Collectors;
 /**
  * Java shim over {@link ClassFile#verify} for the Scala test suite: Scala 2.13's typechecker
  * hits an "illegal cyclic reference" on the Class-File API's sealed hierarchy (the same bug
- * that pushed {@code ClassFileAssembler} to Java), so the suite calls the verifier through this
- * class instead of touching the API directly.
+ * that keeps {@code VarkaLoopEmitter} itself in Java), so the suite calls the verifier through
+ * this class instead of touching the API directly.
  */
 public final class VarkaEmitterTestSupport {
 

@@ -360,3 +360,8 @@ shell whose `apply` throws, unrouted since the compile-funnel routing was
 removed. Once the emitter exists, either it grows a real body (a row-path
 generator, milestone 3) or the shell should go. Decide when task 9 lands, rather
 than leaving a second half-built generator in the tree.
+
+**Settled: deleted.** Task 9 recorded the recommendation (`PLAN_TASK_9.md`
+section 5.4), the milestone owner agreed after task 10, and the shell went in a
+follow-up PR. A milestone-3 row-path generator, if it happens, builds on the
+emitter and the IR.
