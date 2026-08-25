@@ -100,6 +100,29 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
       Seq(BatchSpec("arrow", Seq(allNull))), Seq(attrD))) === Seq(null, null, null))
   }
 
+  test("a mixed projection produces fused, forwarded and residual columns in one batch") {
+    val dates = Seq(Int.box(0), null, Int.box(20000))
+    val ints = Seq(Int.box(7), Int.box(8), null)
+    val plan = node(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "a")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      Seq(BatchSpec("arrow", Seq(dates, ints))),
+      Seq(attrD, intAttr))
+    val rows = plan.executeColumnar().mapPartitions { batches =>
+      batches.flatMap { batch =>
+        (0 until batch.numRows()).map { r =>
+          (0 until batch.numCols()).map { c =>
+            if (batch.column(c).isNullAt(r)) null else Int.box(batch.column(c).getInt(r))
+          }.toList
+        }.toList.iterator
+      }
+    }.collect().toSeq
+    assert(rows === Seq(List(3, 7, 8), List(null, 8, 9), List(20003, null, null)))
+    assert(plan.metrics("numVarkaBatches").value === 1)
+  }
+
   test("a non-Arrow batch is materialised by the fallback, not dropped") {
     val plan = node(
       project(Alias(DateAdd(attrD, Literal(3)), "add")()),

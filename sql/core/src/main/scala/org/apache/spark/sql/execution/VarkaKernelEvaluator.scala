@@ -28,18 +28,20 @@ import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntVector, 
 
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFusedKernel, VarkaLoopEmitter}
-import org.apache.spark.sql.types.{DateType, IntegerType}
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
+import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
+import org.apache.spark.sql.types.{DateType, IntegerType, StructType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 import org.apache.spark.util.Utils
 
 /**
  * The kernel half of the Varka projection, for one partition: it turns an input `ColumnarBatch`
- * into a batch of kernel output, and owns everything that costs a task to set up - the compiled
- * IR, the emitted fused-loop class, the Arrow allocator and the batches handed out.
+ * into a batch of the projection's output, and owns everything that costs a task to set up - the
+ * compiled IR, the emitted fused-loop class, the Arrow allocator and the batches handed out.
  *
  * Since task 10 the compute is one [[VarkaFusedKernel]] emitted by
  * [[VarkaLoopEmitter]] for the whole projection - every output computed in a single pass with
@@ -48,24 +50,52 @@ import org.apache.spark.util.Utils
  * `VarkaColumnarRule` decided eligibility with, so the plan the rule fused is by construction a
  * plan this evaluator serves.
  *
- * Two nodes share it, and they share only this. [[VarkaColumnarToRowExec]] converts the result
- * batch to rows; [[VarkaProjectExec]] passes it on as a batch. What each does when the kernels
- * cannot serve a batch is deliberately not shared: the row node projects the input's rows one by
- * one, which is cheaper than materialising a batch just to read rows back out of it, while a
- * columnar-out node has no such option and has to materialise.
+ * Since task 12 eligibility is partial and the output batch is assembled column by column in
+ * projection order: fused entries come from the kernel's freshly allocated Arrow vectors,
+ * bare-column entries are '''forwarded''' - the output batch references `input.column(ordinal)`
+ * itself, zero copy - and the remaining ('''residual''') entries are evaluated in one per-row
+ * pass over the input into writable vectors.
+ *
+ * '''Ownership.''' The evaluator owns the vectors it allocated - kernel outputs and residual
+ * columns - and never the forwarded ones, which belong to whoever owns the input batch. Every
+ * release path (the caller's [[release]], and the task-completion listener that drains
+ * abandoned batches) closes exactly the owned vectors of a batch and never calls
+ * `ColumnarBatch.close()`, which would close every column unconditionally, forwarded ones
+ * included. This follows Spark's own two-tier convention (`closeIfFreeable` and its no-op
+ * overrides) rather than a wrapper class: the borrowed vector simply stays off the owned list.
+ *
+ * '''Ordering contract.''' Forwarded vectors make the output batch valid only as long as its
+ * input batch: both exec nodes therefore release the output batch '''before''' requesting the
+ * next input batch from the child, so a forwarded vector can never outlive its input. The
+ * nodes' iterators already obeyed this order for memory reasons; with forwarding it is
+ * load-bearing for correctness.
  *
  * One instance per partition, created inside the task: it registers a task-completion listener
  * on first use, and its state must not be shared across partitions (see [[SafeForKWayMerge]]).
  */
 private[sql] class VarkaKernelEvaluator(
     projectList: Seq[NamedExpression],
-    childOutput: Seq[Attribute])
+    childOutput: Seq[Attribute],
+    offHeapColumnVectorEnabled: Boolean)
     extends Logging {
 
-  // The projection compiled to vector IR; None when it is not fully Varka-eligible (should not
-  // happen given [[VarkaColumnarRule]], but be safe).
-  private lazy val compiled: Option[CompiledVarkaProjection] =
-    VarkaExpressionCompiler.compile(projectList, childOutput)
+  // The projection classified entry by entry and its fused sub-projection compiled to vector
+  // IR; None when no entry is Varka-eligible (should not happen given [[VarkaColumnarRule]],
+  // but be safe).
+  private lazy val compiled: Option[PartialVarkaProjection] =
+    VarkaExpressionCompiler.compilePartial(projectList, childOutput)
+
+  // The residual entries and their per-row machinery. All lazy (task 15's discipline): a
+  // kernel-only projection has no residual entries, and even a mixed one pays the Janino
+  // compile only when the first batch actually reaches [[project]].
+  private lazy val residualExprs: Seq[NamedExpression] =
+    compiled.toSeq.flatMap(_.specs.zip(projectList).collect {
+      case (ResidualOutput, named) => named
+    })
+  private lazy val residualSchema: StructType =
+    DataTypeUtils.fromAttributes(residualExprs.map(_.toAttribute))
+  private lazy val residualProjection = UnsafeProjection.create(residualExprs, childOutput)
+  private lazy val residualConverter = new RowToColumnConverter(residualSchema)
 
   // One Arrow child allocator for the whole task, created on the first kernel batch. Allocating
   // one per batch - and registering a task-completion listener per batch to close it - would
@@ -73,10 +103,12 @@ private[sql] class VarkaKernelEvaluator(
   // iterator model exists to avoid.
   private var kernelAllocator: BufferAllocator = null
 
-  // Batches handed out and not released yet. A batch is normally released by the caller as soon
-  // as it is done with it; this set is the safety net for a task that stops early (a LIMIT, a
-  // failure) and is drained by the task-completion listener.
-  private val openBatches = mutable.Set.empty[ColumnarBatch]
+  // Batches handed out and not released yet, each mapped to the vectors this evaluator owns in
+  // it - never the forwarded input vectors (see the ownership note in the class doc). A batch
+  // is normally released by the caller as soon as it is done with it; the map is the safety net
+  // for a task that stops early (a LIMIT, a failure) and is drained by the task-completion
+  // listener.
+  private val openBatches = mutable.Map.empty[ColumnarBatch, Seq[ColumnVector]]
 
   private var cleanupRegistered = false
 
@@ -84,9 +116,9 @@ private[sql] class VarkaKernelEvaluator(
   // failed - an IR shape past the emitter's caps, or any linkage problem - in which case every
   // batch takes the caller's fallback path.
   private lazy val fusedRunner: Option[FusedRunner] = {
-    compiled.flatMap { plan =>
+    compiled.flatMap { partial =>
       try {
-        Some(new FusedRunner(plan))
+        Some(new FusedRunner(partial.fused))
       } catch {
         case e if isCatchable(e) =>
           logWarning("Failed to emit the Varka fused kernel; falling back to the " +
@@ -96,77 +128,172 @@ private[sql] class VarkaKernelEvaluator(
     }
   }
 
-  /** Whether [[project]] can serve this batch, or the caller has to fall back. */
+  /** The classified projection, for the row node's merge-at-row read-back (see 2.3). */
+  private[execution] def partialPlan: Option[PartialVarkaProjection] = compiled
+
+  /**
+   * Whether [[project]] (or [[projectFused]]) can serve this batch, or the caller has to fall
+   * back. The Arrow check
+   * covers only the columns the fused entries reference: forwarded and residual entries put no
+   * constraint on the input format beyond what `rowIterator` needs.
+   */
   def canRun(input: ColumnarBatch): Boolean = {
     (compiled, fusedRunner) match {
-      case (Some(plan), Some(_)) => input.numRows() > 0 && isArrowBacked(plan, input)
+      case (Some(partial), Some(_)) => input.numRows() > 0 && isArrowBacked(partial.fused, input)
       case _ => false
     }
   }
 
   /**
-   * Runs the fused kernel over the input batch and returns a new batch of its output, tracked
-   * here until the caller [[release]]s it. Callers must have asked [[canRun]] first, and must
-   * treat a throw as "this batch could not be served": nothing is left allocated by a failed
-   * call.
+   * Runs the fused kernel over the input batch, evaluates the residual entries per row,
+   * forwards the bare-column entries, and returns the assembled output batch, tracked here
+   * until the caller [[release]]s it. Callers must have asked [[canRun]] first, and must treat
+   * a throw as "this batch could not be served": nothing is left allocated by a failed call.
    */
   def project(input: ColumnarBatch): ColumnarBatch = {
-    val plan = compiled.get
-    val runner = fusedRunner.get
+    val partial = compiled.get
     val len = input.numRows()
-    val alloc = taskAllocator()
-    val vectors = new java.util.ArrayList[ColumnVector]()
-    val fixed = new Array[BaseFixedWidthVector](plan.outputs.size)
-    var batch: ColumnarBatch = null
+    // Everything allocated for this batch - kernel outputs, then residual columns - closed on
+    // any failure here, and by release()/the listener once the batch is handed out. Forwarded
+    // input vectors never join this list: they stay owned by the input batch.
+    val owned = mutable.ArrayBuffer.empty[ColumnVector]
     try {
-      var i = 0
-      plan.inputOrdinals.foreach { ordinal =>
-        val acv = input.column(ordinal).asInstanceOf[ArrowColumnVector]
-        val morsel = extractMorsel(acv.getValueVector().asInstanceOf[DateDayVector], len)
-        runner.srcData(i) = morsel.data.address()
-        runner.srcValidity(i) = morsel.validityAddress
-        runner.srcNullCount(i) = morsel.nullCount.toInt
-        i += 1
-      }
-      var o = 0
-      plan.outputTypes.foreach { dataType =>
-        val vector = allocateVector(dataType, o, len, alloc)
-        fixed(o) = vector
-        vectors.add(new ArrowColumnVector(vector))
-        runner.dstData(o) = vector.getDataBuffer().memoryAddress()
-        runner.dstValidity(o) = vector.getValidityBuffer().memoryAddress()
-        o += 1
-      }
-      invokeFused(runner, len)
-      fixed.foreach(_.setValueCount(len))
-      batch = new ColumnarBatch(vectors.toArray(new Array[ColumnVector](vectors.size())))
+      val fusedColumns = computeFused(input, len, owned)
+      val residualColumns = projectResiduals(input, len)
+      owned ++= residualColumns
+      var residual = 0
+      val columns = partial.specs.map {
+        case FusedOutput(index) => fusedColumns(index)
+        case ForwardedOutput(ordinal) => input.column(ordinal)
+        case ResidualOutput =>
+          residual += 1
+          residualColumns(residual - 1)
+      }.toArray
+      val batch = new ColumnarBatch(columns)
       batch.setNumRows(len)
+      trackOwned(batch, owned.toSeq)
+      batch
     } catch {
       case e: Throwable =>
-        if (batch != null) {
-          batch.close()
-        } else {
-          vectors.forEach(_.close())
-        }
+        owned.foreach(_.close())
         throw e
     }
-    track(batch)
   }
 
   /**
-   * Takes ownership of a batch the caller built itself - a fallback batch - so that the same
-   * task-completion listener closes it if the task stops before the caller releases it.
+   * Runs only the fused kernel and returns a batch of just its columns, tracked like
+   * [[project]]'s. This is the row node's entry point (merge-at-row, `PLAN_TASK_12.md` 2.3):
+   * it reads fused values from this batch and evaluates residual entries during its own row
+   * pass, so materialising them into vectors here would be pure waste. Nothing in it is
+   * borrowed - fused columns are always freshly allocated.
+   */
+  def projectFused(input: ColumnarBatch): ColumnarBatch = {
+    val len = input.numRows()
+    val owned = mutable.ArrayBuffer.empty[ColumnVector]
+    try {
+      val fusedColumns = computeFused(input, len, owned)
+      val batch = new ColumnarBatch(fusedColumns)
+      batch.setNumRows(len)
+      trackOwned(batch, owned.toSeq)
+      batch
+    } catch {
+      case e: Throwable =>
+        owned.foreach(_.close())
+        throw e
+    }
+  }
+
+  /**
+   * Runs the fused kernel over the input batch into freshly allocated Arrow vectors, appending
+   * them to `owned` as they are created (the caller closes `owned` on failure). Returns the
+   * fused columns by fused index.
+   */
+  private def computeFused(
+      input: ColumnarBatch,
+      len: Int,
+      owned: mutable.ArrayBuffer[ColumnVector]): Array[ColumnVector] = {
+    val plan = compiled.get.fused
+    val runner = fusedRunner.get
+    val alloc = taskAllocator()
+    var i = 0
+    plan.inputOrdinals.foreach { ordinal =>
+      val acv = input.column(ordinal).asInstanceOf[ArrowColumnVector]
+      val morsel = extractMorsel(acv.getValueVector().asInstanceOf[DateDayVector], len)
+      runner.srcData(i) = morsel.data.address()
+      runner.srcValidity(i) = morsel.validityAddress
+      runner.srcNullCount(i) = morsel.nullCount.toInt
+      i += 1
+    }
+    val fixed = new Array[BaseFixedWidthVector](plan.outputs.size)
+    val fusedColumns = new Array[ColumnVector](plan.outputs.size)
+    var o = 0
+    plan.outputTypes.foreach { dataType =>
+      val vector = allocateVector(dataType, o, len, alloc)
+      fixed(o) = vector
+      fusedColumns(o) = new ArrowColumnVector(vector)
+      owned += fusedColumns(o)
+      runner.dstData(o) = vector.getDataBuffer().memoryAddress()
+      runner.dstValidity(o) = vector.getValidityBuffer().memoryAddress()
+      o += 1
+    }
+    invokeFused(runner, len)
+    fixed.foreach(_.setValueCount(len))
+    fusedColumns
+  }
+
+  /**
+   * Evaluates all residual entries in one per-row pass over the input, into writable vectors
+   * sized to the batch. Returns the columns in residual-entry order; empty when the projection
+   * has no residual entries.
+   */
+  private def projectResiduals(input: ColumnarBatch, len: Int): Seq[ColumnVector] = {
+    if (residualExprs.isEmpty) {
+      Seq.empty
+    } else {
+      val vectors: Array[WritableColumnVector] = if (offHeapColumnVectorEnabled) {
+        OffHeapColumnVector.allocateColumns(len, residualSchema).toArray[WritableColumnVector]
+      } else {
+        OnHeapColumnVector.allocateColumns(len, residualSchema).toArray[WritableColumnVector]
+      }
+      try {
+        val rows = input.rowIterator()
+        while (rows.hasNext) {
+          residualConverter.convert(residualProjection(rows.next()), vectors)
+        }
+      } catch {
+        case e: Throwable =>
+          vectors.foreach(_.close())
+          throw e
+      }
+      vectors.toSeq
+    }
+  }
+
+  /**
+   * Takes ownership of a batch the caller built itself - a fallback batch, every column the
+   * caller's own - so that the same task-completion listener closes it if the task stops before
+   * the caller releases it.
    */
   def track(batch: ColumnarBatch): ColumnarBatch = {
-    ensureCleanup()
-    openBatches += batch
+    trackOwned(batch, (0 until batch.numCols()).map(batch.column))
     batch
   }
 
-  /** Closes a batch obtained from [[project]] or handed to [[track]]. */
+  private def trackOwned(batch: ColumnarBatch, owned: Seq[ColumnVector]): Unit = {
+    ensureCleanup()
+    openBatches(batch) = owned
+  }
+
+  /**
+   * Releases a batch obtained from [[project]] or handed to [[track]]: closes exactly the
+   * vectors this evaluator owns in it, so a forwarded input vector is left to its input batch.
+   */
   def release(batch: ColumnarBatch): Unit = {
-    openBatches -= batch
-    batch.close()
+    openBatches.remove(batch) match {
+      case Some(owned) => owned.foreach(_.close())
+      // Not one of ours - nothing borrowed can be inside, so closing it whole is safe.
+      case None => batch.close()
+    }
   }
 
   /** A kernel failure worth falling back on, rather than one that has to fail the task. */
@@ -207,7 +334,7 @@ private[sql] class VarkaKernelEvaluator(
     if (!cleanupRegistered) {
       cleanupRegistered = true
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
-        openBatches.foreach(_.close())
+        openBatches.foreach { case (_, owned) => owned.foreach(_.close()) }
         openBatches.clear()
         if (kernelAllocator != null) {
           kernelAllocator.close()

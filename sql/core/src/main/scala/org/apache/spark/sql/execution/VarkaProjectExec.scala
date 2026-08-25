@@ -42,7 +42,9 @@ import org.apache.spark.util.ArrayImplicits._
  *
  * Batch ownership follows the convention in `SparkPlan.doExecuteColumnar`: the producer owns the
  * batch and closes it, so a consumer must not hold on to one past the call that gave it. This
- * node closes each batch when the next is requested, and [[VarkaKernelEvaluator]]'s
+ * node releases each batch when the next is requested - before asking the child for more input,
+ * which the evaluator's ordering contract requires now that an output batch can hold forwarded
+ * input vectors (task 12) - and [[VarkaKernelEvaluator]]'s
  * task-completion listener closes whatever is still open if the task stops early.
  *
  * A batch the kernels cannot serve - not Arrow-backed, empty, or a kernel failure - is projected
@@ -119,7 +121,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
 
   private class VarkaProjectEvaluator extends PartitionEvaluator[ColumnarBatch, ColumnarBatch] {
 
-    private val kernels = new VarkaKernelEvaluator(projectList, childOutput)
+    private val kernels =
+      new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled)
 
     // The per-row projection behind the fallback, and the schema its rows are written back into.
     // Lazy (task 15): a task the kernels serve end to end never compiles it, so the Janino
@@ -135,7 +138,9 @@ private[sql] class VarkaProjectEvaluatorFactory(
       assert(inputs.length == 1)
       val batches = inputs.head
       new Iterator[ColumnarBatch] {
-        // The batch handed to the consumer last, closed when the next one is asked for. Holding
+        // The batch handed to the consumer last, released when the next one is asked for -
+        // before `batches.next()` below, per the evaluator's ordering contract: it may hold
+        // forwarded vectors of the input batch the child is about to reclaim. Holding
         // it until then is what lets the consumer read it; holding it any longer would keep two
         // batches of kernel output alive at once.
         private var current: ColumnarBatch = null

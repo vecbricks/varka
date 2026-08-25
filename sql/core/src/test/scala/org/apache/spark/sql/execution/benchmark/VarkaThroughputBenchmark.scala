@@ -40,11 +40,14 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * returns the first session with the Varka config applied to it - two names for one session, and
  * a "baseline" that is not one.
  *
- * Every case writes to `noop`, and `noop` accepts columnar batches, so the varka cases hand the
- * kernels' own Arrow batches to the sink through
+ * The `runQueries` cases write to `noop`, and `noop` accepts columnar batches, so their varka
+ * sides hand the kernels' own Arrow batches to the sink through
  * [[org.apache.spark.sql.execution.VarkaProjectExec]] - no columnar-to-row conversion is inside
- * the measurement. The baseline writes rows, as it must, and so does the mixed projection on both
- * sides: it is not Varka-eligible, so nothing about it changes.
+ * the measurement. That includes the mixed projection, Varka-eligible since task 12 (one fused
+ * entry, one forwarded, one residual). The `runRowQueries` cases force the row path instead
+ * (`toRdd`), measuring [[org.apache.spark.sql.execution.VarkaColumnarToRowExec]]'s batch
+ * assembly plus the read back to rows - the number behind task 12's escape-hatch decision
+ * (assemble-then-read vs merge-at-row, `PLAN_TASK_12.md` section 2.3).
  *
  * To run this benchmark:
  * {{{
@@ -119,6 +122,29 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
     }
   }
 
+  /**
+   * Like [[runQueries]] but consuming rows (`toRdd` forces the row-output plan), so the varka
+   * side runs `VarkaColumnarToRowExec`: kernels, batch assembly, then per-row read-back. The
+   * assemble-then-read variant of the task 12 escape hatch is what this prices.
+   */
+  private def runRowQueries(
+      baseline: SparkSession,
+      varka: SparkSession,
+      name: String,
+      query: String): Unit = {
+    runBenchmark(name) {
+      val benchmark = new Benchmark(s"$name over $numRows Arrow-cached rows", numRows,
+        minNumIters = 2, warmupTime = 1.seconds, minTime = 1.seconds, output = output)
+      benchmark.addCase("baseline (Janino)", numIters = 3) { _ =>
+        baseline.sql(query).queryExecution.toRdd.count()
+      }
+      benchmark.addCase("varka (SIMD)", numIters = 3) { _ =>
+        varka.sql(query).queryExecution.toRdd.count()
+      }
+      benchmark.run()
+    }
+  }
+
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     // The inherited base session uses the default serializer; these benchmarks own their
     // Arrow-backed sessions (see the class javadoc).
@@ -143,8 +169,19 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       runQueries(baseline, varka, "date_sub", "SELECT date_sub(d, 5) AS a FROM varka_dates")
       runQueries(baseline, varka, "datediff",
         "SELECT datediff(d2, d) AS diff FROM varka_date_pairs")
-      runQueries(baseline, varka, "mixed projection (fallback)",
+      runQueries(baseline, varka, "mixed projection (partial fusion)",
         "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates")
+      // The all-fused control for the row-consumer pair below: how much of their gap is the
+      // per-row read-back this node always pays, as opposed to the merge itself.
+      runRowQueries(baseline, varka, "date_add, row consumer",
+        "SELECT date_add(d, 3) AS a FROM varka_dates")
+      runRowQueries(baseline, varka, "mixed projection, row consumer",
+        "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates")
+      // Residual-heavy: the shape where merge-at-row would win if the extra materialisation
+      // of assemble-then-read costs anything worth building it for.
+      runRowQueries(baseline, varka, "residual-heavy projection, row consumer",
+        "SELECT date_add(d, 3) AS a, i + 1 AS r1, i + 2 AS r2, i + 3 AS r3, i + 4 AS r4 " +
+          "FROM varka_dates")
     } finally {
       baseline.stop()
       varka.stop()

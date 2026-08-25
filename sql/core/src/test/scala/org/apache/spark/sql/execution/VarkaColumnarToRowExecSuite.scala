@@ -18,7 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.DateDayVector
+import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntVector}
 
 import org.apache.spark.{Partition, TaskContext}
 import org.apache.spark.rdd.RDD
@@ -135,12 +135,54 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
   test("ineligible projection is never rewritten and falls back") {
     val child = TestColumnarBatchPlan(
       Seq(BatchSpec("onheap", Seq(Seq[java.lang.Integer](100, 101, 102)))), Seq(intAttr))
-    // `i + 1` is not a Varka date op, so outputPlan is None and every batch goes through the
+    // `i + 1` is not a Varka date op, so no entry fuses and every batch goes through the
     // per-row projection.
     val node = VarkaColumnarToRowExec(
       project(Alias(Add(intAttr, Literal(1)), "add")()), child)
     assert(run(node).map(_.getInt(0)) === Seq(101, 102, 103))
     assert(node.metrics("numVarkaBatches").value === 0)
+  }
+
+  test("a mixed projection is kernel-served: fused, forwarded and residual columns (task 12)") {
+    val dates: Seq[java.lang.Integer] = Seq(0, null, -5, 20000)
+    val ints: Seq[java.lang.Integer] = Seq(10, 11, null, 13)
+    val child = TestColumnarBatchPlan(
+      Seq(BatchSpec("arrow", Seq(dates, ints))), Seq(attrD, intAttr))
+    val node = VarkaColumnarToRowExec(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "a")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      child)
+    val rows = run(node)
+    val cell = (r: Row, c: Int) => if (r.isNullAt(c)) null else Int.box(r.getInt(c))
+    assert(rows.map(cell(_, 0)).toSeq === dates.map(d => if (d == null) null else Int.box(d + 3)))
+    assert(rows.map(cell(_, 1)).toSeq === ints)
+    assert(rows.map(cell(_, 2)).toSeq === ints.map(i => if (i == null) null else Int.box(i + 1)))
+    assert(node.metrics("numVarkaBatches").value === 1)
+  }
+
+  test("an injected kernel failure on a mixed projection falls back whole-batch") {
+    val dates: Seq[java.lang.Integer] = Seq(0, 1, -5)
+    val ints: Seq[java.lang.Integer] = Seq(10, null, 12)
+    val child = TestColumnarBatchPlan(
+      Seq(BatchSpec("arrow", Seq(dates, ints))), Seq(attrD, intAttr))
+    val node = VarkaColumnarToRowExec(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "a")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      child)
+    VarkaColumnarToRowExec.setFailKernelForTesting(true)
+    try {
+      val rows = run(node)
+      assert(rows.map(_.getInt(0)).toSeq === dates.map(_ + 3))
+      assert(rows.map(r => if (r.isNullAt(2)) null else Int.box(r.getInt(2))).toSeq ===
+        ints.map(i => if (i == null) null else Int.box(i + 1)))
+      assert(node.metrics("numVarkaBatches").value === 0)
+    } finally {
+      VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
   }
 
   test("a vector holding rows beyond the batch falls back instead of trusting its null count") {
@@ -174,6 +216,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
+        offHeapColumnVectorEnabled = false,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         varkaBatches)
@@ -230,6 +273,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
         project(Alias(ExplodingCodegenExpression(), "boom")()), Seq(intAttr),
+        offHeapColumnVectorEnabled = false,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varka"))
@@ -267,6 +311,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
+        offHeapColumnVectorEnabled = false,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varkaBatches"))
@@ -314,6 +359,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
+        offHeapColumnVectorEnabled = false,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varkaBatches"))
@@ -362,35 +408,53 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     assert(node.outputOrdering === Nil)
   }
 
-  test("VarkaColumnarRule rewrites only fully eligible projections when enabled") {
-    val child = TestColumnarBatchPlan(Nil, Seq(attrD))
+  test("VarkaColumnarRule rewrites eligible projections when enabled, mixed ones included") {
+    val child = TestColumnarBatchPlan(Nil, Seq(attrD, intAttr))
     val eligible = ProjectExec(
       project(Alias(DateAdd(attrD, Literal(3)), "add")()),
       ColumnarToRowExec(child))
+    // One fused entry beside a forward and a residual: eligible since task 12.
+    val mixed = ProjectExec(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "add")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      ColumnarToRowExec(child))
+    // Nothing fuses: an all-residual projection gains nothing and stays on Janino.
     val ineligible = ProjectExec(
-      project(Alias(Add(attrD, Literal(3)), "add")()),
+      project(Alias(Add(intAttr, Literal(1)), "inc")()),
       ColumnarToRowExec(child))
 
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
       assert(VarkaColumnarRule.postColumnarTransitions(eligible)
         .isInstanceOf[VarkaColumnarToRowExec])
+      assert(VarkaColumnarRule.postColumnarTransitions(mixed)
+        .isInstanceOf[VarkaColumnarToRowExec])
       assert(VarkaColumnarRule.postColumnarTransitions(ineligible).isInstanceOf[ProjectExec])
     }
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "false") {
       assert(VarkaColumnarRule.postColumnarTransitions(eligible).isInstanceOf[ProjectExec])
+      assert(VarkaColumnarRule.postColumnarTransitions(mixed).isInstanceOf[ProjectExec])
     }
   }
 
   test("the pre-transition stage rewrites an eligible projection to the columnar-out node") {
-    val child = TestColumnarBatchPlan(Nil, Seq(attrD))
+    val child = TestColumnarBatchPlan(Nil, Seq(attrD, intAttr))
     val eligible = ProjectExec(project(Alias(DateAdd(attrD, Literal(3)), "add")()), child)
-    val ineligible = ProjectExec(project(Alias(Add(attrD, Literal(3)), "add")()), child)
+    val mixed = ProjectExec(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "add")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      child)
+    val ineligible = ProjectExec(project(Alias(Add(intAttr, Literal(1)), "inc")()), child)
     // A child that only produces rows has nothing for the kernels to read.
     val rowChild = ProjectExec(
       project(Alias(DateAdd(attrD, Literal(3)), "add")()), ColumnarToRowExec(child))
 
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
       assert(VarkaColumnarRule.preColumnarTransitions(eligible).isInstanceOf[VarkaProjectExec])
+      assert(VarkaColumnarRule.preColumnarTransitions(mixed).isInstanceOf[VarkaProjectExec])
       assert(VarkaColumnarRule.preColumnarTransitions(ineligible).isInstanceOf[ProjectExec])
       assert(VarkaColumnarRule.preColumnarTransitions(rowChild).isInstanceOf[ProjectExec])
     }
@@ -481,11 +545,17 @@ object VarkaColumnarToRowExecSuite {
       val values = spec.columns(c)
       spec.kind match {
         case "arrow" =>
+          // A `DateDayVector` for date columns, an `IntVector` for int columns (task 12's
+          // forwarded and residual entries put non-date columns into these batches).
           val vector = ArrowUtils.toArrowField(output(c).name, output(c).dataType,
-            nullable = true, null).createVector(allocator).asInstanceOf[DateDayVector]
+            nullable = true, null).createVector(allocator).asInstanceOf[BaseFixedWidthVector]
           vector.allocateNew(values.length)
           values.zipWithIndex.foreach { case (v, i) =>
-            if (v == null) vector.setNull(i) else vector.setSafe(i, v)
+            (vector, v) match {
+              case (_, null) => vector.setNull(i)
+              case (ddv: DateDayVector, days) => ddv.setSafe(i, days)
+              case (iv: IntVector, value) => iv.setSafe(i, value)
+            }
           }
           vector.setValueCount(values.length)
           new ArrowColumnVector(vector)

@@ -23,7 +23,8 @@ import org.apache.spark.{PartitionEvaluator, PartitionEvaluatorFactory}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression, SortOrder, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, JoinedRow, NamedExpression, SortOrder, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, ResidualOutput}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.CompletionIterator
@@ -34,12 +35,17 @@ import org.apache.spark.util.CompletionIterator
  * what [[VarkaColumnarRule]] leaves in the plan when the consumer above the projection wants
  * rows, by fusing the to-row transition that would otherwise sit above a [[VarkaProjectExec]].
  *
- * Per batch: when `spark.sql.codegen.varka.enabled` is set, every referenced input column is an
- * [[org.apache.spark.sql.vectorized.ArrowColumnVector]] over an Arrow `DateDayVector`, and the
- * projection is fully Varka-eligible, [[VarkaKernelEvaluator]] runs the kernels into a freshly
- * allocated Arrow vector per output column. The result batch is converted to rows with the
- * standard copy projection and released as soon as its rows are consumed, so only one batch of
- * kernel output is held at a time. Anything else - a non-Arrow batch, an empty batch, a kernel
+ * Per batch: when `spark.sql.codegen.varka.enabled` is set, every input column the fused
+ * entries reference is an [[org.apache.spark.sql.vectorized.ArrowColumnVector]] over an Arrow
+ * `DateDayVector`, and the projection is Varka-eligible (since task 12: at least one entry
+ * compiles), [[VarkaKernelEvaluator]] runs the fused kernel into freshly allocated Arrow
+ * vectors. An all-fused projection converts that batch to rows with the standard copy
+ * projection; a mixed one merges at the row instead - forwarded and residual entries are read
+ * and evaluated during the same per-row pass that produces the output row, because
+ * materialising them into vectors just to read them back measured slower than Janino (the
+ * task 12 escape-hatch decision; see `mergeProjection` below). The kernel batch is released as
+ * soon as its rows are consumed, so only one is held at a time.
+ * Anything else - a non-Arrow batch, an empty batch, a kernel
  * failure - falls back to the standard per-row projection over the input batch, which is cheaper
  * here than materialising a batch just to read rows back out of it.
  *
@@ -83,6 +89,7 @@ case class VarkaColumnarToRowExec(
     val evaluatorFactory = new VarkaColumnarToRowEvaluatorFactory(
       projectList,
       child.output,
+      conf.offHeapColumnVectorEnabled,
       longMetric("numOutputRows"),
       longMetric("numInputBatches"),
       longMetric("numVarkaBatches"))
@@ -115,6 +122,7 @@ private[sql] object VarkaColumnarToRowExec {
 private[sql] class VarkaColumnarToRowEvaluatorFactory(
     projectList: Seq[NamedExpression],
     childOutput: Seq[Attribute],
+    offHeapColumnVectorEnabled: Boolean,
     numOutputRows: SQLMetric,
     numInputBatches: SQLMetric,
     numVarkaBatches: SQLMetric)
@@ -137,13 +145,42 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // do not get from the standard path either. The projected row holds its own bytes rather
     // than a view of the batch, so it also outlives the release of the kernel result batch it
     // came from.
-    // The fallback projection is lazy (task 15): a task the kernels serve end to end never
-    // compiles it. `toRow` stays eager - the kernel path itself needs it for every batch.
+    // All three projections are lazy (task 15's discipline): a task compiles only the ones its
+    // batches actually take - `toRow` on the all-fused kernel path, `mergeProjection` on the
+    // mixed kernel path, `fallbackProjection` on the fallback path.
     private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
-    private val outputAttrs = projectList.map(_.toAttribute)
-    private val toRow = UnsafeProjection.create(outputAttrs, outputAttrs)
+    private lazy val toRow = {
+      val outputAttrs = projectList.map(_.toAttribute)
+      UnsafeProjection.create(outputAttrs, outputAttrs)
+    }
 
-    private val kernels = new VarkaKernelEvaluator(projectList, childOutput)
+    private val kernels =
+      new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled)
+
+    // Merge-at-row (task 12, 2.3): for a projection with forwarded or residual entries the
+    // kernels produce only the fused columns, and this projection - over the input row joined
+    // with the fused-output row - reads fused values, copies forwarded ones and evaluates
+    // residual expressions in the same per-row pass that produces the output row anyway.
+    // The alternative (assembling a full output batch and reading it back) materialises the
+    // residual columns into vectors for nothing; the head-to-head in `PLAN_TASK_12.md` 5
+    // measured it at 0.5x-0.7x Janino end to end, which this shape recovers.
+    // None when every entry fuses: the fused batch is then the output and `toRow` suffices.
+    private lazy val mergeProjection: Option[UnsafeProjection] = kernels.partialPlan.flatMap {
+      partial =>
+        if (partial.specs.forall(_.isInstanceOf[FusedOutput])) {
+          None
+        } else {
+          val fusedAttrs = partial.fused.outputTypes.zipWithIndex.map { case (dataType, i) =>
+            AttributeReference(s"_varkaFused$i", dataType)()
+          }
+          val merged = partial.specs.zip(projectList).map {
+            case (FusedOutput(index), _) => fusedAttrs(index)
+            case (ForwardedOutput(ordinal), _) => childOutput(ordinal)
+            case (ResidualOutput, named) => named
+          }
+          Some(UnsafeProjection.create(merged, childOutput ++ fusedAttrs))
+        }
+    }
 
     override def eval(
         partitionIndex: Int,
@@ -178,12 +215,25 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private def runKernels(input: ColumnarBatch): Iterator[InternalRow] = {
-      val resultBatch = kernels.project(input)
+      val fusedBatch = kernels.projectFused(input)
+      val rows = mergeProjection match {
+        case None =>
+          // Every entry fused: the fused batch is the whole output.
+          fusedBatch.rowIterator().asScala.map(toRow)
+        case Some(merge) =>
+          val inputRows = input.rowIterator()
+          val fusedRows = fusedBatch.rowIterator()
+          val joined = new JoinedRow
+          new Iterator[InternalRow] {
+            override def hasNext: Boolean = fusedRows.hasNext
+            override def next(): InternalRow =
+              merge(joined(inputRows.next(), fusedRows.next()))
+          }
+      }
       // The rows stream lazily, so the batch is released when its rows run out rather than in a
       // finally here; the kernel evaluator's task-completion listener closes it if the task stops
       // reading early.
-      CompletionIterator[InternalRow, Iterator[InternalRow]](
-        resultBatch.rowIterator().asScala.map(toRow), kernels.release(resultBatch))
+      CompletionIterator[InternalRow, Iterator[InternalRow]](rows, kernels.release(fusedBatch))
     }
   }
 }

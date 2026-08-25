@@ -152,12 +152,33 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
       expectFused = true)
   }
 
-  test("a mixed-eligibility projection is not fused but matches the row engine") {
+  test("a mixed-eligibility projection fuses partially and matches the row engine") {
+    // Pinned as "not fused" until task 12: one ineligible entry used to poison the whole
+    // projection. Now the date entry runs on the kernels, the bare `i` forwards zero-copy, and
+    // `i + 1` is evaluated per row beside them.
     cacheDates(spark)
     cacheDates(varkaSpark)
     checkDifferential(spark, varkaSpark,
       "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates ORDER BY a",
+      expectFused = true)
+  }
+
+  test("a projection of forwards and residuals alone stays unfused") {
+    // Nothing to fuse means nothing gained: the rule leaves the projection on Janino.
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT i, i + 1 AS inc FROM varka_dates ORDER BY i",
       expectFused = false)
+  }
+
+  test("a predicated entry fuses beside residual and forwarded ones") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN d < d2 THEN date_add(d, 1) ELSE d2 END AS a, i, i + 1 AS inc " +
+        "FROM varka_date_pairs ORDER BY a, i",
+      expectFused = true)
   }
 
   test("constant-folded offsets are fused and match the row engine") {
@@ -227,15 +248,15 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
       expectFused = true)
   }
 
-  test("a projection with a bare date column stays unfused until task 12") {
-    // A bare column output compiles to nothing on purpose: emitting it would be a copy loop,
-    // while task 12 forwards it zero-copy. All-or-nothing eligibility then leaves the whole
-    // projection to the row engine. When task 12 lands, this flips to expectFused = true.
+  test("a projection with a bare date column fuses and forwards the column zero-copy") {
+    // Pinned as "stays unfused until task 12": a bare column output compiles to nothing on
+    // purpose - emitting it would be a copy loop - and now forwards as the input's own vector
+    // instead (the `eq` assertion lives in VarkaKernelEvaluatorSuite).
     cacheDates(spark)
     cacheDates(varkaSpark)
     checkDifferential(spark, varkaSpark,
       "SELECT date_add(d, 3) AS a, d FROM varka_dates ORDER BY a",
-      expectFused = false)
+      expectFused = true)
   }
 
   test("CASE WHEN over dates is fused and matches the row engine, three-valued nulls included") {
@@ -332,6 +353,44 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
       assert(batches > 0L, s"expected the kernels to run under AQE, got $batches")
     } finally {
       varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
+    }
+  }
+
+  test("the rule fires and the kernels run under AQE on a mixed projection") {
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
+    try {
+      val query = "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates ORDER BY a"
+      val expected = spark.sql(query)
+      val actual = varkaSpark.sql(query)
+      checkAnswer(actual, expected)
+      val plan = actual.queryExecution.executedPlan
+      val node = collectFirst(plan) { case v: VarkaColumnarToRowExec => v }
+      assert(node.isDefined, s"expected a fused node under AQE:\n${plan.treeString}")
+      val batches = node.get.metrics.get("numVarkaBatches").map(_.value).getOrElse(0L)
+      assert(batches > 0L, s"expected the kernels to run under AQE, got $batches")
+    } finally {
+      varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
+    }
+  }
+
+  test("a kernel failure on a mixed projection falls back whole-batch with correct results") {
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    VarkaColumnarToRowExec.setFailKernelForTesting(true)
+    try {
+      val q = "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates ORDER BY a"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      val batches = plan.collectFirst { case v: VarkaColumnarToRowExec => v }
+        .flatMap(_.metrics.get("numVarkaBatches")).map(_.value).getOrElse(0L)
+      assert(batches === 0L, s"expected the fallback to serve every batch, got $batches")
+    } finally {
+      VarkaColumnarToRowExec.setFailKernelForTesting(false)
     }
   }
 

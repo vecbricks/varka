@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, CaseWhen, Cast, DateAdd, DateDiff, DateSub, DayOfWeek, EqualNullSafe, EqualTo, GreaterThan, Greatest, If, LessThan, Literal, NamedExpression, Not, Or, WeekDay}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, CaseWhen, Cast, DateAdd, DateDiff, DateSub, DayOfWeek, EqualNullSafe, EqualTo, GreaterThan, Greatest, If, LessThan, Literal, NamedExpression, Not, Or, WeekDay}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, ColumnRef, CompareOp, DateDiff => IRDateDiff, LiteralSlot, SubDays}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{Compare, DayOfWeek => IRDayOfWeek, Greatest => IRGreatest, IfElse, Not => IRNot, Or => IROr, WeekDay => IRWeekDay}
 import org.apache.spark.sql.types.{DateType, IntegerType}
@@ -29,7 +29,8 @@ import org.apache.spark.sql.types.{DateType, IntegerType}
  * `VarkaKernelEvaluator` (execution) call. End-to-end coverage lives in
  * `VarkaDifferentialSuite`; here the compiled shape itself is pinned - dense input mapping,
  * literal slots deduplicated by value (what makes the emitter's CSE able to see two
- * `date_add(d, 1)` as one computation), output Spark types, and the all-or-nothing failures.
+ * `date_add(d, 1)` as one computation), output Spark types, the per-entry classification of
+ * task 12's partial eligibility, and the shapes that decline.
  */
 class VarkaExpressionCompilerSuite extends SparkFunSuite {
 
@@ -133,14 +134,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
       Seq(out(LessThan(d, d2))), childOutput).isEmpty)
   }
 
-  test("uncompilable shapes fail the whole projection") {
-    // A bare column output: deliberately not compiled - task 12 forwards it zero-copy instead.
+  test("compile is the all-entries-fused special case of compilePartial") {
+    // A bare column output is never fused - it forwards - so `compile` declines the projection.
     assert(VarkaExpressionCompiler.compile(Seq(d.asInstanceOf[NamedExpression]),
       childOutput).isEmpty)
-    // One ineligible entry poisons the projection (all-or-nothing until task 12).
+    // A forwarded entry beside a fused one: eligible partially, but not for `compile`.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isEmpty)
-    // A non-literal day offset.
+    assert(VarkaExpressionCompiler.compilePartial(
+      Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isDefined)
+    // A non-literal day offset: residual, so `compile` declines.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, i))), childOutput).isEmpty)
     // A cast in the tree (how `date_add` over a `datediff` result reaches the planner).
@@ -148,5 +151,61 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
       Seq(out(DateAdd(Cast(DateDiff(d, d2), DateType), Literal(1)))), childOutput).isEmpty)
     // An empty projection.
     assert(VarkaExpressionCompiler.compile(Seq.empty, childOutput).isEmpty)
+    assert(VarkaExpressionCompiler.compilePartial(Seq.empty, childOutput).isEmpty)
+  }
+
+  test("compilePartial classifies fused, forwarded and residual entries in projection order") {
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(
+        out(DateAdd(d, Literal(3))),
+        i.asInstanceOf[NamedExpression],
+        out(Add(i, Literal(1))),
+        out(DateSub(d2, Literal(2)))),
+      childOutput).get
+    // The int column forwards - forwarding does not care about lane types - and the fused
+    // indices count fused entries only.
+    assert(partial.specs ===
+      Seq(FusedOutput(0), ForwardedOutput(2), ResidualOutput, FusedOutput(1)))
+    // The fused sub-projection covers exactly the fused entries: their trees, types, columns
+    // and literals - nothing of the residual entry leaks in.
+    assert(partial.fused.outputs === Seq(
+      new AddDays(new ColumnRef(0), new LiteralSlot(0)),
+      new SubDays(new ColumnRef(1), new LiteralSlot(1))))
+    assert(partial.fused.outputTypes === Seq(DateType, DateType))
+    assert(partial.fused.inputOrdinals === Seq(0, 1))
+    assert(partial.fused.literals === Seq(3, 2))
+  }
+
+  test("a bare date column forwards like any other bare column") {
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(DateAdd(d, Literal(1))), d.asInstanceOf[NamedExpression]), childOutput).get
+    assert(partial.specs === Seq(FusedOutput(0), ForwardedOutput(0)))
+  }
+
+  test("forwards and residuals alone are not eligible: nothing to fuse gains nothing") {
+    assert(VarkaExpressionCompiler.compilePartial(
+      Seq(out(Add(i, Literal(1)))), childOutput).isEmpty)
+    assert(VarkaExpressionCompiler.compilePartial(
+      Seq(d.asInstanceOf[NamedExpression], i.asInstanceOf[NamedExpression]),
+      childOutput).isEmpty)
+    assert(VarkaExpressionCompiler.compilePartial(
+      Seq(d.asInstanceOf[NamedExpression], out(Add(i, Literal(1)))), childOutput).isEmpty)
+  }
+
+  test("a declining entry rolls the shared tables back to their pre-entry state") {
+    // The datediff entry compiles its end child - registering d2 and the literal 9 - before its
+    // start child (an int column) declines the whole entry. Without the rollback, d2 and 9
+    // would stay in the tables and widen the fused kernel's input set for no output.
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(
+        out(DateDiff(DateAdd(d2, Literal(9)), i)),
+        out(DateAdd(d, Literal(1)))),
+      childOutput).get
+    assert(partial.specs === Seq(ResidualOutput, FusedOutput(0)))
+    assert(partial.fused.inputOrdinals === Seq(0),
+      "the declined entry's column registration must be rolled back")
+    assert(partial.fused.literals === Seq(1),
+      "the declined entry's literal registration must be rolled back")
+    assert(partial.fused.outputs === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0))))
   }
 }

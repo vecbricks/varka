@@ -40,18 +40,47 @@ private[sql] case class CompiledVarkaProjection(
     literals: Seq[Int])
 
 /**
- * Compiles a bound projection list to [[CompiledVarkaProjection]], recursing where the MVP's
+ * How one projection entry is served under partial eligibility (task 12): computed by the fused
+ * kernel, forwarded as the input's own vector, or evaluated per row by the residual projection.
+ */
+private[sql] sealed trait VarkaOutputSpec
+
+/** A kernel column: output `fusedIndex` of the fused sub-projection. */
+private[sql] case class FusedOutput(fusedIndex: Int) extends VarkaOutputSpec
+
+/**
+ * A bare column reference, forwarded zero-copy from child output ordinal `childOrdinal`. Any
+ * type, not just dates: forwarding never reads the values, so it does not care about lanes.
+ */
+private[sql] case class ForwardedOutput(childOrdinal: Int) extends VarkaOutputSpec
+
+/** Everything else: evaluated per row, one pass for all residual entries together. */
+private[sql] case object ResidualOutput extends VarkaOutputSpec
+
+/**
+ * A projection classified entry by entry (task 12): `specs` has one entry per projectList
+ * position, in order, and `fused` is the sub-projection of just the [[FusedOutput]] entries -
+ * their kernel-input and literal tables cover only what the fused trees reference, so a
+ * residual entry constrains neither the emitted loop nor `canRun`'s Arrow check.
+ */
+private[sql] case class PartialVarkaProjection(
+    specs: Seq[VarkaOutputSpec],
+    fused: CompiledVarkaProjection)
+
+/**
+ * Compiles a bound projection list to the Varka vector IR, recursing where the MVP's
  * flat matcher demanded bare attributes - `datediff(date_add(d, 7), d2)` compiles where
  * milestone 1 saw nothing, and since task 11 so do `CASE WHEN`/`IF` (via interior comparisons
  * and the three-valued connectives), `greatest`/`least`, `dayofweek`/`weekday` and date
  * literals. Used by both `VarkaColumnarRule` (is the projection eligible?) and
  * `VarkaKernelEvaluator` (what does the emitted loop compute?), so eligibility cannot drift from
- * execution: there is one compiler and the rule's question is `compile(...).isDefined`.
+ * execution: there is one compiler and the rule's question is `compilePartial(...).isDefined`.
  *
- * All or nothing, still: one uncompilable entry returns `None` for the whole projection, and the
- * plan stays untouched (partial eligibility is task 12). A bare column as an output entry is
- * deliberately uncompilable too - emitting it would be a copy loop, while task 12 forwards it
- * zero-copy.
+ * Since task 12 eligibility is per entry, not all or nothing: [[compilePartial]] classifies
+ * every entry as fused, forwarded (a bare column of any type, zero-copy) or residual (per-row),
+ * and the projection is eligible when at least one entry fuses - a projection of forwards and
+ * residuals alone gains nothing from Varka and stays on Janino untouched. [[compile]] remains
+ * as the all-entries-fused special case for callers that need exactly that.
  *
  * Literal day offsets fold through [[DateVarkaSupport.foldDaysOffset]] - the same rule the MVP
  * matched on - into slots of the runtime argument table, assigned per distinct '''value''': two
@@ -66,48 +95,83 @@ private[sql] case class CompiledVarkaProjection(
  */
 private[sql] object VarkaExpressionCompiler {
 
+  /** The all-entries-fused special case of [[compilePartial]], kept for callers that need it. */
   def compile(
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute]): Option[CompiledVarkaProjection] = {
+    compilePartial(projectList, childOutput).collect {
+      case partial if partial.specs.forall(_.isInstanceOf[FusedOutput]) => partial.fused
+    }
+  }
+
+  /**
+   * Classifies every projection entry (see [[VarkaOutputSpec]]) and compiles the fused entries
+   * into one sub-projection. `Some` exactly when at least one entry fused and the fused trees
+   * reference at least one column - the emitted loop reads columns or has nothing to
+   * vectorize over.
+   */
+  def compilePartial(
+      projectList: Seq[NamedExpression],
+      childOutput: Seq[Attribute]): Option[PartialVarkaProjection] = {
     // Both tables assign dense indices in first-occurrence order, which makes the compiled
     // shape deterministic in the projection alone.
     val inputs = mutable.LinkedHashMap.empty[Int, Int]
     val literals = mutable.LinkedHashMap.empty[Int, Int]
     val outputs = Seq.newBuilder[VarkaVectorIR]
     val outputTypes = Seq.newBuilder[DataType]
-    val allCompiled = projectList.forall { named =>
+    var fusedCount = 0
+    val specs = projectList.map { named =>
       // Bound at Expression, not NamedExpression: a bare column entry binds to a
       // BoundReference, which is not a NamedExpression, and the cast inside bindReference
-      // would throw instead of letting the match below decline it.
+      // would throw instead of letting the match below classify it.
       val bound = BindReferences.bindReference[Expression](named, childOutput)
       val inner = bound match {
         case Alias(child, _) => child
         case e => e
       }
-      // A bare column is compilable as a node but not as an output: see the class doc.
-      if (inner.isInstanceOf[BoundReference]) {
-        false
-      } else {
-        compileNode(inner, inputs, literals) match {
-          case Some(ir) =>
-            outputs += ir
-            outputTypes += inner.dataType
-            true
-          case None => false
-        }
+      inner match {
+        // A bare column is compilable as a node but never emitted as an output: emitting it
+        // would be a copy loop, while forwarding the input's vector is zero-copy.
+        case br: BoundReference => ForwardedOutput(br.ordinal)
+        case e =>
+          // The tables are shared across entries (CSE across outputs depends on it), so a
+          // declining entry must not leave the columns and literals its failing subtrees
+          // registered: they would widen the kernel's input set - and `canRun`'s Arrow check -
+          // for no output. Entries are appended in table order, so truncating to the
+          // pre-entry size restores the exact prior state.
+          val inputsMark = inputs.size
+          val literalsMark = literals.size
+          compileNode(e, inputs, literals) match {
+            case Some(ir) =>
+              outputs += ir
+              outputTypes += e.dataType
+              fusedCount += 1
+              FusedOutput(fusedCount - 1)
+            case None =>
+              truncate(inputs, inputsMark)
+              truncate(literals, literalsMark)
+              ResidualOutput
+          }
       }
     }
-    if (allCompiled && projectList.nonEmpty && inputs.nonEmpty) {
-      Some(CompiledVarkaProjection(
-        outputs.result(), outputTypes.result(), inputs.keys.toSeq, literals.keys.toSeq))
+    if (fusedCount > 0 && inputs.nonEmpty) {
+      Some(PartialVarkaProjection(specs, CompiledVarkaProjection(
+        outputs.result(), outputTypes.result(), inputs.keys.toSeq, literals.keys.toSeq)))
     } else {
       None
     }
   }
 
+  /** Drops the entries a failed compile appended after `mark` (insertion order). */
+  private def truncate(table: mutable.LinkedHashMap[Int, Int], mark: Int): Unit = {
+    if (table.size > mark) {
+      table.keys.drop(mark).toSeq.foreach(table.remove)
+    }
+  }
+
   /**
-   * The recursive node compiler. `None` anywhere fails the whole projection, so entries the
-   * tables gained on a failing path are simply discarded with everything else. Shapes that
+   * The recursive node compiler. `None` anywhere fails the enclosing entry, whose caller rolls
+   * the tables back to their pre-entry state. Shapes that
    * cannot be served stay unmatched by construction: an integer `Add` over a `datediff` result
    * is not a date expression (and ANSI overflow cannot throw row-accurately from a lane), and a
    * `date_add` over a `datediff` result only type-checks through a `Cast`, which compiles to

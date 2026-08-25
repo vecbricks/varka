@@ -1,8 +1,9 @@
 # Task 12: multi-output, passthrough, escape hatch
 
-**Status: PLANNED.** See `PLAN_MILESTONE_2.md` (task row 12, section 2.5) for
-the milestone context. Sections 1-4 are the plan; a section 5 will record the
-outcome. Implementation branches from master once task 11 (PR #32) is merged.
+**Status: DONE.** See `PLAN_MILESTONE_2.md` (task row 12, section 2.5) for
+the milestone context. Sections 1-5 are the plan as reviewed; section 6
+records the outcome, including the escape-hatch measurement that went the
+other way than either variant's backers would have guessed.
 
 ## 1. Why this task, and what it stands on
 
@@ -204,3 +205,84 @@ Telemetry (task 13). The benchmark/docs refresh (task 14).
   one; the escape-hatch benchmark (2.3) and the mixed-projection throughput
   case are the check that partial fusion pays at realistic mixes, not only
   at kernel-heavy ones.
+
+## 6. Outcome
+
+Everything in sections 2 and 3 shipped; the deviations and the measurements
+follow.
+
+### 6.1 What shipped, and where it differs from the plan
+
+* `compilePartial` classifies entries as planned, with one detail the plan did
+  not call out: the input and literal tables are shared across entries (that
+  is what lets CSE fire across outputs), so a *declining* entry must roll them
+  back to their pre-entry state. Without the rollback, a residual entry's
+  partially compiled subtrees would widen the fused kernel's input set - and
+  `canRun`'s Arrow check - for no output. A compiler test pins the rollback on
+  a `datediff` whose end child registers a column and a literal before its
+  start child declines.
+* `PartialVarkaProjection.fused` is not the `Option` of section 2.1's sketch:
+  `compilePartial` returning `Some` already means at least one entry fused, so
+  the field is always present and the type now says so.
+* Ownership landed as designed: `openBatches` is a map from batch to owned
+  vectors, every release path closes exactly those, nothing calls
+  `ColumnarBatch.close()` on an assembled batch, and the ordering contract is
+  stated in the evaluator doc. The lifetime tests assert exact allocator
+  levels in both directions - above the expected level is a leak, below it a
+  double-closed forwarded vector - on the drained, abandoned and failed paths
+  (the failed path in both flavors: kernel failure and residual failure, which
+  differ in what is already allocated when the throw happens).
+* The rule change is one line per stage plus renames: `isVarkaEligible` asks
+  `compilePartial(...).isDefined`.
+
+### 6.2 The escape hatch, measured - and what it actually found
+
+Assemble-then-read (a) shipped first, per the plan, and immediately paid for
+the "measured decision" framing: with a row consumer over 2M Arrow-cached
+rows, the mixed projection (`date_add(d, 3), i, i + 1`) ran at **0.7x**
+Janino, and a residual-heavy one (one fused entry, four residuals) at
+**0.5x** - far beyond the few-percent threshold, so merge-at-row (b) was
+built. (b) evaluates forwarded and residual entries during the row
+conversion's own per-row pass, over the input row joined with the
+fused-output row, and the kernels produce only the fused columns
+(`projectFused`).
+
+Head to head, (b) beat (a) on both shapes - mixed 81 ms vs 89 ms, residual-
+heavy 104 ms vs 128 ms best-time - with the margin largest where residuals
+dominate and shrinking as the fused share grows. That is exactly the written
+prediction, the first of four in this project to survive contact with a
+benchmark. (a) is deleted from the row node per the plan's loser-goes rule;
+`project`'s full assembly remains as the columnar node's path, where
+materialising is the only option.
+
+The control case is the real finding. An **all-fused** `date_add` through the
+same row consumer also measures ~**0.8x** Janino (62 ms vs 49 ms), so the
+row-consumer gap is not the merge, not the forwarding, and not the residual
+materialisation (a) was blamed for: it is the per-row read-back
+`VarkaColumnarToRowExec` always pays - iterator, `ColumnarBatchRow`, copy
+projection - against a whole-stage-codegen baseline that reads the cached
+vectors with generated accessors. A depth-1 kernel's margin cannot cover it;
+the columnar-consumer cases are untouched by it (1.5x mixed, 1.8x-2.2x pure,
+same runs). This was true before task 12 and simply had never been measured,
+because every committed throughput case wrote to a columnar sink. Task 14's
+matrix should measure how chain depth amortises the read-back on the row
+path, and the fuse-profitability threshold stays the milestone 3 question
+that section 4 already flagged - now with numbers attached.
+
+### 6.3 The numbers (2M Arrow-cached rows, best time, vs Janino baseline)
+
+| case | consumer | varka | relative |
+| :--- | :--- | ---: | ---: |
+| `date_add(d, 3)` | columnar (`noop`) | 34 ms | 1.8x |
+| `date_sub(d, 5)` | columnar (`noop`) | 31 ms | 1.8x |
+| `datediff(d2, d)` | columnar (`noop`) | 34 ms | 1.9x |
+| mixed projection | columnar (`noop`) | 44 ms | **1.5x** |
+| `date_add(d, 3)` | rows (`toRdd`) | 62 ms | 0.8x |
+| mixed projection | rows (`toRdd`) | 81 ms | 0.8x |
+| residual-heavy | rows (`toRdd`) | 104 ms | 0.7x |
+
+The mixed-projection columnar row is the milestone-1 consequence retired: it
+had been flat (~1.1x, fallback on both sides) in every committed run since
+task 7, and partial fusion moves it to 1.5x. The row-consumer rows are the
+new, honestly recorded cost of the read-back, owned by task 14 and
+milestone 3 as above.

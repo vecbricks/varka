@@ -23,11 +23,13 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * Varka plan-level fusion (Task 6). When `spark.sql.codegen.varka.enabled` is set, a fully
+ * Varka plan-level fusion (Task 6). When `spark.sql.codegen.varka.enabled` is set, a
  * Varka-eligible projection sitting above a columnar source runs the SIMD kernels over the Arrow
  * `DateDayVector` buffers instead of per-row codegen. A dual-mode source that currently feeds
- * rows is switched to its columnar output; projections that are not fully eligible are left
- * untouched.
+ * rows is switched to its columnar output; projections that are not eligible are left untouched.
+ * Since task 12 eligibility is partial: a projection is eligible when at least one entry
+ * compiles to the vector IR, with bare columns forwarded zero-copy and the remaining entries
+ * evaluated per row alongside the kernels (see `VarkaKernelEvaluator`).
  *
  * The rewrite happens in two stages, on either side of the transition insertion that
  * [[ApplyColumnarRulesAndInsertTransitions]] does between them, because which of the two Varka
@@ -52,7 +54,7 @@ object VarkaColumnarRule extends ColumnarRule {
     if (SQLConf.get.varkaEnabled) {
       plan.transformUp {
         case project @ ProjectExec(projectList, child)
-            if isFullyVarkaEligible(projectList, child.output) =>
+            if isVarkaEligible(projectList, child.output) =>
           if (child.supportsColumnar) {
             VarkaProjectExec(projectList, child)
           } else {
@@ -70,7 +72,7 @@ object VarkaColumnarRule extends ColumnarRule {
         case ColumnarToRowExec(varka: VarkaProjectExec) =>
           VarkaColumnarToRowExec(varka.projectList, varka.child)
         case project @ ProjectExec(projectList, child)
-            if isFullyVarkaEligible(projectList, child.output) =>
+            if isVarkaEligible(projectList, child.output) =>
           val columnarChild = child match {
             case ColumnarToRowExec(inner) => inner
             case other => other
@@ -87,10 +89,10 @@ object VarkaColumnarRule extends ColumnarRule {
   }
 
   // The compiler is the single eligibility oracle (task 10): a projection is fused exactly when
-  // the whole list compiles to the vector IR, nested chains and shared subtrees included. Still
-  // all or nothing - partial eligibility is task 12.
-  private def isFullyVarkaEligible(
+  // at least one entry compiles to the vector IR (task 12) - nested chains, shared subtrees and
+  // predication included - with bare columns forwarded and the rest evaluated per row.
+  private def isVarkaEligible(
       projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean = {
-    VarkaExpressionCompiler.compile(projectList, childOutput).isDefined
+    VarkaExpressionCompiler.compilePartial(projectList, childOutput).isDefined
   }
 }
