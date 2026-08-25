@@ -1,8 +1,10 @@
 # Task 10: chains, DAG-CSE and mask algebra
 
-**Status: PLANNED.** See `PLAN_MILESTONE_2.md` (task row 10) for the milestone
+**Status: DONE.** See `PLAN_MILESTONE_2.md` (task row 10) for the milestone
 context and `PLAN_TASK_9.md` for the emitter this task generalises. Sections
-1-4 are the plan; a section 5 will record the outcome.
+1-4 are the plan as written before implementation; section 5 records what was
+built, the measurements, and the deviations - including one measured reversal
+of the plan's own prediction (5.2).
 
 ## 1. Why this task, and what it inherits
 
@@ -280,3 +282,102 @@ Telemetry attributes (task 13). Throughput-benchmark and docs refresh
 (task 14). The `lazy val` drive-by (task 15). Deleting the dispatcher
 machinery or the `VarkaProjection` shell (the `PLAN_TASK_9.md` 5.4 follow-up,
 awaiting the milestone owner's go-ahead).
+
+## 5. Outcome
+
+Everything in section 2 exists as planned, plus one feature the plan predicted
+would be rejected (5.2). All suites green: `VarkaLoopEmitterSuite` (10 tests)
+and `VarkaExpressionCompilerSuite` (4, new) at the preferred width and under
+`-XX:MaxVectorSize=16`; the sql/core Varka suites (60 tests, including the new
+nested, DAG, wrap-around and fallback differentials); the engine suite
+untouched and green (28); scalastyle and lint-java clean.
+
+The compiler unit suite caught one real bug the differential matrix would have
+hit later: binding a projection entry at `NamedExpression` type throws
+`ClassCastException` on a bare-column entry (it binds to a `BoundReference`),
+so the rule would have crashed instead of declining. The compiler binds at
+`Expression` and declines.
+
+### 5.1 The gates
+
+`VarkaEmitterParityBenchmark`, 1M rows, best-time M rows/s (AMD Ryzen AI 9 HX
+PRO 370, JDK 25.0.3, `performance` governor; committed results file carries
+the preferred width, this table both widths):
+
+| case | kernel (16) | emitted (16) | ratio | kernel (4) | emitted (4) | ratio |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| date_add, null-free | 5461 | 17751 | 3.3x | 1809 | 6726 | 3.7x |
+| date_add, mixed | 4728 | 8367 | 1.8x | 1368 | 2563 | 1.9x |
+| datediff, null-free | 3732 | 10533 | 2.8x | 1506 | 5872 | 3.9x |
+| datediff, mixed | 2653 | 3779 | 1.4x | 974 | 1634 | 1.7x |
+
+Every parity case clears 1.0x at both widths (acceptance was 0.9x); the
+null-free rows are the dense body of 5.2. The fusion gate stands re-affirmed
+with the compiler in the loop: a depth-2 chain fuses at 7715 vs 2107 for two
+kernel passes (3.7x), and the depth curve matches task 9 (depth 16: 5167 fused
+vs 120 sequential, 43x).
+
+The DAG case - `a = chain8(d), b = datediff(chain8(d), d2)`, 9 distinct ops -
+runs fused at 1525 vs 194 as nine sequential kernel passes (7.9x); disabling
+the CSE memo costs 4% (1463), small here because the shared subchain stays in
+registers either way - CSE's real work is dropping 8 redundant op emissions,
+and its value grows with sharing. The widest accepted shape (4 x depth-16, 64
+ops, the `MAX_FUSED_NODES` boundary) runs at 512 vs 30 sequential (17x), so
+the cap marks no cliff against any available alternative.
+
+### 5.2 The dense path: the plan's prediction was wrong, measurably
+
+Section 2.5 predicted the unmasked body would not beat the masked body with an
+all-true mask and would be recorded as rejected. The A/B said otherwise:
+null-free 1M rows, masked 6387 M rows/s vs unmasked 14807 at depth 1, and
+5089 vs 14546 at depth 8 - 2.3x to 2.9x, an order of magnitude past the 10%
+ship threshold. A runtime mask is opaque to C2 even when every lane is on, and
+a masked store never becomes a plain store. So the specialisation shipped: the
+generated class carries `runDense` and `runMasked` as private sibling methods
+and `run` selects per batch on one loop-invariant test (all referenced inputs
+null-free). The dense body emits no null state, no all-null shortcut, no words,
+no masks, and an unchecked tail.
+
+Two structural findings along the way, both now load-bearing:
+
+* **Hoisted broadcasts pin registers.** A broadcast hoisted into a Java local
+  stays live across the whole loop; at 32 literals the spill collapse was 7x
+  (482 vs 1616 M rows/s on a two-chain shape, 168 vs 526 at 64 literals).
+  Emitted at each use, C2 hoists when registers allow and rematerializes when
+  they do not - but the single-output regime measured faster with explicit
+  hoisting (5769 vs 3925 at depth 16). The emitter therefore hoists only for
+  one output with at most `MAX_CHAIN_DEPTH` literals - exactly the regime
+  task 9 measured - and inlines everywhere else.
+* **Two loops in one method starve each other.** With both bodies emitted into
+  one `run`, the second-emitted (masked) loop lost 3x to 4x on nulled batches
+  (depth-8 mixed: 6926 as a sibling method vs 1926 sharing a method) - one
+  compilation's node and inlining budgets serving two vector loops. Sibling
+  methods give each body its own C2 compilation and restored full speed.
+
+### 5.3 Deviations from the plan
+
+* Dense-path specialisation shipped instead of being rejected (5.2); the
+  emitted class is three methods, not one.
+* Dead outputs are handled by mask-zero semantics, not a per-output
+  compile-time skip: an all-null input contributes a `0L` validity word, which
+  nulls every node reading it, and the store and validity writes then write
+  nothing. Same observable behavior as 2.3's wording, less control flow; the
+  generalized all-null shortcut (return iff every output reads a dead column)
+  is kept.
+* `VectorMask.toLong` left the descriptor table: the store's validity bits are
+  the root's already-computed mask word, so nothing calls it.
+* The benchmark reaches the CSE hook through `VarkaEmitterTestSupport`
+  (test-only, same package) rather than a public flag on the emitter.
+* The four-lane benchmark numbers are recorded here (5.1) rather than in a
+  second committed results file, per the one-file-per-benchmark convention.
+
+### 5.4 For the record
+
+`MAX_FUSED_NODES = 64` stands, with its meaning sharpened by measurement: past
+roughly 32 ops the fused loop scales sublinearly with op count (register
+pressure and body size), but even at the cap it beats sequential kernel passes
+17x and per-row evaluation by far more, so falling back earlier would only
+make those shapes slower. The cap bounds pathology; it is not a performance
+edge. Milestone 3's cache design should note that the emitted class now has a
+three-method shape and that per-batch body selection happens inside the class,
+so a cached class stays batch-agnostic.

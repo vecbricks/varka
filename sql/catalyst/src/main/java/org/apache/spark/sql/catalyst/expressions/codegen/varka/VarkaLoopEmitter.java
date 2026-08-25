@@ -50,12 +50,22 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Sub
  * <p>The emitted method follows the six-step kernel shape documented on {@code DateVectorOps},
  * generalized to many inputs and outputs: empty-batch guard, nominally sized segments,
  * unconditional zeroing of <i>every</i> destination validity, all-null shortcut (taken only when
- * every output reads at least one all-null column), masked lane-group loop to {@code loopBound},
- * scalar tail agreeing row for row. Everything loop-invariant - segments, scalar arguments,
- * species, lane count, each input's null state - is hoisted into locals in the prologue.
+ * every output reads at least one all-null column), lane-group loop to {@code loopBound}, scalar
+ * tail agreeing row for row. Everything loop-invariant - segments, scalar arguments, species,
+ * lane count, each input's null state - is hoisted into locals in the prologue.
  * {@code IntVector.SPECIES_PREFERRED} is read with {@code getstatic}, which keeps it a JIT
  * constant; that is what lets C2 intrinsify the emitted Vector API calls, and task 9's parity
  * gate verified it does.
+ *
+ * <p><b>Twin bodies</b> (task 10, plan 2.5): {@code run} is a dispatcher over two private
+ * sibling methods, and one loop-invariant test selects per batch. When every referenced input
+ * is null-free {@code runDense} runs - unmasked loads, ops and stores, no mask work at all -
+ * measured at 2.3x to 2.9x the masked body running with an all-true mask, because a runtime
+ * mask is opaque to C2 and a masked store stays a masked store even when every lane is on. Any
+ * batch with nulls takes {@code runMasked}. Sibling <i>methods</i>, not two loops in one
+ * method: each body gets its own C2 compilation, so one body's node and inlining budgets
+ * cannot starve the other's intrinsics - measured as a 3x to 4x loss on the second-emitted
+ * loop when both shared one method.
  *
  * <p>Literal <i>broadcasts</i> are hoisted into vector locals only in the regime task 9
  * measured them as a win - one output, at most {@link #MAX_CHAIN_DEPTH} literals. Any wider
@@ -216,6 +226,19 @@ public final class VarkaLoopEmitter {
   /** The deliberately wrong shape behind {@link #misdescribeAddForTesting}. */
   private static final MethodTypeDesc LANEWISE_MASKED_WRONG =
       MethodTypeDesc.of(INT_VECTOR, INT_VECTOR, VECTOR_MASK);
+  // The dense body's unmasked counterparts (task 10, plan 2.5): same calls, no mask operand.
+  /** {@code IntVector.fromMemorySegment(VectorSpecies, MemorySegment, long, ByteOrder)}. */
+  private static final MethodTypeDesc FROM_MEMORY_SEGMENT_DENSE = MethodTypeDesc.of(INT_VECTOR,
+      VECTOR_SPECIES, MEMORY_SEGMENT, ConstantDescs.CD_long, BYTE_ORDER);
+  /** {@code IntVector IntVector.add/sub(Vector)} - erased parameter, as in the masked shape. */
+  private static final MethodTypeDesc LANEWISE_DENSE =
+      MethodTypeDesc.of(INT_VECTOR, VECTOR);
+  /** The dense counterpart of {@link #LANEWISE_MASKED_WRONG} for the misdescribe hook. */
+  private static final MethodTypeDesc LANEWISE_DENSE_WRONG =
+      MethodTypeDesc.of(INT_VECTOR, INT_VECTOR);
+  /** {@code void IntVector.intoMemorySegment(MemorySegment, long, ByteOrder)}. */
+  private static final MethodTypeDesc INTO_MEMORY_SEGMENT_DENSE = MethodTypeDesc.of(
+      ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, BYTE_ORDER);
   /** {@code void IntVector.intoMemorySegment(MemorySegment, long, ByteOrder, VectorMask)}. */
   private static final MethodTypeDesc INTO_MEMORY_SEGMENT = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, BYTE_ORDER, VECTOR_MASK);
@@ -259,17 +282,69 @@ public final class VarkaLoopEmitter {
       analysis.analyzeRoot(root);
     }
 
+    // The dense and masked bodies are separate private methods, not two loops in one method:
+    // each gets its own C2 compilation, so the node and inlining budgets of one cannot starve
+    // the other. Measured with both bodies in one `run`: the second-emitted (masked) loop lost
+    // 3x to 4x on nulled batches; as sibling methods both run at full speed (PLAN_TASK_10.md).
     ClassDesc classDesc = ClassDesc.of(className);
-    return ClassFile.of().build(classDesc, (ClassBuilder b) -> b
-        .withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
-        .withInterfaceSymbols(FUSED_KERNEL)
-        .withMethodBody("<init>", INIT, AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
-          cb.aload(0);
-          cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
-          cb.return_();
-        })
-        .withMethodBody("run", RUN, AccessFlag.PUBLIC.mask(),
-            (CodeBuilder cb) -> emitRun(cb, outputs, analysis, numLiterals)));
+    boolean anyColumns = analysis.referencedColumns != 0;
+    return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
+      b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
+          .withInterfaceSymbols(FUSED_KERNEL)
+          .withMethodBody("<init>", INIT, AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
+            cb.aload(0);
+            cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
+            cb.return_();
+          })
+          .withMethodBody("run", RUN, AccessFlag.PUBLIC.mask(),
+              (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis))
+          .withMethodBody("runDense", RUN, AccessFlag.PRIVATE.mask(),
+              (CodeBuilder cb) -> emitBody(cb, true, outputs, analysis, numLiterals));
+      if (anyColumns) {
+        b.withMethodBody("runMasked", RUN, AccessFlag.PRIVATE.mask(),
+            (CodeBuilder cb) -> emitBody(cb, false, outputs, analysis, numLiterals));
+      }
+    });
+  }
+
+  /**
+   * The public {@code run}: one loop-invariant test per batch - are all referenced inputs
+   * null-free? - selecting {@code runDense} or {@code runMasked} (plan 2.5). The dense body
+   * measured 2.3x to 2.9x the masked body running with an all-true mask: a runtime mask is
+   * opaque to C2, and a masked store stays a masked store even when every lane is on.
+   */
+  private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
+    Label masked = cb.newLabel();
+    boolean anyColumns = analysis.referencedColumns != 0;
+    for (int i = 0; i < analysis.numInputs; i++) {
+      if (referenced(analysis, i)) {
+        cb.aload(P_NULL_COUNT);
+        cb.loadConstant(i);
+        cb.iaload();
+        cb.ifne(masked);
+      }
+    }
+    invokeBody(cb, classDesc, "runDense");
+    if (anyColumns) {
+      cb.labelBinding(masked);
+      invokeBody(cb, classDesc, "runMasked");
+    }
+    // With no referenced columns the masked label is never targeted and must not be bound:
+    // unreachable code has no stack frame to compute.
+  }
+
+  /** {@code return this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
+  private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name) {
+    cb.aload(0);
+    cb.aload(P_SRC_DATA);
+    cb.aload(P_SRC_VALIDITY);
+    cb.aload(P_NULL_COUNT);
+    cb.aload(P_DST_DATA);
+    cb.aload(P_DST_VALIDITY);
+    cb.aload(P_SCALAR_ARGS);
+    cb.iload(P_LENGTH);
+    cb.invokespecial(classDesc, name, RUN);
+    cb.return_();
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -368,11 +443,17 @@ public final class VarkaLoopEmitter {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // The emitted `run` body.
+  // The emitted body methods.
   // ---------------------------------------------------------------------------------------------
 
-  private static void emitRun(
-      CodeBuilder cb, List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals) {
+  /**
+   * One complete body method - prologue, lane-group loop, scalar tail. The dense variant runs
+   * only when the dispatcher has proven every referenced input null-free, so it emits no
+   * per-input null state, no all-null shortcut and no mask work at all; the masked variant is
+   * the general one, and the two must agree row for row wherever both could run.
+   */
+  private static void emitBody(CodeBuilder cb, boolean dense, List<VarkaVectorIR> outputs,
+      Analysis analysis, int numLiterals) {
     int numInputs = analysis.numInputs;
     int numOutputs = outputs.size();
     boolean cse = !disableCseForTesting;
@@ -482,11 +563,16 @@ public final class VarkaLoopEmitter {
       cb.invokestatic(SUPPORT, "zero", ZERO);
     }
 
-    // (4) Per referenced input: null state and segments. An all-null input's validity address
-    // is 0L by the morsel contract, so its segment must not be materialized; its validity word
-    // is 0L in every group instead, which nulls everything computed from it.
+    // (4) Per referenced input: null state (masked body only - the dispatcher has proven a
+    // dense batch null-free) and the data segment. An all-null input's validity address is 0L
+    // by the morsel contract, so its segment must not be materialized; its validity word is 0L
+    // in every group instead, which nulls everything computed from it.
     for (int i = 0; i < numInputs; i++) {
       if (!referenced(analysis, i)) {
+        continue;
+      }
+      if (dense) {
+        loadSegment(cb, P_SRC_DATA, i, dataBytes, srcSeg[i]);
         continue;
       }
       cb.aload(P_NULL_COUNT);
@@ -530,13 +616,14 @@ public final class VarkaLoopEmitter {
     }
 
     // (5) All-null shortcut, generalized: return iff every output reads at least one all-null
-    // column. Statically skipped when some output references no column at all (a literal-only
-    // tree is never dead). For one output over one input this is task 9's `nullCount == length`.
+    // column. Statically skipped in the dense body (nothing is null there) and when some
+    // output references no column at all (a literal-only tree is never dead). For one output
+    // over one input this is task 9's `nullCount == length`.
     boolean anyColumnFree = false;
     for (VarkaVectorIR root : outputs) {
       anyColumnFree |= analysis.columns.get(root) == 0L;
     }
-    if (!anyColumnFree) {
+    if (!dense && !anyColumnFree) {
       Label live = cb.newLabel();
       boolean firstOutput = true;
       for (VarkaVectorIR root : outputs) {
@@ -584,150 +671,226 @@ public final class VarkaLoopEmitter {
       }
     }
 
-    // (6) The lane-group loop: for (i = 0; i < loopBound; i += lanes).
+    // (6) The loop and tail of this body's variant.
+    Slots slots = new Slots(srcSeg, srcValSeg, dead, hasNulls, word, dstSeg, dstValSeg,
+        species, lanes, loopBound, scalarArg, broadcastSlot, iVar, byteOffset,
+        maskWordSlot, maskVarSlot, sharedSlot);
+    emitLoopAndTail(cb, dense, outputs, analysis, slots);
+  }
+
+  /** The local-variable slots one emitted {@code run} uses, threaded to the body emitters. */
+  private static final class Slots {
+    final int[] srcSeg;
+    final int[] srcValSeg;
+    final int[] dead;
+    final int[] hasNulls;
+    final int[] word;
+    final int[] dstSeg;
+    final int[] dstValSeg;
+    final int species;
+    final int lanes;
+    final int loopBound;
+    final int[] scalarArg;
+    final int[] broadcastSlot;
+    final int iVar;
+    final int byteOffset;
+    final Map<Long, Integer> maskWordSlot;
+    final Map<Long, Integer> maskVarSlot;
+    final Map<VarkaVectorIR, Integer> sharedSlot;
+
+    Slots(int[] srcSeg, int[] srcValSeg, int[] dead, int[] hasNulls, int[] word,
+        int[] dstSeg, int[] dstValSeg, int species, int lanes, int loopBound,
+        int[] scalarArg, int[] broadcastSlot, int iVar, int byteOffset,
+        Map<Long, Integer> maskWordSlot, Map<Long, Integer> maskVarSlot,
+        Map<VarkaVectorIR, Integer> sharedSlot) {
+      this.srcSeg = srcSeg;
+      this.srcValSeg = srcValSeg;
+      this.dead = dead;
+      this.hasNulls = hasNulls;
+      this.word = word;
+      this.dstSeg = dstSeg;
+      this.dstValSeg = dstValSeg;
+      this.species = species;
+      this.lanes = lanes;
+      this.loopBound = loopBound;
+      this.scalarArg = scalarArg;
+      this.broadcastSlot = broadcastSlot;
+      this.iVar = iVar;
+      this.byteOffset = byteOffset;
+      this.maskWordSlot = maskWordSlot;
+      this.maskVarSlot = maskVarSlot;
+      this.sharedSlot = sharedSlot;
+    }
+  }
+
+  /**
+   * One complete body - the lane-group loop plus the scalar tail, ending in {@code return} -
+   * in one of two variants. The dense variant is entered only when every referenced input is
+   * null-free: no validity words, no masks, unmasked loads, lanewise ops and stores, all-true
+   * destination validity, and a tail with no per-row validity checks. The masked variant is
+   * the general one, and the two must agree row for row wherever both could run.
+   */
+  private static void emitLoopAndTail(CodeBuilder cb, boolean dense,
+      List<VarkaVectorIR> outputs, Analysis analysis, Slots s) {
+    int numInputs = analysis.numInputs;
+    int numOutputs = outputs.size();
+
+    // The lane-group loop: for (i = 0; i < loopBound; i += lanes).
     cb.loadConstant(0);
-    cb.istore(iVar);
+    cb.istore(s.iVar);
     Label loopTop = cb.newLabel();
     Label loopEnd = cb.newLabel();
     cb.labelBinding(loopTop);
-    cb.iload(iVar);
-    cb.iload(loopBound);
+    cb.iload(s.iVar);
+    cb.iload(s.loopBound);
     cb.if_icmpge(loopEnd);
 
     // byteOffset = (long) i * 4.
-    cb.iload(iVar);
+    cb.iload(s.iVar);
     cb.i2l();
     cb.loadConstant(4L);
     cb.lmul();
-    cb.lstore(byteOffset);
+    cb.lstore(s.byteOffset);
 
-    // Each referenced input's validity word for this group: 0L when all-null, the bitmap bits
-    // when it has nulls, -1L when null-free. All three branches leave one long for the merge.
-    for (int i = 0; i < numInputs; i++) {
-      if (!referenced(analysis, i)) {
-        continue;
-      }
-      Label wNotDead = cb.newLabel();
-      Label wNoNulls = cb.newLabel();
-      Label wDone = cb.newLabel();
-      cb.iload(dead[i]);
-      cb.ifeq(wNotDead);
-      cb.loadConstant(0L);
-      cb.goto_(wDone);
-      cb.labelBinding(wNotDead);
-      cb.iload(hasNulls[i]);
-      cb.ifeq(wNoNulls);
-      cb.aload(srcValSeg[i]);
-      cb.iload(iVar);
-      cb.i2l();
-      cb.iload(lanes);
-      cb.invokestatic(SUPPORT, "validityBitsAt", VALIDITY_BITS_AT);
-      cb.goto_(wDone);
-      cb.labelBinding(wNoNulls);
-      cb.loadConstant(-1L);
-      cb.labelBinding(wDone);
-      cb.lstore(word[i]);
-    }
-
-    // One combined word and one VectorMask per distinct referenced-column set (the mask
-    // algebra: AND, because every op here is null-intolerant). Singleton sets alias the
-    // input's own word; the empty set is all-true.
-    for (long set : analysis.maskSets) {
-      int bits = Long.bitCount(set);
-      if (bits == 0) {
-        cb.loadConstant(-1L);
-        cb.lstore(maskWordSlot.get(set));
-      } else if (bits > 1) {
-        boolean first = true;
-        for (int i = 0; i < numInputs; i++) {
-          if ((set >>> i & 1L) != 0) {
-            cb.lload(word[i]);
-            if (!first) {
-              cb.land();
-            }
-            first = false;
-          }
+    if (!dense) {
+      // Each referenced input's validity word for this group: 0L when all-null, the bitmap
+      // bits when it has nulls, -1L when null-free. All three branches leave one long for the
+      // merge.
+      for (int i = 0; i < numInputs; i++) {
+        if (!referenced(analysis, i)) {
+          continue;
         }
-        cb.lstore(maskWordSlot.get(set));
+        Label wNotDead = cb.newLabel();
+        Label wNoNulls = cb.newLabel();
+        Label wDone = cb.newLabel();
+        cb.iload(s.dead[i]);
+        cb.ifeq(wNotDead);
+        cb.loadConstant(0L);
+        cb.goto_(wDone);
+        cb.labelBinding(wNotDead);
+        cb.iload(s.hasNulls[i]);
+        cb.ifeq(wNoNulls);
+        cb.aload(s.srcValSeg[i]);
+        cb.iload(s.iVar);
+        cb.i2l();
+        cb.iload(s.lanes);
+        cb.invokestatic(SUPPORT, "validityBitsAt", VALIDITY_BITS_AT);
+        cb.goto_(wDone);
+        cb.labelBinding(wNoNulls);
+        cb.loadConstant(-1L);
+        cb.labelBinding(wDone);
+        cb.lstore(s.word[i]);
       }
-      cb.aload(species);
-      cb.lload(maskWordSlot.get(set));
-      cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
-      cb.astore(maskVarSlot.get(set));
+
+      // One combined word and one VectorMask per distinct referenced-column set (the mask
+      // algebra: AND, because every op here is null-intolerant). Singleton sets alias the
+      // input's own word; the empty set is all-true.
+      for (long set : analysis.maskSets) {
+        int bits = Long.bitCount(set);
+        if (bits == 0) {
+          cb.loadConstant(-1L);
+          cb.lstore(s.maskWordSlot.get(set));
+        } else if (bits > 1) {
+          boolean first = true;
+          for (int i = 0; i < numInputs; i++) {
+            if ((set >>> i & 1L) != 0) {
+              cb.lload(s.word[i]);
+              if (!first) {
+                cb.land();
+              }
+              first = false;
+            }
+          }
+          cb.lstore(s.maskWordSlot.get(set));
+        }
+        cb.aload(s.species);
+        cb.lload(s.maskWordSlot.get(set));
+        cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+        cb.astore(s.maskVarSlot.get(set));
+      }
     }
 
     // Each output: the DAG post-order with intermediates on the operand stack (or in a shared
-    // node's local), one masked store, and this group's validity bits - the root's word, which
-    // orValidityBitsAt truncates to the lane count itself.
+    // node's local), one store, and this group's validity bits - the root's word (all-true
+    // when dense), which orValidityBitsAt truncates to the lane count itself.
     Set<VarkaVectorIR> computed = new HashSet<>();
     for (int o = 0; o < numOutputs; o++) {
       VarkaVectorIR root = outputs.get(o);
-      emitVector(cb, root, analysis, srcSeg, byteOffset, species,
-          maskVarSlot, scalarArg, broadcastSlot, sharedSlot, computed);
+      emitVector(cb, root, dense, analysis, s, computed);
       long rootSet = analysis.columns.get(root);
-      cb.aload(dstSeg[o]);
-      cb.lload(byteOffset);
+      cb.aload(s.dstSeg[o]);
+      cb.lload(s.byteOffset);
       cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-      cb.aload(maskVarSlot.get(rootSet));
-      cb.invokevirtual(INT_VECTOR, "intoMemorySegment", INTO_MEMORY_SEGMENT);
-      cb.aload(dstValSeg[o]);
-      cb.iload(iVar);
+      if (dense) {
+        cb.invokevirtual(INT_VECTOR, "intoMemorySegment", INTO_MEMORY_SEGMENT_DENSE);
+      } else {
+        cb.aload(s.maskVarSlot.get(rootSet));
+        cb.invokevirtual(INT_VECTOR, "intoMemorySegment", INTO_MEMORY_SEGMENT);
+      }
+      cb.aload(s.dstValSeg[o]);
+      cb.iload(s.iVar);
       cb.i2l();
-      cb.lload(maskWordSlot.get(rootSet));
-      cb.iload(lanes);
+      if (dense) {
+        cb.loadConstant(-1L);
+      } else {
+        cb.lload(s.maskWordSlot.get(rootSet));
+      }
+      cb.iload(s.lanes);
       cb.invokestatic(SUPPORT, "orValidityBitsAt", OR_VALIDITY_BITS_AT);
     }
 
-    cb.iload(iVar);
-    cb.iload(lanes);
+    cb.iload(s.iVar);
+    cb.iload(s.lanes);
     cb.iadd();
-    cb.istore(iVar);
+    cb.istore(s.iVar);
     cb.goto_(loopTop);
     cb.labelBinding(loopEnd);
 
-    // (7) Scalar tail: per row, per output - the row is served iff every column the output
-    // references is valid there (the same AND, in boolean form), mirroring the loop row for
-    // row. Shared subtrees are recomputed: scalar recomputation is cheaper than bookkeeping
-    // over at most one lane group of rows.
+    // Scalar tail: per row, per output - in the masked body the row is served iff every
+    // column the output references is valid there (the same AND, in boolean form); the dense
+    // body has no checks to make. Shared subtrees are recomputed: scalar recomputation is
+    // cheaper than bookkeeping over at most one lane group of rows.
     Label tailTop = cb.newLabel();
     Label tailEnd = cb.newLabel();
     cb.labelBinding(tailTop);
-    cb.iload(iVar);
+    cb.iload(s.iVar);
     cb.iload(P_LENGTH);
     cb.if_icmpge(tailEnd);
     for (int o = 0; o < numOutputs; o++) {
       VarkaVectorIR root = outputs.get(o);
       long set = analysis.columns.get(root);
       Label rowDone = cb.newLabel();
-      for (int i = 0; i < numInputs; i++) {
-        if ((set >>> i & 1L) != 0) {
-          cb.iload(dead[i]);
-          cb.ifne(rowDone);
-          Label bitOk = cb.newLabel();
-          cb.iload(hasNulls[i]);
-          cb.ifeq(bitOk);
-          cb.aload(srcValSeg[i]);
-          cb.iload(iVar);
-          cb.invokestatic(SUPPORT, "isBitSet", IS_BIT_SET);
-          cb.ifeq(rowDone);
-          cb.labelBinding(bitOk);
+      if (!dense) {
+        for (int i = 0; i < numInputs; i++) {
+          if ((set >>> i & 1L) != 0) {
+            cb.iload(s.dead[i]);
+            cb.ifne(rowDone);
+            Label bitOk = cb.newLabel();
+            cb.iload(s.hasNulls[i]);
+            cb.ifeq(bitOk);
+            cb.aload(s.srcValSeg[i]);
+            cb.iload(s.iVar);
+            cb.invokestatic(SUPPORT, "isBitSet", IS_BIT_SET);
+            cb.ifeq(rowDone);
+            cb.labelBinding(bitOk);
+          }
         }
       }
       // dstSeg.set(JAVA_INT, (long) i * 4, <scalar tree>); setBit(dstValSeg, i).
-      cb.aload(dstSeg[o]);
+      cb.aload(s.dstSeg[o]);
       cb.getstatic(VALUE_LAYOUT, "JAVA_INT", VALUE_LAYOUT_OF_INT);
-      cb.iload(iVar);
+      cb.iload(s.iVar);
       cb.i2l();
       cb.loadConstant(4L);
       cb.lmul();
-      emitScalar(cb, root, srcSeg, iVar, scalarArg);
+      emitScalar(cb, root, s.srcSeg, s.iVar, s.scalarArg);
       cb.invokeinterface(MEMORY_SEGMENT, "set", SEGMENT_SET_INT);
-      cb.aload(dstValSeg[o]);
-      cb.iload(iVar);
+      cb.aload(s.dstValSeg[o]);
+      cb.iload(s.iVar);
       cb.invokestatic(SUPPORT, "setBit", SET_BIT);
       cb.labelBinding(rowDone);
     }
-    cb.iinc(iVar, 1);
+    cb.iinc(s.iVar, 1);
     cb.goto_(tailTop);
     cb.labelBinding(tailEnd);
     cb.return_();
@@ -753,63 +916,77 @@ public final class VarkaLoopEmitter {
    * than once is computed at its first (textual) use, duplicated into its local, and later uses
    * load the local - across outputs too, since the loop body is one straight line.
    */
-  private static void emitVector(CodeBuilder cb, VarkaVectorIR node, Analysis analysis,
-      int[] srcSeg, int byteOffset, int species, Map<Long, Integer> maskVarSlot,
-      int[] scalarArg, int[] broadcastSlot, Map<VarkaVectorIR, Integer> sharedSlot,
-      Set<VarkaVectorIR> computed) {
-    Integer shared = sharedSlot.get(node);
+  private static void emitVector(CodeBuilder cb, VarkaVectorIR node, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    Integer shared = s.sharedSlot.get(node);
     if (shared != null && computed.contains(node)) {
       cb.aload(shared);
       return;
     }
     switch (node) {
       case ColumnRef c -> {
-        cb.aload(species);
-        cb.aload(srcSeg[c.ordinal()]);
-        cb.lload(byteOffset);
+        cb.aload(s.species);
+        cb.aload(s.srcSeg[c.ordinal()]);
+        cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-        cb.aload(maskVarSlot.get(1L << c.ordinal()));
-        cb.invokestatic(INT_VECTOR, "fromMemorySegment", FROM_MEMORY_SEGMENT);
+        if (dense) {
+          cb.invokestatic(INT_VECTOR, "fromMemorySegment", FROM_MEMORY_SEGMENT_DENSE);
+        } else {
+          cb.aload(s.maskVarSlot.get(1L << c.ordinal()));
+          cb.invokestatic(INT_VECTOR, "fromMemorySegment", FROM_MEMORY_SEGMENT);
+        }
       }
       case LiteralSlot l -> {
-        if (broadcastSlot != null) {
-          cb.aload(broadcastSlot[l.index()]);
+        if (s.broadcastSlot != null) {
+          cb.aload(s.broadcastSlot[l.index()]);
         } else {
-          cb.aload(species);
-          cb.iload(scalarArg[l.index()]);
+          cb.aload(s.species);
+          cb.iload(s.scalarArg[l.index()]);
           cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
         }
       }
       case AddDays n -> {
-        emitVector(cb, n.days(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        emitVector(cb, n.offset(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        cb.aload(maskVarSlot.get(analysis.columns.get(node)));
-        MethodTypeDesc desc = misdescribeAddForTesting ? LANEWISE_MASKED_WRONG : LANEWISE_MASKED;
-        cb.invokevirtual(INT_VECTOR, "add", desc);
+        emitVector(cb, n.days(), dense, analysis, s, computed);
+        emitVector(cb, n.offset(), dense, analysis, s, computed);
+        // The misdescribe hook covers both variants: whichever body executes first must fail
+        // naming the call.
+        if (dense) {
+          MethodTypeDesc desc =
+              misdescribeAddForTesting ? LANEWISE_DENSE_WRONG : LANEWISE_DENSE;
+          cb.invokevirtual(INT_VECTOR, "add", desc);
+        } else {
+          cb.aload(s.maskVarSlot.get(analysis.columns.get(node)));
+          MethodTypeDesc desc =
+              misdescribeAddForTesting ? LANEWISE_MASKED_WRONG : LANEWISE_MASKED;
+          cb.invokevirtual(INT_VECTOR, "add", desc);
+        }
       }
       case SubDays n -> {
-        emitVector(cb, n.days(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        emitVector(cb, n.offset(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        cb.aload(maskVarSlot.get(analysis.columns.get(node)));
-        cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_MASKED);
+        emitVector(cb, n.days(), dense, analysis, s, computed);
+        emitVector(cb, n.offset(), dense, analysis, s, computed);
+        emitLanewiseSub(cb, dense, analysis, node, s);
       }
       case DateDiff n -> {
-        emitVector(cb, n.end(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        emitVector(cb, n.start(), analysis, srcSeg, byteOffset, species, maskVarSlot,
-            scalarArg, broadcastSlot, sharedSlot, computed);
-        cb.aload(maskVarSlot.get(analysis.columns.get(node)));
-        cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_MASKED);
+        emitVector(cb, n.end(), dense, analysis, s, computed);
+        emitVector(cb, n.start(), dense, analysis, s, computed);
+        emitLanewiseSub(cb, dense, analysis, node, s);
       }
     }
     if (shared != null) {
       cb.dup();
       cb.astore(shared);
       computed.add(node);
+    }
+  }
+
+  /** The {@code sub} call both {@link SubDays} and {@link DateDiff} lower to. */
+  private static void emitLanewiseSub(
+      CodeBuilder cb, boolean dense, Analysis analysis, VarkaVectorIR node, Slots s) {
+    if (dense) {
+      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_DENSE);
+    } else {
+      cb.aload(s.maskVarSlot.get(analysis.columns.get(node)));
+      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_MASKED);
     }
   }
 
