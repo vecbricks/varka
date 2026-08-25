@@ -46,4 +46,13 @@ public final class VarkaEmitterTestSupport {
   public static void setDisableCse(boolean disable) {
     VarkaLoopEmitter.disableCseForTesting = disable;
   }
+
+  /**
+   * Toggles {@link VarkaLoopEmitter#divFloorModForTesting} for callers outside the emitter's
+   * package - the parity benchmark prices the shipped digit-sum mod-7 against the lanewise-DIV
+   * reference variant (task 11, plan 2.3).
+   */
+  public static void setDivFloorMod(boolean div) {
+    VarkaLoopEmitter.divFloorModForTesting = div;
+  }
 }

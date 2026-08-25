@@ -18,8 +18,9 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, Literal, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, ColumnRef, DateDiff => IRDateDiff, LiteralSlot, SubDays}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, CaseWhen, Cast, DateAdd, DateDiff, DateSub, DayOfWeek, EqualNullSafe, EqualTo, GreaterThan, Greatest, If, LessThan, Literal, NamedExpression, Not, Or, WeekDay}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, ColumnRef, CompareOp, DateDiff => IRDateDiff, LiteralSlot, SubDays}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{Compare, DayOfWeek => IRDayOfWeek, Greatest => IRGreatest, IfElse, Not => IRNot, Or => IROr, WeekDay => IRWeekDay}
 import org.apache.spark.sql.types.{DateType, IntegerType}
 
 /**
@@ -70,6 +71,66 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     assert(compiled.inputOrdinals === Seq(1, 0))
     assert(compiled.outputs === Seq(new IRDateDiff(
       new ColumnRef(0), new AddDays(new ColumnRef(1), new LiteralSlot(0)))))
+  }
+
+  test("CASE WHEN right-folds into nested IfElse; no ELSE declines") {
+    val expr = CaseWhen(
+      Seq(
+        LessThan(d, d2) -> DateAdd(d, Literal(1)),
+        EqualTo(d, d2) -> DateAdd(d, Literal(2))),
+      Some(d2))
+    // Ineligible without task 11's recursion; now the first branch wins first, SQL's rule.
+    val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    assert(compiled.outputs === Seq(new IfElse(
+      new Compare(CompareOp.LT, c0, c1),
+      new AddDays(c0, new LiteralSlot(0)),
+      new IfElse(
+        new Compare(CompareOp.EQ, c0, c1),
+        new AddDays(c0, new LiteralSlot(1)),
+        c1))))
+    assert(compiled.outputTypes === Seq(DateType))
+    // No ELSE means a null-literal branch, which breaks the dense body's all-valid invariant.
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(CaseWhen(Seq(LessThan(d, d2) -> DateAdd(d, Literal(1))), None))),
+      childOutput).isEmpty)
+  }
+
+  test("n-ary greatest left-folds; connectives, NOT and date literals compile") {
+    val expr = If(
+      Or(Not(GreaterThan(d, d2)), EqualTo(d, Literal(19000, DateType))),
+      Greatest(Seq(d, d2, DateAdd(d, Literal(19000)))),
+      d2)
+    val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    // The date literal and the equal-valued day offset share one slot, by value.
+    assert(compiled.literals === Seq(19000))
+    assert(compiled.outputs === Seq(new IfElse(
+      new IROr(
+        new IRNot(new Compare(CompareOp.GT, c0, c1)),
+        new Compare(CompareOp.EQ, c0, new LiteralSlot(0))),
+      new IRGreatest(new IRGreatest(c0, c1), new AddDays(c0, new LiteralSlot(0))),
+      c1)))
+  }
+
+  test("dayofweek and weekday compile with IntegerType outputs") {
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(DayOfWeek(d)), out(WeekDay(DateAdd(d, Literal(3))))), childOutput).get
+    assert(compiled.outputs === Seq(
+      new IRDayOfWeek(new ColumnRef(0)),
+      new IRWeekDay(new AddDays(new ColumnRef(0), new LiteralSlot(0)))))
+    assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
+  }
+
+  test("task 11 declines: null-safe equality, bare boolean outputs") {
+    // <=> on two nulls is true, which breaks the null-intolerant comparison rule.
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(If(EqualNullSafe(d, d2), d2, DateAdd(d, Literal(1))))), childOutput).isEmpty)
+    // A comparison as a projection output is a boolean column - out of scope, interior only.
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(LessThan(d, d2))), childOutput).isEmpty)
   }
 
   test("uncompilable shapes fail the whole projection") {

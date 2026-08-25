@@ -29,11 +29,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.varka.vector.DateVectorOps
 
 /**
- * Unit tests for [[VarkaLoopEmitter]] (milestone 2, tasks 9 and 10): the emitted fused loop must
- * match the hand-written `DateVectorOps` kernels - the reference semantics - row for row and bit
- * for bit, across lengths that straddle every lane and byte boundary of the 4-, 8- and 16-lane
- * species, every null pattern (applied independently per column for the multi-input shapes),
- * and offsets including int wrap-around.
+ * Unit tests for [[VarkaLoopEmitter]] (milestone 2, tasks 9-11): the emitted fused loop must
+ * match the hand-written `DateVectorOps` kernels - the reference semantics for the arithmetic
+ * ops - row for row and bit for bit, across lengths that straddle every lane and byte boundary
+ * of the 4-, 8- and 16-lane species, every null pattern (applied independently per column for
+ * the multi-input shapes), and offsets including int wrap-around. The predication ops (task 11)
+ * run against an in-suite reference evaluator implementing the milestone's 2.6 semantics
+ * independently - Kleene three-valued conditions, blend, null-skipping greatest/least,
+ * full-range floorMod - across the same matrices.
  *
  * The suite must also run green under `-XX:MaxVectorSize=16` (the four-lane shape; milestone 1's
  * finding 1 is why that width is where bugs hide):
@@ -104,13 +107,17 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
   private def alloc(arena: Arena, bytes: Long): MemorySegment =
     arena.allocate(math.max(bytes, 1L), 8)
 
-  private def makeInput(arena: Arena, length: Int, isNull: Int => Boolean): Col = {
+  private def makeInput(arena: Arena, length: Int, isNull: Int => Boolean): Col =
+    makeInputData(arena, length, isNull, i => i * 31 - 7000)
+
+  private def makeInputData(
+      arena: Arena, length: Int, isNull: Int => Boolean, value: Int => Int): Col = {
     val data = alloc(arena, length * 4L)
     val validity = alloc(arena, (length + 7) / 8L)
     validity.fill(0.toByte)
     var nulls = 0
     for (i <- 0 until length) {
-      data.set(ValueLayout.JAVA_INT, i * 4L, i * 31 - 7000)
+      data.set(ValueLayout.JAVA_INT, i * 4L, value(i))
       if (isNull(i)) {
         nulls += 1
       } else {
@@ -148,6 +155,138 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
           expected._1.get(ValueLayout.JAVA_INT, i * 4L), s"$context: row $i differs")
       }
     }
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Task 11: the reference evaluator - an independent Scala implementation of the milestone's
+  // 2.6 semantics (three-valued conditions, blend, null-skipping greatest/least, floorMod)
+  // that every predication test runs the emitted loop against, row for row and bit for bit.
+  // -----------------------------------------------------------------------------------------
+
+  private def evalValue(
+      node: VarkaVectorIR, row: Seq[Option[Int]], lits: Array[Int]): Option[Int] = node match {
+    case c: ColumnRef => row(c.ordinal())
+    case l: LiteralSlot => Some(lits(l.index()))
+    case n: AddDays =>
+      for (d <- evalValue(n.days(), row, lits); o <- evalValue(n.offset(), row, lits))
+        yield d + o
+    case n: SubDays =>
+      for (d <- evalValue(n.days(), row, lits); o <- evalValue(n.offset(), row, lits))
+        yield d - o
+    case n: DateDiff =>
+      for (e <- evalValue(n.end(), row, lits); s <- evalValue(n.start(), row, lits)) yield e - s
+    case n: DayOfWeek =>
+      evalValue(n.days(), row, lits).map(v => (Math.floorMod(v, 7) + 4) % 7 + 1)
+    case n: WeekDay =>
+      evalValue(n.days(), row, lits).map(v => (Math.floorMod(v, 7) + 3) % 7)
+    case n: Greatest =>
+      pick(evalValue(n.left(), row, lits), evalValue(n.right(), row, lits), math.max)
+    case n: Least =>
+      pick(evalValue(n.left(), row, lits), evalValue(n.right(), row, lits), math.min)
+    case n: IfElse =>
+      if (evalCond(n.cond(), row, lits).contains(true)) evalValue(n.thenNode(), row, lits)
+      else evalValue(n.elseNode(), row, lits)
+    case c: Cond => fail(s"condition $c evaluated as a value")
+  }
+
+  private def pick(a: Option[Int], b: Option[Int], op: (Int, Int) => Int): Option[Int] =
+    (a, b) match {
+      case (Some(x), Some(y)) => Some(op(x, y))
+      case (Some(x), None) => Some(x)
+      case (None, y) => y
+    }
+
+  /** Kleene three-valued logic; `None` is unknown, and only known-true selects THEN. */
+  private def evalCond(
+      cond: Cond, row: Seq[Option[Int]], lits: Array[Int]): Option[Boolean] = cond match {
+    case n: Compare =>
+      for (l <- evalValue(n.left(), row, lits); r <- evalValue(n.right(), row, lits)) yield {
+        n.op() match {
+          case CompareOp.LT => l < r
+          case CompareOp.LE => l <= r
+          case CompareOp.GT => l > r
+          case CompareOp.GE => l >= r
+          case CompareOp.EQ => l == r
+        }
+      }
+    case n: And =>
+      (evalCond(n.left(), row, lits), evalCond(n.right(), row, lits)) match {
+        case (Some(false), _) | (_, Some(false)) => Some(false)
+        case (Some(true), Some(true)) => Some(true)
+        case _ => None
+      }
+    case n: Or =>
+      (evalCond(n.left(), row, lits), evalCond(n.right(), row, lits)) match {
+        case (Some(true), _) | (_, Some(true)) => Some(true)
+        case (Some(false), Some(false)) => Some(false)
+        case _ => None
+      }
+    case n: Not => evalCond(n.child(), row, lits).map(!_)
+  }
+
+  private def defaultData(col: Int, i: Int): Int = (i * (col + 3)) % 23 - 11
+
+  /**
+   * Emits the outputs once, then runs every (length, per-column null pattern) case against the
+   * reference evaluator. With `forceMasked` a null-free column reports one null over a
+   * full-set bitmap, which sends the batch down `runMasked` - the dispatcher tests only
+   * `nullCount != 0` - so the masked body is exercised on the same data the dense body serves.
+   */
+  private def checkMatrix(
+      roots: Seq[VarkaVectorIR],
+      numInputs: Int,
+      lits: Array[Int],
+      caseLengths: Seq[Int],
+      patternCombos: Seq[Seq[Int => Boolean]],
+      data: (Int, Int) => Int = defaultData,
+      forceMasked: Boolean = false,
+      ctx: String = ""): Unit = {
+    val (kernel, loader) = load(emitMulti(roots, numInputs, lits.length))
+    try {
+      for (length <- caseLengths; (combo, comboId) <- patternCombos.zipWithIndex) {
+        val arena = Arena.ofConfined()
+        try {
+          val cols = (0 until numInputs).map { c =>
+            makeInputData(arena, length, combo(c), i => data(c, i))
+          }
+          val outs = roots.map(_ => makeOutput(arena, length))
+          val nullCounts = cols.map { col =>
+            if (forceMasked && col.nullCount == 0) 1 else col.nullCount
+          }
+          val validityAddrs = cols.zip(nullCounts).map { case (col, nc) =>
+            if (nc == 0 || nc == length) col.validityAddress(length) else col.validity.address()
+          }
+          kernel.run(cols.map(_.data.address()).toArray, validityAddrs.toArray,
+            nullCounts.toArray, outs.map(_._1.address()).toArray,
+            outs.map(_._2.address()).toArray, lits, length)
+          for (i <- 0 until length) {
+            val row = (0 until numInputs).map { c =>
+              if (combo(c)(i)) None else Some(data(c, i))
+            }
+            for ((root, o) <- roots.zipWithIndex) {
+              val expected = evalValue(root, row, lits)
+              val bit = (outs(o)._2.get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0
+              val where = s"$ctx len=$length combo=$comboId out=$o row=$i"
+              assert(bit === expected.isDefined, s"$where: validity differs (want $expected)")
+              expected.foreach { v =>
+                assert(outs(o)._1.get(ValueLayout.JAVA_INT, i * 4L) === v, s"$where: value")
+              }
+            }
+          }
+        } finally {
+          arena.close()
+        }
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  /** Every pair (or triple) of the four null patterns, as per-column combinations. */
+  private def combos(numInputs: Int): Seq[Seq[Int => Boolean]] = {
+    val ps = nullPatterns.map(_._2)
+    if (numInputs == 2) for (a <- ps; b <- ps) yield Seq(a, b)
+    else for (a <- ps; b <- ps; c <- ps) yield Seq(a, b, c)
   }
 
   test("the emitted class passes class-file verification before it is ever loaded") {
@@ -405,6 +544,94 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
+  test("IfElse over every comparison matches the reference across per-column null patterns") {
+    for (op <- CompareOp.values.toSeq) {
+      val root = new IfElse(new Compare(op, new ColumnRef(0), new ColumnRef(1)),
+        new AddDays(new ColumnRef(0), new LiteralSlot(0)),
+        new SubDays(new ColumnRef(1), new LiteralSlot(1)))
+      checkMatrix(Seq(root), 2, Array(7, 3), Seq(0, 1, 5, 17, 64, 65, 1000), combos(2),
+        ctx = s"op=$op")
+    }
+  }
+
+  test("three-valued connectives: unknowns propagate by Kleene's rules") {
+    // NOT(a < b) OR (a = c AND b <= c): known-false must survive NOT, an unknown falls
+    // through to ELSE, and the reference evaluator implements Kleene logic independently.
+    val a = new ColumnRef(0)
+    val b = new ColumnRef(1)
+    val c = new ColumnRef(2)
+    val cond = new Or(
+      new Not(new Compare(CompareOp.LT, a, b)),
+      new And(new Compare(CompareOp.EQ, a, c), new Compare(CompareOp.LE, b, c)))
+    val root = new IfElse(cond, new AddDays(a, new LiteralSlot(0)), b)
+    checkMatrix(Seq(root), 3, Array(11), Seq(17, 64, 1000), combos(3), ctx = "kleene")
+  }
+
+  test("greatest and least skip nulls, nested to the n-ary fold shape") {
+    val g2 = new Greatest(new ColumnRef(0), new ColumnRef(1))
+    val roots = Seq[VarkaVectorIR](
+      new Greatest(g2, new ColumnRef(2)),
+      new Least(new Least(new ColumnRef(0), new ColumnRef(1)), new ColumnRef(2)),
+      // The milestone's irreducible chain: greatest over a nested arithmetic chain.
+      new Greatest(new AddDays(new ColumnRef(0), new LiteralSlot(0)), new ColumnRef(2)))
+    checkMatrix(roots, 3, Array(7), Seq(1, 17, 64, 65, 1000), combos(3), ctx = "pick")
+  }
+
+  test("dayofweek and weekday match floorMod and LocalDate across extreme and negative days") {
+    val roots = Seq[VarkaVectorIR](
+      new DayOfWeek(new ColumnRef(0)), new WeekDay(new ColumnRef(0)))
+    val extremes = Array(Int.MinValue, Int.MaxValue, Int.MinValue + 1, Int.MaxValue - 1,
+      -1, 0, 1, -7, 7, -8, 8, Int.MaxValue - 3, Int.MinValue + 3)
+    def days(c: Int, i: Int): Int =
+      if (i < extremes.length) extremes(i) else i * 997 - 300000
+    checkMatrix(roots, 1, Array.empty[Int], Seq(1, 13, 17, 64, 1000),
+      nullPatterns.map(p => Seq(p._2)), data = days, ctx = "dow")
+    // The independent oracle behind the reference: Spark's DateTimeUtils formula through
+    // LocalDate, valid for every int epoch day.
+    for (v <- extremes) {
+      val viaLocalDate = java.time.LocalDate.ofEpochDay(v).getDayOfWeek.plus(1).getValue
+      assert((Math.floorMod(v, 7) + 4) % 7 + 1 === viaLocalDate, s"oracle self-check v=$v")
+    }
+  }
+
+  test("the masked body agrees with the dense body on null-free data") {
+    // forceMasked reports one null over a full-set bitmap, which the dispatcher sends down
+    // runMasked; the reference expectations are identical to the dense run's.
+    val root = new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(1)),
+      new Greatest(new DayOfWeek(new ColumnRef(0)), new ColumnRef(1)),
+      new SubDays(new ColumnRef(0), new LiteralSlot(0)))
+    val nullFree = Seq(Seq[Int => Boolean](_ => false, _ => false))
+    checkMatrix(Seq(root), 2, Array(3), Seq(17, 64, 65, 1000), nullFree, ctx = "dense")
+    checkMatrix(Seq(root), 2, Array(3), Seq(17, 64, 65, 1000), nullFree,
+      forceMasked = true, ctx = "forced-masked")
+  }
+
+  test("the lanewise-DIV floorMod reference variant agrees with the shipped digit sum") {
+    val roots = Seq[VarkaVectorIR](new DayOfWeek(new ColumnRef(0)))
+    val extremes = Array(Int.MinValue, Int.MaxValue, -1, 0, -7, 7)
+    def days(c: Int, i: Int): Int =
+      if (i < extremes.length) extremes(i) else i * 31 - 7000
+    VarkaLoopEmitter.divFloorModForTesting = true
+    try {
+      checkMatrix(roots, 1, Array.empty[Int], Seq(64, 1000),
+        nullPatterns.map(p => Seq(p._2)), data = days, ctx = "div-variant")
+    } finally {
+      VarkaLoopEmitter.divFloorModForTesting = false
+    }
+  }
+
+  test("a shared subchain feeds a condition and both branches across outputs") {
+    // CSE across the value/condition boundary: `add = date_add(d, 7)` is compared against,
+    // blended over, and emitted as its own output - one computation per lane group.
+    val add = new AddDays(new ColumnRef(0), new LiteralSlot(0))
+    val cond = new Compare(CompareOp.GT, add, new ColumnRef(1))
+    val roots = Seq[VarkaVectorIR](
+      add,
+      new IfElse(cond, add, new ColumnRef(1)),
+      new IfElse(new Not(cond), new DateDiff(add, new ColumnRef(1)), new LiteralSlot(1)))
+    checkMatrix(roots, 2, Array(7, 42), Seq(5, 64, 65, 1000), combos(2), ctx = "shared")
+  }
+
   test("IR outside the emitter's shape is rejected with a reason, not emitted wrong") {
     def rejects(body: => Unit, fragment: String): Unit = {
       val e = intercept[IllegalArgumentException](body)
@@ -427,6 +654,11 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     val (_, sharedOk) = emitMulti(
       disjointChains.take(4) ++ disjointChains.take(4), 1, 52)
     assert(sharedOk.nonEmpty)
+    // Task 11: conditions are interior only, and never values.
+    val cmp = new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(0))
+    rejects(emitMulti(Seq(cmp), 1, 0), "value position")
+    rejects(emitMulti(Seq(new AddDays(cmp, new LiteralSlot(0))), 1, 1), "value position")
+    rejects(emitMulti(Seq(new Greatest(new ColumnRef(0), cmp)), 1, 0), "value position")
   }
 
   test("a wrong descriptor fails naming the call, not as an anonymous VerifyError") {

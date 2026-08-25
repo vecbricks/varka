@@ -19,9 +19,10 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 
 import scala.collection.mutable
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, DateAdd, DateDiff, DateSub, DateVarkaSupport, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, BindReferences, BoundReference, CaseWhen, DateAdd, DateDiff, DateSub, DateVarkaSupport, DayOfWeek, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, Greatest, If, Least, LessThan, LessThanOrEqual, Literal, NamedExpression, Not, Or, WeekDay}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, ColumnRef, DateDiff => IRDateDiff, LiteralSlot, SubDays}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, ColumnRef, CompareOp, DateDiff => IRDateDiff, LiteralSlot, SubDays}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{And => IRAnd, Compare, Cond, DayOfWeek => IRDayOfWeek, Greatest => IRGreatest, IfElse, Least => IRLeast, Not => IRNot, Or => IROr, WeekDay => IRWeekDay}
 import org.apache.spark.sql.types.{DataType, DateType}
 
 /**
@@ -41,7 +42,9 @@ private[sql] case class CompiledVarkaProjection(
 /**
  * Compiles a bound projection list to [[CompiledVarkaProjection]], recursing where the MVP's
  * flat matcher demanded bare attributes - `datediff(date_add(d, 7), d2)` compiles where
- * milestone 1 saw nothing. Used by both `VarkaColumnarRule` (is the projection eligible?) and
+ * milestone 1 saw nothing, and since task 11 so do `CASE WHEN`/`IF` (via interior comparisons
+ * and the three-valued connectives), `greatest`/`least`, `dayofweek`/`weekday` and date
+ * literals. Used by both `VarkaColumnarRule` (is the projection eligible?) and
  * `VarkaKernelEvaluator` (what does the emitted loop compute?), so eligibility cannot drift from
  * execution: there is one compiler and the rule's question is `compile(...).isDefined`.
  *
@@ -116,6 +119,11 @@ private[sql] object VarkaExpressionCompiler {
       literals: mutable.LinkedHashMap[Int, Int]): Option[VarkaVectorIR] = expr match {
     case br: BoundReference if br.dataType == DateType =>
       Some(new ColumnRef(inputs.getOrElseUpdate(br.ordinal, inputs.size)))
+    // A date literal's value is already an epoch-day int, so it takes a slot in the shared
+    // per-distinct-value table like a folded day offset does (task 11) - what makes
+    // `d < DATE'...'` and `greatest(d, DATE'...')` reachable at all.
+    case Literal(days: Int, DateType) =>
+      Some(new LiteralSlot(literals.getOrElseUpdate(days, literals.size)))
     case DateAdd(child, days) =>
       for {
         offset <- DateVarkaSupport.foldDaysOffset(days)
@@ -131,6 +139,97 @@ private[sql] object VarkaExpressionCompiler {
         endNode <- compileNode(end, inputs, literals)
         startNode <- compileNode(start, inputs, literals)
       } yield new IRDateDiff(endNode, startNode)
+    case If(pred, thenValue, elseValue) =>
+      for {
+        cond <- compileCond(pred, inputs, literals)
+        thenNode <- compileNode(thenValue, inputs, literals)
+        elseNode <- compileNode(elseValue, inputs, literals)
+      } yield new IfElse(cond, thenNode, elseNode)
+    // CASE WHEN with an ELSE right-folds into nested IfElse - SQL's first-match semantics is
+    // exactly nested if-else. Compilation runs in query order (branches left to right, then
+    // the ELSE) so input ordinals and literal slots register deterministically in reading
+    // order; only the fold is right-associative. With no ELSE the missing branch is a null
+    // literal, which would break the dense body's all-valid invariant (task 11 plan, 2.1):
+    // decline.
+    case CaseWhen(branches, elseValue) =>
+      elseValue.flatMap { elseExpr =>
+        val compiledBranches = branches.map { case (pred, value) =>
+          (compileCond(pred, inputs, literals), compileNode(value, inputs, literals))
+        }
+        val compiledElse = compileNode(elseExpr, inputs, literals)
+        if (compiledBranches.forall(b => b._1.isDefined && b._2.isDefined)
+            && compiledElse.isDefined) {
+          Some(compiledBranches.foldRight(compiledElse.get) { case ((cond, value), rest) =>
+            new IfElse(cond.get, value.get, rest)
+          })
+        } else {
+          None
+        }
+      }
+    // Spark's greatest/least are n-ary; the null-skipping algebra is associative, so a left
+    // fold into the binary IR nodes is exact.
+    case Greatest(children) =>
+      foldPick(children, inputs, literals, new IRGreatest(_, _))
+    case Least(children) =>
+      foldPick(children, inputs, literals, new IRLeast(_, _))
+    case DayOfWeek(child) =>
+      compileNode(child, inputs, literals).map(new IRDayOfWeek(_))
+    case WeekDay(child) =>
+      compileNode(child, inputs, literals).map(new IRWeekDay(_))
     case _ => None
+  }
+
+  private def foldPick(
+      children: Seq[Expression],
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int],
+      combine: (VarkaVectorIR, VarkaVectorIR) => VarkaVectorIR): Option[VarkaVectorIR] = {
+    val compiled = children.map(compileNode(_, inputs, literals))
+    if (compiled.nonEmpty && compiled.forall(_.isDefined)) {
+      Some(compiled.flatten.reduceLeft(combine))
+    } else {
+      None
+    }
+  }
+
+  /**
+   * The condition compiler (task 11): interior comparisons and the connectives, three-valued
+   * at run time via the emitter's known-true/known-false pairs. `EqualNullSafe` deliberately
+   * declines - its both-null-is-true case breaks the null-intolerant comparison rule and earns
+   * its own algebra entry or nothing (plan section 4).
+   */
+  private def compileCond(
+      expr: Expression,
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int]): Option[Cond] = expr match {
+    case LessThan(l, r) => compare(CompareOp.LT, l, r, inputs, literals)
+    case LessThanOrEqual(l, r) => compare(CompareOp.LE, l, r, inputs, literals)
+    case GreaterThan(l, r) => compare(CompareOp.GT, l, r, inputs, literals)
+    case GreaterThanOrEqual(l, r) => compare(CompareOp.GE, l, r, inputs, literals)
+    case EqualTo(l, r) => compare(CompareOp.EQ, l, r, inputs, literals)
+    case And(l, r) =>
+      for {
+        left <- compileCond(l, inputs, literals)
+        right <- compileCond(r, inputs, literals)
+      } yield new IRAnd(left, right)
+    case Or(l, r) =>
+      for {
+        left <- compileCond(l, inputs, literals)
+        right <- compileCond(r, inputs, literals)
+      } yield new IROr(left, right)
+    case Not(child) => compileCond(child, inputs, literals).map(new IRNot(_))
+    case _ => None
+  }
+
+  private def compare(
+      op: CompareOp,
+      l: Expression,
+      r: Expression,
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int]): Option[Cond] = {
+    for {
+      left <- compileNode(l, inputs, literals)
+      right <- compileNode(r, inputs, literals)
+    } yield new Compare(op, left, right)
   }
 }

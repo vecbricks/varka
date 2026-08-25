@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -30,7 +31,8 @@ import org.apache.spark.sql.internal.SQLConf
  * Where the projection is fused into [[VarkaColumnarToRowExec]], the SIMD kernels must actually
  * process the Arrow batches; where it is not, the plan must be untouched.
  */
-class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
+class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
+    with AdaptiveSparkPlanHelper {
 
   private def metaspaceUsed(): Long = {
     java.lang.management.ManagementFactory.getMemoryPoolMXBeans.asScala.collect {
@@ -234,6 +236,123 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
     checkDifferential(spark, varkaSpark,
       "SELECT date_add(d, 3) AS a, d FROM varka_dates ORDER BY a",
       expectFused = false)
+  }
+
+  test("CASE WHEN over dates is fused and matches the row engine, three-valued nulls included") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN d < d2 THEN date_add(d, 3) ELSE date_sub(d2, 1) END AS a " +
+        "FROM varka_date_pairs ORDER BY a",
+      expectFused = true)
+    // Three branches, the first match winning; nulls in either column fall through.
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN d < d2 THEN d WHEN d = d2 THEN date_add(d, 1) " +
+        "ELSE date_sub(d2, 2) END AS a FROM varka_date_pairs ORDER BY a",
+      expectFused = true)
+    // A CASE with no ELSE has a null-literal branch and must stay on the row engine.
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN d < d2 THEN date_add(d, 3) END AS a FROM varka_date_pairs ORDER BY a",
+      expectFused = false)
+  }
+
+  test("IF with BETWEEN and date literals is fused and matches the row engine") {
+    cacheDates(spark)
+    cacheDates(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT IF(d BETWEEN DATE'2023-12-01' AND DATE'2024-01-01', date_add(d, 7), d) AS a " +
+        "FROM varka_dates ORDER BY a",
+      expectFused = true)
+  }
+
+  test("AND, OR and NOT conditions follow three-valued logic like the row engine") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN NOT(d < d2) OR d = d2 THEN date_add(d, 1) ELSE d2 END AS a " +
+        "FROM varka_date_pairs ORDER BY a",
+      expectFused = true)
+    checkDifferential(spark, varkaSpark,
+      "SELECT CASE WHEN d <= d2 AND NOT(d = d2) THEN d ELSE date_sub(d2, 3) END AS a " +
+        "FROM varka_date_pairs ORDER BY a",
+      expectFused = true)
+  }
+
+  test("greatest and least skip nulls and fuse, nested chains included") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    checkDifferential(spark, varkaSpark,
+      "SELECT greatest(d, d2) AS a, least(d, d2) AS b FROM varka_date_pairs ORDER BY a, b",
+      expectFused = true)
+    // The milestone's irreducible chain, plus a three-arg fold with a date literal.
+    checkDifferential(spark, varkaSpark,
+      "SELECT greatest(date_add(d, 7), d2) AS a, " +
+        "least(d, d2, DATE'2024-01-15') AS b FROM varka_date_pairs ORDER BY a, b",
+      expectFused = true)
+  }
+
+  test("dayofweek and weekday match the row engine across 1970 and nulls") {
+    val rows = Seq("2024-01-01", "1969-12-31", "1969-01-05", "1900-02-28", "2100-07-04", null)
+    Seq(spark, varkaSpark).foreach { session =>
+      import scala.jdk.CollectionConverters._
+      val schema = org.apache.spark.sql.types.StructType(Seq(
+        org.apache.spark.sql.types.StructField("d", org.apache.spark.sql.types.DateType, true)))
+      val data = rows.map(v =>
+        org.apache.spark.sql.Row(if (v == null) null else java.sql.Date.valueOf(v)))
+      session.createDataFrame(data.asJava, schema).createOrReplaceTempView("varka_dow")
+      session.catalog.cacheTable("varka_dow")
+    }
+    try {
+      checkDifferential(spark, varkaSpark,
+        "SELECT dayofweek(d) AS a, weekday(d) AS b, dayofweek(date_add(d, 1)) AS c " +
+          "FROM varka_dow ORDER BY a, b, c",
+        expectFused = true)
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_dow"))
+    }
+  }
+
+  test("the rule fires and the kernels run under AQE") {
+    // Every Varka session disables AQE for plan determinism, so this pins the default-config
+    // path: with AQE on, the fused node sits inside a query stage - a leaf the plain
+    // SparkPlan.collect never descends into, hence AdaptiveSparkPlanHelper here.
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
+    try {
+      val query = "SELECT CASE WHEN d < d2 THEN date_add(d, 3) ELSE d2 END AS a " +
+        "FROM varka_date_pairs ORDER BY a"
+      val expected = spark.sql(query)
+      val actual = varkaSpark.sql(query)
+      checkAnswer(actual, expected)
+      val plan = actual.queryExecution.executedPlan
+      val node = collectFirst(plan) { case v: VarkaColumnarToRowExec => v }
+      assert(node.isDefined, s"expected a fused node under AQE:\n${plan.treeString}")
+      val batches = node.get.metrics.get("numVarkaBatches").map(_.value).getOrElse(0L)
+      assert(batches > 0L, s"expected the kernels to run under AQE, got $batches")
+    } finally {
+      varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
+    }
+  }
+
+  test("a kernel failure on a predicated plan falls back per batch with correct results") {
+    cacheDatePairs(spark)
+    cacheDatePairs(varkaSpark)
+    VarkaColumnarToRowExec.setFailKernelForTesting(true)
+    try {
+      val q = "SELECT CASE WHEN d < d2 THEN date_add(d, 1) ELSE d2 END AS a " +
+        "FROM varka_date_pairs ORDER BY a"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      val batches = plan.collectFirst { case v: VarkaColumnarToRowExec => v }
+        .flatMap(_.metrics.get("numVarkaBatches")).map(_.value).getOrElse(0L)
+      assert(batches === 0L, s"expected the fallback to serve every batch, got $batches")
+    } finally {
+      VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
   }
 
   test("a kernel failure on a nested plan falls back per batch with correct results") {
