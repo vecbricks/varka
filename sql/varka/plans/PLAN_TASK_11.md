@@ -120,12 +120,32 @@ milestone plan, all in long arithmetic:
   valid, only A, only B) to a plain max.
 * `DayOfWeek(d)` = `floorMod(days + 4, 7) + 1`;
   `WeekDay(d)` = `floorMod(days + 3, 7)` - verified against
-  `DateTimeUtils.getDayOfWeek`/`getWeekDay` (epoch day 0 was a Thursday). The
-  lane sequence is the truncated-division floorMod: `r = v - (v / 7) * 7`,
-  then `r += 7` where `r < 0` (a compare and a masked add or blend), then the
-  constant offset. Java's `%` is wrong for negative epoch days - dates before
-  1970 - so the differential range must cross zero (that is exactly where a
-  naive port breaks). The scalar tail uses `Math.floorMod` by name.
+  `DateTimeUtils.getDayOfWeek`/`getWeekDay` (epoch day 0 was a Thursday).
+  Java's `%` is wrong for negative epoch days - dates before 1970 - so the
+  differential range must cross zero (that is exactly where a naive port
+  breaks). The scalar tail uses `Math.floorMod` by name.
+
+  The lane sequence for the mod-7 itself is a measured three-way choice, per
+  the datetime vector-algorithms note (division elimination is its group 2;
+  the techniques are Hacker's Delight chapter 10 material):
+
+  1. *Lanewise `DIV`*: `r = v - (v / 7) * 7`, then `r += 7` where `r < 0`.
+     Simplest and certainly correct, but x86 has no SIMD integer divide, so
+     the Vector API may scalarize the `DIV` lanes.
+  2. *Granlund-Montgomery magic multiply*: replace `v / 7` with a multiply by
+     a magic constant plus shifts. Only viable if the Vector API exposes a
+     multiply-high on int lanes (to be verified at implementation time; the
+     low-half `MUL` alone is not enough for 32-bit magic division).
+  3. *Base-8 digit sum*: `7 = 2^3 - 1`, so mod-7 reduces to summing 3-bit
+     chunks (`(v & 7) + (v >>> 3)`, iterated, then one final compare-subtract
+     fixup) - shifts, ands and adds only, all cheap lane ops with no
+     multiply-high dependency.
+
+  Both strength-reduced variants need a careful treatment of negative inputs
+  (an unsigned bias must preserve congruence mod 7, and `2^32 mod 7 = 4`, so
+  a wrap-around bias is *not* congruence-preserving for free) - which is why
+  the negative-days differential is mandatory for whichever variant ships,
+  and why variant 1 is the reference the others are tested against.
 
 `VectorMask.toLong` re-enters the descriptor table (task 10 removed it);
 `compare` (which takes the *erased* `Vector` and a
@@ -225,6 +245,11 @@ declines the projection.
 * A `dayofweek` case with a per-row `LocalDate.ofEpochDay` loop as baseline -
   the allocating path the SIMD version replaces, and the task's headline
   number candidate.
+* The mod-7 three-way A/B from 2.3: lanewise `DIV` vs the strength-reduced
+  variants (magic multiply where expressible, base-8 digit sum), same inputs,
+  both widths. The winner ships; the others' numbers are recorded in
+  section 5 so the choice is re-checkable when the Vector API or hardware
+  moves.
 * The 2.4 A/B on mixed-null cases, recorded either way.
 
 Gate: the predicated dense case must stay within a small factor of the
@@ -270,8 +295,10 @@ benchmark and docs refresh (task 14). The `lazy val` drive-by (task 15).
   why that matrix is written into the plan.
 * Lanewise integer `DIV` (the `floorMod` step) may not map to a hardware
   instruction on x86 and could scalarize inside the Vector API. The bar is the
-  allocating `LocalDate` path, which it should clear regardless; if the margin
-  disappoints, a strength-reduced mod-7 is a follow-up, not a blocker.
+  allocating `LocalDate` path, which even a scalarized `DIV` should clear; the
+  2.3 strength-reduced variants are the prepared answer if it does not, with
+  their own risk - the negative-input bias is where a subtly wrong mod-7
+  passes every post-1970 test.
 * Vector API erasure again, now for `compare`/`blend`/`max`/`min` and the
   `VectorOperators$Comparison` constants: same defense as before - one
   descriptor table line per call, and the misdescribe-style test discipline.
