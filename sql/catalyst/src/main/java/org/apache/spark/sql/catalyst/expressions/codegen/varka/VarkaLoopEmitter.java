@@ -17,11 +17,15 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+// Only the four Class-File API imports that predate task 13 appear here: importing several
+// others (CustomAttribute, AttributedElement, ClassElement...) makes scalac - and so every
+// scaladoc pass over the module - fail with an "illegal cyclic reference" while completing
+// the API's sealed hierarchy. Task-13 additions use fully-qualified names inside method
+// bodies instead, which scalac's Java parser never reads; see VarkaDebugInfo's class doc.
 import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
-import java.lang.classfile.attribute.SourceFileAttribute;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
@@ -376,8 +380,8 @@ public final class VarkaLoopEmitter {
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
-          .with(SourceFileAttribute.of(source))
-          .with(debugInfo)
+          .with(java.lang.classfile.attribute.SourceFileAttribute.of(source))
+          .with((java.lang.classfile.ClassElement) debugElement(debugInfo))
           .withMethodBody("<init>", INIT, AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
             cb.aload(0);
             cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
@@ -412,6 +416,56 @@ public final class VarkaLoopEmitter {
         }
       }
     });
+  }
+
+  /**
+   * The write side of {@link VarkaDebugInfo}: its payload as a class element for the build
+   * above. Lives here, private, beside its only call site, with the attribute subclass and
+   * its write-only mapper as fully-qualified local classes in the method body - the regime
+   * {@link VarkaDebugInfo}'s class doc explains (scalac cannot complete much of the
+   * Class-File API, so its types stay out of every import and every non-private signature).
+   * That class doc also fixes the byte format this writer and {@code read}'s mapper must
+   * agree on: the writer emits the whole attribute structure, six-byte name-and-length
+   * header included (the built-in mappers do the same), with the two u2 constant-pool
+   * indices as the payload.
+   *
+   * <p>Declared to return {@code Object} - the caller casts to {@code ClassElement} inside
+   * its own body - because scalac completes even a private method's signature types, and
+   * {@code ClassElement} is one of the types it cannot complete.
+   */
+  private static Object debugElement(VarkaDebugInfo info) {
+    final class Attr extends java.lang.classfile.CustomAttribute<Attr> {
+      Attr(java.lang.classfile.AttributeMapper<Attr> mapper) {
+        super(mapper);
+      }
+    }
+    final class WriteMapper implements java.lang.classfile.AttributeMapper<Attr> {
+      @Override
+      public String name() {
+        return VarkaDebugInfo.NAME;
+      }
+
+      @Override
+      public Attr readAttribute(java.lang.classfile.AttributedElement enclosing,
+          java.lang.classfile.ClassReader cf, int pos) {
+        throw new UnsupportedOperationException(
+            "write-side mapper; parsing uses VarkaDebugInfo.read()");
+      }
+
+      @Override
+      public void writeAttribute(java.lang.classfile.BufWriter buf, Attr attr) {
+        buf.writeIndex(buf.constantPool().utf8Entry(VarkaDebugInfo.NAME));
+        buf.writeInt(4);
+        buf.writeIndex(buf.constantPool().utf8Entry(info.ir()));
+        buf.writeIndex(buf.constantPool().utf8Entry(info.planFragment()));
+      }
+
+      @Override
+      public AttributeStability stability() {
+        return AttributeStability.CP_REFS;
+      }
+    }
+    return new Attr(new WriteMapper());
   }
 
   /** The three body-method roles; see the method-layout note in {@link #emit}. */

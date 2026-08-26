@@ -29,26 +29,44 @@ the emitted methods are byte-identical to before.
 
 ### 2.1 The attribute and its reader (catalyst, Java)
 
-`VarkaDebugInfo` extends `java.lang.classfile.CustomAttribute` with an
-`AttributeMapper` whose payload is two constant-pool UTF-8 references -
-`u2 ir_index; u2 plan_index` - which makes its stability `CP_REFS` and its
-attribute_length a constant 4. One implementation lesson worth recording: the
-mapper's `writeAttribute` must write the entire attribute structure, the
-six-byte name-and-length header included (the JDK's built-in mappers all do),
-while `readAttribute`'s position points at the payload *after* that header.
-The first cut wrote only the payload and produced a truncated class file; the
-verification test caught it immediately.
+`VarkaDebugInfo` is a plain payload class (the two strings plus `NAME`); the
+`CustomAttribute` subclass and its `AttributeMapper`s live as *local classes
+inside method bodies* - the read side in `VarkaDebugInfo.read`, the write side
+in the emitter's private `debugElement` beside its only call site - one
+single-purpose mapper per side. The payload is two constant-pool UTF-8
+references -
+`u2 ir_index; u2 plan_index` - which makes the stability `CP_REFS` and the
+attribute_length a constant 4. Two implementation lessons worth recording:
+
+* The write mapper must write the entire attribute structure, the six-byte
+  name-and-length header included (the JDK's built-in mappers all do), while
+  `readAttribute`'s position points at the payload *after* that header. The
+  first cut wrote only the payload and produced a truncated class file; the
+  verification test caught it immediately.
+* The first shipped cut had `VarkaDebugInfo extends CustomAttribute` at the
+  top level, and PR CI's Maven build failed in `attach-scaladocs`: scaladoc
+  runs the Scala 2.13 typechecker, which cannot *complete* many Class-File
+  API symbols (completing a sealed interface forces its permitted
+  implementation classes, whose completion walks back into the hierarchy -
+  "illegal cyclic reference"). Local bisection with `build/sbt catalyst/doc`
+  as the gate showed the trigger is per-type and wider than the supertype:
+  a plain `import java.lang.classfile.CustomAttribute` (or `AttributedElement`,
+  or `ClassElement`) fails even with empty method bodies, and so does a
+  *private* method signature returning `ClassElement` - while the emitter's
+  pre-task-13 imports and private `CodeBuilder`-typed signatures happen to
+  complete cleanly, which is why they always passed. What scalac's Java
+  parser never reads is method *bodies*. The working regime, pinned by the
+  doc gate: task-13 code adds no `java.lang.classfile` import and no
+  class-file type in any signature (the write-side helper returns `Object`,
+  cast at its one call site); the attribute subclass and both single-purpose
+  mappers live as fully-qualified local classes inside method bodies.
 
 `VarkaDebugInfoReader` is the diagnostics helper of the milestone's 2.8: given
 raw class bytes it returns the `SourceFile` name, the rendered IR and the plan
 fragment as plain strings (null when absent), registering the mapper and
-parsing with `ClassFile.parse` internally. It exists as a separate
-plain-signature class for the same reason `VarkaLoopEmitter` is Java: scalac
-cannot typecheck the Class-File API's sealed hierarchy ("illegal cyclic
-reference"), and `VarkaDebugInfo` itself is inside that hierarchy through its
-supertype, so no Scala code - the evaluator and both test suites included -
-can mention the attribute type or any `java.lang.classfile` type. Every
-Scala-facing surface is a plain `byte[] -> String` signature.
+parsing with `ClassFile.parse` internally. It keeps every Scala-facing surface
+- the evaluator and both test suites included - a plain `byte[] -> String`
+signature, for the same scalac reason as above.
 
 ### 2.2 The emitter carries them (catalyst, Java)
 
@@ -119,6 +137,10 @@ emitter differential matrix (36 catalyst tests) is the regression net.
   and the full projection (the residual entry's alias included).
 * Full sweep: 36 catalyst + 81 sql/core Varka tests green; scalastyle on both
   modules' main and test sources; `dev/lint-java`; the 100-char/ASCII scans.
+* `build/sbt catalyst/doc` - the scaladoc pass that the Maven build's
+  `attach-scaladocs` goal runs in CI, and the local gate for the scalac
+  constraint in 2.1: it failed on the first cut's top-level `extends` and
+  passes on the shipped structure.
 
 ## 4. Explicitly out of task 13
 

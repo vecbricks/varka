@@ -17,21 +17,19 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import java.lang.classfile.Attributes;
-import java.lang.classfile.ClassFile;
-import java.lang.classfile.ClassModel;
-
 /**
  * The diagnostics helper over the task 13 telemetry: given raw bytes of an emitted fused-kernel
  * class, reads back the {@code SourceFile} name and the {@link VarkaDebugInfo} payload as plain
  * strings. This is the intended entry point for tooling and tests over captured classes; the
  * typed view stays on {@link VarkaDebugInfo#read}.
  *
- * <p>Deliberately a plain-signature Java class: Scala 2.13's typechecker hits an "illegal
- * cyclic reference" on the Class-File API's sealed hierarchy (the bug that keeps
- * {@link VarkaLoopEmitter} in Java), and that extends to {@link VarkaDebugInfo} itself, whose
- * supertype is part of that hierarchy - so any Scala caller, the evaluator's own tests
- * included, must go through signatures that never mention either.
+ * <p>Deliberately a plain-signature Java class with no {@code java.lang.classfile} import
+ * (fully-qualified names in method bodies only): Scala 2.13's typechecker hits an "illegal
+ * cyclic reference" completing much of the Class-File API's sealed hierarchy - the bug that
+ * keeps {@link VarkaLoopEmitter} in Java and shaped {@link VarkaDebugInfo}'s structure, see
+ * its class doc - so Scala callers, the evaluator's own tests included, go through signatures
+ * that never mention a class-file type, and these files keep the types where scalac never
+ * reads them.
  */
 public final class VarkaDebugInfoReader {
 
@@ -40,8 +38,8 @@ public final class VarkaDebugInfoReader {
 
   /** The class's {@code SourceFile} attribute value, or null when the class carries none. */
   public static String sourceFile(byte[] classBytes) {
-    ClassModel model = ClassFile.of().parse(classBytes);
-    return model.findAttribute(Attributes.sourceFile())
+    return java.lang.classfile.ClassFile.of().parse(classBytes)
+        .findAttribute(java.lang.classfile.Attributes.sourceFile())
         .map(attr -> attr.sourceFile().stringValue()).orElse(null);
   }
 
