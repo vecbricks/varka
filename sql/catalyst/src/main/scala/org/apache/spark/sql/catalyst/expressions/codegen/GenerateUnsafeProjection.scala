@@ -430,8 +430,7 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
        """.stripMargin
 
     val code = CodeFormatter.stripOverlappingComments(
-      new CodeAndComment(codeBody, ctx.getPlaceHolderToComments(),
-        VarkaClassFileGen.eligibleOps(ctx.classFileGenExpressions.map(e => e: Expression).toSeq)))
+      new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
     logDebug(s"code for ${expressions.mkString(",")}:\n${CodeFormatter.format(code)}")
 
     val (clazz, _) = CodeGenerator.compile(code)

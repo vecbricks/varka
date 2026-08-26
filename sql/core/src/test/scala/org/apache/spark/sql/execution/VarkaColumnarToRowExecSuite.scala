@@ -25,7 +25,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Ascending, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, LeafExpression, Literal, NamedExpression, SortOrder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ClassFileGenOp, CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -481,16 +481,6 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "false") {
       assert(VarkaColumnarRule.postColumnarTransitions(transition) === transition)
     }
-  }
-
-  test("Varka kernel descriptors match the engine signatures") {
-    val owner = "org.apache.spark.sql.varka.vector.DateVectorOps"
-    assert(DateAdd(attrD, Literal(3)).classFileGenOp ===
-      ClassFileGenOp(owner, "vectorAddDays", "(JJIJJII)V"))
-    assert(DateSub(attrD, Literal(3)).classFileGenOp ===
-      ClassFileGenOp(owner, "vectorSubDays", "(JJIJJII)V"))
-    assert(DateDiff(attrD, attrD2).classFileGenOp ===
-      ClassFileGenOp(owner, "vectorDateDiff", "(JJIJJIJJI)V"))
   }
 }
 

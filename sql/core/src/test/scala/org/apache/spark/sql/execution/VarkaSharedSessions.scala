@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryRelation}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
@@ -41,7 +42,7 @@ import org.apache.spark.sql.test.SharedSparkSession
  * resets the process-wide serializer singleton around session creation and afterwards so it is
  * not leaked to later suites.
  */
-trait VarkaSharedSessions extends SharedSparkSession {
+trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelper {
 
   protected var varkaSpark: SparkSession = _
   protected var disabledSpark: SparkSession = _
@@ -122,7 +123,7 @@ trait VarkaSharedSessions extends SharedSparkSession {
   }
 
   protected def assertKernelsRan(plan: SparkPlan): Unit = {
-    val node = plan.collectFirst { case v: VarkaColumnarToRowExec => v }
+    val node = collectFirst(plan) { case v: VarkaColumnarToRowExec => v }
       .getOrElse(fail(s"expected a VarkaColumnarToRowExec in the plan:\n${plan.treeString}"))
     val varkaBatches = node.metrics.get("numVarkaBatches").map(_.value).getOrElse(0L)
     assert(varkaBatches > 0L,
@@ -130,12 +131,12 @@ trait VarkaSharedSessions extends SharedSparkSession {
   }
 
   protected def assertFused(plan: SparkPlan): Unit = {
-    assert(plan.find(_.isInstanceOf[VarkaColumnarToRowExec]).isDefined,
+    assert(find(plan)(_.isInstanceOf[VarkaColumnarToRowExec]).isDefined,
       s"expected a VarkaColumnarToRowExec in the plan:\n${plan.treeString}")
   }
 
   protected def assertNotFused(plan: SparkPlan): Unit = {
-    assert(plan.find(_.isInstanceOf[VarkaColumnarToRowExec]).isEmpty,
+    assert(find(plan)(_.isInstanceOf[VarkaColumnarToRowExec]).isEmpty,
       s"expected no VarkaColumnarToRowExec in the plan:\n${plan.treeString}")
   }
 }

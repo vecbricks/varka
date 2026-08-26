@@ -149,20 +149,6 @@ class CodegenContext extends Logging {
   }
 
   /**
-   * Expressions registered for the Varka Class-File codegen path (Task 4). Populated by
-   * `ClassFileCodegenSupport.genCode`; consumed by the Class-File router (Task 5). The
-   * per-expression string codegen is unaffected.
-   */
-  val classFileGenExpressions: mutable.ArrayBuffer[ClassFileCodegenSupport] =
-    new mutable.ArrayBuffer[ClassFileCodegenSupport]()
-
-  def registerClassFileGenExpression(e: ClassFileCodegenSupport): Unit = {
-    classFileGenExpressions += e
-  }
-
-  def isClassFileGenEligible: Boolean = classFileGenExpressions.nonEmpty
-
-  /**
    * Holding the variable name of the input row of the current operator, will be used by
    * `BoundReference` to generate code.
    *
@@ -1445,31 +1431,26 @@ abstract class GeneratedClass {
  * A wrapper for the source code to be compiled by [[CodeGenerator]].
  *
  * Instances are the key of [[CodeGenerator]]'s compile cache, so `equals` / `hashCode` cover
- * every field that can change what compiling the unit produces - `body` and `classFileGenOps`,
- * not `body` alone. This costs nothing in practice and changes no hit rate: a `body` is
- * generated from the same expressions that yield the ops, so equal bodies already carry equal
- * ops. The `comment` map stays out of the key; it is debug metadata for the same source.
+ * `body`, the only field that changes what compiling the unit produces. The `comment` map stays
+ * out of the key; it is debug metadata for the same source.
  *
- * Note what keying on the ops does *not* buy. If Class-File routing is ever wired back into the
- * compile funnel, whether a unit is assembled or compiled with Janino is decided outside this
- * class, and both outcomes carry the same `body` and the same ops. Keeping those two apart in
- * the cache needs the routing decision in the key - the way the active [[CodeCompiler]] backend
- * already is - not the ops.
- *
- * @param classFileGenOps Class-File operations discovered while generating `body`. Non-empty
- *                        only when the unit contains Varka-eligible expressions.
+ * Milestone 1 also carried the Varka `ClassFileGenOp`s of the unit here, so that a future
+ * Class-File router could not serve a Janino-compiled unit from the same key. That router was
+ * never wired in and the ops were retired with the dispatcher layer in task 17: routing, if it
+ * ever returns, is decided outside this class and both outcomes carry the same `body`, so the
+ * decision - like the active [[CodeCompiler]] backend already is - would have to be the thing in
+ * the key.
  */
 class CodeAndComment(
     val body: String,
-    val comment: collection.Map[String, String],
-    val classFileGenOps: Seq[ClassFileGenOp] = Nil)
+    val comment: collection.Map[String, String])
   extends Serializable {
   override def equals(that: Any): Boolean = that match {
-    case t: CodeAndComment => t.body == body && t.classFileGenOps == classFileGenOps
+    case t: CodeAndComment => t.body == body
     case _ => false
   }
 
-  override def hashCode(): Int = 31 * body.hashCode + classFileGenOps.hashCode
+  override def hashCode(): Int = body.hashCode
 }
 
 /**

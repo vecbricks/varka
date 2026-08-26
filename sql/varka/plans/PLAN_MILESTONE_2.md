@@ -276,6 +276,7 @@ Numbering continues from milestone 1, whose last task was 8.
 | 14 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested, shared-subchain, `CASE WHEN` and mixed projections; a chain-depth scaling case (depth 1-4, fused vs per-op passes); a cold-query latency case (first execution of a fresh plan shape, Varka vs Janino); regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file. **DONE** (`PLAN_TASK_14.md`): nested 2.2x, DAG-CSE 1.8x, `CASE WHEN` 2.1x headline on unpredictable data, cold start 1.5x; the depth curve *shrinks* (2.2x to 1.4x, depths 1-8) and the row consumer never breaks even (0.7x to 0.5x) - both surprises committed and recorded; the JMH case resolved as a planned deviation; README rewritten as the fork's front page (added scope) | Committed results show the chain speedup and its scaling with depth; the `CASE WHEN` case is the headline fusion number - branch-free blend against Janino's per-row branches; the cold-latency case turns the 636x generation-time figure into a query-level number |
 | 15 | Drive-by | `fallbackProjection` becomes a `lazy val` in both Varka evaluators | A kernel-only task compiles no Janino projection |
 | 16 | Debuggability quick wins | Four small extensions of task 13's telemetry, each riding machinery that already exists: (1) a `LineNumberTable` in the emitted class mapping bytecode to IR nodes - line `n` is topological-order node `n`, the decoding key recorded in `VarkaDebugInfo` - so stack traces, profilers and crash logs point at an IR node, not just a method; (2) the kernel's identity (its `SourceFile` name and IR summary) in the ghost-fallback `logWarning`, which today carries only the exception; (3) a dump-directory config that writes each emitted class to disk under its `SourceFile` name, off the `emittedClassBytes` the evaluator already keeps, so `javap` works without a debugger; (4) per-entry decline reasons captured by `compilePartial` (unsupported expression, non-literal offset, depth cap, lane type) and surfaced with the fused/forwarded/residual classification in verbose `EXPLAIN` and debug logs - the answer to "why didn't my projection fuse?", which the silent per-entry `None` currently swallows **DONE** (`PLAN_TASK_16.md`): line `n` of the emitted `LineNumberTable` is topological-order IR node `n`, with the key in `VarkaDebugInfo` - a kernel failure's stack frame resolves to the node that threw; all three ghost-fallback warnings name the kernel; `spark.sql.codegen.varka.classDumpDirectory` writes each emitted class for `javap`; and the compiler records why each entry declined, in the query's own column names, for verbose `EXPLAIN` and the debug log | A stack trace through an injected kernel failure carries a file and line that resolve to an IR node via the recorded key; a dumped class is byte-identical to `emittedClassBytes` and disassembles; a mixed projection's verbose explain names each entry's classification and each residual entry's decline reason; the fallback warning names the kernel |
+| 17 | Debt register sweep | The task-11 audit register (section 8, moved here from `PLAN_MILESTONE_3.md`) and its open items: retire the milestone-1 dispatcher layer (`ClassFileCodegenSupport`, `VarkaClassFileGen`, the kernel-shape interfaces, the `CodegenContext` registry and the `CodeAndComment` cache-key ops); make the shared test helpers AQE-aware; price the open `GROUP_BUDGET` retuning candidate. **DONE** (`PLAN_TASK_17.md`): the layer is gone and the compile-cache key is upstream's again, `assertFused`/`assertNotFused`/`assertKernelsRan` see into query stages, and the budget candidate measured 4.6 G rows/s at the shipped 16 against 3.2 G at 24 - closed against the change | No reference to the dispatcher layer survives and the codegen suites stay green; the AQE assertions are exercised with AQE on; the budget decision is a committed number |
 
 Task 9 carries the milestone's real risk, so it ships first and alone. Task 11
 carries the milestone's *correctness* risk - the 2.6 semantics - which is why it
@@ -286,7 +287,7 @@ The review's heavier ideas - fallback-cause metrics, recorded loop grouping, a
 field differential mode, JFR events, distinct class names - are scoped in
 `PLAN_MILESTONE_3.md` section 14, not here.
 
-**Milestone closing note (task 14).** Tasks 9-15 are done and every named gate
+**Milestone closing note (task 17).** Tasks 9-17 are done and every named gate
 passed: the emitter matched and then beat the hand-written kernels at both
 vector widths, the 2.6 semantics shipped with their differential matrix, real
 projections fuse partially with zero-copy forwarding, and the emitted classes
@@ -297,14 +298,17 @@ milestone 3: the fused win over Janino at the committed task size is
 batch-versus-per-row overhead (roughly 2x), eroded with chain depth by a
 per-task JIT warm-up cost the post-commit diagnosis pinned on the per-task
 class define (`PLAN_TASK_14.md` 7.5 - the finding that reshaped milestone 3's
-cache item), and row-consumer fusion is unprofitable at every measured depth. Task 16 (the
-debuggability quick wins, added post-review) closed last, and with it the
-milestone: the emitted classes now say which plan node they are, which IR node
-a frame is in, why an entry did not fuse, and where to find their own bytes.
-Milestone 3 (`PLAN_MILESTONE_3.md`) is next, with two of its items already
-reshaped by this milestone's measurements - the cross-task cache around
-loaded-class reuse rather than cached bytes, and fuse profitability around the
-row-consumer answer.
+cache item), and row-consumer fusion is unprofitable at every measured depth.
+Task 16 (the debuggability quick wins, added post-review) made the emitted
+classes say which plan node they are, which IR node a frame is in, why an entry
+did not fuse, and where to find their own bytes. Task 17 closed the milestone by
+sweeping its own debt register (section 8): the milestone-1 dispatcher layer is
+retired, the shared test helpers see into AQE query stages, and the open
+`GROUP_BUDGET` retuning candidate was priced and closed against the change - the
+milestone ends owing nothing it knows about. Milestone 3
+(`PLAN_MILESTONE_3.md`) is next, with two of its items already reshaped by this
+milestone's measurements - the cross-task cache around loaded-class reuse rather
+than cached bytes, and fuse profitability around the row-consumer answer.
 
 ## 4. Files
 
@@ -391,3 +395,59 @@ than leaving a second half-built generator in the tree.
 section 5.4), the milestone owner agreed after task 10, and the shell went in a
 follow-up PR. A milestone-3 row-path generator, if it happens, builds on the
 emitter and the IR.
+
+## 8. Debt register (audit after task 11)
+
+Unowned debts found by an explicit audit during task 11, recorded so they carry
+the same paper trail as the plan's deferrals. They lived in
+`PLAN_MILESTONE_3.md` section 13 while milestone 2's task list was full, and
+moved here with task 17, which swept what was still open: milestone 2 is where
+these debts were incurred and where their outcomes belong.
+
+* **Two generations of codegen coexisted - retired in task 17.** The
+  milestone-1 dispatcher machinery (`VarkaClassFileGen.assembleKernelClass`,
+  `VarkaUnaryKernel` / `VarkaBinaryKernel`) lost its production caller in
+  task 10 and survived only for its own tests; the `ClassFileCodegenSupport`
+  trait and its genCode-time registration persisted solely to keep Janino's
+  compile-cache key shape stable - a cost every query with a date expression
+  paid, Varka on or off. All of it is gone (`PLAN_TASK_17.md` 2.1), and
+  `CodeAndComment`'s key is upstream Spark's `body` again, which is
+  behaviour-neutral for the reason the class always documented: equal bodies
+  are generated from equal expressions and so carried equal ops.
+* **Benchmark variance - swept in task 14, as planned.** The committed results
+  were single runs (the DAG case ranged 1.5 to 3.3 G rows/s across one day).
+  The throughput cases now run at least five iterations over two-second warmup
+  and measurement windows (`PLAN_TASK_14.md` 2.1), the full matrix was
+  generated twice back to back with minimums agreeing on every claim quoted in
+  the docs, and sub-1.3x claims were checked across both runs.
+* **Row-consumer fusion is unprofitable at every depth - measured in task 14,
+  decision deferred by design.** Through `toRdd` the fused chains measure 0.7x
+  Janino at depth 1 down to 0.5x at depth 8; the ~16 ns/row read-back is what
+  keeps them under 1.0x, while the decline with depth is the per-task JIT
+  warm-up (`PLAN_TASK_14.md` 7.5). Whether `VarkaColumnarRule` should decline
+  row-consumer fusions is a policy question tied to filters and the
+  Arrow-native writer, so it stays with milestone 3 rather than being swept
+  here.
+* **`GROUP_BUDGET` tuning - closed in task 17, against the change.** Task 11
+  left one candidate: raising 16 to ~24 so two outputs sharing a deep chain
+  keep their cross-output CSE in one loop method, conditional on a
+  multi-output compile-latency measurement. Measured on 20 distinct ops across
+  two outputs (parity benchmark, both cases committed): the shipped 16 runs
+  4.6 G rows/s - two loop methods, the shared chain recomputed per lane group -
+  against 3.2 G at 24, one method keeping the CSE. Recomputing eight ops in
+  registers beats the wider method's register pressure, the same effect that
+  made sibling methods the rule. The budget stays 16; the emitter keeps a test
+  hook so the next retune is measured, not argued.
+* **AQE-blind test helpers - fixed in task 17.** `assertFused`,
+  `assertNotFused` and `assertKernelsRan` used plain `SparkPlan` traversals,
+  which do not descend into `AdaptiveSparkPlanExec`'s query stages -
+  `assertNotFused` was the dangerous one, passing when a fused node was merely
+  hidden. `VarkaSharedSessions` mixes in `AdaptiveSparkPlanHelper` and the
+  three helpers use its stage-aware traversals; the two AQE differential tests
+  now call them, which is what keeps them stage-aware.
+* **Emitter slot-planning untidiness - swept in task 13, as planned.**
+  `planSlots` allocated scalar-tail slots in loop methods and vector-walk slots
+  in tail methods; the masked body computed validity words for inputs the
+  current loop group does not reference; `DATA_BYTES`/`VALIDITY_BYTES` coupled
+  two methods through a fixed-slot convention. All three fixed in the task 13
+  emitter visit (`PLAN_TASK_13.md` 2.4).

@@ -134,9 +134,9 @@ private[sql] case class PartialVarkaProjection(
  * shape does not depend on what its constants are - the identity milestone 3's cache will key
  * on.
  *
- * The expressions' own `isClassFileGenEligible` and its genCode-time registration are
- * deliberately not consulted and not widened: they feed the Janino compile-cache key and stay as
- * milestone 1 left them (`PLAN_MILESTONE_2.md` section 4).
+ * This is the only eligibility rule there is. Milestone 1's parallel one - the expressions'
+ * `isClassFileGenEligible` and its genCode-time registration, deliberately left alone while two
+ * generations of codegen coexisted - retired with the dispatcher layer in task 17.
  */
 private[sql] object VarkaExpressionCompiler {
 

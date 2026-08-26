@@ -92,4 +92,13 @@ public final class VarkaEmitterTestSupport {
   public static void setDigitSumFloorMod(boolean digitSum) {
     VarkaLoopEmitter.digitSumFloorModForTesting = digitSum;
   }
+
+  /**
+   * Overrides {@link VarkaLoopEmitter#GROUP_BUDGET} for callers outside the emitter's package,
+   * or restores the constant when given 0 - the parity benchmark prices the register's open
+   * retuning candidate by emitting one shape at two widths (task 17).
+   */
+  public static void setGroupBudget(int budget) {
+    VarkaLoopEmitter.groupBudgetForTesting = budget;
+  }
 }

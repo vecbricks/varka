@@ -23,12 +23,14 @@ import java.lang.ref.{ReferenceQueue, WeakReference}
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaLoopEmitter, VarkaVectorIR}
 
 /**
  * Task 7 Metaspace/unloadability proof for the catalyst-side [[VarkaGeneratedClassLoader]],
  * mirroring the engine module's `VarkaClassLoaderTest` (Task 3). Generated classes are produced
- * with `VarkaClassFileGen.assembleKernelClass` (the same assembler the execution path uses), so
- * each "task" defines one small dispatch class in its own per-task loader and releases it on
+ * with `VarkaLoopEmitter.emit` (the assembler the execution path uses since task 10 - the
+ * milestone-1 dispatcher assembler this suite used before retired in task 17), so each "task"
+ * defines one real fused-kernel class in its own per-task loader and releases it on
  * completion.
  *
  * The deterministic guarantee is weak-reference based: after `release()` and dropping all
@@ -39,9 +41,6 @@ import org.apache.spark.SparkFunSuite
  */
 class VarkaGeneratedClassLoaderSuite extends SparkFunSuite {
 
-  private val kernelOp = ClassFileGenOp(
-    "org.apache.spark.sql.varka.vector.DateVectorOps", "vectorAddDays", "(JJIJJII)V")
-
   private val genPackage = "org.apache.spark.sql.varka.gen"
 
   /** Total budget (ms) for GC-retry loops; generous to stay robust on loaded JVMs. */
@@ -49,9 +48,13 @@ class VarkaGeneratedClassLoaderSuite extends SparkFunSuite {
 
   private def genClass(simple: String): String = s"$genPackage.$simple"
 
-  /** Assembles a small dispatch class (no-arg ctor + static `run`) for the given name. */
+  /** Emits a real one-op fused kernel class (no-arg ctor + `run`) under the given name. */
   private def generatedClass(name: String): Array[Byte] = {
-    VarkaClassFileGen.assembleKernelClass(name, kernelOp)
+    VarkaLoopEmitter.emit(name,
+      java.util.List.of[VarkaVectorIR](
+        new VarkaVectorIR.AddDays(new VarkaVectorIR.ColumnRef(0),
+          new VarkaVectorIR.LiteralSlot(0))),
+      1, 1)
   }
 
   test("define, registry and instantiation") {

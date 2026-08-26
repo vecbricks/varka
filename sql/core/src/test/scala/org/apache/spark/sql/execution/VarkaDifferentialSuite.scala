@@ -20,7 +20,6 @@ package org.apache.spark.sql.execution
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
-import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -31,8 +30,7 @@ import org.apache.spark.sql.internal.SQLConf
  * Where the projection is fused into [[VarkaColumnarToRowExec]], the SIMD kernels must actually
  * process the Arrow batches; where it is not, the plan must be untouched.
  */
-class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
-    with AdaptiveSparkPlanHelper {
+class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
 
   private def metaspaceUsed(): Long = {
     java.lang.management.ManagementFactory.getMemoryPoolMXBeans.asScala.collect {
@@ -335,8 +333,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
 
   test("the rule fires and the kernels run under AQE") {
     // Every Varka session disables AQE for plan determinism, so this pins the default-config
-    // path: with AQE on, the fused node sits inside a query stage - a leaf the plain
-    // SparkPlan.collect never descends into, hence AdaptiveSparkPlanHelper here.
+    // path. With AQE on the fused node sits inside a query stage, which a plain
+    // SparkPlan.collect never descends into: the shared assertions are stage-aware since
+    // task 17, and these two tests are what keeps them that way.
     cacheDatePairs(spark)
     cacheDatePairs(varkaSpark)
     varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
@@ -347,10 +346,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
       val actual = varkaSpark.sql(query)
       checkAnswer(actual, expected)
       val plan = actual.queryExecution.executedPlan
-      val node = collectFirst(plan) { case v: VarkaColumnarToRowExec => v }
-      assert(node.isDefined, s"expected a fused node under AQE:\n${plan.treeString}")
-      val batches = node.get.metrics.get("numVarkaBatches").map(_.value).getOrElse(0L)
-      assert(batches > 0L, s"expected the kernels to run under AQE, got $batches")
+      assertFused(plan)
+      assertKernelsRan(plan)
     } finally {
       varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
     }
@@ -366,10 +363,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions
       val actual = varkaSpark.sql(query)
       checkAnswer(actual, expected)
       val plan = actual.queryExecution.executedPlan
-      val node = collectFirst(plan) { case v: VarkaColumnarToRowExec => v }
-      assert(node.isDefined, s"expected a fused node under AQE:\n${plan.treeString}")
-      val batches = node.get.metrics.get("numVarkaBatches").map(_.value).getOrElse(0L)
-      assert(batches > 0L, s"expected the kernels to run under AQE, got $batches")
+      assertFused(plan)
+      assertKernelsRan(plan)
     } finally {
       varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
     }

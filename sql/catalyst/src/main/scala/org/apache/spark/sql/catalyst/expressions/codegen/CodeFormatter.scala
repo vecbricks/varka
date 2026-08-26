@@ -92,7 +92,7 @@ object CodeFormatter {
 
       lastLine = line
     }
-    new CodeAndComment(code.result().trim(), map, codeAndComment.classFileGenOps)
+    new CodeAndComment(code.result().trim(), map)
   }
 
   def stripExtraNewLinesAndComments(input: String): String = {

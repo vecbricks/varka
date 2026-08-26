@@ -24,23 +24,21 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, DateAdd, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{
-  ClassFileGenOp, GenerateUnsafeProjection, VarkaClassFileGen, VarkaGeneratedClassLoader}
+  GenerateUnsafeProjection, VarkaGeneratedClassLoader}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.types.DateType
 
 /**
- * Class-generation time benchmark (Task 7): per-op Gen-time for the Janino string path
+ * Class-generation time benchmark (Task 7): Gen-time for the Janino string path
  * (`GenerateUnsafeProjection.generate`, i.e. string generation + `CodeGenerator.compile`) vs the
- * Varka Class-File path (`VarkaClassFileGen.assembleKernelClass` + a fresh
- * [[VarkaGeneratedClassLoader]].defineGeneratedClass per "task"). A fresh literal each Janino
- * iteration defeats the global compiler cache so every iteration is a cold compile, matching the
- * first-query cost.
+ * Varka Class-File path - `VarkaLoopEmitter.emit` of a representative fused kernel (two outputs
+ * sharing a subchain, the shape the throughput benchmark's DAG-CSE case runs) plus define, load
+ * and instantiate through a fresh [[VarkaGeneratedClassLoader]], which is the exact per-task
+ * work `VarkaKernelEvaluator`'s runner does. A fresh literal each Janino iteration defeats the
+ * global compiler cache so every iteration is a cold compile, matching the first-query cost.
  *
- * Task 14 added the milestone-2 case: `VarkaLoopEmitter.emit` of a representative fused kernel
- * (two outputs sharing a subchain - the shape the throughput benchmark's DAG-CSE case runs),
- * plus define, load and instantiate through a fresh loader - the exact per-task work
- * `VarkaKernelEvaluator`'s runner does. The milestone-1 dispatcher case remains for comparison:
- * the committed figure should describe the machinery that runs today, not only what it replaced.
+ * Task 14 added the fused case beside milestone 1's per-op dispatcher case; task 17 retired the
+ * dispatchers with the rest of that layer, so what remains measures only machinery that runs.
  *
  * To run this benchmark:
  * {{{
@@ -54,9 +52,6 @@ object VarkaCodegenBenchmark extends BenchmarkBase {
 
   private val startAttr = AttributeReference("d", DateType)()
   private val fields = Seq(startAttr)
-  private val kernelOp = ClassFileGenOp(
-    "org.apache.spark.sql.varka.vector.DateVectorOps", "vectorAddDays", "(JJIJJII)V")
-
   // The representative fused-kernel IR: `date_add(d, 1) AS a, datediff(date_add(d, 1), d2) AS b`
   // - two outputs, a shared subchain, two inputs, one literal slot. The same shape as the
   // throughput benchmark's DAG-CSE case, so the two committed files describe one kernel.
@@ -78,14 +73,6 @@ object VarkaCodegenBenchmark extends BenchmarkBase {
         // cold string-generate + Janino compile.
         sink = GenerateUnsafeProjection.generate(
           Seq(DateAdd(startAttr, Literal(i + 1))), fields)
-      }
-
-      benchmark.addCase("varka: assembleKernelClass + defineGeneratedClass", numIters = 5) { i =>
-        val className = s"org.apache.spark.sql.varka.execution.VarkaKernelRunner$i"
-        val bytes = VarkaClassFileGen.assembleKernelClass(className, kernelOp)
-        val loader = new VarkaGeneratedClassLoader(Thread.currentThread().getContextClassLoader)
-        sink = loader.defineGeneratedClass(className, bytes)
-        loader.release()
       }
 
       benchmark.addCase("varka: fused emit + define + load + instantiate", numIters = 5) { i =>

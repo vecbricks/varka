@@ -322,6 +322,51 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
+      runBenchmark("GROUP_BUDGET: two outputs over one shared chain, split vs kept together") {
+        // The register's open retuning candidate (task 17). A shared depth-8 chain with six
+        // more ops on each of two outputs is 20 distinct ops, straddling the shipped budget of
+        // 16: at 16 the outputs land in two loop methods and the second recomputes the eight
+        // shared ops per lane group, at 24 they share one method and keep their cross-output
+        // CSE. The question is whether the bigger method's C2 compile stays cheap enough for
+        // that to pay (PLAN_TASK_14.md 7.5 measured compile time at ~1 ms per vector op).
+        val benchmark = new Benchmark(
+          s"two outputs over a shared chain, $numRows rows, mixed nulls", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        def chainOver(base: VarkaVectorIR, depth: Int, slotBase: Int): VarkaVectorIR = {
+          var node = base
+          for (level <- 0 until depth) {
+            node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(slotBase + level))
+            else new SubDays(node, new LiteralSlot(slotBase + level))
+          }
+          node
+        }
+        val shared = chain(8)
+        val roots = Seq[VarkaVectorIR](
+          chainOver(shared, 6, 8), chainOver(shared, 6, 14))
+        val offsets = (0 until 20).map(level => level * 13 + 1).toArray
+        VarkaEmitterTestSupport.setGroupBudget(16)
+        val split =
+          try emit(roots, 2, 20, loader, 600)
+          finally VarkaEmitterTestSupport.setGroupBudget(0)
+        VarkaEmitterTestSupport.setGroupBudget(24)
+        val together =
+          try emit(roots, 2, 20, loader, 601)
+          finally VarkaEmitterTestSupport.setGroupBudget(0)
+        def run(kernel: VarkaFusedKernel): Unit = {
+          kernel.run(Array(mxData.address(), mx2Data.address()),
+            Array(mxValidity.address(), mx2Validity.address()), Array(mxNulls, mx2Nulls),
+            Array(dst.address(), dst2.address()),
+            Array(dstValidity.address(), dst2Validity.address()), offsets, numRows)
+        }
+        benchmark.addCase("budget 16 (shipped): two loop methods, shared chain recomputed") {
+          _ => run(split)
+        }
+        benchmark.addCase("budget 24: one loop method, cross-output CSE kept") { _ =>
+          run(together)
+        }
+        benchmark.run()
+      }
+
       runBenchmark("widest shape: MAX_FUSED_NODES ops in one kernel") {
         // Four disjoint depth-16 chains: 64 distinct ops, the cap exactly - emitted as four
         // GROUP_BUDGET-sized loop methods since task 11, which is what keeps this case honest

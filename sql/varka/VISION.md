@@ -115,6 +115,12 @@ We are currently implementing the **Date/Time MVP**.
 - **Release:** Called in `TaskCompletionListener` to clear references and allow GC.
 
 ### 8.3. Catalyst Hooks (Scala)
+
+> **Status:** this hook shipped in milestone 1 and was retired in task 17 once the
+> fused loop had replaced it. Eligibility and compilation live in
+> `VarkaExpressionCompiler`, which the columnar rule and the evaluator share; the
+> expressions carry no Varka trait and `genCode` is untouched.
+
 - **Trait:** `ClassFileCodegenSupport`.
 - **Patched Expressions:** `DateAdd`, `DateSub`, `DateDiff`.
 - **Key Action:** Override `genCode`. We **do not** call `doGenCode`. Instead, we append the expression to a list inside `CodegenContext` for later bytecode assembly.

@@ -158,6 +158,15 @@ public final class VarkaLoopEmitter {
    * width tried (59 ops: 80% of peak within 400 ms, throughput proportional to op count) -
    * the slow compiles were specific to multi-output loops. Numbers in PLAN_TASK_11.md
    * section 6.
+   *
+   * <p>Task 17 priced the one candidate the debt register left open - raising the budget so
+   * two outputs sharing a deep chain keep their cross-output CSE in one method - and closed
+   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 runs
+   * 4.1 G rows/s (two loop methods, the shared chain recomputed per lane group) against
+   * 3.0 G at 24 (one method, CSE kept). Recomputing eight ops in registers is cheaper than
+   * the wider method's register pressure, which is the same effect that made sibling methods
+   * the rule in the first place. The parity benchmark keeps both cases so a future retune is
+   * measured rather than argued.
    */
   public static final int GROUP_BUDGET = 16;
 
@@ -197,6 +206,15 @@ public final class VarkaLoopEmitter {
    * suite price and check the shipped two-fold magic-multiply lowering against.
    */
   static volatile boolean digitSumFloorModForTesting = false;
+
+  /**
+   * Test hook: when positive, overrides {@link #GROUP_BUDGET} for one emission (task 17). The
+   * budget is a measured constant, and the register's open candidate - raising it so two
+   * outputs sharing a deep chain keep their cross-output CSE in one loop method - can only be
+   * settled by emitting the same shape at both widths and pricing them. This keeps that
+   * comparison in the parity benchmark rather than in a patch someone has to reproduce.
+   */
+  static volatile int groupBudgetForTesting = 0;
 
   private VarkaLoopEmitter() {
   }
@@ -489,6 +507,7 @@ public final class VarkaLoopEmitter {
    * residency that is the point.
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs) {
+    int budget = groupBudgetForTesting > 0 ? groupBudgetForTesting : GROUP_BUDGET;
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
     Set<VarkaVectorIR> seen = new HashSet<>();
@@ -496,7 +515,7 @@ public final class VarkaLoopEmitter {
     for (int o = 0; o < outputs.size(); o++) {
       Set<VarkaVectorIR> withNext = new HashSet<>(seen);
       int marginal = addOps(outputs.get(o), withNext);
-      if (!current.isEmpty() && ops + marginal > GROUP_BUDGET) {
+      if (!current.isEmpty() && ops + marginal > budget) {
         groups.add(current);
         current = new ArrayList<>();
         withNext = new HashSet<>();

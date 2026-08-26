@@ -503,23 +503,12 @@ case class CurrentBatchTimestamp(
 }
 
 /**
- * Varka batch-kernel eligibility helpers for the date expressions (Task 4). Kept with the
- * date expressions, not on the generic [[ClassFileCodegenSupport]] trait nor in the generic
- * [[VarkaClassFileGen]] assembler.
- *
- * Visible to the whole of `sql` because `VarkaColumnarToRowExec` in `sql/core` has to decide
- * eligibility exactly as the expressions do here - if the two ever disagree, the rule fuses a
- * projection the exec node then refuses to serve from the kernels.
+ * The Varka helper that belongs with the date expressions rather than with the engine (Task 4).
+ * Its eligibility half retired with the milestone-1 dispatcher layer in task 17; what remains is
+ * the day-offset folding rule, which [[VarkaExpressionCompiler]] applies when it compiles a
+ * `date_add`/`date_sub` offset into a slot of the kernel's runtime argument table.
  */
 private[sql] object DateVarkaSupport {
-
-  /** A plain date attribute: an [[Attribute]] or a bound column reference of [[DateType]].
-   * The batch kernels read a whole Arrow column's buffers, so only direct column references
-   * are MVP-eligible. At codegen time the plan-level [[Attribute]] has already been replaced
-   * by a [[BoundReference]], so both shapes must be recognized. */
-  def isDateAttribute(e: Expression): Boolean = {
-    (e.isInstanceOf[Attribute] || e.isInstanceOf[BoundReference]) && e.dataType == DateType
-  }
 
   /** Folds a literal integer/short/byte `days` argument to an int offset. */
   def foldDaysOffset(days: Expression): Option[Int] = days match {
@@ -548,7 +537,7 @@ private[sql] object DateVarkaSupport {
   group = "datetime_funcs",
   since = "1.5.0")
 case class DateAdd(startDate: Expression, days: Expression)
-  extends BinaryExpression with ExpectsInputTypes with ClassFileCodegenSupport {
+  extends BinaryExpression with ExpectsInputTypes {
   override def nullIntolerant: Boolean = true
   override def left: Expression = startDate
   override def right: Expression = days
@@ -568,15 +557,6 @@ case class DateAdd(startDate: Expression, days: Expression)
       s"""${ev.value} = $sd + $d;"""
     })
   }
-
-  override def classFileGenOp: ClassFileGenOp = ClassFileGenOp(
-    "org.apache.spark.sql.varka.vector.DateVectorOps",
-    "vectorAddDays",
-    "(JJIJJII)V")
-
-  override def isClassFileGenEligible: Boolean =
-    DateVarkaSupport.isDateAttribute(startDate) &&
-      DateVarkaSupport.foldDaysOffset(days).isDefined
 
   override def prettyName: String = "date_add"
 
@@ -604,7 +584,7 @@ case class DateAdd(startDate: Expression, days: Expression)
   group = "datetime_funcs",
   since = "1.5.0")
 case class DateSub(startDate: Expression, days: Expression)
-  extends BinaryExpression with ExpectsInputTypes with ClassFileCodegenSupport {
+  extends BinaryExpression with ExpectsInputTypes {
   override def nullIntolerant: Boolean = true
   override def left: Expression = startDate
   override def right: Expression = days
@@ -624,15 +604,6 @@ case class DateSub(startDate: Expression, days: Expression)
       s"""${ev.value} = $sd - $d;"""
     })
   }
-
-  override def classFileGenOp: ClassFileGenOp = ClassFileGenOp(
-    "org.apache.spark.sql.varka.vector.DateVectorOps",
-    "vectorSubDays",
-    "(JJIJJII)V")
-
-  override def isClassFileGenEligible: Boolean =
-    DateVarkaSupport.isDateAttribute(startDate) &&
-      DateVarkaSupport.foldDaysOffset(days).isDefined
 
   override def prettyName: String = "date_sub"
 
@@ -3573,7 +3544,7 @@ case class TruncTimestamp(
   group = "datetime_funcs",
   since = "1.5.0")
 case class DateDiff(endDate: Expression, startDate: Expression)
-  extends BinaryExpression with ImplicitCastInputTypes with ClassFileCodegenSupport {
+  extends BinaryExpression with ImplicitCastInputTypes {
   override def nullIntolerant: Boolean = true
 
   override def left: Expression = endDate
@@ -3588,14 +3559,6 @@ case class DateDiff(endDate: Expression, startDate: Expression)
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     defineCodeGen(ctx, ev, (end, start) => s"$end - $start")
   }
-
-  override def classFileGenOp: ClassFileGenOp = ClassFileGenOp(
-    "org.apache.spark.sql.varka.vector.DateVectorOps",
-    "vectorDateDiff",
-    "(JJIJJIJJI)V")
-
-  override def isClassFileGenEligible: Boolean =
-    DateVarkaSupport.isDateAttribute(endDate) && DateVarkaSupport.isDateAttribute(startDate)
 
   override protected def withNewChildrenInternal(
       newLeft: Expression, newRight: Expression): DateDiff =

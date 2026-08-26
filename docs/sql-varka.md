@@ -105,8 +105,10 @@ handles the remainder lanes.
 
 The milestone-1 per-op kernels (`DateVectorOps.vectorAddDays` and friends)
 remain in the engine as reference code and as the differential oracle for the
-emitter's tests; the per-op dispatcher machinery they were called through is
-scheduled for retirement (`PLAN_MILESTONE_3.md` debt register).
+emitter's tests. The per-op dispatcher machinery they were once called through -
+the `ClassFileCodegenSupport` trait, the `VarkaClassFileGen` assembler and the
+kernel-shape interfaces - was retired in task 17, along with the
+`CodeAndComment` cache-key field it fed (`PLAN_MILESTONE_2.md` section 8).
 
 ### Per-task class loader and Metaspace
 
@@ -259,7 +261,7 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 | Location | Responsibility |
 | :--- | :--- |
 | `sql/varka/engine` | Standalone Java 25 module (`varka-engine`, Arrow 19.0.0): `VarkaMorsel`, `DateVectorOps`, `VarkaClassLoader` and their tests. |
-| `sql/catalyst` | The vector IR, loop emitter and telemetry attribute under `codegen/varka/`; `VarkaExpressionCompiler`; `VarkaGeneratedClassLoader`; the milestone-1 `ClassFileCodegenSupport` + `VarkaClassFileGen` (retirement scheduled); config `spark.sql.codegen.varka.enabled`. |
+| `sql/catalyst` | The vector IR, loop emitter and telemetry attribute under `codegen/varka/`; `VarkaExpressionCompiler`; `VarkaGeneratedClassLoader`; `DateVarkaSupport`'s day-offset folding; the Varka configs. |
 | `sql/core` | `VarkaColumnarRule`, `VarkaColumnarToRowExec`, end-to-end test suites and benchmarks. |
 | `sql/varka` | `VISION.md`, `Varka_MVP.md`, and `plans/` with the milestone plans (`PLAN_MILESTONE_1.md` is the MVP) and per-task plans. |
 
@@ -361,8 +363,9 @@ results files, which are the source of truth as the code moves):
   framework spend the same time on both sides.
 * **Class generation in isolation** (`VarkaCodegenBenchmark`): emitting,
   defining, loading and instantiating a fused two-output kernel takes ~80 us
-  against ~6 ms for one Janino projection compile - 75x; the milestone-1
-  single-op dispatcher case is ~420x.
+  against ~6 ms for one Janino projection compile - 75x. (The milestone-1
+  single-op dispatcher case that used to sit beside it, at ~420x, went with the
+  dispatchers in task 17.)
 
 ## Deployment and requirements
 
