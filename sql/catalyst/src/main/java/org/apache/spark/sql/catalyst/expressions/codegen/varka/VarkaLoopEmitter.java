@@ -21,6 +21,7 @@ import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
+import java.lang.classfile.attribute.SourceFileAttribute;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
@@ -108,6 +109,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  * position, out-of-range ordinals or slots, non-literal day offsets, trees past
  * {@link #MAX_CHAIN_DEPTH} or {@link #MAX_FUSED_NODES} - is rejected with
  * {@link IllegalArgumentException}, which the evaluator wiring treats as "fall back".
+ *
+ * <p><b>Telemetry</b> (task 13): every emitted class carries a {@code SourceFile} attribute -
+ * the caller-supplied name, meant to identify the operator and stage
+ * ({@code Varka_Project_Stage3.java}), so a stack frame in the generated {@code run} names the
+ * plan node it came from without any mapping table - and a {@link VarkaDebugInfo} custom
+ * attribute holding the IR and the caller's plan fragment, so a captured class is
+ * self-describing. Both are metadata the JVM ignores; neither costs anything at runtime.
  */
 public final class VarkaLoopEmitter {
 
@@ -311,17 +319,33 @@ public final class VarkaLoopEmitter {
   private static final int WORD_ALL_TRUE = -1;
 
   /**
+   * The telemetry-defaulted form of {@link #emit(String, List, int, int, String, String)}: the
+   * {@code SourceFile} name falls back to the class's own simple name and the plan fragment to
+   * empty. For callers that hold no plan - tests and benchmarks building IR by hand.
+   */
+  public static byte[] emit(
+      String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals) {
+    return emit(className, outputs, numInputs, numLiterals, null, null);
+  }
+
+  /**
    * Assembles the fused-kernel class for the given output trees over {@code numInputs} columns
    * and {@code numLiterals} scalar-argument slots. Output {@code o} writes
    * {@code dstData[o]}/{@code dstValidity[o]}; a {@link ColumnRef} ordinal indexes the
    * {@code src*} arrays.
+   *
+   * <p>{@code sourceFile} becomes the class's {@code SourceFile} attribute - callers name the
+   * operator and stage there so stack traces name the plan node - and {@code planFragment} is
+   * carried verbatim in the {@link VarkaDebugInfo} attribute beside the IR (the telemetry note
+   * in the class doc). Either may be null; see the four-argument form for the defaults.
    *
    * @throws IllegalArgumentException if the IR is outside what this emitter serves - the
    *         caller is expected to fall back to the per-row projection, exactly as a kernel
    *         failure does.
    */
   public static byte[] emit(
-      String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals) {
+      String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
+      String sourceFile, String planFragment) {
     if (outputs.isEmpty()) {
       throw new IllegalArgumentException("no output chains to emit");
     }
@@ -344,9 +368,16 @@ public final class VarkaLoopEmitter {
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
     List<List<Integer>> groups = groupOutputs(outputs);
+    String source = sourceFile != null
+        ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
+    VarkaDebugInfo debugInfo = new VarkaDebugInfo(
+        "outputs=" + outputs + ", numInputs=" + numInputs + ", numLiterals=" + numLiterals,
+        planFragment != null ? planFragment : "");
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
+          .with(SourceFileAttribute.of(source))
+          .with(debugInfo)
           .withMethodBody("<init>", INIT, AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
             cb.aload(0);
             cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
@@ -640,6 +671,9 @@ public final class VarkaLoopEmitter {
 
   /** The local-variable slots one emitted body uses, threaded to the emitters. */
   private static final class Slots {
+    /** The nominal data / validity segment sizes in bytes (long slots). */
+    int dataBytes;
+    int validityBytes;
     final int[] srcSeg;
     final int[] srcValSeg;
     final int[] dead;
@@ -695,15 +729,19 @@ public final class VarkaLoopEmitter {
   /**
    * Assigns every local slot the body needs, including the per-node word/condition/tail slots,
    * with word aliasing: a node whose validity equals one child's (a literal offset, a unary
-   * op) shares that child's reference instead of recomputing it.
+   * op) shares that child's reference instead of recomputing it. Per-node slots are planned
+   * only for the body role that emits them - the vector-walk slots for a loop method, the tail
+   * slots for the tail method, neither for the driver, which runs only the shared prologue.
    */
-  private static Slots planSlots(
-      boolean dense, List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals) {
+  private static Slots planSlots(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
+      Analysis analysis, int numLiterals) {
     int numInputs = analysis.numInputs;
     Slots s = new Slots(numInputs, outputs.size());
     int slot = 8;
-    // dataBytes and validityBytes are fixed at 8 and 10 by convention (see emitBody).
-    slot += 4;
+    s.dataBytes = slot;
+    slot += 2;
+    s.validityBytes = slot;
+    slot += 2;
     for (int o = 0; o < outputs.size(); o++) {
       s.dstSeg[o] = slot++;
       s.dstValSeg[o] = slot++;
@@ -726,11 +764,12 @@ public final class VarkaLoopEmitter {
     for (int j = 0; j < numLiterals; j++) {
       s.scalarArg[j] = slot++;
     }
-    // Broadcasts are hoisted into vector locals only in the regime task 9 measured them as a
-    // win: one output, at most a chain's worth of literals. Any wider body inlines them at
-    // each use and lets C2 rematerialize under register pressure (PLAN_TASK_10.md).
-    s.broadcastSlot =
-        outputs.size() == 1 && numLiterals <= MAX_CHAIN_DEPTH ? new int[numLiterals] : null;
+    // Broadcasts are hoisted into vector locals only where they are used - the loop methods -
+    // and only in the regime task 9 measured the hoist as a win: one output, at most a chain's
+    // worth of literals. Any wider body inlines them at each use and lets C2 rematerialize
+    // under register pressure (PLAN_TASK_10.md).
+    s.broadcastSlot = mode == BodyMode.LOOP
+        && outputs.size() == 1 && numLiterals <= MAX_CHAIN_DEPTH ? new int[numLiterals] : null;
     if (s.broadcastSlot != null) {
       for (int j = 0; j < numLiterals; j++) {
         s.broadcastSlot[j] = slot++;
@@ -745,52 +784,55 @@ public final class VarkaLoopEmitter {
 
     boolean cse = !disableCseForTesting;
     for (VarkaVectorIR node : analysis.topoOrder) {
-      // Vector-walk slots. Children precede parents in the topo order, so a word reference
-      // computed here always sees concrete child references - the aliasing depends on it.
-      if (!(node instanceof Cond)) {
-        if (!dense) {
-          int ref = planWordRef(node, s);
-          if (ref == Integer.MIN_VALUE) {
-            ref = slot;
-            slot += 2;
-            s.ownWord.add(node);
+      if (mode == BodyMode.LOOP) {
+        // Vector-walk slots. Children precede parents in the topo order, so a word reference
+        // computed here always sees concrete child references - the aliasing depends on it.
+        if (!(node instanceof Cond)) {
+          if (!dense) {
+            int ref = planWordRef(node, s);
+            if (ref == Integer.MIN_VALUE) {
+              ref = slot;
+              slot += 2;
+              s.ownWord.add(node);
+            }
+            s.wordRef.put(node, ref);
           }
-          s.wordRef.put(node, ref);
-        }
-        if (cse && analysis.useCount.get(node) > 1 && !(node instanceof LiteralSlot)) {
-          s.sharedSlot.put(node, slot++);
-        }
-        if (!dense && (node instanceof Greatest || node instanceof Least)) {
-          s.pairTmp.put(node, new int[] {slot++, slot++});
-        }
-        if (node instanceof DayOfWeek || node instanceof WeekDay) {
-          s.dowTmp.put(node, new int[] {slot++, slot++});
-        }
-      } else if (dense) {
-        s.condMask.put(node, slot++);
-      } else {
-        if (node instanceof Not n) {
-          // NOT swaps the pair: pure slot aliasing, no code emitted for it.
-          s.kt.put(node, s.kf.get(n.child()));
-          s.kf.put(node, s.kt.get(n.child()));
+          if (cse && analysis.useCount.get(node) > 1 && !(node instanceof LiteralSlot)) {
+            s.sharedSlot.put(node, slot++);
+          }
+          if (!dense && (node instanceof Greatest || node instanceof Least)) {
+            s.pairTmp.put(node, new int[] {slot++, slot++});
+          }
+          if (node instanceof DayOfWeek || node instanceof WeekDay) {
+            s.dowTmp.put(node, new int[] {slot++, slot++});
+          }
+        } else if (dense) {
+          s.condMask.put(node, slot++);
         } else {
-          s.kt.put(node, slot);
-          slot += 2;
-          s.kf.put(node, slot);
-          slot += 2;
-          s.ownCond.add(node);
+          if (node instanceof Not n) {
+            // NOT swaps the pair: pure slot aliasing, no code emitted for it.
+            s.kt.put(node, s.kf.get(n.child()));
+            s.kf.put(node, s.kt.get(n.child()));
+          } else {
+            s.kt.put(node, slot);
+            slot += 2;
+            s.kf.put(node, slot);
+            slot += 2;
+            s.ownCond.add(node);
+          }
         }
-      }
-      // Scalar-tail slots.
-      if (node instanceof Cond) {
-        s.tailKt.put(node, slot++);
-        if (!dense) {
-          s.tailKf.put(node, slot++);
-        }
-      } else if (!(node instanceof LiteralSlot)) {
-        s.tailVal.put(node, slot++);
-        if (!dense) {
-          s.tailValid.put(node, slot++);
+      } else if (mode == BodyMode.TAIL) {
+        // Scalar-tail slots.
+        if (node instanceof Cond) {
+          s.tailKt.put(node, slot++);
+          if (!dense) {
+            s.tailKf.put(node, slot++);
+          }
+        } else if (!(node instanceof LiteralSlot)) {
+          s.tailVal.put(node, slot++);
+          if (!dense) {
+            s.tailValid.put(node, slot++);
+          }
         }
       }
     }
@@ -830,10 +872,6 @@ public final class VarkaLoopEmitter {
   // The emitted body methods.
   // ---------------------------------------------------------------------------------------------
 
-  // Fixed long slots for the nominal segment sizes (see planSlots).
-  private static final int DATA_BYTES = 8;
-  private static final int VALIDITY_BYTES = 10;
-
   /**
    * One body method in one of the three roles of the method layout (see {@link #emit}). The
    * dense variants run only when the dispatcher has proven every referenced input null-free,
@@ -848,7 +886,7 @@ public final class VarkaLoopEmitter {
       List<List<Integer>> groups) {
     int numInputs = analysis.numInputs;
     int numOutputs = outputs.size();
-    Slots s = planSlots(dense, outputs, analysis, numLiterals);
+    Slots s = planSlots(dense, mode, outputs, analysis, numLiterals);
 
     // (1) if (length <= 0) return;
     Label nonEmpty = cb.newLabel();
@@ -862,21 +900,21 @@ public final class VarkaLoopEmitter {
     cb.i2l();
     cb.loadConstant(4L);
     cb.lmul();
-    cb.lstore(DATA_BYTES);
+    cb.lstore(s.dataBytes);
     cb.iload(P_LENGTH);
     cb.loadConstant(7);
     cb.iadd();
     cb.i2l();
     cb.loadConstant(8L);
     cb.ldiv();
-    cb.lstore(VALIDITY_BYTES);
+    cb.lstore(s.validityBytes);
 
     // (3) Per output: segments, and - in the driver only - zero(dstValidity) before any
     // return below, the emitter invariant: an output nothing writes must still read as
     // all-null. The loop and tail methods run after bits were written and must not.
     for (int o = 0; o < numOutputs; o++) {
-      loadSegment(cb, P_DST_DATA, o, DATA_BYTES, s.dstSeg[o]);
-      loadSegment(cb, P_DST_VALIDITY, o, VALIDITY_BYTES, s.dstValSeg[o]);
+      loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
+      loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
       if (mode == BodyMode.DRIVER) {
         cb.aload(s.dstValSeg[o]);
         cb.invokestatic(SUPPORT, "zero", ZERO);
@@ -892,7 +930,7 @@ public final class VarkaLoopEmitter {
         continue;
       }
       if (dense) {
-        loadSegment(cb, P_SRC_DATA, i, DATA_BYTES, s.srcSeg[i]);
+        loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
         continue;
       }
       cb.aload(P_NULL_COUNT);
@@ -922,7 +960,7 @@ public final class VarkaLoopEmitter {
       cb.aload(P_SRC_VALIDITY);
       cb.loadConstant(i);
       cb.laload();
-      cb.lload(VALIDITY_BYTES);
+      cb.lload(s.validityBytes);
       cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
       cb.astore(s.srcValSeg[i]);
       cb.goto_(stateDone);
@@ -932,7 +970,7 @@ public final class VarkaLoopEmitter {
       cb.aconst_null();
       cb.astore(s.srcValSeg[i]);
       cb.labelBinding(stateDone);
-      loadSegment(cb, P_SRC_DATA, i, DATA_BYTES, s.srcSeg[i]);
+      loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
     }
 
     // (5) All-null shortcut: return iff every output reads at least one all-null column.
@@ -985,7 +1023,7 @@ public final class VarkaLoopEmitter {
       cb.loadConstant(j);
       cb.iaload();
       cb.istore(s.scalarArg[j]);
-      if (mode == BodyMode.LOOP && s.broadcastSlot != null) {
+      if (s.broadcastSlot != null) {
         cb.aload(s.species);
         cb.iload(s.scalarArg[j]);
         cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
@@ -1030,11 +1068,19 @@ public final class VarkaLoopEmitter {
     cb.lmul();
     cb.lstore(s.byteOffset);
 
+    // The columns this loop method can read: the union over its own outputs' subtrees. The
+    // kernel-wide referenced set would also be sound but wasteful - the word computation below
+    // runs per lane group, and an input only other groups reference has no reader here.
+    long groupColumns = 0L;
+    for (int o : outputIdx) {
+      groupColumns |= analysis.columns.get(outputs.get(o));
+    }
+
     if (!dense) {
-      // Each referenced input's validity word for this group: 0L when all-null, the bitmap
-      // bits when it has nulls, -1L when null-free. All three branches leave one long.
+      // Each group-referenced input's validity word for this lane group: 0L when all-null, the
+      // bitmap bits when it has nulls, -1L when null-free. All three branches leave one long.
       for (int i = 0; i < numInputs; i++) {
-        if (!referenced(analysis, i)) {
+        if ((groupColumns >>> i & 1L) == 0) {
           continue;
         }
         Label wNotDead = cb.newLabel();

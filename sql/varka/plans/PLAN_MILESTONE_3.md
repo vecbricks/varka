@@ -225,9 +225,12 @@ milestone 2's remaining tasks.
   hand with `AdaptiveSparkPlanHelper`. Make the shared helpers stage-aware
   before more AQE coverage lands, or a future test can pass for the wrong
   reason.
-* **Emitter slot-planning untidiness.** `planSlots` allocates scalar-tail
-  slots in loop methods and vector-walk slots in tail methods (dead slots,
-  harmless); the masked body computes validity words for inputs the current
-  loop group does not reference; `DATA_BYTES`/`VALIDITY_BYTES` couple two
-  methods through a fixed-slot convention. All cosmetic; sweep them in
-  task 13's emitter visit, which touches `emit()` anyway.
+* **Emitter slot-planning untidiness - swept in task 13, as planned.**
+  `planSlots` allocated scalar-tail slots in loop methods and vector-walk
+  slots in tail methods (dead slots, harmless); the masked body computed
+  validity words for inputs the current loop group does not reference;
+  `DATA_BYTES`/`VALIDITY_BYTES` coupled two methods through a fixed-slot
+  convention. All three fixed in the task 13 emitter visit
+  (`PLAN_TASK_13.md` 2.4): `planSlots` is body-role-aware, the word
+  computation is gated on the group's own column union, and the two byte-size
+  slots are ordinary `Slots` fields.

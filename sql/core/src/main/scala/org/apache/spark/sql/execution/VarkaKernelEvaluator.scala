@@ -70,13 +70,23 @@ import org.apache.spark.util.Utils
  * nodes' iterators already obeyed this order for memory reasons; with forwarding it is
  * load-bearing for correctness.
  *
+ * '''Telemetry''' (task 13). The emitted class names its `SourceFile` after the operator and
+ * stage (`Varka_<operatorName>_Stage<n>.java`), so a stack trace through the generated `run`
+ * identifies the plan node, and carries a `VarkaDebugInfo` attribute holding the vector IR and
+ * this projection's expression list - the emitted bytes are self-describing, and they are kept
+ * for the task's lifetime behind [[emittedClassBytes]] so diagnostics can read the attributes
+ * back off exactly what ran.
+ *
  * One instance per partition, created inside the task: it registers a task-completion listener
  * on first use, and its state must not be shared across partitions (see [[SafeForKWayMerge]]).
+ *
+ * @param operatorName the exec node this evaluator serves, for the telemetry names above.
  */
 private[sql] class VarkaKernelEvaluator(
     projectList: Seq[NamedExpression],
     childOutput: Seq[Attribute],
-    offHeapColumnVectorEnabled: Boolean)
+    offHeapColumnVectorEnabled: Boolean,
+    operatorName: String)
     extends Logging {
 
   // The projection classified entry by entry and its fused sub-projection compiled to vector
@@ -130,6 +140,14 @@ private[sql] class VarkaKernelEvaluator(
 
   /** The classified projection, for the row node's merge-at-row read-back (see 2.3). */
   private[execution] def partialPlan: Option[PartialVarkaProjection] = compiled
+
+  /**
+   * The emitted fused-kernel class's bytes, exactly as defined - the diagnostics hook behind
+   * the telemetry note in the class doc: `VarkaDebugInfo.read` and `ClassFile.parse` recover
+   * the IR, the plan fragment and the `SourceFile` name from them. Forces emission if no batch
+   * has done so yet; None when the projection is ineligible or emission failed.
+   */
+  private[execution] def emittedClassBytes: Option[Array[Byte]] = fusedRunner.map(_.classBytes)
 
   /**
    * Whether [[project]] (or [[projectFused]]) can serve this batch, or the caller has to fall
@@ -421,11 +439,20 @@ private[sql] class VarkaKernelEvaluator(
    */
   private class FusedRunner(plan: CompiledVarkaProjection) {
     private val loader = new VarkaGeneratedClassLoader(Utils.getContextOrSparkClassLoader)
+    private val className = "org.apache.spark.sql.varka.execution.VarkaFusedProjection"
+
+    // Task 13 telemetry, threaded into the emitted bytes: the SourceFile names the operator
+    // and this task's stage (the identity available at emission - the runner is built inside
+    // the task), and the debug attribute carries the whole projection - forwarded and residual
+    // entries included, so a captured class shows the fused entries in their context.
+    val classBytes: Array[Byte] = {
+      val sourceFile = s"Varka_${operatorName}_Stage${TaskContext.get().stageId()}.java"
+      VarkaLoopEmitter.emit(className, plan.outputs.asJava, plan.inputOrdinals.size,
+        plan.literals.size, sourceFile, projectList.mkString(", "))
+    }
 
     val kernel: VarkaFusedKernel = {
-      val className = "org.apache.spark.sql.varka.execution.VarkaFusedProjection"
-      loader.defineGeneratedClass(className, VarkaLoopEmitter.emit(
-        className, plan.outputs.asJava, plan.inputOrdinals.size, plan.literals.size))
+      loader.defineGeneratedClass(className, classBytes)
       loader.loadClass(className).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
     }
 

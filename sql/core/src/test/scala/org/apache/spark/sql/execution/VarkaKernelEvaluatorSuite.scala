@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, DateAdd, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDebugInfoReader
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{DateType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
@@ -35,7 +36,8 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  *
  * The exec-node suites cover the same paths end to end; this suite drives the evaluator
  * directly because `eq` on a forwarded vector and the precise close accounting are not
- * observable through a collected result.
+ * observable through a collected result. It also owns the task-13 telemetry round trip off
+ * [[VarkaKernelEvaluator.emittedClassBytes]], the one place the emitted bytes are reachable.
  */
 class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
 
@@ -53,7 +55,8 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
   private val ints: Seq[java.lang.Integer] = Seq(10, 11, null, 13)
 
   private def evaluator(projectList: Seq[NamedExpression] = mixedList): VarkaKernelEvaluator =
-    new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled = false)
+    new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled = false,
+      operatorName = "Test")
 
   /** Runs `body` inside an empty task context with a private Arrow child allocator. */
   private def withTask(body: (ColumnarBatch, () => Unit) => Unit): Unit = {
@@ -155,6 +158,25 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
       intercept[Throwable](exploding.project(input))
       assert(ArrowUtils.rootAllocator.getAllocatedMemory === afterInput,
         "a residual failure must close the fused output vectors")
+      completeTask()
+    }
+  }
+
+  test("the emitted class carries the task 13 telemetry, read back off the bytes that ran") {
+    withTask { (input, completeTask) =>
+      val kernels = evaluator()
+      kernels.release(kernels.project(input))
+      val bytes = kernels.emittedClassBytes.get
+      // The custom attribute through the diagnostics reader: the fused IR, and the whole
+      // projection as the plan fragment - the residual entry included, since the point is the
+      // fused entries in their context.
+      assert(VarkaDebugInfoReader.ir(bytes).contains("AddDays"))
+      val fragment = VarkaDebugInfoReader.planFragment(bytes)
+      assert(fragment.contains("date_add"))
+      assert(fragment.contains("inc"))
+      // The SourceFile attribute names the operator and this task's stage.
+      assert(VarkaDebugInfoReader.sourceFile(bytes) ===
+        s"Varka_Test_Stage${TaskContext.get().stageId()}.java")
       completeTask()
     }
   }

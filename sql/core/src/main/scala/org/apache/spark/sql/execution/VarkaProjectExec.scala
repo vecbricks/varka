@@ -121,8 +121,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
 
   private class VarkaProjectEvaluator extends PartitionEvaluator[ColumnarBatch, ColumnarBatch] {
 
-    private val kernels =
-      new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled)
+    private val kernels = new VarkaKernelEvaluator(
+      projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "Project")
 
     // The per-row projection behind the fallback, and the schema its rows are written back into.
     // Lazy (task 15): a task the kernels serve end to end never compiles it, so the Janino

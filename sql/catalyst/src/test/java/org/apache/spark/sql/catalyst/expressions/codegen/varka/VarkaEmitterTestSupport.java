@@ -40,6 +40,16 @@ public final class VarkaEmitterTestSupport {
   }
 
   /**
+   * Whether the class carries an attribute with the given name, parsed <i>without</i> any
+   * custom mapper - the view a third-party class-file tool gets, where an unregistered custom
+   * attribute is opaque but still present under its name (the task 13 telemetry tests).
+   */
+  public static boolean hasAttributeNamed(byte[] bytes, String name) {
+    return ClassFile.of().parse(bytes).attributes().stream()
+        .anyMatch(attr -> attr.attributeName().equalsString(name));
+  }
+
+  /**
    * Toggles {@link VarkaLoopEmitter#disableCseForTesting} for callers outside the emitter's
    * package - the parity benchmark prices CSE by emitting the same trees with the memo off.
    */

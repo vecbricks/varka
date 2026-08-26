@@ -154,8 +154,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       UnsafeProjection.create(outputAttrs, outputAttrs)
     }
 
-    private val kernels =
-      new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled)
+    private val kernels = new VarkaKernelEvaluator(
+      projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "ProjectToRow")
 
     // Merge-at-row (task 12, 2.3): for a projection with forwarded or residual entries the
     // kernels produce only the fused columns, and this projection - over the input row joined

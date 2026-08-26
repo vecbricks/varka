@@ -715,4 +715,29 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(collected, "the loader (and with it the emitted class) was not collected")
     assert(ref.get() == null)
   }
+
+  test("telemetry: the SourceFile and VarkaDebugInfo attributes round-trip off the bytes") {
+    val name = s"org.apache.spark.sql.varka.execution.VarkaFusedTest${classCounter.addAndGet(1)}"
+    val bytes = VarkaLoopEmitter.emit(name, Seq(addDays(0)).asJava, 1, 1,
+      "Varka_Project_Stage3.java", "date_add(d#1, 3) AS a#2")
+    // The attributes are metadata: the class must verify exactly as it did without them.
+    assert(VarkaEmitterTestSupport.verify(bytes).isEmpty)
+    // A reader without the mapper sees an opaque attribute under the right name - the shape
+    // any third-party class-file tool gets - while the diagnostics reader registers the
+    // mapper and recovers the payload: the rendered IR and the caller's plan fragment.
+    assert(VarkaEmitterTestSupport.hasAttributeNamed(bytes, "VarkaDebugInfo"))
+    assert(VarkaDebugInfoReader.sourceFile(bytes) === "Varka_Project_Stage3.java")
+    val ir = VarkaDebugInfoReader.ir(bytes)
+    assert(ir.contains("AddDays[days=ColumnRef[ordinal=0], offset=LiteralSlot[index=0]]"))
+    assert(ir.contains("numInputs=1"))
+    assert(VarkaDebugInfoReader.planFragment(bytes) === "date_add(d#1, 3) AS a#2")
+  }
+
+  test("the telemetry-defaulted emit derives the SourceFile and records no plan fragment") {
+    val (className, bytes) = emit(addDays(0), 1)
+    val simpleName = className.substring(className.lastIndexOf('.') + 1)
+    assert(VarkaDebugInfoReader.sourceFile(bytes) === s"$simpleName.java")
+    assert(VarkaDebugInfoReader.ir(bytes).contains("AddDays"))
+    assert(VarkaDebugInfoReader.planFragment(bytes) === "")
+  }
 }
