@@ -217,6 +217,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
         offHeapColumnVectorEnabled = false,
+        classDumpDirectory = None,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         varkaBatches)
@@ -274,6 +275,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
         project(Alias(ExplodingCodegenExpression(), "boom")()), Seq(intAttr),
         offHeapColumnVectorEnabled = false,
+        classDumpDirectory = None,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varka"))
@@ -312,6 +314,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
         offHeapColumnVectorEnabled = false,
+        classDumpDirectory = None,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varkaBatches"))
@@ -360,6 +363,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
         project(Alias(DateAdd(attrD, Literal(3)), "add")()),
         Seq(attrD),
         offHeapColumnVectorEnabled = false,
+        classDumpDirectory = None,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varkaBatches"))

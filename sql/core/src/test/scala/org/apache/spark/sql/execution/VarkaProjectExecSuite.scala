@@ -163,6 +163,46 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
     }
   }
 
+  test("task 16: the fallback warning names the kernel it gave up on") {
+    // Before task 16 this line carried only the exception, so a log could not say which plan
+    // node or projection had fallen back.
+    VarkaColumnarToRowExec.setFailKernelForTesting(true)
+    try {
+      val appender = new LogAppender("varka fallback")
+      withLogAppender(appender) {
+        val plan = node(
+          project(Alias(DateAdd(attrD, Literal(3)), "add")()),
+          Seq(BatchSpec("arrow", Seq(Seq(Int.box(1), null, Int.box(5))))),
+          Seq(attrD))
+        assert(values(plan) === Seq(4, null, 8))
+      }
+      val warning = appender.loggingEvents
+        .map(_.getMessage.getFormattedMessage)
+        .find(_.contains("failed on this batch"))
+        .getOrElse(fail("no fallback warning was logged"))
+      // The kernel's own telemetry name, plus the IR it computes.
+      assert(warning.contains("Varka_Project_Stage"), warning)
+      assert(warning.contains("AddDays"), warning)
+    } finally {
+      VarkaColumnarToRowExec.setFailKernelForTesting(false)
+    }
+  }
+
+  test("task 16: verbose EXPLAIN accounts for every entry, with the residual entry's reason") {
+    val plan = node(
+      project(
+        Alias(DateAdd(attrD, Literal(3)), "a")(),
+        intAttr,
+        Alias(Add(intAttr, Literal(1)), "inc")()),
+      Seq(BatchSpec("arrow", Seq(Seq(Int.box(0)), Seq(Int.box(7))))),
+      Seq(attrD, intAttr))
+    val explained = plan.verboseStringWithOperatorId()
+    assert(explained.contains("Varka"), explained)
+    assert(explained.contains("a: fused"), explained)
+    assert(explained.contains("i: forwarded from i"), explained)
+    assert(explained.contains("inc: residual (unsupported expression:"), explained)
+  }
+
   test("the fallback projection is compiled lazily, only when a batch falls back") {
     // Same construction as the VarkaColumnarToRowExecSuite counterpart: under CODEGEN_ONLY,
     // [[ExplodingCodegenExpression]] makes building the fallback projection throw, so the
@@ -172,6 +212,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
       val factory = new VarkaProjectEvaluatorFactory(
         project(Alias(ExplodingCodegenExpression(), "boom")()), Seq(intAttr),
         offHeapColumnVectorEnabled = false,
+        classDumpDirectory = None,
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         SQLMetrics.createMetric(sparkContext, "varka"))
@@ -280,6 +321,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
       project(Alias(DateAdd(attrD, Literal(3)), "add")()),
       Seq(attrD),
       offHeapColumnVectorEnabled = false,
+      classDumpDirectory = None,
       SQLMetrics.createMetric(sparkContext, "rows"),
       SQLMetrics.createMetric(sparkContext, "batches"),
       SQLMetrics.createMetric(sparkContext, "varkaBatches"))

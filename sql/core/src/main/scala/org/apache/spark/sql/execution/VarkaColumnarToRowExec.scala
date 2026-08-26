@@ -85,11 +85,24 @@ case class VarkaColumnarToRowExec(
     "numVarkaBatches" -> SQLMetrics.createMetric(
       sparkContext, "number of input batches processed by the Varka SIMD kernels"))
 
+  // Task 16: verbose EXPLAIN answers "why didn't my projection fuse?" - every entry's
+  // classification, and for a residual entry the reason the compiler declined it.
+  override def verboseStringWithOperatorId(): String = {
+    s"""
+       |$formattedNodeName
+       |${ExplainUtils.generateFieldString("Output", projectList)}
+       |${ExplainUtils.generateFieldString("Input", child.output)}
+       |${ExplainUtils.generateFieldString("Varka",
+            VarkaFusionReport.lines(projectList, child.output))}
+       |""".stripMargin
+  }
+
   override def doExecute(): RDD[InternalRow] = {
     val evaluatorFactory = new VarkaColumnarToRowEvaluatorFactory(
       projectList,
       child.output,
       conf.offHeapColumnVectorEnabled,
+      conf.varkaClassDumpDirectory,
       longMetric("numOutputRows"),
       longMetric("numInputBatches"),
       longMetric("numVarkaBatches"))
@@ -123,6 +136,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     projectList: Seq[NamedExpression],
     childOutput: Seq[Attribute],
     offHeapColumnVectorEnabled: Boolean,
+    classDumpDirectory: Option[String],
     numOutputRows: SQLMetric,
     numInputBatches: SQLMetric,
     numVarkaBatches: SQLMetric)
@@ -155,7 +169,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private val kernels = new VarkaKernelEvaluator(
-      projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "ProjectToRow")
+      projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "ProjectToRow",
+      classDumpDirectory)
 
     // Merge-at-row (task 12, 2.3): for a projection with forwarded or residual entries the
     // kernels produce only the fused columns, and this projection - over the input row joined
@@ -201,8 +216,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
           rows
         } catch {
           case e if kernels.isCatchable(e) =>
-            logWarning("The Varka SIMD kernels failed on this batch; falling back to the " +
-              "per-row projection.", e)
+            logWarning(s"The Varka SIMD kernels ${kernels.kernelIdentity} failed on this " +
+              "batch; falling back to the per-row projection.", e)
             fallback(input)
         }
       } else {

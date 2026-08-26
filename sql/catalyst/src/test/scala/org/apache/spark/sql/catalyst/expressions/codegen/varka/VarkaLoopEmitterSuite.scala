@@ -716,6 +716,76 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(ref.get() == null)
   }
 
+  /** The class's own LineNumberTable key, parsed back into line -> rendered IR node. */
+  private def lineKey(bytes: Array[Byte]): Map[Int, String] = {
+    val recorded = VarkaDebugInfoReader.lineMap(bytes)
+    assert(recorded != null && recorded.nonEmpty, "the class recorded no line map")
+    recorded.linesIterator.map { entry =>
+      val parts = entry.split("=", 2)
+      parts(0).toInt -> parts(1)
+    }.toMap
+  }
+
+  test("telemetry: the emitted lines index the IR nodes the debug attribute records") {
+    // datediff(date_add(d, 1), d2): five distinct nodes, so the loop and the tail attribute
+    // their instructions to lines 1..5 and the key decodes every one of them.
+    val add = new AddDays(new ColumnRef(0), new LiteralSlot(0))
+    val root = new DateDiff(add, new ColumnRef(1))
+    val (_, bytes) = emitMulti(Seq(root), 2, 1)
+    val key = lineKey(bytes)
+    assert(key.keys.toSeq.sorted === (1 to key.size).toSeq,
+      "the key must number the nodes 1..N with no gaps")
+    // Children strictly before parents, which is what makes a line number a schedule position.
+    assert(key(key.size).startsWith("DateDiff"), s"the root should be last: ${key(key.size)}")
+    assert(key.values.exists(_.startsWith("ColumnRef")))
+    assert(key.values.count(_.startsWith("AddDays")) === 1)
+    for (method <- Seq("loopMasked0", "tailMasked", "loopDense0", "tailDense")) {
+      val lines = VarkaEmitterTestSupport.lineNumbers(bytes, method)
+      assert(lines.asScala.nonEmpty, s"$method carries no LineNumberTable")
+      assert(lines.asScala.forall(line => key.contains(line)),
+        s"$method has lines outside the key: ${lines.asScala.mkString(", ")}")
+    }
+  }
+
+  test("a kernel failure's stack frame resolves to the IR node that threw") {
+    // The misdescribe hook fails the AddDays call site at link time, inside the loop - the
+    // shape a real kernel failure takes. The frame through the generated class must name the
+    // SourceFile and a line, and the class's own key must decode that line to the node.
+    VarkaLoopEmitter.misdescribeAddForTesting = true
+    try {
+      val named = emit(addDays(0), 1)
+      val (className, bytes) = named
+      val (kernel, loader) = load(named)
+      try {
+        val arena = Arena.ofConfined()
+        try {
+          val length = 64
+          val input = makeInput(arena, length, _ => false)
+          val out = makeOutput(arena, length)
+          val e = intercept[LinkageError] {
+            kernel.run(
+              Array(input.data.address()), Array(0L), Array(0),
+              Array(out._1.address()), Array(out._2.address()), Array(1), length)
+          }
+          val frame = e.getStackTrace.find(_.getClassName == className).getOrElse(
+            fail(s"no frame in the generated class:\n${e.getStackTrace.mkString("\n")}"))
+          val simpleName = className.substring(className.lastIndexOf('.') + 1)
+          assert(frame.getFileName === s"$simpleName.java")
+          assert(frame.getLineNumber > 0, "the frame carries no line number")
+          val node = lineKey(bytes).getOrElse(frame.getLineNumber,
+            fail(s"line ${frame.getLineNumber} is not in the recorded key"))
+          assert(node.startsWith("AddDays"), s"the failing line decoded to $node")
+        } finally {
+          arena.close()
+        }
+      } finally {
+        loader.release()
+      }
+    } finally {
+      VarkaLoopEmitter.misdescribeAddForTesting = false
+    }
+  }
+
   test("telemetry: the SourceFile and VarkaDebugInfo attributes round-trip off the bytes") {
     val name = s"org.apache.spark.sql.varka.execution.VarkaFusedTest${classCounter.addAndGet(1)}"
     val bytes = VarkaLoopEmitter.emit(name, Seq(addDays(0)).asJava, 1, 1,
@@ -731,6 +801,8 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(ir.contains("AddDays[days=ColumnRef[ordinal=0], offset=LiteralSlot[index=0]]"))
     assert(ir.contains("numInputs=1"))
     assert(VarkaDebugInfoReader.planFragment(bytes) === "date_add(d#1, 3) AS a#2")
+    // Task 16: the same attribute carries the LineNumberTable's decoding key.
+    assert(VarkaDebugInfoReader.lineMap(bytes).startsWith("1="))
   }
 
   test("the telemetry-defaulted emit derives the SourceFile and records no plan fragment") {

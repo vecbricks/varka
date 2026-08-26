@@ -52,4 +52,13 @@ public final class VarkaDebugInfoReader {
   public static String planFragment(byte[] classBytes) {
     return VarkaDebugInfo.read(classBytes).map(VarkaDebugInfo::planFragment).orElse(null);
   }
+
+  /**
+   * The {@code LineNumberTable} decoding key of the emitted class (task 16), or null when the
+   * class carries no {@code VarkaDebugInfo}: one {@code <line>=<node>} entry per distinct IR
+   * node, newline separated.
+   */
+  public static String lineMap(byte[] classBytes) {
+    return VarkaDebugInfo.read(classBytes).map(VarkaDebugInfo::lineMap).orElse(null);
+  }
 }

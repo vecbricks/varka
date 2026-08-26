@@ -17,7 +17,9 @@
 
 package org.apache.spark.sql.execution
 
+import java.io.File
 import java.lang.foreign.MemorySegment
+import java.nio.file.Files
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
@@ -77,23 +79,38 @@ import org.apache.spark.util.Utils
  * for the task's lifetime behind [[emittedClassBytes]] so diagnostics can read the attributes
  * back off exactly what ran.
  *
+ * Task 16 extends that telemetry outward: the emitted class also carries a `LineNumberTable`
+ * whose lines are IR nodes, every fallback this class logs names the kernel it gave up on
+ * ([[kernelIdentity]]), and `spark.sql.codegen.varka.classDumpDirectory` writes the emitted
+ * bytes to disk under the same `SourceFile` name, so `javap` reaches a generated loop with no
+ * debugger attached.
+ *
  * One instance per partition, created inside the task: it registers a task-completion listener
  * on first use, and its state must not be shared across partitions (see [[SafeForKWayMerge]]).
  *
  * @param operatorName the exec node this evaluator serves, for the telemetry names above.
+ * @param classDumpDirectory where to write each emitted class, or None to write none.
  */
 private[sql] class VarkaKernelEvaluator(
     projectList: Seq[NamedExpression],
     childOutput: Seq[Attribute],
     offHeapColumnVectorEnabled: Boolean,
-    operatorName: String)
+    operatorName: String,
+    classDumpDirectory: Option[String] = None)
     extends Logging {
 
   // The projection classified entry by entry and its fused sub-projection compiled to vector
   // IR; None when no entry is Varka-eligible (should not happen given [[VarkaColumnarRule]],
   // but be safe).
-  private lazy val compiled: Option[PartialVarkaProjection] =
-    VarkaExpressionCompiler.compilePartial(projectList, childOutput)
+  private lazy val compiled: Option[PartialVarkaProjection] = {
+    val partial = VarkaExpressionCompiler.compilePartial(projectList, childOutput)
+    // Task 16: the same per-entry account verbose EXPLAIN prints, once per task at debug level.
+    partial.foreach { plan =>
+      logDebug(s"Varka $operatorName fusion: " +
+        VarkaFusionReport.lines(plan, projectList, childOutput).mkString("; "))
+    }
+    partial
+  }
 
   // The residual entries and their per-row machinery. All lazy (task 15's discipline): a
   // kernel-only projection has no residual entries, and even a mixed one pays the Janino
@@ -131,8 +148,8 @@ private[sql] class VarkaKernelEvaluator(
         Some(new FusedRunner(partial.fused))
       } catch {
         case e if isCatchable(e) =>
-          logWarning("Failed to emit the Varka fused kernel; falling back to the " +
-            "per-row projection.", e)
+          logWarning(s"Failed to emit the Varka fused kernel $kernelIdentity; falling back " +
+            "to the per-row projection.", e)
           None
       }
     }
@@ -140,6 +157,27 @@ private[sql] class VarkaKernelEvaluator(
 
   /** The classified projection, for the row node's merge-at-row read-back (see 2.3). */
   private[execution] def partialPlan: Option[PartialVarkaProjection] = compiled
+
+  /**
+   * The `SourceFile` name the emitted class carries: the operator and this task's stage, the
+   * identity available at emission time. Outside a task (diagnostics, tests) the stage reads
+   * as -1 rather than throwing.
+   */
+  private def sourceFileName: String = {
+    val stage = Option(TaskContext.get()).map(_.stageId()).getOrElse(-1)
+    s"Varka_${operatorName}_Stage$stage.java"
+  }
+
+  /**
+   * The kernel named the way its telemetry names it (task 16): the `SourceFile` of the emitted
+   * class and the IR it computes. Every fallback warning - here and in both exec nodes - says
+   * which kernel it gave up on, so a log line identifies the plan node without correlation.
+   * Reading it forces no emission.
+   */
+  private[execution] def kernelIdentity: String = {
+    val ir = compiled.map(_.fused.outputs.mkString(", ")).getOrElse("no compiled projection")
+    s"$sourceFileName [$ir]"
+  }
 
   /**
    * The emitted fused-kernel class's bytes, exactly as defined - the diagnostics hook behind
@@ -398,6 +436,27 @@ private[sql] class VarkaKernelEvaluator(
     fixed
   }
 
+  /**
+   * Writes the emitted class to the configured dump directory under its `SourceFile` name
+   * (task 16), so `javap -c -p` reaches a generated loop with no debugger. Diagnostics only:
+   * every failure is logged and swallowed, because a query must not fail over a debug write.
+   * Tasks of one stage emit identical bytes for one projection, so they overwrite one file.
+   */
+  private def dumpClass(sourceFile: String, bytes: Array[Byte]): Unit = {
+    classDumpDirectory.foreach { directory =>
+      try {
+        val target = new File(directory, sourceFile.stripSuffix(".java") + ".class")
+        Files.createDirectories(target.toPath.getParent)
+        Files.write(target.toPath, bytes)
+        logInfo(s"Wrote the Varka kernel class to ${target.getAbsolutePath}")
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Could not dump the Varka kernel class to $directory; " +
+            "execution is unaffected.", e)
+      }
+    }
+  }
+
   private def invokeFused(runner: FusedRunner, len: Int): Unit = {
     if (VarkaColumnarToRowExec.isFailKernelForTesting) {
       // scalastyle:off throwerror
@@ -445,10 +504,13 @@ private[sql] class VarkaKernelEvaluator(
     // and this task's stage (the identity available at emission - the runner is built inside
     // the task), and the debug attribute carries the whole projection - forwarded and residual
     // entries included, so a captured class shows the fused entries in their context.
+    val sourceFile: String = sourceFileName
+
     val classBytes: Array[Byte] = {
-      val sourceFile = s"Varka_${operatorName}_Stage${TaskContext.get().stageId()}.java"
-      VarkaLoopEmitter.emit(className, plan.outputs.asJava, plan.inputOrdinals.size,
-        plan.literals.size, sourceFile, projectList.mkString(", "))
+      val bytes = VarkaLoopEmitter.emit(className, plan.outputs.asJava,
+        plan.inputOrdinals.size, plan.literals.size, sourceFile, projectList.mkString(", "))
+      dumpClass(sourceFile, bytes)
+      bytes
     }
 
     val kernel: VarkaFusedKernel = {

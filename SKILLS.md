@@ -244,6 +244,23 @@ apparent small wins turned out to be noise.
   Negative inputs are where every strength-reduced mod goes wrong silently - a test
   range that never crosses zero proves nothing.
 
+## Generated Code Can Carry Its Own Debug Info (Class-File API)
+
+- `CodeBuilder.lineNumber(n)` needs no options or flags: a `LineNumberTable` lands in
+  the emitted method, and with a `SourceFile` attribute the JVM fills in file and line
+  on every stack frame through the generated code - so a generated loop can name the
+  *IR node* that threw, not just the method. Place the marker immediately before the
+  node's own defining instruction, after its children are emitted: a marker at the
+  start of a post-order case attributes the parent's op to whichever child was emitted
+  last.
+- Pick line numbers from a property of the IR (task 16 uses the children-before-parents
+  topological index), not of the emission order, and record the decoding key inside the
+  class - a custom attribute is the natural place, since it travels with the bytes into
+  a heap dump or a `javap` capture.
+- A custom attribute's payload is fixed-width: adding a field means updating the
+  `attribute_length` the writer emits (4 -> 6 for two -> three constant-pool refs) *and*
+  the reader's offsets. They are two sides of one format and belong in one commit.
+
 ## The Class-File API's Stack-Map Generator Is a Free Verifier
 
 - `ClassFile.of().build(...)` computes stack map frames and rejects inconsistent

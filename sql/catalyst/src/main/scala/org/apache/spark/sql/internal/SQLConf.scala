@@ -2936,6 +2936,17 @@ object SQLConf {
     .booleanConf
     .createWithDefault(false)
 
+  val VARKA_CLASS_DUMP_DIRECTORY = buildConf("spark.sql.codegen.varka.classDumpDirectory")
+    .internal()
+    .doc("When set, every fused kernel class Varka emits is written to this directory under" +
+      " its SourceFile name, so a generated loop can be disassembled with javap without" +
+      " attaching a debugger. Diagnostics only: a write failure is logged and never fails the" +
+      " query, and tasks of one stage emit identical bytes, so they overwrite one file.")
+    .version("5.0.0")
+    .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
+    .stringConf
+    .createOptional
+
   val CODEGEN_FACTORY_MODE = buildConf("spark.sql.codegen.factoryMode")
     .internal()
     .doc("This config determines the fallback behavior of several codegen generators " +
@@ -8991,6 +9002,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def wholeStageMaxNumFields: Int = getConf(WHOLESTAGE_MAX_NUM_FIELDS)
 
   def varkaEnabled: Boolean = getConf(VARKA_ENABLED)
+
+  def varkaClassDumpDirectory: Option[String] = getConf(VARKA_CLASS_DUMP_DIRECTORY)
 
   def codegenFallback: Boolean = getConf(CODEGEN_FALLBACK)
 

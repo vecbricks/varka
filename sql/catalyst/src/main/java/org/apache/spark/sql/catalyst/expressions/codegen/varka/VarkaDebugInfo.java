@@ -22,18 +22,20 @@ import java.util.Optional;
 
 /**
  * The {@code VarkaDebugInfo} class attribute (milestone 2, task 13): the emitted fused-kernel
- * class carries, baked into its own bytes, the vector IR it was emitted from and the plan
- * fragment that produced that IR. A generated class dumped from a heap, a Metaspace profile or
- * a {@code -XX:+DumpLoadedClassList}-style capture is thereby self-describing - no live session
- * or log correlation is needed to answer "which projection is this loop?".
+ * class carries, baked into its own bytes, the vector IR it was emitted from, the plan
+ * fragment that produced that IR, and (task 16) the key that decodes its {@code LineNumberTable}
+ * back to IR nodes. A generated class dumped from a heap, a Metaspace profile or a
+ * {@code -XX:+DumpLoadedClassList}-style capture is thereby self-describing - no live session
+ * or log correlation is needed to answer "which projection is this loop?", nor "which node is
+ * the frame at line 7?".
  *
  * <p>The attribute is a standard class-file custom attribute: one the JVM does not recognize
  * and therefore ignores entirely ("Attributes" in the JVMS - unrecognized attributes must be
  * silently skipped), so it costs nothing at class load or JIT time and cannot affect execution.
  * The byte format is normative here: the attribute body is exactly
- * {@code u2 ir_index; u2 plan_index}, two constant-pool UTF-8 references - which is also why
- * the mapper stability is {@code CP_REFS} - and the writer emits the six-byte name-and-length
- * header itself while a reader's position starts after it.
+ * {@code u2 ir_index; u2 plan_index; u2 lines_index}, three constant-pool UTF-8 references -
+ * which is also why the mapper stability is {@code CP_REFS} - and the writer emits the
+ * six-byte name-and-length header itself while a reader's position starts after it.
  *
  * <p><b>Why this class is a plain holder, with no {@code java.lang.classfile} import.</b>
  * Scala 2.13's typechecker - scalac and scaladoc alike, and the Maven build runs scaladoc via
@@ -68,10 +70,12 @@ public final class VarkaDebugInfo {
 
   private final String ir;
   private final String planFragment;
+  private final String lineMap;
 
-  public VarkaDebugInfo(String ir, String planFragment) {
+  public VarkaDebugInfo(String ir, String planFragment, String lineMap) {
     this.ir = Objects.requireNonNull(ir, "ir");
     this.planFragment = Objects.requireNonNull(planFragment, "planFragment");
+    this.lineMap = Objects.requireNonNull(lineMap, "lineMap");
   }
 
   /** The {@link VarkaVectorIR} roots the class was emitted from, rendered by the emitter. */
@@ -85,6 +89,16 @@ public final class VarkaDebugInfo {
    */
   public String planFragment() {
     return planFragment;
+  }
+
+  /**
+   * The {@code LineNumberTable}'s decoding key (task 16): one {@code <line>=<node>} entry per
+   * distinct IR node, newline separated, so a frame at {@code Varka_Project_Stage3.java:7}
+   * resolves to the node the emitter attributed that line to. Empty for a class emitted with
+   * no nodes to map.
+   */
+  public String lineMap() {
+    return lineMap;
   }
 
   /**
@@ -114,6 +128,8 @@ public final class VarkaDebugInfo {
         return new Parsed(this, new VarkaDebugInfo(
             cf.readEntry(pos, java.lang.classfile.constantpool.Utf8Entry.class).stringValue(),
             cf.readEntry(pos + 2,
+                java.lang.classfile.constantpool.Utf8Entry.class).stringValue(),
+            cf.readEntry(pos + 4,
                 java.lang.classfile.constantpool.Utf8Entry.class).stringValue()));
       }
 
@@ -137,6 +153,6 @@ public final class VarkaDebugInfo {
 
   @Override
   public String toString() {
-    return NAME + "[ir=" + ir + ", planFragment=" + planFragment + "]";
+    return NAME + "[ir=" + ir + ", planFragment=" + planFragment + ", lineMap=" + lineMap + "]";
   }
 }

@@ -17,9 +17,12 @@
 
 package org.apache.spark.sql.execution
 
+import java.io.File
+import java.nio.file.Files
+
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, DateAdd, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, DateAdd, LessThan, Literal, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDebugInfoReader
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{DateType, IntegerType}
@@ -54,9 +57,11 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
   private val dates: Seq[java.lang.Integer] = Seq(0, null, -5, 20000)
   private val ints: Seq[java.lang.Integer] = Seq(10, 11, null, 13)
 
-  private def evaluator(projectList: Seq[NamedExpression] = mixedList): VarkaKernelEvaluator =
+  private def evaluator(
+      projectList: Seq[NamedExpression] = mixedList,
+      classDumpDirectory: Option[String] = None): VarkaKernelEvaluator =
     new VarkaKernelEvaluator(projectList, childOutput, offHeapColumnVectorEnabled = false,
-      operatorName = "Test")
+      operatorName = "Test", classDumpDirectory)
 
   /** Runs `body` inside an empty task context with a private Arrow child allocator. */
   private def withTask(body: (ColumnarBatch, () => Unit) => Unit): Unit = {
@@ -179,5 +184,45 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
         s"Varka_Test_Stage${TaskContext.get().stageId()}.java")
       completeTask()
     }
+  }
+
+  test("task 16: the emitted class is dumped under its SourceFile name, byte for byte") {
+    withTempDir { dumpDir =>
+      withTask { (input, completeTask) =>
+        val kernels = evaluator(classDumpDirectory = Some(dumpDir.getAbsolutePath))
+        kernels.release(kernels.project(input))
+        val bytes = kernels.emittedClassBytes.get
+        val dumped = new File(dumpDir, s"Varka_Test_Stage${TaskContext.get().stageId()}.class")
+        assert(dumped.exists(), s"no class dumped into $dumpDir")
+        // Byte-identical to what ran, and still a class the reader can parse - which is what
+        // makes `javap` on it worth anything.
+        assert(java.util.Arrays.equals(Files.readAllBytes(dumped.toPath), bytes))
+        assert(VarkaDebugInfoReader.ir(Files.readAllBytes(dumped.toPath)).contains("AddDays"))
+        completeTask()
+      }
+    }
+  }
+
+  test("task 16: the fusion report names each entry's fate and the residual entry's reason") {
+    val lines = VarkaFusionReport.lines(mixedList, childOutput)
+    assert(lines.length === 3)
+    assert(lines(0) === "a: fused")
+    assert(lines(1) === "i: forwarded from i")
+    // The reason names the innermost expression that failed, in the query's own column names.
+    assert(lines(2).startsWith("inc: residual (unsupported expression:"), lines(2))
+    assert(lines(2).contains("i"), lines(2))
+  }
+
+  test("task 16: a declined offset and a missing ELSE report their own reasons") {
+    val nonLiteralOffset = Seq[NamedExpression](
+      Alias(DateAdd(attrD, intAttr), "shifted")(),
+      Alias(DateAdd(attrD, Literal(1)), "fused")())
+    val offsetLines = VarkaFusionReport.lines(nonLiteralOffset, childOutput)
+    assert(offsetLines(0).contains("day offset is not a foldable literal"), offsetLines(0))
+    val noElse = Seq[NamedExpression](
+      Alias(CaseWhen(Seq((LessThan(attrD, Literal(0, DateType)), attrD)), None), "picked")(),
+      Alias(DateAdd(attrD, Literal(1)), "fused")())
+    val elseLines = VarkaFusionReport.lines(noElse, childOutput)
+    assert(elseLines(0).contains("CASE WHEN without an ELSE branch"), elseLines(0))
   }
 }

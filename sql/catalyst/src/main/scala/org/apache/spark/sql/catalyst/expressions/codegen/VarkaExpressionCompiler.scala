@@ -58,14 +58,59 @@ private[sql] case class ForwardedOutput(childOrdinal: Int) extends VarkaOutputSp
 private[sql] case object ResidualOutput extends VarkaOutputSpec
 
 /**
+ * Why one entry could not be fused (task 16): the answer to "why didn't my projection fuse?",
+ * which the compiler's per-entry `None` used to swallow. `reason` is the vocabulary term - the
+ * same string the exec nodes' verbose `EXPLAIN` and debug logs print - and `expr` names the
+ * offending expression, the innermost one that actually failed rather than the whole entry.
+ */
+private[sql] case class VarkaDecline(reason: String, expr: String) {
+  override def toString: String = s"$reason: $expr"
+}
+
+/**
+ * Collects the decline of one entry. The recursion reports at the point of failure and the
+ * first note wins, so the recorded reason is the innermost cause rather than the outermost
+ * expression that inherited it; [[take]] hands it over and resets for the next entry.
+ *
+ * The recursion works on bound expressions, whose `BoundReference`s render as
+ * `input[1, int, true]`; the child's attributes go back in before the text is kept, so a
+ * reason reads in the query's own column names.
+ */
+private final class DeclineSink(childOutput: Seq[Attribute]) {
+  private var first: Option[VarkaDecline] = None
+
+  def note(reason: String, expr: Expression): Unit = {
+    if (first.isEmpty) {
+      val named = expr.transformUp {
+        case br: BoundReference if br.ordinal >= 0 && br.ordinal < childOutput.length =>
+          childOutput(br.ordinal)
+      }
+      val text = named.sql
+      val shown = if (text.length > 80) text.take(77) + "..." else text
+      first = Some(VarkaDecline(reason, shown))
+    }
+  }
+
+  def take(): Option[VarkaDecline] = {
+    val taken = first
+    first = None
+    taken
+  }
+}
+
+/**
  * A projection classified entry by entry (task 12): `specs` has one entry per projectList
  * position, in order, and `fused` is the sub-projection of just the [[FusedOutput]] entries -
  * their kernel-input and literal tables cover only what the fused trees reference, so a
  * residual entry constrains neither the emitted loop nor `canRun`'s Arrow check.
+ *
+ * `declines` (task 16) maps the position of each [[ResidualOutput]] entry to why it declined,
+ * for the exec nodes' verbose `EXPLAIN`; it is diagnostics only and no execution path reads it.
  */
 private[sql] case class PartialVarkaProjection(
     specs: Seq[VarkaOutputSpec],
-    fused: CompiledVarkaProjection)
+    fused: CompiledVarkaProjection,
+    declines: Map[Int, VarkaDecline] = Map.empty)
 
 /**
  * Compiles a bound projection list to the Varka vector IR, recursing where the MVP's
@@ -119,8 +164,10 @@ private[sql] object VarkaExpressionCompiler {
     val literals = mutable.LinkedHashMap.empty[Int, Int]
     val outputs = Seq.newBuilder[VarkaVectorIR]
     val outputTypes = Seq.newBuilder[DataType]
+    val sink = new DeclineSink(childOutput)
+    val declines = Map.newBuilder[Int, VarkaDecline]
     var fusedCount = 0
-    val specs = projectList.map { named =>
+    val specs = projectList.zipWithIndex.map { case (named, position) =>
       // Bound at Expression, not NamedExpression: a bare column entry binds to a
       // BoundReference, which is not a NamedExpression, and the cast inside bindReference
       // would throw instead of letting the match below classify it.
@@ -141,8 +188,9 @@ private[sql] object VarkaExpressionCompiler {
           // pre-entry size restores the exact prior state.
           val inputsMark = inputs.size
           val literalsMark = literals.size
-          compileNode(e, inputs, literals) match {
+          compileNode(e, inputs, literals, sink) match {
             case Some(ir) =>
+              sink.take()
               outputs += ir
               outputTypes += e.dataType
               fusedCount += 1
@@ -150,13 +198,16 @@ private[sql] object VarkaExpressionCompiler {
             case None =>
               truncate(inputs, inputsMark)
               truncate(literals, literalsMark)
+              // A declining entry always leaves a reason: every `None` below notes one.
+              sink.take().foreach(decline => declines += position -> decline)
               ResidualOutput
           }
       }
     }
     if (fusedCount > 0 && inputs.nonEmpty) {
       Some(PartialVarkaProjection(specs, CompiledVarkaProjection(
-        outputs.result(), outputTypes.result(), inputs.keys.toSeq, literals.keys.toSeq)))
+        outputs.result(), outputTypes.result(), inputs.keys.toSeq, literals.keys.toSeq),
+        declines.result()))
     } else {
       None
     }
@@ -180,7 +231,8 @@ private[sql] object VarkaExpressionCompiler {
   private def compileNode(
       expr: Expression,
       inputs: mutable.LinkedHashMap[Int, Int],
-      literals: mutable.LinkedHashMap[Int, Int]): Option[VarkaVectorIR] = expr match {
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): Option[VarkaVectorIR] = expr match {
     case br: BoundReference if br.dataType == DateType =>
       Some(new ColumnRef(inputs.getOrElseUpdate(br.ordinal, inputs.size)))
     // A date literal's value is already an epoch-day int, so it takes a slot in the shared
@@ -190,37 +242,41 @@ private[sql] object VarkaExpressionCompiler {
       Some(new LiteralSlot(literals.getOrElseUpdate(days, literals.size)))
     case DateAdd(child, days) =>
       for {
-        offset <- DateVarkaSupport.foldDaysOffset(days)
-        node <- compileNode(child, inputs, literals)
+        offset <- foldOffset(days, sink)
+        node <- compileNode(child, inputs, literals, sink)
       } yield new AddDays(node, new LiteralSlot(literals.getOrElseUpdate(offset, literals.size)))
     case DateSub(child, days) =>
       for {
-        offset <- DateVarkaSupport.foldDaysOffset(days)
-        node <- compileNode(child, inputs, literals)
+        offset <- foldOffset(days, sink)
+        node <- compileNode(child, inputs, literals, sink)
       } yield new SubDays(node, new LiteralSlot(literals.getOrElseUpdate(offset, literals.size)))
     case DateDiff(end, start) =>
       for {
-        endNode <- compileNode(end, inputs, literals)
-        startNode <- compileNode(start, inputs, literals)
+        endNode <- compileNode(end, inputs, literals, sink)
+        startNode <- compileNode(start, inputs, literals, sink)
       } yield new IRDateDiff(endNode, startNode)
     case If(pred, thenValue, elseValue) =>
       for {
-        cond <- compileCond(pred, inputs, literals)
-        thenNode <- compileNode(thenValue, inputs, literals)
-        elseNode <- compileNode(elseValue, inputs, literals)
+        cond <- compileCond(pred, inputs, literals, sink)
+        thenNode <- compileNode(thenValue, inputs, literals, sink)
+        elseNode <- compileNode(elseValue, inputs, literals, sink)
       } yield new IfElse(cond, thenNode, elseNode)
+    // With no ELSE the missing branch is a null literal, which would break the dense body's
+    // all-valid invariant (task 11 plan, 2.1): decline.
+    case c @ CaseWhen(_, None) =>
+      sink.note("CASE WHEN without an ELSE branch", c)
+      None
     // CASE WHEN with an ELSE right-folds into nested IfElse - SQL's first-match semantics is
     // exactly nested if-else. Compilation runs in query order (branches left to right, then
     // the ELSE) so input ordinals and literal slots register deterministically in reading
-    // order; only the fold is right-associative. With no ELSE the missing branch is a null
-    // literal, which would break the dense body's all-valid invariant (task 11 plan, 2.1):
-    // decline.
+    // order; only the fold is right-associative.
     case CaseWhen(branches, elseValue) =>
       elseValue.flatMap { elseExpr =>
         val compiledBranches = branches.map { case (pred, value) =>
-          (compileCond(pred, inputs, literals), compileNode(value, inputs, literals))
+          (compileCond(pred, inputs, literals, sink),
+            compileNode(value, inputs, literals, sink))
         }
-        val compiledElse = compileNode(elseExpr, inputs, literals)
+        val compiledElse = compileNode(elseExpr, inputs, literals, sink)
         if (compiledBranches.forall(b => b._1.isDefined && b._2.isDefined)
             && compiledElse.isDefined) {
           Some(compiledBranches.foldRight(compiledElse.get) { case ((cond, value), rest) =>
@@ -233,22 +289,43 @@ private[sql] object VarkaExpressionCompiler {
     // Spark's greatest/least are n-ary; the null-skipping algebra is associative, so a left
     // fold into the binary IR nodes is exact.
     case Greatest(children) =>
-      foldPick(children, inputs, literals, new IRGreatest(_, _))
+      foldPick(children, inputs, literals, sink, new IRGreatest(_, _))
     case Least(children) =>
-      foldPick(children, inputs, literals, new IRLeast(_, _))
+      foldPick(children, inputs, literals, sink, new IRLeast(_, _))
     case DayOfWeek(child) =>
-      compileNode(child, inputs, literals).map(new IRDayOfWeek(_))
+      compileNode(child, inputs, literals, sink).map(new IRDayOfWeek(_))
     case WeekDay(child) =>
-      compileNode(child, inputs, literals).map(new IRWeekDay(_))
-    case _ => None
+      compileNode(child, inputs, literals, sink).map(new IRWeekDay(_))
+    // A column of any other type: eligible to be forwarded as a whole entry, never to be read
+    // by the int32 lanes of a kernel.
+    case br: BoundReference =>
+      sink.note(s"non-date column of type ${br.dataType.simpleString}", br)
+      None
+    case other =>
+      sink.note("unsupported expression", other)
+      None
+  }
+
+  /**
+   * The literal day offset of a `date_add`/`date_sub`, or `None` with the reason noted: a
+   * non-foldable offset is a per-row value, and the kernel's offsets are runtime arguments
+   * fixed for the whole batch.
+   */
+  private def foldOffset(days: Expression, sink: DeclineSink): Option[Int] = {
+    val folded = DateVarkaSupport.foldDaysOffset(days)
+    if (folded.isEmpty) {
+      sink.note("day offset is not a foldable literal", days)
+    }
+    folded
   }
 
   private def foldPick(
       children: Seq[Expression],
       inputs: mutable.LinkedHashMap[Int, Int],
       literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink,
       combine: (VarkaVectorIR, VarkaVectorIR) => VarkaVectorIR): Option[VarkaVectorIR] = {
-    val compiled = children.map(compileNode(_, inputs, literals))
+    val compiled = children.map(compileNode(_, inputs, literals, sink))
     if (compiled.nonEmpty && compiled.forall(_.isDefined)) {
       Some(compiled.flatten.reduceLeft(combine))
     } else {
@@ -265,24 +342,27 @@ private[sql] object VarkaExpressionCompiler {
   private def compileCond(
       expr: Expression,
       inputs: mutable.LinkedHashMap[Int, Int],
-      literals: mutable.LinkedHashMap[Int, Int]): Option[Cond] = expr match {
-    case LessThan(l, r) => compare(CompareOp.LT, l, r, inputs, literals)
-    case LessThanOrEqual(l, r) => compare(CompareOp.LE, l, r, inputs, literals)
-    case GreaterThan(l, r) => compare(CompareOp.GT, l, r, inputs, literals)
-    case GreaterThanOrEqual(l, r) => compare(CompareOp.GE, l, r, inputs, literals)
-    case EqualTo(l, r) => compare(CompareOp.EQ, l, r, inputs, literals)
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): Option[Cond] = expr match {
+    case LessThan(l, r) => compare(CompareOp.LT, l, r, inputs, literals, sink)
+    case LessThanOrEqual(l, r) => compare(CompareOp.LE, l, r, inputs, literals, sink)
+    case GreaterThan(l, r) => compare(CompareOp.GT, l, r, inputs, literals, sink)
+    case GreaterThanOrEqual(l, r) => compare(CompareOp.GE, l, r, inputs, literals, sink)
+    case EqualTo(l, r) => compare(CompareOp.EQ, l, r, inputs, literals, sink)
     case And(l, r) =>
       for {
-        left <- compileCond(l, inputs, literals)
-        right <- compileCond(r, inputs, literals)
+        left <- compileCond(l, inputs, literals, sink)
+        right <- compileCond(r, inputs, literals, sink)
       } yield new IRAnd(left, right)
     case Or(l, r) =>
       for {
-        left <- compileCond(l, inputs, literals)
-        right <- compileCond(r, inputs, literals)
+        left <- compileCond(l, inputs, literals, sink)
+        right <- compileCond(r, inputs, literals, sink)
       } yield new IROr(left, right)
-    case Not(child) => compileCond(child, inputs, literals).map(new IRNot(_))
-    case _ => None
+    case Not(child) => compileCond(child, inputs, literals, sink).map(new IRNot(_))
+    case other =>
+      sink.note("unsupported predicate", other)
+      None
   }
 
   private def compare(
@@ -290,10 +370,11 @@ private[sql] object VarkaExpressionCompiler {
       l: Expression,
       r: Expression,
       inputs: mutable.LinkedHashMap[Int, Int],
-      literals: mutable.LinkedHashMap[Int, Int]): Option[Cond] = {
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): Option[Cond] = {
     for {
-      left <- compileNode(l, inputs, literals)
-      right <- compileNode(r, inputs, literals)
+      left <- compileNode(l, inputs, literals, sink)
+      right <- compileNode(r, inputs, literals, sink)
     } yield new Compare(op, left, right)
   }
 }

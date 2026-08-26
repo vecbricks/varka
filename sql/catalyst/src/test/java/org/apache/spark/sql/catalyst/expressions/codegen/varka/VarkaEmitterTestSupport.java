@@ -50,6 +50,24 @@ public final class VarkaEmitterTestSupport {
   }
 
   /**
+   * The line numbers the named method's {@code LineNumberTable} attributes its instructions to,
+   * in ascending order and without duplicates - the task 16 mapping, read the way a debugger or
+   * a stack trace reads it. Empty when the method carries no table (or does not exist).
+   */
+  public static List<Integer> lineNumbers(byte[] bytes, String methodName) {
+    java.util.TreeSet<Integer> lines = new java.util.TreeSet<>();
+    for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
+      if (!method.methodName().equalsString(methodName)) {
+        continue;
+      }
+      method.code()
+          .flatMap(code -> code.findAttribute(java.lang.classfile.Attributes.lineNumberTable()))
+          .ifPresent(table -> table.lineNumbers().forEach(info -> lines.add(info.lineNumber())));
+    }
+    return new java.util.ArrayList<>(lines);
+  }
+
+  /**
    * Toggles {@link VarkaLoopEmitter#disableCseForTesting} for callers outside the emitter's
    * package - the parity benchmark prices CSE by emitting the same trees with the memo off.
    */

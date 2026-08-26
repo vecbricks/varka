@@ -376,7 +376,8 @@ public final class VarkaLoopEmitter {
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
     VarkaDebugInfo debugInfo = new VarkaDebugInfo(
         "outputs=" + outputs + ", numInputs=" + numInputs + ", numLiterals=" + numLiterals,
-        planFragment != null ? planFragment : "");
+        planFragment != null ? planFragment : "",
+        renderLineMap(analysis));
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
@@ -455,9 +456,10 @@ public final class VarkaLoopEmitter {
       @Override
       public void writeAttribute(java.lang.classfile.BufWriter buf, Attr attr) {
         buf.writeIndex(buf.constantPool().utf8Entry(VarkaDebugInfo.NAME));
-        buf.writeInt(4);
+        buf.writeInt(6);
         buf.writeIndex(buf.constantPool().utf8Entry(info.ir()));
         buf.writeIndex(buf.constantPool().utf8Entry(info.planFragment()));
+        buf.writeIndex(buf.constantPool().utf8Entry(info.lineMap()));
       }
 
       @Override
@@ -595,6 +597,14 @@ public final class VarkaLoopEmitter {
     final Map<VarkaVectorIR, Long> columns = new HashMap<>();
     /** Distinct nodes, children strictly before parents - the scalar tail's schedule. */
     final List<VarkaVectorIR> topoOrder = new ArrayList<>();
+    /**
+     * Each distinct node's 1-based position in {@link #topoOrder}, which is the line number
+     * the emitted {@code LineNumberTable} attributes its instructions to (task 16). The
+     * mapping from those lines back to nodes is recorded in the class's
+     * {@link VarkaDebugInfo}, so a stack frame or profile sample naming
+     * {@code Varka_Project_Stage3.java:7} resolves to an IR node without a live session.
+     */
+    final Map<VarkaVectorIR, Integer> lineNumbers = new HashMap<>();
     /** Whether the subtree holds a null-skipping node (IfElse, Greatest, Least). */
     final Map<VarkaVectorIR, Boolean> skipping = new HashMap<>();
     private final Map<VarkaVectorIR, Integer> height = new HashMap<>();
@@ -675,6 +685,7 @@ public final class VarkaLoopEmitter {
         case Not n -> analyzeOp(node, false, n.child());
       }
       topoOrder.add(node);
+      lineNumbers.put(node, topoOrder.size());
     }
 
     /**
@@ -1210,6 +1221,7 @@ public final class VarkaLoopEmitter {
     cb.iload(P_LENGTH);
     cb.if_icmpge(tailEnd);
     for (VarkaVectorIR node : analysis.topoOrder) {
+      line(cb, analysis, node);
       emitTailNode(cb, node, dense, s);
     }
     for (int o = 0; o < numOutputs; o++) {
@@ -1249,6 +1261,35 @@ public final class VarkaLoopEmitter {
     cb.astore(destSlot);
   }
 
+  /**
+   * The {@code LineNumberTable}'s decoding key: one {@code <line>=<node>} entry per distinct
+   * IR node, newline separated, in the topological order the line numbers index (task 16).
+   * Recorded in {@link VarkaDebugInfo} so the mapping travels inside the class bytes.
+   */
+  private static String renderLineMap(Analysis analysis) {
+    StringBuilder key = new StringBuilder();
+    for (int i = 0; i < analysis.topoOrder.size(); i++) {
+      if (i > 0) {
+        key.append('\n');
+      }
+      key.append(i + 1).append('=').append(analysis.topoOrder.get(i));
+    }
+    return key.toString();
+  }
+
+  /**
+   * Attributes the instructions emitted next to the node's own line of the notional source
+   * file - its 1-based topological index (task 16). Called immediately before each node's
+   * defining instruction, so a stack trace through the generated loop names the IR node that
+   * threw rather than only the method; {@link VarkaDebugInfo} carries the decoding key.
+   */
+  private static void line(CodeBuilder cb, Analysis analysis, VarkaVectorIR node) {
+    Integer number = analysis.lineNumbers.get(node);
+    if (number != null) {
+      cb.lineNumber(number);
+    }
+  }
+
   /** Pushes a validity word: a long local, or the all-true constant. */
   private static void loadWord(CodeBuilder cb, int ref) {
     if (ref == WORD_ALL_TRUE) {
@@ -1277,6 +1318,7 @@ public final class VarkaLoopEmitter {
     }
     switch (node) {
       case ColumnRef c -> {
+        line(cb, analysis, node);
         cb.aload(s.species);
         cb.aload(s.srcSeg[c.ordinal()]);
         cb.lload(s.byteOffset);
@@ -1284,6 +1326,7 @@ public final class VarkaLoopEmitter {
         cb.invokestatic(INT_VECTOR, "fromMemorySegment", FROM_MEMORY_SEGMENT_DENSE);
       }
       case LiteralSlot l -> {
+        line(cb, analysis, node);
         if (s.broadcastSlot != null) {
           cb.aload(s.broadcastSlot[l.index()]);
         } else {
@@ -1297,16 +1340,19 @@ public final class VarkaLoopEmitter {
         emitValue(cb, n.offset(), dense, analysis, s, computed);
         // The misdescribe hook: whichever body executes first must fail naming the call.
         MethodTypeDesc desc = misdescribeAddForTesting ? LANEWISE_VV_WRONG : LANEWISE_VV;
+        line(cb, analysis, node);
         cb.invokevirtual(INT_VECTOR, "add", desc);
       }
       case SubDays n -> {
         emitValue(cb, n.days(), dense, analysis, s, computed);
         emitValue(cb, n.offset(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
       }
       case DateDiff n -> {
         emitValue(cb, n.end(), dense, analysis, s, computed);
         emitValue(cb, n.start(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
         if (!dense && s.ownWord.contains(node)) {
           emitAndWord(cb, s.wordRef.get(node),
@@ -1315,6 +1361,7 @@ public final class VarkaLoopEmitter {
       }
       case DayOfWeek n -> {
         emitValue(cb, n.days(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         emitFloorMod7(cb, node, s);
         emitModOffset(cb, s, 4);
         cb.loadConstant(1);
@@ -1322,6 +1369,7 @@ public final class VarkaLoopEmitter {
       }
       case WeekDay n -> {
         emitValue(cb, n.days(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         emitFloorMod7(cb, node, s);
         emitModOffset(cb, s, 3);
       }
@@ -1333,6 +1381,7 @@ public final class VarkaLoopEmitter {
         emitCond(cb, n.cond(), dense, analysis, s, computed);
         emitValue(cb, n.elseNode(), dense, analysis, s, computed);
         emitValue(cb, n.thenNode(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         if (dense) {
           cb.aload(s.condMask.get(n.cond()));
         } else {
@@ -1385,6 +1434,7 @@ public final class VarkaLoopEmitter {
     if (dense) {
       emitValue(cb, left, dense, analysis, s, computed);
       emitValue(cb, right, dense, analysis, s, computed);
+      line(cb, analysis, node);
       cb.invokevirtual(INT_VECTOR, op, LANEWISE_VV);
       return;
     }
@@ -1393,6 +1443,7 @@ public final class VarkaLoopEmitter {
     cb.astore(tmp[0]);
     emitValue(cb, right, dense, analysis, s, computed);
     cb.astore(tmp[1]);
+    line(cb, analysis, node);
     cb.aload(tmp[0]);
     cb.aload(tmp[1]);
     cb.aload(s.species);
@@ -1515,6 +1566,7 @@ public final class VarkaLoopEmitter {
         emitValue(cb, n.left(), dense, analysis, s, computed);
         cb.getstatic(VECTOR_OPERATORS, n.op().name(), VO_COMPARISON);
         emitValue(cb, n.right(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VV);
         if (dense) {
           cb.astore(s.condMask.get(node));
@@ -1541,6 +1593,7 @@ public final class VarkaLoopEmitter {
       case And n -> {
         emitCond(cb, n.left(), dense, analysis, s, computed);
         emitCond(cb, n.right(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         if (dense) {
           cb.aload(s.condMask.get(n.left()));
           cb.aload(s.condMask.get(n.right()));
@@ -1560,6 +1613,7 @@ public final class VarkaLoopEmitter {
       case Or n -> {
         emitCond(cb, n.left(), dense, analysis, s, computed);
         emitCond(cb, n.right(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         if (dense) {
           cb.aload(s.condMask.get(n.left()));
           cb.aload(s.condMask.get(n.right()));
@@ -1578,6 +1632,7 @@ public final class VarkaLoopEmitter {
       }
       case Not n -> {
         emitCond(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
         if (dense) {
           cb.aload(s.condMask.get(n.child()));
           cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);

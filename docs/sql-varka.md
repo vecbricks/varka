@@ -137,16 +137,39 @@ is the normative statement of the rules. In brief:
   digit-sum fold, several times faster than the lanewise-DIV variant at
   buffer level (the parity benchmark's dayofweek section has both).
 
-### Telemetry in the generated class
+### Telemetry and debuggability
 
 Every emitted class is self-describing (task 13): a `SourceFile` attribute
 named for the operator and stage (`Varka_Project_Stage3.java`), so stack
 traces, profilers and heap dumps name the plan node with no mapping table,
 and a `VarkaDebugInfo` custom attribute carrying the vector IR and the plan
-fragment it was compiled from. Both are class-file metadata the JVM ignores
-by specification - the emitted methods are byte-identical with and without
-them. `VarkaDebugInfoReader` turns captured class bytes back into those
-strings for diagnostics.
+fragment it was compiled from. Task 16 extends that to the questions the
+attributes alone did not answer:
+
+* **Bytecode maps back to IR nodes.** The class carries a `LineNumberTable`
+  whose line `n` is the `n`-th IR node in topological order, and
+  `VarkaDebugInfo` records the decoding key (`<line>=<node>` per line). A
+  stack frame reading `Varka_Project_Stage3.java:7` therefore names the node
+  that threw, not merely the method - and profilers and crash logs inherit
+  the same resolution for free.
+* **Fallbacks name their kernel.** Every warning on the ghost-fallback path -
+  emission failure and per-batch kernel failure, in both exec nodes - carries
+  the kernel's `SourceFile` name and the IR it computes, so a log line
+  identifies the plan node without correlating timestamps.
+* **The class reaches disk.** `spark.sql.codegen.varka.classDumpDirectory`
+  writes each emitted class under its `SourceFile` name, so `javap -c -p`
+  disassembles a generated loop with no debugger attached. Diagnostics only:
+  a failed write is logged and never fails the query.
+* **`EXPLAIN` says why an entry did not fuse.** Verbose `EXPLAIN` on either
+  Varka node lists every projection entry as fused, forwarded (naming the
+  child column) or residual with the compiler's decline reason - "unsupported
+  expression", "day offset is not a foldable literal", "CASE WHEN without an
+  ELSE branch", "non-date column of type ..." - in the query's own column
+  names. The same account goes to the debug log once per task.
+
+All of it is metadata or diagnostics: the emitted methods are byte-identical
+with and without the attributes, which the JVM ignores by specification.
+`VarkaDebugInfoReader` turns captured class bytes back into those strings.
 
 ### Execution integration
 
@@ -238,11 +261,12 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 
 ## Configuration
 
-There is only one Varka configuration and it is internal:
+Both Varka configurations are internal:
 
 | Config | Default | Description |
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.enabled` | `false` | When true, an eligible projection (at least one fusable entry) over Arrow `DateDayVector` columns runs the fused SIMD kernel instead of per-row codegen - as `VarkaProjectExec` where the consumer takes batches, and as `VarkaColumnarToRowExec` where it wants rows; ineligible entries run the row path per row and merge, and non-Arrow batches fall back entirely. |
+| `spark.sql.codegen.varka.classDumpDirectory` | (none) | Diagnostics (task 16). When set, every emitted kernel class is written to this directory under its `SourceFile` name, for `javap`. A failed write is logged and never fails the query; tasks of one stage emit identical bytes and overwrite one file. |
 
 The rule is registered on every `SparkSession` but does nothing while the
 config is off, so enabling the config is all that is needed:
