@@ -51,6 +51,19 @@ The telemetry reconciliation - patching or externalising the debug attributes on
 cache hits - is part of the design, not an afterthought; the M2 `assemblyAttempts`
 counter pattern is the validation hook.
 
+**Design correction (task 14's post-commit diagnosis, `PLAN_TASK_14.md` 7.5).**
+A byte cache as specified above saves only the ~80 us emission - which was
+never the cost. The measured per-task cost is HotSpot's tier ladder: a class
+defined fresh in each task is a *new* class to the JVM and re-pays
+interpreter, C1-with-boxed-vectors and the C2 OSR compile every task - a
+fixed 13-50 ms per task growing with the loop method's op count, the
+dominant term behind the committed depth-curve erosion and the `dayofweek`
+loss. Amortising that requires reusing the *loaded class* across tasks, so
+this item's real design question is a bounded class/loader cache and what
+remains of the per-task Metaspace guarantee (an LRU bound and unload on
+eviction, rather than unload on task end). The byte layer may still exist
+under it, but bytes alone do not buy the win this item exists for.
+
 ## 3. Filters and selection vectors
 
 The design-note material (selection vectors, zero-copy filtering, forced
@@ -215,13 +228,15 @@ milestone 2's remaining tasks.
 * **Row-consumer fusion is unprofitable at every depth - measured in
   task 14.** The break-even question task 12 handed to the benchmark task
   has its answer, and it is not a depth: through `toRdd` the fused chains
-  measure 0.7x Janino at depth 1 *falling* to 0.5x at depth 8, because the
-  per-row read-back of the assembled batch dominates and the vector loop's
-  cost grows with depth while Janino's stays flat. There is nothing to
-  amortise toward. The open decision for this milestone: should
-  `VarkaColumnarRule` decline fusions whose consumer wants rows (always, or
-  under a cost rule), and does the answer change once filters (item 3) or
-  the Arrow-native writer (item 11) let fused output stay columnar longer?
+  measure 0.7x Janino at depth 1 down to 0.5x at depth 8. The mechanism
+  splits in two (`PLAN_TASK_14.md` 7.5): the ~16 ns/row read-back of the
+  assembled batch genuinely keeps row consumers under 1.0x, while the
+  *decline* with depth is the per-task JIT warm-up cost of item 2's
+  correction - with class reuse the curve flattens near 0.7x, still short
+  of 1.0x. The open decision for this milestone: should `VarkaColumnarRule`
+  decline fusions whose consumer wants rows (always, or under a cost rule),
+  and does the answer change once filters (item 3) or the Arrow-native
+  writer (item 11) let fused output stay columnar longer?
 * **`GROUP_BUDGET` tuning - measured, mostly closed.** Follow-up data
   (PLAN_TASK_11.md 6.3): single-output loop methods are healthy at every
   width tried (59 ops reach 80% of peak in under 400 ms, throughput

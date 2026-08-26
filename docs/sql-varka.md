@@ -301,22 +301,29 @@ results files, which are the source of truth as the code moves):
   is Janino's branch misprediction, ~12% of its runtime on this shape.
 * **Chain depth** (alternating `date_add`/`date_sub`, columnar consumer):
   2.2x at depth 1 falling to 1.4x at depth 8. The relative *shrinks* with
-  depth - the opposite of the pre-run prediction - because Janino's cost is
-  flat in depth (eight dependent int adds hide entirely behind its per-row
-  overhead at ~21 ns/row) while the vector loop's masked ops accumulate per
-  op. Fusion's end-to-end win on this hardware is batch-versus-per-row
-  overhead, not arithmetic elimination.
+  depth - the opposite of the pre-run prediction - for two diagnosed
+  reasons (`PLAN_TASK_14.md` 7.5): Janino's cost is flat in depth (eight
+  dependent int adds hide entirely behind its per-row overhead at
+  ~21 ns/row), and the varka side pays a *fixed per-task* JIT warm-up that
+  grows with the loop method's op count - each task defines a fresh kernel
+  class, so HotSpot re-runs the tier ladder every task, while at buffer
+  level depth 8 runs within 10% of depth 1. Fusion's end-to-end win at this
+  task size is batch-versus-per-row overhead; class reuse across tasks
+  (milestone 3's cache item) is the identified fix for the erosion.
 * **The row-consumer cost, stated plainly**: through `toRdd` the same chains
   measure 0.7x at depth 1 down to 0.5x at depth 8 - there is no break-even
-  depth; deeper chains move *away* from 1.0x. The per-row read-back of the
-  assembled batch dominates and grows, so fusing row-consumer projections of
-  this shape is currently unprofitable at any depth
-  (`PLAN_MILESTONE_3.md` carries the profitability question).
-* **`dayofweek`**: 0.9x - honestly, a small loss. The kernel-level fold is
-  36x a `LocalDate`-per-row loop in isolation (`VarkaEmitterParityBenchmark`),
-  but inside a compiled query C2 scalar-replaces the `LocalDate` allocation,
-  and the fused side's 15-op fold is compute-heavier than one add, so the
-  buffer-level win does not survive to query level on this shape.
+  depth. The ~16 ns/row read-back of the assembled batch genuinely keeps
+  row consumers under 1.0x; the decline with depth is the same per-task
+  warm-up cost as above. Fusing row-consumer projections of this shape is
+  currently unprofitable at any depth (`PLAN_MILESTONE_3.md` carries the
+  profitability question).
+* **`dayofweek`**: 0.9x at the committed shape - honestly, a small loss.
+  The kernel-level fold is 36x a `LocalDate`-per-row loop in isolation
+  (`VarkaEmitterParityBenchmark`); at query level C2 scalar-replaces the
+  `LocalDate` allocation (the stock path is already allocation-free where
+  it matters), and the fold's larger loop method makes the per-task JIT
+  warm-up its dominant cost - a fixed per-task charge, not per-row, so
+  longer tasks amortise it (`PLAN_TASK_14.md` 7.5 has the diagnosis).
 * **Cold start** (`VarkaColdStartBenchmark`, first execution of a fresh plan
   shape over 100K rows): 1.5x - 18 ms vs 27 ms best, 22 ms vs 36 ms average -
   about 9-14 ms saved per fresh query shape. Visible, but far from the

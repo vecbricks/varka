@@ -293,11 +293,13 @@ projections fuse partially with zero-copy forwarding, and the emitted classes
 are self-describing. The section 7 open question was settled early (the shell
 deleted after task 10). The benchmark pass also returned two answers the
 milestone did not predict, recorded in `PLAN_TASK_14.md` and carried into
-milestone 3: the fused win over Janino is batch-versus-per-row overhead
-(roughly 2x, *shrinking* with chain depth), not arithmetic elimination, and
-row-consumer fusion is unprofitable at every measured depth. Task 16 (the
-debuggability quick wins, added post-review) is the milestone's one remaining
-open task.
+milestone 3: the fused win over Janino at the committed task size is
+batch-versus-per-row overhead (roughly 2x), eroded with chain depth by a
+per-task JIT warm-up cost the post-commit diagnosis pinned on the per-task
+class define (`PLAN_TASK_14.md` 7.5 - the finding that reshaped milestone 3's
+cache item), and row-consumer fusion is unprofitable at every measured depth.
+Task 16 (the debuggability quick wins, added post-review) is the milestone's
+one remaining open task.
 
 ## 4. Files
 

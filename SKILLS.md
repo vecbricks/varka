@@ -203,6 +203,20 @@ apparent small wins turned out to be noise.
 - Same family, earlier finding (task 10): two vector loops emitted into one method
   also degrade each other (3x-4x on the second loop). One C2 compilation per hot
   loop, always - sibling methods, not longer methods.
+- Same family, task 14's post-commit diagnosis: **a class defined per task re-pays
+  the whole tier ladder per task.** The per-task loader defines a fresh kernel class
+  each task; HotSpot treats it as new, so every task runs interpreter, then C1 with
+  boxed vectors, then the C2 OSR compile - a *fixed per-task* cost that grows with
+  the loop method's vector-op count (~13 ms for an 8-op chain, ~50 ms for the 20-op
+  dayofweek fold) and dwarfs the ~80 us emission it sits next to. Two diagnostics
+  that pin it: (1) scale the table 4x - a per-task-fixed cost leaves the absolute
+  delta unchanged where a per-row cost quadruples it; (2) `-XX:+PrintCompilation`
+  shows one tier-4 OSR of the same-named method *per task*, each followed by
+  "made not entrant: OSR invalidation" as the task's class dies. Corollary for any
+  cross-task cache: caching `byte[]` does not help - a re-defined class is a new
+  class and re-pays the ladder; only reusing the *loaded class* preserves the C2
+  code. And benchmark tasks must be long enough to amortise the ladder, or the
+  committed number prices JIT warm-up, not the kernel.
 
 ## Vector API on HotSpot, Measured (JDK 25, x86-64)
 

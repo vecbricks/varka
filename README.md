@@ -55,7 +55,7 @@ the table too - this fork commits its losses:
 | `CASE WHEN`, predictable condition | 1.9x |
 | Chain of 8 date ops, columnar consumer | 1.4x (2.2x at depth 1) |
 | Same chains through a row consumer | 0.5-0.7x - fusion loses there today |
-| `dayofweek` | 0.9x - C2 already serves the stock path well |
+| `dayofweek` | 0.9x - a fixed per-task JIT cost at this task size; diagnosed, see the docs |
 | Cold start: first run of a fresh plan shape (100K rows) | 1.5x (~9 ms saved per shape) |
 | Emit+define+load+instantiate a fused kernel vs one Janino compile | 75x cheaper (80 us vs 6 ms) |
 
