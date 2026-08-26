@@ -2,100 +2,100 @@
 single op: emitted loop vs hand-written kernel
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add over 1000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-hand-written kernel, null-free                        0              0           0       6243.4           0.2       1.0X
-emitted loop, null-free                               0              0           0      15285.1           0.1       2.4X
-hand-written kernel, mixed nulls                      0              0           0       5071.8           0.2       0.8X
-emitted loop, mixed nulls                             0              0           0      16761.4           0.1       2.7X
+hand-written kernel, null-free                        0              0           0       5976.4           0.2       1.0X
+emitted loop, null-free                               0              0           0      15351.1           0.1       2.6X
+hand-written kernel, mixed nulls                      0              0           0       4617.3           0.2       0.8X
+emitted loop, mixed nulls                             0              0           0      12855.8           0.1       2.2X
 
 
 ================================================================================================
 datediff: emitted loop vs hand-written kernel
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff over 1000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-hand-written kernel, null-free                        0              0           0       4109.2           0.2       1.0X
-emitted loop, null-free                               0              0           0       6396.6           0.2       1.6X
-hand-written kernel, mixed nulls                      0              0           0       3108.9           0.3       0.8X
-emitted loop, mixed nulls                             0              0           0       9412.8           0.1       2.3X
+hand-written kernel, null-free                        0              0           0       4074.0           0.2       1.0X
+emitted loop, null-free                               0              0           0       6859.5           0.1       1.7X
+hand-written kernel, mixed nulls                      0              0           0       2822.3           0.4       0.7X
+emitted loop, mixed nulls                             0              0           0       8729.5           0.1       2.1X
 
 
 ================================================================================================
 fused chain vs sequential kernel passes
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain over 1000000 rows, mixed nulls:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-fused, depth 1                                        0              0           0      15931.9           0.1       1.0X
-sequential kernels, depth 1                           0              0           0       5122.3           0.2       0.3X
-fused, depth 2                                        0              0           0      16630.1           0.1       1.0X
-sequential kernels, depth 2                           0              0           0       2282.8           0.4       0.1X
-fused, depth 4                                        0              0           0      16643.6           0.1       1.0X
-sequential kernels, depth 4                           1              2           0        677.3           1.5       0.0X
-fused, depth 8                                        0              0           0      14291.6           0.1       0.9X
-sequential kernels, depth 8                           4              4           0        239.8           4.2       0.0X
-fused, depth 16                                       0              0           0       7818.7           0.1       0.5X
-sequential kernels, depth 16                          9              9           0        114.5           8.7       0.0X
+fused, depth 1                                        0              0           0      12396.0           0.1       1.0X
+sequential kernels, depth 1                           0              0           0       4692.9           0.2       0.4X
+fused, depth 2                                        0              0           0      13164.5           0.1       1.1X
+sequential kernels, depth 2                           0              1           0       2085.5           0.5       0.2X
+fused, depth 4                                        0              0           0      12727.8           0.1       1.0X
+sequential kernels, depth 4                           1              2           0        675.1           1.5       0.1X
+fused, depth 8                                        0              0           0      11454.4           0.1       0.9X
+sequential kernels, depth 8                           4              4           0        257.2           3.9       0.0X
+fused, depth 16                                       0              0           0       6975.5           0.1       0.6X
+sequential kernels, depth 16                          7              7           0        140.7           7.1       0.0X
 
 
 ================================================================================================
 shared subchain across two outputs (DAG-CSE)
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 two outputs over 1000000 rows, mixed nulls:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-fused, CSE                                              0              0           0       3348.3           0.3       1.0X
-fused, memo disabled                                    0              0           0       2767.0           0.4       0.8X
-sequential kernels (9 passes)                           5              5           0        197.4           5.1       0.1X
+fused, CSE                                              0              0           0       3271.6           0.3       1.0X
+fused, memo disabled                                    0              0           0       2631.6           0.4       0.8X
+sequential kernels (9 passes)                           5              5           0        204.8           4.9       0.1X
 
 
 ================================================================================================
 predication: CASE WHEN blend vs plain arithmetic (task 11)
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 depth-4 arms over 1000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-arithmetic depth 4, null-free                         0              0           0      12015.5           0.1       1.0X
-CASE WHEN, depth-4 arms, null-free                    0              0           0      10777.7           0.1       0.9X
-arithmetic depth 4, mixed nulls                       0              0           0      16261.5           0.1       1.4X
-CASE WHEN, depth-4 arms, mixed nulls                  0              0           0       8321.9           0.1       0.7X
+arithmetic depth 4, null-free                         0              0           0      11552.4           0.1       1.0X
+CASE WHEN, depth-4 arms, null-free                    0              0           0      10852.8           0.1       0.9X
+arithmetic depth 4, mixed nulls                       0              0           0      12944.3           0.1       1.1X
+CASE WHEN, depth-4 arms, mixed nulls                  0              0           0       7127.9           0.1       0.6X
 
 
 ================================================================================================
 dayofweek: digit sum vs lanewise DIV vs LocalDate (task 11)
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek over 1000000 rows:                   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-digit sum, null-free                                       0              0           0       3598.2           0.3       1.0X
-digit sum, mixed nulls                                     0              0           0       3379.7           0.3       0.9X
-lanewise DIV, null-free                                    2              2           0        658.7           1.5       0.2X
-per-row LocalDate (the path Spark uses today)             10             10           1        100.2          10.0       0.0X
+digit sum, null-free                                       0              0           0       3594.4           0.3       1.0X
+digit sum, mixed nulls                                     0              0           0       3021.9           0.3       0.8X
+lanewise DIV, null-free                                    2              2           0        659.5           1.5       0.2X
+per-row LocalDate (the path Spark uses today)             10             10           0        100.5           9.9       0.0X
 
 
 ================================================================================================
 widest shape: MAX_FUSED_NODES ops in one kernel
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.3+9-2-26.04.2-Ubuntu on Linux 7.0.0-29-generic
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 4 outputs x depth 16 over 1000000 rows:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-fused, 64 ops                                         1              1           0        985.8           1.0       1.0X
-sequential kernels, 64 passes                        35             35           1         28.7          34.9       0.0X
+fused, 64 ops                                         1              1           0        946.7           1.1       1.0X
+sequential kernels, 64 passes                        29             30           1         34.7          28.8       0.0X
 
 

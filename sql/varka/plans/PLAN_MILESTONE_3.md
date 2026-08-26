@@ -204,12 +204,24 @@ milestone 2's remaining tasks.
   key shape stable. Retire the dispatchers and decide the trait's fate in a
   small dedicated PR once milestone 2 closes - the same reasoning that
   deleted the `VarkaProjection` shell.
-* **Benchmark variance is unmanaged.** The committed parity-results file is
-  a single run, and the same case has swung meaningfully between runs (the
-  DAG case ranged 1.5 to 3.3 G rows/s across one day). Ratios quoted near
-  1.0x carry that noise. Cheap fix: longer minTime / more iterations for
-  committed runs, or interleaved-minimum methodology as `SKILLS.md` already
-  prescribes for build benchmarks.
+* **Benchmark variance - swept in task 14, as planned.** The committed
+  results were single runs (the DAG case ranged 1.5 to 3.3 G rows/s across
+  one day). The throughput cases now run at least five iterations over
+  two-second warmup and measurement windows (`PLAN_TASK_14.md` 2.1), the
+  full matrix was generated twice back to back with minimums agreeing on
+  every claim quoted in the docs, and sub-1.3x claims (the `CASE WHEN`
+  data-pattern gap, `dayofweek`) were checked across both runs before being
+  written down.
+* **Row-consumer fusion is unprofitable at every depth - measured in
+  task 14.** The break-even question task 12 handed to the benchmark task
+  has its answer, and it is not a depth: through `toRdd` the fused chains
+  measure 0.7x Janino at depth 1 *falling* to 0.5x at depth 8, because the
+  per-row read-back of the assembled batch dominates and the vector loop's
+  cost grows with depth while Janino's stays flat. There is nothing to
+  amortise toward. The open decision for this milestone: should
+  `VarkaColumnarRule` decline fusions whose consumer wants rows (always, or
+  under a cost rule), and does the answer change once filters (item 3) or
+  the Arrow-native writer (item 11) let fused output stay columnar longer?
 * **`GROUP_BUDGET` tuning - measured, mostly closed.** Follow-up data
   (PLAN_TASK_11.md 6.3): single-output loop methods are healthy at every
   width tried (59 ops reach 80% of peak in under 400 ms, throughput

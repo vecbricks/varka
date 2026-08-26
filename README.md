@@ -1,208 +1,125 @@
-# Apache Spark
+# Varka
 
-Spark is a unified analytics engine for large-scale data processing. It provides
-high-level APIs in Scala, Java, Python, and R (Deprecated), and an optimized engine that
-supports general computation graphs for data analysis. It also supports a
-rich set of higher-level tools including Spark SQL for SQL and DataFrames,
-pandas API on Spark for pandas workloads, MLlib for machine learning, GraphX for graph processing,
-and Structured Streaming for stream processing.
+Varka is a research fork of [Apache Spark](https://spark.apache.org/) exploring
+SIMD-vectorized execution for SQL: eligible projections are compiled into a
+single fused vector loop - bytecode emitted at runtime with the JDK 25
+Class-File API, running the Vector API over zero-copy views of Arrow columnar
+buffers - behind one config flag, falling back to stock Spark per batch on
+anything the engine cannot serve. A Varka failure never fails a query.
 
-- Official version: <https://spark.apache.org/>
-- Development version: <https://apache.github.io/spark/>
+The current scope is date arithmetic (`date_add`, `date_sub`, `datediff`,
+`CASE WHEN`/`IF` over date comparisons, `greatest`/`least`,
+`dayofweek`/`weekday`) over Arrow-cached data - deep enough to exercise real
+fusion, small enough to measure honestly.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Maven Central](https://img.shields.io/maven-central/v/org.apache.spark/spark-core_2.13.svg?filter=!*preview*)](https://search.maven.org/search?q=g:org.apache.spark)
-[![Java](https://img.shields.io/badge/Java-17+-orange.svg)](https://adoptium.net/temurin/releases/?version=17)
-[![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_main.yml)
-[![PySpark Coverage](https://codecov.io/gh/apache/spark/branch/master/graph/badge.svg)](https://codecov.io/gh/apache/spark)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/pyspark?period=month&units=international_system&left_color=black&right_color=orange&left_text=PyPI%20downloads)](https://pypi.org/project/pyspark/)
+## Main ideas
 
+Each one line, with the details in [`docs/sql-varka.md`](docs/sql-varka.md)
+and the architecture in [`sql/varka/VISION.md`](sql/varka/VISION.md):
 
-## Online Documentation
+* **Generate the loop, not a call to it**: every projection becomes its own
+  emitted class, so call sites stay monomorphic where a shared interpreter
+  goes megamorphic.
+* **Zero-copy Arrow morsels**: Arrow buffers are mapped to Panama
+  `MemorySegment`s; no per-row heap objects on the fast path.
+* **Whole-projection fusion**: one loop, one load per input column, one store
+  per output - with common subtrees computed once per lane group *across*
+  outputs (DAG-CSE in vector registers).
+* **Predication, not branches**: `CASE WHEN` runs by `VectorMask.blend` with
+  SQL's three-valued null logic in mask algebra, so data-dependent conditions
+  cost the same as predictable ones.
+* **Partial eligibility**: fusable entries fuse, untouched columns are
+  forwarded zero-copy, the rest runs the stock row path and merges.
+* **Ghost fallback**: the Janino projection is compiled lazily, only if a
+  batch actually needs it; any Varka failure degrades to stock Spark.
+* **Per-task class loading**: emitted classes unload with the task - proven
+  Metaspace reclamation instead of a growing codegen cache.
+* **Telemetry baked into the bytes**: every emitted class carries a
+  `SourceFile` naming its operator and stage plus a `VarkaDebugInfo`
+  attribute with its IR and plan fragment, so profilers and heap dumps name
+  the plan node with no mapping table.
 
-You can find the latest Spark documentation, including a programming
-guide, on the [project web page](https://spark.apache.org/documentation.html).
-This README file only contains basic setup instructions.
+## Benchmarks
 
-## Build Pipeline Status
+Committed results from `sql/core/benchmarks/` and `sql/catalyst/benchmarks/`
+(AMD Ryzen AI 9 HX PRO 370, JDK 25, Linux, 2M Arrow-cached rows unless noted;
+best of >= 5 iterations over 2s windows, August 2026). The honest rows are in
+the table too - this fork commits its losses:
 
-| Branch     | Status                                                                                                                                                                                                          |
-|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| master     | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/release.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/release.yml)                                               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/publish_snapshot.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/publish_snapshot.yml)                             |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_infra_images_cache.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_infra_images_cache.yml)             |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_java21.yml)                                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java25.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_java25.yml)                                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_codegen_jdk.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_codegen_jdk.yml)                           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_uds.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_uds.yml)                                           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_rockdb_as_ui_backend.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_rockdb_as_ui_backend.yml)         |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_maven.yml)                                       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml)                         |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java25.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_maven_java25.yml)                         |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21_macos26.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_maven_java21_macos26.yml)         |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21_arm.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_maven_java21_arm.yml)                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_coverage.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_coverage.yml)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml)                           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.12_classic_only.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.12_classic_only.yml) |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.12_arm.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.12_arm.yml)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.12_macos26.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.12_macos26.yml)           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.12_pandas_3.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.12_pandas_3.yml)         |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.13.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.13.yml)                           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml)                           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14_nogil.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_3.14_nogil.yml)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_minimum.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_minimum.yml)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_connect40.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_connect40.yml)                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_connect.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_python_connect.yml)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_sparkr_window.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_sparkr_window.yml)                       |
-| branch-4.x | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-4.x)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java17.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_java17.yml?query=branch%3Abranch-4.x)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_java21.yml?query=branch%3Abranch-4.x)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java25.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_java25.yml?query=branch%3Abranch-4.x)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml?query=branch%3Abranch-4.x)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_maven.yml?query=branch%3Abranch-4.x)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml?query=branch%3Abranch-4.x)       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml?query=branch%3Abranch-4.x)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml/badge.svg?branch=branch-4.x)](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml?query=branch%3Abranch-4.x)           |
-| branch-4.3 | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-4.3)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java17.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_java17.yml?query=branch%3Abranch-4.3)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_java21.yml?query=branch%3Abranch-4.3)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java25.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_java25.yml?query=branch%3Abranch-4.3)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml?query=branch%3Abranch-4.3)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_maven.yml?query=branch%3Abranch-4.3)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml?query=branch%3Abranch-4.3)       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml?query=branch%3Abranch-4.3)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml/badge.svg?branch=branch-4.3)](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml?query=branch%3Abranch-4.3)           |
-| branch-4.2 | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-4.2)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java17.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_java17.yml?query=branch%3Abranch-4.2)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_java21.yml?query=branch%3Abranch-4.2)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java25.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_java25.yml?query=branch%3Abranch-4.2)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml?query=branch%3Abranch-4.2)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_maven.yml?query=branch%3Abranch-4.2)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml?query=branch%3Abranch-4.2)       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml?query=branch%3Abranch-4.2)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml/badge.svg?branch=branch-4.2)](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml?query=branch%3Abranch-4.2)           |
-| branch-4.1 | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-4.1)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java17.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_java17.yml?query=branch%3Abranch-4.1)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_java21.yml?query=branch%3Abranch-4.1)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml?query=branch%3Abranch-4.1)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_maven.yml?query=branch%3Abranch-4.1)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml?query=branch%3Abranch-4.1)       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml?query=branch%3Abranch-4.1)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_python_3.14.yml?query=branch%3Abranch-4.1)           |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_pypy3.10.yml/badge.svg?branch=branch-4.1)](https://github.com/apache/spark/actions/workflows/build_python_pypy3.10.yml?query=branch%3Abranch-4.1) |
-| branch-4.0 | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-4.0)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java17.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_java17.yml?query=branch%3Abranch-4.0)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_java21.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_java21.yml?query=branch%3Abranch-4.0)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_non_ansi.yml?query=branch%3Abranch-4.0)               |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_maven.yml?query=branch%3Abranch-4.0)                     |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_maven_java21.yml?query=branch%3Abranch-4.0)       |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_python_3.11.yml?query=branch%3Abranch-4.0)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_pypy3.10.yml/badge.svg?branch=branch-4.0)](https://github.com/apache/spark/actions/workflows/build_python_pypy3.10.yml?query=branch%3Abranch-4.0) |
-| branch-3.5 | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg?branch=branch-3.5)](https://github.com/apache/spark/actions/workflows/build_main.yml?query=branch%3Abranch-3.5)                                 |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_scala213.yml/badge.svg?branch=branch-3.5)](https://github.com/apache/spark/actions/workflows/build_scala213.yml?query=branch%3Abranch-3.5)                   |
-|            | [![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_python_3.9.yml/badge.svg?branch=branch-3.5)](https://github.com/apache/spark/actions/workflows/build_python_3.9.yml?query=branch%3Abranch-3.5)                   |
+| Case | vs stock Spark (Janino) |
+| :--- | :--- |
+| `date_add` / `datediff`, columnar consumer | 1.9x / 2.4x |
+| Nested `datediff(date_add(d, 1), d2)` | 2.2x |
+| Two outputs sharing a subchain (DAG-CSE) | 1.8x |
+| `CASE WHEN`, unpredictable condition | 2.1x |
+| `CASE WHEN`, predictable condition | 1.9x |
+| Chain of 8 date ops, columnar consumer | 1.4x (2.2x at depth 1) |
+| Same chains through a row consumer | 0.5-0.7x - fusion loses there today |
+| `dayofweek` | 0.9x - C2 already serves the stock path well |
+| Cold start: first run of a fresh plan shape (100K rows) | 1.5x (~9 ms saved per shape) |
+| Emit+define+load+instantiate a fused kernel vs one Janino compile | 75x cheaper (80 us vs 6 ms) |
 
+Regenerate with `SPARK_GENERATE_BENCHMARK_FILES=1`:
 
-## Building Spark
+```bash
+build/sbt "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark"
+build/sbt "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaColdStartBenchmark"
+build/sbt "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaCodegenBenchmark"
+build/sbt "catalyst/test:runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
+```
 
-Spark is built using [Apache Maven](https://maven.apache.org/).
-To build Spark and its example programs, run:
+## Quick start
+
+Build (JDK 25 required), then enable the engine and the Arrow cache:
 
 ```bash
 ./build/mvn -DskipTests clean package
+./bin/spark-shell \
+  --conf spark.sql.codegen.varka.enabled=true \
+  --conf spark.sql.cache.serializer=org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 ```
-
-(You do not need to do this if you downloaded a pre-built package.)
-
-More detailed documentation is available from the project site, at
-["Building Spark"](https://spark.apache.org/docs/latest/building-spark.html).
-
-For general development tips, including info on developing Spark using an IDE, see ["Useful Developer Tools"](https://spark.apache.org/developer-tools.html).
-
-## Interactive Scala Shell
-
-The easiest way to start using Spark is through the Scala shell:
-
-```bash
-./bin/spark-shell
-```
-
-Try the following command, which should return 1,000,000,000:
 
 ```scala
-scala> spark.range(1000 * 1000 * 1000).count()
+spark.sql("select date_add(date'2020-01-01', cast(id as int) % 1000) as d from range(2000000)")
+  .createOrReplaceTempView("t")
+spark.catalog.cacheTable("t")
+val q = spark.sql("select datediff(date_add(d, 1), d) from t")
+q.collect()
+// The fused node and its metric:
+println(q.queryExecution.executedPlan.treeString)   // VarkaColumnarToRowExec (varka: ...)
 ```
 
-## Interactive Python Shell
+A fused plan shows a `Varka*Exec` node whose `numVarkaBatches` metric counts
+the batches the kernels actually served; anything else fell back to stock
+Spark and stayed correct.
 
-Alternatively, if you prefer Python, you can use the Python shell:
+## Status and roadmap
 
-```bash
-./bin/pyspark
-```
+Development happens in `sql/varka/plans/`, one plan file per milestone and
+task, each with a recorded outcome:
 
-And run the following command, which should also return 1,000,000,000:
+* **Milestone 1 (done)**: the MVP - per-op SIMD kernels over Arrow-cached
+  dates, the columnar rule and both exec nodes, ghost fallback, per-task
+  class unloading.
+* **Milestone 2 (done)**: the fused vector loop - expression IR and
+  Class-File emitter, nested chains with DAG-CSE, predication, partial
+  eligibility with zero-copy forwarding, telemetry attributes, and the
+  benchmark/docs pass that produced the numbers above.
+* **Milestone 3 (next)**: scope in
+  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md) -
+  int64 lanes, more ops, cross-task kernel caching, fuse-profitability (the
+  row-consumer question above), debuggability beyond the telemetry.
 
-```python
->>> spark.range(1000 * 1000 * 1000).count()
-```
+Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
+[`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
+[`SKILLS.md`](SKILLS.md) (measured lessons the project keeps).
 
-## Example Programs
+## About Apache Spark
 
-Spark also comes with several sample programs in the `examples` directory.
-To run one of them, use `./bin/run-example <class> [params]`. For example:
-
-```bash
-./bin/run-example SparkPi
-```
-
-will run the Pi example locally.
-
-You can set the MASTER environment variable when running examples to submit
-examples to a cluster. This can be spark:// URL,
-"yarn" to run on YARN, and "local" to run
-locally with one thread, or "local[N]" to run locally with N threads. You
-can also use an abbreviated class name if the class is in the `examples`
-package. For instance:
-
-```bash
-MASTER=spark://host:7077 ./bin/run-example SparkPi
-```
-
-Many of the example programs print usage help if no params are given.
-
-## Running Tests
-
-Testing first requires [building Spark](#building-spark). Once Spark is built, tests
-can be run using:
-
-```bash
-./dev/run-tests
-```
-
-Please see the guidance on how to
-[run tests for a module, or individual tests](https://spark.apache.org/developer-tools.html#individual-tests).
-
-There is also a Kubernetes integration test, see resource-managers/kubernetes/integration-tests/README.md
-
-## A Note About Hadoop Versions
-
-Spark uses the Hadoop core library to talk to HDFS and other Hadoop-supported
-storage systems. Because the protocols have changed in different versions of
-Hadoop, you must build Spark against the same version that your cluster runs.
-
-Please refer to the build documentation at
-["Specifying the Hadoop Version and Enabling YARN"](https://spark.apache.org/docs/latest/building-spark.html#specifying-the-hadoop-version-and-enabling-yarn)
-for detailed guidance on building for a particular distribution of Hadoop, including
-building for particular Hive and Hive Thriftserver distributions.
-
-## Configuration
-
-Please refer to the [Configuration Guide](https://spark.apache.org/docs/latest/configuration.html)
-in the online documentation for an overview on how to configure Spark.
-
-## Contributing
-
-Please review the [Contribution to Spark guide](https://spark.apache.org/contributing.html)
-for information on how to get started contributing to the project.
+This is a research fork of [Apache Spark](https://spark.apache.org/) and is
+not affiliated with or endorsed by the Apache Software Foundation. Everything
+outside the Varka additions is upstream Spark; see the
+[upstream repository](https://github.com/apache/spark) for Spark itself, its
+[documentation](https://spark.apache.org/documentation.html) and
+[contribution guide](https://spark.apache.org/contributing.html). Licensed
+under the [Apache License 2.0](LICENSE), like Spark itself.

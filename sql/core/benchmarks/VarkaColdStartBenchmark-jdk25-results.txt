@@ -1,0 +1,12 @@
+================================================================================================
+cold start: first execution of a fresh plan shape
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-29-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+first execution over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------
+baseline (Janino compile)                                 27             36          10          3.7         271.3       1.0X
+varka (kernel emission)                                   18             22           5          5.4         184.9       1.5X
+
+

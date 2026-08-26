@@ -22,7 +22,7 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.execution.VarkaColumnarRule
+import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec, VarkaProjectExec}
 import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
@@ -48,6 +48,16 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * (`toRdd`), measuring [[org.apache.spark.sql.execution.VarkaColumnarToRowExec]]'s batch
  * assembly plus the read back to rows - the number behind task 12's escape-hatch decision
  * (assemble-then-read vs merge-at-row, `PLAN_TASK_12.md` section 2.3).
+ *
+ * Task 14 added the milestone-2 fusion cases (nested chains, the shared subchain that DAG-CSE
+ * serves, `CASE WHEN` on predictable and pseudo-random data, `dayofweek`) and the chain-depth
+ * scaling pairs on both consumers, and moved every case to the committed-run methodology of
+ * `PLAN_TASK_14.md` 2.1: five iterations minimum over two-second warmup and measurement windows,
+ * replacing the single-run 2x1s settings whose day-to-day swing the debt register recorded.
+ * The two `CASE WHEN` tables differ only in data: over `varka_date_pairs` the condition is
+ * constant (`d2 - d` is a fixed 366 days), so a per-row branch predicts perfectly and the case
+ * prices pure fusion; over `varka_date_pairs_rand` the condition flips pseudo-randomly, adding
+ * the branch-free win. The gap between the two committed relatives is the misprediction cost.
  *
  * To run this benchmark:
  * {{{
@@ -104,18 +114,69 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
     session.sql("select count(*) from varka_date_pairs").collect()
   }
 
+  /**
+   * Like `varka_date_pairs` but with pseudo-random day offsets, so `d < d2` flips irregularly
+   * row to row. On `varka_date_pairs` that comparison is constant (`d2 - d` is a fixed 366
+   * days) and a per-row branch predicts perfectly; this table is the one where branchiness
+   * costs, which is what the blend-based `CASE WHEN` case needs to show separately.
+   */
+  private def cacheRandomDatePairs(session: SparkSession): Unit = {
+    session.sql(
+      """select date_add(date'2020-01-01', pmod(hash(id), 1500)) as d,
+        |       date_add(date'2020-01-01', pmod(hash(id + 7), 1500)) as d2,
+        |       cast(id as int) as i
+        |from range(0, 2000000)""".stripMargin)
+      .createOrReplaceTempView("varka_date_pairs_rand")
+    session.catalog.cacheTable("varka_date_pairs_rand")
+    session.sql("select count(*) from varka_date_pairs_rand").collect()
+  }
+
+  /**
+   * An alternating `date_add`/`date_sub` chain of the given depth over column `d`, every
+   * literal distinct, so neither Catalyst constant-folding nor C2 reassociation can shorten
+   * it - each depth really is `depth` dependent ops per row.
+   */
+  private def chainExpr(depth: Int): String = {
+    (0 until depth).foldLeft("d") { (expr, k) =>
+      if (k % 2 == 0) s"date_add($expr, ${k + 1})" else s"date_sub($expr, ${k + 1})"
+    }
+  }
+
+  /**
+   * Every varka-side case must actually run the kernels: a query the compiler declines would
+   * run the stock plan, and one the emitter rejects at run time would take the ghost fallback -
+   * either way the committed "varka" number would measure nothing. So this executes the query
+   * once (row consumer; the kernels are the same on both consumers) and asserts the plan fused
+   * *and* `numVarkaBatches` counted, before any timing starts.
+   */
+  private def requireFused(varka: SparkSession, name: String, query: String): Unit = {
+    val df = varka.sql(query)
+    df.queryExecution.toRdd.count()
+    val plan = df.queryExecution.executedPlan
+    val node = plan.collectFirst {
+      case v: VarkaProjectExec => v.metrics("numVarkaBatches")
+      case v: VarkaColumnarToRowExec => v.metrics("numVarkaBatches")
+    }.getOrElse(throw new IllegalStateException(
+      s"case '$name' did not fuse on the varka session:\n${plan.treeString}"))
+    require(node.value > 0,
+      s"case '$name' fused but fell back at run time (numVarkaBatches = ${node.value})")
+  }
+
   private def runQueries(
       baseline: SparkSession,
       varka: SparkSession,
       name: String,
       query: String): Unit = {
+    requireFused(varka, name, query)
     runBenchmark(name) {
+      // The committed-run methodology of PLAN_TASK_14.md 2.1: at least five measured iterations
+      // over two-second windows, so a committed number is a distribution, not a single draw.
       val benchmark = new Benchmark(s"$name over $numRows Arrow-cached rows", numRows,
-        minNumIters = 2, warmupTime = 1.seconds, minTime = 1.seconds, output = output)
-      benchmark.addCase("baseline (Janino)", numIters = 3) { _ =>
+        minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+      benchmark.addCase("baseline (Janino)") { _ =>
         baseline.sql(query).noop()
       }
-      benchmark.addCase("varka (SIMD)", numIters = 3) { _ =>
+      benchmark.addCase("varka (SIMD)") { _ =>
         varka.sql(query).noop()
       }
       benchmark.run()
@@ -132,13 +193,14 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       varka: SparkSession,
       name: String,
       query: String): Unit = {
+    requireFused(varka, name, query)
     runBenchmark(name) {
       val benchmark = new Benchmark(s"$name over $numRows Arrow-cached rows", numRows,
-        minNumIters = 2, warmupTime = 1.seconds, minTime = 1.seconds, output = output)
-      benchmark.addCase("baseline (Janino)", numIters = 3) { _ =>
+        minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+      benchmark.addCase("baseline (Janino)") { _ =>
         baseline.sql(query).queryExecution.toRdd.count()
       }
-      benchmark.addCase("varka (SIMD)", numIters = 3) { _ =>
+      benchmark.addCase("varka (SIMD)") { _ =>
         varka.sql(query).queryExecution.toRdd.count()
       }
       benchmark.run()
@@ -164,13 +226,46 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       cacheDates(varka)
       cacheDatePairs(baseline)
       cacheDatePairs(varka)
+      cacheRandomDatePairs(baseline)
+      cacheRandomDatePairs(varka)
 
       runQueries(baseline, varka, "date_add", "SELECT date_add(d, 3) AS a FROM varka_dates")
       runQueries(baseline, varka, "date_sub", "SELECT date_sub(d, 5) AS a FROM varka_dates")
       runQueries(baseline, varka, "datediff",
         "SELECT datediff(d2, d) AS diff FROM varka_date_pairs")
+      // The milestone-2 fusion cases (PLAN_TASK_14.md 2.2). The nested projection is the query
+      // the milestone plan opens with - milestone 1's per-op kernels could not fuse it at all.
+      runQueries(baseline, varka, "nested projection",
+        "SELECT datediff(date_add(d, 1), d2) AS n FROM varka_date_pairs")
+      // The interned subtree (`date_add(d, 1)`) is computed once per lane group across both
+      // outputs by DAG-CSE; Janino's per-row subexpression elimination redoes it per row.
+      runQueries(baseline, varka, "shared subchain (DAG-CSE)",
+        "SELECT date_add(d, 1) AS a, datediff(date_add(d, 1), d2) AS b FROM varka_date_pairs")
+      // The CASE WHEN pair: same query, two data patterns (see the class doc). The committed
+      // headline is the unpredictable one; the predictable run prices pure fusion.
+      runQueries(baseline, varka, "case when, predictable data",
+        "SELECT CASE WHEN d < d2 THEN date_add(d, 7) ELSE date_sub(d2, 7) END AS c " +
+          "FROM varka_date_pairs")
+      runQueries(baseline, varka, "case when, unpredictable data",
+        "SELECT CASE WHEN d < d2 THEN date_add(d, 7) ELSE date_sub(d2, 7) END AS c " +
+          "FROM varka_date_pairs_rand")
+      // The one case that replaces an allocating path (Janino's LocalDate round trip) rather
+      // than just fusing arithmetic - the kernel-level 36x of PLAN_TASK_11.md at query level.
+      runQueries(baseline, varka, "dayofweek", "SELECT dayofweek(d) AS dw FROM varka_dates")
       runQueries(baseline, varka, "mixed projection (partial fusion)",
         "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates")
+      // Chain-depth scaling (PLAN_TASK_14.md 2.3): the fused loop pays one load and one store
+      // whatever the depth; Janino pays per-row per-op overhead. Columnar consumer here, the
+      // same chains through the row consumer below - their crossing is the break-even depth
+      // milestone 3's fuse-profitability item needs.
+      Seq(1, 2, 4, 8).foreach { depth =>
+        runQueries(baseline, varka, s"chain depth $depth",
+          s"SELECT ${chainExpr(depth)} AS a FROM varka_dates")
+      }
+      Seq(1, 2, 4, 8).foreach { depth =>
+        runRowQueries(baseline, varka, s"chain depth $depth, row consumer",
+          s"SELECT ${chainExpr(depth)} AS a FROM varka_dates")
+      }
       // The all-fused control for the row-consumer pair below: how much of their gap is the
       // per-row read-back this node always pays, as opposed to the merge itself.
       runRowQueries(baseline, varka, "date_add, row consumer",

@@ -1,3 +1,11 @@
+> **Status (task 14).** This document is the architectural source of truth: the mission,
+> principles and stack below still govern the code. Its scope and next-steps sections,
+> written before implementation started, are historical - the live roadmap is
+> `sql/varka/plans/`: `PLAN_MILESTONE_1.md` (the date MVP, done), `PLAN_MILESTONE_2.md`
+> (the fused vector loop, done), and `PLAN_MILESTONE_3.md` (the scope of what comes next).
+> Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
+> actually built.
+
 ## 1. Core Mission
 
 Eliminate runtime compilation overhead (string parsing, AST generation) and unlock SIMD hardware capabilities (AVX-512, ARM SVE) without breaking compatibility or stability. The system must be a **drop-in, zero-risk replacement** for the existing engine.
@@ -74,6 +82,12 @@ MemorySegment validitySeg = MemorySegment.ofAddress(validityBuffer.memoryAddress
 
 ## 7. MVP Implementation Scope
 
+> **Status:** the MVP shipped as milestone 1. Milestone 2 went past this scope: the
+> per-op dispatchers gave way to a fused vector loop emitted from an expression IR
+> (nested chains, cross-output DAG-CSE, predicated `CASE WHEN`/`IF`, `greatest`/`least`,
+> `dayofweek`/`weekday`, partial eligibility with zero-copy forwarding). The supported
+> surface at any moment is `docs/sql-varka.md`'s, not this section's.
+
 We are currently implementing the **Date/Time MVP**.
 
 **Supported Expressions:**
@@ -143,7 +157,7 @@ spark-submit \
   --class ...
 ```
 
-**Memory:** Executors require off-heap memory allocation (Panama) – ensure `spark.executor.memoryOverhead` is sufficient (test with +1-2GB).
+**Memory:** Executors require off-heap memory allocation (Panama) - ensure `spark.executor.memoryOverhead` is sufficient (test with +1-2GB).
 
 ---
 
@@ -159,6 +173,10 @@ spark-submit \
 ---
 
 ## 12. Next Steps for the AI Assistant (Me)
+
+> **Status:** this list is done or superseded (step 6's `JavaClassFileEngine` was built,
+> never routed, and deliberately deleted in milestone 2 - `PLAN_TASK_9.md` section 5.4).
+> The next step is milestone 3; its scope document is `sql/varka/plans/PLAN_MILESTONE_3.md`.
 
 When proceeding to implementation:
 1. **Write `VarkaMorsel`:** Helper to map `ArrowVector` to `MemorySegment`.

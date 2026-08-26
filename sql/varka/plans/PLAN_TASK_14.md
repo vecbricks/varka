@@ -1,6 +1,7 @@
 # Task 14: benchmarks and docs
 
-**Status: PLANNED.** The milestone's closing task (`PLAN_MILESTONE_2.md`,
+**Status: DONE.** Outcome in section 7; the predictions of section 3 scored
+1.5 of 4 (section 7.3). The milestone's closing task (`PLAN_MILESTONE_2.md`,
 task row 14): measure what milestones 1 and 2 actually bought, end to end and
 honestly, then rewrite the public story - `docs/sql-varka.md`, `VISION.md`,
 and (added to the task by the milestone owner) the repository's `README.md`,
@@ -283,3 +284,102 @@ Acceptance, from the milestone's validation row plus this plan:
   will drift as the code moves. Mitigation: the README states the commit
   and date of its numbers and points at the results files as the living
   source, so drift is visible rather than silent.
+
+## 7. Outcome
+
+### 7.1 What ran, and under what conditions
+
+All four results files were regenerated on the committed methodology
+(2.1: `minNumIters = 5`, two-second warmup and measurement windows,
+machine otherwise idle): `VarkaThroughputBenchmark` (twice, back to back -
+the second run doubles as the A/B check below), the new
+`VarkaColdStartBenchmark`, `VarkaCodegenBenchmark` with its new fused case,
+and `VarkaEmitterParityBenchmark` unchanged. Hardware and conditions, stated
+once for every number this task quotes: AMD Ryzen AI 9 HX PRO 370 (Zen 5,
+AVX-512), OpenJDK 25.0.4, Linux 7.0, `local[1]`, 2M-row Arrow-cached tables
+(100K for cold start).
+
+Two harness hardenings landed beyond the plan. Every throughput case now
+runs an untimed guard first that executes the query and requires
+`numVarkaBatches > 0` off the plan's Varka node - plan-shape checking alone
+cannot see a runtime ghost fallback, and the `dayofweek` result below is
+exactly the case that made the stronger guard worth having (it passed: the
+kernels really ran). And the cold-start timer acts on the pre-planned
+`queryExecution.toRdd` rather than a `noop` write, because the write API
+re-plans a fresh command inside the timer; planning stays in setup, so the
+timed region is Janino compile / kernel emission plus the small compute.
+
+### 7.2 The numbers
+
+Columnar consumer, best-of->=5, relative to Janino: `date_add` 1.9x,
+`date_sub` 2.1x, `datediff` 2.4x, nested `datediff(date_add(d, 1), d2)`
+2.2x, shared subchain (DAG-CSE) 1.8x, mixed projection 1.6x, `CASE WHEN`
+1.9x on predictable data and 2.1x on pseudo-random data, `dayofweek` 0.9x.
+Chain depth 1/2/4/8: 2.2x/2.0x/1.7x/1.4x columnar, 0.7x/0.6x/0.6x/0.5x
+through `toRdd`. Cold start: 18 ms vs 27 ms best (22 vs 36 average) per
+fresh plan shape - 1.5x. Fused emit+define+load+instantiate: ~80 us, 75x
+under one Janino projection compile (the milestone-1 dispatcher case: 418x).
+
+The claims-under-1.3x rule (2.1) applied twice. The `CASE WHEN` gap: varka
+is 27 ms on both data patterns in both runs (blend is data-oblivious), while
+Janino pays +6 ms (~12%) on the unpredictable table - direction and size
+replicated across the two generations, so the gap is committed as Janino's
+misprediction cost, though at ~12% it fell short of the predicted >=15%.
+`dayofweek` 0.9x also replicated exactly (72 ms vs 64 ms both runs).
+
+### 7.3 Predictions scored: 1.5 of 4
+
+1. **Wrong, instructively.** The columnar depth relative does not grow - it
+   falls, 2.2x at depth 1 to 1.4x at depth 8. Janino's cost is *flat* in
+   depth (~21 ns/row whatever the chain: eight dependent int adds vanish
+   inside per-row overhead on a 5 GHz core), while the masked vector loop
+   pays real instructions per op. The premise "Janino pays per-row call
+   overhead per op" was milestone-1 thinking; inside one compiled row loop,
+   an op costs well under a nanosecond. What fusion actually buys end to end
+   is batch-versus-per-row overhead - about 2x on this hardware - plus
+   whatever the buffer-level win is worth *before* the framework floor, and
+   depth erodes it.
+2. **Wrong.** No row-consumer break-even exists: 0.7x at depth 1 *falling*
+   to 0.5x at depth 8, for the same reason as (1) - the varka side's cost
+   grows with depth, Janino's does not, so the curves diverge. Recorded in
+   `PLAN_MILESTONE_3.md`'s register as a measured answer: the profitability
+   question is not "how deep" but "should the rule decline row consumers".
+3. **Half right.** The headline held (2.1x >= 1.8x on unpredictable data)
+   but the data-pattern gap is ~12% relative, under the predicted 15%.
+4. **Right.** Milliseconds per fresh shape (9 ms best, 14 ms average),
+   visible and committed, nowhere near the isolated 636x - the scan and
+   framework dominate both sides, exactly as reasoned.
+
+Running score across tasks 12 and 14: 2.5 of 8.
+
+### 7.4 Deviations and notes
+
+* The JMH fused-chain case was resolved as planned deviation 2.5 (module
+  boundary); the parity benchmark's chain-depth case remains the buffer-level
+  fused-chain number and was regenerated with everything else.
+* `dayofweek` was expected (2.2) to be "the one case where Varka replaces an
+  allocating path"; at query level it is a small honest loss (0.9x). C2
+  scalar-replaces the `LocalDate` allocation inside the compiled row loop,
+  so the stock path is already allocation-free where it matters, and the
+  15-op digit-sum fold is compute-heavier per element than the arithmetic
+  cases. The buffer-level 36x (parity file) measures a loop the JIT profiles
+  differently. Docs and README carry the loss, per the no-promises rule.
+* The depth cases run over `varka_dates` (mixed nulls), so they price the
+  masked body - the general case, not the dense fast path.
+* `date_add` at 1.9x vs "chain depth 1" at 2.2x is the same query modulo
+  literal and table position in the run; the spread is the honest remaining
+  noise band at these sub-50 ms case times, which is why the docs quote
+  each number from its own committed case rather than averaging cousins.
+
+### 7.5 Docs delivered
+
+`docs/sql-varka.md` revised to milestone 2 (fused-loop architecture,
+semantics section, telemetry, all numbers from 7.2, limitations rewritten -
+including the row-consumer cost stated with its number); `VISION.md` given
+its status pass (top banner, sections 7 and 12 annotated, roadmap pointed at
+the milestone plans); `README.md` rewritten as the fork's front page (what
+it is, the main ideas as one-liners, the benchmark table honest rows
+included, quick start, status/roadmap/docs map, upstream attribution
+replacing the stock badge wall). `PLAN_MILESTONE_2.md` task row and closing
+note, and the two `PLAN_MILESTONE_3.md` register entries, updated as 2.8
+required.
