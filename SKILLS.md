@@ -212,7 +212,11 @@ apparent small wins turned out to be noise.
   that pin it: (1) scale the table 4x - a per-task-fixed cost leaves the absolute
   delta unchanged where a per-row cost quadruples it; (2) `-XX:+PrintCompilation`
   shows one tier-4 OSR of the same-named method *per task*, each followed by
-  "made not entrant: OSR invalidation" as the task's class dies. Corollary for any
+  "made not entrant: OSR invalidation" as the task's class dies. The decomposition
+  (PLAN_TASK_14.md 7.5): the C2 compile itself is ~1 ms per vector op (2/10/20-25 ms
+  for 3/10/20-op loops), and the interpreted and C1 profiling phases before it
+  scale the same way, because tier counters advance per backedge at boxed speed -
+  which is also why a scratch-batch warm spin saves nothing. Corollary for any
   cross-task cache: caching `byte[]` does not help - a re-defined class is a new
   class and re-pays the ladder; only reusing the *loaded class* preserves the C2
   code. And benchmark tasks must be long enough to amortise the ladder, or the

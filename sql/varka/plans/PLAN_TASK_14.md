@@ -397,7 +397,30 @@ The mechanism: the evaluator defines a fresh kernel class per task (the
 per-task loader), so HotSpot re-runs the full tier ladder every query
 execution; until the C2 OSR lands, the loop runs interpreted or C1 with
 boxed vectors. The buffer-level parity benchmark compiles once and measures
-steady state, which is why the two disagree. Consequences:
+steady state, which is why the two disagree.
+
+A second pass over the same `PrintCompilation2` log decomposed the fixed
+cost per kernel variant (its `time:` lines are per-compile durations; the
+tier-3-OSR trigger anchors the phases, with `date_add` as the control):
+
+| loop method | vector ops | C2 OSR compile | tier-3 to tier-4 delay | fixed surcharge |
+|---|---|---|---|---|
+| `date_add`, 254 B | ~3 | ~2 ms | 6 ms | baseline |
+| chain-8, 396 B | ~10 | 10 ms | mid | +13 ms |
+| `dayofweek`, 426 B | ~20 | 19-25 ms | 17 ms | +50 ms |
+
+The `dayofweek` surcharge splits into ~18 ms extra interpreted phase (a
+boxed iteration costs per op, so the same backedge threshold takes
+op-count-times longer to reach), ~11 ms extra C1-boxed profiling delay
+before tier-4 triggers (the same counter logic), and ~18-23 ms extra C2
+compile in flight (compile time scales roughly linearly with vector-op
+count, about 1 ms per op). Every phase scales with op count, which is why
+the fixed cost tracked op count in the scaling experiment. One tempting
+mitigation is refuted by this decomposition: a scratch-batch warm spin in
+the evaluator saves nothing, because the tier counters advance per backedge
+at the same boxed-execution rate whatever the batch size - only threshold
+scaling (a deploy flag), a smaller loop method, or class reuse shortens the
+ladder. Consequences:
 
 * `dayofweek` 0.9x is a short-task artifact: the ~50 ms fixed cost happens
   to eat a 2M-row task; at 8M rows the same query is ~1.8x `date_add`'s
