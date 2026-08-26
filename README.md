@@ -48,14 +48,14 @@ the table too - this fork commits its losses:
 
 | Case | vs stock Spark (Janino) |
 | :--- | :--- |
-| `date_add` / `datediff`, columnar consumer | 1.9x / 2.4x |
+| `date_add` / `datediff`, columnar consumer | 1.8x / 2.3x |
 | Nested `datediff(date_add(d, 1), d2)` | 2.2x |
 | Two outputs sharing a subchain (DAG-CSE) | 1.8x |
 | `CASE WHEN`, unpredictable condition | 2.1x |
-| `CASE WHEN`, predictable condition | 1.9x |
-| Chain of 8 date ops, columnar consumer | 1.4x (2.2x at depth 1) |
-| Same chains through a row consumer | 0.5-0.7x - fusion loses there today |
-| `dayofweek` | 0.9x - a fixed per-task JIT cost at this task size; diagnosed, see the docs |
+| `CASE WHEN`, predictable condition | 2.0x |
+| Chain of 8 date ops, columnar consumer | 1.3x (2.2x at depth 1) |
+| Same chains through a row consumer | 0.6-0.7x - fusion loses there today |
+| `dayofweek` | 1.2x - was 0.9x until the magic-multiply mod-7 lowering (see the docs) |
 | Cold start: first run of a fresh plan shape (100K rows) | 1.5x (~9 ms saved per shape) |
 | Emit+define+load+instantiate a fused kernel vs one Janino compile | 75x cheaper (80 us vs 6 ms) |
 

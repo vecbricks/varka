@@ -65,4 +65,13 @@ public final class VarkaEmitterTestSupport {
   public static void setDivFloorMod(boolean div) {
     VarkaLoopEmitter.divFloorModForTesting = div;
   }
+
+  /**
+   * Toggles {@link VarkaLoopEmitter#digitSumFloorModForTesting} for callers outside the
+   * emitter's package - the parity benchmark prices the shipped two-fold magic-multiply
+   * mod-7 (task 14 follow-up) against the task 11 digit sum it replaced.
+   */
+  public static void setDigitSumFloorMod(boolean digitSum) {
+    VarkaLoopEmitter.digitSumFloorModForTesting = digitSum;
+  }
 }

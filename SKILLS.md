@@ -224,12 +224,17 @@ apparent small wins turned out to be noise.
 
 ## Vector API on HotSpot, Measured (JDK 25, x86-64)
 
-- `VectorOperators` has no multiply-high on any lane type, so Granlund-Montgomery
-  magic division is not expressible on int lanes; strength-reduce another way. Mod-7
-  by base-8 digit sum (`2^(3k) = 1 mod 7`: fold 15/6/3-bit chunks, `+3` where the
-  input is negative since `2^32 = 4 mod 7`, one compare-subtract fixup) measured
-  6.9 G elems/s vs 0.78 G for lanewise `DIV` - which has no SIMD instruction on x86
-  and effectively scalarizes.
+- `VectorOperators` has no multiply-high on any lane type, so full-range
+  Granlund-Montgomery magic division is not expressible on int lanes - but a
+  *range-narrowed* magic is: shrink the value first until the correctness condition
+  (`v * e < 2^k`) and the no-overflow condition (`v * M < 2^31`) both fit in the low
+  32 bits that `mul` does return. Mod-7 (task 14 follow-up, after a reviewer asked
+  the right question): two 15-bit folds (`2^15 = 1 mod 7`) leave `v <= 32774` with
+  the sign fixup, where `q = (v * 37450) >>> 18` is exactly `v / 7` with no final
+  fixup - measured 1.6-1.8x the six-fold digit sum it replaced (which stays as a
+  reference variant), ~9x lanewise `DIV` (no SIMD divide exists on x86; it
+  effectively scalarizes), and ~57x a per-row `LocalDate` loop. The ~10-op-smaller
+  method also cuts the per-task JIT warm-up above by ~28 ms per task.
 - Masked lanewise ops and masked stores cost 2.3x-2.9x even when the mask is all-true:
   a runtime mask is opaque to C2 and a masked store never becomes a plain store. If
   masks carry no correctness (in-bounds accesses, invalid destination lanes declared

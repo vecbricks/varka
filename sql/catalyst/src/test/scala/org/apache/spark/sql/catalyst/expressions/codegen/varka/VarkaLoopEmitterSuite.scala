@@ -580,8 +580,10 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
   test("dayofweek and weekday match floorMod and LocalDate across extreme and negative days") {
     val roots = Seq[VarkaVectorIR](
       new DayOfWeek(new ColumnRef(0)), new WeekDay(new ColumnRef(0)))
+    // The 15-bit fold boundaries are edges of the shipped magic-multiply lowering.
     val extremes = Array(Int.MinValue, Int.MaxValue, Int.MinValue + 1, Int.MaxValue - 1,
-      -1, 0, 1, -7, 7, -8, 8, Int.MaxValue - 3, Int.MinValue + 3)
+      -1, 0, 1, -7, 7, -8, 8, Int.MaxValue - 3, Int.MinValue + 3,
+      32767, 32768, -32768, -32769)
     def days(c: Int, i: Int): Int =
       if (i < extremes.length) extremes(i) else i * 997 - 300000
     checkMatrix(roots, 1, Array.empty[Int], Seq(1, 13, 17, 64, 1000),
@@ -606,7 +608,7 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
       forceMasked = true, ctx = "forced-masked")
   }
 
-  test("the lanewise-DIV floorMod reference variant agrees with the shipped digit sum") {
+  test("the lanewise-DIV floorMod reference variant agrees with the shipped magic multiply") {
     val roots = Seq[VarkaVectorIR](new DayOfWeek(new ColumnRef(0)))
     val extremes = Array(Int.MinValue, Int.MaxValue, -1, 0, -7, 7)
     def days(c: Int, i: Int): Int =
@@ -617,6 +619,24 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
         nullPatterns.map(p => Seq(p._2)), data = days, ctx = "div-variant")
     } finally {
       VarkaLoopEmitter.divFloorModForTesting = false
+    }
+  }
+
+  test("the digit-sum floorMod reference variant agrees with the shipped magic multiply") {
+    // The task 11 lowering, kept as a reference: same matrix as the shipped path's own test,
+    // with the 15-bit fold boundaries among the extremes.
+    val roots = Seq[VarkaVectorIR](
+      new DayOfWeek(new ColumnRef(0)), new WeekDay(new ColumnRef(0)))
+    val extremes = Array(Int.MinValue, Int.MaxValue, Int.MinValue + 1, Int.MaxValue - 1,
+      -1, 0, 1, -7, 7, -8, 8, 32767, 32768, -32768, -32769)
+    def days(c: Int, i: Int): Int =
+      if (i < extremes.length) extremes(i) else i * 997 - 300000
+    VarkaLoopEmitter.digitSumFloorModForTesting = true
+    try {
+      checkMatrix(roots, 1, Array.empty[Int], Seq(1, 13, 17, 64, 1000),
+        nullPatterns.map(p => Seq(p._2)), data = days, ctx = "digit-sum-variant")
+    } finally {
+      VarkaLoopEmitter.digitSumFloorModForTesting = false
     }
   }
 

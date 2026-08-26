@@ -190,6 +190,14 @@ public final class VarkaLoopEmitter {
    */
   static volatile boolean divFloorModForTesting = false;
 
+  /**
+   * Test hook: when set, {@code dayofweek}/{@code weekday} lower their mod-7 through the
+   * full base-8 digit sum that shipped with task 11 - kept as the second reference variant
+   * (beside {@link #divFloorModForTesting}) that the parity benchmark and the differential
+   * suite price and check the shipped two-fold magic-multiply lowering against.
+   */
+  static volatile boolean digitSumFloorModForTesting = false;
+
   private VarkaLoopEmitter() {
   }
 
@@ -1418,11 +1426,20 @@ public final class VarkaLoopEmitter {
 
   /**
    * Consumes the child's {@code IntVector} on the stack and leaves {@code floorMod(v, 7)},
-   * full range. The shipped variant is the base-8 digit sum (plan 2.3, pre-measured 8x the
-   * DIV variant): fold 15-, 6- and 3-bit chunks ({@code 2^(3k) = 1 mod 7}), add 3 where the
-   * input is negative ({@code 2^32 = 4 mod 7}; the fold saw the unsigned value), then one
-   * compare-subtract fixup - its input peaks at 12, within a single subtraction. The DIV
-   * variant behind {@link #divFloorModForTesting} is the tested reference.
+   * full range. The shipped variant (the task 14 follow-up) is two 15-bit digit-sum folds
+   * ({@code 2^15 = 1 mod 7}) followed by Granlund-Montgomery magic division: the folds
+   * leave {@code v <= 32771} (unsigned reading), the +3-where-negative fixup
+   * ({@code 2^32 = 4 mod 7}) raises that to at most 32774, and in that range the magic is
+   * exact in the <i>low</i> 32 bits - with {@code M = ceil(2^18 / 7) = 37450} and
+   * {@code e = 7 * M - 2^18 = 6}, {@code v * e < 2^18} makes {@code q = (v * M) >>> 18}
+   * exactly {@code v / 7}, and {@code v * M < 2^31} keeps the low-half multiply from
+   * overflowing, so {@code r = v - q * 7} needs no final fixup at all. The multiply-high
+   * the classic trick wants is not expressible in the Vector API; pre-folding makes the
+   * low half sufficient. Measured 1.6-1.8x the task 11 digit sum at buffer level and a
+   * ~10-op-smaller loop method, which also shortens the per-task JIT warm-up
+   * (PLAN_TASK_14.md 7.5). The full digit sum behind {@link #digitSumFloorModForTesting}
+   * and the lanewise DIV behind {@link #divFloorModForTesting} are the reference variants
+   * the parity benchmark prices this one against.
    */
   private static void emitFloorMod7(CodeBuilder cb, VarkaVectorIR node, Slots s) {
     int[] tmp = s.dowTmp.get(node);
@@ -1448,14 +1465,29 @@ public final class VarkaLoopEmitter {
       cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
       return;
     }
-    // Folds: two 15-bit halves, one 6-bit, three 3-bit.
+    if (digitSumFloorModForTesting) {
+      // The task 11 shipped variant: folds of two 15-bit halves, one 6-bit, three 3-bit.
+      emitFold(cb, orig, fold, 0x7FFF, 15);
+      emitFold(cb, fold, fold, 0x7FFF, 15);
+      emitFold(cb, fold, fold, 63, 6);
+      emitFold(cb, fold, fold, 7, 3);
+      emitFold(cb, fold, fold, 7, 3);
+      emitFold(cb, fold, fold, 7, 3);
+      // s += 3 where the original value was negative.
+      cb.aload(fold);
+      cb.loadConstant(3);
+      cb.aload(orig);
+      cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
+      cb.loadConstant(0);
+      cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+      cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
+      // One conditional subtract lands [0, 12] in [0, 6].
+      emitSubSevenWhereGe(cb, s);
+      return;
+    }
+    // Two folds, the sign fixup, then the exact magic (the method comment has the bounds).
     emitFold(cb, orig, fold, 0x7FFF, 15);
     emitFold(cb, fold, fold, 0x7FFF, 15);
-    emitFold(cb, fold, fold, 63, 6);
-    emitFold(cb, fold, fold, 7, 3);
-    emitFold(cb, fold, fold, 7, 3);
-    emitFold(cb, fold, fold, 7, 3);
-    // s += 3 where the original value was negative.
     cb.aload(fold);
     cb.loadConstant(3);
     cb.aload(orig);
@@ -1463,8 +1495,18 @@ public final class VarkaLoopEmitter {
     cb.loadConstant(0);
     cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
     cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
-    // One conditional subtract lands [0, 12] in [0, 6].
-    emitSubSevenWhereGe(cb, s);
+    cb.astore(fold);
+    // r = v - ((v * 37450) >>> 18) * 7.
+    cb.aload(fold);
+    cb.aload(fold);
+    cb.loadConstant(37450);
+    cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
+    cb.getstatic(VECTOR_OPERATORS, "LSHR", VO_BINARY);
+    cb.loadConstant(18);
+    cb.invokevirtual(INT_VECTOR, "lanewise", LANEWISE_BINARY_I);
+    cb.loadConstant(7);
+    cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
   }
 
   /** {@code dst = src.and(mask).add(src >>> shift)}, all through locals. */

@@ -456,3 +456,20 @@ included, quick start, status/roadmap/docs map, upstream attribution
 replacing the stock badge wall). `PLAN_MILESTONE_2.md` task row and closing
 note, and the two `PLAN_MILESTONE_3.md` register entries, updated as 2.8
 required.
+
+### 7.7 Follow-up shipped: the mod-7 lowering replaced
+
+The 7.5 diagnosis pointed at the loop method's op count, and a review
+question ("does the SQL date range make magic division expressible?") led to
+the answer that shipped in the follow-up PR: full-range magic multiply is
+still inexpressible (no multiply-high in the Vector API, and the SQL range
+is ~8 bits too wide for the low half alone), but *two 15-bit folds first*
+narrow the value until the low 32 bits suffice - `q = (v * 37450) >>> 18`
+is then exact with no final fixup. The lowering replaced the six-fold digit
+sum as `emitFloorMod7`'s default: ~12 vector ops instead of ~22, measured
+1.6-1.8x the digit sum at buffer level and ~28 ms less per-task JIT warm-up
+at query level (flat across a 4x table growth, per the 7.5 model), taking
+the committed `dayofweek` case from 0.9x to a win. The digit sum joined
+lanewise DIV as a flagged reference variant with its own differential test;
+the parity and throughput files were regenerated and the docs requoted.
+`SKILLS.md`'s "not expressible" lesson carries the refinement.

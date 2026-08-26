@@ -133,9 +133,13 @@ is the normative statement of the rules. In brief:
   same as predictable ones (the throughput benchmark prices this).
 * `GREATEST`/`LEAST` skip null operands (Spark semantics) rather than
   propagating them.
-* `DAYOFWEEK`/`WEEKDAY` lower `Math.floorMod(d, 7)` to a branch-free base-8
-  digit-sum fold, several times faster than the lanewise-DIV variant at
-  buffer level (the parity benchmark's dayofweek section has both).
+* `DAYOFWEEK`/`WEEKDAY` lower `Math.floorMod(d, 7)` branch-free: two 15-bit
+  digit-sum folds (`2^15 = 1 mod 7`) narrow the value until Granlund-Montgomery
+  magic division by 7 is exact in the low 32 bits, with no final fixup - the
+  full-range multiply-high the classic trick needs does not exist in the
+  Vector API, but pre-folding makes the low half sufficient. The task 11
+  six-fold digit sum and the lanewise-DIV lowering are kept as reference
+  variants (the parity benchmark's dayofweek section prices all three).
 
 ### Telemetry in the generated class
 
@@ -291,16 +295,17 @@ at least five two-second-windowed iterations and lives in the committed
 results files, which are the source of truth as the code moves):
 
 * **End-to-end columnar throughput** over 2M Arrow-cached rows
-  (`VarkaThroughputBenchmark`): 1.9-2.4x Janino for single ops
-  (`date_add` 1.9x, `datediff` 2.4x), 2.2x for the nested
+  (`VarkaThroughputBenchmark`): 1.7-2.3x Janino for single ops
+  (`date_add` 1.8x, `datediff` 2.3x), 2.2x for the nested
   `datediff(date_add(d, 1), d2)`, 1.8x for the two-output shared subchain,
-  1.6x for a mixed projection where only one entry fuses.
+  1.7x for a mixed projection where only one entry fuses.
 * **`CASE WHEN` by mask blend**: 2.1x on data where the condition flips
-  pseudo-randomly, 1.9x where it is perfectly predictable. The varka side
-  costs the same on both (branch-free execution is data-oblivious); the gap
-  is Janino's branch misprediction, ~12% of its runtime on this shape.
+  pseudo-randomly, 2.0x where it is perfectly predictable. The varka side
+  costs the same on both (branch-free execution is data-oblivious, 27 ms in
+  every committed run); the gap is Janino's branch misprediction, ~12% of
+  its runtime on this shape.
 * **Chain depth** (alternating `date_add`/`date_sub`, columnar consumer):
-  2.2x at depth 1 falling to 1.4x at depth 8. The relative *shrinks* with
+  2.2x at depth 1 falling to 1.3x at depth 8. The relative *shrinks* with
   depth - the opposite of the pre-run prediction - for two diagnosed
   reasons (`PLAN_TASK_14.md` 7.5): Janino's cost is flat in depth (eight
   dependent int adds hide entirely behind its per-row overhead at
@@ -311,19 +316,20 @@ results files, which are the source of truth as the code moves):
   task size is batch-versus-per-row overhead; class reuse across tasks
   (milestone 3's cache item) is the identified fix for the erosion.
 * **The row-consumer cost, stated plainly**: through `toRdd` the same chains
-  measure 0.7x at depth 1 down to 0.5x at depth 8 - there is no break-even
-  depth. The ~16 ns/row read-back of the assembled batch genuinely keeps
-  row consumers under 1.0x; the decline with depth is the same per-task
-  warm-up cost as above. Fusing row-consumer projections of this shape is
-  currently unprofitable at any depth (`PLAN_MILESTONE_3.md` carries the
+  measure 0.6-0.7x at every depth - there is no break-even depth. The
+  ~16 ns/row read-back of the assembled batch genuinely keeps row consumers
+  under 1.0x, and the per-task warm-up erodes deeper chains further within
+  that band. Fusing row-consumer projections of this shape is currently
+  unprofitable at any depth (`PLAN_MILESTONE_3.md` carries the
   profitability question).
-* **`dayofweek`**: 0.9x at the committed shape - honestly, a small loss.
-  The kernel-level fold is 36x a `LocalDate`-per-row loop in isolation
-  (`VarkaEmitterParityBenchmark`); at query level C2 scalar-replaces the
-  `LocalDate` allocation (the stock path is already allocation-free where
-  it matters), and the fold's larger loop method makes the per-task JIT
-  warm-up its dominant cost - a fixed per-task charge, not per-row, so
-  longer tasks amortise it (`PLAN_TASK_14.md` 7.5 has the diagnosis).
+* **`dayofweek`**: 1.2x. This case shipped as the honest loss of the
+  original task 14 run (0.9x): C2 scalar-replaces the stock path's
+  `LocalDate` allocation, and the old six-fold digit sum's ~20-op loop
+  method paid a heavy per-task JIT warm-up (`PLAN_TASK_14.md` 7.5 has the
+  diagnosis). The follow-up (7.7) replaced the mod-7 lowering with two
+  folds plus an exact magic multiply - 1.7-2.3x the digit sum at buffer
+  level, ~58x the per-row `LocalDate` loop, and a ~10-op-smaller method
+  whose shorter warm-up flipped the committed query-level number.
 * **Cold start** (`VarkaColdStartBenchmark`, first execution of a fresh plan
   shape over 100K rows): 1.5x - 18 ms vs 27 ms best, 22 ms vs 36 ms average -
   about 9-14 ms saved per fresh query shape. Visible, but far from the
@@ -356,8 +362,8 @@ The real current edges, stated with their numbers where they have one:
   integer `Add` over a `datediff` result is not a date expression, and ANSI
   overflow cannot throw row-accurately from a SIMD lane, so such entries stay
   residual.
-* **The row-consumer read-back costs more than fusion saves**: 0.7x at chain
-  depth 1, falling to 0.5x at depth 8 (committed in
+* **The row-consumer read-back costs more than fusion saves**: 0.6-0.7x at
+  every measured chain depth (committed in
   `VarkaThroughputBenchmark`). Varka currently pays off on columnar
   consumers; whether the rule should decline row-consumer fusions is
   milestone 3's profitability item.

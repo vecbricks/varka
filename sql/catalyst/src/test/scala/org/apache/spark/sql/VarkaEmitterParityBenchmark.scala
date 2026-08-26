@@ -40,8 +40,9 @@ import org.apache.spark.sql.varka.vector.DateVectorOps
  * the memo disabled (pricing CSE itself), and as sequential kernel passes; and the widest shape
  * the emitter accepts (`MAX_FUSED_NODES` ops), which must scale with its op count rather than
  * fall off a cliff at the cap. Task 11 adds the predication cases - a CASE WHEN blend against
- * the same-depth plain arithmetic - and `dayofweek` as the shipped digit-sum mod-7 against the
- * lanewise-DIV reference variant and the per-row `LocalDate` path Spark uses today.
+ * the same-depth plain arithmetic - and the `dayofweek` mod-7 comparison, whose shipped
+ * lowering is the two-fold magic multiply since the task 14 follow-up, priced against the
+ * task 11 digit sum, the lanewise-DIV reference and the per-row `LocalDate` path.
  *
  * To run this benchmark:
  * {{{
@@ -277,7 +278,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
-      runBenchmark("dayofweek: digit sum vs lanewise DIV vs LocalDate (task 11)") {
+      runBenchmark("dayofweek: magic multiply vs digit sum vs DIV vs LocalDate (tasks 11, 14)") {
         val benchmark = new Benchmark(s"dayofweek over $numRows rows", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val dow = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 500)
@@ -285,12 +286,24 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val dowDiv =
           try emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 501)
           finally VarkaEmitterTestSupport.setDivFloorMod(false)
-        benchmark.addCase("digit sum, null-free") { _ =>
+        VarkaEmitterTestSupport.setDigitSumFloorMod(true)
+        val dowDigitSum =
+          try emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 502)
+          finally VarkaEmitterTestSupport.setDigitSumFloorMod(false)
+        benchmark.addCase("magic multiply (shipped), null-free") { _ =>
           dow.run(Array(nfData.address()), Array(0L), Array(0),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
-        benchmark.addCase("digit sum, mixed nulls") { _ =>
+        benchmark.addCase("magic multiply (shipped), mixed nulls") { _ =>
           dow.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
+            Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
+        }
+        benchmark.addCase("digit sum (task 11 reference), null-free") { _ =>
+          dowDigitSum.run(Array(nfData.address()), Array(0L), Array(0),
+            Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
+        }
+        benchmark.addCase("digit sum (task 11 reference), mixed nulls") { _ =>
+          dowDigitSum.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
         benchmark.addCase("lanewise DIV, null-free") { _ =>
