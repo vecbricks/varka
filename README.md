@@ -105,10 +105,12 @@ task, each with a recorded outcome:
   Class-File emitter, nested chains with DAG-CSE, predication, partial
   eligibility with zero-copy forwarding, telemetry attributes, and the
   benchmark/docs pass that produced the numbers above.
-* **Milestone 3 (next)**: scope in
-  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md) -
-  int64 lanes, more ops, cross-task kernel caching, fuse-profitability (the
-  row-consumer question above), debuggability beyond the telemetry.
+* **Milestone 3 (next)**: *reach* - the task plan is in
+  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md).
+  Its spine: reuse the emitted class across tasks (the per-task JIT warm-up is
+  the measured cost, not emission), fuse date *filters* rather than only
+  projections (where a corpus survey found 53-78% of real date references
+  live), settle the row-consumer question above, then `year` and int64 lanes.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
