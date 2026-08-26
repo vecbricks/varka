@@ -234,3 +234,43 @@ milestone 2's remaining tasks.
   (`PLAN_TASK_13.md` 2.4): `planSlots` is body-role-aware, the word
   computation is gated on the group's own column union, and the two byte-size
   slots are ordinary `Slots` fields.
+
+## 14. Debuggability beyond the task-13 telemetry
+
+From the debuggability review after task 13 shipped. The quick wins - the
+IR-indexed `LineNumberTable`, the kernel identity in the fallback warning,
+the class dump directory, per-entry decline reasons in verbose `EXPLAIN` -
+went to milestone 2 as task 16; what lives here is the heavier remainder,
+each with the reason it waits.
+
+* **Fallback-cause metrics in the SQL UI.** `numVarkaBatches` says how many
+  batches the kernels served; a counter per fallback cause (non-Arrow input,
+  emission failure, kernel failure) on both exec nodes would say *why* a
+  production query is off the fast path without log-diving. Waits on
+  task 16's decline-reason vocabulary, so the metric names and the explain
+  output speak the same language rather than inventing two taxonomies.
+* **Loop-method grouping recorded in `VarkaDebugInfo`.** A profiler or
+  `-XX:+PrintCompilation` log names `loopMasked2` hot, but nothing says
+  which outputs group 2 holds; the grouping decision exists at emit time
+  and could ride the debug attribute. Waits because it only pays off on
+  wide multi-group kernels, which stay rare until this milestone's ops
+  widen real projections past `GROUP_BUDGET`.
+* **A field differential mode.** A config that runs the Janino projection
+  beside the kernels for the first N batches of a task and compares -
+  the differential suite's oracle, available in production. It is the one
+  channel that catches wrong results, which the ghost fallback cannot by
+  design. Waits for two reasons: double evaluation must be scoped around
+  nondeterministic expressions and side effects, and its value peaks
+  exactly when this milestone widens the correctness surface (int64 lanes,
+  new ops) - it should land with item 1, not before it.
+* **JFR events for emission and fallback.** One event per kernel emission
+  (class name, IR size, emit micros) and per fallback (cause), so Varka
+  appears on the same timeline as the JIT and GC events that already told
+  this project's C2-latency story (`SKILLS.md`). Waits to pair with the
+  byte cache (item 2), whose hit/miss telemetry wants the same channel;
+  designing the event set once, with the cache in view, beats retrofitting.
+* **Distinct generated-class names.** Every kernel is
+  `VarkaFusedProjection`; the `SourceFile` attribute disambiguates in stack
+  traces but not in tools that key on the class name alone. A shape-hash
+  suffix would fix that - and the shape hash *is* the cache key of item 2,
+  so the naming decision belongs to the cache design, not ahead of it.

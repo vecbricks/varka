@@ -275,10 +275,16 @@ Numbering continues from milestone 1, whose last task was 8.
 | 13 | Telemetry | `SourceFileAttribute` and the `VarkaDebugInfo` attribute plus its reader. **DONE** (`PLAN_TASK_13.md`): the evaluator names the class `Varka_<op>_Stage<n>.java` from inside the task; the reader is a plain-signature Java class because scalac cannot typecheck the Class-File API; the debt register's slot-planning sweep rode along as planned | Round-trip test: parse the attribute back off a generated class |
 | 14 | Benchmarks and docs | JMH fused-chain case; throughput cases for nested, shared-subchain, `CASE WHEN` and mixed projections; a chain-depth scaling case (depth 1-4, fused vs per-op passes); a cold-query latency case (first execution of a fresh plan shape, Varka vs Janino); regenerate both result files; update `docs/sql-varka.md`, `VISION.md` and this file | Committed results show the chain speedup and its scaling with depth; the `CASE WHEN` case is the headline fusion number - branch-free blend against Janino's per-row branches; the cold-latency case turns the 636x generation-time figure into a query-level number |
 | 15 | Drive-by | `fallbackProjection` becomes a `lazy val` in both Varka evaluators | A kernel-only task compiles no Janino projection |
+| 16 | Debuggability quick wins | Four small extensions of task 13's telemetry, each riding machinery that already exists: (1) a `LineNumberTable` in the emitted class mapping bytecode to IR nodes - line `n` is topological-order node `n`, the decoding key recorded in `VarkaDebugInfo` - so stack traces, profilers and crash logs point at an IR node, not just a method; (2) the kernel's identity (its `SourceFile` name and IR summary) in the ghost-fallback `logWarning`, which today carries only the exception; (3) a dump-directory config that writes each emitted class to disk under its `SourceFile` name, off the `emittedClassBytes` the evaluator already keeps, so `javap` works without a debugger; (4) per-entry decline reasons captured by `compilePartial` (unsupported expression, non-literal offset, depth cap, lane type) and surfaced with the fused/forwarded/residual classification in verbose `EXPLAIN` and debug logs - the answer to "why didn't my projection fuse?", which the silent per-entry `None` currently swallows | A stack trace through an injected kernel failure carries a file and line that resolve to an IR node via the recorded key; a dumped class is byte-identical to `emittedClassBytes` and disassembles; a mixed projection's verbose explain names each entry's classification and each residual entry's decline reason; the fallback warning names the kernel |
 
 Task 9 carries the milestone's real risk, so it ships first and alone. Task 11
 carries the milestone's *correctness* risk - the 2.6 semantics - which is why it
-is its own task and not a bullet inside task 10.
+is its own task and not a bullet inside task 10. Task 16 was added after
+task 13 shipped, from a debuggability review of what the telemetry still does
+not answer; it is independent of task 14 and can land on either side of it.
+The review's heavier ideas - fallback-cause metrics, recorded loop grouping, a
+field differential mode, JFR events, distinct class names - are scoped in
+`PLAN_MILESTONE_3.md` section 14, not here.
 
 ## 4. Files
 
