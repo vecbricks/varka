@@ -407,7 +407,8 @@ Recorded so they are not re-proposed:
   value and could ride item 2, but the general case is 128-bit and the Vector
   API has no 128-bit lane at any species, while scale alignment on multiply and
   divide needs exactly that wide intermediate. It needs its own design pass, not
-  an item here.
+  an item here - and that pass is `SCOPE_MILESTONE_5.md` items 1 and 2, which the
+  benchmark survey made urgent: decimals are what TPC-DS and TPC-H add up.
 * **`CPUFeatures`**: the natural way to ask whether AVX-512 compaction is
   available, and not usable - the outer class is package-private, so only the
   JDK's own code can read `CPUFeatures.X64.SUPPORTS_AVX512F`. Any fallback
@@ -426,13 +427,30 @@ Recorded so they are not re-proposed:
 The ordering below is an argument, not a decision. Milestone 3's ordering came
 from a corpus survey - 53-78% of date-column references sit in WHERE clauses,
 and the whole corpus holds exactly five DATE-typed projection expressions -
-which is why its spine is filters rather than functions. **The equivalent survey
-for this milestone has not been run**, and running it is the first task: over
-the same TPC-DS and TPC-H corpus, and any workload traces available, count
-expressions and operators by *type* and by *family*, so that "most arithmetic is
-integer arithmetic" and "extraction is one function wide" stop being intuitions.
+which is why its spine is filters rather than functions. **That survey has since
+been run** and lives in `SCOPE_MILESTONE_5.md` section 1: a census by type and
+family over the in-tree TPC-DS and TPC-H corpus, plus the taxi benchmark's
+published queries. Its section 2 records what the count corrects in this file,
+and the three findings that matter most here are:
 
-Pending that count, what the argument says:
+* No `DOUBLE` or `FLOAT` column exists in either TPC-DS or TPC-H, so item 3's
+  "largest expression count" is worth nothing on those two corpora and
+  everything on taxi. Re-argue item 3 as the taxi benchmark's item; its rank
+  below follows whichever corpus is chosen as the headline.
+* `DecimalType`, which item 11 sets aside, is the most-aggregated type in both
+  benchmarks (247 aggregate-argument references against 172 for `INT`). The
+  judgement that it needs its own design pass stands; that pass is milestone 5's
+  items 1 and 2.
+* Item 8 is really two items. String *functions* are rare (`substr(` 23,
+  `upper(` 2, `LIKE` 8) while string *keys* are everywhere (275 group-by
+  references), so the equality-and-grouping subset is pulled forward into
+  milestone 5's item 3, and the functions stay here.
+
+Item 6's own calibration survived the count: `year(` appears 3 times and
+`month(`, `quarter(` and `dayofweek(` zero times, exactly as it predicted.
+
+With that said, the argued order below stands for the items the survey did not
+move:
 
 | Order | Item | Why here |
 |---|---|---|

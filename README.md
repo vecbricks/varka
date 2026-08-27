@@ -119,6 +119,14 @@ task, each with a recorded outcome:
   ANSI-correct integer arithmetic, float lanes, and the first horizontal
   reduction. It is organised around what the unused half of the Vector API
   makes possible.
+* **Milestone 5**: *coverage* - the scope catalogue is in
+  [`sql/varka/plans/SCOPE_MILESTONE_5.md`](sql/varka/plans/SCOPE_MILESTONE_5.md),
+  driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that
+  census says: `DateType`, the only type Varka has today, is 3.1% of the columns
+  in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
+  of grouping keys; and 122 of 125 queries end in an aggregate. So the milestone
+  is decimals, strings as keys, grouped aggregation, and a query-level benchmark
+  that publishes the number.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
