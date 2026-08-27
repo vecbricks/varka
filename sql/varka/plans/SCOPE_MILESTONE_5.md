@@ -179,10 +179,14 @@ registry:
 The tail is the point. Once this milestone's items land, six of the twenty-two
 are still missing - `substr`/`substring`, `concat` and `upper` (milestone 4's
 item 8), `rank` (its item 9), and `round`, which its item 3 excluded as
-scale-dependent. Two more are out of charter in any milestone: `exists` is
-subquery machinery and `grouping` is a grouping-set expansion above the
-aggregate. `coalesce` was the seventh until this census found it - it was in no
-milestone at all, so it moved into milestone 3's task 20 alongside `In`.
+scale-dependent. Four of the six are string functions, so milestone 4's item 8
+is most of what stands between this milestone and the whole corpus surface, and
+the census in 1.3 already says that item should be split: the *functions* are
+this tail, while the string *keys* are 275 references and are item 3 here. Two
+of the twenty-two are out of charter in any milestone: `exists` is subquery
+machinery and `grouping` is a grouping-set expansion above the aggregate.
+`coalesce` was the seventh until this census found it - it was in no milestone
+at all, so it moved into milestone 3's task 20 alongside `In`.
 
 The same count answers the question people ask about Janino. Retiring it would
 mean the other ~400 expression classes, the ~17 whole-stage operators Varka does
