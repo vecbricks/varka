@@ -12,7 +12,12 @@ worth keeping precisely because several of those thoughts turned out wrong.
 Milestone 1 built kernels. Milestone 2 built the emitter and proved it on int32
 date chains. Milestone 3 spends it: **reach** - making the fast path apply to
 queries people actually run, and making its wins survive contact with a real
-task lifecycle.
+task lifecycle. What it deliberately does not do is widen the vocabulary: new
+types, new expressions and new operators are milestone 4's **breadth**
+(`PLAN_MILESTONE_4.md`), which took this file's ops and types tasks when it was
+written. Reach and breadth are independent on purpose - a filter needs no new
+type, and no new type needs a filter - so the two milestones can be ordered by
+what the measurements say rather than by dependency.
 
 ## 1. Why
 
@@ -93,7 +98,7 @@ the read-back cost is acceptable because filters (task 21) keep more output
 columnar. Whichever way it goes, the docs' honest row must be regenerated with
 it.
 
-### 2.3 Reach: the two cheap shapes, then filters (tasks 20-22)
+### 2.3 Reach: the two cheap shapes, then filters (tasks 20-21)
 
 The survey named two gating shapes that cost almost nothing and unlock a large
 fraction of real date expressions: `cast(string AS DATE)` folding (85 sites wrap
@@ -109,35 +114,20 @@ selection vector otherwise) and a decision about how a selected batch travels to
 the next operator. This is where interior comparisons stop being interior, and
 where milestone 2's mask algebra earns its second use.
 
-Boolean outputs (task 22) are the small remainder once masks are first-class:
-materialising a mask as an output column, with Spark's bit-packed boolean
-vector as the only new format question.
+Boolean outputs - materialising a mask as an output column - are the small
+remainder once masks are first-class, but a boolean output column is a new
+*type*, so they move to milestone 4 with the rest of the vocabulary work
+(`PLAN_MILESTONE_4.md`, item 5). Task 21 owes them only the mask-as-value
+machinery they are built on.
 
-### 2.4 Ops: `year` first, then int64 lanes (tasks 23-24)
-
-The survey's calibration is the ordering argument. TPC-DS pre-materialises
-calendar parts as integer dimension columns, so extraction functions appear zero
-times there; TPC-H q7/q8/q9 use `year(date)` and nothing else. So `year` is the
-single function standing between Varka and a real benchmark projection, and it
-leads - built on civil-from-days (Neri-Schneider, branchless over the 400-year
-cycle) with the `LocalDate` differential as oracle, exactly as `dayofweek` was.
-Its division-by-invariant-constant machinery is shared, and task 17's follow-up
-gives the technique: narrow the range first, then a low-32-bit magic multiply.
-
-Int64 lanes (task 24) are the type-genericity demonstration milestone 2 prepared
-for - IR nodes carry a lane type and the emitter rejects non-int32 rather than
-assuming. The safe subset is `TimestampNTZType` plus comparisons and diffs on
-`TimestampType`; zoned day/month arithmetic stays out until its semantics are
-written down as carefully as milestone 2's section 2.6. `LongVector` halves the
-lanes, so every parity gate reruns at both widths.
-
-### 2.5 Debuggability, and the whole-stage answer (task 25)
+### 2.4 Debuggability, and the whole-stage answer (task 22)
 
 The catalogue's item 14 remainder, now that task 16 shipped the vocabulary it
 waited on: fallback-cause metrics on both exec nodes speaking task 16's decline
 taxonomy, and JFR events for emission, cache hit/miss and fallback - which is
 why they pair with task 18 rather than standing alone. The field differential
-mode lands with task 24, where the correctness surface widens.
+mode lands with milestone 4's int64 lanes, where the correctness surface
+widens.
 
 And the question the catalogue's item 10 keeps asking: does Varka ever own
 whole-stage generation, or is its identity the columnar fast path beside it,
@@ -146,9 +136,9 @@ leaving it unstated in `VISION.md` is not. This task answers it in writing.
 
 ## 3. Task breakdown
 
-Tasks 18-22 are the committed spine; 23-25 follow if the spine's measurements
-hold. Numbering continues the project's single sequence (milestone 1: 1-8,
-milestone 2: 9-17).
+Tasks 18-21 are the committed spine; task 22 follows once they land. Numbering
+continues the project's single sequence (milestone 1: 1-8, milestone 2: 9-17);
+milestone 4 resumes it at 23.
 
 | # | Task | Deliverables | Validation |
 |---|---|---|---|
@@ -156,20 +146,16 @@ milestone 2: 9-17).
 | 19 | Fuse profitability, decided | Re-measured row-consumer matrix on top of 18; either a rule that declines row-consumer fusions (with the plan test that proves it) or a recorded decision not to, with the docs' honest row regenerated | Committed numbers before and after; no regression on the columnar cases; the decision is a paragraph with a number in it |
 | 20 | The two gating shapes | `cast(string AS DATE)` folding and `BETWEEN` -> paired comparisons in `VarkaExpressionCompiler` | Differential over the survey's shapes; the corpus' wrapped date expressions compile where they previously declined, with decline reasons (task 16) showing the change |
 | 21 | Filters and selection vectors | Mask as a first-class value leaving the loop; selection vector with the ~15% compaction rule; `VarkaColumnarRule` rewriting a filter, and the batch contract for a selected batch | Differential on filter-heavy shapes including all-selected and none-selected; committed throughput against Janino on the survey's `d_date BETWEEN` shape |
-| 22 | Boolean outputs | Comparisons as projection results, bit-packed boolean output vectors | Differential including null-heavy inputs; the mask algebra's three-valued rules hold at the output boundary |
-| 23 | `year`, then the extraction family | Civil-from-days (Neri-Schneider) on int lanes, sharing the range-narrowed magic-division technique; `year` first, the rest as the surface allows | `LocalDate` differential across the full int range, negative epoch days included, at both vector widths; parity against the per-row path |
-| 24 | int64 lanes: `TimestampNTZ` | Lane-type genericity through the IR, emitter and evaluator; the safe subset only; the field differential mode of item 14 rides along | Every gate rerun at both lane widths; the semantics written down before the kernels, as 2.6 was |
-| 25 | Operational debuggability, and the charter answer | Fallback-cause metrics in the SQL UI speaking task 16's taxonomy; JFR events for emission, cache and fallback; item 10 answered in `VISION.md` | A fallen-back production query is diagnosable from metrics alone; the JFR event set covers emission and cache hit/miss; the whole-stage question has a written answer |
+| 22 | Operational debuggability, and the charter answer | Fallback-cause metrics in the SQL UI speaking task 16's taxonomy; JFR events for emission, cache and fallback; item 10 answered in `VISION.md` | A fallen-back production query is diagnosable from metrics alone; the JFR event set covers emission and cache hit/miss; the whole-stage question has a written answer |
 
 ## 4. Files
 
-* **New (catalyst):** the shape signature and its cache (`codegen/varka/`), the
-  civil-from-days kernels inside `VarkaLoopEmitter`, the selection-vector
-  representation.
-* **Changed (catalyst):** `VarkaVectorIR` (lane types beyond int32, boolean
-  outputs, mask-as-value), `VarkaExpressionCompiler` (cast folding, `BETWEEN`,
-  extraction, filter predicates), `VarkaLoopEmitter` (long lanes, selection
-  output), `VarkaDebugInfo` (shape identity rather than per-execution identity).
+* **New (catalyst):** the shape signature and its cache (`codegen/varka/`) and
+  the selection-vector representation.
+* **Changed (catalyst):** `VarkaVectorIR` (mask-as-value),
+  `VarkaExpressionCompiler` (cast folding, `BETWEEN`, filter predicates),
+  `VarkaLoopEmitter` (selection output), `VarkaDebugInfo` (shape identity rather
+  than per-execution identity).
 * **Changed (sql/core):** `VarkaKernelEvaluator` (cache lookup instead of
   per-task emission), `VarkaColumnarRule` (filters; the profitability rule),
   both exec nodes (metrics), a new filter exec node if 21's design calls for one.
@@ -208,7 +194,7 @@ One gap is recorded rather than closed: four-lane coverage is local only, via
   committed relative. Docs must be regenerated from one run after task 19, not
   patched case by case - the discipline task 14 established.
 * **Scope creep through the catalogue.** Section 9 lists more good ideas than a
-  milestone can hold. The spine is 18-22; anything else needs its own argument.
+  milestone can hold. The spine is 18-21; anything else needs its own argument.
 
 ## 7. Open questions, to settle early
 
@@ -219,25 +205,43 @@ One gap is recorded rather than closed: four-lane coverage is local only, via
    the next operator, or does Varka always compact at its own boundary? The
    first is faster and the second is far smaller - task 21 decides with a
    measurement, not a preference.
-3. **The charter question** (item 10), which task 25 answers but which shapes
+3. **The charter question** (item 10), which task 22 answers but which shapes
    how much of this milestone's machinery is worth generalising.
 
 ## 8. Explicitly out of milestone 3
 
-* **ANSI-correct plain integer arithmetic** (item 6): still a trap - a SIMD lane
-  cannot throw row-accurately for free, and the vectorised-detection design owes
-  a measurement before it is worth building.
-* **Wider species and heavier operators** (item 7): float lanes, aggregation
-  with multi-accumulator unrolling, hash joins. Each is milestone-sized alone.
+Everything that widens the engine's *vocabulary* - the types it has lanes for,
+the expressions it compiles, the operators it rewrites - belongs to milestone 4
+(`PLAN_MILESTONE_4.md`). This milestone widens *reach* over the vocabulary that
+already exists. The two were split so neither waits on the other: filters need
+no new type, and no new type needs filters.
+
+Moved to milestone 4, which now owns them:
+
+* **Boolean outputs** (item 4 -> milestone 4 item 5): a new output type, and
+  cheap once task 21 makes masks first-class.
+* **Calendar field extraction, `year` first** (item 5 -> milestone 4 item 6):
+  new expressions over the lane type Varka already has.
+* **int64 lanes and `TimestampNTZ`** (item 1 -> milestone 4 item 2): the first
+  new lane width, and with it the first new type.
+* **ANSI-correct plain integer arithmetic** (item 6 -> milestone 4 item 4):
+  still a trap on the row-accurate throw, but the Vector API carries a cheap
+  overflow detector milestone 4 prices rather than assumes.
+* **Wider species and heavier operators** (item 7 -> milestone 4 items 3 and
+  7): float lanes, and aggregation with multi-accumulator unrolling.
+* **SWAR string-to-date parsing** (item 12 -> milestone 4 item 8): the first
+  work outside fixed-width lanes.
+
+Out of both milestones:
+
+* **Hash joins** (part of item 7): scalar probing over off-heap tables with SIMD
+  reserved for radix partitioning is a milestone of its own, and it needs the
+  aggregation work first.
 * **Buffer alignment enforcement** (item 8): correct either way; do it when a
   measurement shows it matters.
 * **The Arrow-native Parquet reader and writer** (item 11): the project owner's
   work, and the thing that would make every number in this milestone apply to
   scans rather than cached tables. Coordinate, do not duplicate.
-* **SWAR string-to-date parsing** (item 12): the first work outside int lanes;
-  wants its own design pass on variable-width Arrow strings and ANSI cast
-  errors.
-
 ## 9. Scope catalogue
 
 The pre-plan catalogue, item numbers preserved. Items the plan above adopts are
@@ -246,7 +250,8 @@ what makes them worth carrying forward.
 
 ### Item 1. int64 lanes: timestamps
 
-Adopted as task 24 (see 2.4). Design input kept: the safe subset is
+Moved to milestone 4 (item 2), which owns new lane widths and the types that
+ride on them. Design input kept: the safe subset is
 `TimestampNTZType` (pure int64 microseconds) plus comparisons and diffs on
 `TimestampType`; `LongVector` species has half the lanes of int, so every
 parity gate reruns at both widths. When zoned operations do enter, the datetime
@@ -280,11 +285,12 @@ fusion, a different wiring than the projection path.
 
 ### Item 4. Boolean outputs
 
-Adopted as task 22 (see 2.3).
+Moved to milestone 4 (item 5). Task 21 still owes it the mask-as-value
+machinery a boolean output column is written from.
 
 ### Item 5. Calendar field extraction
 
-Adopted as task 23, `year` first (see 2.4). Design input kept: the candidate
+Moved to milestone 4 (item 6), `year` still first. Design input kept: the candidate
 algorithms are Neri-Schneider (branchless O(1) civil-from-days over the
 400-year Gregorian cycle - the preferred fit for lanes), Cassels' March-shifted
 year (month/day from a linear formula like `(5 * d + 2) / 153`), and Howard
@@ -296,7 +302,7 @@ item for benchmark coverage.
 
 ### Item 6. Plain integer arithmetic, ANSI-correct
 
-Deferred (section 8). `datediff(d2, d1) + 1` and friends: Spark's `Add` on
+Moved to milestone 4 (item 4). `datediff(d2, d1) + 1` and friends: Spark's `Add` on
 integers throws on overflow under ANSI mode (the default), and a SIMD lane
 cannot throw row-accurately for free. The eventual version either gates on
 `ansiEnabled = false` or does vectorised overflow detection (sign-trick compare,
@@ -305,10 +311,11 @@ right row). `date_add` remains exempt - it wraps by spec.
 
 ### Item 7. Wider species and heavier operators
 
-Deferred (section 8). Float/Double lanes; aggregation with multi-accumulator
-unrolling (the acc0-acc3 pattern from the design notes); hash joins on the Hydra
-split - scalar probing over off-heap tables, SIMD reserved for radix
-partitioning and post-probe projection.
+Split: float/double lanes are milestone 4 item 3 and aggregation with
+multi-accumulator unrolling (the acc0-acc3 pattern from the design notes) is
+milestone 4 item 7. Hash joins stay out of both - the Hydra split has them as
+scalar probing over off-heap tables, with SIMD reserved for radix partitioning
+and post-probe projection, and they want the aggregation machinery first.
 
 ### Item 8. Buffer alignment, enforced
 
@@ -325,7 +332,7 @@ IR and the loop emitter.
 
 ### Item 10. The whole-stage question, answered honestly
 
-Adopted as part of task 25 (see 2.5). Neither milestone 1 nor 2 generates the
+Adopted as part of task 22 (see 2.4). Neither milestone 1 nor 2 generates the
 whole-stage class, so neither addresses the 64 KB method limit that the original
 design documents cite as a motivation - a statement `VISION.md` should carry so
 it is not read as delivered.
@@ -345,7 +352,8 @@ contract or a byte-to-bit repack per batch.
 
 ### Item 12. SWAR string-to-date parsing
 
-Deferred (section 8). From the datetime vector-algorithms note (group 3): load
+Moved to milestone 4 (item 8). From the datetime vector-algorithms note
+(group 3): load
 the digit bytes as one word, subtract `0x30303030`, collapse to an integer with
 a multiply-add - three or four instructions per field, no per-character loop -
 and validate the separators with one vector compare whose failing lanes send the
@@ -363,8 +371,9 @@ should decline row-consumer fusions - is task 19 above.
 
 ### Item 14. Debuggability beyond the task-13 telemetry
 
-Adopted as task 25 (fallback-cause metrics, JFR events) and folded into tasks 18
-and 24 (distinct class names via the shape hash; the field differential mode).
+Adopted as task 22 (fallback-cause metrics, JFR events), folded into task 18
+(distinct class names via the shape hash), and into milestone 4's int64 lanes
+(the field differential mode).
 The remaining entry, loop-method grouping recorded in `VarkaDebugInfo`, still
 waits for the same reason: it pays off only on wide multi-group kernels, which
-stay rare until this milestone's ops widen real projections past `GROUP_BUDGET`.
+stay rare until milestone 4's ops widen real projections past `GROUP_BUDGET`.

@@ -2,7 +2,8 @@
 > principles and stack below still govern the code. Its scope and next-steps sections,
 > written before implementation started, are historical - the live roadmap is
 > `sql/varka/plans/`: `PLAN_MILESTONE_1.md` (the date MVP, done), `PLAN_MILESTONE_2.md`
-> (the fused vector loop, done), and `PLAN_MILESTONE_3.md` (reach - the task plan for what comes next).
+> (the fused vector loop, done), `PLAN_MILESTONE_3.md` (reach - the task plan for what comes
+> next) and `PLAN_MILESTONE_4.md` (breadth - the scope catalogue after it).
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
 > actually built.
 
@@ -182,7 +183,8 @@ spark-submit \
 
 > **Status:** this list is done or superseded (step 6's `JavaClassFileEngine` was built,
 > never routed, and deliberately deleted in milestone 2 - `PLAN_TASK_9.md` section 5.4).
-> The next step is milestone 3, whose task plan is `sql/varka/plans/PLAN_MILESTONE_3.md`.
+> The next step is milestone 3, whose task plan is `sql/varka/plans/PLAN_MILESTONE_3.md`;
+> milestone 4's scope catalogue (`PLAN_MILESTONE_4.md`) follows it.
 
 When proceeding to implementation:
 1. **Write `VarkaMorsel`:** Helper to map `ArrowVector` to `MemorySegment`.

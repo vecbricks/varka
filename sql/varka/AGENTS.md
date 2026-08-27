@@ -19,8 +19,10 @@ was deferred and what has to be true before it starts:
   worked example, written during the task-11 audit). One bullet per debt: what it
   is, why it is a debt, and what closing it would take. A debt with a measurement
   attached is worth ten with an adjective.
-* **Work for later milestones** goes in the next milestone's plan
-  (`plans/PLAN_MILESTONE_3.md`), which keeps a scope catalogue for exactly this.
+* **Work for later milestones** goes in the next milestone's plan. While
+  milestone 3 is in flight that is `plans/PLAN_MILESTONE_4.md`, which keeps a
+  scope catalogue for exactly this; a milestone's own catalogue moves forward
+  with it when its plan becomes a task plan.
 
 When a debt is swept, the register entry is not deleted - it is rewritten in the
 past tense with the task that swept it and what the sweep found. The register is

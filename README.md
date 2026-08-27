@@ -110,7 +110,15 @@ task, each with a recorded outcome:
   Its spine: reuse the emitted class across tasks (the per-task JIT warm-up is
   the measured cost, not emission), fuse date *filters* rather than only
   projections (where a corpus survey found 53-78% of real date references
-  live), settle the row-consumer question above, then `year` and int64 lanes.
+  live), settle the row-consumer question above, and answer the whole-stage
+  charter question in writing.
+* **Milestone 4**: *breadth* - the scope catalogue is in
+  [`sql/varka/plans/PLAN_MILESTONE_4.md`](sql/varka/plans/PLAN_MILESTONE_4.md):
+  the types, expressions and operators the engine cannot say yet. `year` and
+  the extraction family, int64 lanes for `TimestampNTZ`, boolean outputs,
+  ANSI-correct integer arithmetic, float lanes, and the first horizontal
+  reduction. It is organised around what the unused half of the Vector API
+  makes possible.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
