@@ -20,7 +20,7 @@ was deferred and what has to be true before it starts:
   is, why it is a debt, and what closing it would take. A debt with a measurement
   attached is worth ten with an adjective.
 * **Work for later milestones** goes in the next milestone's plan. While
-  milestone 3 is in flight that is `plans/PLAN_MILESTONE_4.md`, which keeps a
+  milestone 3 is in flight that is `plans/SCOPE_MILESTONE_4.md`, which keeps a
   scope catalogue for exactly this; a milestone's own catalogue moves forward
   with it when its plan becomes a task plan.
 
@@ -41,8 +41,15 @@ before a measurement stay in the file after it, scored honestly - the project
 keeps count. Do not retro-edit a task file to look prescient; add the correction
 and say what it corrects.
 
-A milestone's plan may only be renumbered if every inbound reference is updated
-with it. Other plans cite sections and items by number.
+A milestone's file is named for the stage it is in. While it is a scope
+catalogue - numbered items with design input, no task numbers assigned yet - it
+is `SCOPE_MILESTONE_<n>.md`; when it becomes a task plan with a numbered task
+table it is `PLAN_MILESTONE_<n>.md`. Milestone 3's file says in its own opening
+paragraph that it "is no longer the scope document it opened as", which is
+exactly the transition the two names make visible from the outside.
+
+A milestone's plan may only be renamed or renumbered if every inbound reference
+is updated with it. Other plans cite sections and items by number.
 
 ## Measurements, not adjectives
 

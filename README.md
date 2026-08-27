@@ -113,7 +113,7 @@ task, each with a recorded outcome:
   live), settle the row-consumer question above, and answer the whole-stage
   charter question in writing.
 * **Milestone 4**: *breadth* - the scope catalogue is in
-  [`sql/varka/plans/PLAN_MILESTONE_4.md`](sql/varka/plans/PLAN_MILESTONE_4.md):
+  [`sql/varka/plans/SCOPE_MILESTONE_4.md`](sql/varka/plans/SCOPE_MILESTONE_4.md):
   the types, expressions and operators the engine cannot say yet. `year` and
   the extraction family, int64 lanes for `TimestampNTZ`, boolean outputs,
   ANSI-correct integer arithmetic, float lanes, and the first horizontal

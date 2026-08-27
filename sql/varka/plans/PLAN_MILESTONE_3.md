@@ -14,7 +14,7 @@ date chains. Milestone 3 spends it: **reach** - making the fast path apply to
 queries people actually run, and making its wins survive contact with a real
 task lifecycle. What it deliberately does not do is widen the vocabulary: new
 types, new expressions and new operators are milestone 4's **breadth**
-(`PLAN_MILESTONE_4.md`), which took this file's ops and types tasks when it was
+(`SCOPE_MILESTONE_4.md`), which took this file's ops and types tasks when it was
 written. Reach and breadth are independent on purpose - a filter needs no new
 type, and no new type needs a filter - so the two milestones can be ordered by
 what the measurements say rather than by dependency.
@@ -117,7 +117,7 @@ where milestone 2's mask algebra earns its second use.
 Boolean outputs - materialising a mask as an output column - are the small
 remainder once masks are first-class, but a boolean output column is a new
 *type*, so they move to milestone 4 with the rest of the vocabulary work
-(`PLAN_MILESTONE_4.md`, item 5). Task 21 owes them only the mask-as-value
+(`SCOPE_MILESTONE_4.md`, item 5). Task 21 owes them only the mask-as-value
 machinery they are built on.
 
 ### 2.4 Debuggability, and the whole-stage answer (task 22)
@@ -212,7 +212,7 @@ One gap is recorded rather than closed: four-lane coverage is local only, via
 
 Everything that widens the engine's *vocabulary* - the types it has lanes for,
 the expressions it compiles, the operators it rewrites - belongs to milestone 4
-(`PLAN_MILESTONE_4.md`). This milestone widens *reach* over the vocabulary that
+(`SCOPE_MILESTONE_4.md`). This milestone widens *reach* over the vocabulary that
 already exists. The two were split so neither waits on the other: filters need
 no new type, and no new type needs filters.
 
