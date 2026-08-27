@@ -98,13 +98,34 @@ the read-back cost is acceptable because filters (task 21) keep more output
 columnar. Whichever way it goes, the docs' honest row must be regenerated with
 it.
 
-### 2.3 Reach: the two cheap shapes, then filters (tasks 20-21)
+### 2.3 Reach: the three cheap shapes, then filters (tasks 20-21)
 
 The survey named two gating shapes that cost almost nothing and unlock a large
 fraction of real date expressions: `cast(string AS DATE)` folding (85 sites wrap
 date expressions in it) and `BETWEEN`'s rewrite into paired comparisons (41
-sites). Both are compiler-side only - no new kernel, no plan-shape change - so
-they come first and independently (task 20).
+sites). A third joined them from the benchmark census in
+`SCOPE_MILESTONE_5.md`: `In` and `InSet` over the lane types Varka already has,
+118 `IN (` sites across TPC-DS and TPC-H. All three are compiler-side only - no
+new kernel, no plan-shape change - so they come first and independently
+(task 20).
+
+`In` earns its place here rather than in a later milestone because it needs
+nothing milestone 2 did not already build - it lowers to a chain of
+`Compare(EQ)` joined by `Or`, which the mask algebra emits today - and because
+Spark's own `InExpressionBenchmark` already carries the baseline. Its committed
+numbers make `DateType` the *slowest* primitive there at short lists: 27.4
+M rows/s against 357 for `INT` and 645 for `TIMESTAMP`, decaying to 8.3 at 500
+literals as the generated comparison chain lengthens. A SIMD compare-and-OR
+chain divides that work by the lane count, which makes this the earliest
+demonstrable win in the roadmap and the reason the task is worth widening.
+
+Two limits come with it, both recorded rather than discovered later. `IN` over
+strings and decimals is *not* cheap - 2.6 and 1.8 M rows/s at 200 literals -
+and stays with milestone 5's items 1 and 3, since it needs lane types Varka
+does not have. And a long list is one node with many literals, a shape milestone
+2 did not size for: task 10 measured 482 against 1616 M rows/s on a two-chain
+shape and 168 against 526 at 64 literals. Task 20 should fix a literal-count
+cap, decline above it with a task-16 reason, and record the number it chose.
 
 Filters (task 21) are the milestone's real reach work and its only plan-shape
 change. `VarkaColumnarRule` rewrites `ProjectExec` today; a filter needs the mask
@@ -144,7 +165,7 @@ milestone 4 resumes it at 23.
 |---|---|---|---|
 | 18 | Cross-task class reuse | Shape-signature key derived structurally from the IR; a bounded LRU loader/class cache replacing per-task define; shape-hash class naming with the per-execution identity moved to a side table the diagnostics reader joins; cache hit/miss counters | The differential suites pass with the cache warm as well as cold; committed `dayofweek` and depth-8 columnar cases lose the per-task surcharge; a 10k-distinct-shape stress keeps Metaspace bounded, with eviction proven by weak reference |
 | 19 | Fuse profitability, decided | Re-measured row-consumer matrix on top of 18; either a rule that declines row-consumer fusions (with the plan test that proves it) or a recorded decision not to, with the docs' honest row regenerated | Committed numbers before and after; no regression on the columnar cases; the decision is a paragraph with a number in it |
-| 20 | The two gating shapes | `cast(string AS DATE)` folding and `BETWEEN` -> paired comparisons in `VarkaExpressionCompiler` | Differential over the survey's shapes; the corpus' wrapped date expressions compile where they previously declined, with decline reasons (task 16) showing the change |
+| 20 | The three gating shapes | `cast(string AS DATE)` folding, `BETWEEN` -> paired comparisons, and `In`/`InSet` over the existing lane types -> a `Compare(EQ)` chain joined by `Or`, all in `VarkaExpressionCompiler`; a literal-count cap for `In` with a recorded number | Differential over the survey's shapes and over `IN` lists at 5, 50, 200 and 500 literals including the cap boundary; the corpus' wrapped date expressions compile where they previously declined, with decline reasons (task 16) showing the change; a columnar-terminal variant of Spark's `InExpressionBenchmark` committed against its upstream baseline |
 | 21 | Filters and selection vectors | Mask as a first-class value leaving the loop; selection vector with the ~15% compaction rule; `VarkaColumnarRule` rewriting a filter, and the batch contract for a selected batch | Differential on filter-heavy shapes including all-selected and none-selected; committed throughput against Janino on the survey's `d_date BETWEEN` shape |
 | 22 | Operational debuggability, and the charter answer | Fallback-cause metrics in the SQL UI speaking task 16's taxonomy; JFR events for emission, cache and fallback; item 10 answered in `VISION.md` | A fallen-back production query is diagnosable from metrics alone; the JFR event set covers emission and cache hit/miss; the whole-stage question has a written answer |
 

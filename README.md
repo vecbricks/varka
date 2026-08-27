@@ -110,8 +110,10 @@ task, each with a recorded outcome:
   Its spine: reuse the emitted class across tasks (the per-task JIT warm-up is
   the measured cost, not emission), fuse date *filters* rather than only
   projections (where a corpus survey found 53-78% of real date references
-  live), settle the row-consumer question above, and answer the whole-stage
-  charter question in writing.
+  live), lower `IN` lists onto the mask algebra - Spark's own benchmark puts
+  `IN` over dates at 27.4 M rows/s, its slowest primitive - settle the
+  row-consumer question above, and answer the whole-stage charter question in
+  writing.
 * **Milestone 4**: *breadth* - the scope catalogue is in
   [`sql/varka/plans/SCOPE_MILESTONE_4.md`](sql/varka/plans/SCOPE_MILESTONE_4.md):
   the types, expressions and operators the engine cannot say yet. `year` and
@@ -125,9 +127,9 @@ task, each with a recorded outcome:
   census says: `DateType`, the only type Varka has today, is 3.1% of the columns
   in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
   of grouping keys; and 122 of 125 queries end in an aggregate. So the milestone
-  is decimals, strings as keys, `IN` lists, grouped aggregation, and benchmarks
-  that publish the number - extending three of Spark's own rather than only
-  writing more of ours.
+  is decimals, strings as keys, grouped aggregation, and benchmarks that publish
+  the number - extending three of Spark's own rather than only writing more of
+  ours.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
