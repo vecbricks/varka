@@ -154,6 +154,47 @@ shows `IN` over dates running at 27.4 M rows/s falling to 8.3 as the list grows.
 That second one turned out to belong to milestone 3 rather than here - see
 section 2 - which leaves this milestone the string and decimal half of it.
 
+### 1.7 How much of Spark's surface a benchmark actually needs
+
+Spark's `FunctionRegistry` holds 511 registered names behind 464 distinct
+expression classes. **Twenty-two of those names cover all 125 TPC-DS and TPC-H
+queries**, counted by resolving every `identifier(` in the corpus against the
+registry:
+
+| Function | Uses | | Function | Uses |
+|---|---|---|---|---|
+| `sum` | 361 | | `concat` | 9 |
+| `in` | 128 | | `round` | 9 |
+| `and` | 107 | | `max` | 8 |
+| `cast` | 92 | | `stddev_samp` | 8 |
+| `avg` | 84 | | `abs` | 5 |
+| `count` | 81 | | `min` | 4 |
+| `or` | 46 | | `between` | 3 |
+| `coalesce` | 41 | | `year` | 3 |
+| `substr` | 23 | | `substring` | 3 |
+| `exists` | 17 | | `upper` | 2 |
+| `grouping` | 16 | | | |
+| `rank` | 15 | | | |
+
+The tail is the point. Once this milestone's items land, six of the twenty-two
+are still missing - `substr`/`substring`, `concat` and `upper` (milestone 4's
+item 8), `rank` (its item 9), and `round`, which its item 3 excluded as
+scale-dependent. Two more are out of charter in any milestone: `exists` is
+subquery machinery and `grouping` is a grouping-set expansion above the
+aggregate. `coalesce` was the seventh until this census found it - it was in no
+milestone at all, so it moved into milestone 3's task 20 alongside `In`.
+
+The same count answers the question people ask about Janino. Retiring it would
+mean the other ~400 expression classes, the ~17 whole-stage operators Varka does
+not own, and all seven of the code generators that live outside whole-stage
+codegen entirely - `GenerateUnsafeProjection`, `GenerateOrdering`,
+`GeneratePredicate`, `GenerateMutableProjection`, `GenerateSafeProjection`,
+`GenerateUnsafeRowJoiner` and `GenerateColumnAccessor`. That last group is not
+an expression problem at all: those generators exist to produce and compare
+`UnsafeRow`, which Varka does not produce, so covering every expression in the
+registry would retire none of them. Whether Varka ever wants to is milestone 3's
+task 22, and nothing in this file assumes an answer.
+
 ## 2. What the survey changes about milestones 3 and 4
 
 Recorded as corrections, not quietly folded in:
@@ -193,6 +234,14 @@ Recorded as corrections, not quietly folded in:
   milestone is the half that needs lane types Varka does not have - `IN` over
   strings (2.6 M rows/s at 200 literals) and over decimals (1.8), which ride
   items 3 and 1.
+* **`Coalesce` was in no milestone either, and has also moved into task 20.**
+  Forty-one uses, the third most common non-aggregate function in the corpus
+  after `cast`, and the cheapest thing named in any of these files: a `blend`
+  per argument with the `or` of the arguments' masks as output validity, both of
+  which the loop emits today. What it costs is one IR node - the first condition
+  that reads an input's *validity* rather than comparing values - and the rule
+  for what that means inside `And` and `Or`. `IsNull` and `IsNotNull` (11 and 10
+  uses) come through the same door.
 
 ## 3. The targets
 

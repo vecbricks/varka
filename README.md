@@ -110,10 +110,11 @@ task, each with a recorded outcome:
   Its spine: reuse the emitted class across tasks (the per-task JIT warm-up is
   the measured cost, not emission), fuse date *filters* rather than only
   projections (where a corpus survey found 53-78% of real date references
-  live), lower `IN` lists onto the mask algebra - Spark's own benchmark puts
-  `IN` over dates at 27.4 M rows/s, its slowest primitive - settle the
-  row-consumer question above, and answer the whole-stage charter question in
-  writing.
+  live), lower `IN` lists and `Coalesce` onto the mask algebra - Spark's own
+  benchmark puts `IN` over dates at 27.4 M rows/s, its slowest primitive, and
+  `coalesce` is the corpus' third most common non-aggregate function - settle
+  the row-consumer question above, and answer the whole-stage charter question
+  in writing.
 * **Milestone 4**: *breadth* - the scope catalogue is in
   [`sql/varka/plans/SCOPE_MILESTONE_4.md`](sql/varka/plans/SCOPE_MILESTONE_4.md):
   the types, expressions and operators the engine cannot say yet. `year` and
