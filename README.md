@@ -105,10 +105,32 @@ task, each with a recorded outcome:
   Class-File emitter, nested chains with DAG-CSE, predication, partial
   eligibility with zero-copy forwarding, telemetry attributes, and the
   benchmark/docs pass that produced the numbers above.
-* **Milestone 3 (next)**: scope in
-  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md) -
-  int64 lanes, more ops, cross-task kernel caching, fuse-profitability (the
-  row-consumer question above), debuggability beyond the telemetry.
+* **Milestone 3 (next)**: *reach* - the task plan is in
+  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md).
+  Its spine: reuse the emitted class across tasks (the per-task JIT warm-up is
+  the measured cost, not emission), fuse date *filters* rather than only
+  projections (where a corpus survey found 53-78% of real date references
+  live), lower `IN` lists and `Coalesce` onto the mask algebra - Spark's own
+  benchmark puts `IN` over dates at 27.4 M rows/s, its slowest primitive, and
+  `coalesce` is the corpus' third most common non-aggregate function - settle
+  the row-consumer question above, and answer the whole-stage charter question
+  in writing.
+* **Milestone 4**: *breadth* - the scope catalogue is in
+  [`sql/varka/plans/SCOPE_MILESTONE_4.md`](sql/varka/plans/SCOPE_MILESTONE_4.md):
+  the types, expressions and operators the engine cannot say yet. `year` and
+  the extraction family, int64 lanes for `TimestampNTZ`, boolean outputs,
+  ANSI-correct integer arithmetic, float lanes, and the first horizontal
+  reduction. It is organised around what the unused half of the Vector API
+  makes possible.
+* **Milestone 5**: *coverage* - the scope catalogue is in
+  [`sql/varka/plans/SCOPE_MILESTONE_5.md`](sql/varka/plans/SCOPE_MILESTONE_5.md),
+  driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that
+  census says: `DateType`, the only type Varka has today, is 3.1% of the columns
+  in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
+  of grouping keys; and 122 of 125 queries end in an aggregate. So the milestone
+  is decimals, strings as keys, grouped aggregation, and benchmarks that publish
+  the number - extending three of Spark's own rather than only writing more of
+  ours.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),

@@ -17,10 +17,9 @@ little for, Varka on or off. Milestone 2 built the thing that replaced it; the
 milestone that replaced it should be the one that removes it.
 
 The register itself moves with the work: milestone 2 is where these debts were
-incurred and where their outcomes belong. `PLAN_MILESTONE_3.md` keeps section 13
-as a one-line pointer so the cross-references in `PLAN_TASK_13.md` and
-`PLAN_TASK_14.md` still resolve, and so the numbering of section 14 does not
-shift.
+incurred and where their outcomes belong. `PLAN_MILESTONE_3.md` keeps item 13
+of its scope catalogue as a pointer so the cross-references in `PLAN_TASK_13.md`
+and `PLAN_TASK_14.md` still resolve, and so item 14 keeps its number.
 
 ## 2. Deliverables
 
@@ -169,8 +168,8 @@ direction from the register's expectation.
   so the next retune is measured rather than argued.
 
 The register itself now lives in `PLAN_MILESTONE_2.md` section 8 with every item
-carrying its outcome; `PLAN_MILESTONE_3.md` keeps section 13 as a pointer so the
-cross-references in `PLAN_TASK_13.md` and `PLAN_TASK_14.md` still resolve and
-section 14 keeps its number. The only register item left open is the one that is
+carrying its outcome; `PLAN_MILESTONE_3.md` keeps item 13 of its scope catalogue
+as a pointer so the cross-references in `PLAN_TASK_13.md` and `PLAN_TASK_14.md`
+still resolve and item 14 keeps its number. The only register item left open is the one that is
 a policy decision rather than a debt - whether the rule should decline
 row-consumer fusions - which stays milestone 3's.

@@ -46,7 +46,7 @@ sql/varka/
   plans/
     PLAN_MILESTONE_1.md          <- this file (high-level)
     PLAN_MILESTONE_2.md          <- milestone 2 (task plan)
-    PLAN_MILESTONE_3.md          <- milestone 3 (scope and ordering)
+    PLAN_MILESTONE_3.md          <- milestone 3 (task plan; scope catalogue in its section 9)
     PLAN_TASK_1.md               <- Task 1 detail (completed)
     PLAN_TASK_2.md               <- Task 2 detail
     PLAN_TASK_3.md               <- Task 3 detail (completed)

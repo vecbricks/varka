@@ -285,7 +285,7 @@ task 13 shipped, from a debuggability review of what the telemetry still does
 not answer; it is independent of task 14 and can land on either side of it.
 The review's heavier ideas - fallback-cause metrics, recorded loop grouping, a
 field differential mode, JFR events, distinct class names - are scoped in
-`PLAN_MILESTONE_3.md` section 14, not here.
+`PLAN_MILESTONE_3.md` item 14 (its scope catalogue), not here.
 
 **Milestone closing note (task 17).** Tasks 9-17 are done and every named gate
 passed: the emitter matched and then beat the hand-written kernels at both

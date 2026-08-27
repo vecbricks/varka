@@ -591,6 +591,9 @@ note. That candour is worth keeping.
    together, both in `VarkaColumnarToRowExec.scala`.
 8. ~~The sub-57-row vector loop (10), which is engine-only, then the reflective
    `Method.invoke` (11).~~ Done in `b58bc2fc87e` and in the change this file ships with.
-9. Left: the residual half of finding 4 - `sql/varka/engine` as a reactor module, and an
-   aarch64 runner to exercise the kernels at 4 lanes. Both are build and CI work rather
-   than code fixes, and the aarch64 half depends on runner availability.
+9. Left: the residual half of finding 4 - an aarch64 runner to exercise the kernels at
+   4 lanes. The other half of that residual, `sql/varka/engine` as a reactor module,
+   shipped in PR #22, so a plain `./build/mvn install` builds the engine today. The
+   aarch64 half is CI work dependent on runner availability, and is carried forward in
+   `plans/PLAN_MILESTONE_3.md` section 5, which records four-lane coverage as local only
+   (via `-XX:MaxVectorSize=16`) until a runner exists.
