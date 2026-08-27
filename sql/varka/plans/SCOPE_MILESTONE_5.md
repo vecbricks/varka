@@ -142,6 +142,17 @@ year and rounded trip distance, ordered by year and count. Structurally:
 * **`round()`** on a double, which milestone 4 explicitly excluded from item 3
   as scale-dependent.
 
+### 1.6 A third corpus: Spark's own benchmarks
+
+Spark ships 129 benchmark classes with committed results, which is a corpus in
+its own right and a more direct one - a number in `sql/core/benchmarks/` is a
+number a Spark reader already has a baseline for. Surveying it turned up one
+structural obstacle and one clean win, both written up in item 9: nearly every
+SQL benchmark is `spark.range(N).selectExpr(..).noop()`, a row source into a row
+sink, so Varka engages with none of them as written; and `InExpressionBenchmark`
+shows `IN` over dates running at 27.4 M rows/s falling to 8.3 as the list grows,
+which is the cheapest large speedup this file names (item 4).
+
 ## 2. What the survey changes about milestones 3 and 4
 
 Recorded as corrections, not quietly folded in:
@@ -169,6 +180,12 @@ Recorded as corrections, not quietly folded in:
 * **Milestone 3's filter priority is confirmed** from a second direction: 165
   `BETWEEN` and 118 `IN (` across the corpus, with 55 TPC-DS queries filtering
   `d_year` and 18 filtering `d_date`.
+* **`IN` is missing from every milestone, and should not be.** Milestone 3's
+  task 20 takes `cast(string AS DATE)` folding and the `BETWEEN` rewrite as its
+  two cheap gating shapes; `In` is the third, needs nothing milestone 2 did not
+  already build, and is 118 occurrences of a construct Spark's own benchmark
+  measures at 27.4 M rows/s over dates. Item 4 carries it, and says plainly that
+  its primitive-typed half may belong back in task 20.
 
 ## 3. The targets
 
@@ -188,7 +205,7 @@ rather than against features.
 The whole query is a scan, a three-predicate filter and one aggregate. Needs:
 milestone 3's filters (the date predicate and two decimal `BETWEEN`s), decimal
 lanes (item 1), decimal multiply (item 2), and a `sum` reduction with the
-aggregate wiring (items 4 and 5). Nothing else. This is the smallest complete
+aggregate wiring (items 5 and 6). Nothing else. This is the smallest complete
 benchmark query in either corpus and it should be the milestone's first
 committed number.
 
@@ -196,8 +213,8 @@ committed number.
 
 Same table, filtered on one date, grouped by `l_returnflag` and `l_linestatus`
 (both single-character strings), with four decimal `sum`s, three `avg`s and a
-`count(*)`. Adds: strings as group keys (item 3), grouped aggregation (item 4),
-`avg` and `count(*)` (item 5). It is the standard "does your engine do
+`count(*)`. Adds: strings as group keys (item 3), grouped aggregation (item 5),
+`avg` and `count(*)` (item 6). It is the standard "does your engine do
 aggregation" query and it is the one to publish against.
 
 ### Target 3 and 4. TPC-DS q9 and q41 - the two single-table queries
@@ -310,7 +327,52 @@ string case does not:
 rotate and bit ops for hashing (`ROL`, `XOR`, `MUL`) - milestone 4's item 8
 list, minus everything that needs variable-length control flow.
 
-### Item 4. Grouped aggregation
+### Item 4. `IN` lists, and the predicate lowering the corpus asks for
+
+**Spark surface.** `In` and `InSet`. `IN (` appears 118 times across the
+corpus, second only to `BETWEEN`'s 165 among filter constructs, and Varka
+compiles neither today.
+
+**Why this item carries its own evidence.** Spark already measures it.
+`InExpressionBenchmark` sweeps list length across every primitive type, and its
+committed results are the argument (M rows/s, from
+`sql/core/benchmarks/InExpressionBenchmark-results.txt`):
+
+| list length | dates | ints | timestamps | strings | small decimals |
+|---|---|---|---|---|---|
+| 5 | 27.4 | 357.0 | 645.5 | 34.8 | 47.6 |
+| 50 | 21.8 | 88.2 | 121.4 | 17.7 | 13.2 |
+| 200 | 14.5 | 29.3 | 33.8 | 2.6 | 1.8 |
+| 500 | 8.3 | 12.1 | - | - | - |
+
+Two things fall out of that table. Rates decay close to linearly in the list
+length, because the generated code is a chain of comparisons - so a SIMD
+compare-and-OR chain divides the work by the lane count, which is the most
+mechanical speedup named anywhere in this file. And `DateType` is the *slowest*
+primitive at short lists: 27.4 M rows/s against 357 for `INT` and 645 for
+`TIMESTAMP`, a 13x penalty on the one type Varka already compiles.
+
+**What it needs.** For the lane types Varka has, nothing new. `In` lowers to a
+chain of `Compare(EQ)` joined by `Or`, which milestone 2's mask algebra emits
+today, and milestone 3's filters carry the result out of the loop. That makes
+the primitive-typed subset cheap enough that it arguably belongs in milestone
+3's task 20, beside the `BETWEEN` rewrite - the same kind of compiler-side
+gating shape, and now the one with a committed upstream benchmark behind it.
+Whoever writes this milestone's task plan should make that call deliberately
+rather than inherit it from this file's numbering.
+
+For strings and decimals it is not cheap, and it rides items 1 and 3: `IN` over
+200 strings runs at 2.6 M rows/s and over 200 small decimals at 1.8, the two
+worst numbers in the benchmark.
+
+**One caution, from this project's own measurements.** A 500-element `IN` is a
+single node with 500 literals, and milestone 2 sized the literal-slot mechanism
+and `GROUP_BUDGET` for chains rather than for wide operand lists: task 10
+measured 482 against 1616 M rows/s on a two-chain shape and 168 against 526 at
+64 literals. A large `IN` probably wants its literals in a lookup rather than
+broadcast into registers, and that is a design question rather than a lowering.
+
+### Item 5. Grouped aggregation
 
 **Spark surface.** `HashAggregateExec` with grouping keys - 86 of 103 TPC-DS
 queries and 16 of 22 TPC-H queries.
@@ -328,13 +390,13 @@ A cheaper intermediate exists and should be measured first: low-cardinality
 grouping where the key set fits in a small dense array (TPC-H q1 has exactly
 *six* groups) collapses to indexed accumulators with no hash table at all.
 
-### Item 5. The aggregate operator wiring
+### Item 6. The aggregate operator wiring
 
 **Spark surface.** `count(*)`, `count(col)`, `avg`, `stddev_samp` (8 uses), and
 the `VarkaColumnarRule` change that lets an aggregate stay on the fast path at
 all.
 
-**Design input.** The expression-level work in item 4 is useless until the rule
+**Design input.** The expression-level work in item 5 is useless until the rule
 rewrites an aggregate node, which is a bigger plan-shape change than milestone
 3's filter: an aggregate has a partial and a final phase, and only the partial
 one is columnar. `count(*)` is not a lane operation at all - it is a lane count
@@ -342,7 +404,7 @@ plus a validity `trueCount` - and `avg` is a `sum` and a `count` divided once
 per group at the end. `stddev_samp` needs sum and sum-of-squares, which is free
 once both exist.
 
-### Item 6. `CASE WHEN` inside `sum()`
+### Item 7. `CASE WHEN` inside `sum()`
 
 **Spark surface.** 127 `CASE WHEN`s, and the specific shape milestone 3's survey
 named and declined: `sum(case when <cond> then x else 0 end)` in TPC-DS q21 and
@@ -350,12 +412,12 @@ q40.
 
 **Design input.** Varka already compiles `CaseWhen` (milestone 2) and will have
 predication and masks; what is missing is that the consumer is an aggregate
-rather than a projection. Once item 5 lands the wiring, this is aggregate-input
+rather than a projection. Once item 6 lands the wiring, this is aggregate-input
 fusion: Varka computes the CASE columnar and hands the aggregate a vector. It is
 listed separately because it is the highest-frequency single shape in the corpus
 that needs no new lane type at all.
 
-### Item 7. The scan gap - a dependency, not a deliverable
+### Item 8. The scan gap - a dependency, not a deliverable
 
 Every number this milestone can produce today comes from a table cached with
 `ArrowCachedBatchSerializer`, because that is the only Arrow-backed batch source
@@ -364,29 +426,71 @@ reader is the project owner's work (milestone 3, item 11), and until it exists
 the honest framing of every benchmark result in this milestone is "on an
 Arrow-cached copy of the benchmark table", stated in the docs, not buried.
 
-What this milestone owes the dependency: the benchmark harness (item 8) should
+What this milestone owes the dependency: the benchmark work (item 9) should
 be written so the same query runs against both sources, so the day the reader
 lands the numbers can be regenerated rather than redesigned.
 
-### Item 8. A query-level benchmark harness
+### Item 9. Benchmarks: extend Spark's, rather than only writing our own
 
-**What is missing.** Every committed Varka number is a microbenchmark -
-`VarkaEmitterParityBenchmark` at the buffer level, `VarkaCodegenBenchmark` and
-`VarkaThroughputBenchmark` at the operator level. There is no benchmark that
-runs a *named query from a published benchmark* with Varka on and off.
+**What is missing.** Every committed Varka number is the fork's own -
+`VarkaEmitterParityBenchmark` at the buffer level, `VarkaCodegenBenchmark`,
+`VarkaColdStartBenchmark` and `VarkaThroughputBenchmark` at the operator level.
+None of them is a number a Spark reader already has a baseline for.
 
-**Design input.** The corpus is already in the tree, with schemas and a data
-generator path used by `TPCDSQueryTestSuite`. The harness should take the five
-targets above, run each with `spark.sql.codegen.varka.enabled` on and off at a
-fixed scale factor, and commit the pair - with the fallback log's decline
-reasons (task 16) printed for any query that does not fuse, so a regression in
-coverage shows up as a decline reason and not as a silent 1.0x.
+**What a survey of Spark's own corpus found.** Spark ships 129 benchmark
+classes with committed results, and nearly every SQL one is
+`spark.range(N).selectExpr(..).noop()` - a row source into a row sink, so Varka
+never engages on any of them as written. `InMemoryColumnarBenchmark` is the only
+one that caches, and it measures cache deserialization rather than expressions.
 
-### Item 9. Considered and set aside
+The terminal operator matters as much as the source. `.noop()` is a row
+consumer, so an Arrow-cached variant that keeps `.noop()` would measure the
+0.6-0.7x read-back band milestone 3's task 19 exists to settle, not the fused
+loop. A Varka variant needs a columnar source *and* a columnar terminal - an
+aggregate or a count.
+
+With that fixed, three of Spark's benchmarks isolate the expression well enough
+to be worth extending, and four are traps:
+
+| Benchmark | Spark's committed number | Verdict |
+|---|---|---|
+| `InExpressionBenchmark` | 27.4 -> 8.3 M rows/s over dates, 5 to 500 literals | **Extend.** Item 4, and the baseline is already committed |
+| `ExtractBenchmark` | baseline `cast to timestamp` 26.7 ns/row; `YEAR` 81.5, `WEEK` 110.8 | **Extend.** The extraction itself is 55-84 ns of real work |
+| `AggregateBenchmark`, grouped cases | 14-21 M rows/s across linear, string, decimal and multiple keys | **Extend.** Items 5 and 6 |
+| `AggregateBenchmark`, `agg w/o group` | 1352 M rows/s, 0.7 ns/row with whole-stage codegen | Skip. Already at bandwidth; nothing to demonstrate |
+| `DateTimeBenchmark`, date arithmetic | `date_add` 72.8 ns/row against `cast to date` 73.7 | Skip. The operation Varka accelerates is free in that harness |
+| `FilterPushdownBenchmark` | 2.4 M rows/s, 57 with pushdown | Skip. Measures the Parquet reader, which is item 8's gap |
+| `InMemoryColumnarBenchmark` | 10.7 M rows/s | Skip. Measures cache deserialization |
+
+The `DateTimeBenchmark` row is the one worth reading twice: the date arithmetic
+Varka has shipped since milestone 1 costs nothing measurable there, because the
+harness spends its time in `timestamp_seconds`, the cast and the range
+generator. Choosing that benchmark to demonstrate `date_add` would produce a
+1.0x and it would be the harness's fault, not the engine's.
+
+**A caveat on the numbers above.** They come from Azure EPYC runners on JDK 17,
+not this project's machine on JDK 25, so they are evidence about *shape* - which
+cases have headroom - and not a baseline to compare a Varka run against. Each
+extended benchmark regenerates its own pair locally, on the five-iteration
+two-second-window methodology task 14 fixed.
+
+**Design input.** Extending an upstream benchmark beats inventing a harness: the
+cases, the data generation and the result-file format already exist, and a
+reader who knows Spark's numbers can read the fork's without learning anything
+new. The shape to copy is the fork's own `VarkaThroughputBenchmark` - two
+sessions, baseline and Varka, over Arrow-cached tables - applied as a variant of
+the three benchmarks above. `TPCDSQueryBenchmark` gets the same treatment at
+query level for the five targets in section 3, at a fixed scale factor.
+
+Whatever the form, print the fallback log's decline reasons (task 16) for any
+case that does not fuse, so a coverage regression shows up as a decline reason
+rather than as a silent 1.0x.
+
+### Item 10. Considered and set aside
 
 * **Joins** (120 of 125 queries): still out, for the reason milestone 4 gave -
   scalar probe over off-heap tables, SIMD only in radix partitioning - and
-  because item 4 has to come first regardless.
+  because item 5 has to come first regardless.
 * **Sorting, `ORDER BY`, `LIMIT`** (128 `ORDER BY`s): not Varka's operator.
   Worth noting only because it caps the whole-query speedup any of these
   targets can show.
@@ -403,29 +507,33 @@ coverage shows up as a decline reason and not as a silent 1.0x.
 
 ## 5. Ordering
 
-The survey supports an order this time rather than an argument:
+The survey supports an order this time rather than an argument. Item 9 leads
+because two of the three benchmarks it extends already have their baseline
+committed upstream, so the first two entries below can be claimed with numbers
+in the first weeks rather than at the end:
 
 | Order | Item | Why here |
 |---|---|---|
-| 1 | 1, decimal lanes and the de-interleave | Everything about the decimal case rests on this measurement |
-| 2 | 8, the benchmark harness | Needed before the first target can be claimed, and it is cheap |
-| 3 | 2, decimal arithmetic | Completes TPC-H q6 with milestone 3's filters |
-| 4 | 5, aggregate wiring | The plan-shape change; `sum` and `count(*)` only |
-| 5 | 4, grouped aggregation | Dense-key case first, hash table second |
-| 6 | 3, string keys and equality | Unlocks TPC-H q1's grouping and TPC-DS q41 |
-| 7 | 6, `CASE WHEN` in `sum()` | Highest-frequency shape once the wiring exists |
+| 1 | 9, the benchmark work | Nothing below can be claimed without it, and extending Spark's three is cheap |
+| 2 | 4, `IN` lists | Needs no new lane type, and its baseline is already committed upstream |
+| 3 | 1, decimal lanes and the de-interleave | Everything about the decimal case rests on this measurement |
+| 4 | 2, decimal arithmetic | Completes TPC-H q6 with milestone 3's filters |
+| 5 | 6, aggregate wiring | The plan-shape change; `sum` and `count(*)` only |
+| 6 | 5, grouped aggregation | Dense-key case first, hash table second |
+| 7 | 3, string keys and equality | Unlocks TPC-H q1's grouping and TPC-DS q41 |
+| 8 | 7, `CASE WHEN` in `sum()` | Highest-frequency shape once the wiring exists |
 
 Targets fall in the order 1 (TPC-H q6), 5 (taxi, if milestone 4's items 2, 3
 and 6 have landed), 2 (TPC-H q1), then 3 and 4 (TPC-DS q9 and q41).
 
 ## 6. Explicitly out of milestone 5
 
-* Joins, sorting, grouping sets, and window functions - per item 9.
+* Joins, sorting, grouping sets, and window functions - per item 10.
 * Decimal *division*, and any decimal whose result precision exceeds the lane -
   declined with a reason, not computed wrongly.
 * Decimal precision above 18: the 128-bit case has no lane at any species, and
   neither benchmark needs it.
-* The Arrow-native Parquet reader itself, per item 7.
+* The Arrow-native Parquet reader itself, per item 8.
 
 ## 7. Open questions
 

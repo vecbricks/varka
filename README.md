@@ -125,8 +125,9 @@ task, each with a recorded outcome:
   census says: `DateType`, the only type Varka has today, is 3.1% of the columns
   in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
   of grouping keys; and 122 of 125 queries end in an aggregate. So the milestone
-  is decimals, strings as keys, grouped aggregation, and a query-level benchmark
-  that publishes the number.
+  is decimals, strings as keys, `IN` lists, grouped aggregation, and benchmarks
+  that publish the number - extending three of Spark's own rather than only
+  writing more of ours.
 
 Docs map: [`docs/sql-varka.md`](docs/sql-varka.md) (user-facing guide),
 [`sql/varka/VISION.md`](sql/varka/VISION.md) (architecture),
