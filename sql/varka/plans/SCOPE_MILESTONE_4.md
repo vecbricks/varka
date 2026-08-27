@@ -72,8 +72,8 @@ because it decides what can share a task:
 2. **Every value is lane-shaped.** A kernel reads N lanes and writes N lanes; a
    reduction produces one value per batch, which nothing in the emitted method
    shape can hold today. Item 7.
-3. **No lane reads its neighbour.** Compaction, windows and prefix sums all
-   move data across lanes. Items 8, 9, 10.
+3. **No lane reads its neighbour.** Compaction, windows, prefix sums and
+   dictionary decode all move data across lanes. Items 8, 9, 10, 11.
 
 A task that takes two of these at once is a task whose failure cannot be
 attributed to one of them. The ordering in section 5 keeps them apart.
@@ -177,7 +177,7 @@ suggests:
   keys and equi-join keys, so a plain projection's comparison arrives
   unnormalised.
 * *`round` and `DecimalType` are not this item.* `round(x, n)` is
-  scale-dependent and decimals are not a lane type at all - see item 11.
+  scale-dependent and decimals are not a lane type at all - see item 12.
 
 **Where it sits.** The largest expression count of any item, gated behind the
 oracle decision. Take the decision early even if the kernels come late.
@@ -291,32 +291,33 @@ breaking the dependency chain a single accumulator's adds would form). The
 masked `reduceLanes` overload handles nulls without a branch. `sum` over
 `LongType` inherits item 4's overflow question, and `avg` is `sum` plus a
 `trueCount`. Grouped aggregation is *not* this item - grouping is hashing and
-partitioning, which is item 8's machinery and probably its own milestone.
+partitioning, which is item 9's machinery and probably its own milestone.
 
 **Where it sits.** The first item that changes what an operator *is* rather than
 what an expression computes, so it wants milestone 3's plan-shape lessons from
 filters behind it.
 
-### Item 8. Byte and short lanes: strings, hashing, dictionaries
+### Item 8. String functions, and the byte lanes they need
 
 *Absorbs milestone 3's catalogue item 12, SWAR string-to-date parsing.*
 
-**Spark surface.** The largest and least tractable: `length`, `upper` and
-`lower` on the ASCII fast path, `LIKE 'prefix%'`, `startswith`, `endswith`,
-`contains`, `substring`, and `cast(string AS DATE)` done properly rather than
-folded - milestone 3's task 20 folds only the literal case. Alongside them,
-`hash`, `xxhash64` and `murmur3`, which are join and grouped-aggregation
-machinery more than an expression family. It also picks up the plain bit
-expressions there is no reason to keep skipping: `bit_count`, `shiftleft`,
-`shiftright`, `shiftrightunsigned`, and the bitwise `&`, `|`, `^`, `~`.
+**Spark surface.** `length`, `upper` and `lower` on the ASCII fast path,
+`LIKE 'prefix%'`, `startswith`, `endswith`, `contains`, `substr` and
+`substring`, `concat`, and `cast(string AS DATE)` done properly rather than
+folded - milestone 3's task 20 folds only the literal case.
 
-**Vector API it needs**: `ByteVector` and `ShortVector`; `VectorShuffle` in
-full, with `rearrange` and `selectFrom` (including the two-vector overload) for
-byte permutation and dictionary decode; `ROL` and `ROR` with `rotateLeft` and
-`rotateRight`, since murmur3's mix is rotate-multiply-xor; `BIT_COUNT`,
-`LEADING_ZEROS_COUNT`, `TRAILING_ZEROS_COUNT`, `REVERSE`, `REVERSE_BYTES`;
-`BITWISE_BLEND` with `bitwiseBlend`; `COMPRESS_BITS` and `EXPAND_BITS`; and
-`LSHL` and `ASHR`, the two shifts the emitter has never had a use for.
+**Why it is both the last item and a named one.** `SCOPE_MILESTONE_5.md`
+section 1.7 resolves every function call in TPC-DS and TPC-H against Spark's
+registry and finds 22 names covering all 125 queries. Four of the six still
+missing once milestone 5 lands are in this item - `substr`, `substring`,
+`concat` and `upper` - which makes it most of what stands between the roadmap
+and the whole corpus function surface. It is also a long thin tail: those four
+account for 37 uses against the 275 group-by key references item 9 serves. Last
+by frequency, named by completeness.
+
+**Vector API it needs**: `ByteVector` and `ShortVector`; `compare` with
+`anyTrue` and `allTrue` for the search shapes; `rearrange` for byte permutation
+inside a value.
 
 **Design input.**
 
@@ -330,19 +331,58 @@ byte permutation and dictionary decode; `ROL` and `ROR` with `rotateLeft` and
   separators with one vector compare whose failing lanes send the whole batch to
   the existing parser. That fallback shape is the ghost-fallback discipline
   again, which is why the idea fits this project at all.
+
+**Where it sits.** Last, and probably past this milestone's edge.
+
+### Item 9. String keys: equality, hashing, dictionaries
+
+*Split from what was one item with the string functions above, on the evidence
+of `SCOPE_MILESTONE_5.md` section 1.3.*
+
+**Spark surface.** Strings as *keys* rather than as values: equality against a
+literal, `IN` against a small literal set, and grouping and join keys - 275
+group-by key references across the corpus, 60% of all of them. Alongside those,
+`hash`, `xxhash64` and `murmur3`, which are join and grouped-aggregation
+machinery more than an expression family. And the plain bit expressions that
+share their operators and that there is no reason to keep skipping:
+`bit_count`, `shiftleft`, `shiftright`, `shiftrightunsigned`, and the bitwise
+`&`, `|`, `^`, `~`.
+
+**What is already pulled forward.** The cheap subset - fixed-width equality
+against a compile-time literal, and hashing short values for grouping - is
+milestone 5's item 3, because the corpus wants string keys long before it wants
+string functions and TPC-H q1 cannot be run without them. What stays here is
+the machinery that subset does not need on a first pass: general hashing across
+types, and the dictionary path below.
+
+**Vector API it needs**: `ROL` and `ROR` with `rotateLeft` and `rotateRight`,
+since murmur3's mix is rotate-multiply-xor; `BIT_COUNT`,
+`LEADING_ZEROS_COUNT`, `TRAILING_ZEROS_COUNT`, `REVERSE`, `REVERSE_BYTES`;
+`BITWISE_BLEND` with `bitwiseBlend`; `COMPRESS_BITS` and `EXPAND_BITS`; `LSHL`
+and `ASHR`, the two shifts the emitter has never had a use for; and
+`VectorShuffle` in full, with `rearrange` and the two-vector `selectFrom`, for
+dictionary decode.
+
+**Design input.**
+
 * *There is no off-heap gather.* Gather and scatter exist only on the `int[]`
   array overloads (`fromArray(species, a, off, indexMap, mapOff)`), never on
   `MemorySegment`. A dictionary decode over an Arrow dictionary in off-heap
   memory therefore has no vector gather available at all: it either copies the
   dictionary on-heap or uses `rearrange`/`selectFrom` with a dictionary small
   enough to sit in one vector. Write that constraint into any dictionary design
-  before costing it.
+  before costing it - and note that a low-cardinality `CHAR(n)` column is
+  exactly what a Parquet reader dictionary-encodes, so this is the common case
+  rather than the exotic one.
+* *Scatter is missing too*, which is why milestone 5's item 5 expects grouped
+  aggregation to vectorise the hash and the key compare while keeping the probe
+  and the accumulator update scalar. The same constraint shapes both.
 
-**Where it sits.** Last, and probably past this milestone's edge. It is written
-out in full because the gather constraint is cheap to learn now and expensive to
-learn mid-task.
+**Where it sits.** Ahead of item 8 on frequency and behind it on nothing: keys
+are 275 references and functions are 37. Its near-term half is already milestone
+5's, so what is scheduled here is the dictionary and join-side machinery.
 
-### Item 9. Cross-lane movement: windows, prefix sums, row indices
+### Item 10. Cross-lane movement: windows, prefix sums, row indices
 
 **Spark surface.** `WindowExec` where the frame lives inside one batch: `lag`
 and `lead` by a small constant offset, running aggregates over `ROWS BETWEEN
@@ -364,7 +404,7 @@ contract like milestone 3's selection vector, not a new IR node.
 **Where it sits.** After item 7. It shares the not-lane-shaped problem and adds
 a state contract on top of it.
 
-### Item 10. Compaction, mask interrogation, and the scalar tail
+### Item 11. Compaction, mask interrogation, and the scalar tail
 
 **Spark surface.** No new expressions - this item makes existing ones cheaper,
 and makes every other item in this file cheaper to write.
@@ -393,7 +433,7 @@ and makes every other item in this file cheaper to write.
 
 **Where it sits.** Early, on the tail argument alone.
 
-### Item 11. Considered and set aside
+### Item 12. Considered and set aside
 
 Recorded so they are not re-proposed:
 
@@ -407,8 +447,9 @@ Recorded so they are not re-proposed:
   value and could ride item 2, but the general case is 128-bit and the Vector
   API has no 128-bit lane at any species, while scale alignment on multiply and
   divide needs exactly that wide intermediate. It needs its own design pass, not
-  an item here - and that pass is `SCOPE_MILESTONE_5.md` items 1 and 2, which the
-  benchmark survey made urgent: decimals are what TPC-DS and TPC-H add up.
+  an item here - and that pass is `SCOPE_MILESTONE_5.md` items 1 and 2, which
+  the benchmark survey made urgent: decimals are what TPC-DS and TPC-H add
+  up.
 * **`CPUFeatures`**: the natural way to ask whether AVX-512 compaction is
   available, and not usable - the outer class is package-private, so only the
   JDK's own code can read `CPUFeatures.X64.SUPPORTS_AVX512F`. Any fallback
@@ -437,14 +478,15 @@ and the three findings that matter most here are:
   "largest expression count" is worth nothing on those two corpora and
   everything on taxi. Re-argue item 3 as the taxi benchmark's item; its rank
   below follows whichever corpus is chosen as the headline.
-* `DecimalType`, which item 11 sets aside, is the most-aggregated type in both
+* `DecimalType`, which item 12 sets aside, is the most-aggregated type in both
   benchmarks (247 aggregate-argument references against 172 for `INT`). The
   judgement that it needs its own design pass stands; that pass is milestone 5's
   items 1 and 2.
-* Item 8 is really two items. String *functions* are rare (`substr(` 23,
-  `upper(` 2, `LIKE` 8) while string *keys* are everywhere (275 group-by
-  references), so the equality-and-grouping subset is pulled forward into
-  milestone 5's item 3, and the functions stay here.
+* Item 8 was really two items, and has been split: **item 8** is the string
+  *functions*, which are rare (`substr(` 23, `upper(` 2, `LIKE` 8), and **item
+  9** is the string *keys*, which are everywhere (275 group-by references). Its
+  cheap equality-and-grouping subset is pulled forward into milestone 5's item
+  3; everything else keeps its place here.
 
 Item 6's own calibration survived the count: `year(` appears 3 times and
 `month(`, `quarter(` and `dayofweek(` zero times, exactly as it predicted.
@@ -454,7 +496,7 @@ move:
 
 | Order | Item | Why here |
 |---|---|---|
-| 1 | 10, tail and compaction | Halves the per-node emitter surface every later item would otherwise pay twice |
+| 1 | 11, tail and compaction | Halves the per-node emitter surface every later item would otherwise pay twice |
 | 2 | 6, `year` | No new invariant, and the one function TPC-H needs |
 | 3 | 5, boolean outputs | Pure continuation of milestone 3's task 21 |
 | 4 | 1, lane widths | The enabler for items 2 and 3, and for multiply overflow in 4 |
@@ -462,10 +504,11 @@ move:
 | 6 | 4, ANSI integer arithmetic | The most common expression family; one op to detect |
 | 7 | 3, float and double lanes | The largest expression count, behind the oracle decision |
 | 8 | 7, aggregation | First operator change; wants filters' lessons first |
-| 9 | 9, windows | Adds a state contract on top of item 7's problem |
-| 10 | 8, strings and hashing | Variable width; likely its own milestone |
+| 9 | 10, windows | Adds a state contract on top of item 7's problem |
+| 10 | 9, string keys and hashing | Its near-term half is milestone 5's item 3; what is left serves joins and dictionaries |
+| 11 | 8, string functions | A long thin tail - 37 uses across the corpus - and the last of the 22 |
 
-A defensible spine is the first five - items 10, 6, 5, 1, 2 - with 4 and 3
+A defensible spine is the first five - items 11, 6, 5, 1, 2 - with 4 and 3
 following if their decisions (the overflow price, the ULP oracle) land early
 enough to be measured rather than argued.
 
@@ -488,7 +531,7 @@ The gates do not change, and two of them get harder:
 
 * **Grouped aggregation, hash joins, sorting.** Item 7 stops at partial
   aggregation without grouping keys.
-* **`DecimalType`**, per item 11.
+* **`DecimalType`**, per item 12.
 * **The Arrow-native Parquet reader and writer** (milestone 3, item 11): still
   the project owner's work, and still the thing that would make every number
   here apply to scans rather than cached tables. Coordinate, do not duplicate.
@@ -506,7 +549,7 @@ The gates do not change, and two of them get harder:
 2. **Mixed-width loop shape** (item 1). Narrowest-lane-count drive, or a part
    loop per conversion? Measure both on a `cast(int AS long) + long` chain
    before either goes into the emitter.
-3. **What the scalar tail actually costs** (item 10). Its share of emission time
+3. **What the scalar tail actually costs** (item 11). Its share of emission time
    and of loop runtime is not measured. If it is negligible at runtime, item
    10's case rests entirely on emitter code size - still a good case, but a
    different one, and it should be made on the honest number.

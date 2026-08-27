@@ -178,7 +178,7 @@ registry:
 
 The tail is the point. Once this milestone's items land, six of the twenty-two
 are still missing - `substr`/`substring`, `concat` and `upper` (milestone 4's
-item 8), `rank` (its item 9), and `round`, which its item 3 excluded as
+item 8), `rank` (its item 10), and `round`, which its item 3 excluded as
 scale-dependent. Four of the six are string functions, so milestone 4's item 8
 is most of what stands between this milestone and the whole corpus surface, and
 the census in 1.3 already says that item should be split: the *functions* are
@@ -218,11 +218,13 @@ Recorded as corrections, not quietly folded in:
   `year(` 3, `month(` 0, `quarter(` 0, `dayofweek(` 0. Correct. But taxi uses
   `year()` in two of four queries, over timestamps, so the function survives on
   a different corpus than the one that motivated it.
-* **Milestone 4's item 8 is two items, not one.** It bundles string *functions*
-  (`upper`, `substr`, `LIKE`) with hashing and dictionaries. The survey says the
-  functions are rare (`substr(` 23, `upper(` 2, `LIKE` 8) and the *keys* are
-  everywhere (275 references). String equality and string grouping should be
-  split out and pulled forward; string functions can stay where they are.
+* **Milestone 4's item 8 was two items, and has been split.** It bundled
+  string *functions* (`upper`, `substr`, `LIKE`) with keys, hashing and
+  dictionaries. The survey says the functions are rare (`substr(` 23, `upper(`
+  2, `LIKE` 8) and the *keys* are everywhere (275 references), so item 8 is now
+  the functions and item 9 is the keys. The cheap equality-and-grouping subset
+  of the keys is pulled forward into this milestone as item 3, since TPC-H q1
+  cannot run without it.
 * **Milestone 3's filter priority is confirmed** from a second direction: 165
   `BETWEEN` and 118 `IN (` across the corpus, with 55 TPC-DS queries filtering
   `d_year` and 18 filtering `d_date`.
@@ -324,7 +326,7 @@ There is no vector gather over `MemorySegment` (milestone 4, item 11), so
 * **De-interleave by mask compression.** `compress` each loaded vector with an
   alternating mask and splice the halves. Cheaper where `compress`
   intrinsifies (AVX-512) and worse where it does not - the same portability
-  caveat milestone 4's item 10 records.
+  caveat milestone 4's item 11 records.
 * **The high words are not free.** For precision <= 18 they are sign extension
   by construction, but "by construction" means "if the writer respected the
   precision". One vector compare of the high word against `low >> 63` per lane
@@ -336,7 +338,7 @@ being cheap relative to the arithmetic it enables.
 
 **Vector API it needs**: `LongVector`, `VectorShuffle` with `rearrange` or the
 two-vector `selectFrom`, and optionally `compress` - all currently unused, and
-`rearrange`/`selectFrom` are milestone 4's item 8 territory pulled forward for a
+`rearrange`/`selectFrom` are milestone 4's item 9 territory pulled forward for a
 non-string reason.
 
 ### Item 2. Decimal arithmetic semantics
@@ -391,7 +393,7 @@ string case does not:
   low-cardinality `CHAR(n)`. The gather constraint from item 1 applies again.
 
 **Vector API it needs**: `ByteVector`, `compare`, `anyTrue`/`allTrue`, and the
-rotate and bit ops for hashing (`ROL`, `XOR`, `MUL`) - milestone 4's item 8
+rotate and bit ops for hashing (`ROL`, `XOR`, `MUL`) - milestone 4's item 9
 list, minus everything that needs variable-length control flow.
 
 ### Item 4. Grouped aggregation
@@ -524,7 +526,7 @@ rather than as a silent 1.0x.
   4's machinery if it rides anything.
 * **Interval arithmetic** (29 uses): all constant-folded by Catalyst before
   Varka sees a plan. Nothing to do - recorded so it is not re-costed.
-* **Window functions** (9 TPC-DS queries, `rank(` 15): milestone 4's item 9.
+* **Window functions** (9 TPC-DS queries, `rank(` 15): milestone 4's item 10.
   Nothing here changes its priority.
 
 ## 5. Ordering
