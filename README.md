@@ -129,7 +129,9 @@ task, each with a recorded outcome:
   the extraction family, int64 lanes for `TimestampNTZ`, boolean outputs,
   ANSI-correct integer arithmetic, float lanes, and the first horizontal
   reduction. It is organised around what the unused half of the Vector API
-  makes possible.
+  makes possible - plus one item that adds no vocabulary at all and asks
+  instead how many independent chains the emitted loop should carry, since a
+  superscalar core has vector ports that a single dependency chain leaves idle.
 * **Milestone 5**: *coverage* - the scope catalogue is in
   [`sql/varka/plans/SCOPE_MILESTONE_5.md`](sql/varka/plans/SCOPE_MILESTONE_5.md),
   driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that

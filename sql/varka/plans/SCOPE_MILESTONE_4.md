@@ -78,6 +78,11 @@ because it decides what can share a task:
 A task that takes two of these at once is a task whose failure cannot be
 attributed to one of them. The ordering in section 5 keeps them apart.
 
+Item 13 is the exception that shows what the rule is for: it breaks none of the
+three, adds no vocabulary, and changes only how the loop it already emits is
+scheduled - which is exactly why it can run beside any other item, and why its
+whole gate is a number rather than a differential.
+
 ## 4. Scope catalogue
 
 ### Item 1. Lane-width conversion, and mixed-type expression trees
@@ -259,7 +264,14 @@ Neri-Schneider (branchless O(1) civil-from-days over the 400-year Gregorian
 cycle, the preferred fit for lanes), Cassels' March-shifted year (month and day
 from a linear formula like `(5 * d + 2) / 153`), and Hinnant's `std::chrono`
 decomposition, the one Velox and DuckDB borrow. All three lean on division by
-invariant constants. The calibration that keeps this honest: TPC-DS
+invariant constants, and on lanes that is the item's risk rather than its
+arithmetic: with no multiply-high, each of 146097, 36524, 1461 and 153 needs its
+own range-narrowing argument - the value shrunk until both `v * e < 2^k` and
+`v * M < 2^31` hold inside the low 32 bits `mul` returns - before it has a magic
+at all, and a constant that will not narrow has no vector lowering. Check all
+four before the item is scheduled rather than during it; lanewise `DIV` is not a
+fallback, it scalarizes at ~9x (`SKILLS.md`). The calibration that keeps this
+honest: TPC-DS
 pre-materialises calendar parts as integer dimension columns (`d_year`, `d_moy`,
 `d_dom`, `d_qoy`, `d_dow`), so extraction appears zero times there, while TPC-H
 q7, q8 and q9 use `year(date)` and nothing else. Intuition overweights this
@@ -287,7 +299,9 @@ projection path and is the reason it was deferred rather than folded in.
 **Design input.** The reduction belongs at the *end* of the batch, not per lane
 group: accumulate into vector accumulators inside the loop and reduce once, with
 the multi-accumulator unrolling the design notes describe (acc0 through acc3,
-breaking the dependency chain a single accumulator's adds would form). The
+breaking the dependency chain a single accumulator's adds would form) - item
+13's principle, applied at the one place in this file where a loop-carried
+dependency makes it mandatory rather than measurable. The
 masked `reduceLanes` overload handles nulls without a branch. `sum` over
 `LongType` inherits item 4's overflow question, and `avg` is `sum` plus a
 `trueCount`. Grouped aggregation is *not* this item - grouping is hashing and
@@ -421,7 +435,8 @@ and makes every other item in this file cheaper to write.
   scalar bytecode for every node - so this is not a micro-optimisation but
   roughly half of the emitter's per-node code, and every new node type in items
   2, 3, 4 and 6 otherwise has to be written twice. Price it before those items
-  double the surface.
+  double the surface - and note that item 13 raises the stake, since an unrolled
+  body's remainder is `K * lanes - 1` rows rather than `lanes - 1`.
 * *Compaction.* `compress(mask)` is the primitive a selection vector wants. On
   x64 with AVX-512 it intrinsifies to `VPCOMPRESSD`; elsewhere it falls back to
   something considerably slower. If milestone 3's task 21 ships a scalar
@@ -432,6 +447,102 @@ and makes every other item in this file cheaper to write.
   all-valid fast paths, where the prologue today has them only per batch.
 
 **Where it sits.** Early, on the tail argument alone.
+
+### Item 13. Instruction-level parallelism: the unroll factor as a plan decision
+
+*Added after milestone 3's task 21, from the project owner's proposal. It takes
+the number after item 12 because that item's number is cited in sections 5 and
+7, and this catalogue does not renumber.*
+
+**Spark surface.** None. Like item 11, this item adds no expression and no type;
+it changes how the emitter writes the loop it already writes.
+
+**Vector API it needs**: nothing new - the same members, emitted more than once
+per iteration.
+
+**Design input.**
+
+* *What it is.* The emitted loop body is one dependency chain: load a vector per
+  input column, walk the DAG, store. Each operation waits out its predecessor's
+  latency - an int vector multiply is 3-5 cycles - while the machine's other
+  vector ports sit idle. Unrolling by a factor K emits K independent chains over
+  K consecutive lane groups and interleaves them, so chain 2's instructions fill
+  the slots chain 1 spends waiting. The map kernels carry no loop-carried
+  dependency, so the out-of-order engine already overlaps part of this across
+  the backward branch by itself; what unrolling adds is a window the *compiler*
+  can see, and C2 does not unroll Vector API pipelines on its own.
+
+* *Why it is a planner decision and not a coding style.* The usual advice picks
+  a static factor - two on a 256-bit species, four on 512-bit - as a proxy for
+  how many of the sixteen or thirty-two architectural vector registers the body
+  can spare. Varka needs no proxy. The emitter already computes the DAG's common
+  subexpressions, so it knows the exact live-temporary count per lane group and
+  the exact op count per output group; it can pick K per *shape* and decline to
+  unroll one whose live set already fills the register file. That is the version
+  worth building, and it exists only because the loop is generated rather than
+  written by hand.
+
+* *The constraint that prices it.* `GROUP_BUDGET` caps a loop method at 16
+  vector ops because C2 compile latency runs about 1 ms per vector op and a
+  64-op method hit a ten-second tier-4 OSR compile (`SKILLS.md`, "C2 Compile
+  Latency Is the Wide-Vector-Loop Cliff"). Unrolling multiplies the ops in the
+  emitted body by K, so it trades directly against that cliff: either the budget
+  drops to about `16 / K` planned ops per method, buying more sibling methods,
+  or the shape pays a longer compile. **This item is affordable only because of
+  task 18.** Before the shape cache, the tier ladder was re-paid per task, so a
+  longer compile was a per-task tax; now it is paid once per shape,
+  process-wide. That is the whole argument for doing this now rather than in
+  milestone 2, and the task plan should open with it.
+
+* *Three measured constraints it has to clear*, all from `SKILLS.md`'s "Vector
+  API on HotSpot, Measured", two of them cutting against the standard advice:
+  - Pre-broadcasting the loop's constants into locals is the textbook way to pin
+    them in registers. Here it measured a *7x collapse*: a vector held in a Java
+    local pins a register for the whole body and blocks C2's rematerialization,
+    so the emitter broadcasts at each use instead. Unrolling multiplies live
+    temporaries by K, pushing on exactly the register file that already broke
+    once - K and the broadcast strategy have to be measured together, and the
+    pessimistic prior is that pinned-plus-K=4 is the worst corner rather than
+    the best.
+  - There is no multiply-high on any lane type, so lanewise `DIV` scalarizes and
+    measured ~9x the range-narrowed magic multiply. Interleaving two chains
+    around a divide interleaves two *scalar* chains. Any algorithm reaching for
+    `div` - item 6's calendar constants above all - has to be lowered first;
+    unrolling cannot rescue it.
+  - Masked ops and masked stores cost 2.3x-2.9x even all-true. Predication for
+    conditional *semantics* is right and is already the engine's design, but
+    masks are not a free general instrument, and an unrolled body multiplies
+    whatever they cost.
+
+* *Where the win can land, and where it provably cannot.* Row-consumer shapes
+  are bounded by the flat ~25 ns/row read-back floor (task 19) and the task-21
+  filter path by compaction, which is item 11's business; no kernel-side ILP
+  moves either. The candidates are the shapes that are already compute-bound and
+  already carry a committed number to beat: `dayofweek` (a 20-op fold, 9.8x),
+  `CASE WHEN` on an unpredictable condition (7.1x), and the depth-8 chain
+  (7.5x). Item 6's extraction algorithms join them if their constants lower.
+
+* *The tail grows with K.* An unrolled loop's remainder is up to `K * lanes - 1`
+  rows rather than `lanes - 1` - at K=4 on a 16-lane species, 63 rows of a
+  4096-row batch handled by the emitter's scalar second walk of the IR. That
+  strengthens item 11's `indexInRange` case rather than weakening this one, but
+  it does mean the two want scheduling in that order.
+
+* *The morsel is already the batch.* The cache-locality half of the proposal is
+  satisfied by construction: a 4096-row batch of int32 is 16 KB, inside L1D, and
+  Arrow buffers are already off-heap `MemorySegment`s rather than boxed arrays.
+  What is *not* settled is the multi-column case - a fused loop reading six
+  columns touches 96 KB per batch - so the honest question is whether 4096 is
+  still the knee for wide fused shapes (section 8, question 6), not whether to
+  begin micro-batching. False sharing between concurrent tasks folds into buffer
+  alignment (milestone 3's item 8, section 7 below): Varka's writable buffers
+  are per-task allocations whose only exposure is at their edges.
+
+**Where it sits.** Anywhere. It breaks none of section 3's three invariants and
+adds no vocabulary, so it cannot fail a differential test - only a number - which
+makes it the one item that parallelises with any other. It wants item 11 behind
+it for the tail and a shape with a committed baseline in front of it, and its
+prediction goes in writing before the first measurement, per the project's rule.
 
 ### Item 12. Considered and set aside
 
@@ -507,10 +618,14 @@ move:
 | 9 | 10, windows | Adds a state contract on top of item 7's problem |
 | 10 | 9, string keys and hashing | Its near-term half is milestone 5's item 3; what is left serves joins and dictionaries |
 | 11 | 8, string functions | A long thin tail - 37 uses across the corpus - and the last of the 22 |
+| any | 13, the unroll factor | Breaks no invariant and adds no vocabulary; runs beside any row above, wanting only item 11 behind it |
 
 A defensible spine is the first five - items 11, 6, 5, 1, 2 - with 4 and 3
 following if their decisions (the overflow price, the ULP oracle) land early
-enough to be measured rather than argued.
+enough to be measured rather than argued. Item 13 sits outside that ordering on
+purpose: it is the only item whose result is a number on shapes that already
+exist, so it can be run whenever a machine is idle, and its answer changes how
+every later item's kernel is emitted rather than what any of them can express.
 
 ## 6. Verification, inherited
 
@@ -536,7 +651,10 @@ The gates do not change, and two of them get harder:
   the project owner's work, and still the thing that would make every number
   here apply to scans rather than cached tables. Coordinate, do not duplicate.
 * **Buffer alignment enforcement** (milestone 3, item 8): unchanged, still
-  waiting on a measurement that shows it matters.
+  waiting on a measurement that shows it matters. Item 13 adds a second reason
+  to want it - false sharing between concurrent tasks' writable buffers, whose
+  only exposure is the 64-byte line at each allocation's edge - but not the
+  missing measurement, so the item stays where it is.
 * **Whole-stage code generation.** Milestone 3's task 22 answers the charter
   question in writing; whatever it answers, this milestone does not build it.
 
@@ -551,9 +669,26 @@ The gates do not change, and two of them get harder:
    before either goes into the emitter.
 3. **What the scalar tail actually costs** (item 11). Its share of emission time
    and of loop runtime is not measured. If it is negligible at runtime, item
-   10's case rests entirely on emitter code size - still a good case, but a
+   11's case rests entirely on emitter code size - still a good case, but a
    different one, and it should be made on the honest number.
-4. **Where the survey's corpus ends** (section 5). TPC-DS and TPC-H answered the
+4. **Does an unroll factor above 1 pay at all** (item 13), and if so, is it a
+   constant, a function of the species, or a function of the shape's live-value
+   count? Three confounders have to move together rather than one at a time: K,
+   the broadcast strategy (pinned locals cost 7x at ~32 broadcasts, so this is
+   not a free axis), and `GROUP_BUDGET`, which unrolling multiplies against a
+   ~1 ms-per-vector-op compile. Register the prediction before the first run;
+   the honest null hypothesis is that C2 plus the out-of-order engine already
+   collect most of the available overlap on a 16-op body, and that K pays only
+   on the long chains.
+5. **Whether an unrolled loop still wants a scalar tail** (items 11 and 13).
+   These two measurements share a harness and should share a run.
+6. **Is 4096 rows still the knee for wide fused shapes?** One 4096-row int32
+   column is 16 KB and comfortably L1-resident, which is why cache blocking has
+   never come up; six columns in one fused loop is 96 KB and is not. The sweep
+   is cheap - vary `spark.sql.inMemoryColumnarStorage.batchSize` against column
+   count on an existing shape - and it either finds a knee worth respecting or
+   retires the question in writing.
+7. **Where the survey's corpus ends** (section 5). TPC-DS and TPC-H answered the
    date question; they may not answer the type question, since neither uses
    `TimestampNTZ` and both pre-materialise calendar parts. If the corpus cannot
    rank the types, the ranking has to come from somewhere else - and saying so

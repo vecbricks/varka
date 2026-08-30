@@ -256,6 +256,21 @@ apparent small wins turned out to be noise.
   at each use, a loop-invariant broadcast gets hoisted when registers allow and
   rematerialized (one instruction) when they do not. Hoist only in measured-small
   regimes.
+- Corollary for manual unrolling and software pipelining - the standard prescription
+  for feeding a superscalar core, and a real gap, since C2 does not unroll Vector API
+  pipelines: three of the measurements above price the experiment before it is run, and
+  two of them cut against the prescription. (1) Unrolling by K multiplies the body's
+  live temporaries by K, against a register file where ~32 pinned broadcasts already
+  cost 7x - so unrolling and pre-broadcasting the loop's constants *compete* rather
+  than compose, and K has to be varied together with the broadcast strategy, never
+  alone. (2) It multiplies the loop method's op count by K against `GROUP_BUDGET = 16`,
+  which exists because C2 compile latency is ~1 ms per vector op - affordable only
+  since task 18 pays that once per shape rather than once per task. (3) It cannot
+  rescue a chain built on lanewise `DIV`, which scalarizes: interleaving two scalarized
+  chains is still scalar, so any such constant needs its range-narrowed magic first.
+  None of this predicts that unrolling loses - it says the experiment has three known
+  confounders. Registered as `SCOPE_MILESTONE_4.md` item 13; unmeasured as of this
+  entry, and this bullet gets rewritten with the numbers when it is.
 - Apply constant offsets *after* a mod, not before: `floorMod(days + 4, 7)` overflows
   int for days near `Int.MaxValue`, while `(floorMod(days, 7) + 4) mod 7` cannot.
   Negative inputs are where every strength-reduced mod goes wrong silently - a test
