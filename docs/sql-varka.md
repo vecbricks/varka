@@ -110,8 +110,9 @@ becomes timestamp arithmetic) decline:
   week and the week is that Thursday's ordinal day in sevens, so the year
   boundaries need no correction. The shift is its own node and the week tail's
   prefix runs over it, which is what makes `EXTRACT(YEAROFWEEK FROM d)`
-  (task 58) `YEAR` over the same shift; a projection mixing `WEEKOFYEAR` with
-  `YEAR` or `MONTH` of the same date decomposes twice, once per side.
+  (task 58) `YEAR` over the same shift, sharing the shift and its prefix with
+  `WEEKOFYEAR` of the same date; a projection mixing either with `YEAR` or
+  `MONTH` of the same date decomposes twice, once per side.
 * `EXTRACT(DAYOFWEEK_ISO FROM d)` / `DATE_PART('DOW_ISO', d)` (task 57),
   Monday 1 to Sunday 7, as one node: the analyzer spells it `weekday(d) + 1`,
   and that spelling by hand fuses the same way; any other integer arithmetic
