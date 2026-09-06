@@ -167,8 +167,14 @@ class WeekdayLeafSuite extends SparkFunSuite {
       vector.setValueCount(names.length)
       body(new ArrowColumnVector(vector))
     } finally {
-      vector.close()
-      allocator.close()
+      // The allocator close must run even if the vector's does not: it is a child of the
+      // process-lifetime root allocator, so skipping it charges this suite's bytes against the
+      // root for the rest of the test JVM and makes some later suite's leak check fail instead.
+      try {
+        vector.close()
+      } finally {
+        allocator.close()
+      }
     }
   }
 }

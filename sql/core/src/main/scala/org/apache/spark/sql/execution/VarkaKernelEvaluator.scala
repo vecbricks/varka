@@ -421,10 +421,20 @@ private[sql] abstract class VarkaEvaluatorBase(
   /**
    * Releases a batch obtained from this evaluator or handed to [[track]]: closes exactly the
    * vectors this evaluator owns in it, so a forwarded input vector is left to its input batch.
+   *
+   * Each close is guarded, even though this is the ordinary path with a caller above it that
+   * could handle a throw. The registry entry is removed first, so by the time anything closes,
+   * this call is the only route to those vectors: a throw part-way would strand the rest where
+   * nothing - not a later `release`, not the task-completion listener - can reach them. The
+   * task's allocator close then finds outstanding bytes and raises "Memory was leaked by
+   * query" *instead of* completing, so the child allocator's accounting stays charged against
+   * the shared root for the JVM's lifetime, which is the exact failure the listener's own guard
+   * exists to prevent. Closing everything and logging what failed is strictly better here than
+   * handing the caller an exception it can do nothing useful with.
    */
   def release(batch: ColumnarBatch): Unit = {
     openBatches.remove(batch) match {
-      case Some(owned) => owned.foreach(_.close())
+      case Some(owned) => closeAllQuietly(owned, "a Varka output vector on release")
       // Not one of ours - nothing borrowed can be inside, so closing it whole is safe.
       case None => batch.close()
     }
@@ -496,37 +506,43 @@ private[sql] abstract class VarkaEvaluatorBase(
     val dataNeeded = math.max(len * 4L, 8L)
     val validityNeeded = ((len + 63) / 64) * 8L
     if (derivedData(i) == null || derivedData(i).capacity() < dataNeeded) {
-      derivedData(i) = grown(derivedData(i), dataNeeded)
+      growSlot(derivedData, i, dataNeeded)
     }
     if (derivedValidity(i) == null || derivedValidity(i).capacity() < validityNeeded) {
-      derivedValidity(i) = grown(derivedValidity(i), validityNeeded)
+      growSlot(derivedValidity, i, validityNeeded)
     }
   }
 
   /**
-   * Allocates `needed` bytes and only then closes `old` (if any), so that no freed buffer can
-   * stay referenced.
+   * Replaces `slots(i)` with a fresh buffer of `needed` bytes: allocate, store, and only then
+   * release what was there, so that no step can leave a released buffer referenced.
    *
-   * The order is the whole point, and the reverse of it was a use-after-free. `buffer` throws
-   * `OutOfMemoryException` when the allocator cannot satisfy the request, and that is a plain
-   * `RuntimeException`, so `serveBatch` catches it as a per-batch failure, falls back to the row
-   * path and *keeps the task running*. Closing first meant that on the throwing path the caller's
-   * assignment never happened - Scala evaluates the right-hand side before the array store - and
-   * `derivedData(i)` was left holding a closed buffer. Arrow's `close()` only releases the
-   * reference; `capacity()` and `memoryAddress()` are plain field reads it does not touch, so
-   * the next, smaller batch found the stale capacity still large enough, skipped the regrow and
-   * had the leaf write through an address the allocator had already freed - and the task's
-   * cleanup then closed the same buffer a second time, taking the reference count negative.
-   * Allocating first costs both buffers for the width of one assignment and cannot leave a
-   * freed one behind.
+   * All three parts of that order matter, and each was got wrong in turn. Closing before
+   * allocating was a use-after-free: `buffer` throws `OutOfMemoryException` when the allocator
+   * cannot satisfy the request, a plain `RuntimeException`, so `serveBatch` catches it as a
+   * per-batch failure and *the task keeps running* - with the slot holding a buffer that had
+   * already been released, because the assignment that would have replaced it never ran.
+   *
+   * Storing through the caller (`slots(i) = grown(...)`) narrowed that window without closing
+   * it: `close()` can throw too - `BufferLedger.release` raises on reference-count underflow,
+   * and with assertions on it checks the allocator is open - and a throw there again unwinds
+   * before the caller's store, stranding the released buffer in the slot and leaking the fresh
+   * one. Doing the store inside the helper is what makes the release the last thing that can
+   * fail, and makes this identical to `maskBuffer` rather than merely similar to it.
+   *
+   * Why a stranded slot is worse than it sounds: Arrow's `close()` only releases the reference,
+   * while `capacity()` and `memoryAddress()` stay plain field reads it does not touch. So the
+   * next, smaller batch finds the stale capacity still large enough, skips the regrow, and has
+   * the leaf write through an address the allocator has already freed; the task's cleanup then
+   * closes the same buffer a second time and the reference count goes negative.
    */
-  private def grown(old: ArrowBuf, needed: Long): ArrowBuf = {
-    val alloc = taskAllocator()
-    val fresh = alloc.buffer(needed)
+  private def growSlot(slots: Array[ArrowBuf], i: Int, needed: Long): Unit = {
+    val fresh = taskAllocator().buffer(needed)
+    val old = slots(i)
+    slots(i) = fresh
     if (old != null) {
       old.close()
     }
-    fresh
   }
 
   /**
@@ -593,7 +609,12 @@ private[sql] abstract class VarkaEvaluatorBase(
    */
   protected def ensureCleanup(): Unit = {
     if (!cleanupRegistered) {
-      cleanupRegistered = true
+      // The flag records a registration that happened, so it is set after the call and not
+      // before it. Setting it first meant a throw from `addTaskCompletionListener` - outside a
+      // task `TaskContext.get()` is null - left the evaluator believing it had a listener, and
+      // the next `taskAllocator()` would then create a child allocator that nothing ever
+      // closes. Not reachable from a query, where every evaluator is built inside a
+      // `PartitionEvaluator`, but reachable from a harness that drives one directly.
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
         // Every stage here frees task-lifetime Arrow memory, and each is guarded separately so
         // that one failure cannot skip the others. The reason was written for the hook alone -
@@ -616,6 +637,7 @@ private[sql] abstract class VarkaEvaluatorBase(
           kernelAllocator = null
         }
       }
+      cleanupRegistered = true
     }
   }
 
@@ -1128,9 +1150,12 @@ private[sql] class VarkaFilterEvaluator(
   private var maskBuf: ArrowBuf = null
 
   override protected def onTaskCleanup(): Unit = {
-    if (maskBuf != null) {
-      maskBuf.close()
-      maskBuf = null
+    // Clear the field before closing, as `closeScratch` does: a throw from `close()` must not
+    // leave a released buffer referenced for a later `maskBuffer` to size itself against.
+    val buf = maskBuf
+    maskBuf = null
+    if (buf != null) {
+      buf.close()
     }
   }
 
