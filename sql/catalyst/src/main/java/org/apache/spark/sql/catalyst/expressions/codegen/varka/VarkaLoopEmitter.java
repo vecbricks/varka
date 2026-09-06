@@ -207,6 +207,12 @@ public final class VarkaLoopEmitter {
    * Recomputing eight ops in registers is cheaper than the wider method's register pressure,
    * the same effect that made sibling methods the rule in the first place. The parity
    * benchmark keeps both cases so a future retune is measured rather than argued.
+   *
+   * <p>Task 32 step B2 added the one exception, and it is not task 17's case: an output that
+   * reuses a civil-from-days prefix the group already computes joins past this budget, up to
+   * {@link #FUSED_CEILING}, because skipping the prefix makes the method less work rather than
+   * more. Two plain chains over a shared subchain have no prefix to reuse and stay split. See
+   * {@link #groupOutputs}.
    */
   public static final int GROUP_BUDGET = 16;
 
@@ -669,13 +675,13 @@ public final class VarkaLoopEmitter {
     // Method layout, all sharing the seven-parameter shape so slots line up everywhere:
     // `run` dispatches per batch to a dense or masked *driver*; the driver zeroes the output
     // validity, takes the all-null shortcut, then calls one sibling *loop* method per output
-    // group (each at most GROUP_BUDGET ops - see that constant for the measured reason) and
-    // finally the sibling *epilogue* method. Separate methods, not one big one: each gets its own
-    // C2 compilation, so no method's node and inlining budgets can starve another's
-    // intrinsics (task 10 measured 3x to 4x on exactly that).
+    // group (within GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar
+    // prefix - see groupOutputs) and finally the sibling *epilogue* method. Separate methods,
+    // not one big one: each gets its own C2 compilation, so no method's node and inlining
+    // budgets can starve another's intrinsics (task 10 measured 3x to 4x on exactly that).
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
-    List<List<Integer>> groups = groupOutputs(outputs, options.groupBudget());
+    List<List<Integer>> groups = groupOutputs(outputs, options);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
     VarkaDebugInfo debugInfo = new VarkaDebugInfo(
@@ -784,66 +790,140 @@ public final class VarkaLoopEmitter {
   private enum BodyMode { DRIVER, LOOP, EPILOGUE }
 
   /**
-   * Partitions the outputs into loop-method groups of at most {@code budget} ops (normally
-   * {@link #GROUP_BUDGET}), greedily in output order, counting only ops new to the group so
-   * shared subtrees keep their outputs together (and their cross-output CSE). An output wider
-   * than the budget on its own still forms a group: splitting inside one output would forfeit
-   * the register residency that is the point.
+   * Partitions the outputs into loop-method groups, greedily in output order, counting only
+   * ops new to the group so shared subtrees keep their outputs together (and their
+   * cross-output CSE). Two clauses admit the next output into the group being built:
+   *
+   * <ol>
+   *   <li>its marginal ops keep the group within {@code groupBudget} (normally
+   *       {@link #GROUP_BUDGET}) - the rule since task 11;</li>
+   *   <li>joining lets it skip a civil-from-days prefix the group already computes, and the
+   *       group stays within {@code fusedCeiling} (normally {@link #FUSED_CEILING}) - task 32
+   *       step B2. {@link GroupOps#saved} is what opens the wider bound, and it counts prefix
+   *       reuse only: a whole node the group already holds is not reason enough, because task
+   *       17 measured that merging two plain chains over a shared subchain into one method
+   *       <i>loses</i> (4436.3 against 3149.6 M rows/s in the committed parity file), whereas
+   *       an output that skips a prefix makes the method strictly less work rather than a
+   *       trade. With {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared,
+   *       so the clause never fires and the weights count whole.</li>
+   * </ol>
+   *
+   * <p>An output wider than either bound on its own still forms a group: splitting inside one
+   * output would forfeit the register residency that is the point. Greedy in output order is
+   * a known limitation: in {@code year(d), year(d2), month(d)} the month is offered to the
+   * group holding {@code year(d2)}, whose prefix it cannot reuse, so it forms a third group and
+   * recomputes a prefix it would have shared had it been adjacent to {@code year(d)}. The suite
+   * pins that as a limitation; reordering outputs for prefix affinity is in the milestone's
+   * debt register, because the evaluator's per-output vectors and the debug line map key on
+   * the projection's order.
    */
-  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs, int budget) {
+  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options) {
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
-    Set<VarkaVectorIR> seen = new HashSet<>();
-    int ops = 0;
+    GroupOps group = new GroupOps(options.shareChronoPrefix());
     for (int o = 0; o < outputs.size(); o++) {
-      Set<VarkaVectorIR> withNext = new HashSet<>(seen);
-      int marginal = addOps(outputs.get(o), withNext);
+      GroupOps withNext = group.copy();
+      int marginal = withNext.add(outputs.get(o));
+      boolean fits = group.ops + marginal <= options.groupBudget()
+          || (withNext.saved > 0 && group.ops + marginal <= options.fusedCeiling());
       // marginal == 0 means this output adds no node the group does not already have - it
       // is structurally the same tree - so splitting it off cannot reduce the method's op
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
       // its own: after one calendar output `ops` already exceeds it, so without this test
       // `SELECT year(d) AS a, year(d) AS b` would emit the decomposition twice.
-      if (!current.isEmpty() && marginal > 0 && ops + marginal > budget) {
+      if (!current.isEmpty() && marginal > 0 && !fits) {
         groups.add(current);
         current = new ArrayList<>();
-        withNext = new HashSet<>();
-        marginal = addOps(outputs.get(o), withNext);
-        ops = 0;
+        withNext = new GroupOps(options.shareChronoPrefix());
+        withNext.add(outputs.get(o));
       }
       current.add(o);
-      seen = withNext;
-      ops += marginal;
+      group = withNext;
     }
     groups.add(current);
     return groups;
   }
 
-  /** Adds the subtree's distinct nodes to {@code seen}; returns how many op nodes were new. */
-  private static int addOps(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
-    if (!seen.add(node)) {
-      return 0;
-    }
-    int count = weightOf(node);
-    for (VarkaVectorIR child : childrenOf(node)) {
-      count += addOps(child, seen);
-    }
-    return count;
-  }
-
   /**
-   * What one node costs against {@link #GROUP_BUDGET}. Every node has weighed 1 since task 10,
-   * because every node was one or two lane ops; task 26's calendar nodes are not - each expands
-   * to roughly forty, since a civil-from-days decomposition is mostly division and there is no
-   * vector divide. Counting them as 1 would let four calendar outputs share a loop method of
-   * ~180 vector ops, which is the compile cliff {@link #GROUP_BUDGET} exists to avoid (see its
-   * javadoc: a 64-op loop took a ~10 s tier-4 compile). Weighing them by what they emit puts
-   * each in its own sibling method instead, which is the shape the budget's own doc blesses -
-   * an output wider than the budget forms its own group, and single-output loops measured
-   * healthy at 59 ops.
+   * What one loop-method group costs so far, for {@link #groupOutputs}: the distinct nodes it
+   * holds, the dates whose civil-from-days prefix it computes, and the op total under the
+   * split {@link #CHRONO_PREFIX_WEIGHT} describes - a calendar node whose prefix the group
+   * already computes adds only its tail.
+   *
+   * <p>The prefix is identified by the date it decomposes ({@link #chronoChild}), which is the
+   * dense body's {@link FragmentKey}; the masked body's key also carries the node's validity
+   * word, so a group may hold two calendar outputs whose masked bodies do not share (task 60's
+   * column-count {@code add_months} beside {@code month(d)}) while the dense body and the
+   * epilogue do. Grouping on the child alone is the conservative side of that: the shape is
+   * correct either way, and a share the masked body misses is a missed win, never a wrong
+   * grouping.
+   */
+  private static final class GroupOps {
+    private final boolean sharePrefix;
+    private final Set<VarkaVectorIR> nodes;
+    private final Set<VarkaVectorIR> prefixes;
+    /** The group's op total. */
+    int ops;
+    /** How many ops the last {@link #add} skipped by reusing prefixes the group already
+     * computed; zero for an output that reuses none. */
+    int saved;
+
+    GroupOps(boolean sharePrefix) {
+      this(sharePrefix, new HashSet<>(), new HashSet<>(), 0);
+    }
+
+    private GroupOps(boolean sharePrefix, Set<VarkaVectorIR> nodes,
+        Set<VarkaVectorIR> prefixes, int ops) {
+      this.sharePrefix = sharePrefix;
+      this.nodes = nodes;
+      this.prefixes = prefixes;
+      this.ops = ops;
+    }
+
+    GroupOps copy() {
+      return new GroupOps(sharePrefix, new HashSet<>(nodes), new HashSet<>(prefixes), ops);
+    }
+
+    /** Adds the output's distinct nodes; returns how many ops were new, and leaves in
+     * {@link #saved} how many the output skipped by reusing a prefix already here. */
+    int add(VarkaVectorIR root) {
+      saved = 0;
+      int before = ops;
+      walk(root);
+      return ops - before;
+    }
+
+    private void walk(VarkaVectorIR node) {
+      if (!nodes.add(node)) {
+        return;
+      }
+      int weight = weightOf(node);
+      if (sharePrefix && isChrono(node) && !prefixes.add(chronoChild(node))) {
+        weight -= CHRONO_PREFIX_WEIGHT;
+        saved += CHRONO_PREFIX_WEIGHT;
+      }
+      ops += weight;
+      for (VarkaVectorIR child : childrenOf(node)) {
+        walk(child);
+      }
+    }
+  }
+  /**
+   * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node
+   * has weighed 1 since task 10, because every node was one or two lane ops; task 26's
+   * calendar nodes are not - each expands to thirty-odd or more, since a civil-from-days
+   * decomposition is mostly division and there is no vector divide. Counting them as 1 would
+   * have let four calendar outputs share a method of ~180 ops when the ~10 s compile cliff was
+   * still believed in; weighing them by what they emit gave each its own sibling method
+   * instead. Task 32 then measured the cliff away (272 ms at 200 ops, {@code PLAN_TASK_32.md}
+   * 7.5) and step B2 lets siblings over one date share a method again - deliberately, and only
+   * where the prefix is reused, which is why every calendar weight is written as
+   * {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@link GroupOps} counts the prefix once.
    *
    * <p>This is deliberately only about <i>grouping</i>. {@link #MAX_FUSED_NODES} still counts
-   * nodes, so a projection may fuse as many calendar fields as it likes; they simply do not
-   * share a method.
+   * nodes, so a projection may fuse as many calendar fields as it likes; whether they share a
+   * method is {@link #groupOutputs}' question.
    */
   private static int weightOf(VarkaVectorIR node) {
     if (node instanceof ColumnRef || node instanceof LiteralSlot) {
