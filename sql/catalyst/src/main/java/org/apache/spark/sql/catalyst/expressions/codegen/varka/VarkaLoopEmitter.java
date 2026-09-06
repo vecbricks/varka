@@ -857,15 +857,23 @@ public final class VarkaLoopEmitter {
 
   /**
    * What makes two emissions of a fragment interchangeable: the kind, the child they decompose,
-   * and - because {@link #emitChronoPrefix} carries the narrow-range guard, and the guard reads
-   * the node's validity word - the reference that word resolves to.
+   * and the reference the node's validity word resolves to.
    *
-   * <p>The word is what stops this being keyed on the child alone. {@code planWordRef} aliases
-   * every {@link Chrono} extraction's word to its child's, so {@code year(d)} and {@code
-   * month(d)} agree and share; {@link AddMonths}'s word is the AND of the date's and the month
-   * count's, so {@code add_months(d, n)} over a nullable {@code n} does not share with {@code
-   * year(d)} - and must not, because its guard would then be ANDed with a mask that is not its
-   * own. In a dense body no word is planned at all and the child alone decides.
+   * <p>The word's presence in the key is now conservative rather than load-bearing, and the
+   * reason recorded here was true only until task 51. It used to be that
+   * {@link #emitChronoPrefix} carried task 26's narrow-range guard and the guard read the node's
+   * validity word, so two nodes with different words could not share a prefix. Task 51 removed
+   * that guard and the prefix reads no word at all today, so keying on the word cannot make a
+   * shared fragment wrong - it can only miss a share that would have been sound.
+   *
+   * <p>It costs one, and task 60 is where that starts to show: {@code planWordRef} aliases every
+   * {@link Chrono} extraction's word to its child's, so {@code year(d)} and {@code month(d)}
+   * agree and share, but {@link AddMonths}'s word is the AND of the date's and the month count's,
+   * so a column-count {@code add_months(d, m)} is the first chrono node whose word is its own -
+   * and it no longer shares the forty-odd-op decomposition of {@code d} with {@code month(d)}.
+   * Only a masked body pays: in a dense body no word is planned at all and the child alone
+   * decides. Dropping {@code word} from the key would recover the share, and is safe as far as
+   * this analysis goes, but it changes emitted bytes and so wants its own measurement.
    *
    * @param word the node's validity-word reference, or null in a dense body.
    */
@@ -1071,17 +1079,22 @@ public final class VarkaLoopEmitter {
     /** Whether the subtree holds a null-skipping node (IfElse, Greatest, Least). */
     final Map<VarkaVectorIR, Boolean> skipping = new HashMap<>();
     /**
-     * The producers that carry task 52's runtime range guard: every {@link AddDays}/{@link
-     * SubDays} whose offset is a column (not a {@link LiteralSlot}) and which some calendar
-     * node reads, directly or through further arithmetic. Empty on every kernel with no
-     * column-offset date arithmetic under a calendar node - which is what makes the guard's
-     * default cheap: nothing is planned or emitted for it then, and every such shape stays
-     * byte-identical under either setting of {@link VarkaEmitOptions#guardDayProducers}.
+     * The producers that carry a runtime range guard on their own result: every {@link
+     * AddDays}/{@link SubDays} whose offset is a column (not a {@link LiteralSlot}) and which
+     * some calendar node reads, directly or through further arithmetic (task 52), and every
+     * {@link AddMonths} whose month count is a column (task 60) - the latter wherever it sits,
+     * because that guard protects the node's own magic-multiply arithmetic rather than a
+     * consumer's, so a bare {@code add_months(d, m)} with no further calendar wrapper still
+     * needs it. Empty on every kernel with no such column-driven producer - which is what makes
+     * the guard's default cheap: nothing is planned or emitted for it then, and every such
+     * shape stays byte-identical under either setting of
+     * {@link VarkaEmitOptions#guardDayProducers}.
      *
-     * <p>The pair is hand-picked, not derived: the compiler's {@code dayRange} analysis
-     * bounds every other producer at compile time and declines a node it does not know, so a
-     * future column-driven producer fails safe as a residual entry until it is taught to both
-     * sides. Filled by {@link #collectGuardedProducers()} once every root is analyzed.
+     * <p>The set is hand-picked, not derived: the compiler's {@code dayRange} and {@code
+     * compileMonths} analyses bound every other producer at compile time and decline a node
+     * they do not know, so a future column-driven producer fails safe as a residual entry until
+     * it is taught to both sides. Filled by {@link #collectGuardedProducers()} once every root
+     * is analyzed.
      */
     final Set<VarkaVectorIR> guardedProducers = new HashSet<>();
 
@@ -1122,11 +1135,25 @@ public final class VarkaLoopEmitter {
       }
     }
 
-    /** See {@link #guardedProducers}: a walk under each calendar node, over the whole DAG. */
+    /**
+     * See {@link #guardedProducers}: a walk under each calendar node for a column-offset day
+     * producer. A column-count {@link AddMonths} joins {@link #selfGuarding} instead, not
+     * {@link #guardedProducers}: its check is on its own month count, which its own magic
+     * multiply is exact only over, so it is the node's correctness rather than a consumer's
+     * insurance - the {@link MakeDate} criterion exactly. It also has to be unconditional
+     * because the compiler reads the guard as established fact: {@code dayRange} answers
+     * {@code Bounded} for a column count, and composes that interval with whatever shifts it,
+     * without being able to see {@link VarkaEmitOptions#guardDayProducers}. Behind the option
+     * the guard would vanish while the compile-time bound stayed, which is a wrong answer
+     * rather than a slower one.
+     */
     void collectGuardedProducers() {
       for (VarkaVectorIR node : topoOrder) {
         if (isChrono(node)) {
           collectColumnOffsetProducers(chronoChild(node), guardedProducers);
+        }
+        if (node instanceof AddMonths n && !(n.months() instanceof LiteralSlot)) {
+          selfGuarding.add(node);
         }
         if (node instanceof MakeDate) {
           selfGuarding.add(node);
@@ -1186,11 +1213,11 @@ public final class VarkaLoopEmitter {
           skipping.put(node, false);
         }
         case AddDays n -> {
-          requireOffsetShape(n.offset());
+          requireOffsetShape(n.offset(), "date_add's day offset");
           analyzeOp(node, false, n.days(), n.offset());
         }
         case SubDays n -> {
-          requireOffsetShape(n.offset());
+          requireOffsetShape(n.offset(), "date_sub's day offset");
           analyzeOp(node, false, n.days(), n.offset());
         }
         case DateDiff n -> analyzeOp(node, false, n.end(), n.start());
@@ -1199,7 +1226,7 @@ public final class VarkaLoopEmitter {
         case DayOfWeekIso n -> analyzeOp(node, false, n.days());
         case NextDay n -> {
           // A literal slot (task 33) or a column (task 59's derived weekday leaf).
-          requireOffsetShape(n.offset());
+          requireOffsetShape(n.offset(), "next_day's weekday");
           analyzeOp(node, false, n.days(), n.offset());
         }
         case ThursdayOf n -> analyzeOp(node, false, n.days());
@@ -1215,7 +1242,7 @@ public final class VarkaLoopEmitter {
           analyzeOp(node, false, n.days());
         }
         case AddMonths n -> {
-          requireLiteralOffset(n.months(), "add_months' month count");
+          requireOffsetShape(n.months(), "add_months' month count");
           analyzeOp(node, false, n.days(), n.months());
         }
         case MakeDate n -> {
@@ -1282,30 +1309,17 @@ public final class VarkaLoopEmitter {
 
     // task 38 widened the offset from LiteralSlot-only to a literal or a column, but it is
     // still not an arbitrary subtree - VarkaExpressionCompiler only ever emits one of these
-    // two shapes, and this check fails fast if a future IR producer emits anything else.
-    private static void requireOffsetShape(VarkaVectorIR offset) {
+    // two shapes, and this check fails fast if a future IR producer emits anything else. This
+    // now guards four operands of three kinds: AddDays/SubDays' day offset (task 38),
+    // NextDay's weekday (task 59) and AddMonths' month count (task 60), the stricter
+    // requireLiteralOffset that used to cover the latter two having no caller left. {@code
+    // position} names the operand that failed, because one message shared across operands is
+    // exactly what sent the IR fuzzer's first failure (#110) hunting for a next_day the shape
+    // did not contain - the reason the check requireLiteralOffset replaced carried the name too.
+    private static void requireOffsetShape(VarkaVectorIR offset, String position) {
       if (!(offset instanceof LiteralSlot) && !(offset instanceof ColumnRef)) {
         throw new IllegalArgumentException(
-            "day offsets must be a literal slot or a column, got " + offset);
-      }
-    }
-
-    /**
-     * The stricter check {@code add_months} needs. Task 38 widened day offsets to accept a
-     * column as well as a literal, and task 59 widened {@code next_day}'s weekday the same way
-     * (the evaluator derives the int column from the names before the kernel runs), but
-     * {@code AddMonths} bounds its month count at compile time (task 40), so a non-literal
-     * there is not merely unsupported, it is unrepresentable, and the compiler declines it
-     * before ever reaching the emitter. This keeps that guarantee where the tasks merged;
-     * task 60 is the one that moves the bound to a runtime guard. {@code position} names the
-     * operand in the message, because until task 59 the same check guarded two nodes and a
-     * message naming the wrong one sent the IR fuzzer's first failure (#110) looking for a
-     * {@code next_day} the shape did not contain.
-     */
-    private static void requireLiteralOffset(VarkaVectorIR offset, String position) {
-      if (!(offset instanceof LiteralSlot)) {
-        throw new IllegalArgumentException(
-            position + " must be a literal slot, got " + offset);
+            position + " must be a literal slot or a column, got " + offset);
       }
     }
 
@@ -1424,11 +1438,18 @@ public final class VarkaLoopEmitter {
      * Non-null is exactly the signal that the method returns something other than a constant
      * zero. Task 26's calendar extractions used to set this; task 51 removed that guard, and
      * task 52 moved it to the producers in {@link Analysis#guardedProducers}, so it is non-null
-     * exactly when this body's outputs reach one of those and the option is on.
+     * exactly when this body's outputs reach one of those and the option is on - or reach a
+     * node in {@link Analysis#selfGuarding}, which is not behind the option.
      */
     Integer guardAcc;
-    /** Per guarded producer (task 52): the local its result is parked in while the guard
-     * compares it, since the result has to stay on the operand stack for the parent. */
+    /**
+     * Per guarded node: the local the guarded vector is parked in while the guard compares it,
+     * since that vector has to stay on the operand stack for the parent. What is guarded differs
+     * by node. For {@code AddDays}/{@code SubDays} (task 52) it is the node's own result, checked
+     * against the range the calendar lowering is exact over. For {@code AddMonths} (task 60) it
+     * is the month count operand, checked against the range the magic multiply is exact over,
+     * and so parked before the node's own value exists at all.
+     */
     final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
 
     /** {@code MakeDate}'s {@link #MAKE_DATE_TMP_COUNT} locals (task 42). */
@@ -1550,7 +1571,13 @@ public final class VarkaLoopEmitter {
             // the operand stack (dup/swap in its emitValue arm) rather than needing a third.
             s.dowTmp.put(node, new int[] {slot++, slot++});
           }
-          if (producersGuarding && analysis.guardedProducers.contains(node)) {
+          // A day producer's temporary is behind the option with the guard it serves; a
+          // column-count AddMonths guards itself and takes one whatever the option says.
+          // MakeDate, the other self-guarding node, guards out of makeDateTmp and takes none -
+          // allocating one for it would shift every later local and move the pinned bytes.
+          if ((producersGuarding && analysis.guardedProducers.contains(node))
+              || (selfGuarding && node instanceof AddMonths
+                  && analysis.selfGuarding.contains(node))) {
             s.guardTmp.put(node, slot++);
           }
           if (node instanceof MakeDate) {
@@ -2315,12 +2342,7 @@ public final class VarkaLoopEmitter {
       case DayOfMonth n -> emitChrono(cb, node, dense, analysis, s, computed);
       case Quarter n -> emitChrono(cb, node, dense, analysis, s, computed);
       case DayOfYear n -> emitChrono(cb, node, dense, analysis, s, computed);
-      case AddMonths n -> {
-        emitAddMonths(cb, n, dense, analysis, s, computed);
-        if (!dense && s.ownWord.contains(node)) {
-          emitAndWord(cb, s.wordRef.get(node), s.wordRef.get(n.days()), s.wordRef.get(n.months()));
-        }
-      }
+      case AddMonths n -> emitAddMonths(cb, n, dense, analysis, s, computed);
       case LastDay n -> emitChrono(cb, node, dense, analysis, s, computed);
       case TruncDate n -> emitChrono(cb, node, dense, analysis, s, computed);
       case MakeDate n -> emitMakeDate(cb, n, dense, analysis, s, computed);
@@ -2393,44 +2415,62 @@ public final class VarkaLoopEmitter {
     }
     Integer guardTmp = s.guardTmp.get(node);
     if (guardTmp != null) {
-      emitProducerGuard(cb, node, guardTmp, dense, s);
+      // Task 52 guards this node's own result, so the word that qualifies it is this node's.
+      emitRangeGuard(cb, dense ? null : s.wordRef.get(node), guardTmp, dense, s,
+          VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
     }
   }
 
   /**
-   * Task 52's runtime range guard, on the result of a column-offset {@code AddDays}/{@code
-   * SubDays} some calendar node reads: lanes below {@link VarkaChrono#NARROW_MIN_DAYS} or above
-   * {@link VarkaChrono#NARROW_MAX_DAYS} are ORed into {@link Slots#guardAcc}, and
-   * {@link #emitStatusReturn} turns a non-empty accumulator into {@code STATUS_CHRONO_RANGE},
-   * which the evaluator answers by recomputing the batch on the row engine. The result stays on
-   * the operand stack for the parent; it is parked in {@code guardTmp} only for the compares.
+   * The runtime range guard on a column-driven producer's own result: lanes outside
+   * {@code [lo, hi]} are ORed into {@link Slots#guardAcc}, and {@link #emitStatusReturn} turns
+   * a non-empty accumulator into {@code STATUS_CHRONO_RANGE}, which the evaluator answers by
+   * recomputing the batch on the row engine. Task 52 calls this on the result of a
+   * column-offset {@code AddDays}/{@code SubDays} some calendar node reads, with {@code lo}/
+   * {@code hi} = {@link VarkaChrono#NARROW_MIN_DAYS}/{@link VarkaChrono#NARROW_MAX_DAYS}; task
+   * 60 calls it on {@code AddMonths}' own month count, with {@code lo}/{@code hi} =
+   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS}/{@link VarkaChrono#MONTH_ARITH_MAX_MONTHS} - two
+   * compares are two compares regardless of what they bound. The guarded value stays on the
+   * operand stack for the caller; it is parked in {@code guardTmp} only for the compares.
    *
-   * <p>This is task 26's guard block, which task 51 deleted from {@code emitEra}, retargeted
-   * from the extraction's input to the producer's output - so it runs once per distinct
-   * producer rather than once per calendar node reading it, and not at all for the shapes the
-   * compiler bounds. Two ANDs carry over unchanged and for the same reasons: with the node's
-   * validity word in the masked body, because a null row's lanes are undefined and must not
-   * condemn the batch (the node's word is the AND of the date's and the offset's, so a null
-   * offset is covered), and with the epilogue's bounds mask, because a partial group's padding
-   * lanes hold whatever the masked load left. The dense body skips the word AND: every lane is
-   * valid there. A producer used more than once is emitted once per lane group under CSE, guard
-   * included; with CSE off it is re-emitted per use, which repeats the guard - correct, merely
-   * redundant, and not a shape production emits.
+   * <p>{@code word} is the validity word to AND the out-of-range mask with in a masked body, or
+   * null in a dense one. The caller passes it rather than this method looking it up from a node,
+   * because the value being guarded and the word that qualifies it are not always the same
+   * node's: task 52 guards a node's own result under that node's own word, while task 60 guards
+   * an operand - the month count - under the {@code AddMonths} node's word. Resolving it here
+   * from one node reference made those two cases indistinguishable, and reading the word slot
+   * before the arm that fills it is what produced this task's VerifyError; making the caller
+   * state it keeps the two facts together at the site that knows both.
+   *
+   * <p>This is task 26's guard block, which task 51 deleted from {@code emitEra} and task 52
+   * retargeted from the extraction's input to the producer's output - so it runs once per
+   * distinct producer rather than once per calendar node reading it, and not at all for the
+   * shapes the compiler bounds. The set is keyed on the guarded node, not on the operand it
+   * checks, so two {@code AddMonths} over one count column each emit their own guard over that
+   * column - redundant, not wrong, and the price of keying on the node that owns the validity
+   * word the guard has to AND with. Two ANDs carry over unchanged and for the same reasons:
+   * with the node's validity word in the masked body, because a null row's lanes are undefined
+   * and must not condemn the batch (the node's word is the AND of every input, so a null offset
+   * or a null count is covered), and with the epilogue's bounds mask, because a partial group's
+   * padding lanes hold whatever the masked load left. The dense body skips the word AND: every
+   * lane is valid there. A producer used more than once is emitted once per lane group under
+   * CSE, guard included; with CSE off it is re-emitted per use, which repeats the guard -
+   * correct, merely redundant, and not a shape production emits.
    */
-  private static void emitProducerGuard(CodeBuilder cb, VarkaVectorIR node, int guardTmp,
-      boolean dense, Slots s) {
+  private static void emitRangeGuard(CodeBuilder cb, Integer word, int guardTmp,
+      boolean dense, Slots s, int lo, int hi) {
     cb.dup();
     cb.astore(guardTmp);
     cb.aload(guardTmp);
     cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
-    cb.loadConstant(VarkaChrono.NARROW_MIN_DAYS);
+    cb.loadConstant(lo);
     cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
     cb.aload(guardTmp);
     cb.getstatic(VECTOR_OPERATORS, "GT", VO_COMPARISON);
-    cb.loadConstant(VarkaChrono.NARROW_MAX_DAYS);
+    cb.loadConstant(hi);
     cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-    emitGuardCollect(cb, dense ? null : s.wordRef.get(node), dense, s);
+    emitGuardCollect(cb, word, dense, s);
   }
 
   /**
@@ -2439,6 +2479,12 @@ public final class VarkaLoopEmitter {
    * not out of range; {@code null} or the all-true constant skips the AND), ANDed with the
    * epilogue's bounds mask when there is one, ORed into {@code guardAcc}. The tail of task
    * 52's producer guard, shared with task 42's self-guarding node.
+   *
+   * <p>Not ANDed with an enclosing {@code IfElse}'s condition mask, which is a known cliff (the
+   * milestone debt register): a vector body computes both arms, so a guarded node under a
+   * {@code CASE} arm condemns the batch on a lane whose condition would have sent it down the
+   * other arm - a user's own {@code BETWEEN} test on the count cannot keep the shape fused.
+   * The batch falls back and the answers stay right; only the fusion is lost.
    */
   private static void emitGuardCollect(CodeBuilder cb, Integer word, boolean dense, Slots s) {
     if (!dense && word != null && word != WORD_ALL_TRUE) {
@@ -3153,6 +3199,12 @@ public final class VarkaLoopEmitter {
    * length instead, which is where {@link #emitLeapFlag} comes in, the same flag three of tasks
    * 34-37 need per {@code PLAN_TASK_34.md} section 2.1. Both branches are computed for every
    * lane and blended, since a vector lane cannot skip work the way a scalar branch would.
+   *
+   * <p>{@code node.months()} is a {@link LiteralSlot} or, since task 60, a column: when it is a
+   * column, {@link #emitRangeGuard} runs on it right after it loads, against
+   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS}/{@code MAX_MONTHS} - the same bound a literal
+   * count is checked against at compile time (task 40) - because the magic multiply a few lines
+   * below is exact only there.
    */
   private static void emitAddMonths(CodeBuilder cb, AddMonths node, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
@@ -3201,6 +3253,25 @@ public final class VarkaLoopEmitter {
     cb.loadConstant(-1);
     cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
     emitValue(cb, node.months(), dense, analysis, s, computed);
+    // The node's own word (the AND of both children's) used to be computed after this method
+    // returned, from the caller's dispatch; the guard below needs it already stored, and both
+    // children's words are ready by now (the date's from the prefix just above, the count's
+    // from the emitValue call just above), so it moves here instead - earlier than task 40
+    // needed it, but the AND itself is unchanged.
+    if (!dense && s.ownWord.contains(node)) {
+      emitAndWord(cb, s.wordRef.get(node), s.wordRef.get(node.days()),
+          s.wordRef.get(node.months()));
+    }
+    Integer monthsGuardTmp = s.guardTmp.get(node);
+    if (monthsGuardTmp != null) {
+      // Task 60 guards the month count, which is this node's operand rather than its result -
+      // the value on the stack here is node.months(). The word is still this node's, the AND of
+      // both children's, stored just above: a lane whose date is null is not out of range even
+      // if its count is, and the row is null either way.
+      line(cb, analysis, node);
+      emitRangeGuard(cb, dense ? null : s.wordRef.get(node), monthsGuardTmp, dense, s,
+          VarkaChrono.MONTH_ARITH_MIN_MONTHS, VarkaChrono.MONTH_ARITH_MAX_MONTHS);
+    }
     cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
     cb.loadConstant(VarkaChrono.MONTH_ARITH_BIAS);
     cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
@@ -3727,10 +3798,15 @@ public final class VarkaLoopEmitter {
    * under every calendar node and declines an entry whose interval can leave this range
    * (literal offsets, {@code next_day}, {@code add_months}, {@code last_day}, and their
    * compositions), and the one producer it cannot bound - {@code date_add}/{@code date_sub} with
-   * a column offset - carries the check on its own result ({@link #emitProducerGuard}), once per
+   * a column offset - carries the check on its own result ({@link #emitRangeGuard}), once per
    * producer instead of once per reader. This step therefore trusts its input, and the
    * {@link VarkaEmitOptions#guardDayProducers} reference variant is the only way to hand it a
-   * day outside the range.
+   * day outside the range. (Task 60 reuses the same guard block on a separate producer and a
+   * separate range - {@code AddMonths}' own month count against the magic multiply's bound.
+   * That one does bear on this step: when a calendar node reads an {@code add_months} result,
+   * the day decomposed here is that result, and nothing checks it at run time - it is inside
+   * the range only because {@code dayRange} bounded the count's shift at compile time, which
+   * it can do only because the count guard fires.)
    */
   private static void emitEra(CodeBuilder cb, int days, int era, int rem, int mask) {
     // w = days + BIAS, non-negative throughout the range, so one round-down magic and one

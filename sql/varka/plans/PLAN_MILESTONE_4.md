@@ -1218,7 +1218,10 @@ the epilogue mask, ORed into `s.guardAcc`, and `STATUS_CHRONO_RANGE` declines
 the batch to the row engine when any lane is out. Task 52's `dayRange` gives
 `AddMonths` with a column count the `ColumnShifted` answer, so a calendar node
 over it is admitted and the guard is what protects the decomposition; the
-guard on the count is what protects the month magic. Both sit behind
+guard on the count is what protects the month magic. *Corrected by
+`PLAN_TASK_60.md` 2: an in-range count shifts the day by at most 761,856
+days, well inside the range's slack, so the answer is `Bounded` - tighter,
+composable, and the count guard is the only guard.* Both sit behind
 `guardDayProducers`, which is already on.
 
 Validation: the compiler shape (`AddMonths(col, col)`) and the literal form
@@ -1658,12 +1661,13 @@ real 512-bit datapath, and the README rewritten from that run (2.29).
 | 57 | `extract(DAYOFWEEK_ISO)` / `DOW_ISO`. **DONE** (`PLAN_TASK_57.md`) | One narrow arm, `Add(WeekDay(child), Literal(1))`, to a new `DayOfWeekIso` node: `WeekDay`'s floorMod7 tail plus one add; no general int arithmetic | The reference arm `getWeekDay + 1`; a whole week under the three `FloorMod7` variants at both widths; the three spellings in one differential; both pinned fixtures re-pinned once; `dayofweek`/`weekday` bytes unchanged |
 | 58 | `extract(YEAROFWEEK)`. **DONE** (`PLAN_TASK_58.md`; one compiler arm over task 37's `ThursdayOf`, after 37) | `year` over task 37's Thursday shift, `t = d + 3 - weekday0(d)`: a compiler composition if 37 exposes the shift as a node, else the shift lifted out so both nodes share it; a `dayRange` arm of `[-6, +3]` | The December 28 to January 4 rows of years whose week 1 starts early and late, and the century years, against `getWeekBasedYear`; `weekofyear`, `yearofweek` and `year` in one differential; both widths |
 | 59 | `next_day` with a weekday column. **DONE** (`PLAN_TASK_59.md`) | The derived int32 leaf: an evaluator pre-pass mapping a string column through the row engine's own parser before the kernel runs, null or the row engine's ANSI error per its rules; `NextDay(days, ColumnRef)` with `requireOffsetShape` and the two words ANDed; the parity number against the row path, registered prediction that a lone `next_day` wins little and reuse wins more | The leaf's null and error rules under both ANSI settings; the two-column `NextDay` over every null pattern at both widths; a differential over mixed spellings and nulls; the literal form byte for byte unchanged; the number committed whichever way it falls |
-| 60 | `add_months` with a month-count column | `AddMonths(days, ColumnRef)` with `requireOffsetShape` and the words ANDed; the compile-time month bound moved to a runtime guard on the count lanes through task 52's `emitProducerGuard` plumbing, `STATUS_CHRONO_RANGE` on an out-of-range lane; `dayRange` answering `ColumnShifted` | The guard declining in a loop lane and an epilogue lane, not under a null count; in-range batches computed at both widths; the differential with in-range and out-of-range counts and nulls, the declined metric firing only for the latter; the count guard's cost measured beside task 52's row |
+| 60 | `add_months` with a month-count column. **DONE** (`PLAN_TASK_60.md`) | `AddMonths(days, ColumnRef)` with `requireOffsetShape` and the words ANDed; the compile-time month bound moved to a runtime guard on the count lanes through task 52's `emitRangeGuard` (generalized from `emitProducerGuard`), `STATUS_CHRONO_RANGE` on an out-of-range lane; `dayRange` answering `Bounded` at the guard's own extremes, not `ColumnShifted` | The guard declining in a loop lane and an epilogue lane, not under a null count; in-range batches computed at both widths; the differential with in-range and out-of-range counts and nulls, the declined metric firing only for the latter; the count guard's cost measured beside task 52's row |
 | 61 | `trunc` with a format column | Task 59's derived leaf mapping the format through `parseTruncLevel` to a level column whose validity is the output's; `TruncDateDynamic(days, levelRef)`, a chrono node computing all four levels off one prefix and selecting per lane by three blends; the doc saying the literal form is the shape to write | The reference arm `truncDate` per row over the parsed level; the matrix cycling all levels and the invalid codes at both widths; a differential over a format column mixing every level, invalid formats and null; the literal `trunc` byte for byte unchanged |
 | 63 | Int32 arithmetic in the date lane: `Add`, `Subtract`, `Multiply`, `UnaryMinus` over fused fields, int columns and literals (section 2.30). **Planned** (`PLAN_TASK_63.md`; code after the task 61 stack lands) | The compiler arms with an `IntegerType` column leaf; the lanewise op in non-ANSI; the per-lane overflow mask ORed into task 52's accumulator in ANSI, behind a `VarkaEmitOptions` switch; `try_add`/`try_subtract`/`try_multiply` as the mask cleared from validity; `/`, `div`, `%` and int64 left to milestone 5 | Boundary tests at `Int.MaxValue`/`Int.MinValue` in both modes; the error-identity differential under ANSI (same error, same row, as the row engine); the `try_*` differential over overflow-dense and overflow-free data; `year(d) * 100 + month(d)` and `datediff(a, b) + 1` fusing end to end; a parity pair for the check's cost with a registered prediction; both pinned fixtures re-pinned once |
 | 64 | Statistics-directed guard selection (section 2.31) | Step one: the evaluator runs `IntRangeOps.allWithin` over a guarded producer's offset column against `[NARROW_MIN_DAYS - CONTRACT_MIN_DAYS, NARROW_MAX_DAYS - CONTRACT_MAX_DAYS]` and picks the unguarded or the guarded kernel from the shape cache per batch; step two: the Arrow cache's per-batch column bounds attached to the `ColumnarBatch` and read before the pass, answering task 56's bound too; each behind a switch | The guarded kernel never runs on the differential's in-range fixtures and the far-offset fixtures still decline; the pass and the lookup priced against the guard on the parity `year(date_add(d, off))` pair, both widths, with a registered prediction that the null-free and mixed-null cost of task 52's guard is recovered; byte identity of the emitter |
 | 67 | Year-month interval columns in the date lane (section 2.32). **Planned** (`PLAN_TASK_67.md`) | `IntervalYearVector` admitted in `isArrowBacked` and `YearMonthIntervalType` in `allocateVector`; the interval column as a value leaf and the interval literal as a slot in the compiler; `d + ym` and `d - ym` with a column interval through task 60's guarded `AddMonths`; comparisons, `IN`, `BETWEEN`, `greatest`/`least`, `coalesce`, `IF`/`CASE` over intervals; the `MONTH`-unit casts as relabels; the interval entries in task 62's surface; the docs' type list. No IR node, no emitter byte | The differential over a cached table with columns of all three units, nulls and values past task 60's month bound, in both ANSI modes, through the projection and the filter, with zero fallbacks where the plan fuses and the declined metric where the bound trips; the evaluator suite with an `IntervalYearVector` input and output; both pinned fixtures unmoved; the compiler suite's shapes and declines (the `YEAR`-unit casts declined with their reason until task 63) |
 | 68 | Year-month interval algebra (section 2.33) | `make_ym_interval`, `extract(YEAR | MONTH FROM ym)` by literal-divisor magic, `ym * k` and `ym / k` with a literal, `ym +- ym`, `-ym`, `abs(ym)` on task 63's nodes with an interval output, the `YEAR`-unit casts; the literal-divisor node that section 2.30's note and scope item 11 both want | The admission check on the rounding of the literal division and the exactness range of the magic divisions over the whole int32 month range; the differential in both ANSI modes with the overflow rows raising the row engine's own error; a parity row per new node beside task 63's; both pinned fixtures re-pinned once |
+| 69 | An upward limit for the civil-from-days decomposition, so a shift over a guarded day producer stops declining conservatively (task 60's review; see the debt register). **Planned** (`PLAN_TASK_69.md`; its section 2 is an admission check that can legitimately close the task without a code change) | A `NARROW_DECOMPOSE_MAX_DAYS` beside `NARROW_MAX_DAYS`: the latter is the era step's shift-domain ceiling, `(1 << NARROW_ERA_K) - 1 - NARROW_BIAS`, while what binds above is the multiply, `w * NARROW_ERA_M < 2^31`. `dayRange` then tests the two directions against different constants, so `last_day`, `next_day` and a positive literal `date_add` over a column offset fuse again while the downward siblings (`trunc`, `ThursdayOf`, a negative literal) keep declining | The identity proved over the whole extended domain rather than the multiply merely not overflowing, and swept exhaustively against `java.time` the way `VarkaChrono`'s other limits are; the four pinned declines in `VarkaExpressionCompilerSuite` ("task 60 review: an upward shift ...") flipped to `fuses`, the downward ones unmoved; a differential over a column offset at the new ceiling and one past it; no emitted byte moves, since this is a compiler-side bound only |
 | 62 | The closing measurement: every date expression, on a 512-bit datapath, against stock Spark on JDK 17 and JDK 25. **(A) done** (`PLAN_TASK_62.md` 9: the driver, its module and shell driver, and the laptop's four files at 500M rows); (B) the pinned runner and (C) the README open | A Java driver under `sql/varka/bench` submitted to three distributions - stock Spark on JDK 17, stock Spark on JDK 25, this fork on JDK 25 - in one dispatch of the benchmark workflow with `expected-cpu` pinned to a full-width Xeon, running one committed SQL query per covered date expression in the projection and filter shapes over a table sized so the per-job fixed cost is under 5% of every Varka row's wall time (at least 200 ms per Varka query), recording executor time beside wall time for every row, with provenance including the 256-to-512 op-count ladder that proves the datapath; `dev/varka_bench_surface.sh` and the diff script producing the table; README's benchmark section rewritten from the three files with a reproduction guide a reader can follow from the downloads alone; the laptop's run committed as the second data point | Three results files with provenance, generated by one workflow dispatch on a 512-bit runner; every README figure tracing to them (the quote check); every Varka row's fixed share (wall minus executor time, over wall) under 5% in the files; the fork-with-Varka-off row agreeing with stock Spark on JDK 25 within noise on every shape; the ladder in the provenance showing the 256-to-512 step near 2x, or the file labelled 256-bit |
 
 ## 4. Files
@@ -1784,6 +1788,52 @@ The scope's section 8, each question now owned by a task or settled here:
 One bullet per debt: what it is, why it is a debt, and what closing it would
 take. Opened during task 24, per `sql/varka/AGENTS.md` - a swept entry is
 rewritten in the past tense with what the sweep found, never deleted.
+
+* **A shift above a guarded day producer declines conservatively, including upward,
+  where the lowering is still exact (task 60's review). Adopted as task 69.** `dayRange` gives a column-offset
+  `date_add`/`date_sub` the interval its runtime guard establishes,
+  `[NARROW_MIN_DAYS, NARROW_MAX_DAYS]`, so that a shift above it widens a known interval
+  and `admitCalendar` tests the widened one. That is what closed the composition hole -
+  `year(add_months(date_add(d, off), m))` returned year 87585 for a true -14848 - and it
+  is correct in every direction. But it is tighter than it needs to be upward, and these
+  shapes, which fused before, are residual now:
+  `year(last_day(date_add(d, off)))` (shifts +0..30), `year(next_day(date_add(d, off),
+  'MON'))` (+1..7), and `year(date_add(date_add(d, off), k))` for a positive literal `k`.
+  Also residual, and rightly so because they can shift downward, are
+  `weekofyear`/`yearofweek` over a column offset (`ThursdayOf`, +-3) and
+  `year(trunc(date_add(d, off), 'YEAR'))` (-365..0) - the latter was answering wrongly
+  before, on master as well.
+  It is a debt because `weekofyear(date_add(d, off))` is an ordinary query shape that
+  now runs on rows, and because the conservatism is invisible: the entry declines with a
+  day-range reason that reads as if the day really could leave the domain. Closing it
+  means giving the upward direction its own limit. `NARROW_MAX_DAYS` is
+  `(1 << NARROW_ERA_K) - 1 - NARROW_BIAS`, i.e. the ceiling of the era step's
+  `w < 2^NARROW_ERA_K` shift domain; the review's observation is that what actually binds
+  above is the multiply's overflow, `w * NARROW_ERA_M < 2^31`, which is the looser of the
+  two - so a separate `NARROW_DECOMPOSE_MAX_DAYS` would let `dayRange` admit an upward
+  shift the shift-domain bound rejects. That observation is not yet established: it needs
+  the identity proved over the whole extended domain rather than the multiply merely not
+  overflowing, an exhaustive sweep like the one the other `VarkaChrono` limits carry, and
+  `dayRange` then testing the two directions against different constants. Until then the
+  conservative bound stands, because it is the safe direction. `PLAN_TASK_69.md` carries the
+  check as its section 2, and says plainly that a failed check closes the task with the
+  finding recorded rather than widening the bound anyway.
+
+* **A guarded producer under a `CASE`/`IF` arm condemns the batch from the arm the
+  row never takes (task 60).** `emitGuardCollect` ANDs the out-of-range mask with the
+  node's validity word and, in an epilogue, the bounds mask - but never with the
+  condition mask, and a vector body computes both branches of an `IfElse` whatever the
+  condition says. So `CASE WHEN m BETWEEN -1000 AND 1000 THEN add_months(d, m) ELSE
+  NULL END` declines every batch holding one extreme `m`, defeating exactly the range
+  test the user wrote to keep the shape safe. Confirmed reachable: `CaseWhen` and `If`
+  over a column-count `AddMonths` both fuse today. Answers stay correct - the row
+  engine recomputes the batch - so this is a fusion cliff, not a wrong result, which
+  is why it is registered rather than fixed in task 60's own review pass. Closing it
+  is either ANDing the arm's condition mask into the guard (the honest fix, and the
+  one that keeps the shape fused) or excluding a node under an `IfElse` arm from the
+  guarded set and letting the compiler decline it (cheaper, and gives up the shape).
+  Either changes emitted bytes, so it wants a measurement rather than a quiet edit.
+  `Greatest`/`Least` are unaffected: they are validity-driven, with no untaken arm.
 
 * **`GROUP_BUDGET` bounds one of the emitter's three method shapes.** **Adopted as tasks
   43 and 44 (see 2.16)**, both found by the review of task 26 rather than planned.

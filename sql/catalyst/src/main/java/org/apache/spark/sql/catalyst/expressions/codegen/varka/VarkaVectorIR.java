@@ -231,11 +231,13 @@ public sealed interface VarkaVectorIR
    * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months(date, n)} (task 40): month
    * arithmetic over a decomposed date, then Hinnant's {@code days_from_civil} recompose -
    * {@link VarkaChrono#daysFromCivil} is the scalar twin. {@code months} carries the (possibly
-   * negative) month count in a {@link LiteralSlot}; it must be a compile-time literal, the way
-   * {@link AddDays#offset} is. Not a member of {@link Chrono} - it decomposes a date into
-   * fields <i>and</i> recomposes one, roughly twice a {@link Chrono} node's cost - but the
-   * emitter treats it identically for weighing and guarding, since both concerns are about
-   * "does this node run a civil-from-days decomposition", which this one does.
+   * negative) month count as a {@link LiteralSlot} for a foldable count, or (since task 60) a
+   * {@link ColumnRef} for an {@code IntegerType} column - the same widening
+   * {@link AddDays#offset} has, with a runtime range guard on the count in place of the
+   * literal's compile-time bound. Not a member of {@link Chrono} - it decomposes a date into fields
+   * <i>and</i> recomposes one, roughly twice a {@link Chrono} node's cost - but the emitter
+   * treats it identically for weighing and guarding, since both concerns are about "does this
+   * node run a civil-from-days decomposition", which this one does.
    */
   record AddMonths(VarkaVectorIR days, VarkaVectorIR months) implements VarkaVectorIR {}
 
