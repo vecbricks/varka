@@ -1198,7 +1198,8 @@ public final class VarkaLoopEmitter {
         case WeekDay n -> analyzeOp(node, false, n.days());
         case DayOfWeekIso n -> analyzeOp(node, false, n.days());
         case NextDay n -> {
-          requireLiteralOffset(n.offset(), "next_day's weekday");
+          // A literal slot (task 33) or a column (task 59's derived weekday leaf).
+          requireOffsetShape(n.offset());
           analyzeOp(node, false, n.days(), n.offset());
         }
         case ThursdayOf n -> analyzeOp(node, false, n.days());
@@ -1290,16 +1291,16 @@ public final class VarkaLoopEmitter {
     }
 
     /**
-     * The stricter check {@code next_day} and {@code add_months} need. Task 38 widened day
-     * offsets to accept a column as well as a literal, but that widening is specific to
-     * {@code AddDays} and {@code SubDays}, whose offset is added to a lane at run time.
-     * {@code NextDay} folds its weekday into emit-time constants instead - the whole point of
-     * task 33's lowering - and {@code AddMonths} bounds its month count at compile time (task
-     * 40), so a non-literal at either is not merely unsupported, it is unrepresentable, and the
-     * compiler declines it before ever reaching the emitter. This keeps that guarantee where
-     * the tasks merged. {@code position} names the operand in the message, because the same
-     * check guards two nodes and a message naming the wrong one sent the IR fuzzer's first
-     * failure (#110) looking for a {@code next_day} the shape did not contain.
+     * The stricter check {@code add_months} needs. Task 38 widened day offsets to accept a
+     * column as well as a literal, and task 59 widened {@code next_day}'s weekday the same way
+     * (the evaluator derives the int column from the names before the kernel runs), but
+     * {@code AddMonths} bounds its month count at compile time (task 40), so a non-literal
+     * there is not merely unsupported, it is unrepresentable, and the compiler declines it
+     * before ever reaching the emitter. This keeps that guarantee where the tasks merged;
+     * task 60 is the one that moves the bound to a runtime guard. {@code position} names the
+     * operand in the message, because until task 59 the same check guarded two nodes and a
+     * message naming the wrong one sent the IR fuzzer's first failure (#110) looking for a
+     * {@code next_day} the shape did not contain.
      */
     private static void requireLiteralOffset(VarkaVectorIR offset, String position) {
       if (!(offset instanceof LiteralSlot)) {
@@ -1626,7 +1627,7 @@ public final class VarkaLoopEmitter {
       case DayOfWeek n -> s.wordRef.get(n.days());
       case WeekDay n -> s.wordRef.get(n.days());
       case DayOfWeekIso n -> s.wordRef.get(n.days());
-      case NextDay n -> s.wordRef.get(n.days());
+      case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case ThursdayOf n -> s.wordRef.get(n.days());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
@@ -2302,6 +2303,12 @@ public final class VarkaLoopEmitter {
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
         cb.loadConstant(1);
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
+        // A column weekday (task 59) can be null on its own, so the node's word is the AND of
+        // both inputs' words, stored here as AddMonths does by hand; a literal weekday is the
+        // all-true word and planWordRef aliases the date's, so nothing is stored.
+        if (!dense && s.ownWord.contains(node)) {
+          emitAndWord(cb, s.wordRef.get(node), s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
+        }
       }
       case Year n -> emitChrono(cb, node, dense, analysis, s, computed);
       case Month n -> emitChrono(cb, node, dense, analysis, s, computed);

@@ -18,16 +18,23 @@
 package org.apache.spark.sql
 
 import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
+import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 import scala.concurrent.duration._
 
+import org.apache.arrow.vector.VarCharVector
+
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
+import org.apache.spark.sql.catalyst.expressions.DateTimeExpressionUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.varka.vector.{ChronoScalarOps, ChronoVectorOps, DateVectorOps}
+import org.apache.spark.sql.vectorized.ArrowColumnVector
 
 /**
  * The emitter's gates as a benchmark (see `sql/varka/plans/PLAN_TASK_9.md`,
@@ -1013,6 +1020,150 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           }
         }
         benchmark.run()
+      }
+
+      runBenchmark("next_day: the literal kernel, the column kernel, the derived leaf and " +
+          "the row engine's own path (task 59)") {
+        // Task 59's measurement (PLAN_TASK_59.md 6). next_day with a weekday column runs as
+        // the two-input kernel over an int32 column the evaluator derives per batch from the
+        // string column through the row engine's own parser; the fused form is the column
+        // kernel plus the leaf, and the anchor it is held to is getNextDateExact per row, the
+        // path the row engine runs: the same parse and the arithmetic, per row. The literal
+        // kernel is the control that must not move, and the column kernel is priced beside it
+        // (one load in place of a broadcast). The leaf is priced alone under both parsers,
+        // over valid names and over names of which a tenth are unrecognised, where the
+        // row-engine parser constructs an exception per bad row. Driven in 4096-row chunks
+        // over the whole buffer like the year section, for the same reason: the anchor walks
+        // every row, so the kernel must too.
+        val repeats = 20
+        val chunk = 4096
+        val benchmark = new Benchmark(s"${numRows.toLong * repeats} rows in 4096-row chunks",
+          numRows.toLong * repeats,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        def eachChunk(body: (Long, Long, Int) => Unit): Unit = {
+          var pass = 0
+          while (pass < repeats) {
+            var done = 0
+            while (done < numRows) {
+              val n = math.min(chunk, numRows - done)
+              body(done * 4L, done / 8L, n)
+              done += n
+            }
+            pass += 1
+          }
+        }
+        // The weekday column: the 21 spellings in three case styles, cycling; and the same
+        // with every tenth row unrecognised. One Arrow vector per 4096-row chunk, which is
+        // what the evaluator hands the leaf - a cached batch is its own vector - read through
+        // the same ArrowColumnVector accessor it reads a cached string column by.
+        val spellings = Seq("SU", "SUN", "SUNDAY", "MO", "MON", "MONDAY", "TU", "TUE",
+          "TUESDAY", "WE", "WED", "WEDNESDAY", "TH", "THU", "THURSDAY", "FR", "FRI", "FRIDAY",
+          "SA", "SAT", "SATURDAY")
+        def styled(i: Int): String = {
+          val s = spellings(i % spellings.length)
+          (i / spellings.length) % 3 match {
+            case 0 => s
+            case 1 => s.toLowerCase(Locale.ROOT)
+            case _ => s.head.toString + s.tail.toLowerCase(Locale.ROOT)
+          }
+        }
+        val allocator = ArrowUtils.rootAllocator.newChildAllocator("next-day-bench", 0,
+          Long.MaxValue)
+        val chunks = (numRows + chunk - 1) / chunk
+        def names(bad: Int => Boolean): Array[VarCharVector] = Array.tabulate(chunks) { c =>
+          val n = math.min(chunk, numRows - c * chunk)
+          val v = new VarCharVector("s", allocator)
+          v.allocateNew(n * 10L, n)
+          for (i <- 0 until n) {
+            val row = c * chunk + i
+            val s = if (bad(row)) "xyz" else styled(row)
+            v.setSafe(i, s.getBytes(StandardCharsets.UTF_8))
+          }
+          v.setValueCount(n)
+          v
+        }
+        val validNames = names(_ => false)
+        val tenthBad = names(_ % 10 == 9)
+        try {
+          val valid = validNames.map(new ArrowColumnVector(_))
+          val mixedNames = tenthBad.map(new ArrowColumnVector(_))
+          // k as the kernel reads it after the leaf: -1 .. 5, cycling; the leaf's own output
+          // buffers, overwritten per chunk.
+          val kData = arena.allocate(numRows * 4L, 8)
+          for (i <- 0 until numRows) kData.set(ValueLayout.JAVA_INT, i * 4L, i % 7 - 1)
+          val kValidity = arena.allocate((numRows + 7) / 8L, 8)
+          val literal = emit(Seq(new NextDay(new ColumnRef(0), new LiteralSlot(0))), 1, 1,
+            loader, 890)
+          val column = emit(Seq(new NextDay(new ColumnRef(0), new ColumnRef(1))), 2, 0,
+            loader, 891)
+          def chunkedLiteral(): Unit = eachChunk { (dataOff, validityOff, n) =>
+            val status = literal.run(Array(nfData.address() + dataOff), Array(0L), Array(0),
+              Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+              Array(3), n)
+            require(status == 0, s"the kernel declined a batch: status $status")
+          }
+          // The column kernel over the k column as the leaf leaves it: null-free, and with the
+          // date's mixed-null pattern on the date side (the leaf's own nulls are the parity of
+          // the mixed-names case above, not of this kernel).
+          def chunkedColumn(mixed: Boolean): Unit = eachChunk { (dataOff, validityOff, n) =>
+            val status = if (mixed) {
+              column.run(Array(mxData.address() + dataOff, kData.address() + dataOff),
+                Array(mxValidity.address() + validityOff, 0L), Array((n + 6) / 7, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            } else {
+              column.run(Array(nfData.address() + dataOff, kData.address() + dataOff),
+                Array(0L, 0L), Array(0, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            }
+            require(status == 0, s"the kernel declined a batch: status $status")
+          }
+          def chunkedLeaf(columns: Array[ArrowColumnVector], parser: WeekdayLeaf.Parser): Unit =
+            eachChunk { (dataOff, validityOff, n) =>
+              val nulls = WeekdayLeaf.fill(columns((dataOff / 4L).toInt / chunk), n, false,
+                parser, kData.address() + dataOff, kValidity.address() + validityOff)
+              require(nulls >= 0)
+            }
+          benchmark.addCase("next_day(d, 'MON'), literal kernel (control), null-free") { _ =>
+            chunkedLiteral()
+          }
+          benchmark.addCase("next_day(d, k), column kernel, null-free") { _ =>
+            chunkedColumn(false)
+          }
+          benchmark.addCase("next_day(d, k), column kernel, mixed nulls on the date") { _ =>
+            chunkedColumn(true)
+          }
+          benchmark.addCase("weekday leaf, row-engine parser, valid names") { _ =>
+            chunkedLeaf(valid, WeekdayLeaf.Parser.ROW_ENGINE)
+          }
+          benchmark.addCase("weekday leaf, ascii parser, valid names") { _ =>
+            chunkedLeaf(valid, WeekdayLeaf.Parser.ASCII)
+          }
+          benchmark.addCase("weekday leaf, row-engine parser, a tenth unrecognised") { _ =>
+            chunkedLeaf(mixedNames, WeekdayLeaf.Parser.ROW_ENGINE)
+          }
+          benchmark.addCase("weekday leaf, ascii parser, a tenth unrecognised") { _ =>
+            chunkedLeaf(mixedNames, WeekdayLeaf.Parser.ASCII)
+          }
+          benchmark.addCase("next_day(d, s) per row, getNextDateExact (the row engine)") { _ =>
+            eachChunk { (dataOff, _, n) =>
+              val column = valid((dataOff / 4L).toInt / chunk)
+              var i = 0
+              while (i < n) {
+                val days = nfData.get(ValueLayout.JAVA_INT, dataOff + i * 4L)
+                dst.set(ValueLayout.JAVA_INT, dataOff + i * 4L,
+                  DateTimeExpressionUtils.getNextDateExact(days, column.getUTF8String(i)))
+                i += 1
+              }
+            }
+          }
+          benchmark.run()
+        } finally {
+          validNames.foreach(_.close())
+          tenthBad.foreach(_.close())
+          allocator.close()
+        }
       }
 
       runBenchmark("batch-length alignment: what the scalar tail actually costs (task 24)") {
