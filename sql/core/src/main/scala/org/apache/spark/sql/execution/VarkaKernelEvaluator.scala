@@ -26,7 +26,7 @@ import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
 import org.apache.arrow.memory.{ArrowBuf, BufferAllocator}
-import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntVector, ValueVector}
+import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntVector, ValueVector, VarCharVector}
 
 import org.apache.spark.{SparkContext, TaskContext}
 import org.apache.spark.internal.Logging
@@ -34,7 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, NamedEx
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{IntRangeOps, SelectionVectorOps,
   VarkaAllocationSampler, VarkaFallbackEvent, VarkaFusedKernel, VarkaKernelAllocationEvent,
-  VarkaSelectionBitmap, VarkaShapeCache, VarkaShapeKey, VarkaVectorIR}
+  VarkaSelectionBitmap, VarkaShapeCache, VarkaShapeKey, VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
@@ -438,7 +438,9 @@ private[sql] abstract class VarkaEvaluatorBase(
   /**
    * Whether the kernel can run over this batch: every referenced column must be an Arrow
    * `DateDayVector` or `IntVector` (task 38 - a day-offset column) holding exactly the batch's
-   * rows, no more.
+   * rows, no more - or, for an input the evaluator derives (task 59), an Arrow `VarCharVector`
+   * of the same row count, the one string vector the Arrow cache produces and the derived
+   * leaf reads; the large and view string vectors refuse the batch like any other column type.
    *
    * The row count matters because the kernel takes a null count for the rows it is given,
    * while a vector's null count covers all `valueCount` of its rows. A vector longer than the
@@ -449,12 +451,13 @@ private[sql] abstract class VarkaEvaluatorBase(
    * instead.
    */
   private def isArrowBacked(plan: CompiledVarkaProjection, input: ColumnarBatch): Boolean = {
-    plan.inputOrdinals.forall { ordinal =>
+    plan.inputOrdinals.zipWithIndex.forall { case (ordinal, i) =>
       input.column(ordinal) match {
         case acv: ArrowColumnVector =>
-          acv.getValueVector() match {
-            case v: DateDayVector => v.getValueCount() == input.numRows()
-            case v: IntVector => v.getValueCount() == input.numRows()
+          (acv.getValueVector(), plan.derivedAt(i)) match {
+            case (v: DateDayVector, None) => v.getValueCount() == input.numRows()
+            case (v: IntVector, None) => v.getValueCount() == input.numRows()
+            case (v: VarCharVector, Some(_)) => v.getValueCount() == input.numRows()
             case _ => false
           }
         case _ => false
@@ -466,6 +469,47 @@ private[sql] abstract class VarkaEvaluatorBase(
    * closes - the filter evaluator releases its selection buffer here. */
   protected def onTaskCleanup(): Unit = {}
 
+  // The derived inputs' scratch buffers (task 59), one data and one validity buffer per kernel
+  // input the evaluator derives, reused across batches and grown on demand under the filter's
+  // maskBuf discipline; released by the task-completion listener before the allocator closes.
+  // Read only inside kernel.run, so a batch never sees another batch's fill.
+  private var derivedData: Array[ArrowBuf] = null
+  private var derivedValidity: Array[ArrowBuf] = null
+
+  private def derivedScratch(i: Int, len: Int): Unit = {
+    if (derivedData == null) {
+      val n = fusedPlan.get.inputOrdinals.size
+      derivedData = new Array[ArrowBuf](n)
+      derivedValidity = new Array[ArrowBuf](n)
+    }
+    val dataNeeded = math.max(len * 4L, 8L)
+    val validityNeeded = ((len + 63) / 64) * 8L
+    if (derivedData(i) == null || derivedData(i).capacity() < dataNeeded) {
+      derivedData(i) = grown(derivedData(i), dataNeeded)
+    }
+    if (derivedValidity(i) == null || derivedValidity(i).capacity() < validityNeeded) {
+      derivedValidity(i) = grown(derivedValidity(i), validityNeeded)
+    }
+  }
+
+  /** Closes `old` (if any) and allocates `needed` bytes; no freed buffer stays referenced. */
+  private def grown(old: ArrowBuf, needed: Long): ArrowBuf = {
+    val alloc = taskAllocator()
+    if (old != null) {
+      old.close()
+    }
+    alloc.buffer(needed)
+  }
+
+  private def releaseDerivedScratch(): Unit = {
+    if (derivedData != null) {
+      derivedData.foreach(b => if (b != null) b.close())
+      derivedValidity.foreach(b => if (b != null) b.close())
+      derivedData = null
+      derivedValidity = null
+    }
+  }
+
   /**
    * Registers the single task-completion listener that closes any batch still open and then the
    * allocator. Both this and [[taskAllocator]] are called from the task thread only.
@@ -476,6 +520,7 @@ private[sql] abstract class VarkaEvaluatorBase(
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
         openBatches.foreach { case (_, owned) => owned.foreach(_.close()) }
         openBatches.clear()
+        releaseDerivedScratch()
         try {
           onTaskCleanup()
         } catch {
@@ -535,17 +580,41 @@ private[sql] abstract class VarkaEvaluatorBase(
   /**
    * Fills the runner's source-side argument arrays from the input batch - one morsel per
    * referenced input column, in dense kernel-input order. `canRun` has vouched for every
-   * column this reads.
+   * column this reads. A derived input (task 59) is computed here, before the kernel runs,
+   * into the task's scratch buffers: the string column goes through the row engine's own
+   * parser and the kernel reads the int32 result like any other input. The leaf never throws;
+   * under ANSI an unrecognised name declines the batch, and the row engine - which parses a
+   * name only beside a non-null date - raises its own error where one is due.
    */
   protected def fillSources(runner: FusedRunner, input: ColumnarBatch, len: Int): Unit = {
     val plan = fusedPlan.get
     var i = 0
     plan.inputOrdinals.foreach { ordinal =>
       val acv = input.column(ordinal).asInstanceOf[ArrowColumnVector]
-      val morsel = extractMorsel(acv.getValueVector().asInstanceOf[BaseFixedWidthVector], len)
-      runner.srcData(i) = morsel.data.address()
-      runner.srcValidity(i) = morsel.validityAddress
-      runner.srcNullCount(i) = morsel.nullCount.toInt
+      plan.derivedAt(i) match {
+        case None =>
+          val morsel =
+            extractMorsel(acv.getValueVector().asInstanceOf[BaseFixedWidthVector], len)
+          runner.srcData(i) = morsel.data.address()
+          runner.srcValidity(i) = morsel.validityAddress
+          runner.srcNullCount(i) = morsel.nullCount.toInt
+        case Some(derived) =>
+          derivedScratch(i, len)
+          val data = derivedData(i)
+          val validity = derivedValidity(i)
+          val nulls = WeekdayLeaf.fill(acv, len, derived.kind.failOnError,
+            WeekdayLeaf.DEFAULT_PARSER, data.memoryAddress(), validity.memoryAddress())
+          if (nulls == WeekdayLeaf.DECLINED) {
+            throw new VarkaBatchDeclined(VarkaKernelEvaluator.STATUS_DERIVED_INPUT)
+          }
+          // The leaf writes (len + 7) / 8 validity bytes; the rest of the last word is
+          // zeroed so a longer earlier batch's bits cannot read as lanes past `len`.
+          val written = (len + 7) / 8
+          validity.setZero(written, validity.capacity() - written)
+          runner.srcData(i) = data.memoryAddress()
+          runner.srcValidity(i) = if (nulls == len) 0L else validity.memoryAddress()
+          runner.srcNullCount(i) = nulls
+      }
       i += 1
     }
     // Task 56: an input the compiler bounded - today a day offset that came from
@@ -1260,6 +1329,13 @@ private[execution] object VarkaKernelEvaluator {
    * so a log line tells the two apart. Never returned by an emitted kernel.
    */
   private[execution] val STATUS_INPUT_BOUND: Int = 2
+
+  /**
+   * The decline status the evaluator reports when a derived input (task 59) met a value its
+   * row-engine definition raises on under ANSI - an unrecognised weekday name - bit 2. The
+   * row engine recomputes the batch and raises where a non-null date sits beside the name.
+   */
+  private[execution] val STATUS_DERIVED_INPUT: Int = 4
 
   @volatile private[execution] var allocationSchedule: VarkaAllocationSampler.Schedule =
     VarkaAllocationSampler.Schedule.DEFAULT

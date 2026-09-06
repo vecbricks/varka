@@ -627,15 +627,39 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(e.getMessage.contains("IsNotNull child must be a ColumnRef"))
   }
 
-  test("a non-literal month count or weekday is rejected at analysis, naming its own node") {
-    // The two nodes share the check; the message must name the operand that failed it, not
-    // the other node's - the IR fuzzer's first failure quoted `next_day` for an add_months.
+  test("a non-literal month count is rejected at analysis, naming its own node; a column " +
+      "weekday emits (task 59)") {
+    // The message must name the operand that failed the check - the IR fuzzer's first failure
+    // quoted `next_day` for an add_months, back when the two nodes shared the literal rule.
+    // Since task 59 next_day takes a column weekday (the evaluator's derived leaf), so the
+    // shape that used to be rejected beside it now emits.
     val months = intercept[IllegalArgumentException](
       emitMulti(Seq(new AddMonths(new ColumnRef(0), new ColumnRef(1))), 2, 0))
     assert(months.getMessage.contains("add_months' month count"), months.getMessage)
-    val weekday = intercept[IllegalArgumentException](
-      emitMulti(Seq(new NextDay(new ColumnRef(0), new ColumnRef(1))), 2, 0))
-    assert(weekday.getMessage.contains("next_day's weekday"), weekday.getMessage)
+    val (_, bytes) = emitMulti(Seq(new NextDay(new ColumnRef(0), new ColumnRef(1))), 2, 0)
+    assert(bytes.nonEmpty)
+  }
+
+  test("task 59: next_day with a column weekday matches the reference evaluator over every " +
+      "null pattern of both columns, in and out of the leaf's range") {
+    // The trap is task 38's again: the node's word used to alias the date's alone, which was
+    // right only while the weekday was always a literal. combos(2) drives every (date,
+    // weekday) null-pattern pair, the null-weekday-on-a-live-date one included. The weekday
+    // column cycles through -2 .. 6, so the leaf's whole range -1 .. 5 and a value either side
+    // of it are covered: the lowering is exact for every int k, and the reference is Spark's
+    // own formula, so out-of-range values are as checkable as in-range ones.
+    val root = new NextDay(new ColumnRef(0), new ColumnRef(1))
+    def data(c: Int, i: Int): Int = if (c == 0) i * 997 - 300000 else i % 9 - 2
+    checkMatrix(Seq(root), 2, Array.emptyIntArray, Seq(1, 13, 17, 64, 65, 1000), combos(2),
+      data = data, ctx = "next_day column weekday")
+  }
+
+  test("task 59: the column and literal next_day forms cost what PLAN_TASK_59.md 3.3 " +
+      "registered, and the literal form's bytes did not move") {
+    val literal = emitMulti(Seq(new NextDay(new ColumnRef(0), new LiteralSlot(0))), 1, 1)._2
+    val column = emitMulti(Seq(new NextDay(new ColumnRef(0), new ColumnRef(1))), 2, 0)._2
+    assert(laneOps(literal, "loopDense0") === 18, "the literal form")
+    assert(laneOps(column, "loopDense0") === 18, "the column form")
   }
 
   test("task 20: fitsBudgets mirrors the analysis caps, distinct ops across outputs") {

@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.spark.{SparkArithmeticException, SparkDateTimeException}
+import org.apache.spark.{SparkArithmeticException, SparkDateTimeException, SparkIllegalArgumentException}
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaEmitOptions, VarkaShapeCache}
 import org.apache.spark.sql.internal.SQLConf
@@ -950,6 +950,101 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
         expectFused = true)
     } finally {
       Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_next_day"))
+    }
+  }
+
+  test("task 59: next_day with a weekday column matches the row engine over every spelling, " +
+      "the non-names and nulls, through the projection and the filter, with no fallback") {
+    cacheDatesWeekday(spark)
+    cacheDatesWeekday(varkaSpark)
+    withAnsi(false) {
+      // Two next_day over one column share one derived input (the compiler suite pins the
+      // plan); the literal form rides beside them unchanged. A non-name is a NULL here, as
+      // the row engine's non-ANSI catch makes it, and the metrics say nothing fell back: the
+      // leaf is the kernel path, not a row-path repair.
+      val plan = checkDifferential(spark, varkaSpark,
+        "SELECT next_day(d, s) AS a, next_day(d2, s) AS b, next_day(d, 'MO') AS c " +
+          "FROM varka_dates_weekday ORDER BY a, b, c",
+        expectFused = true)
+      assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
+      assert(varkaMetric(plan, "numFallbackBatchesDeclined") === 0L)
+      assert(varkaMetric(plan, "numFallbackBatchesNonArrow") === 0L)
+      // The filter route reads the derived input through the same fillSources.
+      checkDifferential(spark, varkaSpark,
+        "SELECT count(*) AS c FROM varka_dates_weekday WHERE next_day(d, s) = d2",
+        expectFused = true)
+      checkDifferential(spark, varkaSpark,
+        "SELECT d FROM varka_dates_weekday WHERE next_day(d, s) < d2 ORDER BY d",
+        expectFused = true)
+    }
+  }
+
+  test("task 59: a projection over a Varka filter's compacted batch answers through the row " +
+      "path, because the filter compacts a string column generically (recorded limitation)") {
+    // The filter's compaction (task 21) rebuilds fixed-width Arrow columns as Arrow and every
+    // other column through the generic on-heap pass, so the string column reaches the stacked
+    // projection as a non-Arrow vector and the derived leaf's batch is refused - correctly,
+    // and counted under the non-Arrow cause. Pinned so the day the compaction learns strings
+    // this test says so; the plan's section 9 records it for the debt register.
+    cacheDatesWeekday(spark)
+    cacheDatesWeekday(varkaSpark)
+    withAnsi(false) {
+      val q = "SELECT next_day(d, s) AS a FROM varka_dates_weekday WHERE d2 IS NOT NULL ORDER BY a"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      assert(varkaMetric(plan, "numFallbackBatchesNonArrow") > 0L,
+        "the compacted string column should have refused the projection's batch")
+      assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
+    }
+  }
+
+  test("task 59: under ANSI the valid rows fuse, a non-name beside a live date raises the " +
+      "row engine's own error, and one beside a null date is NULL with no error") {
+    cacheDatesWeekday(spark)
+    cacheDatesWeekday(varkaSpark)
+    cacheDatesWeekdayValid(spark)
+    cacheDatesWeekdayValid(varkaSpark)
+    cacheDatesWeekdayBadOnNulls(spark)
+    cacheDatesWeekdayBadOnNulls(varkaSpark)
+    withAnsi(true) {
+      // Every name valid: fused, nothing declines.
+      val valid = checkDifferential(spark, varkaSpark,
+        "SELECT next_day(d, s) AS a, next_day(d2, s) AS b FROM varka_dates_weekday_valid " +
+          "ORDER BY a, b",
+        expectFused = true)
+      assert(varkaMetric(valid, "numFallbackBatchesDeclined") === 0L)
+      // The whole table: the leaf declines the batch on the first non-name and the row engine
+      // raises ILLEGAL_DAY_OF_WEEK for the same row, so the two errors are one error.
+      val q = "SELECT next_day(d, s) AS a FROM varka_dates_weekday ORDER BY a"
+      val expected = intercept[SparkIllegalArgumentException](spark.sql(q).collect())
+      val actual = intercept[SparkIllegalArgumentException](varkaSpark.sql(q).collect())
+      assert(actual.getCondition === expected.getCondition)
+      assert(actual.getMessage === expected.getMessage)
+      // The rule that decided the route (PLAN_TASK_59.md 2): a non-name beside a null date is
+      // NULL under ANSI, because the row engine never parses it. The leaf sees the non-name,
+      // declines, and the row engine answers - counted as a decline, never as a failure.
+      val nq = "SELECT next_day(d, s) AS a FROM varka_dates_weekday_bad_on_nulls ORDER BY a"
+      val expectedNulls = spark.sql(nq)
+      val actualNulls = varkaSpark.sql(nq)
+      val plan = actualNulls.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actualNulls, expectedNulls)
+      assert(varkaMetric(plan, "numFallbackBatchesDeclined") > 0L, "the leaf should decline")
+      assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
+      assert(varkaMetric(plan, "numFallbackBatchesKernel") === 0L)
+    }
+  }
+
+  test("task 59: a collated weekday column is admitted and parsed the same way") {
+    cacheDatesWeekdayCollated(spark)
+    cacheDatesWeekdayCollated(varkaSpark)
+    withAnsi(false) {
+      checkDifferential(spark, varkaSpark,
+        "SELECT next_day(d, s) AS a FROM varka_dates_weekday_lcase ORDER BY a",
+        expectFused = true)
     }
   }
 
