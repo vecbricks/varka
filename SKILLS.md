@@ -1248,6 +1248,39 @@ it). Two things came out of building it.
   parsers to the definition over every case pattern of the 21 spellings, every one- and
   two-byte ASCII string and every printable one-byte mutation of every spelling.
 
+## A closed `ArrowBuf` still answers `capacity()` and `memoryAddress()`
+
+Found reviewing task 59's per-task scratch buffers, and worth knowing before writing any
+grow-and-reuse helper over Arrow memory.
+
+`ArrowBuf.close()` is one line - `referenceManager.release()`. It does not touch the buffer's
+own fields, and both `capacity()` and `memoryAddress()` are plain field reads (`getfield
+capacity:J` and `getfield addr:J` in arrow-memory-core 19.0.0; check with `javap -c` rather
+than assuming, the class is small). So a closed buffer reports the size it used to have and the
+address it used to own, and a `capacity() < needed` test - the natural way to decide whether to
+grow - cannot tell a live buffer from a freed one. There is no cheap liveness predicate to
+substitute: the reference count lives in the ledger, not the buffer.
+
+The consequence for a helper that replaces a buffer: **allocate the new one before closing the
+old one**, never the reverse. `BufferAllocator.buffer` throws Arrow's `OutOfMemoryException`,
+which is a plain `RuntimeException` - not `java.lang.OutOfMemoryError` - so `NonFatal` matches
+it, `serveBatch` catches it as a per-batch failure and *the task keeps running*. Free first and
+the throw leaves the caller's field pointing at a freed buffer, because the assignment that
+would have replaced it never happens: the right-hand side is evaluated first. The next smaller
+batch then reads the stale capacity, decides no grow is needed, and writes through a released
+address; the task's cleanup closes it again and the ledger's reference count goes negative.
+Allocating first costs both buffers for the width of one assignment and cannot strand a freed
+one. The same ordering argument applies to any resource whose accessors survive its release.
+
+Two things this cost that are worth copying rather than rediscovering. The regression test
+cannot assert on the corruption - freed memory usually still holds its old contents, so reading
+it back returns the right answer and proves nothing; assert on the allocator's own accounting
+instead (`getAllocatedMemory` unchanged across the failed grow), which is exactly the invariant
+and is a public API. And a release path that catches and logs, which is the right thing for a
+task-completion listener, will swallow the double close that would otherwise have made the bug
+loud - so hardening the cleanup and fixing the ordering have to be judged separately, or the
+hardening hides the evidence for the fix.
+
 ## A recipe for a cheap agent ages at the rate of the emitter, not of the arithmetic
 
 Task 35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic

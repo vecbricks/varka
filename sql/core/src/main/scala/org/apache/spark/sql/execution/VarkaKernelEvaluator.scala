@@ -451,18 +451,29 @@ private[sql] abstract class VarkaEvaluatorBase(
    * instead.
    */
   private def isArrowBacked(plan: CompiledVarkaProjection, input: ColumnarBatch): Boolean = {
-    plan.inputOrdinals.zipWithIndex.forall { case (ordinal, i) =>
-      input.column(ordinal) match {
+    // Indexed rather than `zipWithIndex.forall`: this runs once per batch for every Varka
+    // query, and zipping allocates a tuple per input column each time on a gate that was
+    // otherwise allocation-free.
+    val ordinals = plan.inputOrdinals
+    val rows = input.numRows()
+    var i = 0
+    while (i < ordinals.length) {
+      val ok = input.column(ordinals(i)) match {
         case acv: ArrowColumnVector =>
           (acv.getValueVector(), plan.derivedAt(i)) match {
-            case (v: DateDayVector, None) => v.getValueCount() == input.numRows()
-            case (v: IntVector, None) => v.getValueCount() == input.numRows()
-            case (v: VarCharVector, Some(_)) => v.getValueCount() == input.numRows()
+            case (v: DateDayVector, None) => v.getValueCount() == rows
+            case (v: IntVector, None) => v.getValueCount() == rows
+            case (v: VarCharVector, Some(_)) => v.getValueCount() == rows
             case _ => false
           }
         case _ => false
       }
+      if (!ok) {
+        return false
+      }
+      i += 1
     }
+    true
   }
 
   /** A subclass's extra cleanup, run by the task-completion listener before the allocator
@@ -492,21 +503,69 @@ private[sql] abstract class VarkaEvaluatorBase(
     }
   }
 
-  /** Closes `old` (if any) and allocates `needed` bytes; no freed buffer stays referenced. */
+  /**
+   * Allocates `needed` bytes and only then closes `old` (if any), so that no freed buffer can
+   * stay referenced.
+   *
+   * The order is the whole point, and the reverse of it was a use-after-free. `buffer` throws
+   * `OutOfMemoryException` when the allocator cannot satisfy the request, and that is a plain
+   * `RuntimeException`, so `serveBatch` catches it as a per-batch failure, falls back to the row
+   * path and *keeps the task running*. Closing first meant that on the throwing path the caller's
+   * assignment never happened - Scala evaluates the right-hand side before the array store - and
+   * `derivedData(i)` was left holding a closed buffer. Arrow's `close()` only releases the
+   * reference; `capacity()` and `memoryAddress()` are plain field reads it does not touch, so
+   * the next, smaller batch found the stale capacity still large enough, skipped the regrow and
+   * had the leaf write through an address the allocator had already freed - and the task's
+   * cleanup then closed the same buffer a second time, taking the reference count negative.
+   * Allocating first costs both buffers for the width of one assignment and cannot leave a
+   * freed one behind.
+   */
   private def grown(old: ArrowBuf, needed: Long): ArrowBuf = {
     val alloc = taskAllocator()
+    val fresh = alloc.buffer(needed)
     if (old != null) {
       old.close()
     }
-    alloc.buffer(needed)
+    fresh
   }
 
+  /**
+   * Closes every derived-input scratch buffer and drops the arrays.
+   *
+   * Each slot is cleared before its buffer is closed and each close is guarded on its own, so
+   * that one throwing `close()` cannot leave the rest unclosed or leave a closed buffer
+   * referenced - the `maskBuf` discipline this follows nulls its field before the close for the
+   * same reason. The arrays go first, so even a failure part-way leaves the evaluator with no
+   * scratch rather than with half-released scratch: the next batch reallocates, which is correct
+   * if wasteful, where reusing a partly-closed array is not. Whatever a close throws is logged
+   * and swallowed; this runs from the task-completion listener, where the allocator close below
+   * it matters more than any one buffer, and a throw here would mask the task's real error.
+   */
   private def releaseDerivedScratch(): Unit = {
-    if (derivedData != null) {
-      derivedData.foreach(b => if (b != null) b.close())
-      derivedValidity.foreach(b => if (b != null) b.close())
-      derivedData = null
-      derivedValidity = null
+    val data = derivedData
+    val validity = derivedValidity
+    derivedData = null
+    derivedValidity = null
+    closeScratch(data)
+    closeScratch(validity)
+  }
+
+  private def closeScratch(buffers: Array[ArrowBuf]): Unit = {
+    if (buffers != null) {
+      var i = 0
+      while (i < buffers.length) {
+        val b = buffers(i)
+        buffers(i) = null
+        if (b != null) {
+          try {
+            b.close()
+          } catch {
+            case NonFatal(e) =>
+              logWarning("Closing a Varka derived-input scratch buffer failed.", e)
+          }
+        }
+        i += 1
+      }
     }
   }
 
@@ -518,16 +577,21 @@ private[sql] abstract class VarkaEvaluatorBase(
     if (!cleanupRegistered) {
       cleanupRegistered = true
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
-        openBatches.foreach { case (_, owned) => owned.foreach(_.close()) }
-        openBatches.clear()
-        releaseDerivedScratch()
         try {
+          // Everything that frees task-lifetime Arrow memory runs inside this one guard. The
+          // reason the guard exists was written for the hook alone, and applies word for word
+          // to the two closes above it: a throw anywhere here must not skip the allocator close
+          // below, because that would leak the child allocator's accounting against the shared
+          // root for the JVM's lifetime and mask the task's real error (task-21 review, second
+          // pass). Only the hook was covered until a later review noticed that its neighbours -
+          // the open batches, and task 59's derived-input scratch - close Arrow buffers too and
+          // can throw for the same reasons.
+          openBatches.foreach { case (_, owned) => owned.foreach(_.close()) }
+          openBatches.clear()
+          releaseDerivedScratch()
           onTaskCleanup()
         } catch {
-          // A throwing hook must not skip the allocator close below: that would leak the
-          // child allocator's accounting against the shared root for the JVM's lifetime
-          // and mask the task's real error (task-21 review, second pass).
-          case NonFatal(e) => logWarning("Varka task-cleanup hook failed.", e)
+          case NonFatal(e) => logWarning("Varka task cleanup failed.", e)
         }
         if (kernelAllocator != null) {
           kernelAllocator.close()
@@ -607,10 +671,17 @@ private[sql] abstract class VarkaEvaluatorBase(
           if (nulls == WeekdayLeaf.DECLINED) {
             throw new VarkaBatchDeclined(VarkaKernelEvaluator.STATUS_DERIVED_INPUT)
           }
-          // The leaf writes (len + 7) / 8 validity bytes; the rest of the last word is
-          // zeroed so a longer earlier batch's bits cannot read as lanes past `len`.
+          // The leaf writes (len + 7) / 8 validity bytes; the rest of the words the kernel
+          // reads is zeroed so a longer earlier batch's bits cannot read as lanes past `len`.
+          // The bound is what `derivedScratch` sized the buffer to need, not its capacity: the
+          // scratch grows and is never shrunk, so after one wide batch the capacity can be many
+          // times the words in play and zeroing to it memsets a buffer nothing will read - the
+          // kernel addresses validity at `row / 8` and never past the batch's own words. The
+          // comment here used to say "the last word" while the code said "to capacity"; this is
+          // the version the comment described.
           val written = (len + 7) / 8
-          validity.setZero(written, validity.capacity() - written)
+          val readable = ((len + 63) / 64) * 8L
+          validity.setZero(written, readable - written)
           runner.srcData(i) = data.memoryAddress()
           runner.srcValidity(i) = if (nulls == len) 0L else validity.memoryAddress()
           runner.srcNullCount(i) = nulls
