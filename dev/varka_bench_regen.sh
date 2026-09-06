@@ -58,9 +58,19 @@ for a in "$@"; do
     *) usage ;;
   esac
 done
+# A bare class name is resolved from the module's test sources, since the benchmarks are not
+# all in one package (catalyst's sit in org.apache.spark.sql, sql/core's under
+# org.apache.spark.sql.execution.benchmark); a dotted name is taken as given.
 case "$klass" in
   *.*) fqcn="$klass"; klass="${klass##*.}" ;;
-  *) fqcn="org.apache.spark.sql.$klass" ;;
+  *)
+    case "$module" in catalyst) src="sql/catalyst/src/test" ;; *) src="sql/core/src/test" ;; esac
+    file="$(find "$src" -name "$klass.scala" | head -1)"
+    if [ -n "$file" ]; then
+      fqcn="$(sed -n 's/^package \(.*\)$/\1/p' "$file" | head -1).$klass"
+    else
+      echo "no $klass.scala under $src; pass the fully qualified class name" >&2; exit 2
+    fi ;;
 esac
 case "$module" in
   catalyst) dir="sql/catalyst/benchmarks" ;;

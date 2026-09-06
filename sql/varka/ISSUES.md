@@ -605,3 +605,18 @@ note. That candour is worth keeping.
    section 5): the catalyst and sql/core Varka suites are x86_64 only, so an emitted
    loop has never executed on ARM - only under `-XX:MaxVectorSize=16`, which is the
    narrow species on the same instruction set.
+
+### 12. The engine jar is not in the distribution
+
+Found by task 62's driver, the first thing to run Varka through `bin/spark-submit`
+of a packaged tree rather than under sbt (PLAN_TASK_62.md 2.5). `sql/varka/engine`
+is a test-scope dependency of the build, so `build/sbt package` and the assembly
+leave its jar out, yet every kernel the emitter produces links against
+`VarkaVectorSupport` from it. A distribution with `spark.sql.codegen.varka.enabled`
+on and no engine jar therefore declines every batch with a `ClassNotFoundException`
+in the log and measures the row engine under the kernel's name - the plan says
+`VarkaProjectExec`, the numbers are Janino's. The launcher already adds
+`--add-modules=jdk.incubator.vector`, so the module is not the problem; the jar is.
+The shell driver works around it with `--driver-class-path`; the fix is to make the
+engine a runtime dependency of `sql/core` so the assembly ships it, which is a
+build change with its own task.
