@@ -315,19 +315,32 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
 
     private def runKernels(input: ColumnarBatch): Iterator[InternalRow] = {
       val fusedBatch = kernels.projectFused(input)
-      val rows = mergeProjection match {
-        case None =>
-          // Every entry fused: the fused batch is the whole output.
-          fusedBatch.rowIterator().asScala.map(toRow)
-        case Some(merge) =>
-          val inputRows = input.rowIterator()
-          val fusedRows = fusedBatch.rowIterator()
-          val joined = new JoinedRow
-          new Iterator[InternalRow] {
-            override def hasNext: Boolean = fusedRows.hasNext
-            override def next(): InternalRow =
-              merge(joined(inputRows.next(), fusedRows.next()))
-          }
+      // `projectFused` has already registered the batch, and everything between here and the
+      // CompletionIterator below can still throw: `mergeProjection` and `toRow` are lazy vals
+      // whose initialisers are Janino compiles. Without this the batch would stay registered
+      // until the task ended - and because a lazy val that throws re-runs its initialiser, the
+      // next batch would fail the same way and retain its own, so the retention grew with the
+      // partition instead of being bounded. The failure itself is handled upstream, where
+      // `serveBatch` counts it and falls back to the row path.
+      val rows = try {
+        mergeProjection match {
+          case None =>
+            // Every entry fused: the fused batch is the whole output.
+            fusedBatch.rowIterator().asScala.map(toRow)
+          case Some(merge) =>
+            val inputRows = input.rowIterator()
+            val fusedRows = fusedBatch.rowIterator()
+            val joined = new JoinedRow
+            new Iterator[InternalRow] {
+              override def hasNext: Boolean = fusedRows.hasNext
+              override def next(): InternalRow =
+                merge(joined(inputRows.next(), fusedRows.next()))
+            }
+        }
+      } catch {
+        case e: Throwable =>
+          kernels.release(fusedBatch)
+          throw e
       }
       // The rows stream lazily, so the batch is released when its rows run out rather than in a
       // finally here; the kernel evaluator's task-completion listener closes it if the task stops
