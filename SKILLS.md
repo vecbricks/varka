@@ -1481,6 +1481,68 @@ the differential compares dense against masked validity byte for byte - and beca
 promises every Arrow reader stops at `valueCount`. Producing identical bits is what lets the
 existing differential be the change's oracle rather than something to rewrite.
 
+## A refused call is refused by the caller's budget, and the caller's budget is spent in program order
+
+Task 46, which set out to make the per-lane-group validity write inline by shrinking the callee,
+measured a win, and then found from the compiled code that the win was somewhere else and the
+write was still a call. Everything below was read off the JVM's own output; none of it was
+inferred from a timing.
+
+**Price a per-group call from the committed A/B before designing around it.** The
+`denseValidityOnce=false` variant is an exact A/B for one `orValidityBitsAt` per output per lane
+group, and dividing its cost back out over the rows a group covers gives 1.95 and 1.87 ns at
+AVX-512 and 128-bit for `year`, 2.35 and 2.18 for the shared four-field shape. The cost is per
+call and does not move with the vector width - which is the arithmetic behind "a per-group cost
+is worth four times as much to remove at 128-bit". This part of the analysis was right.
+
+**Read the inlining log against the source, or you will read C1 as C2.** `PrintInlining` prints
+both compilers' decisions in one tree. `callee is too large` and `callee uses too much stack`
+are C1's (`c1_GraphBuilder.cpp`: `C1MaxInlineSize` 35, `C1InlineStackLimit` 10, the latter on
+`max_stack + max_locals - parameter slots`); `inline (hot)` is set only in C2's
+`bytecodeInfo.cpp`. Task 46's first reading counted C1's size refusals as evidence that the
+212-byte writer was too big for C2. In C2 the general writer and the 33-byte specialised one
+were refused exactly as often, and for one reason: `NodeCountInliningCutoff`.
+
+**That reason is about the caller, and it is spent in program order.** A print at the refusal in
+a fastdebug build (`src/hotspot/share/opto/bytecodeInfo.cpp`, the `over_inlining_cutoff` branch)
+showed `unique()` at 18250 to 18520 nodes against the cutoff of 18000 when C2 reached the OR in
+the masked `year` loop - in both arms, for the standard and the OSR compile alike, with
+`incremental=0`. The `year` body's Vector API intrinsics parse to about the cutoff on their own,
+so whichever call is *last in program order* is the one refused, whatever its size. Two
+consequences worth carrying: `-XX:LiveNodeCountInliningCutoff` governs the incremental branch and
+cannot lift this (task 32 tried 400000 and saw nothing move, for this reason); and the develop
+flag it actually is cannot be set on a product JVM at all. The lever the emitter has is order.
+A value root's validity OR depends on its word, not on its vector store, and the word is an
+input word for every calendar extraction, so the OR now goes first (`validityOrFirst`). C2 meets
+it at a few hundred nodes and inlines it, and every masked row in the parity file moved: `year`
++20% at AVX-512 and +30% at 128-bit, the 64-op shape +75%, the budget-24 shape +83% and +180%.
+The exact safety test is "the word is an input word or the constant", not "the root computes no
+word": `Year(IfElse(...))` aliases the blend's computed slot, and reading it early is a frame with
+no such local, which the verifier rejects.
+
+**Read the loop, not the nmethod.** Whole-nmethod instruction counts for the two arms differed by
+nine and looked identical; the hot loop differed by seven scalar instructions out of about
+eighty, and that was the entire measured gain of the width-named helpers - the general reader's
+`>>> (row % 8)`, which C2 cannot prove is zero at 16 lanes, plus the `lanes` argument. Count
+inside the back-edge. `VarkaAssemblyProbe` now takes an emit variant and runs the masked body,
+so two options can be compared this way in one command.
+
+**Once the write inlines, naming the width is a per-shape trade, not a win.** With the order
+fixed in both arms: `year` masked is 4% to 8% *slower* width-named (the call gone, C2 unrolled
+that loop to 172 vector instructions in the body and the general arm to 64 - task 32's register
+file at four lanes), the four-field shape +11% and +27%, the selection kernel +43% and +6%. The
+option is on for the multi-write and selection shapes; the single-write loss is recorded.
+
+**Instrument the JVM when the log stops explaining.** The whole chain above - which compiler,
+which branch, how far over - took one twelve-line print in `bytecodeInfo.cpp` and an incremental
+`make jdk` of the fastdebug tree. Timings from that build mean nothing; its counts settled in a
+minute what three benchmark regenerations could not.
+
+**A defect the same work surfaced:** `VarkaEmitOptions.canonical()` had omitted `truncDate` since
+task 35, so two option values differing only there rendered the same string and shared one
+execution identity in the shape cache's side table. A test that walks the record's components
+and requires each to change the rendering is worth more than the fix.
+
 ## Read two fields out of one product, and put the axis where the formula wants it
 
 Task 53. The civil-from-days prefix used to find the month with a magic multiply on the March

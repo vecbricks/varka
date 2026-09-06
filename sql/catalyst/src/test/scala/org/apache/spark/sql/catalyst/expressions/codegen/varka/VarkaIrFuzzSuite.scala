@@ -230,7 +230,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           val constants = param.getEnumConstants.asInstanceOf[Array[AnyRef]]
           Some(constants(rnd.nextInt(constants.length)))
         } else if (param == classOf[Int] && rnd.nextInt(5) == 0) {
-          Some(Integer.valueOf(Seq(8, 24, 32)(rnd.nextInt(3))))
+          // Task 46's lanesOverride is an emitted vector width, so it takes powers of two and
+          // nothing else; the other int is groupBudget, which takes any positive number. The
+          // widths above 16 have no specialised validity helpers and exercise the fallback.
+          if (m.getName == "withLanesOverride") {
+            Some(Integer.valueOf(Seq(2, 4, 8, 16, 32)(rnd.nextInt(5))))
+          } else {
+            Some(Integer.valueOf(Seq(8, 24, 32)(rnd.nextInt(3))))
+          }
         } else None
       value.foreach(v => opts = m.invoke(opts, v).asInstanceOf[VarkaEmitOptions])
     }

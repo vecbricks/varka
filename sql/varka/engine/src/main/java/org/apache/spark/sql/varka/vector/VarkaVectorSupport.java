@@ -115,6 +115,87 @@ public final class VarkaVectorSupport {
     }
   }
 
+  // ---------------------------------------------------------------------------------------
+  // Width-specialised whole-group access (task 46).
+  //
+  // The two helpers above take the lane count as an argument, so each carries a four-arm
+  // switch on `groupBytes(lanes)` that a caller cannot fold: 153 and 212 bytecode bytes, and
+  // C2 refuses to inline the writer inside a fused loop - `NodeCountInliningCutoff` on one
+  // compilation and `callee is too large` on another, with `-XX:CompileCommand=inline`
+  // changing the reason and not the outcome (task 32, SKILLS.md). Measured through task 45's
+  // A/B, one refused call costs 1.87 to 3.24 ns per lane group whatever the vector width,
+  // which is why a 4-lane group pays four times per row what a 16-lane group does.
+  //
+  // The emitter knows the lane count when it writes the bytes, so it can name it: one method
+  // per width, with the switch resolved, the lane mask folded into the narrowing cast where
+  // the width is a whole number of bytes, and no shift at all where a group starts on a byte
+  // boundary. A whole group's first row is a multiple of the lane count, so widths of 8 and
+  // above are always byte-aligned and widths below it never span two bytes.
+  //
+  // Each of these must stay small enough to inline whether or not the call site is judged
+  // hot; VarkaVectorSupportWidthTest holds them to the JVM's own MaxInlineSize and to the
+  // generic helpers' answers, so the pair can never drift apart silently.
+  // ---------------------------------------------------------------------------------------
+
+  /** {@link #validityBitsAt} at 16 lanes: two bytes, byte-aligned, no shift. */
+  public static long validityBitsAt16(MemorySegment validity, long row) {
+    return validity.get(UNALIGNED_SHORT, row >>> 3) & 0xFFFFL;
+  }
+
+  /** {@link #validityBitsAt} at 8 lanes: one byte, byte-aligned, no shift. */
+  public static long validityBitsAt8(MemorySegment validity, long row) {
+    return validity.get(ValueLayout.JAVA_BYTE, row >>> 3) & 0xFFL;
+  }
+
+  /**
+   * {@link #validityBitsAt} at 4 lanes: one byte, and the group starts at bit 0 or bit 4 of
+   * it. As in the general form, the bits above the group's own are left in place - the caller
+   * is {@link VectorMask#fromLong}, which reads only the lowest {@code lanes} of them.
+   */
+  public static long validityBitsAt4(MemorySegment validity, long row) {
+    return (validity.get(ValueLayout.JAVA_BYTE, row >>> 3) & 0xFFL) >>> (row & 7);
+  }
+
+  /** {@link #validityBitsAt} at 2 lanes; the 4-lane form's argument, on quarter-byte groups. */
+  public static long validityBitsAt2(MemorySegment validity, long row) {
+    return (validity.get(ValueLayout.JAVA_BYTE, row >>> 3) & 0xFFL) >>> (row & 7);
+  }
+
+  /**
+   * {@link #orValidityBitsAt} at 16 lanes. The narrowing cast is the lane mask: it keeps the
+   * low sixteen bits of the OR and drops whatever the caller left above them.
+   */
+  public static void orValidityBitsAt16(MemorySegment validity, long row, long laneBits) {
+    long off = row >>> 3;
+    validity.set(UNALIGNED_SHORT, off, (short) (validity.get(UNALIGNED_SHORT, off) | laneBits));
+  }
+
+  /** {@link #orValidityBitsAt} at 8 lanes; the cast to {@code byte} is the lane mask. */
+  public static void orValidityBitsAt8(MemorySegment validity, long row, long laneBits) {
+    long off = row >>> 3;
+    validity.set(ValueLayout.JAVA_BYTE, off,
+        (byte) (validity.get(ValueLayout.JAVA_BYTE, off) | laneBits));
+  }
+
+  /**
+   * {@link #orValidityBitsAt} at 4 lanes: the group is half a byte, so the bits are masked to
+   * four and shifted to the group's own nibble before the OR. Only that one byte is touched.
+   */
+  public static void orValidityBitsAt4(MemorySegment validity, long row, long laneBits) {
+    long off = row >>> 3;
+    long bits = (laneBits & 0xFL) << (row & 7);
+    validity.set(ValueLayout.JAVA_BYTE, off,
+        (byte) (validity.get(ValueLayout.JAVA_BYTE, off) | bits));
+  }
+
+  /** {@link #orValidityBitsAt} at 2 lanes; the 4-lane form on quarter-byte groups. */
+  public static void orValidityBitsAt2(MemorySegment validity, long row, long laneBits) {
+    long off = row >>> 3;
+    long bits = (laneBits & 0x3L) << (row & 7);
+    validity.set(ValueLayout.JAVA_BYTE, off,
+        (byte) (validity.get(ValueLayout.JAVA_BYTE, off) | bits));
+  }
+
   /**
    * {@link #validityBitsAt} for the last, <i>partial</i> lane group: {@code rows} rows starting
    * at {@code row}, where {@code rows} is anything from 1 to {@code lanes - 1} and therefore

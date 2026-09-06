@@ -257,6 +257,33 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
+  test("task 46: the width-specialised validity helpers answer what the general pair did") {
+    // Every other test in this suite runs the specialised path, because task 46's switch
+    // defaults on - so what is left to check is the other arm, and that the two agree end to
+    // end rather than only in the emitter suite's hand-built batches. Both shapes that still
+    // write validity per lane group are here: a masked projection (nulls on either side) and a
+    // filter, whose selection bitmap is OR-ed per group in both bodies.
+    cacheDatesNullableOffset(spark)
+    cacheDatesNullableOffset(varkaSpark)
+    val queries = Seq(
+      "SELECT year(date_add(d, off)) AS y, dayofweek(d) AS w FROM varka_dates_nullable_offset " +
+        "ORDER BY y, w",
+      "SELECT d, off FROM varka_dates_nullable_offset WHERE date_add(d, off) > DATE'2000-01-01' " +
+        "ORDER BY d, off")
+    for (query <- queries) {
+      checkDifferential(spark, varkaSpark, query, expectFused = true)
+    }
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(
+      VarkaEmitOptions.DEFAULTS.withValidityByWidth(false))
+    try {
+      for (query <- queries) {
+        checkDifferential(spark, varkaSpark, query, expectFused = true)
+      }
+    } finally {
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaEmitOptions.DEFAULTS)
+    }
+  }
+
   test("task 52: the producer guard reaches a filter predicate through the same route") {
     // The mask kernel shares the emitter and the evaluator's status route with the
     // projection; a calendar node over a column-offset producer in a WHERE clause declines the

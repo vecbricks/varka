@@ -85,9 +85,17 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
     node
   }
 
+  /** Every case id handed to [[emit]], so a reused one is named here rather than deep in a run. */
+  private val usedIds = scala.collection.mutable.Set.empty[Int]
+
   private def emit(roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int,
       loader: VarkaGeneratedClassLoader, n: Int,
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): VarkaFusedKernel = {
+    // A duplicate id is otherwise a LinkageError from the class loader, twenty minutes into a
+    // regeneration and pointing at the loader rather than at the two cases that chose the same
+    // number. Not every id in this file is a literal - the trunc block computes `id` and
+    // `id + 1` from a tuple list - so a grep is not a reliable way to pick a free one.
+    require(usedIds.add(n), s"case id $n is already in use by another emit in this benchmark")
     val name = s"org.apache.spark.sql.varka.execution.VarkaFusedBench$n"
     val javaRoots = new java.util.ArrayList[VarkaVectorIR]()
     roots.foreach(javaRoots.add)
@@ -524,9 +532,59 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val addMonthsCenturyYear = emit(
           Seq(new AddMonths(new ColumnRef(0), new LiteralSlot(0))), 1, 1, loader, 845,
           centuryYear)
+        // Task 46's A/B: the same kernels emitted against the general validity helpers - the
+        // pair that takes the lane count as an argument and carries a four-arm switch on it -
+        // rather than the sibling named for the emitted width. Measured through task 45's
+        // A/B, one refused `orValidityBitsAt` costs 1.87 to 3.24 ns per lane group at either
+        // width, so the shapes here are the ones that still make the call: a masked
+        // projection, the shared four-field masked shape with four writes and one read per
+        // group, and the selection kernel below, which makes it in both bodies. The
+        // null-free-with-per-group-OR pair isolates the write with no masked machinery around
+        // it, and is directly comparable to the task 45 row beside it.
+        val generalHelpers = VarkaEmitOptions.DEFAULTS.withValidityByWidth(false)
+        val yearGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 892, generalHelpers)
+        val yearPerGroupGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 893,
+          generalHelpers.withDenseValidityOnce(false))
+        val dowGeneral = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 882,
+          generalHelpers)
+        val fourSharedGeneral = emit(fourFields, 1, 0, loader, 883,
+          generalHelpers.withGroupBudget(200))
+        // The selection kernel: a Cond root's slot holds a selection bitmap, which is computed
+        // rather than known, so task 45's driver fill cannot serve it and the per-group OR
+        // stays in the dense body too. It is the shape the columnar filter runs on every batch
+        // and the one shape with no committed parity case before task 46.
+        // The second half of task 46: the same kernels with the validity OR emitted after the
+        // store, which is where it was until the compiled loop showed it as a real call in every
+        // arm. Both sides carry the width-named helpers, so this pair prices the order alone.
+        val orAfter = VarkaEmitOptions.DEFAULTS.withValidityOrFirst(false)
+        val yearOrAfter = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 887, orAfter)
+        val fourSharedOrAfter = emit(fourFields, 1, 0, loader, 888, orAfter.withGroupBudget(200))
+        val selectionRoot = new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0))
+        val filterKernel = emit(Seq(selectionRoot), 1, 1, loader, 884)
+        val filterGeneral = emit(Seq(selectionRoot), 1, 1, loader, 885, generalHelpers)
+        // A Cond root writes no data at all, so its data address is 0L by the interface
+        // contract - the dst slot must not be materialized - and the day it compares against
+        // rides the scalar-args array. Zero selects about half of `fill`'s values, which run
+        // from -10000 to 9999, so the bitmap carries mixed bits rather than a constant.
+        def chunkedFilter(kernel: VarkaFusedKernel, mixed: Boolean): Unit =
+          eachChunk { (dataOff, validityOff, n) =>
+            val status = if (mixed) {
+              kernel.run(Array(mxData.address() + dataOff),
+                Array(mxValidity.address() + validityOff), Array(nullsIn(n)),
+                Array(0L), Array(dstValidity.address() + validityOff), Array(0), n)
+            } else {
+              kernel.run(Array(nfData.address() + dataOff), Array(0L), Array(0),
+                Array(0L), Array(dstValidity.address() + validityOff), Array(0), n)
+            }
+            require(status == 0, s"the kernel declined a batch: status $status")
+          }
         benchmark.addCase("year, null-free") { _ => chunked(year, false) }
         benchmark.addCase("year, validity OR-ed per group (task 45 A/B), null-free") { _ =>
           chunked(yearPerGroup, false)
+        }
+        benchmark.addCase(
+          "year, validity OR-ed per group, general helpers (task 46 A/B), null-free") { _ =>
+          chunked(yearPerGroupGeneral, false)
         }
         benchmark.addCase("year, validity OR-ed per group (task 45 A/B), mixed nulls") { _ =>
           chunked(yearPerGroup, true)
@@ -535,6 +593,30 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           chunked(yearMonthKept, false)
         }
         benchmark.addCase("year, mixed nulls") { _ => chunked(year, true) }
+        benchmark.addCase("year, general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          chunked(yearGeneral, true)
+        }
+        benchmark.addCase("year, validity OR after the store (task 46 A/B), mixed nulls") { _ =>
+          chunked(yearOrAfter, true)
+        }
+        benchmark.addCase("dayofweek, mixed nulls") { _ => chunked(dow, true) }
+        benchmark.addCase("dayofweek, general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          chunked(dowGeneral, true)
+        }
+        benchmark.addCase("filter d < literal, null-free") { _ =>
+          chunkedFilter(filterKernel, false)
+        }
+        benchmark.addCase(
+          "filter d < literal, general validity helpers (task 46 A/B), null-free") { _ =>
+          chunkedFilter(filterGeneral, false)
+        }
+        benchmark.addCase("filter d < literal, mixed nulls") { _ =>
+          chunkedFilter(filterKernel, true)
+        }
+        benchmark.addCase(
+          "filter d < literal, general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          chunkedFilter(filterGeneral, true)
+        }
         benchmark.addCase("year, month step kept (task 48 A/B), mixed nulls") { _ =>
           chunked(yearMonthKept, true)
         }
@@ -647,6 +729,14 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         }
         benchmark.addCase("year+month+day+quarter, shared (1 loop method), mixed nulls") { _ =>
           chunked(fourShared, true, outputs = 4)
+        }
+        benchmark.addCase(
+          "year+month+day+quarter, shared, general helpers (task 46 A/B), mixed nulls") { _ =>
+          chunked(fourSharedGeneral, true, outputs = 4)
+        }
+        benchmark.addCase(
+          "year+month+day+quarter, shared, OR after the store (task 46 A/B), mixed nulls") { _ =>
+          chunked(fourSharedOrAfter, true, outputs = 4)
         }
         // The regression guard section 5.2 asks for: two chrono nodes over different dates
         // must not be pushed into one method by the widened budget clause, since there is

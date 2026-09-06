@@ -2494,6 +2494,134 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
+  /** The support class the emitted bodies call their validity helpers on. */
+  private val support = "org.apache.spark.sql.varka.vector.VarkaVectorSupport"
+  private val intVector = "jdk.incubator.vector.IntVector"
+
+  test("task 46: a whole lane group calls the helper named for the emitted width") {
+    // The emitter knows the lane count when it writes the bytes, so the callee can carry it and
+    // the four-arm switch on the width disappears from the call. Asserted on the names in the
+    // class rather than on a timing, and by exact match: "orValidityBitsAt" is a prefix of
+    // "orValidityBitsAt16", so a substring test would pass on the form this task removes.
+    val roots = Seq[VarkaVectorIR](new Year(new ColumnRef(0)))
+    for ((lanes, bits) <- Seq(2 -> 64, 4 -> 128, 8 -> 256, 16 -> 512)) {
+      val bytes = emitMulti(roots, 1, 0,
+        VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes))._2
+      val called = VarkaEmitterTestSupport.invokedNames(bytes, support).asScala
+      assert(called.contains(s"validityBitsAt$lanes"), s"$lanes lanes: $called")
+      assert(called.contains(s"orValidityBitsAt$lanes"), s"$lanes lanes: $called")
+      assert(!called.contains("validityBitsAt"), s"$lanes lanes: the general reader survived")
+      assert(!called.contains("orValidityBitsAt"), s"$lanes lanes: the general writer survived")
+      // The epilogue's partial group is not a lane width and keeps the general pair.
+      assert(called.contains("orPartialValidityBitsAt"), s"$lanes lanes: $called")
+      // The species is baked to match, so the class cannot compute at one width and write
+      // validity at another - the invariant that would otherwise be implicit in "the emitter
+      // runs in the JVM that runs the kernel".
+      val fields = VarkaEmitterTestSupport.staticFieldsRead(bytes, intVector).asScala
+      assert(fields.contains(s"SPECIES_$bits"), s"$lanes lanes: $fields")
+      assert(!fields.contains("SPECIES_PREFERRED"), s"$lanes lanes: $fields")
+    }
+  }
+
+  test("task 46: a width with no specialised helper falls back to the general pair") {
+    // 32 int lanes is a 1024-bit shape: SVE reaches it, the Vector API has no named species
+    // constant for it, and VarkaVectorSupport has no pair. The fallback is what keeps such a
+    // machine correct, so it is emitted and asserted rather than reasoned about.
+    val bytes = emitMulti(Seq[VarkaVectorIR](new Year(new ColumnRef(0))), 1, 0,
+      VarkaEmitOptions.DEFAULTS.withLanesOverride(32))._2
+    val called = VarkaEmitterTestSupport.invokedNames(bytes, support).asScala
+    assert(called.contains("validityBitsAt") && called.contains("orValidityBitsAt"), s"$called")
+    assert(!called.exists(_.matches("(or)?ValidityBitsAt\\d+")), s"$called")
+    assert(VarkaEmitterTestSupport.staticFieldsRead(bytes, intVector).asScala
+      .contains("SPECIES_PREFERRED"))
+  }
+
+  test("task 46: with the option off the emission is the pre-task form") {
+    // The A/B's other arm, and the reference variant: no width anywhere - not in a callee name
+    // and not in the species - so what the benchmark compares against is what shipped before.
+    val bytes = emitMulti(Seq[VarkaVectorIR](new Year(new ColumnRef(0))), 1, 0,
+      VarkaEmitOptions.DEFAULTS.withValidityByWidth(false))._2
+    val called = VarkaEmitterTestSupport.invokedNames(bytes, support).asScala
+    assert(called.contains("validityBitsAt") && called.contains("orValidityBitsAt"), s"$called")
+    assert(!called.exists(_.matches("(or)?ValidityBitsAt\\d+")), s"$called")
+    val fields = VarkaEmitterTestSupport.staticFieldsRead(bytes, intVector).asScala
+    assert(fields.contains("SPECIES_PREFERRED"), s"$fields")
+    assert(!fields.exists(_.matches("SPECIES_\\d+")), s"$fields")
+    // And the lane count is asked for at run time here and nowhere in a baked emission, which
+    // is the other half of "the width is a property of the class": a constant, not a call.
+    val species = "jdk.incubator.vector.VectorSpecies"
+    assert(VarkaEmitterTestSupport.invokedNames(bytes, species).asScala.contains("length"))
+    val baked = emitMulti(Seq[VarkaVectorIR](new Year(new ColumnRef(0))), 1, 0)._2
+    assert(!VarkaEmitterTestSupport.invokedNames(baked, species).asScala.contains("length"),
+      "the baked emission still calls VectorSpecies.length()")
+  }
+
+  test("task 46: the specialised helpers answer what the general pair answered") {
+    // The correctness statement, and the only one that matters: results identical under both
+    // settings, at every null pattern and every length where the last byte is partial. The
+    // helpers' own equivalence is pinned in the engine's VarkaVectorSupportWidthTest; this is
+    // the emitted loop calling them with the rows and words it really produces.
+    val col = new ColumnRef(0)
+    val roots = Seq[VarkaVectorIR](new Year(col), new DayOfWeek(col))
+    val lengths = Seq(1, 7, 8, 9, 15, 16, 17, 63, 64, 65, 1000, 4095)
+    def inRangeDays(c: Int, i: Int): Int = 19000 + (i % 9973)
+    for (byWidth <- Seq(true, false)) {
+      checkMatrix(roots, 1, Array.empty[Int], lengths, nullPatterns.map(p => Seq(p._2)),
+        data = inRangeDays, ctx = s"validityByWidth=$byWidth",
+        options = VarkaEmitOptions.DEFAULTS.withValidityByWidth(byWidth))
+    }
+  }
+
+  test("task 46: a Cond root's selection bitmap is identical under both settings") {
+    // The shape this task helps that task 45 could not: a filter kernel ORs its selection
+    // bitmap per lane group in both bodies, because those bits are computed rather than known.
+    // Identical bitmaps under both settings is what says the specialised writer's lane mask is
+    // right where the word carries bits above the group.
+    val root = new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(1))
+    for (byWidth <- Seq(true, false)) {
+      checkMatrix(Seq(root), 2, Array.empty[Int], Seq(17, 64, 65, 1000, 4095),
+        nullPatterns.map(p => Seq(p._2, p._2)), ctx = s"cond, validityByWidth=$byWidth",
+        options = VarkaEmitOptions.DEFAULTS.withValidityByWidth(byWidth))
+    }
+  }
+
+  test("task 46: the validity OR before the compute answers what the OR after it answered") {
+    // The order moved so C2 meets the OR helper before the body's intrinsics have spent its
+    // node budget; the bytes are the same either way and the results must be. The second root
+    // is the shape that caught the first version of this: a Year over an IfElse, whose word
+    // aliases the blend's *computed* slot and so is not known before the compute - reading it
+    // early was a frame with no such local, and the verifier said so. Both settings, every
+    // null pattern, lengths with a partial last byte, the masked path forced. Not length 1:
+    // forcing the masked path sets the null count to 1, and a null count equal to the length is
+    // the all-null column by the harness's own contract (validity address 0L), which the oracle
+    // does not model - so that one length fails under either setting, for a reason that is not
+    // this test's.
+    val col = new ColumnRef(0)
+    val lit = new LiteralSlot(0)
+    val blend = new IfElse(new Compare(CompareOp.LT, col, lit), new AddDays(col, lit), col)
+    val roots = Seq[VarkaVectorIR](new Year(col), new Year(blend), new Greatest(col, blend))
+    def inRangeDays(c: Int, i: Int): Int = 19000 + (i % 9973)
+    for (orFirst <- Seq(true, false)) {
+      checkMatrix(roots, 1, Array(3), Seq(7, 8, 9, 15, 16, 17, 63, 64, 65, 1000, 4095),
+        nullPatterns.map(p => Seq(p._2)), data = inRangeDays, forceMasked = true,
+        ctx = s"validityOrFirst=$orFirst",
+        options = VarkaEmitOptions.DEFAULTS.withValidityOrFirst(orFirst))
+    }
+  }
+
+  test("task 46: an emission for a foreign width still computes that width's answers") {
+    // lanesOverride exists so one JVM can exercise every arm, which is only honest if the
+    // emitted class is self-consistent: it carries the species its helper names were chosen
+    // for, so it computes correctly (slowly, if the hardware is narrower) rather than writing
+    // validity for a width its vectors do not have.
+    val col = new ColumnRef(0)
+    for (lanes <- Seq(2, 4, 8, 16)) {
+      checkMatrix(Seq[VarkaVectorIR](new AddDays(col, new LiteralSlot(0))), 1, Array(3),
+        Seq(17, 64, 65, 1000), nullPatterns.map(p => Seq(p._2)), ctx = s"lanesOverride=$lanes",
+        options = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes))
+    }
+  }
+
   test("the lanewise-DIV floorMod reference variant agrees with the shipped magic multiply") {
     val roots = Seq[VarkaVectorIR](new DayOfWeek(new ColumnRef(0)))
     val extremes = Array(Int.MinValue, Int.MaxValue, -1, 0, -7, 7)
