@@ -10,7 +10,7 @@
 <title>VarkaIR</title>
 <polygon fill="white" stroke="none" points="-28.8,28.8 -28.8,-728.8 1909.31,-728.8 1909.31,28.8 -28.8,28.8"/>
 <text xml:space="preserve" text-anchor="start" x="806.76" y="-686.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">Varka IR: the sealed node families of VarkaVectorIR</text>
-<text xml:space="preserve" text-anchor="start" x="417.88" y="-677.45" font-family="Helvetica,sans-Serif" font-size="9.00">branch varka&#45;task&#45;61, 5 Sep 2026 (master + PRs #126, #128, task 61). Fill: green = date output, amber = int field, violet = condition mask, grey = leaf. Edge = implements. A component named without a type takes any value node; the restricted positions say so.</text>
+<text xml:space="preserve" text-anchor="start" x="253.63" y="-677.45" font-family="Helvetica,sans-Serif" font-size="9.00">branch varka&#45;task&#45;32&#45;b2, 7 Sep 2026. A weight is the civil&#45;from&#45;days prefix plus the node&#39;s own tail (task 32 B2); the prefix is paid once per loop method. Fill: green = date output, amber = int field, violet = condition mask, grey = leaf. Edge = implements. A component named without a type takes any value node; the restricted positions say so.</text>
 <g id="clust1" class="cluster">
 <title>cluster_leaves</title>
 <path fill="white" stroke="#9aa3ad" d="M20,-484C20,-484 232,-484 232,-484 238,-484 244,-490 244,-496 244,-496 244,-616 244,-616 244,-622 238,-628 232,-628 232,-628 20,-628 20,-628 14,-628 8,-622 8,-616 8,-616 8,-496 8,-496 8,-490 14,-484 20,-484"/>
@@ -33,8 +33,8 @@
 </g>
 <g id="clust5" class="cluster">
 <title>cluster_chrono</title>
-<path fill="white" stroke="#9aa3ad" d="M1084,-8C1084,-8 1424,-8 1424,-8 1430,-8 1436,-14 1436,-20 1436,-20 1436,-544 1436,-544 1436,-550 1430,-556 1424,-556 1424,-556 1084,-556 1084,-556 1078,-556 1072,-550 1072,-544 1072,-544 1072,-20 1072,-20 1072,-14 1078,-8 1084,-8"/>
-<text xml:space="preserve" text-anchor="middle" x="1254" y="-542.5" font-family="Helvetica,sans-Serif" font-size="10.00">calendar (tasks 26, 34, 35, 36, 61)</text>
+<path fill="white" stroke="#9aa3ad" d="M1096,-8C1096,-8 1418,-8 1418,-8 1424,-8 1430,-14 1430,-20 1430,-20 1430,-544 1430,-544 1430,-550 1424,-556 1418,-556 1418,-556 1096,-556 1096,-556 1090,-556 1084,-550 1084,-544 1084,-544 1084,-20 1084,-20 1084,-14 1090,-8 1096,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="1257" y="-542.5" font-family="Helvetica,sans-Serif" font-size="10.00">calendar (tasks 26, 34, 35, 36, 61)</text>
 </g>
 <g id="clust6" class="cluster">
 <title>cluster_cond</title>
@@ -234,7 +234,7 @@
 <text xml:space="preserve" text-anchor="start" x="1690.38" y="-586.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">AddMonths</text>
 <text xml:space="preserve" text-anchor="start" x="1744.38" y="-586.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days, months)</text>
 <text xml:space="preserve" text-anchor="start" x="1628.12" y="-578.4" font-family="Helvetica,sans-Serif" font-size="8.00">months: literal or guarded int column (60); decompose + recompose,</text>
-<text xml:space="preserve" text-anchor="start" x="1685.12" y="-570.4" font-family="Helvetica,sans-Serif" font-size="8.00">outside Chrono by design; weight 40</text>
+<text xml:space="preserve" text-anchor="start" x="1676.12" y="-570.4" font-family="Helvetica,sans-Serif" font-size="8.00">outside Chrono by design; weight 31 + 81</text>
 </g>
 <!-- Root&#45;&gt;AddMonths -->
 <g id="edge32" class="edge">
@@ -248,7 +248,7 @@
 <path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1179.64,-528C1179.64,-528 1138.36,-528 1138.36,-528 1132.36,-528 1126.36,-522 1126.36,-516 1126.36,-516 1126.36,-504 1126.36,-504 1126.36,-498 1132.36,-492 1138.36,-492 1138.36,-492 1179.64,-492 1179.64,-492 1185.64,-492 1191.64,-498 1191.64,-504 1191.64,-504 1191.64,-516 1191.64,-516 1191.64,-522 1185.64,-528 1179.64,-528"/>
 <text xml:space="preserve" text-anchor="start" x="1135" y="-510.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">Year</text>
 <text xml:space="preserve" text-anchor="start" x="1156" y="-510.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1141.75" y="-502.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 40</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-502.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 7</text>
 </g>
 <!-- Chrono&#45;&gt;Year -->
 <g id="edge33" class="edge">
@@ -262,7 +262,7 @@
 <path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1199.77,-460C1199.77,-460 1150.23,-460 1150.23,-460 1144.23,-460 1138.23,-454 1138.23,-448 1138.23,-448 1138.23,-436 1138.23,-436 1138.23,-430 1144.23,-424 1150.23,-424 1150.23,-424 1199.77,-424 1199.77,-424 1205.77,-424 1211.77,-430 1211.77,-436 1211.77,-436 1211.77,-448 1211.77,-448 1211.77,-454 1205.77,-460 1199.77,-460"/>
 <text xml:space="preserve" text-anchor="start" x="1146.88" y="-442.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">Month</text>
 <text xml:space="preserve" text-anchor="start" x="1176.12" y="-442.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1157.75" y="-434.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 40</text>
+<text xml:space="preserve" text-anchor="start" x="1151" y="-434.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 7</text>
 </g>
 <!-- Chrono&#45;&gt;Month -->
 <g id="edge34" class="edge">
@@ -276,7 +276,7 @@
 <path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1214.02,-392C1214.02,-392 1135.98,-392 1135.98,-392 1129.98,-392 1123.98,-386 1123.98,-380 1123.98,-380 1123.98,-368 1123.98,-368 1123.98,-362 1129.98,-356 1135.98,-356 1135.98,-356 1214.02,-356 1214.02,-356 1220.02,-356 1226.02,-362 1226.02,-368 1226.02,-368 1226.02,-380 1226.02,-380 1226.02,-386 1220.02,-392 1214.02,-392"/>
 <text xml:space="preserve" text-anchor="start" x="1132.62" y="-374.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">DayOfMonth</text>
 <text xml:space="preserve" text-anchor="start" x="1190.38" y="-374.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1157.75" y="-366.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 40</text>
+<text xml:space="preserve" text-anchor="start" x="1151" y="-366.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 7</text>
 </g>
 <!-- Chrono&#45;&gt;DayOfMonth -->
 <g id="edge35" class="edge">
@@ -290,7 +290,7 @@
 <path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1272.39,-324C1272.39,-324 1217.61,-324 1217.61,-324 1211.61,-324 1205.61,-318 1205.61,-312 1205.61,-312 1205.61,-300 1205.61,-300 1205.61,-294 1211.61,-288 1217.61,-288 1217.61,-288 1272.39,-288 1272.39,-288 1278.39,-288 1284.39,-294 1284.39,-300 1284.39,-300 1284.39,-312 1284.39,-312 1284.39,-318 1278.39,-324 1272.39,-324"/>
 <text xml:space="preserve" text-anchor="start" x="1214.25" y="-306.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">Quarter</text>
 <text xml:space="preserve" text-anchor="start" x="1248.75" y="-306.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1227.75" y="-298.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 40</text>
+<text xml:space="preserve" text-anchor="start" x="1221" y="-298.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 7</text>
 </g>
 <!-- Chrono&#45;&gt;Quarter -->
 <g id="edge36" class="edge">
@@ -301,58 +301,58 @@
 <!-- DayOfYear -->
 <g id="node20" class="node">
 <title>DayOfYear</title>
-<path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1284.89,-256C1284.89,-256 1215.11,-256 1215.11,-256 1209.11,-256 1203.11,-250 1203.11,-244 1203.11,-244 1203.11,-232 1203.11,-232 1203.11,-226 1209.11,-220 1215.11,-220 1215.11,-220 1284.89,-220 1284.89,-220 1290.89,-220 1296.89,-226 1296.89,-232 1296.89,-232 1296.89,-244 1296.89,-244 1296.89,-250 1290.89,-256 1284.89,-256"/>
-<text xml:space="preserve" text-anchor="start" x="1211.75" y="-238.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">DayOfYear</text>
-<text xml:space="preserve" text-anchor="start" x="1261.25" y="-238.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1232.75" y="-230.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 51</text>
+<path fill="#f6e3b5" stroke="#c08a1e" stroke-width="1.2" d="M1282.89,-256C1282.89,-256 1213.11,-256 1213.11,-256 1207.11,-256 1201.11,-250 1201.11,-244 1201.11,-244 1201.11,-232 1201.11,-232 1201.11,-226 1207.11,-220 1213.11,-220 1213.11,-220 1282.89,-220 1282.89,-220 1288.89,-220 1294.89,-226 1294.89,-232 1294.89,-232 1294.89,-244 1294.89,-244 1294.89,-250 1288.89,-256 1282.89,-256"/>
+<text xml:space="preserve" text-anchor="start" x="1209.75" y="-238.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">DayOfYear</text>
+<text xml:space="preserve" text-anchor="start" x="1259.25" y="-238.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
+<text xml:space="preserve" text-anchor="start" x="1221.75" y="-230.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 14</text>
 </g>
 <!-- Chrono&#45;&gt;DayOfYear -->
 <g id="edge37" class="edge">
 <title>Chrono&#45;&gt;DayOfYear</title>
-<path fill="none" stroke="#555555" d="M1247.8,-563.43C1275.01,-539.37 1318,-493.39 1318,-443 1318,-443 1318,-443 1318,-373 1318,-333.86 1313.89,-322.28 1295,-288 1289.95,-278.83 1282.83,-270.01 1275.75,-262.45"/>
-<polygon fill="#555555" stroke="#555555" points="1277.55,-260.79 1270.91,-257.49 1274.05,-264.21 1277.55,-260.79"/>
+<path fill="none" stroke="#555555" d="M1247.8,-563.43C1275.01,-539.37 1318,-493.39 1318,-443 1318,-443 1318,-443 1318,-373 1318,-333.86 1314.26,-322.07 1295,-288 1289.64,-278.51 1282.02,-269.49 1274.48,-261.83"/>
+<polygon fill="#555555" stroke="#555555" points="1276.56,-260.44 1269.84,-257.31 1273.14,-263.95 1276.56,-260.44"/>
 </g>
 <!-- LastDay -->
 <g id="node21" class="node">
 <title>LastDay</title>
-<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1278.89,-188C1278.89,-188 1221.11,-188 1221.11,-188 1215.11,-188 1209.11,-182 1209.11,-176 1209.11,-176 1209.11,-164 1209.11,-164 1209.11,-158 1215.11,-152 1221.11,-152 1221.11,-152 1278.89,-152 1278.89,-152 1284.89,-152 1290.89,-158 1290.89,-164 1290.89,-164 1290.89,-176 1290.89,-176 1290.89,-182 1284.89,-188 1278.89,-188"/>
-<text xml:space="preserve" text-anchor="start" x="1217.75" y="-170.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">LastDay</text>
-<text xml:space="preserve" text-anchor="start" x="1255.25" y="-170.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
-<text xml:space="preserve" text-anchor="start" x="1232.75" y="-162.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 40</text>
+<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1276.89,-188C1276.89,-188 1219.11,-188 1219.11,-188 1213.11,-188 1207.11,-182 1207.11,-176 1207.11,-176 1207.11,-164 1207.11,-164 1207.11,-158 1213.11,-152 1219.11,-152 1219.11,-152 1276.89,-152 1276.89,-152 1282.89,-152 1288.89,-158 1288.89,-164 1288.89,-164 1288.89,-176 1288.89,-176 1288.89,-182 1282.89,-188 1276.89,-188"/>
+<text xml:space="preserve" text-anchor="start" x="1215.75" y="-170.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">LastDay</text>
+<text xml:space="preserve" text-anchor="start" x="1253.25" y="-170.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days)</text>
+<text xml:space="preserve" text-anchor="start" x="1221.75" y="-162.4" font-family="Helvetica,sans-Serif" font-size="8.00">weight 31 + 32</text>
 </g>
 <!-- Chrono&#45;&gt;LastDay -->
 <g id="edge38" class="edge">
 <title>Chrono&#45;&gt;LastDay</title>
-<path fill="none" stroke="#555555" d="M1134.16,-571.33C1113.81,-567.63 1095.93,-562.64 1088,-556 1046.92,-521.6 1046,-496.58 1046,-443 1046,-443 1046,-443 1046,-305 1046,-231.19 1140.44,-195.79 1200.8,-180.7"/>
-<polygon fill="#555555" stroke="#555555" points="1201.02,-183.17 1207.25,-179.14 1199.87,-178.4 1201.02,-183.17"/>
+<path fill="none" stroke="#555555" d="M1134.16,-571.33C1113.81,-567.63 1095.93,-562.64 1088,-556 1046.92,-521.6 1046,-496.58 1046,-443 1046,-443 1046,-443 1046,-305 1046,-232.05 1138.62,-196.45 1198.43,-181.07"/>
+<polygon fill="#555555" stroke="#555555" points="1198.96,-183.46 1205.17,-179.4 1197.78,-178.71 1198.96,-183.46"/>
 </g>
 <!-- TruncDate -->
 <g id="node22" class="node">
 <title>TruncDate</title>
-<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1360.89,-120C1360.89,-120 1147.11,-120 1147.11,-120 1141.11,-120 1135.11,-114 1135.11,-108 1135.11,-108 1135.11,-96 1135.11,-96 1135.11,-90 1141.11,-84 1147.11,-84 1147.11,-84 1360.89,-84 1360.89,-84 1366.89,-84 1372.89,-90 1372.89,-96 1372.89,-96 1372.89,-108 1372.89,-108 1372.89,-114 1366.89,-120 1360.89,-120"/>
-<text xml:space="preserve" text-anchor="start" x="1176.38" y="-102.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">TruncDate</text>
-<text xml:space="preserve" text-anchor="start" x="1224.38" y="-102.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days, level: TruncLevel)</text>
-<text xml:space="preserve" text-anchor="start" x="1143.75" y="-94.4" font-family="Helvetica,sans-Serif" font-size="8.00">YEAR | MONTH | QUARTER in the shape; weight 53 / 40 / 70</text>
+<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1363.64,-120C1363.64,-120 1136.36,-120 1136.36,-120 1130.36,-120 1124.36,-114 1124.36,-108 1124.36,-108 1124.36,-96 1124.36,-96 1124.36,-90 1130.36,-84 1136.36,-84 1136.36,-84 1363.64,-84 1363.64,-84 1369.64,-84 1375.64,-90 1375.64,-96 1375.64,-96 1375.64,-108 1375.64,-108 1375.64,-114 1369.64,-120 1363.64,-120"/>
+<text xml:space="preserve" text-anchor="start" x="1172.38" y="-102.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">TruncDate</text>
+<text xml:space="preserve" text-anchor="start" x="1220.38" y="-102.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days, level: TruncLevel)</text>
+<text xml:space="preserve" text-anchor="start" x="1133" y="-94.4" font-family="Helvetica,sans-Serif" font-size="8.00">YEAR | MONTH | QUARTER in the shape; weight 31 + 16 / 5 / 31</text>
 </g>
 <!-- Chrono&#45;&gt;TruncDate -->
 <g id="edge39" class="edge">
 <title>Chrono&#45;&gt;TruncDate</title>
-<path fill="none" stroke="#555555" d="M1289.14,-563.42C1292.99,-561.23 1296.66,-558.76 1300,-556 1344.49,-519.23 1364,-500.72 1364,-443 1364,-443 1364,-443 1364,-237 1364,-188.95 1321.22,-148.72 1289.02,-125.24"/>
-<polygon fill="#555555" stroke="#555555" points="1290.69,-123.42 1283.56,-121.36 1287.85,-127.41 1290.69,-123.42"/>
+<path fill="none" stroke="#555555" d="M1289.14,-563.42C1292.99,-561.23 1296.66,-558.76 1300,-556 1344.49,-519.23 1364,-500.72 1364,-443 1364,-443 1364,-443 1364,-237 1364,-188.38 1319.93,-148.42 1286.59,-125.14"/>
+<polygon fill="#555555" stroke="#555555" points="1288.07,-123.19 1280.91,-121.28 1285.32,-127.24 1288.07,-123.19"/>
 </g>
 <!-- TruncDateDynamic -->
 <g id="node23" class="node">
 <title>TruncDateDynamic</title>
-<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1416.39,-52C1416.39,-52 1091.61,-52 1091.61,-52 1085.61,-52 1079.61,-46 1079.61,-40 1079.61,-40 1079.61,-28 1079.61,-28 1079.61,-22 1085.61,-16 1091.61,-16 1091.61,-16 1416.39,-16 1416.39,-16 1422.39,-16 1428.39,-22 1428.39,-28 1428.39,-28 1428.39,-40 1428.39,-40 1428.39,-46 1422.39,-52 1416.39,-52"/>
-<text xml:space="preserve" text-anchor="start" x="1182.75" y="-34.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">TruncDateDynamic</text>
-<text xml:space="preserve" text-anchor="start" x="1272" y="-34.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days, level)</text>
-<text xml:space="preserve" text-anchor="start" x="1088.25" y="-26.4" font-family="Helvetica,sans-Serif" font-size="8.00">level: the trunc&#45;level leaf&#39;s column only; all four periods blended; weight 99 (task 61, open PR)</text>
+<path fill="#cfe8e3" stroke="#2f8f82" stroke-width="1.2" d="M1410.39,-52C1410.39,-52 1103.61,-52 1103.61,-52 1097.61,-52 1091.61,-46 1091.61,-40 1091.61,-40 1091.61,-28 1091.61,-28 1091.61,-22 1097.61,-16 1103.61,-16 1103.61,-16 1410.39,-16 1410.39,-16 1416.39,-16 1422.39,-22 1422.39,-28 1422.39,-28 1422.39,-40 1422.39,-40 1422.39,-46 1416.39,-52 1410.39,-52"/>
+<text xml:space="preserve" text-anchor="start" x="1185.75" y="-34.5" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="10.00">TruncDateDynamic</text>
+<text xml:space="preserve" text-anchor="start" x="1275" y="-34.5" font-family="Helvetica,sans-Serif" font-size="10.00">(days, level)</text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-26.4" font-family="Helvetica,sans-Serif" font-size="8.00">level: the trunc&#45;level leaf&#39;s column only; all four periods blended; weight 31 + 60 (task 61)</text>
 </g>
 <!-- Chrono&#45;&gt;TruncDateDynamic -->
 <g id="edge40" class="edge">
 <title>Chrono&#45;&gt;TruncDateDynamic</title>
-<path fill="none" stroke="#555555" d="M1317.97,-570.45C1327.98,-566.86 1337.58,-562.15 1346,-556 1392.62,-521.98 1410,-500.72 1410,-443 1410,-443 1410,-443 1410,-169 1410,-129.49 1411.03,-112.81 1384,-84 1372.58,-71.83 1357.84,-62.66 1342.41,-55.76"/>
-<polygon fill="#555555" stroke="#555555" points="1343.59,-53.6 1336.18,-53.14 1341.68,-58.11 1343.59,-53.6"/>
+<path fill="none" stroke="#555555" d="M1317.97,-570.45C1327.98,-566.86 1337.58,-562.15 1346,-556 1392.62,-521.98 1410,-500.72 1410,-443 1410,-443 1410,-443 1410,-169 1410,-129.86 1413.31,-112.97 1387,-84 1375.92,-71.8 1361.5,-62.62 1346.3,-55.72"/>
+<polygon fill="#555555" stroke="#555555" points="1347.58,-53.61 1340.18,-53.11 1345.66,-58.11 1347.58,-53.61"/>
 </g>
 <!-- Compare -->
 <g id="node24" class="node">

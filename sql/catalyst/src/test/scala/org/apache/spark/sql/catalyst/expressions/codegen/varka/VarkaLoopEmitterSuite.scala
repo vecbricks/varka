@@ -2274,6 +2274,61 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
+  test("task 32 B2: every calendar weight is the prefix plus the tail the emitter emits") {
+    // The register PLAN_TASK_32.md 10.3 asked for, asserted off the class file the way the
+    // task 53 and 54 registers are. Each calendar node alone emits its prefix plus its tail,
+    // and beside month(d) in one loop method it adds exactly its tail - which is the
+    // arithmetic clause 2 of groupOutputs sums against FUSED_CEILING. A lowering change that
+    // moves a count fails here and names the constant to recount, rather than leaving a
+    // weight to drift the way CHRONO_WEIGHT drifted from 50 to 40 without anything noticing.
+    val col = new ColumnRef(0)
+    def ops(roots: Seq[VarkaVectorIR], inputs: Int = 1, lits: Int = 0,
+        options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Int =
+      laneOps(emitMulti(roots, inputs, lits, options)._2, "loopDense0")
+    val prefix = VarkaLoopEmitter.CHRONO_PREFIX_WEIGHT
+    // A prefix no tail in the group reads the month out of elides the month step (task 48).
+    val prefixNoMonth = prefix - monthStepOps(VarkaEmitOptions.DEFAULTS)
+    val month = new Month(col)
+    val monthAlone = ops(Seq(month))
+    assert(monthAlone === prefix + 4, "month(d), the partner every tail is measured beside")
+    // Wide enough that clause 1 alone puts month(d) and the node in one method, so the pair
+    // measures the fragment's arithmetic whether or not clause 2 exists yet.
+    val wide = VarkaEmitOptions.DEFAULTS.withGroupBudget(400)
+    // (name, node, its tail, whether its own prefix keeps the month step, literals, inputs)
+    val register = Seq(
+      ("year", new Year(col), 5, false, 0, 1),
+      ("dayofmonth", new DayOfMonth(col), 5, true, 0, 1),
+      ("quarter", new Quarter(col), 7, true, 0, 1),
+      ("dayofyear", new DayOfYear(col), VarkaLoopEmitter.DAY_OF_YEAR_TAIL_WEIGHT, false, 0, 1),
+      ("last_day", new LastDay(col), VarkaLoopEmitter.LAST_DAY_TAIL_WEIGHT, true, 0, 1),
+      ("add_months", new AddMonths(col, new LiteralSlot(0)),
+        VarkaLoopEmitter.ADD_MONTHS_TAIL_WEIGHT, true, 1, 1),
+      ("trunc YEAR", new TruncDate(col, TruncLevel.YEAR),
+        VarkaLoopEmitter.TRUNC_YEAR_TAIL_WEIGHT, false, 0, 1),
+      ("trunc MONTH", new TruncDate(col, TruncLevel.MONTH),
+        VarkaLoopEmitter.TRUNC_MONTH_TAIL_WEIGHT, true, 0, 1),
+      ("trunc QUARTER", new TruncDate(col, TruncLevel.QUARTER),
+        VarkaLoopEmitter.TRUNC_QUARTER_TAIL_WEIGHT, true, 0, 1),
+      ("trunc dynamic", new TruncDateDynamic(col, new ColumnRef(1)),
+        VarkaLoopEmitter.TRUNC_DYNAMIC_TAIL_WEIGHT, true, 0, 2))
+    for ((name, node, tail, readsMonth, lits, inputs) <- register) {
+      val alone = ops(Seq(node), inputs, lits)
+      val own = if (readsMonth) prefix else prefixNoMonth
+      assert(alone === own + tail,
+        s"$name alone emits $alone lane ops, not prefix $own + tail $tail - recount the constant")
+      val paired = ops(Seq(month, node), inputs, lits, wide)
+      assert(paired === monthAlone + tail,
+        s"month(d) beside $name emits $paired lane ops, not month's $monthAlone + tail $tail")
+    }
+    // weekofyear decomposes the Thursday-shifted day, so its prefix is keyed on ThursdayOf(d)
+    // and shares nothing with month(d)'s; the shift's own ops are the ThursdayOf node's weight.
+    val shift = new ThursdayOf(col)
+    assert(ops(Seq(new WeekOfYear(shift))) ===
+      ops(Seq(shift)) + prefixNoMonth + VarkaLoopEmitter.WEEK_OF_YEAR_TAIL_WEIGHT)
+    // The four fields share one tail constant, at the widest of the four.
+    assert(VarkaLoopEmitter.CHRONO_FIELD_TAIL_WEIGHT === 7)
+  }
+
   test("task 48: a year-only body computes no month, and the switch says so") {
     assert(VarkaEmitOptions.DEFAULTS.elideChronoMonth(),
       "the elision is no longer the default - the case for it is in PLAN_TASK_48.md section " +
