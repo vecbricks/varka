@@ -441,6 +441,12 @@ public final class VarkaLoopEmitter {
   private static final MethodTypeDesc OR_VALIDITY_BITS_AT = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_long,
       ConstantDescs.CD_int);
+  /** {@code long VarkaVectorSupport.validityBitsAt<N>(MemorySegment, long)} (task 46). */
+  private static final MethodTypeDesc VALIDITY_BITS_AT_WIDTH = MethodTypeDesc.of(
+      ConstantDescs.CD_long, MEMORY_SEGMENT, ConstantDescs.CD_long);
+  /** {@code void VarkaVectorSupport.orValidityBitsAt<N>(MemorySegment, long, long)} (task 46). */
+  private static final MethodTypeDesc OR_VALIDITY_BITS_AT_WIDTH = MethodTypeDesc.of(
+      ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_long);
 
   /** {@code int VectorSpecies.length()} / {@code int VectorSpecies.loopBound(int)}. */
   private static final MethodTypeDesc SPECIES_LENGTH = MethodTypeDesc.of(ConstantDescs.CD_int);
@@ -522,6 +528,39 @@ public final class VarkaLoopEmitter {
 
   // The word-reference value meaning "constant all-true" (a literal-only subtree).
   private static final int WORD_ALL_TRUE = -1;
+
+  /**
+   * The lane count this JVM's kernels run at, read once. An emitted class is defined by the
+   * shape cache in the JVM that will run it and lives only in memory, so what
+   * {@code IntVector.SPECIES_PREFERRED} answers here is what the class will see - and since
+   * task 46 the class does not ask: it carries the matching species constant instead.
+   */
+  private static final int PREFERRED_LANES = jdk.incubator.vector.IntVector.SPECIES_PREFERRED
+      .length();
+
+  /**
+   * The lane count to emit for, or 0 for "do not bake one" - which is what
+   * {@link VarkaEmitOptions#validityByWidth} off means, and what any width without a
+   * specialised pair of validity helpers means (task 46).
+   *
+   * <p>{@link VarkaVectorSupport} has a pair per int lane count the Vector API produces on
+   * hardware that exists: 2, 4, 8 and 16, whose species are {@code SPECIES_64} through
+   * {@code SPECIES_512}. A wider shape - SVE reaches 32 and 64 int lanes and has no named
+   * species constant for either - takes the run-time {@code SPECIES_PREFERRED} and the general
+   * helpers, which is correct and no slower than before this task.
+   */
+  private static int emitLanes(VarkaEmitOptions options) {
+    if (!options.validityByWidth()) {
+      return 0;
+    }
+    int lanes = options.lanesOverride() != 0 ? options.lanesOverride() : PREFERRED_LANES;
+    return lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16 ? lanes : 0;
+  }
+
+  /** The {@code IntVector} species constant for a baked lane count: 16 lanes is 512 bits. */
+  private static String speciesField(int lanes) {
+    return lanes == 0 ? "SPECIES_PREFERRED" : "SPECIES_" + lanes * Integer.SIZE;
+  }
 
   /**
    * The telemetry-defaulted form of
@@ -1090,6 +1129,11 @@ public final class VarkaLoopEmitter {
     final int numLiterals;
     /** The emission's options, carried here because Analysis already reaches every body. */
     final VarkaEmitOptions options;
+    /**
+     * The lane count baked into this emission, or 0 to read {@code SPECIES_PREFERRED} at run
+     * time and call the general validity helpers; see {@link VarkaLoopEmitter#emitLanes}.
+     */
+    final int lanes;
     /** Distinct nodes in first-visit order, with how often each is used. */
     final Map<VarkaVectorIR, Integer> useCount = new LinkedHashMap<>();
     /** Per distinct node, the bitset of input ordinals its subtree references. */
@@ -1152,6 +1196,7 @@ public final class VarkaLoopEmitter {
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.options = options;
+      this.lanes = emitLanes(options);
     }
 
     void analyzeRoot(VarkaVectorIR root) {
@@ -1886,10 +1931,20 @@ public final class VarkaLoopEmitter {
 
     // Species, lane count, loop bound, and the hoisted scalar arguments (LICM). The species is
     // read with getstatic so it stays a JIT constant - what lets C2 intrinsify the calls.
-    cb.getstatic(INT_VECTOR, "SPECIES_PREFERRED", VECTOR_SPECIES);
+    //
+    // Which species: the concrete one this emission was built for where task 46's
+    // width-specialised validity helpers are in use, so the class cannot disagree with the
+    // helper names beside it, and the lane count is a bytecode constant rather than a call.
+    // Otherwise SPECIES_PREFERRED and its length(), which is what every emission did before
+    // task 46 and what a width with no specialised helpers still does.
+    cb.getstatic(INT_VECTOR, speciesField(analysis.lanes), VECTOR_SPECIES);
     cb.astore(s.species);
-    cb.aload(s.species);
-    cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+    if (analysis.lanes != 0) {
+      cb.loadConstant(analysis.lanes);
+    } else {
+      cb.aload(s.species);
+      cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+    }
     cb.istore(s.lanes);
     cb.aload(s.species);
     cb.iload(P_LENGTH);
@@ -2055,6 +2110,10 @@ public final class VarkaLoopEmitter {
    * and cannot run off a nominally sized bitmap. The descriptors are identical, so the body
    * emitters differ only in the name they pass. Getting this wrong is silent, not loud: a
    * nine-row group handed to the whole-group form reads one byte and calls its ninth row null.
+   *
+   * <p>Since task 46 a whole group also names the width, through
+   * {@link #emitValidityRead}/{@link #emitValidityOr}: these two return the general forms,
+   * which stay the fallback for the epilogue and for any width with no specialised sibling.
    */
   private static String validityBits(Slots s) {
     return s.epilogueMask != null ? "partialValidityBitsAt" : "validityBitsAt";
@@ -2062,6 +2121,40 @@ public final class VarkaLoopEmitter {
 
   private static String orValidityBits(Slots s) {
     return s.epilogueMask != null ? "orPartialValidityBitsAt" : "orValidityBitsAt";
+  }
+
+  /**
+   * Whether this call site takes task 46's width-specialised helper: a whole lane group, in an
+   * emission that baked a lane count. The epilogue's partial group never does - its row count
+   * is the batch's remainder rather than a width, and it runs once per batch, so the general
+   * form's switch costs nothing worth naming a method over.
+   */
+  private static boolean widthSpecialised(Analysis analysis, Slots s) {
+    return s.epilogueMask == null && analysis.lanes != 0;
+  }
+
+  /**
+   * This lane group's validity word for the input segment and row already on the stack. Leaves
+   * one long. The specialised form takes no lane count, so the {@code iload} disappears with
+   * the switch it used to feed.
+   */
+  private static void emitValidityRead(CodeBuilder cb, Analysis analysis, Slots s) {
+    if (widthSpecialised(analysis, s)) {
+      cb.invokestatic(SUPPORT, "validityBitsAt" + analysis.lanes, VALIDITY_BITS_AT_WIDTH);
+    } else {
+      cb.iload(s.lanes);
+      cb.invokestatic(SUPPORT, validityBits(s), VALIDITY_BITS_AT);
+    }
+  }
+
+  /** ORs the word already on the stack into the destination bitmap; the write half of the pair. */
+  private static void emitValidityOr(CodeBuilder cb, Analysis analysis, Slots s) {
+    if (widthSpecialised(analysis, s)) {
+      cb.invokestatic(SUPPORT, "orValidityBitsAt" + analysis.lanes, OR_VALIDITY_BITS_AT_WIDTH);
+    } else {
+      cb.iload(s.lanes);
+      cb.invokestatic(SUPPORT, orValidityBits(s), OR_VALIDITY_BITS_AT);
+    }
   }
 
   /**
@@ -2108,8 +2201,7 @@ public final class VarkaLoopEmitter {
         cb.aload(s.srcValSeg[i]);
         cb.iload(s.iVar);
         cb.i2l();
-        cb.iload(s.lanes);
-        cb.invokestatic(SUPPORT, validityBits(s), VALIDITY_BITS_AT);
+        emitValidityRead(cb, analysis, s);
         cb.goto_(wDone);
         cb.labelBinding(wNoNulls);
         cb.loadConstant(-1L);
@@ -2141,9 +2233,22 @@ public final class VarkaLoopEmitter {
         } else {
           cb.lload(s.kt.get(cond));
         }
-        cb.iload(s.lanes);
-        cb.invokestatic(SUPPORT, orValidityBits(s), OR_VALIDITY_BITS_AT);
+        emitValidityOr(cb, analysis, s);
         continue;
+      }
+      // The validity OR goes *before* the vector computation wherever its word is already
+      // known - an aliased input word in the masked body, the constant in the dense one - and
+      // after it only where the word is computed by the node itself (IfElse, Greatest, Least).
+      // Same bytes either way; what changes is where C2's parser meets the call. Task 46 read
+      // the compiled loop and found the OR helper a real call in every arm, refused with
+      // NodeCountInliningCutoff: the caller is over C2's node budget by the time it reaches the
+      // last call in program order, after the body's Vector API intrinsics have been parsed,
+      // and no size of callee changes that. Parsed first, it is inlined.
+      boolean validityWritten = fillsValidityOnce(analysis, dense, root);
+      boolean wordKnownEarly = analysis.options.validityOrFirst()
+          && (dense || wordKnownBeforeCompute(analysis, s, root));
+      if (!validityWritten && wordKnownEarly) {
+        emitRootValidityOr(cb, dense, analysis, s, o, root);
       }
       emitValue(cb, root, dense, analysis, s, computed);
       cb.aload(s.dstSeg[o]);
@@ -2155,19 +2260,45 @@ public final class VarkaLoopEmitter {
       } else {
         cb.invokevirtual(INT_VECTOR, "intoMemorySegment", INTO_MEMORY_SEGMENT_DENSE);
       }
-      if (!fillsValidityOnce(analysis, dense, root)) {
-        cb.aload(s.dstValSeg[o]);
-        cb.iload(s.iVar);
-        cb.i2l();
-        if (dense) {
-          cb.loadConstant(-1L);
-        } else {
-          loadWord(cb, s.wordRef.get(root));
-        }
-        cb.iload(s.lanes);
-        cb.invokestatic(SUPPORT, orValidityBits(s), OR_VALIDITY_BITS_AT);
+      if (!validityWritten && !wordKnownEarly) {
+        emitRootValidityOr(cb, dense, analysis, s, o, root);
       }
     }
+  }
+
+  /**
+   * Whether a masked value root's word exists before its subtree is emitted: the all-true
+   * constant, or one of this lane group's input words, which the body computes first. Not
+   * merely "the root computes no word of its own" - a root whose word aliases a child's
+   * <i>computed</i> word ({@code Year(IfElse(...))} reads the blend's slot) is written inside
+   * {@code emitValue}, and reading it earlier is a frame with no such local, which the verifier
+   * rejects.
+   */
+  private static boolean wordKnownBeforeCompute(Analysis analysis, Slots s, VarkaVectorIR root) {
+    int ref = s.wordRef.get(root);
+    if (ref == WORD_ALL_TRUE) {
+      return true;
+    }
+    for (int i = 0; i < analysis.numInputs; i++) {
+      if ((analysis.referencedColumns >>> i & 1L) != 0 && s.word[i] == ref) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** ORs a value root's validity word for this lane group into its destination bitmap. */
+  private static void emitRootValidityOr(CodeBuilder cb, boolean dense, Analysis analysis,
+      Slots s, int output, VarkaVectorIR root) {
+    cb.aload(s.dstValSeg[output]);
+    cb.iload(s.iVar);
+    cb.i2l();
+    if (dense) {
+      cb.loadConstant(-1L);
+    } else {
+      loadWord(cb, s.wordRef.get(root));
+    }
+    emitValidityOr(cb, analysis, s);
   }
 
   /**

@@ -106,6 +106,50 @@ public final class VarkaEmitterTestSupport {
     return names;
   }
 
+  /**
+   * The distinct methods the whole class invokes on {@code owner}, sorted - the callee names
+   * behind {@link #invocationCount}'s count. Task 46 picks a validity helper by the emitted
+   * lane count, so which name a body carries is the assertion, and a substring test would not
+   * do it: {@code orValidityBitsAt} is a prefix of {@code orValidityBitsAt16}.
+   */
+  public static List<String> invokedNames(byte[] bytes, String owner) {
+    java.util.TreeSet<String> names = new java.util.TreeSet<>();
+    for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
+      if (method.code().isEmpty()) {
+        continue;
+      }
+      for (java.lang.classfile.CodeElement element : method.code().get()) {
+        if (element instanceof java.lang.classfile.instruction.InvokeInstruction invoke
+            && invoke.owner().asInternalName().equals(owner.replace('.', '/'))) {
+          names.add(invoke.name().stringValue());
+        }
+      }
+    }
+    return new java.util.ArrayList<>(names);
+  }
+
+  /**
+   * The distinct static fields the whole class reads from {@code owner}, sorted. The emitted
+   * species constant is one of these, and since task 46 it is the concrete
+   * {@code SPECIES_512} rather than {@code SPECIES_PREFERRED} wherever a width was baked.
+   */
+  public static List<String> staticFieldsRead(byte[] bytes, String owner) {
+    java.util.TreeSet<String> names = new java.util.TreeSet<>();
+    for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
+      if (method.code().isEmpty()) {
+        continue;
+      }
+      for (java.lang.classfile.CodeElement element : method.code().get()) {
+        if (element instanceof java.lang.classfile.instruction.FieldInstruction field
+            && field.opcode() == java.lang.classfile.Opcode.GETSTATIC
+            && field.owner().asInternalName().equals(owner.replace('.', '/'))) {
+          names.add(field.name().stringValue());
+        }
+      }
+    }
+    return new java.util.ArrayList<>(names);
+  }
+
   public static List<Integer> lineNumbers(byte[] bytes, String methodName) {
     java.util.TreeSet<Integer> lines = new java.util.TreeSet<>();
     for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {

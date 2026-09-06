@@ -291,6 +291,52 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
     assert(VarkaEmitOptions.DEFAULTS.withCse(false).canonical().nonEmpty)
   }
 
+  test("task 46: every option component can change the canonical rendering") {
+    // `truncDate` was left out of canonical() from task 35 until task 46, so two option values
+    // differing only in the trunc lowering rendered the same string: different keys in the
+    // cache's map, one shared execution identity in the side table keyed on the hash, which is
+    // the collision the record's class doc says must not exist. Nothing failed, because nothing
+    // looked - so this walks the record's components and holds each one to it. It reflects
+    // rather than listing names on purpose: a list would have to be updated by the same person
+    // who forgot the field.
+    val defaults = VarkaEmitOptions.DEFAULTS
+    val components = classOf[VarkaEmitOptions].getRecordComponents
+    assert(components.length >= 13, "components were removed; re-read this test's reason")
+
+    def otherValue(component: java.lang.reflect.RecordComponent): AnyRef = {
+      val current = component.getAccessor.invoke(defaults)
+      component.getType match {
+        case t if t == classOf[Boolean] || t == java.lang.Boolean.TYPE =>
+          java.lang.Boolean.valueOf(!current.asInstanceOf[java.lang.Boolean])
+        case t if t == classOf[Int] || t == java.lang.Integer.TYPE =>
+          // lanesOverride must stay a power of two, and groupBudget positive; doubling is both.
+          val cur = current.asInstanceOf[java.lang.Integer]
+          java.lang.Integer.valueOf(if (cur == 0) 4 else cur * 2)
+        case t if t.isEnum =>
+          t.getEnumConstants.find(_ != current)
+            .getOrElse(fail(s"${component.getName} has one enum constant"))
+        case t => fail(s"${component.getName}: no other value known for $t")
+      }
+    }
+
+    def build(values: Array[AnyRef]): VarkaEmitOptions =
+      classOf[VarkaEmitOptions].getConstructors.head
+        .newInstance(values: _*).asInstanceOf[VarkaEmitOptions]
+
+    // Every component pinned away from its default before any pair is compared, so neither
+    // instance below can take canonical()'s isDefault() shortcut to "" - otherwise reverting
+    // just one field to its default would render DEFAULTS' empty string regardless of whether
+    // that field reaches canonical() at all, which is exactly the bug this test exists to
+    // catch (validityOrFirst repeated it, missing from canonical() despite this test passing).
+    val allOther = components.map(otherValue)
+    val everythingOther = build(allOther)
+    for ((component, i) <- components.zipWithIndex) {
+      val thisOneAtDefault = build(allOther.updated(i, component.getAccessor.invoke(defaults)))
+      assert(everythingOther.canonical() !== thisOneAtDefault.canonical(),
+        s"${component.getName} does not reach canonical(), so two variants share a shape hash")
+    }
+  }
+
   test("newKernel unwraps the reflective wrapper, so a fatal constructor error stays fatal") {
     // Constructor.newInstance wraps whatever the constructor body throws in an
     // InvocationTargetException, which is itself NonFatal - so rethrowing the wrapper would

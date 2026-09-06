@@ -108,6 +108,33 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  *        such a count on the strength of it firing - so it is unconditional, like task 42's
  *        {@code make_date}. (The minus spelling declines at compile time, so no kernel exists
  *        for either setting to gate.)
+ * @param validityByWidth whether a whole lane group's validity is read and written through the
+ *        helper named for the emission's lane count - {@code orValidityBitsAt16} and its
+ *        siblings, each with the general form's four-arm switch already resolved - and the
+ *        concrete {@code VectorSpecies} constant baked in beside it (task 46). The general pair
+ *        takes the lane count as an argument, so it carries a switch the caller cannot fold; at
+ *        212 bytes the writer does not inline inside a fused loop, and one refused call costs
+ *        1.87 to 3.24 ns per lane group at any width. Off, the emitter reads
+ *        {@code SPECIES_PREFERRED} at run time and calls the general pair, which is task 45's
+ *        bytes exactly - a live reference variant, on {@link FloorMod7}'s precedent, and the
+ *        arm the A/B that priced this measures against.
+ * @param validityOrFirst whether a value root's validity OR is emitted <i>before</i> its vector
+ *        computation, wherever its word is already known - an input word in the masked body,
+ *        the constant in the dense one - rather than after the store (task 46, second half).
+ *        Same bytes, different order; what it changes is where C2's parser meets the call.
+ *        Emitted last, after the body's Vector API intrinsics, the OR helper was refused with
+ *        {@code NodeCountInliningCutoff} in every arm - a develop-only limit of 18000 nodes on
+ *        the <i>caller</i>, which no size of callee can satisfy - and ran as a real call in the
+ *        hot loop. Emitted first, it inlines. Off reproduces the after-the-store order, the
+ *        reference variant for the A/B that priced this, on {@link FloorMod7}'s precedent.
+ * @param lanesOverride the lane count to emit for, or 0 to emit for the JVM's own
+ *        {@code IntVector.SPECIES_PREFERRED} - which is what production always does, so
+ *        {@link #DEFAULTS} renders empty and production hashes do not move. It exists because
+ *        one JVM has one preferred width and {@link #validityByWidth} has an arm per width: the
+ *        suite drives 2, 4, 8 and 16 lanes, and a width with no specialised sibling, from a
+ *        single run. A non-zero value must be a power of two; the emitted class carries the
+ *        matching species, so it computes the right answers at that width wherever it runs,
+ *        slowly if the hardware is narrower.
  * @param truncDate which lowering {@code trunc(date, ...)} uses at the {@code YEAR} and
  *        {@code QUARTER} levels (task 35): {@link TruncDateForm#SUBTRACT} takes the day of year
  *        off the date ({@code d - dayofyear + start}), {@link TruncDateForm#RECOMPOSE} rebuilds
@@ -132,6 +159,9 @@ public record VarkaEmitOptions(
     boolean neriSchneiderMonth,
     boolean julianMap,
     boolean guardDayProducers,
+    boolean validityByWidth,
+    boolean validityOrFirst,
+    int lanesOverride,
     TruncDateForm truncDate,
     FloorMod7 floorMod7,
     boolean misdescribeAdd) {
@@ -151,7 +181,8 @@ public record VarkaEmitOptions(
   /** What production always emits with; see the hashing note in the class doc. */
   public static final VarkaEmitOptions DEFAULTS =
       new VarkaEmitOptions(
-          VarkaLoopEmitter.GROUP_BUDGET, true, true, true, true, true, true, true,
+          VarkaLoopEmitter.GROUP_BUDGET, true, true, true, true, true, true, true, true, true,
+          0,
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, false);
 
   public VarkaEmitOptions {
@@ -164,73 +195,95 @@ public record VarkaEmitOptions(
     if (floorMod7 == null) {
       throw new IllegalArgumentException("floorMod7 must not be null");
     }
+    if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
+      throw new IllegalArgumentException(
+          "lanesOverride must be 0 or a power of two: " + lanesOverride);
+    }
   }
 
   /** {@link #DEFAULTS} with one field changed, for the suites and benchmarks that vary one. */
   public VarkaEmitOptions withGroupBudget(int budget) {
     return new VarkaEmitOptions(budget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withCse(boolean enabled) {
     return new VarkaEmitOptions(groupBudget, enabled, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withShareChronoPrefix(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, enabled, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, cse, enabled, denseValidityOnce, elideChronoMonth,
+        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
+        lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withDenseValidityOnce(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, enabled,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, enabled, elideChronoMonth,
+        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
+        lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withElideChronoMonth(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        enabled, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce, enabled,
+        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
+        lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withNeriSchneiderMonth(boolean enabled) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, enabled, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+        elideChronoMonth, enabled, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
+        lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withJulianMap(boolean enabled) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, enabled,
-        guardDayProducers, truncDate, floorMod7, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, enabled, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withGuardDayProducers(boolean enabled) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        enabled, truncDate, floorMod7, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, julianMap, enabled, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+  }
+
+  public VarkaEmitOptions withValidityByWidth(boolean enabled) {
+    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, enabled,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+  }
+
+  public VarkaEmitOptions withValidityOrFirst(boolean enabled) {
+    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        enabled, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+  }
+
+  public VarkaEmitOptions withLanesOverride(int lanes) {
+    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanes, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withTruncDate(TruncDateForm form) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, form, floorMod7, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, form, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withFloorMod7(FloorMod7 lowering) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, lowering, misdescribeAdd);
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, lowering, misdescribeAdd);
   }
 
   public VarkaEmitOptions withMisdescribeAdd(boolean misdescribe) {
     return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap,
-        guardDayProducers, truncDate, floorMod7, misdescribe);
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribe);
   }
 
   public boolean isDefault() {
@@ -242,6 +295,13 @@ public record VarkaEmitOptions(
    * format no JDK promises, for the same reason {@code VarkaVectorIR.canonical} exists. Empty for
    * {@link #DEFAULTS}, so a production hash is byte-identical to what it was before options
    * existed; otherwise every field, in declaration order, so two variants can never collide.
+   *
+   * <p>"Every field" was not true until task 46: {@code truncDate} had been left out since task
+   * 35, so two option values differing only in the {@code trunc} lowering rendered the same
+   * string and shared one execution identity in the cache's side table, which is exactly the
+   * hazard this class doc describes. {@code VarkaShapeCacheSuite} now walks the record's
+   * components and fails if one of them cannot change the rendering, so the next field cannot
+   * be forgotten the same way.
    */
   public String canonical() {
     if (isDefault()) {
@@ -249,7 +309,7 @@ public record VarkaEmitOptions(
     }
     return "opts(" + groupBudget + '|' + cse + '|' + shareChronoPrefix + '|' + denseValidityOnce
         + '|' + elideChronoMonth + '|' + neriSchneiderMonth + '|' + julianMap + '|'
-        + guardDayProducers + '|' + truncDate + '|' + floorMod7
-        + '|' + misdescribeAdd + ')';
+        + guardDayProducers + '|' + validityByWidth + '|' + validityOrFirst + '|' + lanesOverride
+        + '|' + truncDate + '|' + floorMod7 + '|' + misdescribeAdd + ')';
   }
 }

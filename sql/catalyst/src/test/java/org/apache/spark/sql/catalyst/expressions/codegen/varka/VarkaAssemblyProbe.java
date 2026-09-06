@@ -169,6 +169,16 @@ public final class VarkaAssemblyProbe {
           "emittedYear", List.of(new VarkaVectorIR.Year(COLUMN_0)), 1, 0);
       case "emittedDayOfWeek" -> emittedProjection(
           "emittedDayOfWeek", List.of(new VarkaVectorIR.DayOfWeek(COLUMN_0)), 1, 0);
+      // Task 46's two arms, on the body the change touches: the masked year loop, emitted
+      // with the width-named validity helpers and with the general pair. Same IR, same data,
+      // one option apart - so a difference in the printed instructions is the change and
+      // nothing else.
+      case "emittedYearMaskedByWidth" -> emittedProjection(
+          "emittedYearMaskedByWidth", List.of(new VarkaVectorIR.Year(COLUMN_0)), 1, 0,
+          VarkaEmitOptions.DEFAULTS, true);
+      case "emittedYearMaskedGeneral" -> emittedProjection(
+          "emittedYearMaskedGeneral", List.of(new VarkaVectorIR.Year(COLUMN_0)), 1, 0,
+          VarkaEmitOptions.DEFAULTS.withValidityByWidth(false), true);
       case "emittedCompare" -> emittedProjection(
           "emittedCompare",
           List.of(new VarkaVectorIR.IfElse(
@@ -323,6 +333,20 @@ public final class VarkaAssemblyProbe {
     }
   }
 
+  /** A bitmap with every seventh row null - the parity harness's own mixed-null pattern. */
+  private static MemorySegment everySeventhNull(Arena arena, int rows) {
+    MemorySegment validity = arena.allocate((rows + 7) / 8L, 8);
+    validity.fill((byte) 0);
+    for (int i = 0; i < rows; i++) {
+      if (i % 7 != 0) {
+        long off = i / 8L;
+        byte old = validity.get(java.lang.foreign.ValueLayout.JAVA_BYTE, off);
+        validity.set(java.lang.foreign.ValueLayout.JAVA_BYTE, off, (byte) (old | (1 << (i % 8))));
+      }
+    }
+    return validity;
+  }
+
   private static MemorySegment allValid(Arena arena, int rows) {
     MemorySegment validity = arena.allocate((rows + 7) / 8L, 8);
     validity.fill((byte) 0xFF);
@@ -409,9 +433,25 @@ public final class VarkaAssemblyProbe {
    */
   private static Hot emittedProjection(
       String suffix, List<VarkaVectorIR> outputs, int numInputs, int numLiterals) {
+    return emittedProjection(suffix, outputs, numInputs, numLiterals,
+        VarkaEmitOptions.DEFAULTS, false);
+  }
+
+  /**
+   * As above, for a named emit variant and, optionally, the <i>masked</i> body.
+   *
+   * <p>Task 46 needs both: its A/B is between two emit options, and the bodies it changes are
+   * the masked ones - a dense value output has had no per-lane-group validity call since task
+   * 45. `masked` hands the driver a non-zero null count and a bitmap with real zeros in it, so
+   * the dispatcher takes the masked path and the method the parent prints is the one that does
+   * the work.
+   */
+  private static Hot emittedProjection(
+      String suffix, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
+      VarkaEmitOptions options, boolean masked) {
     String className = EMITTED_PREFIX + suffix;
     byte[] bytes = VarkaLoopEmitter.emit(
-        className, outputs, numInputs, numLiterals, null, null, VarkaEmitOptions.DEFAULTS);
+        className, outputs, numInputs, numLiterals, null, null, options);
     VarkaFusedKernel loaded;
     try {
       VarkaGeneratedClassLoader loader =
@@ -425,8 +465,9 @@ public final class VarkaAssemblyProbe {
       final VarkaFusedKernel kernel = loaded;
       final MemorySegment src = arena.allocate(ROWS * 4L, 64);
       final long[] srcData = {src.address()};
-      final long[] srcValidity = {allValid(arena, ROWS).address()};
-      final int[] srcNullCount = {0};
+      final long[] srcValidity = {
+          (masked ? everySeventhNull(arena, ROWS) : allValid(arena, ROWS)).address()};
+      final int[] srcNullCount = {masked ? (ROWS + 6) / 7 : 0};
       final long[] dstData = new long[outputs.size()];
       final long[] dstValidity = new long[outputs.size()];
       final int[] scalarArgs = new int[numLiterals];
