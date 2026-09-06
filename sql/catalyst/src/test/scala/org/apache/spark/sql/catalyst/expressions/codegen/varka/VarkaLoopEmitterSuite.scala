@@ -640,6 +640,24 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(months.nonEmpty)
     val (_, weekday) = emitMulti(Seq(new NextDay(new ColumnRef(0), new ColumnRef(1))), 2, 0)
     assert(weekday.nonEmpty)
+    // What replaced it still fires, and still names the operand that failed. Widening the two
+    // nodes removed the literal requirement, not the shape requirement: an arbitrary subtree in
+    // either position is a compiler bug the emitter refuses rather than emits. The message is
+    // asserted per operand because one message shared across four operands is what sent #110
+    // looking for a next_day the shape did not contain - the whole reason the name is a
+    // parameter. Without an assertion here, dropping any of the four calls keeps the suite green.
+    val badCount = intercept[IllegalArgumentException](
+      emitMulti(Seq(new AddMonths(new ColumnRef(0), new Year(new ColumnRef(0)))), 1, 0))
+    assert(badCount.getMessage.contains("add_months' month count"), badCount.getMessage)
+    val badWeekday = intercept[IllegalArgumentException](
+      emitMulti(Seq(new NextDay(new ColumnRef(0), new Year(new ColumnRef(0)))), 1, 0))
+    assert(badWeekday.getMessage.contains("next_day's weekday"), badWeekday.getMessage)
+    val badOffset = intercept[IllegalArgumentException](
+      emitMulti(Seq(new AddDays(new ColumnRef(0), new Year(new ColumnRef(0)))), 1, 0))
+    assert(badOffset.getMessage.contains("date_add's day offset"), badOffset.getMessage)
+    val badSubOffset = intercept[IllegalArgumentException](
+      emitMulti(Seq(new SubDays(new ColumnRef(0), new Year(new ColumnRef(0)))), 1, 0))
+    assert(badSubOffset.getMessage.contains("date_sub's day offset"), badSubOffset.getMessage)
   }
 
   test("task 59: next_day with a column weekday matches the reference evaluator over every " +
@@ -1891,21 +1909,70 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
           VarkaFusedKernel.STATUS_CHRONO_RANGE)
         assert(status(kernel, 17, 16, lo - 1, none, none) ===
           VarkaFusedKernel.STATUS_CHRONO_RANGE)
+        // A live violation in the masked epilogue - the one body where the guard mask is ANDed
+        // with both the node's word and the epilogue mask, and the body whose ordering produced
+        // this task's VerifyError. The other epilogue cases above are null-free, so the dense
+        // driver runs them and only epilogueDense is exercised; the null here is on a lane other
+        // than the violating one, so the violation stays live and the guard must still see it.
+        assert(status(kernel, 17, 16, hi + 1, _ == 2, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE)
         // The out-of-range lane under a null count, then under a null date: the row is null,
         // its data lanes are undefined, and the batch must not be condemned.
         assert(status(kernel, 64, 3, hi + 1, none, _ == 3) === 0)
         assert(status(kernel, 64, 3, hi + 1, _ == 3, none) === 0)
         assert(status(kernel, 17, 16, hi + 1, none, _ == 16) === 0)
-        // The reference variant computes every one of them - wrongly past the range, which is
-        // exactly what the metric-only differential asserts against.
-        assert(status(kernelOff, 64, 3, hi + 1, none, none) === 0)
-        assert(status(kernelOff, 17, 16, lo - 1, none, none) === 0)
+        // guardDayProducers does not reach this guard: the count check is the node's own
+        // correctness (its magic multiply is exact only over the guarded range) and the
+        // compiler's dayRange bounds a column count on the strength of it, so the option-off
+        // variant declines exactly as the default does. Only task 52's day-producer guard,
+        // which insures a consumer rather than the producer itself, is a reference variant.
+        assert(status(kernelOff, 64, 3, hi + 1, none, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE)
+        assert(status(kernelOff, 17, 16, lo - 1, none, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE)
+        assert(status(kernelOff, 64, -1, 0, none, none) === 0)
       } finally {
         arena.close()
       }
     } finally {
       loader.release()
       loaderOff.release()
+    }
+  }
+
+  test("task 60: a literal date with a column count guards the same, on the branch that has " +
+      "no word of its own") {
+    // Every other test builds AddMonths(ColumnRef, ColumnRef), which owns its validity word.
+    // A literal date gives the node no word of its own: planWordRef aliases the count input's,
+    // the new emitAndWord is skipped, and emitRangeGuard reads an aliased input slot instead.
+    // That is a different path through the same guard, and nothing else covers it.
+    val root = new AddMonths(new LiteralSlot(0), new ColumnRef(0))
+    val (kernel, loader) = load(emitMulti(Seq(root), 1, 1, VarkaEmitOptions.DEFAULTS))
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val hi = VarkaChrono.MONTH_ARITH_MAX_MONTHS
+        // The date rides the literal table rather than an input column, so the kernel is run
+        // directly: runKernel passes no literals.
+        val dateLiteral = 19000
+        def status(length: Int, at: Int, value: Int, nullCount: Int => Boolean): Int = {
+          val m = makeInputData(arena, length, nullCount, i => if (i == at) value else i % 7 - 3)
+          val out = makeOutput(arena, length)
+          kernel.run(
+            Array(m.data.address()), Array(m.validity.address()), Array(m.nullCount),
+            Array(out._1.address()), Array(out._2.address()), Array(dateLiteral), length)
+        }
+        val none = (_: Int) => false
+        assert(status(64, -1, 0, none) === 0)
+        assert(status(64, 3, hi + 1, none) === VarkaFusedKernel.STATUS_CHRONO_RANGE)
+        assert(status(17, 16, hi + 1, none) === VarkaFusedKernel.STATUS_CHRONO_RANGE)
+        // Null count on the violating lane: undefined data, and the batch stands.
+        assert(status(64, 3, hi + 1, _ == 3) === 0)
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loader.release()
     }
   }
 
@@ -1940,11 +2007,16 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     // The literal form: byte-identical under both settings, and identical to its shape before
     // this task (asserted below by the register itself).
     assert(sizes(literal, 1, 1, VarkaEmitOptions.DEFAULTS) === sizes(literal, 1, 1, guardOff))
-    // The guarded shape: every body grows by the guard, and only the guarded shape does.
+    // The control for the count guard's bytes is the literal form, not the option: the count
+    // guard is self-guarding and unconditional, so the option-off variant carries it too and
+    // the two column runs are byte-identical. Only the day-producer guard answers to the flag.
     val guarded = sizes(column, 2, 0, VarkaEmitOptions.DEFAULTS)
-    val unguarded = sizes(column, 2, 0, guardOff)
-    for ((body, (on, off)) <- bodies.zip(guarded.zip(unguarded))) {
-      assert(on > off, s"$body: expected the guard's bytes, got $on vs $off")
+    assert(guarded === sizes(column, 2, 0, guardOff),
+      "guardDayProducers must not reach the self-guarding count check")
+    // Every body of the column form carries the guard the literal form does not need.
+    for ((body, (col, lit)) <- bodies.zip(guarded.zip(sizes(literal, 1, 1,
+        VarkaEmitOptions.DEFAULTS)))) {
+      assert(col > lit, s"$body: expected the guard's bytes, got $col vs $lit")
     }
   }
 
@@ -1954,9 +2026,13 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     val column = new AddMonths(new ColumnRef(0), new ColumnRef(1))
     val literalOps = laneOps(emitMulti(Seq(literal), 1, 1)._2, "loopDense0")
     val guardedOps = laneOps(emitMulti(Seq(column), 2, 0)._2, "loopDense0")
-    val unguardedOps = laneOps(emitMulti(Seq(column), 2, 0, guardOff)._2, "loopDense0")
-    assert((literalOps, unguardedOps, guardedOps) === ((112, 112, 114)),
-      s"the register: literal=$literalOps unguarded=$unguardedOps guarded=$guardedOps")
+    // The count guard is unconditional (it is the node's own correctness, and the compiler's
+    // compile-time bound rests on it), so the option-off run is the same 114 rather than the
+    // 112 an option-gated guard would give. The register's prediction is unaffected: it is
+    // about the two compares the guard adds to the literal form's 112, which still holds.
+    val optionOffOps = laneOps(emitMulti(Seq(column), 2, 0, guardOff)._2, "loopDense0")
+    assert((literalOps, optionOffOps, guardedOps) === ((112, 114, 114)),
+      s"the register: literal=$literalOps optionOff=$optionOffOps guarded=$guardedOps")
   }
 
   test("the shared prefix survives two calendar outputs in one loop method") {

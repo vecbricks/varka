@@ -835,7 +835,7 @@ private[sql] object VarkaExpressionCompiler {
   }
 
   /**
-   * "An int column, as a year-month interval", `MonthIntervalOffset`'s twin for months: `CAST(i
+   * "An int column, as a year-month interval", `DayIntervalOffset`'s twin for months: `CAST(i
    * AS INTERVAL MONTH)` reaches the compiler as the cast itself, with no extraction wrapper -
    * unlike `DayIntervalOffset`, whose micros-typed cast needs `ExtractANSIIntervalDays` to read
    * back out - because `Cast.intToYearMonthInterval` returns `v` unchanged for an end field of
@@ -883,19 +883,31 @@ private[sql] object VarkaExpressionCompiler {
             Some(columnRef(br, inputs))
           case MonthIntervalOffset(br) =>
             Some(columnRef(br, inputs))
-          // The YEAR-end cast multiplies by 12 and can throw (Cast.intToYearMonthInterval),
-          // unlike the MONTH-end cast MonthIntervalOffset matches, which is exact - so it is
-          // not admitted as the column itself and gets its own reason rather than falling into
-          // the generic "neither literal nor column" catch-all below.
+          // `Cast.intToYearMonthInterval` returns `12 * v` for a YEAR end field, so the column
+          // under this cast is a count of years, not the month count the node needs - unlike
+          // the MONTH-end cast MonthIntervalOffset matches, which returns `v` unchanged. The
+          // reason names that factor rather than the throw the multiply can also raise: bounding
+          // the column the way task 56 bounds its day cast would silence the throw and leave
+          // the kernel computing add_months(d, m) where the row engine computes
+          // add_months(d, 12 * m). Admitting it needs the multiply in the lane, not a bound.
           case Cast(br: BoundReference, YearMonthIntervalType(YearMonthIntervalType.YEAR,
               YearMonthIntervalType.YEAR), _, _) if br.dataType == IntegerType =>
-            sink.note("non-integer month count column of type interval year", months)
+            sink.note("month count is a year-interval cast, whose value is 12 times the column",
+              months)
             None
           case br: BoundReference if br.dataType.isInstanceOf[YearMonthIntervalType] =>
             sink.note("year-month interval column is not readable by the int32 lanes", br)
             None
-          case br: BoundReference =>
-            sink.note(s"non-integer month count column of type ${br.dataType.simpleString}", br)
+          // AddMonths.inputTypes is Seq(DateType, IntegerType) exactly - unlike DateAdd, which
+          // accepts a TypeCollection - so the analyzer widens a Short/Byte count with a cast and
+          // a bare non-integer column never reaches here. The cast is what arrives, and it gets
+          // a reason naming the column's own type: the int32 lanes read an IntegerType column,
+          // and a SmallIntVector is not one, so this declines rather than fusing at plan time
+          // and refusing every batch. Fusing it needs a task-59-style derived leaf to widen the
+          // column ahead of the kernel, which is its own task.
+          case Cast(br: BoundReference, IntegerType, _, _) if br.dataType != IntegerType =>
+            sink.note(s"month count column of type ${br.dataType.simpleString} reaches the " +
+              "compiler behind a widening cast; the int32 lanes read only an integer column", br)
             None
           case other =>
             sink.note("month count is neither a foldable literal nor an integer column", other)
@@ -907,16 +919,18 @@ private[sql] object VarkaExpressionCompiler {
 
   /**
    * How far the IR under a calendar node can move a day (task 52). `Bounded` is an interval of
-   * epoch days the value is proven to lie in - which a column month count (task 60) still
-   * yields, since the emitter's own runtime guard on that count bounds how far it can shift the
-   * day; `ColumnShifted` means a `date_add`/`date_sub` with a column *day* offset sits in the
-   * subtree instead, so the interval is unknowable here and the emitter guards that producer at
-   * run time; `Unknown` means a node this analysis does not know, which `calendarInput`
-   * declines rather than trusts.
+   * epoch days the value is proven to lie in - which both column-driven producers still yield,
+   * because each carries a runtime guard that establishes an interval: a column month count
+   * (task 60) is guarded to `MONTH_ARITH_MIN/MAX_MONTHS`, so the day it can reach is bounded by
+   * the same 31-day-month over-approximation the literal arm uses; and a column *day* offset
+   * (`date_add`/`date_sub`, task 52) is guarded on its own result to the narrowed range, so its
+   * output is `[NARROW_MIN_DAYS, NARROW_MAX_DAYS]` by construction. Stating that interval rather
+   * than a distinct "shifted" verdict is what lets the two compose: whatever sits above a
+   * guarded producer shifts a known interval, and `admitCalendar` tests the result. `Unknown`
+   * means a node this analysis does not know, which `calendarInput` declines rather than trusts.
    */
   private sealed trait DayRange
   private case class Bounded(lo: Long, hi: Long) extends DayRange
-  private case object ColumnShifted extends DayRange
   private case object Unknown extends DayRange
 
   /**
@@ -954,13 +968,19 @@ private[sql] object VarkaExpressionCompiler {
     def hull(a: VarkaVectorIR, b: VarkaVectorIR): DayRange =
       (dayRange(a, literals), dayRange(b, literals)) match {
         case (Unknown, _) | (_, Unknown) => Unknown
-        case (ColumnShifted, _) | (_, ColumnShifted) => ColumnShifted
         case (Bounded(alo, ahi), Bounded(blo, bhi)) =>
           Bounded(math.min(alo, blo), math.max(ahi, bhi))
       }
+    // A column day offset (task 52): the emitter guards this producer's own result per batch
+    // and declines the batch when a lane leaves the narrowed range, so what reaches whatever
+    // sits above is exactly that range - not an unknowable shift. Saying so here is what makes
+    // the guarantee compose: a further shift widens this interval and `admitCalendar` tests the
+    // widened one, where treating the subtree as unbounded-but-guarded would let a shift above
+    // the producer carry the day back out of the range with nothing left to catch it. The child
+    // still has to be a shape the analysis knows, or the offset is added to an unknown day.
     def columnShifted(child: VarkaVectorIR): DayRange = dayRange(child, literals) match {
       case Unknown => Unknown
-      case _ => ColumnShifted
+      case _ => Bounded(VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS)
     }
     node match {
       case _: ColumnRef => Bounded(VarkaChrono.CONTRACT_MIN_DAYS, VarkaChrono.CONTRACT_MAX_DAYS)
@@ -984,8 +1004,9 @@ private[sql] object VarkaExpressionCompiler {
         // [MONTH_ARITH_MIN_MONTHS, MONTH_ARITH_MAX_MONTHS], so the day it can produce is
         // bounded too - by the same 31-day-month over-approximation the literal arm uses, at
         // the guard's own extremes rather than one literal value. This is the correction to
-        // `PLAN_MILESTONE_4.md` 2.27, which named this shift `ColumnShifted`: a runtime-bounded
-        // count still yields a `Bounded` day range, which composes and needs no second guard.
+        // `PLAN_MILESTONE_4.md` 2.27, which expected a column count to be unbounded here: a
+        // runtime-bounded count still yields a `Bounded` day range, which composes with the
+        // interval a guarded day offset contributes and needs no second guard of its own.
         case _ => shifted(n.days(),
           31L * VarkaChrono.MONTH_ARITH_MIN_MONTHS, 31L * VarkaChrono.MONTH_ARITH_MAX_MONTHS)
       }
@@ -1010,10 +1031,11 @@ private[sql] object VarkaExpressionCompiler {
   /**
    * Compiles a calendar node's child and admits it only if `dayRange` says the decomposition
    * will see a day inside the narrowed range. A bounded interval that leaves it declines the
-   * entry - free at run time, and the row engine computes it correctly; a column-shifted
-   * subtree is admitted, because the emitter guards that producer per batch (task 52's
-   * runtime half); an unknown producer declines, so a node this analysis has not been taught
-   * fails safe as a residual entry rather than as a wrong answer.
+   * entry - free at run time, and the row engine computes it correctly. A column-driven
+   * producer contributes the interval its own runtime guard establishes (task 52's and task
+   * 60's runtime halves) rather than a special verdict, so a shift above such a producer is
+   * tested here like any other. An unknown producer declines, so a node this analysis has not
+   * been taught fails safe as a residual entry rather than as a wrong answer.
    */
   private def calendarInput(
       child: Expression,
@@ -1041,7 +1063,6 @@ private[sql] object VarkaExpressionCompiler {
       case Bounded(lo, hi) =>
         sink.note(s"day range [$lo, $hi] leaves the calendar lowering's range", calendar)
         None
-      case ColumnShifted => Some(node)
       case Unknown =>
         sink.note("day producer the calendar range analysis does not bound", calendar)
         None

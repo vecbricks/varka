@@ -191,25 +191,61 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_date_months` temp view for task 60: a date `d` and an int month
-   * count `m`, each nullable independently, with `m` covering both ends of
-   * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` and a row 30000 past each end - the value the
-   * removed task-26-style differential used for a far day offset, here for a far month count.
-   * The row engine's `DateTimeUtils.dateAddMonths` answers any int count correctly, so it is a
-   * valid oracle for the past-bound rows too; only a count near the type's extremes could
-   * overflow the bias added in the lowering, and none here does.
+   * Builds and caches a `varka_dates_guard_compose` temp view: the rows where task 52's day
+   * guard and task 60's count guard each pass on their own, and the composition of the two
+   * still leaves the range the calendar lowering is exact over.
+   *
+   * The first row is the reproducer. `date_add(d, off)` is exactly `NARROW_MIN_DAYS`, so the
+   * day producer's guard is satisfied; `m` is exactly `MONTH_ARITH_MIN_MONTHS`, so the count
+   * guard is satisfied; and `add_months` of the two is epoch day -6142589, two thousand years
+   * below the floor, where `VarkaChrono.narrowed` reports year 87585 for a true -14848. Neither
+   * runtime guard can see it - each checked its own operand and passed - so the only thing that
+   * can catch it is the compiler bounding the composition, which is what `dayRange` does by
+   * widening the guarded producer's interval by the shift above it. If a calendar function over
+   * this shape ever fuses again, the year is silently wrong rather than slow.
+   */
+  protected def cacheDatesGuardCompose(session: SparkSession): Unit = {
+    val rows = Seq(
+      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MIN_DAYS),
+        Int.box(VarkaChrono.MONTH_ARITH_MIN_MONTHS)),
+      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MIN_DAYS), Int.box(-1)),
+      (date("2024-03-15"), Int.box(3), Int.box(12)),
+      (date("2024-03-15"), null: java.lang.Integer, Int.box(12)),
+      (null: java.sql.Date, Int.box(3), Int.box(12)),
+      (date("2024-03-15"), Int.box(3), null: java.lang.Integer))
+    session.createDataFrame(rows).toDF("d", "off", "m").coalesce(1)
+      .createOrReplaceTempView("varka_dates_guard_compose")
+    session.catalog.cacheTable("varka_dates_guard_compose")
+  }
+
+  /**
+   * Builds and caches a `varka_date_months` temp view for task 60: a date `d` and two int month
+   * counts, each nullable independently. `m` covers both ends of
+   * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` and includes a row 30000 months past each end, far
+   * enough to trip the count guard; `m_small` holds only counts inside the bound, both ends
+   * included. The pair is `cacheDatesFarOffset`'s `off`/`small` shape and exists for the same
+   * reason: these rows are one batch, so a query over `m` declines the batch in full and never
+   * reaches the kernel - a test asserting values over `m` alone compares the row engine with
+   * itself. `m_small` is what exercises the kernel, and the two together separate "the guard
+   * fires" from "the arithmetic is right".
+   *
+   * 30000 months is 2500 years, which keeps the row engine a valid oracle for the past-bound
+   * rows: `DateTimeUtils.dateAddMonths` goes through `LocalDate.plusMonths`, which throws only
+   * once the count pushes the year outside `LocalDate`'s own range, and no row here is close.
    */
   protected def cacheDatesMonthCounts(session: SparkSession): Unit = {
+    val hi = VarkaChrono.MONTH_ARITH_MAX_MONTHS
+    val lo = VarkaChrono.MONTH_ARITH_MIN_MONTHS
     val rows = Seq(
-      (date("2024-01-01"), Int.box(3)),
-      (date("2024-01-02"), null: java.lang.Integer),
-      (null: java.sql.Date, Int.box(-5)),
-      (null: java.sql.Date, null: java.lang.Integer),
-      (date("1969-12-31"), Int.box(VarkaChrono.MONTH_ARITH_MAX_MONTHS)),
-      (date("1969-12-31"), Int.box(VarkaChrono.MONTH_ARITH_MIN_MONTHS)),
-      (date("2000-06-15"), Int.box(VarkaChrono.MONTH_ARITH_MAX_MONTHS + 30000)),
-      (date("2000-06-15"), Int.box(VarkaChrono.MONTH_ARITH_MIN_MONTHS - 30000)))
-    session.createDataFrame(rows).toDF("d", "m")
+      (date("2024-01-01"), Int.box(3), Int.box(3)),
+      (date("2024-01-02"), null: java.lang.Integer, Int.box(-5)),
+      (null: java.sql.Date, Int.box(-5), null: java.lang.Integer),
+      (null: java.sql.Date, null: java.lang.Integer, Int.box(0)),
+      (date("1969-12-31"), Int.box(hi), Int.box(hi)),
+      (date("1969-12-31"), Int.box(lo), Int.box(lo)),
+      (date("2000-06-15"), Int.box(hi + 30000), Int.box(12)),
+      (date("2000-06-15"), Int.box(lo - 30000), Int.box(-12)))
+    session.createDataFrame(rows).toDF("d", "m", "m_small").coalesce(1)
       .createOrReplaceTempView("varka_date_months")
     session.catalog.cacheTable("varka_date_months")
   }

@@ -1,11 +1,11 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark
-commit:      7339fa081cd (working tree dirty)
-date:        2026-09-05T05:35:32Z
+commit:      06040a6e1b5 (working tree dirty)
+date:        2026-09-06T10:33:24Z
 jdk:         OpenJDK Runtime Environment (build 25.0.4+7-1-26.04-Ubuntu)
-kernel:      7.0.0-30-generic
+kernel:      7.0.0-31-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 power:       governor=performance epp=performance profile=performance
-load at start: 0.57
-canary:      ok (compute +0.2% cache +3.3% memory -1.2% )
+load at start: 0.59
+canary:      ok (compute +0.2% cache +1.9% memory -1.0% )
 wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark
 narrow run:  build/sbt "project sql" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark"

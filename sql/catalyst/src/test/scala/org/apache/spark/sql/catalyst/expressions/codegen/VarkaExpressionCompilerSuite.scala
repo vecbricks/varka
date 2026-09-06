@@ -414,10 +414,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
       YearMonthIntervalType.MONTH)
     val yearInterval = YearMonthIntervalType(YearMonthIntervalType.YEAR,
       YearMonthIntervalType.YEAR)
-    // CAST(i AS INTERVAL YEAR) can throw (Cast.intToYearMonthInterval multiplies by 12), so it
-    // is not admitted as the column itself the way the MONTH cast is.
+    // CAST(i AS INTERVAL YEAR) is 12 * i (Cast.intToYearMonthInterval), so the column under it
+    // is not the month count and it is not admitted the way the MONTH cast is. The reason names
+    // the factor, not the throw the multiply can also raise: a future reader who bounds the
+    // column the way task 56 bounds its day cast would silence the throw and ship a wrong
+    // answer, so the string has to say what actually disqualifies it.
     assert(declineReason(DateAddYMInterval(d, Cast(i, yearInterval))) ===
-      "non-integer month count column of type interval year")
+      "month count is a year-interval cast, whose value is 12 times the column")
     // date - INTERVAL m MONTH arrives as UnaryMinus over the cast; not matched until task 63's
     // negate composes with it.
     assert(declineReason(DateAddYMInterval(d, UnaryMinus(Cast(i, monthInterval)))) ===
@@ -431,18 +434,71 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     val ym = AttributeReference("ym", monthInterval)()
     assert(declineReason(DateAddYMInterval(d, ym), childOutput :+ ym) ===
       "year-month interval column is not readable by the int32 lanes")
+    // A Short/Byte count: AddMonths.inputTypes demands IntegerType exactly, so the analyzer
+    // wraps the column in a widening cast and the bare-column arm never sees it. The reason
+    // names the column's real type rather than reporting it as "neither literal nor column",
+    // which is what a reader chasing why add_months(d, smallint) will not fuse needs to see.
+    val s = AttributeReference("s", ShortType)()
+    assert(declineReason(AddMonths(d, Cast(s, IntegerType)), childOutput :+ s) ===
+      "month count column of type smallint reaches the compiler behind a widening cast; " +
+        "the int32 lanes read only an integer column")
   }
 
   test("task 60: a column count composes with dayRange like a literal count does") {
     // year(add_months(d, m)) fuses: a column count is Bounded by the emitter's own runtime
-    // guard (task 60's correction to PLAN_MILESTONE_4.md 2.27), not ColumnShifted.
+    // guard (task 60's correction to PLAN_MILESTONE_4.md 2.27), not left unbounded.
     assert(fuses(Year(AddMonths(d, i))))
-    // The bound composes: a date already shifted to the edge of add_months' own guarded range,
-    // plus the guarded range itself, still leaves the narrowed range by one day.
-    val atBound = DateAdd(d, Literal((shiftHi - 761484).toInt))
-    assert(fuses(Year(AddMonths(atBound, i))))
-    assert(declineReason(Year(AddMonths(DateAdd(atBound, Literal(1)), i)))
+    // The bound composes in both directions: a date already shifted to the edge of add_months'
+    // own guarded range, plus the guarded range itself, still leaves the narrowed range by one
+    // day. The two extremes are different magnitudes (31 * MIN is not -(31 * MAX)), so each is
+    // derived from its own constant rather than retyped - a copy of the MAX magnitude into the
+    // low arm would under-approximate the backward shift, which is the corrupting direction.
+    val atHi = DateAdd(d, Literal((shiftHi - 31L * VarkaChrono.MONTH_ARITH_MAX_MONTHS).toInt))
+    assert(fuses(Year(AddMonths(atHi, i))))
+    assert(declineReason(Year(AddMonths(DateAdd(atHi, Literal(1)), i)))
       .startsWith("day range ["))
+    val atLo = DateSub(d, Literal((31L * VarkaChrono.MONTH_ARITH_MIN_MONTHS - shiftLo).toInt))
+    assert(fuses(Year(AddMonths(atLo, i))))
+    assert(declineReason(Year(AddMonths(DateSub(atLo, Literal(1)), i)))
+      .startsWith("day range ["))
+  }
+
+  test("task 60: a column count over a column day offset does not escape the narrow range") {
+    // The day-offset guard bounds date_add's result to [NARROW_MIN_DAYS, NARROW_MAX_DAYS], and
+    // add_months can then move it 2047 years further, where `narrowed` is undefined - so the
+    // day the calendar tail decomposes is out of range with nothing left to catch it. dayRange
+    // must widen the guarded producer's own interval by the shift above it and decline, rather
+    // than treat the subtree as unbounded-but-guarded and admit on the producer's promise.
+    assert(!fuses(Year(AddMonths(DateAdd(d, i), i))))
+    assert(declineReason(Year(AddMonths(DateAdd(d, i), i))).startsWith("day range ["))
+    // The sibling arms take the same path; trunc is the cheapest reproducer and shifts
+    // backward, the direction the lowering is not exact in.
+    assert(!fuses(Year(TruncDate(DateAdd(d, i), Literal("YEAR")))))
+    // A guarded producer directly under the calendar node is still admitted: its guarded
+    // result is exactly the range the lowering covers.
+    assert(fuses(Year(DateAdd(d, i))))
+  }
+
+  test("task 60 review: an upward shift over a guarded day offset declines conservatively, " +
+      "which is a registered debt rather than a requirement") {
+    // These four fused before the composition fix and are correct when they do: every one of
+    // them shifts the guarded producer's result *upward*, and the civil-from-days lowering does
+    // not stop being exact at NARROW_MAX_DAYS - that constant is the ceiling of the era step's
+    // `w < 2 ^ NARROW_ERA_K` shift domain, while what binds above is the multiply's overflow.
+    // dayRange has only the one constant, so it declines them. Correct, and over-conservative.
+    //
+    // Pinned so the debt is visible and so the follow-up that gives the upward direction its
+    // own limit has an assertion to flip rather than a silent widening of behaviour. Flipping
+    // these to `fuses` is the deliverable there; see the milestone debt register.
+    assert(!fuses(Year(LastDay(DateAdd(d, i)))))
+    assert(!fuses(Year(NextDay(DateAdd(d, i), Literal("MON")))))
+    assert(!fuses(Year(DateAdd(DateAdd(d, i), Literal(5)))))
+    assert(!fuses(WeekOfYear(DateAdd(d, i))))
+    // The downward siblings must keep declining whatever that follow-up does: below
+    // NARROW_MIN_DAYS the lowering really is undefined, and trunc over a column offset was
+    // answering wrongly before this fix, on master too.
+    assert(!fuses(Year(TruncDate(DateAdd(d, i), Literal("MONTH")))))
+    assert(!fuses(Year(DateSub(DateAdd(d, i), Literal(5)))))
   }
 
   // Task 52's compile-time range guard. `HI` and `LO` are the largest literal shifts that keep

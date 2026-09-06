@@ -74,15 +74,20 @@ becomes timestamp arithmetic) decline:
   is taken to hold `0001-01-01..9999-12-31`, the project's column contract,
   and is not checked at ingestion. The compiler bounds how far the arithmetic
   under a calendar function can shift such a day - literal `DATE_ADD` offsets,
-  `NEXT_DAY`, `ADD_MONTHS`, `LAST_DAY` and their compositions - and an entry
-  whose shift can leave the range is residual at compile time, with the
-  interval as its reason (`year(date_add(d, 20000000))` is the canonical
-  case; the row engine computes it). The one producer the compiler cannot
-  bound, a `DATE_ADD`/`DATE_SUB` with a *column* offset under a calendar
-  function, carries a per-batch range check on its result: a batch with a
-  lane past the range is recomputed on the row path and counted as
-  `numFallbackBatchesDeclined`. A `DATE_ADD` with no calendar consumer is never
-  checked - it returns what 32-bit addition returns, as Spark's does.
+  `NEXT_DAY`, `LAST_DAY`, `ADD_MONTHS` with a literal count, and their
+  compositions - and an entry whose shift can leave the range is residual at
+  compile time, with the interval as its reason (`year(date_add(d,
+  20000000))` is the canonical case; the row engine computes it). Two
+  producers it cannot bound that way carry a per-batch range check instead,
+  and either one declines the whole batch to the row path, counted as
+  `numFallbackBatchesDeclined`: a `DATE_ADD`/`DATE_SUB` with a *column*
+  offset whose result a calendar function reads, checked against the range
+  the calendar lowering is exact over; and an `ADD_MONTHS` with a *column*
+  count, checked on the count itself (see below) - that one wherever it
+  sits, because the check protects its own month arithmetic rather than a
+  consumer's, so a bare `add_months(d, m)` carries it too. A `DATE_ADD` with
+  no calendar consumer is never checked - it returns what 32-bit addition
+  returns, as Spark's does.
 * `NEXT_DAY` (task 33) with a literal weekday, resolved at compile time so
   one kernel class serves every weekday; a null or unrecognized literal
   declines. Since task 59 a weekday *column* fuses too, through a derived
@@ -99,13 +104,13 @@ becomes timestamp arithmetic) decline:
   `LAST_DAY` and `ADD_MONTHS` return dates. `ADD_MONTHS`' month count is a
   literal or (task 60) an integer column - `CAST(m AS INTERVAL MONTH)` reads
   the same way, but `CAST(m AS INTERVAL YEAR)` and a stored year-month
-  interval column decline, the first because the cast can throw and the
-  second because the Arrow cache holds it as a type no kernel reads. A
-  column count carries a per-batch range check on the count itself, the
-  same route as the day producer below: a lane outside
-  `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` (about 2047 years either way,
-  where the lowering's magic division by 12 stops being exact) declines the
-  batch to the row engine rather than compute past it.
+  interval column decline, the first because its value is 12 times the
+  column, not the column itself, and the second because the Arrow cache
+  holds it as a type no kernel reads. A column count carries a per-batch
+  range check on the count itself, the same route as the day producer above:
+  a lane outside `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` (about 2047 years
+  either way, where the lowering's magic division by 12 stops being exact)
+  declines the batch to the row engine rather than compute past it.
 * `MAKE_DATE(year, month, day)` (task 42) over int columns and literals, in
   both evaluation modes: an invalid month or day is a null date with ANSI
   off and, with ANSI on, sends the batch to the row engine, which raises

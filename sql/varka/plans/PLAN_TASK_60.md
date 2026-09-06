@@ -253,47 +253,88 @@ and differential), with one correction found by the tests and recorded in
 `SKILLS.md`: the guard reads the node's own validity word, which for
 `AddMonths` was computed by the dispatcher after `emitAddMonths` returned,
 so the AND-of-words moved inside the method, right after the count loads.
-`VarkaEmitterParityBenchmark` re-run at both widths by
-`dev/varka_bench_regen.sh` on the idle machine under the `performance`
-governor (load 0.90 at start, canary compute +0.2%, cache -1.4%, memory
--2.4%), against the #121 baseline measured on unchanged master under the
-same profile; `VarkaThroughputBenchmark` regenerated the same morning with
-the corrected class path. Rates in M rows/s from the committed files.
+Both benchmarks were then regenerated after the review of PR #128 (section
+10), because that review changed what is measurable here: the count guard
+became unconditional, so the guard-on/guard-off A/B this section was built
+around emits identical bytes and measures nothing. The committed pair is now
+the column count against a *literal* count on the same two-stream runner,
+adjacent in the file, which is also what review finding 20 asked for - the
+previous control (`add_months(d, 13)`, one stream) sat dozens of cases away.
+
+Both files come from `dev/varka_bench_regen.sh` at both widths on the idle
+machine under the `performance` governor: parity at load 0.61 (canary
+compute +0.2%, cache +2.1%, memory -0.5%), throughput at load 0.59 (canary
+compute +0.2%, cache +1.9%, memory -1.0%). The throughput run needs the
+fully-qualified class - the script resolves a bare name to
+`org.apache.spark.sql.<Class>` and this benchmark is under
+`org.apache.spark.sql.execution.benchmark` - which is the "corrected class
+path" the first version of this section referred to. Rates in M rows/s from
+the committed files.
 
 | case | 256-bit | 128-bit |
 |---|---|---|
-| `add_months(d, m), guard on (task 60 A/B), null-free` | 697.6 | 242.4 |
-| `add_months(d, m), guard off (task 60 A/B), null-free` | 718.6 | 251.9 |
-| `add_months(d, m), guard on (task 60 A/B), mixed nulls` | 624.8 | 209.6 |
-| `add_months(d, m), guard off (task 60 A/B), mixed nulls` | 662.3 | 240.4 |
-| `add_months(d, 13), null-free` (the literal control) | 733.8 | 254.7 |
-| `year(date_add(d, off))`, guard on / off (task 52's pair, null-free) | 2961.0 / 3157.7 | 1203.8 / 1254.6 |
-| throughput `add_months(d, m)`, varka / Janino | 170.8 / 24.9 (6.9x) | 119.9 / 25.8 (4.7x) |
-| throughput `add_months(d, 13)`, varka / Janino | 185.5 / 28.6 (6.5x) | 119.0 / 28.1 (4.2x) |
+| `add_months(d, m), column count (task 60), null-free` | 693.0 | 238.9 |
+| `add_months(d, 13), literal count (task 60 control), null-free` | 727.3 | 253.1 |
+| `add_months(d, m), column count (task 60), mixed nulls` | 624.3 | 209.4 |
+| `add_months(d, 13), literal count (task 60 control), mixed nulls` | 677.8 | 241.9 |
+| `add_months(d, 13), null-free` (the one-stream case, id 811) | 727.5 | 252.5 |
+| `year(date_add(d, off))`, guard on / off (task 52's pair, null-free) | 2933.6 / 3193.8 | 1179.9 / 1246.1 |
+| `year(date_add(d, off))`, guard on / off (task 52's pair, mixed nulls) | 1817.5 / 2076.5 | 648.7 / 727.2 |
+| throughput `add_months, column count (task 60)`, varka / Janino | 185.2 / 25.3 (7.3x) | 120.5 / 25.6 (4.7x) |
+| throughput `add_months, literal (task 60 control)`, varka / Janino | 189.2 / 29.0 (6.5x) | 121.7 / 28.8 (4.2x) |
 
-**Predictions scored.**
+The column form costs **-4.7% null-free and -7.9% with mixed nulls at 256
+bits, -5.6% and -13.4% at 128**, against the literal control. That delta is
+the guard *plus* one column load in place of a broadcast, and it cannot be
+split further with this harness - see prediction 3. The second stream itself
+is free: the two-stream literal control reads 727.3 against the one-stream
+`add_months(d, 13)`'s 727.5 at 256 bits and 253.1 against 252.5 at 128, so
+the runner change review finding 20 objected to was not distorting the old
+comparison, though the adjacency it asked for is still the right structure.
+
+**Predictions scored.** Predictions 1 to 3 were written against a
+guard-on/guard-off A/B and were scored against it in the run this section
+first carried; the review removed that variant, so each is marked with what
+it said then and what the current file can say now. The original scorings
+stand as a record of the code as it was, and are not restated as if they
+were re-measured.
 
 1. *The register: 114 with the guard, 112 without; the literal row
-   unmoved.* Held exactly; the suite asserts it, and `year(date_add(d,
+   unmoved.* Held exactly, and still asserted by the suite - but read the
+   112 as the literal form's count, not as an option-off column form: after
+   the review there is no option-off column kernel, and the register test
+   now pins (literal 112, option-off 114, guarded 114). `year(date_add(d,
    off))`'s 38 did not move either.
 2. *The count guard under 4% null-free and under 6% with mixed nulls at
-   both widths.* Held at 256 bits (-2.9% null-free, -5.7% mixed) and for the
-   null-free row at 128 (-3.8%); missed with mixed nulls at 128 bits, -12.8%.
-   The overnight run read the same four within a point (-3.6%, -5.5%,
-   -3.7%, -12.2%), so the miss is the shape, not noise: task 52's finding
-   again - the masked body's guard pays `VectorMask.fromLong` for the word
-   AND, and at 128 bits that is a larger share of a four-lane group. On the
-   light kernel beside it the same guard costs -6.2% null-free (task 52's
-   pair), so the heavy kernel does pay a smaller share, as section 6.1
-   reasoned; the mixed-null narrow case is where the reasoning ran out.
+   both widths.* Scored then: held at 256 bits (-2.9% null-free, -5.7%
+   mixed) and for the null-free row at 128 (-3.8%); missed with mixed nulls
+   at 128 bits, -12.8%. The overnight run read the same four within a point
+   (-3.6%, -5.5%, -3.7%, -12.2%), so the miss was the shape, not noise:
+   task 52's finding again - the masked body's guard pays
+   `VectorMask.fromLong` for the word AND, and at 128 bits that is a larger
+   share of a four-lane group. Not re-measurable now, because isolating the
+   guard needs the variant without it. What the current file shows is
+   consistent with it: the column-versus-literal delta widens in the same
+   places (-7.9% mixed at 256, -13.4% mixed at 128), and task 52's own pair,
+   still option-gated, still costs most with mixed nulls at 128 (648.7
+   against 727.2, -10.8%).
 3. *The column kernel with the guard off within 3% of the literal kernel.*
-   Held: -2.1% at 256 bits, -1.1% at 128 - one load in place of a broadcast
-   on a 112-call body.
+   Scored then: held, -2.1% at 256 bits and -1.1% at 128. Unscoreable now,
+   and the reason is worth keeping: the prediction was probing whether one
+   column load in place of a broadcast is free, and with the guard no longer
+   removable that question is inside prediction 2's delta rather than beside
+   it. The part that could still be checked was checked - the second input
+   stream is free (727.3 against 727.5 at 256 bits) - so what is left
+   unmeasured is the load-versus-broadcast difference alone, and separating
+   it would take a measurement-only emitter option. That is deliberately not
+   reintroduced: an option the compiler cannot see is what the review found
+   wrong with the count guard in the first place.
 4. *Throughput: the column row within 10% of the literal row, both above
-   the baseline by the `add_months` ratio.* Held: -7.9% at 256 bits and
-   +0.8% at 128, at 6.9x and 4.7x over Janino against the literal's 6.5x
-   and 4.2x - the Janino path itself is slower with a column (24.9 against
-   28.6), so the ratio is higher for the column form.
+   the baseline by the `add_months` ratio.* Held, and re-measured cleanly:
+   -2.1% at 256 bits (185.2 against 189.2) and -1.0% at 128 (120.5 against
+   121.7), at 7.3x and 4.7x over Janino against the literal's 6.5x and 4.2x.
+   The Janino path is again slower with a column (25.3 against 29.0), so the
+   ratio is higher for the column form for the same reason as before.
 
 What moved that the plan did not list: the differential's "WHERE m BETWEEN
 ..." idea does not fuse - a bare int column is not a filter operand the
@@ -303,10 +344,64 @@ instead; and the parity harness's run-to-run bimodality showed a third face:
 the overnight file had the `CASE WHEN` and `arithmetic depth 4` rows at a
 third of their value, this re-run has them in family and instead carries
 the three task 45 "validity OR-ed per group" rows 21-46% under #121, none of
-which this node's bytes touch. Recorded against the debt register's entry
-on those rows; the task 60 rows themselves agree across the two runs within
-one point.
+which this node's bytes touch. That movement belongs to the register's
+"depressed-row cluster per regeneration" entry, which is what names this
+run-to-run behaviour; no entry specific to those three rows exists yet, and
+writing one needs the regeneration this task's numbers are pending anyway,
+so the claim that it was "recorded" was ahead of itself. The task 60 rows
+themselves agree across the two runs within one point.
 
-Left for later: nothing of this task's; the narrow-width mixed-null guard
-cost belongs with task 52's `fromLong` finding, already a lesson in
-`SKILLS.md` and a candidate for the mask-reuse it names.
+Left for later: the narrow-width mixed-null guard cost belongs with task
+52's `fromLong` finding, already a lesson in `SKILLS.md` and a candidate for
+the mask-reuse it names; and task 69, opened by the review below.
+
+## 10. What the review of PR #128 changed
+
+Two findings gated the merge, and both were about the boundary between what
+the compiler assumes and what the emitter guarantees.
+
+**The composition hole.** `dayRange` had a third verdict, `ColumnShifted`,
+meaning "a guarded producer is somewhere below, so admit this", and
+`admitCalendar` admitted it with no range test. That is sound only while the
+guarded producer is the calendar node's direct child. This task made it
+unsound by adding a node that shifts a day by up to `31 *
+MONTH_ARITH_MAX_MONTHS` above such a producer: `year(add_months(date_add(d,
+off), m))` fused and answered year 87585 where the truth is -14848, with
+both runtime guards passing on their own operands and nothing checking the
+composition. The fix is that a guarded producer now contributes the interval
+its guard establishes, `Bounded(NARROW_MIN_DAYS, NARROW_MAX_DAYS)`, so every
+existing rule shifts it and `admitCalendar` tests the result; `ColumnShifted`
+has no producer left and is deleted. The general lesson is in `SKILLS.md`:
+encode what a runtime check establishes in the representation the analysis
+already manipulates, never as a verdict meaning "trust me".
+
+**The option the compiler could not see.** The count guard was registered in
+`guardedProducers`, behind `VarkaEmitOptions.guardDayProducers`, while
+`dayRange` returned `Bounded` for a column count unconditionally - so with
+the option off the guard vanished and the compile-time bound stayed, which
+is a wrong answer rather than a reference variant. It moved to
+`selfGuarding`, task 42's set, whose criterion it always met: the check
+protects its own magic multiply rather than insuring a consumer. That is
+what makes the A/B in section 9 degenerate, and it also made the option's
+name honest again - `guardDayProducers` now genuinely covers only day
+producers, so the rename the review suggested is unnecessary.
+
+**What the fix costs.** Stating the guarded producer's interval is correct
+in both directions but tighter than needed upward: `last_day`, `next_day`
+and a positive literal `date_add` over a column offset now decline although
+they are exact, and so does `weekofyear` over a column offset, whose
+`ThursdayOf` shifts both ways. Those declines are pinned by a test that task
+69 exists to flip. The downward siblings - `trunc` over a column offset, a
+negative literal - decline correctly and were answering wrongly before, on
+master as well.
+
+Everything else the review found was coverage, diagnostics and
+documentation, applied in the same pass: the operand name restored to
+`requireOffsetShape` (one message for four operands is what sent the IR
+fuzzer's first failure, #110, hunting the wrong node), a live violation
+driven through the masked epilogue, the `ownWord == false` branch covered,
+the fuzzer given a small-magnitude column so it can reach a column count at
+all, `canonical()`'s missing `truncDate`, and a `CASE`/`IF` fusion cliff
+registered rather than fixed. `dev/varka_quote_check.py` also gained
+`--full-history`: this branch's merge resolution had made 16 committed
+numbers unreachable to it, which is a tooling bug rather than a bad quote.

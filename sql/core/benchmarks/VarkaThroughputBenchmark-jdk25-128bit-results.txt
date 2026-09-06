@@ -1,322 +1,388 @@
 Narrow-width companion of VarkaThroughputBenchmark-jdk25-results.txt: the same benchmark under
 -XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
   benchmark:   org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark
-  commit:      7339fa081cd (working tree dirty)
-  date:        2026-09-05T05:35:32Z
+  commit:      06040a6e1b5 (working tree dirty)
+  date:        2026-09-06T10:33:24Z
   jdk:         OpenJDK Runtime Environment (build 25.0.4+7-1-26.04-Ubuntu)
-  kernel:      7.0.0-30-generic
+  kernel:      7.0.0-31-generic
   cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
   power:       governor=performance epp=performance profile=performance
-  load at start: 0.57
-  canary:      ok (compute +0.2% cache +3.3% memory -1.2% )
+  load at start: 0.59
+  canary:      ok (compute +0.2% cache +1.9% memory -1.0% )
   wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark
   narrow run:  build/sbt "project sql" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaThroughputBenchmark"
 
 Running benchmark: date_add over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 38 iterations, 2021 ms
+  Stopped after 37 iterations, 2027 ms
   Running case: varka (SIMD)
-  Stopped after 105 iterations, 2002 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 102 iterations, 2010 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    49             53           3         41.1          24.3       1.0X
-varka (SIMD)                                         16             19           2        122.2           8.2       3.0X
+baseline (Janino)                                    49             55           6         41.0          24.4       1.0X
+varka (SIMD)                                         16             20           4        125.1           8.0       3.1X
 Running benchmark: date_sub over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 43 iterations, 2018 ms
+  Stopped after 42 iterations, 2031 ms
   Running case: varka (SIMD)
-  Stopped after 150 iterations, 2005 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 151 iterations, 2010 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_sub over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    45             47           1         44.0          22.7       1.0X
-varka (SIMD)                                         11             13           2        182.6           5.5       4.1X
+baseline (Janino)                                    46             48           4         43.9          22.8       1.0X
+varka (SIMD)                                         10             13           2        192.3           5.2       4.4X
 Running benchmark: date_add, column offset (task 56 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 36 iterations, 2038 ms
+  Stopped after 35 iterations, 2039 ms
   Running case: varka (SIMD)
-  Stopped after 164 iterations, 2004 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 172 iterations, 2010 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add, column offset (task 56 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                    54             57           2         36.8          27.2       1.0X
-varka (SIMD)                                                                         10             12           3        202.4           4.9       5.5X
+baseline (Janino)                                                                    55             58           4         36.0          27.7       1.0X
+varka (SIMD)                                                                         10             12           2        205.9           4.9       5.7X
 Running benchmark: date + CAST(i AS INTERVAL DAY), bound checked (task 56) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 35 iterations, 2012 ms
+  Stopped after 34 iterations, 2040 ms
   Running case: varka (SIMD)
-  Stopped after 158 iterations, 2000 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 166 iterations, 2001 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date + CAST(i AS INTERVAL DAY), bound checked (task 56) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                                  54             58           3         36.7          27.2       1.0X
-varka (SIMD)                                                                                        9             13           2        212.5           4.7       5.8X
+baseline (Janino)                                                                                  56             60           6         36.0          27.8       1.0X
+varka (SIMD)                                                                                       10             12           2        207.8           4.8       5.8X
 Running benchmark: add_months, literal (task 60 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 28 iterations, 2026 ms
+  Stopped after 28 iterations, 2025 ms
   Running case: varka (SIMD)
-  Stopped after 109 iterations, 2015 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 109 iterations, 2009 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 add_months, literal (task 60 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                71             72           1         28.1          35.6       1.0X
-varka (SIMD)                                                                     17             18           2        119.0           8.4       4.2X
+baseline (Janino)                                                                69             72           3         28.8          34.7       1.0X
+varka (SIMD)                                                                     16             18           2        121.7           8.2       4.2X
 Running benchmark: add_months, column count (task 60) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 26 iterations, 2059 ms
+  Stopped after 25 iterations, 2029 ms
   Running case: varka (SIMD)
-  Stopped after 107 iterations, 2017 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 108 iterations, 2006 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 add_months, column count (task 60) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                             78             79           2         25.8          38.8       1.0X
-varka (SIMD)                                                                  17             19           3        119.9           8.3       4.7X
+baseline (Janino)                                                             78             81           4         25.6          39.1       1.0X
+varka (SIMD)                                                                  17             19           2        120.5           8.3       4.7X
+Running benchmark: make_date over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 26 iterations, 2074 ms
+  Running case: varka (SIMD)
+  Stopped after 148 iterations, 2008 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+make_date over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                    77             80           7         26.1          38.3       1.0X
+varka (SIMD)                                         11             14           4        175.2           5.7       6.7X
 Running benchmark: datediff over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 37 iterations, 2008 ms
+  Stopped after 39 iterations, 2046 ms
   Running case: varka (SIMD)
-  Stopped after 205 iterations, 2001 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 180 iterations, 2001 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    53             54           1         38.0          26.3       1.0X
-varka (SIMD)                                          8             10           2        258.6           3.9       6.8X
+baseline (Janino)                                    51             52           2         39.5          25.3       1.0X
+varka (SIMD)                                          7             11           2        267.3           3.7       6.8X
 Running benchmark: nested projection over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 38 iterations, 2013 ms
+  Stopped after 38 iterations, 2011 ms
   Running case: varka (SIMD)
-  Stopped after 200 iterations, 2004 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 205 iterations, 2005 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 nested projection over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                            52             53           1         38.8          25.8       1.0X
-varka (SIMD)                                                  7             10           3        273.0           3.7       7.0X
+baseline (Janino)                                            50             53           2         39.6          25.2       1.0X
+varka (SIMD)                                                  7             10           2        276.0           3.6       7.0X
 Running benchmark: shared subchain (DAG-CSE) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 37 iterations, 2008 ms
+  Stopped after 37 iterations, 2000 ms
   Running case: varka (SIMD)
-  Stopped after 202 iterations, 2000 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 218 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 shared subchain (DAG-CSE) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                    52             54           4         38.3          26.1       1.0X
-varka (SIMD)                                                          7             10           3        267.8           3.7       7.0X
+baseline (Janino)                                                    51             54           3         39.2          25.5       1.0X
+varka (SIMD)                                                          7              9           2        281.9           3.5       7.2X
 Running benchmark: case when, predictable data over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 38 iterations, 2031 ms
+  Stopped after 38 iterations, 2045 ms
   Running case: varka (SIMD)
-  Stopped after 225 iterations, 2000 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 221 iterations, 2007 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when, predictable data over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      52             53           2         38.6          25.9       1.0X
-varka (SIMD)                                                            7              9           2        280.0           3.6       7.3X
+baseline (Janino)                                                      51             54           2         39.2          25.5       1.0X
+varka (SIMD)                                                            7              9           2        279.0           3.6       7.1X
 Running benchmark: case when, unpredictable data over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 35 iterations, 2044 ms
+  Stopped after 34 iterations, 2009 ms
   Running case: varka (SIMD)
-  Stopped after 229 iterations, 2004 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 209 iterations, 2005 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when, unpredictable data over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                        56             58           1         35.6          28.1       1.0X
-varka (SIMD)                                                              7              9           2        280.6           3.6       7.9X
+baseline (Janino)                                                        56             59           4         35.5          28.2       1.0X
+varka (SIMD)                                                              7             10           3        287.7           3.5       8.1X
 Running benchmark: dayofweek over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 31 iterations, 2064 ms
+  Stopped after 32 iterations, 2020 ms
   Running case: varka (SIMD)
-  Stopped after 240 iterations, 2006 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 228 iterations, 2006 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    63             67           6         31.6          31.6       1.0X
-varka (SIMD)                                          7              8           1        287.5           3.5       9.1X
+baseline (Janino)                                    60             63           3         33.1          30.2       1.0X
+varka (SIMD)                                          6              9           2        309.4           3.2       9.4X
+Running benchmark: next_day, literal weekday (task 59 control) over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 45 iterations, 2040 ms
+  Running case: varka (SIMD)
+  Stopped after 232 iterations, 2003 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+next_day, literal weekday (task 59 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                                                      44             45           2         45.9          21.8       1.0X
+varka (SIMD)                                                                            6              9           2        335.3           3.0       7.3X
+Running benchmark: next_day, weekday column (task 59) over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 15 iterations, 2036 ms
+  Running case: varka (SIMD)
+  Stopped after 58 iterations, 2020 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+next_day, weekday column (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                                            133            136           2         15.0          66.6       1.0X
+varka (SIMD)                                                                  32             35           2         63.0          15.9       4.2X
+Running benchmark: next_day, weekday column reused by two outputs (task 59) over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 11 iterations, 2027 ms
+  Running case: varka (SIMD)
+  Stopped after 57 iterations, 2011 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+next_day, weekday column reused by two outputs (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                                                                  182            184           2         11.0          90.9       1.0X
+varka (SIMD)                                                                                        33             35           2         60.7          16.5       5.5X
+Running benchmark: weekofyear over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 26 iterations, 2056 ms
+  Running case: varka (SIMD)
+  Stopped after 161 iterations, 2010 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+weekofyear over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                     77             79           2         26.1          38.4       1.0X
+varka (SIMD)                                          10             12           2        196.4           5.1       7.5X
+Running benchmark: yearofweek over 2000000 Arrow-cached rows
+  Running case: baseline (Janino)
+  Stopped after 29 iterations, 2020 ms
+  Running case: varka (SIMD)
+  Stopped after 169 iterations, 2002 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+yearofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+baseline (Janino)                                     67             70           1         29.6          33.7       1.0X
+varka (SIMD)                                           9             12           3        225.5           4.4       7.6X
 Running benchmark: mixed projection (partial fusion) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 37 iterations, 2005 ms
+  Stopped after 34 iterations, 2035 ms
   Running case: varka (SIMD)
-  Stopped after 77 iterations, 2005 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 83 iterations, 2022 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 mixed projection (partial fusion) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                            52             54           1         38.1          26.2       1.0X
-varka (SIMD)                                                                 24             26           2         83.7          11.9       2.2X
+baseline (Janino)                                                            57             60           2         35.1          28.5       1.0X
+varka (SIMD)                                                                 22             24           2         91.6          10.9       2.6X
 Running benchmark: chain depth 1 over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 47 iterations, 2024 ms
+  Stopped after 48 iterations, 2010 ms
   Running case: varka (SIMD)
-  Stopped after 265 iterations, 2009 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 273 iterations, 2001 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 1 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        41             43           4         48.9          20.5       1.0X
-varka (SIMD)                                              6              8           1        341.7           2.9       7.0X
+baseline (Janino)                                        40             42           2         50.2          19.9       1.0X
+varka (SIMD)                                              5              7           2        380.0           2.6       7.6X
 Running benchmark: chain depth 2 over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 48 iterations, 2036 ms
+  Stopped after 48 iterations, 2013 ms
   Running case: varka (SIMD)
-  Stopped after 270 iterations, 2003 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 290 iterations, 2001 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 2 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        40             42           4         49.5          20.2       1.0X
-varka (SIMD)                                              6              7           2        348.5           2.9       7.0X
+baseline (Janino)                                        40             42           2         50.1          20.0       1.0X
+varka (SIMD)                                              5              7           3        393.4           2.5       7.8X
 Running benchmark: chain depth 4 over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 49 iterations, 2028 ms
+  Stopped after 48 iterations, 2005 ms
   Running case: varka (SIMD)
-  Stopped after 301 iterations, 2002 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 273 iterations, 2001 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 4 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        40             41           1         50.4          19.8       1.0X
-varka (SIMD)                                              6              7           1        359.9           2.8       7.1X
+baseline (Janino)                                        40             42           2         50.6          19.8       1.0X
+varka (SIMD)                                              5              7           2        389.4           2.6       7.7X
 Running benchmark: chain depth 8 over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 49 iterations, 2006 ms
+  Stopped after 48 iterations, 2020 ms
   Running case: varka (SIMD)
-  Stopped after 271 iterations, 2000 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 289 iterations, 2002 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 8 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        40             41           1         50.5          19.8       1.0X
-varka (SIMD)                                              6              7           2        357.5           2.8       7.1X
+baseline (Janino)                                        40             42           1         50.4          19.8       1.0X
+varka (SIMD)                                              5              7           2        399.1           2.5       7.9X
 Running benchmark: chain depth 1, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 50 iterations, 2002 ms
+  Stopped after 49 iterations, 2003 ms
   Running case: varka (SIMD)
-  Stopped after 38 iterations, 2027 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 38 iterations, 2036 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 1, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      38             40           1         52.2          19.2       1.0X
-varka (SIMD)                                                           50             53           4         39.7          25.2       0.8X
+baseline (Janino)                                                      38             41           1         52.1          19.2       1.0X
+varka (SIMD)                                                           50             54           4         39.9          25.1       0.8X
 Running benchmark: chain depth 2, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 50 iterations, 2020 ms
+  Stopped after 50 iterations, 2009 ms
   Running case: varka (SIMD)
-  Stopped after 39 iterations, 2034 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 38 iterations, 2013 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 2, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      37             40           2         53.4          18.7       1.0X
-varka (SIMD)                                                           50             52           1         40.0          25.0       0.7X
+baseline (Janino)                                                      38             40           1         52.4          19.1       1.0X
+varka (SIMD)                                                           51             53           1         39.5          25.3       0.8X
 Running benchmark: chain depth 4, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 49 iterations, 2028 ms
+  Stopped after 50 iterations, 2014 ms
   Running case: varka (SIMD)
-  Stopped after 38 iterations, 2042 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 38 iterations, 2024 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 4, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      39             41           4         51.6          19.4       1.0X
-varka (SIMD)                                                           51             54           4         39.1          25.6       0.8X
+baseline (Janino)                                                      38             40           2         52.5          19.0       1.0X
+varka (SIMD)                                                           50             53           5         40.4          24.8       0.8X
 Running benchmark: chain depth 8, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 50 iterations, 2026 ms
+  Stopped after 49 iterations, 2033 ms
   Running case: varka (SIMD)
-  Stopped after 38 iterations, 2008 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 38 iterations, 2019 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 8, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      39             41           1         51.6          19.4       1.0X
-varka (SIMD)                                                           51             53           1         39.1          25.6       0.8X
+baseline (Janino)                                                      39             41           3         51.6          19.4       1.0X
+varka (SIMD)                                                           51             53           2         39.3          25.4       0.8X
 Running benchmark: date_add, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 49 iterations, 2018 ms
+  Stopped after 50 iterations, 2022 ms
   Running case: varka (SIMD)
-  Stopped after 39 iterations, 2036 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 38 iterations, 2019 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                 37             41           3         53.6          18.7       1.0X
-varka (SIMD)                                                      50             52           2         40.0          25.0       0.7X
+baseline (Janino)                                                 38             40           1         52.0          19.2       1.0X
+varka (SIMD)                                                      50             53           2         39.9          25.1       0.8X
 Running benchmark: mixed projection, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 39 iterations, 2018 ms
+  Stopped after 35 iterations, 2022 ms
   Running case: varka (SIMD)
-  Stopped after 30 iterations, 2005 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 31 iterations, 2025 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 mixed projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                         50             52           1         40.3          24.8       1.0X
-varka (SIMD)                                                              63             67           5         31.7          31.5       0.8X
+baseline (Janino)                                                         56             58           1         35.6          28.1       1.0X
+varka (SIMD)                                                              63             65           2         31.9          31.4       0.9X
 Running benchmark: residual-heavy projection, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 37 iterations, 2021 ms
+  Stopped after 33 iterations, 2037 ms
   Running case: varka (SIMD)
-  Stopped after 20 iterations, 2093 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 23 iterations, 2026 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 residual-heavy projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                  52             55           4         38.8          25.8       1.0X
-varka (SIMD)                                                                      102            105           2         19.6          51.0       0.5X
+baseline (Janino)                                                                  58             62           5         34.4          29.0       1.0X
+varka (SIMD)                                                                       85             88           4         23.7          42.3       0.7X
 Running benchmark: dayofweek, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 33 iterations, 2059 ms
+  Stopped after 33 iterations, 2034 ms
   Running case: varka (SIMD)
-  Stopped after 39 iterations, 2030 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 37 iterations, 2055 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                  60             62           1         33.2          30.1       1.0X
-varka (SIMD)                                                       50             52           1         40.0          25.0       1.2X
+baseline (Janino)                                                  59             62           2         34.0          29.4       1.0X
+varka (SIMD)                                                       53             56           2         37.8          26.4       1.1X
 Running benchmark: case when unpredictable, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 36 iterations, 2009 ms
+  Stopped after 35 iterations, 2013 ms
   Running case: varka (SIMD)
-  Stopped after 39 iterations, 2007 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 36 iterations, 2024 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when unpredictable, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                54             56           1         36.8          27.2       1.0X
-varka (SIMD)                                                                     49             51           2         40.4          24.7       1.1X
+baseline (Janino)                                                                56             58           2         36.0          27.8       1.0X
+varka (SIMD)                                                                     53             56           3         37.7          26.5       1.0X
 Running benchmark: datediff, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 41 iterations, 2029 ms
+  Stopped after 41 iterations, 2026 ms
   Running case: varka (SIMD)
-  Stopped after 40 iterations, 2021 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 36 iterations, 2011 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                 48             50           1         41.8          23.9       1.0X
-varka (SIMD)                                                      49             51           1         40.4          24.7       1.0X
+baseline (Janino)                                                 47             49           2         42.4          23.6       1.0X
+varka (SIMD)                                                      53             56           5         37.8          26.5       0.9X
 Running benchmark: nested projection, row consumer over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
-  Stopped after 41 iterations, 2014 ms
+  Stopped after 40 iterations, 2016 ms
   Running case: varka (SIMD)
-  Stopped after 39 iterations, 2018 ms
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-30-generic
+  Stopped after 37 iterations, 2007 ms
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 nested projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                          47             49           1         42.3          23.6       1.0X
-varka (SIMD)                                                               49             52           2         40.7          24.5       1.0X
+baseline (Janino)                                                          47             50           2         42.1          23.7       1.0X
+varka (SIMD)                                                               52             54           2         38.4          26.0       0.9X
