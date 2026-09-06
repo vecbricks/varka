@@ -1410,7 +1410,16 @@ the fuzzer's node generator and the two pinned fixtures.
   how and why, including the committed 128-bit companion file, the machine canary
   (`dev/varka_bench_canary.sh`) the regen script runs first, and the quote check
   (`dev/varka_quote_check.py`, a gate step) that holds every quoted number to a
-  committed file.
+  committed file. A bare class name resolves to `org.apache.spark.sql.<name>`
+  (the script's `*.*) ... *) fqcn="org.apache.spark.sql.$klass"` fallback);
+  `VarkaThroughputBenchmark` actually lives under
+  `org.apache.spark.sql.execution.benchmark`, so the bare name sends `runMain`
+  looking for a class that is not there. The wide run's own stdout - where
+  sbt's "No main class detected" would show - is redirected to `/dev/null` by
+  the regen script, so this fails in about twenty seconds with no visible
+  error at all, just a bare exit 1: pass the fully-qualified name for any
+  benchmark outside `org.apache.spark.sql` directly, rather than trying a bare
+  name first and reading the silence as a machine or environment problem.
 - Run `dev/varka_precommit.sh` before committing, or install it as the pre-commit hook:
   non-ASCII outside strings, lines over 100 columns, TODO/FIXME under Varka
   directories, the quote check, and ruff (`check` and `format --check`) on Python
