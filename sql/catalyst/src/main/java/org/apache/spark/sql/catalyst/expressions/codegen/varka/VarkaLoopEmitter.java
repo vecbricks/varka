@@ -1209,7 +1209,8 @@ public final class VarkaLoopEmitter {
         case WeekDay n -> analyzeOp(node, false, n.days());
         case DayOfWeekIso n -> analyzeOp(node, false, n.days());
         case NextDay n -> {
-          requireLiteralOffset(n.offset(), "next_day's weekday");
+          // A literal slot (task 33) or a column (task 59's derived weekday leaf).
+          requireOffsetShape(n.offset());
           analyzeOp(node, false, n.days(), n.offset());
         }
         case ThursdayOf n -> analyzeOp(node, false, n.days());
@@ -1292,32 +1293,13 @@ public final class VarkaLoopEmitter {
 
     // task 38 widened the offset from LiteralSlot-only to a literal or a column, but it is
     // still not an arbitrary subtree - VarkaExpressionCompiler only ever emits one of these
-    // two shapes, and this check fails fast if a future IR producer emits anything else.
+    // two shapes, and this check fails fast if a future IR producer emits anything else. This
+    // now guards AddDays/SubDays (task 38), NextDay's weekday (task 59) and AddMonths' month
+    // count (task 60); the stricter requireLiteralOffset it replaced across all three is gone.
     private static void requireOffsetShape(VarkaVectorIR offset) {
       if (!(offset instanceof LiteralSlot) && !(offset instanceof ColumnRef)) {
         throw new IllegalArgumentException(
             "day offsets must be a literal slot or a column, got " + offset);
-      }
-    }
-
-    /**
-     * The stricter check {@code next_day}'s weekday still needs. Task 38 widened day offsets to
-     * accept a column as well as a literal, but that widening is specific to {@code AddDays}
-     * and {@code SubDays}, whose offset is added to a lane at run time. {@code NextDay} folds
-     * its weekday into emit-time constants instead - the whole point of task 33's lowering - so
-     * a non-literal weekday is not merely unsupported, it is unrepresentable, and the compiler
-     * declines it before ever reaching the emitter. {@code AddMonths} used to share this check
-     * too, bounding its month count at compile time (task 40); task 60 widened it to a column
-     * behind a runtime guard instead ({@link #requireOffsetShape}), so once {@code next_day}'s
-     * weekday widens the same way (task 59) this method has no caller left. {@code position}
-     * names the operand in the message, kept even with one caller because the same message
-     * naming the wrong node sent the IR fuzzer's first failure (#110) looking for a
-     * {@code next_day} the shape did not contain.
-     */
-    private static void requireLiteralOffset(VarkaVectorIR offset, String position) {
-      if (!(offset instanceof LiteralSlot)) {
-        throw new IllegalArgumentException(
-            position + " must be a literal slot, got " + offset);
       }
     }
 
@@ -1639,7 +1621,7 @@ public final class VarkaLoopEmitter {
       case DayOfWeek n -> s.wordRef.get(n.days());
       case WeekDay n -> s.wordRef.get(n.days());
       case DayOfWeekIso n -> s.wordRef.get(n.days());
-      case NextDay n -> s.wordRef.get(n.days());
+      case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case ThursdayOf n -> s.wordRef.get(n.days());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
@@ -2315,6 +2297,12 @@ public final class VarkaLoopEmitter {
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
         cb.loadConstant(1);
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
+        // A column weekday (task 59) can be null on its own, so the node's word is the AND of
+        // both inputs' words, stored here as AddMonths does by hand; a literal weekday is the
+        // all-true word and planWordRef aliases the date's, so nothing is stored.
+        if (!dense && s.ownWord.contains(node)) {
+          emitAndWord(cb, s.wordRef.get(node), s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
+        }
       }
       case Year n -> emitChrono(cb, node, dense, analysis, s, computed);
       case Month n -> emitChrono(cb, node, dense, analysis, s, computed);

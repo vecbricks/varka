@@ -193,10 +193,12 @@ public sealed interface VarkaVectorIR
    * {@code days} falling on the weekday {@code offset} names. {@code offset} is
    * {@code dayOfWeek - 1}, where {@code dayOfWeek} is the {@code [0, 6]} value
    * ({@code THURSDAY = 0 .. WEDNESDAY = 6}) {@code DateTimeUtils#getDayOfWeekFromString}
-   * parses from the (necessarily literal) weekday argument - so {@code offset} itself ranges
-   * over {@code [-1, 5]}, not {@code [0, 6]} - and must be a {@link LiteralSlot}: the weekday
-   * name is resolved at compile time, never at runtime, so one emitted class serves every
-   * weekday.
+   * parses from the weekday argument - so {@code offset} itself ranges over {@code [-1, 5]},
+   * not {@code [0, 6]}. A literal weekday resolves at compile time to a {@link LiteralSlot},
+   * so one emitted class serves every weekday; a weekday column is a {@link ColumnRef} over
+   * the int32 column the evaluator derives from the names before the kernel runs (task 59,
+   * {@code WeekdayLeaf}), and the lowering is the same either way, exact for every int
+   * {@code offset} since it reproduces Spark's wrapping arithmetic.
    */
   record NextDay(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {}
 

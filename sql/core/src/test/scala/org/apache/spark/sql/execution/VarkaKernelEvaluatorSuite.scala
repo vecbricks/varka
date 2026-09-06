@@ -18,16 +18,23 @@
 package org.apache.spark.sql.execution
 
 import java.io.File
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+
+import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.vector.{DateDayVector, VarCharVector}
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, If, In, LessThan, Literal, NamedExpression, Year}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, If, In, LessThan, Literal, NamedExpression, NextDay, Year}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, IntegerType}
+import org.apache.spark.sql.types.{DateType, IntegerType, StringType}
 import org.apache.spark.sql.util.ArrowUtils
-import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
+import org.apache.spark.unsafe.types.UTF8String
 
 /**
  * Unit tests for [[VarkaKernelEvaluator]]'s task-12 surface: the column-by-column batch
@@ -260,5 +267,130 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
     val coalesceLines = VarkaFusionReport.lines(computed, childOutput)
     assert(coalesceLines(0).contains(
       "coalesce operand before the last is not a bare date column"), coalesceLines(0))
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Task 59: the derived weekday input.
+  // ---------------------------------------------------------------------------------------------
+
+  private val attrS = AttributeReference("s", StringType)()
+
+  private def weekdayEvaluator(failOnError: Boolean): VarkaKernelEvaluator =
+    new VarkaKernelEvaluator(Seq(Alias(NextDay(attrD, attrS, failOnError), "a")()),
+      Seq(attrD, attrS), offHeapColumnVectorEnabled = false, operatorName = "Test", None)
+
+  /** A date column beside a string column, the batch a cached table hands the evaluator. */
+  private def weekdayBatch(
+      allocator: BufferAllocator,
+      dates: Seq[java.lang.Integer],
+      names: Seq[String],
+      arrowNames: Boolean = true): ColumnarBatch = {
+    val d = new DateDayVector("d", allocator)
+    d.allocateNew(dates.length)
+    dates.zipWithIndex.foreach { case (v, i) => if (v == null) d.setNull(i) else d.setSafe(i, v) }
+    d.setValueCount(dates.length)
+    val s: ColumnVector = if (arrowNames) {
+      val v = new VarCharVector("s", allocator)
+      v.allocateNew()
+      names.zipWithIndex.foreach { case (n, i) =>
+        if (n == null) v.setNull(i) else v.setSafe(i, n.getBytes(StandardCharsets.UTF_8))
+      }
+      v.setValueCount(names.length)
+      new ArrowColumnVector(v)
+    } else {
+      val v = new OnHeapColumnVector(names.length, StringType)
+      names.zipWithIndex.foreach { case (n, i) =>
+        if (n == null) v.putNull(i) else v.putByteArray(i, n.getBytes(StandardCharsets.UTF_8))
+      }
+      v
+    }
+    val batch = new ColumnarBatch(Array(new ArrowColumnVector(d), s))
+    batch.setNumRows(dates.length)
+    batch
+  }
+
+  /** The row engine's non-ANSI answer: null for a null or unrecognised name or a null date. */
+  private def nextDay(d: java.lang.Integer, name: String): java.lang.Integer = {
+    if (d == null || name == null) return null
+    try {
+      Int.box(DateTimeUtils.getNextDateForDayOfWeek(d,
+        DateTimeUtils.getDayOfWeekFromString(UTF8String.fromString(name))))
+    } catch {
+      case _: org.apache.spark.SparkIllegalArgumentException => null
+    }
+  }
+
+  private def column(out: ColumnarBatch): Seq[java.lang.Integer] =
+    (0 until out.numRows()).map(r =>
+      if (out.column(0).isNullAt(r)) null else Int.box(out.column(0).getInt(r)))
+
+  test("task 59: the derived weekday input serves the kernel from a string column, grows " +
+      "its scratch across batch sizes, and leaves no Arrow memory behind") {
+    val initial = ArrowUtils.rootAllocator.getAllocatedMemory
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val kernels = weekdayEvaluator(failOnError = false)
+      val smallDates: Seq[java.lang.Integer] = Seq(0, null, 5, 19723, -3)
+      val smallNames = Seq("MON", "tue", null, "xyz", "Th")
+      val small = weekdayBatch(allocator, smallDates, smallNames)
+      assert(kernels.canRun(small))
+      val outSmall = kernels.project(small)
+      assert(column(outSmall) === smallDates.zip(smallNames).map { case (d, n) => nextDay(d, n) })
+      kernels.release(outSmall)
+      small.close()
+      // A longer batch grows both scratch buffers (the maskBuf discipline), then a shorter one
+      // reuses them; the null-count and validity the leaf reports drive the masked body.
+      val bigDates: Seq[java.lang.Integer] = (0 until 70).map(i => Int.box(i * 13 - 100))
+      val bigNames = (0 until 70).map(i => if (i % 9 == 8) "" else if (i % 2 == 0) "WE" else "sat")
+      val big = weekdayBatch(allocator, bigDates, bigNames)
+      val outBig = kernels.project(big)
+      assert(column(outBig) === bigDates.zip(bigNames).map { case (d, n) => nextDay(d, n) })
+      kernels.release(outBig)
+      big.close()
+      val again = weekdayBatch(allocator, smallDates, smallNames)
+      val outAgain = kernels.project(again)
+      assert(column(outAgain) === smallDates.zip(smallNames).map { case (d, n) => nextDay(d, n) })
+      kernels.release(outAgain)
+      again.close()
+      context.markTaskCompleted(None)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === initial,
+        "the derived input's scratch leaked past task completion")
+    } finally {
+      TaskContext.unset()
+      allocator.close()
+    }
+  }
+
+  test("task 59: a weekday source that is not an Arrow VarCharVector refuses the batch, and " +
+      "under ANSI an unrecognised name declines it") {
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val dates: Seq[java.lang.Integer] = Seq(0, 1, 2)
+      val onHeap = weekdayBatch(allocator, dates, Seq("MON", "TUE", "WED"), arrowNames = false)
+      assert(!weekdayEvaluator(failOnError = false).canRun(onHeap))
+      onHeap.close()
+      // ANSI: the leaf never throws; the evaluator declines with its own status, so the exec
+      // node routes the batch to the row engine, which raises for the live-date row.
+      val ansi = weekdayEvaluator(failOnError = true)
+      val bad = weekdayBatch(allocator, dates, Seq("MON", "nope", "WED"))
+      assert(ansi.canRun(bad))
+      val declined = intercept[VarkaBatchDeclined](ansi.project(bad))
+      assert(declined.status === VarkaKernelEvaluator.STATUS_DERIVED_INPUT)
+      bad.close()
+      val goodNames = Seq("MON", null, "WED")
+      val good = weekdayBatch(allocator, dates, goodNames)
+      val out = ansi.project(good)
+      assert(column(out) === dates.zip(goodNames).map { case (d, n) => nextDay(d, n) })
+      ansi.release(out)
+      good.close()
+      context.markTaskCompleted(None)
+    } finally {
+      TaskContext.unset()
+      allocator.close()
+    }
   }
 }

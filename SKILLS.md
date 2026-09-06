@@ -1250,6 +1250,33 @@ is the decision. Three things came out of building it.
   where that word is written relative to where the reused block will run, not just that it is
   written somewhere.
 
+## A derived input must never raise, because the row engine's null check comes first
+
+Task 59. A string-argument date function (`next_day(d, s)` with a weekday column) runs in the
+kernel without string lanes by having the evaluator derive an int32 column per batch, before
+the kernel, through the row engine's own parser (`WeekdayLeaf`); the kernel then reads a plain
+int input (`CompiledVarkaProjection.derivedInputs`, a plan property like `inputBounds`, keyed
+under a negative synthetic input-table key so the compiler's mark-and-truncate rollback covers
+it). Two things came out of building it.
+
+- **The obvious ANSI story was wrong.** The milestone's section 2.26 said the pre-pass could
+  simply call the same function and raise the same error at the same row. But
+  `NextDay.nullSafeEval` never parses the name when the date beside it is null:
+  `next_day(NULL, 'xyz')` is NULL under ANSI, not an error. A pre-pass that raised on the parse
+  alone would err where the row engine does not. So the leaf never throws: under ANSI an
+  unrecognised name declines the batch (`STATUS_DERIVED_INPUT`) and the row engine computes it
+  by its own rules - NULL beside a null date, the error beside a live one - which also keeps the
+  invariant that no kernel-side code raises a user-facing exception. The general rule: a derived
+  input reproduces a *function's* semantics, and the expression around it may have null
+  short-circuits the function does not; the row engine is the only safe place to raise.
+- **An ASCII fast path must delegate every non-ASCII row, not just reject it.**
+  `"\u017Funday".toUpperCase(Locale.ROOT)` is `SUNDAY` (long s) and `"fr\u0131day"` is
+  `FRIDAY` (dotless i), so a byte-level parser that rejected non-ASCII input would disagree with
+  the definition on rows that are, by the definition, weekdays. The parser hands any row with a
+  byte at or above 0x80 to `getDayOfWeekFromString` itself, and `WeekdayLeafSuite` holds both
+  parsers to the definition over every case pattern of the 21 spellings, every one- and
+  two-byte ASCII string and every printable one-byte mutation of every spelling.
+
 ## A recipe for a cheap agent ages at the rate of the emitter, not of the arithmetic
 
 Task 35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic

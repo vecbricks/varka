@@ -157,6 +157,28 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
+   * `varka_dates_weekday` for task 59: dates `d` and `d2` beside a weekday name `s` cycling
+   * through the 21 spellings in three case styles, every name valid, so the derived leaf's
+   * parse is the whole of the pre-pass and nothing declines.
+   */
+  private def cacheDatesWeekday(session: SparkSession): Unit = {
+    val spellings = Seq("SU", "SUN", "SUNDAY", "MO", "MON", "MONDAY", "TU", "TUE", "TUESDAY",
+      "WE", "WED", "WEDNESDAY", "TH", "THU", "THURSDAY", "FR", "FRI", "FRIDAY", "SA", "SAT",
+      "SATURDAY")
+    val styled = spellings ++ spellings.map(_.toLowerCase(java.util.Locale.ROOT)) ++
+      spellings.map(n => n.head.toString + n.tail.toLowerCase(java.util.Locale.ROOT))
+    val names = styled.map(n => s"'$n'").mkString("array(", ", ", ")")
+    session.sql(
+      s"""select date_add(date'2020-01-01', cast(id as int) % 1500) as d,
+        |       date_add(date'2021-01-01', cast(id as int) % 1500) as d2,
+        |       element_at($names, cast(id % ${styled.size} as int) + 1) as s
+        |from range(0, 2000000)""".stripMargin)
+      .createOrReplaceTempView("varka_dates_weekday")
+    session.catalog.cacheTable("varka_dates_weekday")
+    session.sql("select count(*) from varka_dates_weekday").collect()
+  }
+
+  /**
    * An alternating `date_add`/`date_sub` chain of the given depth over column `d`, every
    * literal distinct, so neither Catalyst constant-folding nor C2 reassociation can shorten
    * it - each depth really is `depth` dependent ops per row.
@@ -257,6 +279,8 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       cacheRandomDatePairs(varka)
       cacheDatesMonthCounts(baseline)
       cacheDatesMonthCounts(varka)
+      cacheDatesWeekday(baseline)
+      cacheDatesWeekday(varka)
 
       runQueries(baseline, varka, "date_add", "SELECT date_add(d, 3) AS a FROM varka_dates")
       runQueries(baseline, varka, "date_sub", "SELECT date_sub(d, 5) AS a FROM varka_dates")
@@ -302,6 +326,17 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       // The one case that replaces an allocating path (Janino's LocalDate round trip) rather
       // than just fusing arithmetic - the kernel-level 36x of PLAN_TASK_11.md at query level.
       runQueries(baseline, varka, "dayofweek", "SELECT dayofweek(d) AS dw FROM varka_dates")
+      // Task 59's three rows: the literal weekday is the control (task 33's kernel, one input);
+      // the column weekday pays the derived leaf - the row engine's parse per row, before the
+      // kernel - so its varka row is the leaf plus the kernel against Janino's parse plus
+      // arithmetic per row; the reuse row pays one leaf for two kernels, which section 2.26
+      // predicts is where the mechanism's value lies.
+      runQueries(baseline, varka, "next_day, literal weekday (task 59 control)",
+        "SELECT next_day(d, 'MON') AS a FROM varka_dates_weekday")
+      runQueries(baseline, varka, "next_day, weekday column (task 59)",
+        "SELECT next_day(d, s) AS a FROM varka_dates_weekday")
+      runQueries(baseline, varka, "next_day, weekday column reused by two outputs (task 59)",
+        "SELECT next_day(d, s) AS a, next_day(d2, s) AS b FROM varka_dates_weekday")
       // Task 37: the ISO week by the Thursday rule, the widest single-field kernel.
       runQueries(baseline, varka, "weekofyear", "SELECT weekofyear(d) AS w FROM varka_dates")
       runQueries(baseline, varka, "yearofweek",

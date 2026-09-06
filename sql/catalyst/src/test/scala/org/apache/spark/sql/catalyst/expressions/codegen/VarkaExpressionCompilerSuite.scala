@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, GreaterThan, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, Literal, MakeDate, Month, Multiply, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Subtract, TimestampAddInterval, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year, YearOfWeek}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, ColumnRef, Compare, CompareOp, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, IntegerType, ShortType, StringType, TimestampType, YearMonthIntervalType}
@@ -129,16 +129,82 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
   }
 
-  test("task 33: next_day with a literal weekday compiles; a column weekday declines") {
+  test("task 33: next_day with a literal weekday compiles to a literal slot") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, Literal("MO"), false))), childOutput).get
     assert(compiled.outputs === Seq(new IRNextDay(new ColumnRef(0), new LiteralSlot(0))))
     assert(compiled.outputTypes === Seq(DateType))
     // MONDAY = 4 in DateTimeUtils's private weekday numbering, so k = dayOfWeek - 1 = 3.
     assert(compiled.literals === Seq(3))
-    val dow = AttributeReference("dow", StringType)()
-    assert(VarkaExpressionCompiler.compile(
-      Seq(out(NextDay(d, dow, false))), childOutput :+ dow).isEmpty)
+    assert(compiled.derivedInputs.isEmpty)
+  }
+
+  private val dow = AttributeReference("dow", StringType)()
+  private val withDow: Seq[Attribute] = childOutput :+ dow
+
+  test("task 59: next_day with a weekday column compiles to a derived input, ANSI in its kind") {
+    // Until task 59 a column weekday declined; now the column is read through a derived
+    // input: the kernel input is a ColumnRef like any other, inputOrdinals names the string
+    // column, and the note tells the evaluator to fill that input from it before the kernel.
+    val lenient = VarkaExpressionCompiler.compile(
+      Seq(out(NextDay(d, dow, false))), withDow).get
+    assert(lenient.outputs === Seq(new IRNextDay(new ColumnRef(0), new ColumnRef(1))))
+    assert(lenient.outputTypes === Seq(DateType))
+    assert(lenient.inputOrdinals === Seq(0, 5))
+    assert(lenient.literals === Nil)
+    assert(lenient.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+    assert(lenient.derivedAt(1).isDefined && lenient.derivedAt(0).isEmpty)
+    val ansi = VarkaExpressionCompiler.compile(
+      Seq(out(NextDay(d, dow, true))), withDow).get
+    assert(ansi.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY_ANSI)))
+    // The parser ignores collation, so a collated column is admitted the same way.
+    val lcase = AttributeReference("lc", StringType("UTF8_LCASE"))()
+    val collated = VarkaExpressionCompiler.compile(
+      Seq(out(NextDay(d, lcase, false))), childOutput :+ lcase).get
+    assert(collated.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+  }
+
+  test("task 59: two next_day over one weekday column share one derived input, and the " +
+      "date column keeps its own slot beside it") {
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(NextDay(d, dow, false)), out(NextDay(d2, dow, false)), out(DateAdd(d, Literal(1)))),
+      withDow).get
+    assert(compiled.outputs === Seq(
+      new IRNextDay(new ColumnRef(0), new ColumnRef(1)),
+      new IRNextDay(new ColumnRef(2), new ColumnRef(1)),
+      new AddDays(new ColumnRef(0), new LiteralSlot(0))))
+    assert(compiled.inputOrdinals === Seq(0, 5, 1))
+    assert(compiled.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+  }
+
+  test("task 59: a declining entry rolls its derived input back with the plain columns") {
+    // The synthetic key must obey the mark-and-truncate discipline: next_day interns the
+    // leaf, then the entry declines on its other operand, and the accepted entry's plan
+    // must carry neither the string column nor the note.
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(DateDiff(NextDay(d, dow, false), i)), out(DateAdd(d, Literal(1)))), withDow).get
+    assert(partial.declines.contains(0))
+    assert(partial.fused.inputOrdinals === Seq(0))
+    assert(partial.fused.derivedInputs.isEmpty)
+  }
+
+  test("task 59: a predicate over next_day with a weekday column carries the derived input") {
+    val predicate = VarkaExpressionCompiler.compilePredicate(
+      EqualTo(NextDay(d, dow, false), d2), withDow).get
+    assert(predicate.specs.forall(_.fused))
+    assert(predicate.fused.inputOrdinals === Seq(0, 5, 1))
+    assert(predicate.fused.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+  }
+
+  test("task 59: a weekday that is an expression over the column declines with its reason") {
+    val upper = org.apache.spark.sql.catalyst.expressions.Upper(dow)
+    assert(!upper.foldable)
+    assert(declineReason(NextDay(d, upper, false), withDow) ===
+      "next_day with a weekday that is neither a literal nor a column")
+    assert(VarkaDerivedInput.key(5, VarkaDerivedKind.WEEKDAY) !==
+      VarkaDerivedInput.key(5, VarkaDerivedKind.WEEKDAY_ANSI))
+    assert(VarkaDerivedInput.sourceOrdinal(VarkaDerivedInput.key(7, VarkaDerivedKind.WEEKDAY_ANSI))
+      === 7)
   }
 
   test("task 33: next_day's weekday range is [-1, 5], not [0, 6] - THURSDAY is the negative") {

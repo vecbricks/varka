@@ -219,6 +219,70 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
    * to exercise null handling, and `parts` partitions (via `repartition` when > 1) so the scan
    * fans out over several tasks (which share one cached kernel class since task 18).
    */
+  /**
+   * Builds and caches `varka_dates_weekday` for task 59: dates `d` and `d2` and a weekday name
+   * `s` mixing the three spellings in three case styles, THURSDAY (the negative `k`), a name
+   * naming its own date's weekday (so `next_day(d, s) = d2` holds on those rows and the filter
+   * route has something to count), and the rows that are not names - `'xyz'`, the empty
+   * string, an untrimmed `' MON'` - beside a null name and null dates. One partition, so the
+   * ANSI error surfaces from one task and both engines raise it for the same row (task 42's
+   * discipline). `varka_dates_weekday_valid` is the same table without the non-name rows: the
+   * one a fused ANSI query runs over with nothing to decline.
+   */
+  protected def cacheDatesWeekday(session: SparkSession): Unit =
+    cacheWeekdayView(session, "varka_dates_weekday", weekdayRows)
+
+  protected def cacheDatesWeekdayValid(session: SparkSession): Unit =
+    cacheWeekdayView(session, "varka_dates_weekday_valid", weekdayRows.filter(_._2 != null))
+
+  private val weekdayRows: Seq[(java.sql.Date, java.sql.Date, String)] = Seq(
+      (date("2024-01-01"), date("2024-01-08"), "Mon"),
+      (date("2024-01-02"), date("2024-01-09"), "tuesday"),
+      (date("2024-01-03"), date("2024-01-10"), "WE"),
+      (date("2024-01-04"), date("2024-01-11"), "th"),
+      (date("2024-01-05"), date("2024-01-12"), "Fri"),
+      (date("1969-12-31"), date("1970-01-07"), "WEDNESDAY"),
+      (date("2024-02-29"), date("2024-03-07"), "thu"),
+      (date("2024-01-10"), date("2024-01-11"), "sunday"),
+      (date("2024-01-06"), null, "xyz"),
+      (date("2024-01-07"), null, ""),
+      (date("2024-01-08"), null, " MON"),
+      (date("2024-01-09"), date("2024-01-16"), null),
+      (null, date("2024-01-17"), "TUE"),
+      (null, null, "SAT"))
+
+  /**
+   * `varka_dates_weekday_bad_on_nulls`: the non-names sit only beside null dates, which is the
+   * row the ANSI route hinges on - the row engine never parses a name beside a null date, so
+   * the query is NULLs and no error, and a pre-pass that raised on the parse would be wrong.
+   */
+  protected def cacheDatesWeekdayBadOnNulls(session: SparkSession): Unit =
+    cacheWeekdayView(session, "varka_dates_weekday_bad_on_nulls", Seq(
+      (date("2024-01-01"), date("2024-01-08"), "Mon"),
+      (null, date("2024-01-09"), "bogus"),
+      (date("2024-01-03"), date("2024-01-10"), "wednesday"),
+      (null, null, ""),
+      (date("2024-01-05"), null, "fri")))
+
+  /** `varka_dates_weekday_lcase`: the same rows as `varka_dates_weekday`, `s` collated. */
+  protected def cacheDatesWeekdayCollated(session: SparkSession): Unit = {
+    cacheDatesWeekday(session)
+    session.table("varka_dates_weekday")
+      .selectExpr("d", "d2", "CAST(s AS STRING COLLATE UTF8_LCASE) AS s")
+      .coalesce(1)
+      .createOrReplaceTempView("varka_dates_weekday_lcase")
+    session.catalog.cacheTable("varka_dates_weekday_lcase")
+  }
+
+  private def cacheWeekdayView(
+      session: SparkSession,
+      name: String,
+      rows: Seq[(java.sql.Date, java.sql.Date, String)]): Unit = {
+    session.createDataFrame(rows).toDF("d", "d2", "s").coalesce(1)
+      .createOrReplaceTempView(name)
+    session.catalog.cacheTable(name)
+  }
+
   protected def cacheDatesBig(session: SparkSession, numRows: Int, parts: Int = 1): Unit = {
     val rows = (0 until numRows).map { i =>
       val d = if (i % 17 == 0) null
