@@ -1314,6 +1314,58 @@ it). Two things came out of building it.
   ops for the four periods against 36..62 for one literal level - so the literal form remains
   the shape a query should write, and the doc says so.
 
+## A closed `ArrowBuf` still answers `capacity()` and `memoryAddress()`
+
+Found reviewing task 59's per-task scratch buffers, and worth knowing before writing any
+grow-and-reuse helper over Arrow memory.
+
+`ArrowBuf.close()` is one line - `referenceManager.release()`. It does not touch the buffer's
+own fields, and both `capacity()` and `memoryAddress()` are plain field reads (`getfield
+capacity:J` and `getfield addr:J` in arrow-memory-core 19.0.0; check with `javap -c` rather
+than assuming, the class is small). So a closed buffer reports the size it used to have and the
+address it used to own, and a `capacity() < needed` test - the natural way to decide whether to
+grow - cannot tell a live buffer from a freed one. There is no cheap liveness predicate to
+substitute: the reference count lives in the ledger, not the buffer.
+
+The consequence for a helper that replaces a buffer: **allocate the new one before closing the
+old one**, never the reverse. `BufferAllocator.buffer` throws Arrow's `OutOfMemoryException`,
+which is a plain `RuntimeException` - not `java.lang.OutOfMemoryError` - so `NonFatal` matches
+it, `serveBatch` catches it as a per-batch failure and *the task keeps running*. Free first and
+the throw leaves the caller's field pointing at a freed buffer, because the assignment that
+would have replaced it never happens: the right-hand side is evaluated first. The next smaller
+batch then reads the stale capacity, decides no grow is needed, and writes through a released
+address; the task's cleanup closes it again and the ledger's reference count goes negative.
+Allocating first costs both buffers for the width of one assignment and cannot strand a freed
+one. The same ordering argument applies to any resource whose accessors survive its release.
+
+Two things this cost that are worth copying rather than rediscovering. The regression test
+cannot assert on the corruption - freed memory usually still holds its old contents, so reading
+it back returns the right answer and proves nothing; assert on the allocator's own accounting
+instead (`getAllocatedMemory` unchanged across the failed grow), which is exactly the invariant
+and is a public API. And a release path that catches and logs, which is the right thing for a
+task-completion listener, will swallow the double close that would otherwise have made the bug
+loud - so hardening the cleanup and fixing the ordering have to be judged separately, or the
+hardening hides the evidence for the fix.
+
+Two more from the sweep that followed it.
+
+**One `try` around a cleanup sequence satisfies the letter of "do not skip the allocator close"
+and not its point.** The listener frees several things in turn - open batches, the derived
+scratch, a subclass hook - and wrapping the lot in a single guard means a throwing batch close
+still costs the two stages after it. Guard each stage separately, so every one of them runs;
+the collection closes guard each element too, for the same reason one throwing element must not
+strand its neighbours. On a *failure* path there is a second reason: a bare
+`owned.foreach(_.close())` inside a `catch` that rethrows will replace the exception being
+reported with a cleanup exception, so the error that actually matters never surfaces.
+
+**Two idioms for one hazard is how the next person gets it wrong.** This file had two
+grow-and-replace helpers. One nulled its field before closing - safe, because a throwing
+allocation then leaves no dangling reference, though it destroys a usable buffer for nothing -
+and the other closed first and was the bug. The second was written claiming to follow the
+first's "discipline", and the claim was even in a comment. Neither the comment nor the reviewer
+noticed the orders differed. Both are now acquire-then-release, which is strictly better than
+either and, more to the point, is one rule rather than two.
+
 ## A recipe for a cheap agent ages at the rate of the emitter, not of the arithmetic
 
 Task 35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic

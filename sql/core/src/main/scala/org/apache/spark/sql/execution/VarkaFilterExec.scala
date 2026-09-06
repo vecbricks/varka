@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution
 
+import scala.util.control.NonFatal
+
 import org.apache.spark.{PartitionEvaluator, PartitionEvaluatorFactory, SparkException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
@@ -260,7 +262,14 @@ private[sql] class VarkaFilterEvaluatorFactory(
         batch.setNumRows(rowCount)
       } catch {
         case e: Throwable =>
-          batch.close()
+          // Attach a cleanup failure to the error being reported rather than replacing it:
+          // ColumnarBatch.close loops its columns unguarded, so one throwing column would
+          // otherwise strand the rest and lose the conversion error that actually matters.
+          try {
+            batch.close()
+          } catch {
+            case NonFatal(c) => e.addSuppressed(c)
+          }
           throw e
       }
       kernels.track(batch)

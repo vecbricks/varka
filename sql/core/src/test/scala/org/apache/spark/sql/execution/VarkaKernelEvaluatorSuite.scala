@@ -21,7 +21,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
-import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.memory.{BufferAllocator, OutOfMemoryException}
 import org.apache.arrow.vector.{DateDayVector, VarCharVector}
 
 import org.apache.spark.TaskContext
@@ -359,6 +359,83 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
         "the derived input's scratch leaked past task completion")
     } finally {
       TaskContext.unset()
+      allocator.close()
+    }
+  }
+
+  test("task 59 review: a scratch grow that runs out of memory leaves the previous buffer " +
+      "usable, and the task's cleanup closes it exactly once") {
+    // `grown` used to close the old buffer before allocating the replacement. `buffer` throws
+    // Arrow's OutOfMemoryException, a plain RuntimeException that `serveBatch` catches as a
+    // per-batch failure - so the task kept running with `derivedData(i)` holding a *closed*
+    // buffer. Arrow's close only releases the reference: `capacity()` and `memoryAddress()`
+    // stay plain field reads, so the next smaller batch found the stale capacity big enough,
+    // skipped the regrow, and had the leaf write through an address the allocator had freed;
+    // the cleanup then closed it again and took the reference count negative.
+    //
+    // The allocator here is capped so the wide batch's scratch cannot be satisfied while the
+    // narrow one's can. What this asserts is the invariant, not the corruption: after the
+    // failure the evaluator still answers the narrow batch correctly - which it can only do
+    // from a live buffer - and task completion accounts to zero, which a double close would
+    // not. Allocating before closing is what makes both true.
+    val initial = ArrowUtils.rootAllocator.getAllocatedMemory
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val capped = ArrowUtils.rootAllocator.newChildAllocator("varka-capped", 0, 4096)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val kernels = new VarkaKernelEvaluator(
+        Seq(Alias(NextDay(attrD, attrS, failOnError = false), "a")()),
+        Seq(attrD, attrS), offHeapColumnVectorEnabled = false, operatorName = "Test", None) {
+        override protected def taskAllocator(): BufferAllocator = {
+          // Still register the completion listener the real one registers; only the allocator
+          // it hands back differs.
+          ensureCleanup()
+          capped
+        }
+      }
+      val narrowDates: Seq[java.lang.Integer] = Seq(19797, null, 19723)
+      val narrowNames = Seq("MON", "TUE", null)
+      def narrow(): ColumnarBatch = weekdayBatch(allocator, narrowDates, narrowNames)
+      val expected = narrowDates.zip(narrowNames).map { case (d, n) => nextDay(d, n) }
+
+      val first = narrow()
+      val out = kernels.project(first)
+      assert(column(out) === expected)
+      kernels.release(out)
+      first.close()
+      val heldAfterFirst = capped.getAllocatedMemory
+      assert(heldAfterFirst > 0, "the narrow batch should have left its scratch allocated")
+
+      // Wide enough that the data scratch alone is past the cap: the grow throws where the
+      // evaluator cannot help it, which is exactly the path that used to free the live buffer.
+      val wideDates: Seq[java.lang.Integer] = (0 until 2000).map(i => Int.box(19000 + i))
+      val wideNames = (0 until 2000).map(i => Seq("MON", "TUE", "WED")(i % 3))
+      val wide = weekdayBatch(allocator, wideDates, wideNames)
+      assert(kernels.canRun(wide))
+      intercept[OutOfMemoryException](kernels.project(wide))
+      wide.close()
+      // The discriminating assertion. Closing before allocating frees the live buffer on the
+      // way to the throw, so the allocator's accounting drops; allocating first cannot, so it
+      // is unchanged. The reads below cannot be trusted to catch this on their own - freed
+      // memory usually still holds its old contents - and the double close at task completion
+      // is now caught and logged rather than thrown, so neither of those would fail reliably.
+      assert(capped.getAllocatedMemory === heldAfterFirst,
+        "the failed grow freed a buffer the evaluator still references")
+
+      // The buffer the failed grow would have freed is still the one this batch reuses.
+      val again = narrow()
+      val outAgain = kernels.project(again)
+      assert(column(outAgain) === expected, "the scratch did not survive the failed grow")
+      kernels.release(outAgain)
+      again.close()
+
+      context.markTaskCompleted(None)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === initial,
+        "the derived input's scratch leaked, or was closed twice, past task completion")
+    } finally {
+      TaskContext.unset()
+      capped.close()
       allocator.close()
     }
   }
