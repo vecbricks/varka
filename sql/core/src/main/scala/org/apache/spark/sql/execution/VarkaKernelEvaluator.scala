@@ -557,16 +557,34 @@ private[sql] abstract class VarkaEvaluatorBase(
         val b = buffers(i)
         buffers(i) = null
         if (b != null) {
-          try {
-            b.close()
-          } catch {
-            case NonFatal(e) =>
-              logWarning("Closing a Varka derived-input scratch buffer failed.", e)
-          }
+          closeQuietly(b, "a Varka derived-input scratch buffer")
         }
         i += 1
       }
     }
+  }
+
+  /**
+   * Closes one resource on a path that must not be derailed by the close itself: whatever it
+   * throws is logged and swallowed.
+   *
+   * Used where something has already gone wrong, or where the caller is on its way out. On a
+   * failure path the original exception is the one worth keeping - a `foreach(_.close())` there
+   * both strands every resource after the one that threw and replaces the error being reported
+   * with a cleanup error, which is the same objection the task-completion listener's own guard
+   * was written for.
+   */
+  protected def closeQuietly(c: AutoCloseable, what: String): Unit = {
+    try {
+      c.close()
+    } catch {
+      case NonFatal(e) => logWarning(s"Closing $what failed.", e)
+    }
+  }
+
+  /** [[closeQuietly]] over a collection, guarding each element separately. */
+  protected def closeAllQuietly(cs: Iterable[_ <: AutoCloseable], what: String): Unit = {
+    cs.foreach(closeQuietly(_, what))
   }
 
   /**
@@ -577,21 +595,21 @@ private[sql] abstract class VarkaEvaluatorBase(
     if (!cleanupRegistered) {
       cleanupRegistered = true
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
+        // Every stage here frees task-lifetime Arrow memory, and each is guarded separately so
+        // that one failure cannot skip the others. The reason was written for the hook alone -
+        // a throw must not skip the allocator close below, or the child allocator's accounting
+        // leaks against the shared root for the JVM's lifetime and the task's real error is
+        // masked (task-21 review, second pass) - and it applies word for word to its
+        // neighbours, which a later review noticed close Arrow buffers too. One try around the
+        // whole prologue would satisfy the letter of that and not its point: a throwing batch
+        // close would still cost the scratch release and the hook.
+        closeAllQuietly(openBatches.values.flatten, "a Varka batch left open at task completion")
+        openBatches.clear()
+        releaseDerivedScratch()
         try {
-          // Everything that frees task-lifetime Arrow memory runs inside this one guard. The
-          // reason the guard exists was written for the hook alone, and applies word for word
-          // to the two closes above it: a throw anywhere here must not skip the allocator close
-          // below, because that would leak the child allocator's accounting against the shared
-          // root for the JVM's lifetime and mask the task's real error (task-21 review, second
-          // pass). Only the hook was covered until a later review noticed that its neighbours -
-          // the open batches, and task 59's derived-input scratch - close Arrow buffers too and
-          // can throw for the same reasons.
-          openBatches.foreach { case (_, owned) => owned.foreach(_.close()) }
-          openBatches.clear()
-          releaseDerivedScratch()
           onTaskCleanup()
         } catch {
-          case NonFatal(e) => logWarning("Varka task cleanup failed.", e)
+          case NonFatal(e) => logWarning("Varka task-cleanup hook failed.", e)
         }
         if (kernelAllocator != null) {
           kernelAllocator.close()
@@ -929,7 +947,7 @@ private[sql] class VarkaKernelEvaluator(
       batch
     } catch {
       case e: Throwable =>
-        owned.foreach(_.close())
+        closeAllQuietly(owned, "a Varka output vector after a failed projection")
         throw e
     }
   }
@@ -952,7 +970,7 @@ private[sql] class VarkaKernelEvaluator(
       batch
     } catch {
       case e: Throwable =>
-        owned.foreach(_.close())
+        closeAllQuietly(owned, "a Varka output vector after a failed projection")
         throw e
     }
   }
@@ -1008,7 +1026,7 @@ private[sql] class VarkaKernelEvaluator(
         }
       } catch {
         case e: Throwable =>
-          vectors.foreach(_.close())
+          closeAllQuietly(vectors, "a Varka residual vector after a failed conversion")
           throw e
       }
       vectors.toSeq
@@ -1119,16 +1137,20 @@ private[sql] class VarkaFilterEvaluator(
   private def maskBuffer(len: Int): ArrowBuf = {
     val needed = ((len + 63) / 64) * 8L
     if (maskBuf == null || maskBuf.capacity() < needed) {
-      val alloc = taskAllocator()
-      if (maskBuf != null) {
-        // Null the field before the close-and-replace: if the grow allocation below throws,
-        // a dangling reference would serve a later smaller batch from freed memory and be
-        // double-closed by the task listener (task-21 review, second pass).
-        val old = maskBuf
-        maskBuf = null
+      // Allocate before closing, the same order and for the same reason as `grown`. This used
+      // to null the field first and then close - safe, because a throwing allocation left no
+      // dangling reference to serve a later batch or be double-closed (task-21 review, second
+      // pass), but it destroyed a usable buffer on the way out and left the evaluator with
+      // none. Acquiring first is strictly better: a transient allocation failure now costs
+      // nothing at all, and the two grow helpers in this file no longer answer the same hazard
+      // two different ways - which is what let `grown` be written as a close-then-allocate and
+      // still claim to follow this one.
+      val fresh = taskAllocator().buffer(needed)
+      val old = maskBuf
+      maskBuf = fresh
+      if (old != null) {
         old.close()
       }
-      maskBuf = alloc.buffer(needed)
     }
     maskBuf
   }
@@ -1272,7 +1294,7 @@ private[sql] class VarkaFilterEvaluator(
       batch
     } catch {
       case e: Throwable =>
-        owned.foreach(_.close())
+        closeAllQuietly(owned, "a Varka output vector after a failed projection")
         throw e
     }
   }
@@ -1296,7 +1318,7 @@ private[sql] class VarkaFilterEvaluator(
       dst.allocateNew(count + SelectionVectorOps.intLanes())
     } catch {
       case e: Throwable =>
-        dst.close()
+        closeQuietly(dst, "a Varka compaction vector after a failed allocation")
         throw e
     }
     val wrapped = new VarkaOwnedArrowColumnVector(dst)
@@ -1328,7 +1350,7 @@ private[sql] class VarkaFilterEvaluator(
       dst.allocateNew(math.max(count, 1))
     } catch {
       case e: Throwable =>
-        dst.close()
+        closeQuietly(dst, "a Varka compaction vector after a failed allocation")
         throw e
     }
     val wrapped = new VarkaOwnedArrowColumnVector(dst)

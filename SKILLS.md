@@ -1281,6 +1281,25 @@ task-completion listener, will swallow the double close that would otherwise hav
 loud - so hardening the cleanup and fixing the ordering have to be judged separately, or the
 hardening hides the evidence for the fix.
 
+Two more from the sweep that followed it.
+
+**One `try` around a cleanup sequence satisfies the letter of "do not skip the allocator close"
+and not its point.** The listener frees several things in turn - open batches, the derived
+scratch, a subclass hook - and wrapping the lot in a single guard means a throwing batch close
+still costs the two stages after it. Guard each stage separately, so every one of them runs;
+the collection closes guard each element too, for the same reason one throwing element must not
+strand its neighbours. On a *failure* path there is a second reason: a bare
+`owned.foreach(_.close())` inside a `catch` that rethrows will replace the exception being
+reported with a cleanup exception, so the error that actually matters never surfaces.
+
+**Two idioms for one hazard is how the next person gets it wrong.** This file had two
+grow-and-replace helpers. One nulled its field before closing - safe, because a throwing
+allocation then leaves no dangling reference, though it destroys a usable buffer for nothing -
+and the other closed first and was the bug. The second was written claiming to follow the
+first's "discipline", and the claim was even in a comment. Neither the comment nor the reviewer
+noticed the orders differed. Both are now acquire-then-release, which is strictly better than
+either and, more to the point, is one rule rather than two.
+
 ## A recipe for a cheap agent ages at the rate of the emitter, not of the arithmetic
 
 Task 35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic
