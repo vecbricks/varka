@@ -294,8 +294,8 @@ companion; M rows/s throughout.
 
 | row | 256-bit | 128-bit |
 |---|---|---|
-| `trunc(d, 'QUARTER')`, literal kernel (control), null-free | 1554.6 | 566.9 |
-| `trunc(d, 'MONTH')`, literal kernel (control), null-free | 3323.9 | 1263.7 |
+| `trunc(d, 'QUARTER')`, literal kernel (control), null-free | 1575.8 | 567.8 |
+| `trunc(d, 'MONTH')`, literal kernel (control), null-free | 3329.3 | 1264.5 |
 | `trunc(d, level)`, dynamic kernel, null-free | 1172.0 (0.75x of `QUARTER`) | 445.6 (0.79x) |
 | `trunc(d, 'QUARTER')`, literal kernel (control), mixed nulls | 1328.8 | 500.4 |
 | `trunc(d, level)`, dynamic kernel, mixed nulls on the date | 976.2 (0.73x) | 383.9 (0.77x) |
