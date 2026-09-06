@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
-import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, GreaterThan, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, Literal, MakeDate, Month, Multiply, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Subtract, TimestampAddInterval, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year}
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, GreaterThan, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, Literal, MakeDate, Month, Multiply, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Subtract, TimestampAddInterval, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, ColumnRef, Compare, CompareOp, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
@@ -316,6 +316,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     // The value side is unchanged: an int literal where a date is expected declines.
     assert(VarkaExpressionCompiler.compile(Seq(out(DateAdd(Literal(5), Literal(3)))),
       childOutput).isEmpty)
+  }
+
+  test("task 58: extract(YEAROFWEEK) compiles to Year over the Thursday shift and shares the " +
+      "shift with weekofyear over the same date") {
+    val viaExtract = Extract(Literal("YEAROFWEEK"), d, YearOfWeek(d))
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(viaExtract), out(WeekOfYear(d))), childOutput).get
+    val thursday = new ThursdayOf(new ColumnRef(0))
+    assert(compiled.outputs === Seq(new IRYear(thursday), new IRWeekOfYear(thursday)))
+    assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
+    // The same admission as weekofyear's: three days short of a bare date's last shift.
+    val shiftHiWeek = VarkaChrono.NARROW_MAX_DAYS - VarkaChrono.CONTRACT_MAX_DAYS - 3
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(YearOfWeek(DateAdd(d, Literal(shiftHiWeek))))), childOutput).isDefined)
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(YearOfWeek(DateAdd(d, Literal(shiftHiWeek + 1))))), childOutput).isEmpty)
   }
 
   test("task 37: the range analysis bounds the Thursday shift at three days either way") {

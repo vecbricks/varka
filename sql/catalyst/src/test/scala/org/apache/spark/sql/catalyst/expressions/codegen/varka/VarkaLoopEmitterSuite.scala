@@ -1072,6 +1072,7 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     val counts = Seq(
       ("ThursdayOf", ops(new ThursdayOf(col)), 19),
       ("weekofyear", ops(new WeekOfYear(new ThursdayOf(col))), 64),
+      ("yearofweek", ops(new Year(new ThursdayOf(col))), 51),
       ("next_day", ops(new NextDay(col, new LiteralSlot(0)), literals = 1), 18),
       ("weekday", ops(new WeekDay(col)), 17),
       ("dayofyear", ops(new DayOfYear(col)), 43),
