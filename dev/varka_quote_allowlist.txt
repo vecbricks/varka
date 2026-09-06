@@ -5,17 +5,17 @@
 # narrow-width numbers came from scratch logs before dev/varka_bench_regen.sh
 # committed a 128-bit companion file, the "compared by minimums" figures were
 # computed from per-iteration output that was never committed, and the probe
-# figures came from throwaway runs the plans already call scratch.
-SKILLS.md	3573.9	REASON NEEDED
-SKILLS.md	2379.8	REASON NEEDED
-SKILLS.md	2368.3	REASON NEEDED
-SKILLS.md	3766.3	REASON NEEDED
-SKILLS.md	4630.0	REASON NEEDED
-SKILLS.md	4630.0	REASON NEEDED
-SKILLS.md	2368.3	REASON NEEDED
-SKILLS.md	2166.5	REASON NEEDED
-SKILLS.md	36524.25	REASON NEEDED
-SKILLS.md	26.04	REASON NEEDED
+# figures came from throwaway runs the plans already call scratch. A few entries are not
+# measurements at all - a calendar constant, a release number - which the tool's
+# number-shaped regex cannot tell from a rate; those say so.
+SKILLS.md	3573.9	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
+SKILLS.md	2379.8	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
+SKILLS.md	2368.3	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
+SKILLS.md	3766.3	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
+SKILLS.md	4630.0	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
+SKILLS.md	2166.5	quoted from PLAN_TASK_48.md 9.2: an interleaved re-run compared by minimums, per-iteration output not committed
+SKILLS.md	36524.25	not a measurement: 146097 / 4, the mean Gregorian century in days
+SKILLS.md	26.04	not a measurement: the release number in "Ubuntu 26.04"
 sql/varka/plans/PLAN_MILESTONE_5.md	3573.9	probe figures from a throwaway run the text itself calls a scratch probe
 sql/varka/plans/PLAN_MILESTONE_5.md	2379.8	probe figures from a throwaway run the text itself calls a scratch probe
 sql/varka/plans/PLAN_MILESTONE_5.md	2368.3	probe figures from a throwaway run the text itself calls a scratch probe
