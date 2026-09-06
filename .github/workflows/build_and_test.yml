@@ -195,6 +195,15 @@ jobs:
           build=`./dev/is-changed.py -m "core,unsafe,kvstore,avro,utils,utils-java,network-common,network-shuffle,repl,launcher,examples,sketch,variant,api,catalyst,hive-thriftserver,mllib-local,mllib,graphx,streaming,sql-kafka-0-10,streaming-kafka-0-10,streaming-kinesis-asl,credential-aws,kubernetes,hadoop-cloud,spark-ganglia-lgpl,profiler,protobuf,yarn,connect,sql,hive,pipelines"`
           build_core_utils=`./dev/is-changed.py -m "core,unsafe,kvstore,utils,utils-java,network-common,network-shuffle,sketch,variant,launcher"`
           varka_engine=`./dev/is-changed.py -m varka-engine`
+          # Disabled on this fork since 7 September 2026: the Kubernetes integration job
+          # cannot build its Docker image, because booting buildx's own builder fails with
+          # "failed to inspect pulled image moby/buildkit:buildx-stable-1: Error response
+          # from daemon: 404 page not found". Every run of this job has failed that way
+          # since 5 September, on every branch, before a single test runs - so the check is
+          # red on every PR and reports nothing about the change under it. Nothing in this
+          # repository can fix it; it is buildx pulling from Docker Hub on the runner.
+          # Re-enable by deleting this line once a run gets past "booting buildkit" again.
+          kubernetes=false
           precondition="
             {
               \"build\": \"$build\",
