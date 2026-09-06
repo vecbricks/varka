@@ -1205,13 +1205,14 @@ is the decision. Three things came out of building it.
 - **The runtime half is one producer, guarded once, behind an option.** The only shift the
   compiler cannot see is a column offset (task 38), so `AddDays`/`SubDays` with a `ColumnRef`
   offset under a calendar node re-emit task 26's guard block on their own result
-  (`emitProducerGuard`), ANDed with the node's validity word (a null offset must not condemn a
+  (`emitRangeGuard`), ANDed with the node's validity word (a null offset must not condemn a
   batch) and the epilogue mask, ORed into the per-body accumulator task 51 left in place. The
   accumulator is allocated only when the body reaches such a producer and
   `VarkaEmitOptions.guardDayProducers` is on, so every other shape is byte-identical under
-  both settings - the suite asserts it on method sizes. The analysis returns three answers,
-  not two: bounded, column-shifted (admit; the emitter guards), and unknown (decline), so a
-  producer nobody has taught to the analysis fails as a residual entry, never as a wrong year.
+  both settings - the suite asserts it on method sizes. The analysis returns two answers:
+  bounded and unknown (decline), so a producer nobody has taught to the analysis fails as a
+  residual entry, never as a wrong year. It returned a third for a while - "column-shifted:
+  admit, the emitter guards it" - and the entry below is what that cost.
 - **A mask guard costs its `fromLong`, not its compares.** Measured on `year(date_add(d, off))`
   (`VarkaEmitterParityBenchmark`, two regenerations and a second run each): the guard costs
   13-14% with mixed nulls at both widths in every run, against 5-15% null-free at 256 bits
@@ -1220,6 +1221,60 @@ is the decision. Three things came out of building it.
   `VectorMask.fromLong` materializes a mask from a scalar word; the prediction counted it as
   one lane op and it is not. A guard that reuses a mask the body has already built for its
   store would not pay it.
+- **The guard generalizes to a value bounded by anything other than the day range - and the
+  block itself needed no change to do it.** Task 60 widened `add_months`' month count from a
+  compile-time-bounded literal to a column, and reused this same block
+  (renamed `emitProducerGuard` to `emitRangeGuard`, taking the two bounds as parameters) to
+  guard the count against `MONTH_ARITH_MIN/MAX_MONTHS` instead of the day range. The correction
+  this forced onto `PLAN_MILESTONE_4.md` 2.27: a column bounded by a runtime guard is a
+  `Bounded` day range at the guard's own extremes (`shifted(days, 31 * MIN, 31 * MAX)`), not an
+  unbounded shift - "unbounded" is for a shift the compiler genuinely cannot bound at all, which
+  a *guarded* column is not. Getting this wrong would have re-widened every consumer's
+  range to "unknowable" for no reason, the same over-approximation task 51 had just finished
+  removing.
+- **State a guard's guarantee as an interval, not as a verdict, or it will not compose.** Task
+  60's review found the hole this makes. The analysis had a `ColumnShifted` answer meaning
+  "some producer below is guarded at run time, so admit this", and `admitCalendar` admitted it
+  without any range test. That is sound only while the guarded producer is the calendar node's
+  direct child. Put anything above it that moves the day - `add_months` with a column count,
+  worth up to 31 * `MONTH_ARITH_MAX_MONTHS` days - and the verdict still said "admit", because
+  a verdict carries no arithmetic for the shift to act on. Both runtime guards passed on their
+  own operands and `year(add_months(date_add(d, off), m))` answered 87585 for a true -14848.
+  The fix is a one-liner and the lesson is in its shape: have the guarded producer return
+  `Bounded(NARROW_MIN_DAYS, NARROW_MAX_DAYS)` - the interval its guard actually establishes -
+  and every existing rule composes with it for free, because they were already written to shift
+  intervals. `ColumnShifted` then has no producer and is deleted. Generally: when a runtime
+  check establishes a fact the compiler wants to rely on, encode the *fact* in the same
+  representation the analysis already manipulates, never as a special case meaning "trust me".
+  The special case is invisible to every rule written before it.
+- **A guard the compiler relies on cannot sit behind an option the compiler cannot see.** The
+  same review caught the count guard filed with the option-gated day-producer guards while
+  `dayRange` returned `Bounded` for a column count unconditionally. With
+  `guardDayProducers=false` the guard vanished and the compile-time bound stayed - wrong
+  answers, not a slower reference variant. The criterion that sorts these is already in the
+  code: `selfGuarding` (task 42's `make_date`) is "the check is the node's own correctness" and
+  is never optional, `guardedProducers` is "insurance for a consumer" and may be. A count guard
+  protecting its own magic multiply is the former, and moving it there made the option's name
+  honest again as well.
+- **A word this block reads must already be stored, not merely available on the stack.** The
+  guard's mask-body AND reads `Slots#wordRef` for the node under guard - a *stored local*, not
+  whatever the emitter last pushed. For `AddDays`/`SubDays` that word is computed immediately
+  before the guard runs (`emitAndValidatedOp`'s own call site), so this was never visible at
+  task 52. `add_months` computes its own word differently: task 40's dispatcher ran
+  `emitAndWord` *after* `emitAddMonths` returned, once the whole value was on the stack - fine
+  for every reader that came after, but the guard needed to run *inside* `emitAddMonths`, right
+  after the count loads and before the magic-multiply's bias folds it in, which is earlier than
+  that word existed. The result was `VerifyError: Bad local variable type ... top ... not
+  assignable to long` in the masked epilogue, the one body where the guard reads that word.
+  What made it invisible was not the absence of a calendar consumer - `Year(AddMonths(col,
+  col))` aliases the same word slot and would have failed the same way - but that no curated
+  test ran a *live* violation through the masked epilogue at all; the shapes that did reach it
+  nulled the offending lane, where the guard is silent either way. The fix moved the
+  `emitAndWord` call earlier, into `emitAddMonths` itself, right after the count's
+  `emitValue` - both children's words are provably ready by then, so nothing about the word
+  itself changed, only when it is stored. The general lesson: before reusing a block that
+  reads "the node's own word," check where that word is written relative to where the reused
+  block will run, not just that it is written somewhere.
 
 ## A derived input must never raise, because the row engine's null check comes first
 

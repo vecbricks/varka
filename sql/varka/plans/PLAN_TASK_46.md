@@ -308,7 +308,7 @@ has to be part of the shape key (`VarkaEmitOptions`' class doc, task 23).
 
 ### 3.7 The neighbour this changes the value of, and does not take
 
-There is a larger idea next to this one, and it is now **task 69**
+There is a larger idea next to this one, and it is now **task 70**
 (`PLAN_MILESTONE_4.md` section 2.34), added out of this admission check. It is
 written down here too, because what this task is worth depends on which of the
 two lands first.
@@ -615,7 +615,7 @@ with the single-write loss recorded here as the open item it is.
 
 ### 9.6 What this leaves
 
-* **Task 69** (`PLAN_MILESTONE_4.md` 2.34), unchanged by any of this: the
+* **Task 70** (`PLAN_MILESTONE_4.md` 2.34), unchanged by any of this: the
   masked `year` row is still 8% under its dense one at both widths, and the
   bitmap algebra removes the read and the write rather than inlining them.
 * **The single-write loss with the width-named helpers** (9.3): unrolling and

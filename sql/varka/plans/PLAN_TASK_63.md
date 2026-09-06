@@ -115,7 +115,7 @@ dispatch has no dense methods).
 `VarkaEmitOptions.checkIntOverflow` (default true; false emits the `FAIL` node
 as `WRAP`, for the A/B only, exactly as `guardDayProducers = false` prices
 task 52's guard): the result is parked in a scratch slot like
-`emitProducerGuard` parks its value, the mask above is built, ANDed with the
+`emitRangeGuard` parks its value, the mask above is built, ANDed with the
 node's word in the masked body and with the epilogue mask, and ORed into
 `s.guardAcc`, which is allocated whenever the body has a `FAIL` node or a
 guarded producer. `emitStatusReturn` turns the accumulator into
@@ -190,7 +190,7 @@ made and asserted by the register test:
 |---|---|
 | `VarkaVectorIR.java` | `IntOp`, `Overflow`, `IntArith`, `IntNeg`; the renderings |
 | `VarkaEmitOptions.java` | `checkIntOverflow` |
-| `VarkaLoopEmitter.java` | the arms in `childrenOf`, `analyze`, `planWordRef`, `planSlots`, `weightOf`, `emitValue`; the check block factored from `emitProducerGuard`'s tail; `guardAcc` allocation widened; the `NULL` word; `nullsFromValidInputs` for `NULL` nodes; `requireOffsetShape` widened for `AddDays`/`SubDays` |
+| `VarkaLoopEmitter.java` | the arms in `childrenOf`, `analyze`, `planWordRef`, `planSlots`, `weightOf`, `emitValue`; the check block factored from `emitRangeGuard`'s tail; `guardAcc` allocation widened; the `NULL` word; `nullsFromValidInputs` for `NULL` nodes; `requireOffsetShape` widened for `AddDays`/`SubDays` |
 | `VarkaReferenceEvaluator.scala` | the three modes per op: Scala's wrapping op, `Math.addExact` caught to a decline marker, and `None` |
 | `VarkaLoopEmitterSuite.scala` | the boundary matrices, the status tests, the `NULL` validity test, the register, both pinned fixtures re-pinned |
 | `VarkaIrFuzzSuite.scala` | arms for the three ops in `WRAP` over bounded operands, and `FAIL` over operands the bound keeps from overflowing |
@@ -283,7 +283,7 @@ per-row anchor computing the composite key with `Math.addExact` and
    used twice must clear the same lanes in both uses; the matrix under
    `cse = false` and the epilogue-only lengths cover it.
 2. **The check reads the result after the parent consumed it.** The result is
-   parked in a scratch slot first, as `emitProducerGuard` does; the
+   parked in a scratch slot first, as `emitRangeGuard` does; the
    `VerifyError` task 60 met is the failure mode, caught by every matrix run.
 3. **The optimizer reshapes the tree** (`ReorderAssociativeOperator`,
    constant folding of `x + 1 + 2`): the compiler suite builds trees through

@@ -93,14 +93,21 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  *        century-then-year split this project shipped first, with its leap-day underflow
  *        correction. Same fields either way, differentially checked against each other, so the
  *        older form stays a live reference variant, on {@link FloorMod7}'s precedent.
- * @param guardDayProducers whether a {@code date_add}/{@code date_sub} whose offset is a column
- *        and whose result a calendar node reads carries a per-lane range check on that result
- *        (task 52), declining the batch to the row engine when a lane leaves the range the
- *        civil-from-days lowering is exact over. The compiler bounds every other producer at
- *        compile time; this is the one shape it cannot, so the check is at run time and at the
- *        producer rather than at each extraction (task 51 removed the latter). Off, the bytes
- *        are task 51's exactly and such a lane is computed wrongly rather than declined - a
- *        reference variant for the A/B that priced the guard, on {@link FloorMod7}'s precedent.
+ * @param guardDayProducers whether a {@code date_add}/{@code date_sub} whose offset is a column,
+ *        and whose result a calendar node reads, carries a per-lane check on that result against
+ *        the range the civil-from-days lowering is exact over (task 52), declining the batch to
+ *        the row engine when a lane leaves it. The compiler bounds every other day producer at
+ *        compile time; this is the shape it cannot, so the check is at run time and at the
+ *        producer rather than at each extraction (task 51 removed the latter). Off, a shape that
+ *        existed at task 51 keeps task 51's bytes exactly and such a lane is computed wrongly
+ *        rather than declined - a reference variant for the A/B that priced the guard, on
+ *        {@link FloorMod7}'s precedent. This does <em>not</em> reach task 60's guard on an
+ *        {@code add_months} / {@code date + INTERVAL n MONTH} column month count: that one is
+ *        checked on the count itself rather than on a result, it guards the node's own magic
+ *        multiply rather than a consumer's lowering, and the compiler's {@code dayRange} bounds
+ *        such a count on the strength of it firing - so it is unconditional, like task 42's
+ *        {@code make_date}. (The minus spelling declines at compile time, so no kernel exists
+ *        for either setting to gate.)
  * @param validityByWidth whether a whole lane group's validity is read and written through the
  *        helper named for the emission's lane count - {@code orValidityBitsAt16} and its
  *        siblings, each with the general form's four-arm switch already resolved - and the
@@ -302,7 +309,7 @@ public record VarkaEmitOptions(
     }
     return "opts(" + groupBudget + '|' + cse + '|' + shareChronoPrefix + '|' + denseValidityOnce
         + '|' + elideChronoMonth + '|' + neriSchneiderMonth + '|' + julianMap + '|'
-        + guardDayProducers + '|' + validityByWidth + '|' + lanesOverride + '|' + truncDate
-        + '|' + floorMod7 + '|' + misdescribeAdd + ')';
+        + guardDayProducers + '|' + validityByWidth + '|' + validityOrFirst + '|' + lanesOverride
+        + '|' + truncDate + '|' + floorMod7 + '|' + misdescribeAdd + ')';
   }
 }

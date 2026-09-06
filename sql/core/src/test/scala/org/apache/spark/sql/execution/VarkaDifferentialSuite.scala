@@ -310,6 +310,130 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
+  test("task 60: a column month count matches the row engine, declining the batch whose count " +
+      "leaves the emitter's guarded range - the same route as task 52's day producer") {
+    // varka_date_months puts two rows a further 30000 months past each end of
+    // MONTH_ARITH_MIN/MAX_MONTHS beside in-range and null rows; add_months' own guard on the
+    // count (task 60) declines the whole batch, and DateTimeUtils.dateAddMonths - the row
+    // engine's own definition - answers every count correctly, near or far.
+    //
+    // The two columns are the point. Those rows are one batch, so a query over `m` declines it
+    // in full and the kernel computes nothing - numFallbackBatchesKernel === 0 below is the
+    // proof - which means the values it checks come from the row engine on both sides and say
+    // nothing about the kernel's arithmetic. `m_small`, in range on every row, is what actually
+    // runs the guarded kernel end to end; the two queries together separate "the guard fires"
+    // from "the arithmetic under it is right". Without the second, the deliberately placed
+    // MONTH_ARITH_MIN/MAX rows would never once be kernel-computed.
+    cacheDatesMonthCounts(spark)
+    cacheDatesMonthCounts(varkaSpark)
+    try {
+      val q = "SELECT add_months(d, m) AS a, d + CAST(m AS INTERVAL MONTH) AS b " +
+        "FROM varka_date_months ORDER BY a, b"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      assert(varkaMetric(plan, "numFallbackBatchesDeclined") > 0L,
+        s"the count guard should have declined the far batch:\n${plan.treeString}")
+      assert(varkaMetric(plan, "numFallbackBatchesKernel") === 0L)
+      // The same shapes over counts inside the bound, both ends included: nothing declines and
+      // the kernel serves the batch, so this is the arithmetic's own check.
+      val small = "SELECT add_months(d, m_small) AS a, " +
+        "d + CAST(m_small AS INTERVAL MONTH) AS b FROM varka_date_months ORDER BY a, b"
+      val smallExpected = spark.sql(small)
+      val smallActual = varkaSpark.sql(small)
+      val smallPlan = smallActual.queryExecution.executedPlan
+      assertFused(smallPlan)
+      checkAnswer(smallActual, smallExpected)
+      assert(varkaMetric(smallPlan, "numFallbackBatchesDeclined") === 0L,
+        s"an in-range count must not decline:\n${smallPlan.treeString}")
+      assert(varkaMetric(smallPlan, "numVarkaBatches") > 0L,
+        s"the kernel should have served the in-range batch:\n${smallPlan.treeString}")
+      assert(varkaMetric(smallPlan, "numFallbackBatchesKernel") === 0L)
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_date_months"))
+    }
+  }
+
+  test("task 60: a calendar function over a column count above a column day offset is residual, " +
+      "because neither runtime guard can see the composition") {
+    // The gap the two guards leave between them. Task 52's guard bounds date_add's result and
+    // task 60's bounds add_months' count; each passes on the reproducer row, and the day
+    // add_months then produces is two thousand years below the range the lowering is exact
+    // over, with nothing left at run time to catch it. So the compiler has to: dayRange widens
+    // the guarded producer's own interval by the shift above it and declines the entry, and the
+    // row engine - whose getYear is a LocalDate call, exact for any int day - answers it.
+    //
+    // The value assertion is the one that matters. Were the entry admitted again, the kernel
+    // would answer year 87585 where the truth is -14848, silently and with no metric moving,
+    // which is exactly how this shipped before the review caught it.
+    cacheDatesGuardCompose(spark)
+    cacheDatesGuardCompose(varkaSpark)
+    try {
+      // `keep` is a second, fusible output so the projection is eligible at all: a Varka node
+      // needs something to fuse before it can report anything else as residual.
+      val plan = checkDifferential(spark, varkaSpark,
+        "SELECT year(add_months(date_add(d, off), m)) AS y, date_add(d, 1) AS keep " +
+          "FROM varka_dates_guard_compose ORDER BY y, keep",
+        expectFused = true)
+      val explained = plan.collect { case p if isVarkaNode(p) => p.verboseStringWithOperatorId() }
+        .mkString("\n")
+      assert(explained.contains("y: residual (day range ["), explained)
+      assert(explained.contains("keep: fused"), explained)
+      // The two halves on their own still fuse: this declines the composition, not the guards.
+      checkDifferential(spark, varkaSpark,
+        "SELECT date_add(d, off) AS a, add_months(d, m) AS b " +
+          "FROM varka_dates_guard_compose ORDER BY a, b",
+        expectFused = true)
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_dates_guard_compose"))
+    }
+  }
+
+  test("task 60: the producer's own guard reaches a filter predicate through the same route " +
+      "as task 52's day producer") {
+    // Unlike task 52's date_add offset, add_months' month count is never itself a filter
+    // operand VarkaExpressionCompiler can read - a bare int column only compiles through
+    // compileMonths/compileOffset, not through the general Compare path (task 38's scope
+    // note), so "WHERE m BETWEEN ..." cannot fuse and is not attempted here. This instead
+    // mirrors task 52's own filter test exactly: a calendar predicate over the guarded node.
+    cacheDatesMonthCounts(spark)
+    cacheDatesMonthCounts(varkaSpark)
+    try {
+      val q = "SELECT count(*) AS c FROM varka_date_months WHERE year(add_months(d, m)) = year(d)"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      assert(!plan.toString.contains("Filter (year("),
+        s"the predicate should be fused, not residual:\n$plan")
+      checkAnswer(actual, expected)
+      val filterNode = plan.collectFirst { case f: VarkaFilterExec => f }
+        .orElse(plan.collectFirst { case f: VarkaFilterColumnarToRowExec => f })
+      assert(filterNode.isDefined, s"expected a Varka filter node:\n${plan.treeString}")
+      assert(filterNode.get.metrics("numFallbackBatchesDeclined").value > 0L,
+        s"the far rows should have declined the filter's batch too:\n${plan.treeString}")
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_date_months"))
+    }
+  }
+
+  test("task 60: an existing nullable int column, in range, still nulls its row on either " +
+      "side independently when read as a month count, and the guard stays silent") {
+    // Reuses task 38's varka_dates_nullable_offset fixture as an in-range count source, rather
+    // than adding a third nullability fixture for the same "either operand null nulls the
+    // row" fact task 52's own tests already establish for a day offset. Every count here is
+    // well inside MONTH_ARITH_MIN/MAX_MONTHS, so this is also where "the guard is silent on
+    // the data it exists for" (task 52's own phrase) is checked for task 60's guard.
+    cacheDatesNullableOffset(spark)
+    cacheDatesNullableOffset(varkaSpark)
+    val plan = checkDifferential(spark, varkaSpark,
+      "SELECT add_months(d, off) AS a FROM varka_dates_nullable_offset ORDER BY a",
+      expectFused = true)
+    assert(varkaMetric(plan, "numFallbackBatchesDeclined") === 0L)
+  }
+
   test("task 56: date +- CAST(i AS INTERVAL DAY) matches the row engine on the projection " +
       "and filter paths, and a stored interval column stays residual") {
     cacheDatesNullableOffset(spark)

@@ -143,6 +143,20 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
+   * A date column `d` and an int month count `m` in `[-120, 120]` - well inside
+   * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` - for task 60's `add_months` column-count pair.
+   */
+  private def cacheDatesMonthCounts(session: SparkSession): Unit = {
+    session.sql(
+      """select date_add(date'2020-01-01', cast(id as int) % 1460) as d,
+        |       cast(pmod(id, 241) - 120 as int) as m
+        |from range(0, 2000000)""".stripMargin)
+      .createOrReplaceTempView("varka_date_months")
+    session.catalog.cacheTable("varka_date_months")
+    session.sql("select count(*) from varka_date_months").collect()
+  }
+
+  /**
    * `varka_dates_weekday` for task 59: dates `d` and `d2` beside a weekday name `s` cycling
    * through the 21 spellings in three case styles, every name valid, so the derived leaf's
    * parse is the whole of the pre-pass and nothing declines.
@@ -263,6 +277,8 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       cacheDateParts(varka)
       cacheRandomDatePairs(baseline)
       cacheRandomDatePairs(varka)
+      cacheDatesMonthCounts(baseline)
+      cacheDatesMonthCounts(varka)
       cacheDatesWeekday(baseline)
       cacheDatesWeekday(varka)
 
@@ -278,6 +294,14 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         "SELECT date_add(d, i) AS a FROM varka_dates")
       runQueries(baseline, varka, "date + CAST(i AS INTERVAL DAY), bound checked (task 56)",
         "SELECT d + CAST(i AS INTERVAL DAY) AS a FROM varka_dates")
+      // Task 60's pair, the same A/B shape on add_months' heavier kernel: the month count
+      // widened from a compile-time-bounded literal to a column carrying a per-batch runtime
+      // guard instead. `add_months(d, 13)` is the literal control, on the same fixture so the
+      // two rows differ only in the offset's shape, not the underlying dates.
+      runQueries(baseline, varka, "add_months, literal (task 60 control)",
+        "SELECT add_months(d, 13) AS a FROM varka_date_months")
+      runQueries(baseline, varka, "add_months, column count (task 60)",
+        "SELECT add_months(d, m) AS a FROM varka_date_months")
       // Task 42: a date built from three int columns, under the session's default (ANSI) mode.
       runQueries(baseline, varka, "make_date",
         "SELECT make_date(y, m, dd) AS a FROM varka_date_parts")

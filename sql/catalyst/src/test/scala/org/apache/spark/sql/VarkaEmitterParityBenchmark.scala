@@ -741,7 +741,11 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val addAloneGuardOn = emit(Seq(offsetAdd), 2, 0, loader, 852)
         val addAloneGuardOff = emit(Seq(offsetAdd), 2, 0, loader, 853, guardOff)
         def nulls2In(n: Int): Int = (n + 10) / 11
-        def chunkedTwo(kernel: VarkaFusedKernel, mixed: Boolean): Unit =
+        // `lits` is empty for every two-column shape here; task 60's literal-count control is
+        // the one case that needs a slot, and it runs on this same runner so that the control
+        // and the shape it controls for differ in the kernel alone.
+        def chunkedTwo(kernel: VarkaFusedKernel, mixed: Boolean,
+            lits: Array[Int] = Array.empty[Int]): Unit =
           eachChunk { (dataOff, validityOff, n) =>
             val status = if (mixed) {
               kernel.run(
@@ -749,13 +753,13 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
                 Array(mxValidity.address() + validityOff, mx2Validity.address() + validityOff),
                 Array(nullsIn(n), nulls2In(n)),
                 Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
-                Array.empty[Int], n)
+                lits, n)
             } else {
               kernel.run(
                 Array(nfData.address() + dataOff, nf2Data.address() + dataOff),
                 Array(0L, 0L), Array(0, 0),
                 Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
-                Array.empty[Int], n)
+                lits, n)
             }
             require(status == 0, s"the kernel declined a batch: status $status")
           }
@@ -776,6 +780,43 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         }
         benchmark.addCase("date_add(d, off) alone, guard option off (task 52 control), null-free") {
           _ => chunkedTwo(addAloneGuardOff, false)
+        }
+        // Task 60's pair, the same guard block on a heavier producer: add_months' own month
+        // count, widened from a literal to a column, with a runtime guard against
+        // MONTH_ARITH_MIN/MAX_MONTHS in place of task 40's compile-time bound. nf2Data/mx2Data
+        // double as the count column - their values are days in [-10000, 10000), comfortably
+        // inside the guard's range - so the status must read zero and this prices the shape
+        // alone, not a decline.
+        //
+        // The control is the literal count on this same runner, emitted adjacent and with the
+        // same numInputs, rather than id 811 far above: that one runs chunkedAddMonths and sits
+        // dozens of cases away, so its delta carried a different runner and a different JIT and
+        // thermal state as well as the change being measured. What the delta here contains is
+        // the guard plus one column load in place of a broadcast - the control is passed both
+        // stream addresses but its IR reads only col0, so the second stream's traffic is still
+        // on the column side of the comparison and the difference is not the guard alone.
+        //
+        // There is deliberately no guard-off variant. The count check is self-guarding and
+        // unconditional (VarkaEmitOptions.guardDayProducers does not reach it), because the
+        // compiler's dayRange bounds a column count on the strength of it firing and cannot see
+        // the option; an A/B against it would emit identical bytes. Isolating the guard's own
+        // cost would take a measurement-only option, which is not worth reintroducing the
+        // coupling this task's review removed - see PLAN_TASK_60.md 9.
+        val addMonthsCol = new AddMonths(col0, new ColumnRef(1))
+        val addMonthsLit = new AddMonths(col0, new LiteralSlot(0))
+        val addMonthsColGuarded = emit(Seq(addMonthsCol), 2, 0, loader, 854)
+        val addMonthsLitControl = emit(Seq(addMonthsLit), 2, 1, loader, 855)
+        benchmark.addCase("add_months(d, m), column count (task 60), null-free") { _ =>
+          chunkedTwo(addMonthsColGuarded, false)
+        }
+        benchmark.addCase("add_months(d, 13), literal count (task 60 control), null-free") { _ =>
+          chunkedTwo(addMonthsLitControl, false, Array(13))
+        }
+        benchmark.addCase("add_months(d, m), column count (task 60), mixed nulls") { _ =>
+          chunkedTwo(addMonthsColGuarded, true)
+        }
+        benchmark.addCase("add_months(d, 13), literal count (task 60 control), mixed nulls") {
+          _ => chunkedTwo(addMonthsLitControl, true, Array(13))
         }
         // Task 35's A/B: trunc(date, ...) under its two lowerings, SUBTRACT (the day of year
         // or day of month taken off the date) against RECOMPOSE (the period's first day rebuilt

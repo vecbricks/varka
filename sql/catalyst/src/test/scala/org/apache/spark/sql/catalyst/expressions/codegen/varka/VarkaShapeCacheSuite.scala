@@ -302,30 +302,38 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
     val defaults = VarkaEmitOptions.DEFAULTS
     val components = classOf[VarkaEmitOptions].getRecordComponents
     assert(components.length >= 13, "components were removed; re-read this test's reason")
-    for (component <- components) {
-      // One other value for this component: a flipped boolean, a bumped int, the next enum.
-      val other: AnyRef = component.getType match {
+
+    def otherValue(component: java.lang.reflect.RecordComponent): AnyRef = {
+      val current = component.getAccessor.invoke(defaults)
+      component.getType match {
         case t if t == classOf[Boolean] || t == java.lang.Boolean.TYPE =>
-          java.lang.Boolean.valueOf(
-            !component.getAccessor.invoke(defaults).asInstanceOf[java.lang.Boolean])
+          java.lang.Boolean.valueOf(!current.asInstanceOf[java.lang.Boolean])
         case t if t == classOf[Int] || t == java.lang.Integer.TYPE =>
-          val current = component.getAccessor.invoke(defaults).asInstanceOf[java.lang.Integer]
           // lanesOverride must stay a power of two, and groupBudget positive; doubling is both.
-          java.lang.Integer.valueOf(if (current == 0) 4 else current * 2)
+          val cur = current.asInstanceOf[java.lang.Integer]
+          java.lang.Integer.valueOf(if (cur == 0) 4 else cur * 2)
         case t if t.isEnum =>
-          t.getEnumConstants
-            .find(_ != component.getAccessor.invoke(defaults))
+          t.getEnumConstants.find(_ != current)
             .getOrElse(fail(s"${component.getName} has one enum constant"))
         case t => fail(s"${component.getName}: no other value known for $t")
       }
-      val args = components.map { c =>
-        if (c eq component) other else c.getAccessor.invoke(defaults)
-      }
-      val varied = classOf[VarkaEmitOptions].getConstructors.head
-        .newInstance(args: _*).asInstanceOf[VarkaEmitOptions]
-      assert(varied.canonical() !== defaults.canonical(),
+    }
+
+    def build(values: Array[AnyRef]): VarkaEmitOptions =
+      classOf[VarkaEmitOptions].getConstructors.head
+        .newInstance(values: _*).asInstanceOf[VarkaEmitOptions]
+
+    // Every component pinned away from its default before any pair is compared, so neither
+    // instance below can take canonical()'s isDefault() shortcut to "" - otherwise reverting
+    // just one field to its default would render DEFAULTS' empty string regardless of whether
+    // that field reaches canonical() at all, which is exactly the bug this test exists to
+    // catch (validityOrFirst repeated it, missing from canonical() despite this test passing).
+    val allOther = components.map(otherValue)
+    val everythingOther = build(allOther)
+    for ((component, i) <- components.zipWithIndex) {
+      val thisOneAtDefault = build(allOther.updated(i, component.getAccessor.invoke(defaults)))
+      assert(everythingOther.canonical() !== thisOneAtDefault.canonical(),
         s"${component.getName} does not reach canonical(), so two variants share a shape hash")
-      assert(varied.canonical().nonEmpty, s"${component.getName}: a non-default rendered empty")
     }
   }
 
