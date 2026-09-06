@@ -44,8 +44,13 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 
 if [ "${1:-}" = "--install-hook" ]; then
+  # Hooks live in the main repository's .git/hooks and are shared by every worktree, so the
+  # hook must find this script through the worktree it runs in, never through the path of the
+  # worktree that installed it: a hardcoded root breaks every worktree's commits the day that
+  # one is removed (which is exactly what happened when the merged task worktrees were pruned).
   hook="$(git rev-parse --git-path hooks)/pre-commit"
-  printf '#!/usr/bin/env bash\nexec "%s/dev/varka_precommit.sh"\n' "$root" > "$hook"
+  printf '#!/usr/bin/env bash\nexec "$(git rev-parse --show-toplevel)/dev/varka_precommit.sh"\n' \
+    > "$hook"
   chmod +x "$hook"
   echo "installed $hook"
   exit 0

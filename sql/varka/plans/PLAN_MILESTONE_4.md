@@ -1653,6 +1653,78 @@ instead of copying it, which is an Arrow ownership and lifetime question at
 the evaluator rather than an emitter one, and is scoped separately inside
 the task's own plan.
 
+### 2.35 `GROUP_BUDGET` retuned on the emitter as it is (task 71)
+
+Added 7 September 2026, out of task 32 step B2's regeneration
+(`PLAN_TASK_32.md` 7.6 and the debt register). The budget of 16 rests on one
+measurement: task 17's pair, two outputs over a shared eight-op chain, ran
+1.4x faster as two loop methods than as one, and that was read as register
+pressure - recomputing eight ops in registers beats the wider method. The
+parity file carried both rows ever since so that a retune would be measured
+rather than argued, and the rows have now measured the other way: in every
+regeneration from task 48 through task 61 the split led by ~1.4x, and since
+aef0b82260e - task 46's second half, which moved the validity OR ahead of the
+vector work so that C2 inlines it - the merged method leads, 5799.7 against
+4511.7 M rows/s at AVX-512 and 2754.8 against 1700.1 at 128-bit in B2's file.
+The most plausible reading is task 46's own: the loss was a refused
+`orValidityBitsAt` call in the wider method, which the order change let
+inline, and register pressure was never the binding constraint at 24 ops.
+
+**What the task decides.** Whether 16 is still the budget, on a ladder rather
+than on one pair: 16, 24, 32, 48 and 64 over the shapes where a wider method
+changes what is emitted - task 17's pair, two chains over a shared subchain,
+the `CASE WHEN` arms and the DAG-CSE section's outputs, the mod-7 pair - at
+both widths, with `-XX:+PrintCompilation` beside the throughput per the
+standing rule. Two constraints B2 measured come in as inputs rather than as
+open questions: C1 refuses a loop method past about 1900 bytes ("out of
+virtual registers in LIR"), so a method past that runs interpreted until C2
+lands - 340 ms at 376 ops, once per shape per JVM behind the class cache -
+which is a startup cost the ladder has to price, not only a steady-state
+one; and B2's clause 2 was deliberately restricted to prefix reuse
+(`saved > 0`) rather than to "the marginal cost fits", the wording task 32's
+3.2 first wrote and 10.2 rejected on task 17's evidence, so if the budget
+moves, whether clause 2 should widen with it is the same measurement's second
+column, not a separate task. Whatever the ladder says, the byte-identity
+guard B2 added for non-calendar shapes stays as the assertion that a budget
+change changes exactly the shapes it names.
+
+**What it does not do.** It does not touch the fragment mechanism, the
+ceiling, or a single output's internal width (task 43 measured that and left
+the decision to the emitter); it does not revisit `MAX_FUSED_NODES`.
+
+### 2.36 Output order for prefix affinity (task 72)
+
+Added 7 September 2026, from B2's one pinned limitation (`PLAN_TASK_32.md`
+10.2 and 7.6). `groupOutputs` is greedy in output order, so in
+`year(d), year(d2), month(d)` the month is offered to the group holding
+`year(d2)`, whose prefix it cannot reuse, and forms a third loop method that
+recomputes the decomposition of `d` the first method already ran; adjacent,
+the same three outputs take two methods. B2 pinned that as a limitation
+rather than fixing it, because the driver's output order is the projection's
+and other things key on it.
+
+**The admission check, which is most of the task.** Nothing in the emitter
+requires a group's output indices to be contiguous: `groupOutputs` already
+returns lists of indices, each loop method takes its list, and the driver
+calls the methods in group order while the destinations stay indexed by
+output. So the change may be a two-pass grouping - gather each calendar
+output into the group whose prefix it reuses, wherever that group is, then
+fill the rest greedily as today - with no change to the evaluator's per-output
+vectors or to `VarkaDebugInfo`'s line map, both of which key on the output
+index and not on which method computes it. The check is to establish that:
+every consumer of a group walked, the line map and the pinned oracles asserted
+unmoved, and the differential suite run with a deliberately permuted grouping
+before the rule is written. If a consumer does depend on contiguity, the task
+says which and stops, and the debt entry stays.
+
+**What it is worth.** The shapes B2 measured, with one output between the
+siblings: `year(d), year(d2), month(d)` against `year(d), month(d), year(d2)`
+in the parity harness, at both widths, with the prediction registered that
+the permuted grouping matches the adjacent one within noise. Date columns in
+a projection are usually adjacent, so this is a small task with a bounded
+win; it is a row because the limitation is pinned in a test that should be
+flipped by a change, not silently.
+
 ## 3. Task breakdown
 
 Tasks 24-44 were the committed spine, in dependency order: 24 halves the
@@ -1757,6 +1829,8 @@ real 512-bit datapath, and the README rewritten from that run (2.29).
 | 68 | Year-month interval algebra (section 2.33) | `make_ym_interval`, `extract(YEAR | MONTH FROM ym)` by literal-divisor magic, `ym * k` and `ym / k` with a literal, `ym +- ym`, `-ym`, `abs(ym)` on task 63's nodes with an interval output, the `YEAR`-unit casts; the literal-divisor node that section 2.30's note and scope item 11 both want | The admission check on the rounding of the literal division and the exactness range of the magic divisions over the whole int32 month range; the differential in both ANSI modes with the overflow rows raising the row engine's own error; a parity row per new node beside task 63's; both pinned fixtures re-pinned once |
 | 69 | An upward limit for the civil-from-days decomposition, so a shift over a guarded day producer stops declining conservatively (task 60's review; see the debt register). **Planned** (`PLAN_TASK_69.md`; its section 2 is an admission check that can legitimately close the task without a code change) | A `NARROW_DECOMPOSE_MAX_DAYS` beside `NARROW_MAX_DAYS`: the latter is the era step's shift-domain ceiling, `(1 << NARROW_ERA_K) - 1 - NARROW_BIAS`, while what binds above is the multiply, `w * NARROW_ERA_M < 2^31`. `dayRange` then tests the two directions against different constants, so `last_day`, `next_day` and a positive literal `date_add` over a column offset fuse again while the downward siblings (`trunc`, `ThursdayOf`, a negative literal) keep declining | The identity proved over the whole extended domain rather than the multiply merely not overflowing, and swept exhaustively against `java.time` the way `VarkaChrono`'s other limits are; the four pinned declines in `VarkaExpressionCompilerSuite` ("task 60 review: an upward shift ...") flipped to `fuses`, the downward ones unmoved; a differential over a column offset at the new ceiling and one past it; no emitted byte moves, since this is a compiler-side bound only |
 | 70 | Validity as bitmap algebra in the driver (section 2.34) | The analysis that says whether a root's validity word is a pure AND/OR over input bitmaps (no `Cond`, no `IfElse`, no node that can be null on valid inputs); the driver's per-batch bitmap pass - a copy for one column, a bytewise AND or OR for several, the final partial byte masked to `length % 8` bits - behind its own switch; the per-group write, and where every root of a loop method qualifies the per-group read and the word locals, not emitted; the one-body-not-two consequence for such shapes verified rather than assumed | The differential at both widths and both switch settings with byte-identical validity, the existing suite as the oracle; `assertSameOutput` holding on the tail byte; the qualifying predicate tested against a `CASE WHEN`, a filter root and a null-on-valid-input node, each of which must not qualify; the masked parity rows measured on a tree that already carries task 46, with a registered bound that no masked row passes its dense counterpart |
+| 71 | `GROUP_BUDGET` retuned on the emitter as it is (section 2.35): task 17's split-versus-merged rows reversed at task 46, and the budget rests on the reading they no longer support | A budget ladder (16 to 64) over the shapes a wider method changes, at both widths, with `-XX:+PrintCompilation` beside the throughput; C1's ~1900-byte refusal priced as a startup cost; whether B2's clause 2 widens from prefix reuse to "the marginal cost fits" decided on the same ladder | A committed number per budget per width; the pair that decides it read from the parity file rather than from a scratch run; the non-calendar byte-identity guard extended to assert that a budget change changes exactly the shapes it names; no calendar committed number moves |
+| 72 | Output order for prefix affinity (section 2.36): `year(d), year(d2), month(d)` takes three loop methods where the adjacent order takes two | The admission check first - no consumer of a group depends on contiguous output indices - then a two-pass grouping that gathers a calendar output into the group whose prefix it reuses wherever that group is; the evaluator and the line map untouched | The pinned limitation in `VarkaLoopEmitterSuite` flipped to two methods; the pinned oracles unmoved; the permuted and adjacent orders within noise in the parity harness at both widths; the differential suite green with the two orders |
 | 62 | The closing measurement: every date expression, on a 512-bit datapath, against stock Spark on JDK 17 and JDK 25 | A Java driver under `sql/varka/bench` submitted to three distributions - stock Spark on JDK 17, stock Spark on JDK 25, this fork on JDK 25 - in one dispatch of the benchmark workflow with `expected-cpu` pinned to a full-width Xeon, running one committed SQL query per covered date expression in the projection and filter shapes over a table sized so the per-job fixed cost is under 5% of every Varka row's wall time (at least 200 ms per Varka query), recording executor time beside wall time for every row, with provenance including the 256-to-512 op-count ladder that proves the datapath; `dev/varka_bench_surface.sh` and the diff script producing the table; README's benchmark section rewritten from the three files with a reproduction guide a reader can follow from the downloads alone; the laptop's run committed as the second data point | Three results files with provenance, generated by one workflow dispatch on a 512-bit runner; every README figure tracing to them (the quote check); every Varka row's fixed share (wall minus executor time, over wall) under 5% in the files; the fork-with-Varka-off row agreeing with stock Spark on JDK 25 within noise on every shape; the ladder in the provenance showing the 256-to-512 step near 2x, or the file labelled 256-bit |
 
 ## 4. Files
@@ -2089,8 +2163,14 @@ rewritten in the past tense with what the sweep found, never deleted.
   takes it: C1 refuses a loop method past about 1900 bytes ("out of virtual registers in
   LIR"), so a wide method runs interpreted until C2 lands (~340 ms at 376 ops), and B2's
   clause 2 was deliberately restricted to prefix reuse (`saved > 0`) rather than
-  "the marginal cost fits", so widening it is part of the same question. **A follow-up PR
-  opens the task**; B2 did not act on it (`PLAN_TASK_32.md` 10.9).
+  "the marginal cost fits", so widening it is part of the same question. **Adopted as task 71
+  (section 2.35)**; B2 did not act on it (`PLAN_TASK_32.md` 10.9).
+* **Greedy grouping leaves `year(d), year(d2), month(d)` with a prefix it need not pay.**
+  Task 32 step B2's `groupOutputs` is greedy in output order, so the month is offered to the
+  group holding `year(d2)` and opens a third loop method rather than rejoining `year(d)`;
+  adjacent, the same outputs take two. Pinned as a limitation in `VarkaLoopEmitterSuite`
+  (`PLAN_TASK_32.md` 10.2, 7.6). **Adopted as task 72 (section 2.36)**, whose admission check
+  is whether any consumer of a group depends on contiguous output indices.
 * **Two calendar outputs over one shift share nothing in production (task 58).** **CLOSED by
   task 32 step B2**: the pair decomposes the same shifted day, so clause 2 of
   `groupOutputs` puts them in one loop method, and the parity row moved from

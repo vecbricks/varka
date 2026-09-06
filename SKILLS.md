@@ -1453,7 +1453,12 @@ the fuzzer's node generator and the two pinned fixtures.
   directories, the quote check, and ruff (`check` and `format --check`) on Python
   files. Each of those has reached CI or a reviewer at least once; the formatter
   reached CI on five PRs at once, because `dev/lint-python` skips ruff silently
-  when it is not installed.
+  when it is not installed. Git hooks live in the main repository's `.git/hooks`
+  and are shared by every worktree, so the installed hook resolves the script
+  through `git rev-parse --show-toplevel` at run time rather than through the
+  installing worktree's path: the earlier form hardcoded one worktree, and
+  pruning the merged worktrees (`dev/varka_worktree.sh gc`) deleted it and
+  broke commits in every remaining worktree at once.
 - `VarkaIrFuzzSuite` fuzzes the emitter: random IR over random null patterns, lengths
   and option variants against the shared reference evaluator, reproducible by seed
   and iteration.
