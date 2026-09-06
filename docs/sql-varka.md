@@ -83,10 +83,17 @@ becomes timestamp arithmetic) decline:
   lane past the range is recomputed on the row path and counted as
   `numFallbackBatchesDeclined`. A `DATE_ADD` with no calendar consumer is never
   checked - it returns what 32-bit addition returns, as Spark's does.
-* `NEXT_DAY` (task 33), for a literal weekday only - a non-foldable, null or
-  unrecognized weekday declines, since resolving it is a compile-time step
-  and the row engine's ANSI-mode behavior for a bad weekday is not
-  reproduced.
+* `NEXT_DAY` (task 33) with a literal weekday, resolved at compile time so
+  one kernel class serves every weekday; a null or unrecognized literal
+  declines. Since task 59 a weekday *column* fuses too, through a derived
+  input: before the kernel runs, the evaluator maps the string column to the
+  weekday number per batch by the row engine's own parser, so the kernel reads
+  an int column and the semantics are the row engine's by construction - an
+  unrecognized name is NULL with ANSI off; with ANSI on it declines the batch
+  to the row engine, which raises its `ILLEGAL_DAY_OF_WEEK` error where a
+  non-null date sits beside the name and returns NULL where the date is null,
+  exactly as it does alone. Any collation is admitted, since the parser
+  ignores it. A weekday that is an expression over a column stays residual.
 * `DAYOFYEAR` (task 34), `LAST_DAY` (task 36) and `ADD_MONTHS` / `date +
   INTERVAL n MONTH` (task 40) with a literal month count, all over the same
   civil-from-days prefix; `LAST_DAY` and `ADD_MONTHS` return dates.
@@ -315,9 +322,12 @@ attributes alone did not answer:
   column gets its own reasons: "non-integer day offset column of type ..."
   for a `ShortType`/`ByteType` column, "day offset is not a foldable
   literal or an integer column" for anything else (e.g. a computed
-  expression). Since task 52, a calendar function over arithmetic that can
-  leave the lowering's range reports "day range [lo, hi] leaves the calendar
-  lowering's range", with the interval in epoch days, and one over a producer
+  expression). Since task 59, a `next_day` whose weekday is neither a literal
+  nor a stored string column reports "next_day with a weekday that is neither
+  a literal nor a column". Since task 52, a calendar function over arithmetic
+  that can leave the lowering's range reports "day range [lo, hi] leaves the
+  calendar lowering's range", with the interval in epoch days, and one over a
+  producer
   the range analysis does not know reports "day producer the calendar range
   analysis does not bound"; since task 56, "day interval is not an int column
   cast to days" names a day interval that is not `CAST(i AS INTERVAL DAY)`

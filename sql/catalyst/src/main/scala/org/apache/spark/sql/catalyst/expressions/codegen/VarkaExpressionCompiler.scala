@@ -25,10 +25,10 @@ import scala.util.control.NonFatal
 
 import org.apache.spark.SparkIllegalArgumentException
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, BindReferences, BoundReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DateVarkaSupport, DayOfMonth, DayOfWeek, DayOfYear, EqualTo, Expression, ExtractANSIIntervalDays, GreaterThan, GreaterThanOrEqual, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, Month, NamedExpression, NextDay, Not, Or, Quarter, RuntimeReplaceable, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year, YearOfWeek}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, Cond, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
-import org.apache.spark.sql.types.{BooleanType, DataType, DateType, DayTimeIntervalType, IntegerType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DateType, DayTimeIntervalType, IntegerType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -44,7 +44,56 @@ private[sql] case class CompiledVarkaProjection(
     outputTypes: Seq[DataType],
     inputOrdinals: Seq[Int],
     literals: Seq[Int],
-    inputBounds: Seq[VarkaInputBound] = Nil)
+    inputBounds: Seq[VarkaInputBound] = Nil,
+    derivedInputs: Seq[VarkaDerivedInput] = Nil) {
+
+  private lazy val derivedByInput: Map[Int, VarkaDerivedInput] =
+    derivedInputs.map(d => d.inputIndex -> d).toMap
+
+  /** The derived-input note for kernel input `inputIndex`, if the evaluator derives it. */
+  def derivedAt(inputIndex: Int): Option[VarkaDerivedInput] = derivedByInput.get(inputIndex)
+}
+
+/**
+ * A kernel input the evaluator derives per batch (task 59) rather than reads: kernel input
+ * `inputIndex` (a position in `inputOrdinals`, whose entry there is `sourceOrdinal`) is the
+ * int32 column `kind` computes from child column `sourceOrdinal` - the first kind maps
+ * `next_day`'s weekday names to `dayOfWeek - 1` - before the kernel runs. Like a bound, a
+ * property of the compiled plan and not of the emitted bytes: the kernel sees an int input.
+ */
+private[sql] case class VarkaDerivedInput(inputIndex: Int, sourceOrdinal: Int,
+    kind: VarkaDerivedKind)
+
+private[sql] object VarkaDerivedInput {
+  private val kinds = VarkaDerivedKind.values().length
+
+  /**
+   * The key a derived input is interned under in the compiler's input table beside the child
+   * ordinals: negative, so it can collide with no ordinal, and one per (column, kind), so two
+   * `next_day` over the same weekday column share one leaf. The table's mark-and-truncate
+   * discipline rolls it back with the plain columns when its entry declines.
+   */
+  def key(sourceOrdinal: Int, kind: VarkaDerivedKind): Int =
+    -1 - (sourceOrdinal * kinds + kind.ordinal())
+
+  /** Whether an input-table key names a derived input rather than a child ordinal. */
+  def isKey(key: Int): Boolean = key < 0
+
+  /** The child ordinal a derived key was made from. */
+  def sourceOrdinal(key: Int): Int = (-1 - key) / kinds
+
+  def kind(key: Int): VarkaDerivedKind = VarkaDerivedKind.values()((-1 - key) % kinds)
+
+  /** `inputOrdinals` and `derivedInputs` from the accepted entries' input table. */
+  def resolve(inputs: mutable.LinkedHashMap[Int, Int]): (Seq[Int], Seq[VarkaDerivedInput]) = {
+    val keys = inputs.keys.toSeq
+    val ordinals = keys.map(k => if (isKey(k)) sourceOrdinal(k) else k)
+    val derived = keys.zipWithIndex.collect {
+      case (k, i) if isKey(k) => VarkaDerivedInput(i, sourceOrdinal(k), kind(k))
+    }
+    (ordinals, derived)
+  }
+}
 
 /**
  * A closed interval every live value of kernel input `inputIndex` (a position in
@@ -304,9 +353,10 @@ private[sql] object VarkaExpressionCompiler {
       }
     }
     if (fusedCount > 0 && inputs.nonEmpty) {
+      val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
       Some(PartialVarkaProjection(specs, CompiledVarkaProjection(
-        outputs.toSeq, outputTypes.result(), inputs.keys.toSeq, literals.keys.toSeq,
-        sink.inputBounds(inputs)),
+        outputs.toSeq, outputTypes.result(), ordinals, literals.keys.toSeq,
+        sink.inputBounds(inputs), derived),
         declines.result()))
     } else {
       None
@@ -374,9 +424,10 @@ private[sql] object VarkaExpressionCompiler {
       }
     }
     if (fusedConds.nonEmpty && inputs.nonEmpty) {
+      val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
       Some(CompiledVarkaPredicate(specs,
         CompiledVarkaProjection(Seq(andFold(fusedConds.toSeq)), Seq(BooleanType),
-          inputs.keys.toSeq, literals.keys.toSeq, sink.inputBounds(inputs))))
+          ordinals, literals.keys.toSeq, sink.inputBounds(inputs), derived)))
     } else {
       None
     }
@@ -530,20 +581,29 @@ private[sql] object VarkaExpressionCompiler {
       compileNode(child, inputs, literals, sink).map(new DayOfWeekIso(_))
     case Add(Literal(1, IntegerType), WeekDay(child), _) =>
       compileNode(child, inputs, literals, sink).map(new DayOfWeekIso(_))
-    // next_day (task 33): the weekday must be resolved at compile time, since the emitted
-    // lowering needs the offset as a runtime literal, not a per-row string. An unrecognized,
-    // null or non-foldable weekday declines rather than throws - it is the row engine's
-    // business, and it has two different behaviours for it depending on ANSI mode which
-    // Varka must not try to reproduce. Evaluating a foldable-but-computed weekday expression
-    // (not only a bare Literal) can itself throw for reasons unrelated to the weekday name -
-    // that must decline too, per the ghost-fallback contract, rather than crash planning.
+    // next_day (task 33): a foldable weekday is resolved at compile time and travels as a
+    // runtime literal. An unrecognized or null one declines rather than throws - it is the
+    // row engine's business, and it has two different behaviours for it depending on ANSI
+    // mode which Varka must not try to reproduce. Evaluating a foldable-but-computed weekday
+    // expression (not only a bare Literal) can itself throw for reasons unrelated to the
+    // weekday name - that must decline too, per the ghost-fallback contract, rather than
+    // crash planning.
     case NextDay(start, dow, _) if dow.foldable =>
       for {
         k <- foldWeekday(dow, sink)
         d <- compileNode(start, inputs, literals, sink)
       } yield new IRNextDay(d, new LiteralSlot(literals.getOrElseUpdate(k, literals.size)))
+    // A weekday column (task 59): the kernel reads an int32 column the evaluator derives
+    // from the names, per batch, by the row engine's own parser (WeekdayLeaf), so the node
+    // is the same and only the offset's origin differs. ANSI mode is part of the derived
+    // input's kind, since NextDay fixes failOnError at construction. Any collation is
+    // admitted because the parser ignores it. An expression over the column stays the row
+    // engine's: the leaf reads a stored column.
+    case NextDay(start, br: BoundReference, failOnError) if br.dataType.isInstanceOf[StringType] =>
+      val kind = if (failOnError) VarkaDerivedKind.WEEKDAY_ANSI else VarkaDerivedKind.WEEKDAY
+      compileNode(start, inputs, literals, sink).map(new IRNextDay(_, derivedRef(br, kind, inputs)))
     case n: NextDay =>
-      sink.note("next_day with a non-foldable weekday", n)
+      sink.note("next_day with a weekday that is neither a literal nor a column", n)
       None
     // The calendar extractions (task 26). One civil-from-days decomposition per node, so two
     // fields of the same date are computed twice - see VarkaVectorIR.Year for why. The child
@@ -680,6 +740,15 @@ private[sql] object VarkaExpressionCompiler {
    */
   private def columnRef(br: BoundReference, inputs: mutable.LinkedHashMap[Int, Int]): ColumnRef =
     new ColumnRef(inputs.getOrElseUpdate(br.ordinal, inputs.size))
+
+  /**
+   * `columnRef`'s twin for an input the evaluator derives from `br` (task 59): interned under
+   * `VarkaDerivedInput.key` beside the child ordinals, so it takes the next kernel input index
+   * and shares the table's rollback.
+   */
+  private def derivedRef(br: BoundReference, kind: VarkaDerivedKind,
+      inputs: mutable.LinkedHashMap[Int, Int]): ColumnRef =
+    new ColumnRef(inputs.getOrElseUpdate(VarkaDerivedInput.key(br.ordinal, kind), inputs.size))
 
   /**
    * The day offset of a `date_add`/`date_sub`: a folded literal keeps today's `LiteralSlot`
