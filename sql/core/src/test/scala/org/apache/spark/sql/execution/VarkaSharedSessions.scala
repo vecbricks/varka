@@ -93,6 +93,48 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     session.catalog.cacheTable("varka_dates")
   }
 
+  /**
+   * Builds and caches a `varka_date_parts` temp view for task 42: three nullable int columns
+   * `y`, `m`, `dd` - valid dates, 29 February in a leap and a common year, a month and a day
+   * out of range, and nulls in each position - beside `d`, the date the valid rows spell, so a
+   * test can compare `make_date(y, m, dd)` with the column it came from.
+   */
+  protected def cacheDateParts(session: SparkSession): Unit = {
+    def n: java.lang.Integer = null
+    val rows: Seq[(java.sql.Date, java.lang.Integer, java.lang.Integer, java.lang.Integer)] = Seq(
+      (date("2024-01-01"), 2024, 1, 1),
+      (date("2024-02-29"), 2024, 2, 29),
+      (date("1969-12-31"), 1969, 12, 31),
+      (date("0001-01-01"), 1, 1, 1),
+      (date("9999-12-31"), 9999, 12, 31),
+      (null, 2023, 2, 29),
+      (null, 2024, 4, 31),
+      (null, 2024, 13, 1),
+      (null, 2024, 6, 0),
+      (null, n, 6, 15),
+      (null, 2024, n, 15),
+      (null, 2024, 6, n))
+    // One partition, so the first invalid row - and with it the error message the ANSI test
+    // compares across the two sessions - is the same row every time rather than whichever
+    // failing task reaches the driver first.
+    session.createDataFrame(rows).toDF("d", "y", "m", "dd").coalesce(1)
+      .createOrReplaceTempView("varka_date_parts")
+    session.catalog.cacheTable("varka_date_parts")
+  }
+
+  /**
+   * Runs `body` with `spark.sql.ansi.enabled` set on both sessions, restoring the previous
+   * values afterwards. The setting is read when an expression is analyzed, which is inside the
+   * body's queries, so it has to be live on each session while they run (task 42).
+   */
+  protected def withAnsi[T](enabled: Boolean)(body: => T): T = {
+    val sessions = Seq(spark, varkaSpark)
+    val before = sessions.map(_.conf.get(SQLConf.ANSI_ENABLED.key))
+    sessions.foreach(_.conf.set(SQLConf.ANSI_ENABLED.key, enabled.toString))
+    try body
+    finally sessions.zip(before).foreach { case (s, v) => s.conf.set(SQLConf.ANSI_ENABLED.key, v) }
+  }
+
   protected def cacheDatePairs(session: SparkSession): Unit = {
     val dates = Seq(
       (date("2024-03-01"), date("2024-01-01")),

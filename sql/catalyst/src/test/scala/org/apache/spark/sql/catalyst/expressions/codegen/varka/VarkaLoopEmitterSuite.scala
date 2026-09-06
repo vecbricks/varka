@@ -825,6 +825,165 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
       s"expected the prefix to be shared: $shared IntVector ops shared vs $unshared unshared")
   }
 
+  // Task 42: make_date over three int columns. The triples cover the validity rule's corners:
+  // valid dates at both ends of the contract, 29 February in leap, common, century and
+  // quatercentennial years, 30 February, 31 April, 32 December, month 0, 13 and -1, day 0 and
+  // -1. `makeDateTriples(c, i)` cycles them per column `c` (0 year, 1 month, 2 day).
+  private val makeDateAll: Array[(Int, Int, Int)] = Array(
+    (2024, 1, 1), (2024, 2, 29), (2023, 2, 29), (1900, 2, 29), (2000, 2, 29), (2024, 2, 30),
+    (2024, 4, 31), (2024, 4, 30), (2024, 12, 31), (2024, 12, 32), (2024, 13, 1), (2024, 0, 1),
+    (2024, -1, 15), (2024, 1, 0), (2024, 6, -1), (1, 1, 1), (9999, 12, 31), (1970, 1, 1),
+    (1969, 12, 31), (VarkaChrono.MAKE_DATE_MIN_YEAR, 1, 1),
+    (VarkaChrono.MAKE_DATE_MAX_YEAR, 12, 31))
+  private val makeDateValid: Array[(Int, Int, Int)] = makeDateAll.filter { case (y, m, d) =>
+    VarkaChrono.makeDate(y, m, d) >= VarkaChrono.MAKE_DATE_OUT_OF_RANGE + 1 }
+  private def tripleData(triples: Array[(Int, Int, Int)])(c: Int, i: Int): Int = {
+    val t = triples(i % triples.length)
+    if (c == 0) t._1 else if (c == 1) t._2 else t._3
+  }
+  private val makeDateNull =
+    new MakeDate(new ColumnRef(0), new ColumnRef(1), new ColumnRef(2), false)
+  private val makeDateAnsi =
+    new MakeDate(new ColumnRef(0), new ColumnRef(1), new ColumnRef(2), true)
+
+  /** Runs a three-input kernel with one output, returning the batch status. */
+  private def runKernel3(kernel: VarkaFusedKernel, a: Col, b: Col, c: Col,
+      out: (MemorySegment, MemorySegment), length: Int): Int =
+    kernel.run(
+      Array(a.data.address(), b.data.address(), c.data.address()),
+      Array(a.validityAddress(length), b.validityAddress(length), c.validityAddress(length)),
+      Array(a.nullCount, b.nullCount, c.nullCount),
+      Array(out._1.address()), Array(out._2.address()), Array.empty[Int], length)
+
+  test("task 42: make_date matches LocalDate.of over the validity corners - nulls for invalid " +
+      "dates under the NULL form, the valid triples under both forms - at every length and " +
+      "null pattern of its three inputs") {
+    // The NULL form runs every triple: an invalid date is a null output and the status stays 0.
+    checkMatrix(Seq(makeDateNull), 3, Array.empty[Int], Seq(1, 13, 17, 64, 1000),
+      combos(3), data = tripleData(makeDateAll), ctx = "NULL form")
+    // The ANSI form over the valid triples alone; its invalid rows are the status test below.
+    for (root <- Seq(makeDateNull, makeDateAnsi)) {
+      checkMatrix(Seq(root), 3, Array.empty[Int], Seq(1, 13, 17, 64, 1000),
+        combos(3), data = tripleData(makeDateValid),
+        ctx = s"valid triples, ansi=${root.failOnError()}")
+    }
+  }
+
+  test("task 42: an invalid date under the ANSI form declines the batch, in a loop lane and " +
+      "an epilogue lane, and not under a null input; a year past the limit declines under " +
+      "both forms and is not confused with an invalid date") {
+    val (ansi, loaderA) = load(emitMulti(Seq(makeDateAnsi), 3, 0))
+    val (nul, loaderN) = load(emitMulti(Seq(makeDateNull), 3, 0))
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val none = (_: Int) => false
+        // Valid everywhere except lane `at`, which gets `bad`.
+        def run(k: VarkaFusedKernel, length: Int, at: Int, bad: (Int, Int, Int),
+            nullY: Int => Boolean, nullM: Int => Boolean, nullD: Int => Boolean): Int = {
+          def pick(c: Int)(i: Int): Int = if (i == at) {
+            if (c == 0) bad._1 else if (c == 1) bad._2 else bad._3
+          } else tripleData(makeDateValid)(c, i)
+          val y = makeInputData(arena, length, nullY, pick(0))
+          val m = makeInputData(arena, length, nullM, pick(1))
+          val d = makeInputData(arena, length, nullD, pick(2))
+          runKernel3(k, y, m, d, makeOutput(arena, length), length)
+        }
+        val feb30 = (2024, 2, 30)
+        val farYear = (VarkaChrono.MAKE_DATE_MAX_YEAR + 1, 6, 15)
+        val earlyYear = (VarkaChrono.MAKE_DATE_MIN_YEAR - 1, 6, 15)
+        val farAndInvalid = (VarkaChrono.MAKE_DATE_MAX_YEAR + 1, 13, 1)
+        // In range and valid: both forms run.
+        assert(run(ansi, 64, -1, feb30, none, none, none) === 0)
+        assert(run(nul, 64, -1, feb30, none, none, none) === 0)
+        // An invalid date: the ANSI form declines (dense body, then masked, then epilogue).
+        val declined = VarkaFusedKernel.STATUS_CHRONO_RANGE
+        assert(run(ansi, 64, 3, feb30, none, none, none) === declined)
+        assert(run(ansi, 64, 3, feb30, _ == 40, none, none) === declined)
+        assert(run(ansi, 17, 16, feb30, none, none, none) === declined)
+        // ... and does not decline it under a null in any of the three inputs.
+        assert(run(ansi, 64, 3, feb30, _ == 3, none, none) === 0)
+        assert(run(ansi, 64, 3, feb30, none, _ == 3, none) === 0)
+        assert(run(ansi, 64, 3, feb30, none, none, _ == 3) === 0)
+        // The NULL form never declines an invalid date.
+        assert(run(nul, 64, 3, feb30, none, none, none) === 0)
+        assert(run(nul, 17, 16, feb30, none, none, none) === 0)
+        // A year past either limit declines under both forms, and a null there does not.
+        for ((k, name) <- Seq((ansi, "ansi"), (nul, "null")); bad <- Seq(farYear, earlyYear)) {
+          assert(run(k, 64, 5, bad, none, none, none) === VarkaFusedKernel.STATUS_CHRONO_RANGE,
+            s"$name $bad in a loop lane")
+          assert(run(k, 17, 16, bad, none, none, none) === VarkaFusedKernel.STATUS_CHRONO_RANGE,
+            s"$name $bad in an epilogue lane")
+          assert(run(k, 64, 5, bad, _ == 5, none, none) === 0, s"$name $bad under a null year")
+        }
+        // Out of range with an invalid month is a decline, not a null, under the NULL form too.
+        assert(run(nul, 64, 5, farAndInvalid, none, none, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE)
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loaderA.release()
+      loaderN.release()
+    }
+  }
+
+  test("task 42: a null-free batch with an invalid date under the NULL form yields a null " +
+      "lane - the dense fast path is not taken by a kernel that nulls a valid input") {
+    val (nul, loader) = load(emitMulti(Seq(makeDateNull), 3, 0))
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val length = 64
+        val none = (_: Int) => false
+        def pick(c: Int)(i: Int): Int =
+          if (i == 9) { if (c == 0) 2024 else if (c == 1) 2 else 30 }
+          else tripleData(makeDateValid)(c, i)
+        val y = makeInputData(arena, length, none, pick(0))
+        val m = makeInputData(arena, length, none, pick(1))
+        val d = makeInputData(arena, length, none, pick(2))
+        val out = makeOutput(arena, length)
+        assert(runKernel3(nul, y, m, d, out, length) === 0)
+        val bits = out._2
+        def valid(i: Int): Boolean = (bits.get(ValueLayout.JAVA_BYTE, i / 8) >> (i % 8) & 1) == 1
+        assert(!valid(9), "the invalid date must be a null lane")
+        assert((0 until length).filter(_ != 9).forall(valid), "every other lane is valid")
+        val expected: (Int, Int) => Int = tripleData(makeDateValid)
+        assert(out._1.get(ValueLayout.JAVA_INT, 10 * 4L) ===
+          VarkaChrono.makeDate(expected(0, 10), expected(1, 10), expected(2, 10)))
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
+  test("task 42: the NULL form's kernel has no dense methods and the ANSI form's has both") {
+    val nulNames = methodNames(emitMulti(Seq(makeDateNull), 3, 0))
+    assert(!nulNames.contains("runDense") && !nulNames.contains("loopDense0"), nulNames)
+    assert(nulNames.contains("runMasked") && nulNames.contains("loopMasked0"), nulNames)
+    val ansiNames = methodNames(emitMulti(Seq(makeDateAnsi), 3, 0))
+    assert(ansiNames.contains("runDense") && ansiNames.contains("runMasked"), ansiNames)
+  }
+
+  test("task 42: make_date costs what PLAN_TASK_42.md 3.6 registered under both forms, and " +
+      "no sibling moved") {
+    val col = new ColumnRef(0)
+    def ops(root: VarkaVectorIR, inputs: Int, literals: Int = 0,
+        method: String = "loopDense0"): Int =
+      laneOps(emitMulti(Seq(root), inputs, literals, VarkaEmitOptions.DEFAULTS)._2, method)
+    val counts = Seq(
+      ("make_date ANSI, dense loop", ops(makeDateAnsi, 3), 57),
+      ("make_date ANSI, masked loop", ops(makeDateAnsi, 3, method = "loopMasked0"), 57),
+      ("make_date NULL, masked loop", ops(makeDateNull, 3, method = "loopMasked0"), 57),
+      ("add_months", ops(new AddMonths(col, new LiteralSlot(0)), 1, literals = 1), 112),
+      ("dayofyear", ops(new DayOfYear(col), 1), 43))
+    val table = counts.map { case (n, got, want) => s"$n=$got (registered $want)" }
+    assert(counts.forall { case (_, got, want) => got == want },
+      s"the register moved; re-pin from these IntVector counts:\n  " + table.mkString("\n  "))
+  }
+
   // Task 37's days: the ISO corners its plan names - the week-53 years, the January days that
   // belong to the old year and the December days that belong to the new one - and Velox's
   // Spark-compatibility fixtures (velox/functions/sparksql/tests/DateTimeFunctionsTest.cpp),
@@ -889,6 +1048,7 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     val counts = Seq(
       ("ThursdayOf", ops(new ThursdayOf(col)), 19),
       ("weekofyear", ops(new WeekOfYear(new ThursdayOf(col))), 64),
+      ("yearofweek", ops(new Year(new ThursdayOf(col))), 51),
       ("next_day", ops(new NextDay(col, new LiteralSlot(0)), literals = 1), 18),
       ("weekday", ops(new WeekDay(col)), 17),
       ("dayofyear", ops(new DayOfYear(col)), 43),
@@ -2226,10 +2386,14 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     "34=(least 32 33)",
     "35=(nextDay 1 2)",
     "36=(addMonths 1 2)",
-    "37=(least 35 36)",
-    "38=(least 34 37)",
-    "39=(least 31 38)",
-    "40=(if 10 13 39)").mkString("\n")
+    "37=(makeDate:NULL 1 2 2)",
+    "38=(makeDate:ANSI 1 2 2)",
+    "39=(least 37 38)",
+    "40=(least 36 39)",
+    "41=(least 35 40)",
+    "42=(least 34 41)",
+    "43=(least 31 42)",
+    "44=(if 10 13 43)").mkString("\n")
 
   /** The class's own LineNumberTable key, parsed back into line -> rendered IR node. */
   private def lineKey(bytes: Array[Byte]): Map[Int, String] = {
@@ -2282,7 +2446,9 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
       new Greatest(new AddDays(col, lit), new SubDays(col, lit)),
       new Least(new DateDiff(chrono, new DayOfWeek(col)),
         new Least(new Least(new WeekDay(col), new DayOfWeekIso(col)),
-          new Least(new NextDay(col, lit), new AddMonths(col, lit)))))
+          new Least(new NextDay(col, lit),
+            new Least(new AddMonths(col, lit),
+              new Least(new MakeDate(col, lit, lit, false), new MakeDate(col, lit, lit, true)))))))
     val (_, bytes) = emitMulti(Seq(everyNode), 1, 1)
     val lineMap = VarkaDebugInfoReader.lineMap(bytes)
     assert(lineMap === pinnedLineMap, s"re-pin pinnedLineMap from this output:\n$lineMap")

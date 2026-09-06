@@ -52,7 +52,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.IfElse, VarkaVectorIR.Greatest, VarkaVectorIR.Least,
             VarkaVectorIR.DayOfWeek, VarkaVectorIR.WeekDay, VarkaVectorIR.DayOfWeekIso,
             VarkaVectorIR.NextDay, VarkaVectorIR.ThursdayOf, VarkaVectorIR.Chrono,
-            VarkaVectorIR.AddMonths, VarkaVectorIR.Cond {
+            VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate, VarkaVectorIR.Cond {
 
   /** The lane type a node evaluates to. Only 32-bit int lanes exist in milestone 2. */
   enum LaneType { INT }
@@ -238,6 +238,20 @@ public sealed interface VarkaVectorIR
   record AddMonths(VarkaVectorIR days, VarkaVectorIR months) implements VarkaVectorIR {}
 
   /**
+   * Spark's {@code make_date(year, month, day)} (task 42): a date built from three int lanes,
+   * each a column or a literal. The first node with three value children and the first whose
+   * result is null for non-null inputs: an invalid month or day is a null output when
+   * {@code failOnError} is false and a declined batch (the row engine raises Spark's error)
+   * when it is true, and a year outside {@link VarkaChrono#MAKE_DATE_MIN_YEAR}..
+   * {@link VarkaChrono#MAKE_DATE_MAX_YEAR} declines in both modes. The flag is a record
+   * component because it selects which code is emitted - two modes are two shapes -
+   * on {@link TruncDate}'s precedent. Not a {@link Chrono} member: it recomposes, like
+   * {@link AddMonths}, but decomposes nothing.
+   */
+  record MakeDate(VarkaVectorIR year, VarkaVectorIR month, VarkaVectorIR day,
+      boolean failOnError) implements VarkaVectorIR {}
+
+  /**
    * Spark's {@code year} (task 26): the proleptic Gregorian year of a date, as
    * {@code LocalDate#getYear} gives it. An {@code IntegerType} output at the Spark level.
    *
@@ -345,6 +359,8 @@ public sealed interface VarkaVectorIR
       case WeekOfYear n -> "(weekOfYear " + canonical(n.days()) + ")";
       case AddMonths n ->
           "(addMonths " + canonical(n.days()) + " " + canonical(n.months()) + ")";
+      case MakeDate n -> "(makeDate:" + (n.failOnError() ? "ANSI" : "NULL") + " "
+          + canonical(n.year()) + " " + canonical(n.month()) + " " + canonical(n.day()) + ")";
     };
   }
 
@@ -411,6 +427,9 @@ public sealed interface VarkaVectorIR
       case WeekOfYear n -> "(weekOfYear " + lineOf.applyAsInt(n.days()) + ")";
       case AddMonths n -> "(addMonths " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.months()) + ")";
+      case MakeDate n -> "(makeDate:" + (n.failOnError() ? "ANSI" : "NULL") + " "
+          + lineOf.applyAsInt(n.year()) + " " + lineOf.applyAsInt(n.month()) + " "
+          + lineOf.applyAsInt(n.day()) + ")";
     };
   }
 }

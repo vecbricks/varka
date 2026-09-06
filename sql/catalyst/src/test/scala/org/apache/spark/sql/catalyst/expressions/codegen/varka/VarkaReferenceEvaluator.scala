@@ -107,6 +107,16 @@ object VarkaReferenceEvaluator {
     case n: AddMonths =>
       for (d <- evalValue(n.days(), row, lits); m <- evalValue(n.months(), row, lits))
         yield DateTimeUtils.dateAddMonths(d, m)
+    case n: MakeDate =>
+      // The definition: LocalDate.of, null (None) where the calendar rejects the triple - never
+      // the length rule the emitter computes. The year limit is the kernel's business, not the
+      // oracle's: a year outside it is a declined batch, which the status assertion catches.
+      for {
+        y <- evalValue(n.year(), row, lits); m <- evalValue(n.month(), row, lits)
+        d <- evalValue(n.day(), row, lits)
+        v <- try Some(LocalDate.of(y, m, d).toEpochDay.toInt)
+          catch { case _: java.time.DateTimeException => None }
+      } yield v
     case n: Greatest =>
       pick(evalValue(n.left(), row, lits), evalValue(n.right(), row, lits), math.max)
     case n: Least =>

@@ -122,6 +122,25 @@ public final class VarkaChrono {
   public static final int CONTRACT_MAX_DAYS = (int) LocalDate.of(9999, 12, 31).toEpochDay();
 
   /**
+   * The years {@code make_date} builds inside the kernel (task 42): the whole calendar years of
+   * the narrow range, so every date the node publishes lies in
+   * {@code [NARROW_MIN_DAYS, NARROW_MAX_DAYS]} and a calendar node over it is admitted at compile
+   * time; a year outside declines the batch to the row engine in both evaluation modes. Both
+   * lie inside the range {@link #daysFromCivil} and {@link #isLeapYear} are exact over
+   * (roughly -14848..35181 and -15200..87299). Derived from the range, not typed in.
+   */
+  public static final int MAKE_DATE_MIN_YEAR = LocalDate.ofEpochDay(NARROW_MIN_DAYS).getYear() + 1;
+
+  /** The last whole year of the narrow range; see {@link #MAKE_DATE_MIN_YEAR}. */
+  public static final int MAKE_DATE_MAX_YEAR = LocalDate.ofEpochDay(NARROW_MAX_DAYS).getYear() - 1;
+
+  /** {@link #makeDate}'s answer for a month or day the calendar rejects: the null lane. */
+  public static final int MAKE_DATE_INVALID = Integer.MIN_VALUE;
+
+  /** {@link #makeDate}'s answer for a year outside the limits: the declined batch. */
+  public static final int MAKE_DATE_OUT_OF_RANGE = Integer.MIN_VALUE + 1;
+
+  /**
    * The largest day count {@code CAST(int AS INTERVAL DAY)} can produce (task 56):
    * {@code Long.MAX_VALUE / MICROS_PER_DAY}, since Spark builds the interval as
    * {@code Math.multiplyExact(days, MICROS_PER_DAY)} and throws a cast-overflow error - in every
@@ -634,6 +653,28 @@ public final class VarkaChrono {
    * month arithmetic can reach - see {@code verify_days_from_civil.py} and
    * {@code PLAN_TASK_40.md}.
    */
+  /**
+   * Spark's {@code make_date} as the emitter computes it (task 42), the scalar twin of the
+   * kernel's arm: the month clamped into 1..12 for the length test, the length as the closed
+   * form {@code 30 | (m ^ (m >>> 3))} except February's {@code 28 + leap}, validity as
+   * "month in 1..12 and day in 1..length", and {@link #daysFromCivil} over the valid triple.
+   * Returns {@link #MAKE_DATE_OUT_OF_RANGE} for a year outside
+   * {@code [MAKE_DATE_MIN_YEAR, MAKE_DATE_MAX_YEAR]} (the batch declines) and
+   * {@link #MAKE_DATE_INVALID} for an invalid month or day (a null in non-ANSI mode, a decline
+   * in ANSI), in that order of precedence, as the kernel's two masks are.
+   */
+  public static int makeDate(int year, int month, int dayOfMonth) {
+    if (year < MAKE_DATE_MIN_YEAR || year > MAKE_DATE_MAX_YEAR) {
+      return MAKE_DATE_OUT_OF_RANGE;
+    }
+    int clamped = Math.min(Math.max(month, 1), 12);
+    int length = clamped == 2
+        ? 28 + (isLeapYear(year) ? 1 : 0)
+        : (30 | (clamped ^ (clamped >>> 3)));
+    boolean valid = month >= 1 && month <= 12 && dayOfMonth >= 1 && dayOfMonth <= length;
+    return valid ? daysFromCivil(year, month, dayOfMonth) : MAKE_DATE_INVALID;
+  }
+
   public static int daysFromCivil(int year, int month, int dayOfMonth) {
     int marchYear = year - (month <= 2 ? 1 : 0);
     int biased = marchYear + YEAR_BIAS;
