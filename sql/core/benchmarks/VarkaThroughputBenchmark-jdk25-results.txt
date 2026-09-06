@@ -6,8 +6,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    49             58          13         40.8          24.5       1.0X
-varka (SIMD)                                         15             18           2        135.0           7.4       3.3X
+baseline (Janino)                                    50             54           5         40.2          24.8       1.0X
+varka (SIMD)                                         14             17           3        145.9           6.9       3.6X
 
 
 ================================================================================================
@@ -18,8 +18,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_sub over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    45             48           3         44.3          22.6       1.0X
-varka (SIMD)                                         10             13           2        201.9           5.0       4.6X
+baseline (Janino)                                    44             50           5         45.1          22.2       1.0X
+varka (SIMD)                                         11             13           2        184.0           5.4       4.1X
 
 
 ================================================================================================
@@ -31,7 +31,7 @@ AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add, column offset (task 56 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                    54             58           6         37.0          27.0       1.0X
-varka (SIMD)                                                                         10             13           3        210.2           4.8       5.7X
+varka (SIMD)                                                                         10             13           2        199.2           5.0       5.4X
 
 
 ================================================================================================
@@ -42,8 +42,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date + CAST(i AS INTERVAL DAY), bound checked (task 56) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                                  55             58           4         36.7          27.3       1.0X
-varka (SIMD)                                                                                        9             11           2        225.9           4.4       6.2X
+baseline (Janino)                                                                                  53             57           4         37.4          26.7       1.0X
+varka (SIMD)                                                                                        9             13           2        211.6           4.7       5.7X
 
 
 ================================================================================================
@@ -54,8 +54,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 add_months, literal (task 60 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                69             71           3         29.0          34.5       1.0X
-varka (SIMD)                                                                     10             13           3        193.1           5.2       6.7X
+baseline (Janino)                                                                69             73           4         28.9          34.5       1.0X
+varka (SIMD)                                                                     10             13           2        192.0           5.2       6.6X
 
 
 ================================================================================================
@@ -66,8 +66,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 add_months, column count (task 60) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                             76             80           7         26.2          38.2       1.0X
-varka (SIMD)                                                                  11             12           2        185.8           5.4       7.1X
+baseline (Janino)                                                             76             79           4         26.3          38.0       1.0X
+varka (SIMD)                                                                  11             13           2        182.3           5.5       6.9X
 
 
 ================================================================================================
@@ -78,8 +78,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 make_date over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    69             71           3         29.1          34.4       1.0X
-varka (SIMD)                                          9             11           2        212.0           4.7       7.3X
+baseline (Janino)                                    70             73           3         28.7          34.8       1.0X
+varka (SIMD)                                         10             12           2        207.1           4.8       7.2X
 
 
 ================================================================================================
@@ -90,8 +90,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    51             53           3         39.3          25.5       1.0X
-varka (SIMD)                                          7              9           3        296.8           3.4       7.6X
+baseline (Janino)                                    51             53           3         39.5          25.3       1.0X
+varka (SIMD)                                          7             10           2        276.1           3.6       7.0X
 
 
 ================================================================================================
@@ -102,8 +102,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 nested projection over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                            50             54           5         39.7          25.2       1.0X
-varka (SIMD)                                                  7              9           2        298.6           3.3       7.5X
+baseline (Janino)                                            51             53           3         39.4          25.4       1.0X
+varka (SIMD)                                                  7             10           2        285.7           3.5       7.3X
 
 
 ================================================================================================
@@ -114,8 +114,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 shared subchain (DAG-CSE) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                    51             54           3         39.1          25.6       1.0X
-varka (SIMD)                                                          7              9           2        274.6           3.6       7.0X
+baseline (Janino)                                                    53             58           9         37.8          26.5       1.0X
+varka (SIMD)                                                          7             11           2        272.0           3.7       7.2X
 
 
 ================================================================================================
@@ -127,7 +127,7 @@ AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when, predictable data over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                      51             53           2         39.5          25.3       1.0X
-varka (SIMD)                                                            7              9           3        285.6           3.5       7.2X
+varka (SIMD)                                                            7              9           2        281.5           3.6       7.1X
 
 
 ================================================================================================
@@ -138,8 +138,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when, unpredictable data over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                        55             58           2         36.5          27.4       1.0X
-varka (SIMD)                                                              7              9           2        294.3           3.4       8.1X
+baseline (Janino)                                                        55             57           2         36.4          27.5       1.0X
+varka (SIMD)                                                              7              9           2        283.4           3.5       7.8X
 
 
 ================================================================================================
@@ -150,8 +150,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                    61             63           2         32.9          30.4       1.0X
-varka (SIMD)                                          5              8           2        364.2           2.7      11.1X
+baseline (Janino)                                    61             66           9         32.9          30.4       1.0X
+varka (SIMD)                                          6              9           2        332.6           3.0      10.1X
 
 
 ================================================================================================
@@ -162,8 +162,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 next_day, literal weekday (task 59 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                      42             45           4         47.9          20.9       1.0X
-varka (SIMD)                                                                            6              8           2        359.7           2.8       7.5X
+baseline (Janino)                                                                      43             45           2         46.5          21.5       1.0X
+varka (SIMD)                                                                            6              8           2        356.5           2.8       7.7X
 
 
 ================================================================================================
@@ -174,8 +174,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 next_day, weekday column (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                            141            146           7         14.1          70.7       1.0X
-varka (SIMD)                                                                  32             35           2         61.6          16.2       4.4X
+baseline (Janino)                                                            146            150           8         13.7          72.9       1.0X
+varka (SIMD)                                                                  33             35           2         60.8          16.4       4.4X
 
 
 ================================================================================================
@@ -186,8 +186,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 next_day, weekday column reused by two outputs (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                                  206            208           2          9.7         102.9       1.0X
-varka (SIMD)                                                                                        33             36           2         60.3          16.6       6.2X
+baseline (Janino)                                                                                  211            215           3          9.5         105.4       1.0X
+varka (SIMD)                                                                                        33             35           2         59.9          16.7       6.3X
 
 
 ================================================================================================
@@ -198,8 +198,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 trunc, literal format (task 61 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                  50             53           1         39.7          25.2       1.0X
-varka (SIMD)                                                                        5              7           2        366.0           2.7       9.2X
+baseline (Janino)                                                                  51             54           4         39.2          25.5       1.0X
+varka (SIMD)                                                                        6              9           2        349.2           2.9       8.9X
 
 
 ================================================================================================
@@ -210,8 +210,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 trunc, format column (task 61) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                        154            158           7         13.0          76.8       1.0X
-varka (SIMD)                                                              73             74           1         27.6          36.3       2.1X
+baseline (Janino)                                                        157            162           5         12.7          78.5       1.0X
+varka (SIMD)                                                              74             78           4         26.9          37.2       2.1X
 
 
 ================================================================================================
@@ -222,8 +222,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 weekofyear over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                     78             81           2         25.6          39.1       1.0X
-varka (SIMD)                                           6              9           2        319.3           3.1      12.5X
+baseline (Janino)                                     79             82           2         25.2          39.7       1.0X
+varka (SIMD)                                           6              8           1        318.4           3.1      12.6X
 
 
 ================================================================================================
@@ -234,8 +234,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 yearofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                     69             72           8         29.1          34.3       1.0X
-varka (SIMD)                                           6              8           2        341.0           2.9      11.7X
+baseline (Janino)                                     64             65           1         31.5          31.8       1.0X
+varka (SIMD)                                           6              8           2        348.1           2.9      11.1X
 
 
 ================================================================================================
@@ -246,8 +246,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 mixed projection (partial fusion) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                            61             64           4         32.7          30.5       1.0X
-varka (SIMD)                                                                 21             23           2         94.5          10.6       2.9X
+baseline (Janino)                                                            62             66           3         32.3          30.9       1.0X
+varka (SIMD)                                                                 21             25           3         94.4          10.6       2.9X
 
 
 ================================================================================================
@@ -258,8 +258,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 1 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        44             47           5         45.4          22.0       1.0X
-varka (SIMD)                                              5              6           1        433.0           2.3       9.5X
+baseline (Janino)                                        44             48           5         45.1          22.2       1.0X
+varka (SIMD)                                              5              7           2        407.0           2.5       9.0X
 
 
 ================================================================================================
@@ -270,8 +270,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 2 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        44             46           2         45.2          22.1       1.0X
-varka (SIMD)                                              5              7           2        429.9           2.3       9.5X
+baseline (Janino)                                        44             48           5         45.8          21.8       1.0X
+varka (SIMD)                                              5              7           2        407.3           2.5       8.9X
 
 
 ================================================================================================
@@ -282,8 +282,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 4 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        44             47           4         45.5          22.0       1.0X
-varka (SIMD)                                              5              6           3        436.6           2.3       9.6X
+baseline (Janino)                                        44             46           2         45.5          22.0       1.0X
+varka (SIMD)                                              5              6           1        403.7           2.5       8.9X
 
 
 ================================================================================================
@@ -294,8 +294,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 8 over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                        44             46           2         45.8          21.8       1.0X
-varka (SIMD)                                              5              6           2        433.5           2.3       9.5X
+baseline (Janino)                                        44             46           1         45.2          22.1       1.0X
+varka (SIMD)                                              5              7           2        422.7           2.4       9.4X
 
 
 ================================================================================================
@@ -306,8 +306,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 1, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      43             45           2         46.8          21.4       1.0X
-varka (SIMD)                                                           50             52           2         40.4          24.8       0.9X
+baseline (Janino)                                                      42             46           5         47.6          21.0       1.0X
+varka (SIMD)                                                           50             52           2         39.9          25.1       0.8X
 
 
 ================================================================================================
@@ -318,8 +318,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 2, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      44             46           3         45.8          21.8       1.0X
-varka (SIMD)                                                           49             51           1         40.5          24.7       0.9X
+baseline (Janino)                                                      44             46           1         46.0          21.8       1.0X
+varka (SIMD)                                                           50             52           2         39.8          25.1       0.9X
 
 
 ================================================================================================
@@ -330,8 +330,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 4, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      43             45           2         46.5          21.5       1.0X
-varka (SIMD)                                                           50             53           4         40.2          24.9       0.9X
+baseline (Janino)                                                      44             47           4         45.8          21.9       1.0X
+varka (SIMD)                                                           51             53           1         39.5          25.3       0.9X
 
 
 ================================================================================================
@@ -342,8 +342,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain depth 8, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                      43             46           3         46.3          21.6       1.0X
-varka (SIMD)                                                           49             51           1         40.8          24.5       0.9X
+baseline (Janino)                                                      43             46           4         46.0          21.7       1.0X
+varka (SIMD)                                                           50             53           4         40.0          25.0       0.9X
 
 
 ================================================================================================
@@ -354,8 +354,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                 42             45           2         47.6          21.0       1.0X
-varka (SIMD)                                                      49             52           2         40.7          24.5       0.9X
+baseline (Janino)                                                 43             46           2         46.2          21.7       1.0X
+varka (SIMD)                                                      50             52           2         39.7          25.2       0.9X
 
 
 ================================================================================================
@@ -366,8 +366,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 mixed projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                         60             62           2         33.3          30.1       1.0X
-varka (SIMD)                                                              63             67           6         31.7          31.5       1.0X
+baseline (Janino)                                                         61             63           2         32.7          30.5       1.0X
+varka (SIMD)                                                              61             64           2         32.7          30.6       1.0X
 
 
 ================================================================================================
@@ -378,8 +378,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 residual-heavy projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                  62             64           1         32.3          31.0       1.0X
-varka (SIMD)                                                                       82             84           2         24.4          41.0       0.8X
+baseline (Janino)                                                                  62             64           2         32.3          31.0       1.0X
+varka (SIMD)                                                                      101            103           1         19.8          50.5       0.6X
 
 
 ================================================================================================
@@ -390,8 +390,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                  65             66           1         30.9          32.4       1.0X
-varka (SIMD)                                                       52             56           7         38.4          26.1       1.2X
+baseline (Janino)                                                  63             65           1         31.8          31.4       1.0X
+varka (SIMD)                                                       53             59          13         37.5          26.6       1.2X
 
 
 ================================================================================================
@@ -402,8 +402,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 case when unpredictable, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                                66             68           2         30.4          32.9       1.0X
-varka (SIMD)                                                                     51             54           2         38.9          25.7       1.3X
+baseline (Janino)                                                                66             70           3         30.2          33.1       1.0X
+varka (SIMD)                                                                     52             54           2         38.7          25.8       1.3X
 
 
 ================================================================================================
@@ -414,8 +414,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                 57             60           5         35.1          28.5       1.0X
-varka (SIMD)                                                      52             55           3         38.6          25.9       1.1X
+baseline (Janino)                                                 57             59           2         34.9          28.6       1.0X
+varka (SIMD)                                                      52             54           2         38.2          26.2       1.1X
 
 
 ================================================================================================
@@ -426,7 +426,7 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 nested projection, row consumer over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------
-baseline (Janino)                                                          58             60           1         34.7          28.8       1.0X
-varka (SIMD)                                                               52             54           2         38.6          25.9       1.1X
+baseline (Janino)                                                          58             60           2         34.7          28.8       1.0X
+varka (SIMD)                                                               52             55           2         38.5          26.0       1.1X
 
 

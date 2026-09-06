@@ -542,8 +542,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // null-free-with-per-group-OR pair isolates the write with no masked machinery around
         // it, and is directly comparable to the task 45 row beside it.
         val generalHelpers = VarkaEmitOptions.DEFAULTS.withValidityByWidth(false)
-        val yearGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 880, generalHelpers)
-        val yearPerGroupGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 881,
+        val yearGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 892, generalHelpers)
+        val yearPerGroupGeneral = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 893,
           generalHelpers.withDenseValidityOnce(false))
         val dowGeneral = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 882,
           generalHelpers)
