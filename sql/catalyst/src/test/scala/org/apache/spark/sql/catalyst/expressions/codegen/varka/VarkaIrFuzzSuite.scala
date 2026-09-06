@@ -188,7 +188,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
                 Gen(new AddMonths(a.node, m.node), a.bound + m.bound * 31)
               case 3 =>
                 // trunc (task 35) moves a date down by at most a year, so the child's bound
-                // holds; the level is drawn at random so all three tails are fuzzed.
+                // holds; the level is drawn at random so all three tails are fuzzed. The
+                // column-level form (task 61, TruncDateDynamic) stays out: its level column
+                // holds the leaf's codes 6..9, and the fuzzer's columns hold day-magnitude
+                // values, so every lane would be one the leaf never produces.
                 val levels = TruncLevel.values()
                 Gen(new TruncDate(a.node, levels(rnd.nextInt(levels.length))), a.bound)
               case _ => Gen(new LastDay(a.node), a.bound + 31)

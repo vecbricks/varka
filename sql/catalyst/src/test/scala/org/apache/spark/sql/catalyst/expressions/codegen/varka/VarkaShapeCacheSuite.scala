@@ -419,8 +419,9 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
     // added IsNotNull and re-pinned the value (recorded in PLAN_TASK_20.md); task 26 added
     // the four calendar extractions and re-pinned it again (PLAN_TASK_26.md); task 33 added
     // NextDay, task 40 added AddMonths, task 36 added LastDay, task 34 added DayOfYear and
-    // task 35 added TruncDate, each re-pinning it again (PLAN_TASK_33.md, PLAN_TASK_40.md,
-    // PLAN_TASK_36.md, PLAN_TASK_34.md, PLAN_TASK_35.md). This value is re-pinned from the
+    // task 35 added TruncDate and task 61 added TruncDateDynamic, each re-pinning it again
+    // (PLAN_TASK_33.md, PLAN_TASK_40.md, PLAN_TASK_36.md, PLAN_TASK_34.md, PLAN_TASK_35.md,
+    // PLAN_TASK_61.md). This value is re-pinned from the
     // failing assertion's own output on every such change - never carried over from either
     // side of a merge, since a hash that is right for one node set is wrong for the union of
     // two.
@@ -444,9 +445,10 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
         new Least(new Least(new WeekDay(columnRef), new DayOfWeekIso(columnRef)),
           new Least(new NextDay(columnRef, literal),
             new Least(new AddMonths(columnRef, literal),
-              new Least(new MakeDate(columnRef, literal, literal, false),
-                new MakeDate(columnRef, literal, literal, true)))))))
-    assert(VarkaShapeCache.shapeHash(keyOf(everyNode)) === "264c27595ebf0685")
+              new Least(new TruncDateDynamic(columnRef, columnRef),
+                new Least(new MakeDate(columnRef, literal, literal, false),
+                  new MakeDate(columnRef, literal, literal, true))))))))
+    assert(VarkaShapeCache.shapeHash(keyOf(everyNode)) === "1661b1b146818e6a")
   }
 
   test("side-table identities are recorded truncated, so one entry cannot grow unbounded") {

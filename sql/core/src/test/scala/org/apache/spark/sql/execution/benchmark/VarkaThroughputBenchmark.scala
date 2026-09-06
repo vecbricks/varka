@@ -209,6 +209,25 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       s"case '$name' fused but fell back at run time (numVarkaBatches = ${node.value})")
   }
 
+  /**
+   * `varka_dates_trunc_formats` for task 61: dates `d` beside a trunc format `fmt` cycling
+   * through the eight accepted spellings in three case styles, every format valid, so the
+   * derived leaf's parse is the whole of the pre-pass and every row is a live lane.
+   */
+  private def cacheDatesTruncFormats(session: SparkSession): Unit = {
+    val spellings = Seq("YEAR", "YYYY", "YY", "MON", "MONTH", "MM", "QUARTER", "WEEK")
+    val styled = spellings ++ spellings.map(_.toLowerCase(java.util.Locale.ROOT)) ++
+      spellings.map(f => f.head.toString + f.tail.toLowerCase(java.util.Locale.ROOT))
+    val formats = styled.map(f => s"'$f'").mkString("array(", ", ", ")")
+    session.sql(
+      s"""select date_add(date'2020-01-01', cast(id as int) % 1500) as d,
+        |       element_at($formats, cast(id % ${styled.size} as int) + 1) as fmt
+        |from range(0, 2000000)""".stripMargin)
+      .createOrReplaceTempView("varka_dates_trunc_formats")
+    session.catalog.cacheTable("varka_dates_trunc_formats")
+    session.sql("select count(*) from varka_dates_trunc_formats").collect()
+  }
+
   private def runQueries(
       baseline: SparkSession,
       varka: SparkSession,
@@ -281,6 +300,8 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       cacheDatesMonthCounts(varka)
       cacheDatesWeekday(baseline)
       cacheDatesWeekday(varka)
+      cacheDatesTruncFormats(baseline)
+      cacheDatesTruncFormats(varka)
 
       runQueries(baseline, varka, "date_add", "SELECT date_add(d, 3) AS a FROM varka_dates")
       runQueries(baseline, varka, "date_sub", "SELECT date_sub(d, 5) AS a FROM varka_dates")
@@ -337,6 +358,13 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         "SELECT next_day(d, s) AS a FROM varka_dates_weekday")
       runQueries(baseline, varka, "next_day, weekday column reused by two outputs (task 59)",
         "SELECT next_day(d, s) AS a, next_day(d2, s) AS b FROM varka_dates_weekday")
+      // Task 61's two rows: the literal format is the control (task 35's one-input kernel);
+      // the format column pays the derived leaf - parseTruncLevel per row - and a kernel that
+      // computes all four periods and blends on the level.
+      runQueries(baseline, varka, "trunc, literal format (task 61 control)",
+        "SELECT trunc(d, 'MONTH') AS a FROM varka_dates_trunc_formats")
+      runQueries(baseline, varka, "trunc, format column (task 61)",
+        "SELECT trunc(d, fmt) AS a FROM varka_dates_trunc_formats")
       // Task 37: the ISO week by the Thursday rule, the widest single-field kernel.
       runQueries(baseline, varka, "weekofyear", "SELECT weekofyear(d) AS w FROM varka_dates")
       runQueries(baseline, varka, "yearofweek",

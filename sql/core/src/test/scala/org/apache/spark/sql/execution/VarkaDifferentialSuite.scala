@@ -1619,4 +1619,55 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
       expectFused = true)
   }
 
+  test("task 61: trunc with a format column matches the row engine over every spelling, the " +
+      "sub-day and unrecognised formats and nulls, through the projection and the filter, " +
+      "composed under a calendar function, with no fallback, in both ANSI modes") {
+    cacheDatesTruncFormats(spark)
+    cacheDatesTruncFormats(varkaSpark)
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      // The dynamic node beside the literal one in one projection: the literal keeps its own
+      // node and shares the date column. A null, unrecognised or sub-day format is NULL in
+      // both modes - TruncDate has no error path, so unlike next_day there is no ANSI twin
+      // and nothing to decline; the metrics say the kernel answered every batch.
+      val plan = checkDifferential(spark, varkaSpark,
+        "SELECT trunc(d, fmt) AS a, trunc(d, 'MONTH') AS b FROM varka_dates_trunc_formats " +
+          "ORDER BY a, b",
+        expectFused = true)
+      assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
+      assert(varkaMetric(plan, "numFallbackBatchesDeclined") === 0L)
+      assert(varkaMetric(plan, "numFallbackBatchesNonArrow") === 0L)
+      // The filter route reads the derived input through the same fillSources.
+      checkDifferential(spark, varkaSpark,
+        "SELECT count(*) AS c FROM varka_dates_trunc_formats " +
+          "WHERE trunc(d, fmt) = trunc(d, 'MONTH')",
+        expectFused = true)
+      checkDifferential(spark, varkaSpark,
+        "SELECT d, fmt FROM varka_dates_trunc_formats WHERE trunc(d, fmt) < trunc(d, 'MONTH') " +
+          "ORDER BY d, fmt",
+        expectFused = true)
+      // A calendar function over the dynamic node composes: the range analysis bounds it.
+      checkDifferential(spark, varkaSpark,
+        "SELECT year(trunc(d, fmt)) AS y, dayofweek(trunc(d, fmt)) AS w " +
+          "FROM varka_dates_trunc_formats ORDER BY y, w",
+        expectFused = true)
+    }
+  }
+
+  test("task 61: a trunc projection over a Varka filter's compacted batch answers through the " +
+      "row path, the string-column limitation task 59 recorded") {
+    cacheDatesTruncFormats(spark)
+    cacheDatesTruncFormats(varkaSpark)
+    withAnsi(false) {
+      val q = "SELECT trunc(d, fmt) AS a FROM varka_dates_trunc_formats WHERE d IS NOT NULL " +
+        "ORDER BY a"
+      val expected = spark.sql(q)
+      val actual = varkaSpark.sql(q)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkAnswer(actual, expected)
+      assert(varkaMetric(plan, "numFallbackBatchesNonArrow") > 0L,
+        "the compacted string column should have refused the projection's batch")
+      assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
+    }
+  }
 }

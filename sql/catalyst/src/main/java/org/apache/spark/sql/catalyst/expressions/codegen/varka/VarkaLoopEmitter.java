@@ -66,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Qua
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.SubDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ThursdayOf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
@@ -317,6 +318,28 @@ public final class VarkaLoopEmitter {
    */
   private static final int TRUNC_YEAR_WEIGHT = 53;
   private static final int TRUNC_QUARTER_WEIGHT = 70;
+
+  /**
+   * What {@link TruncDateDynamic} (task 61) weighs: the row picks its period after the fact,
+   * so the tail computes all four results - the {@code QUARTER} tail, which contains the
+   * {@code YEAR}'s and the prefix; the {@code MONTH}'s two ops; the week's
+   * {@link #emitFloorMod7} and subtract; and the three compare-and-blend pairs of the select -
+   * read off the emitted instructions the way the literal weights are (the register in
+   * {@code VarkaLoopEmitterSuite} pins the dense loop's {@code IntVector} calls at 91), with
+   * the same eight-op allowance. Far past {@link #GROUP_BUDGET}, like the literal levels, so
+   * the exact figure does not steer the grouping.
+   */
+  private static final int TRUNC_DYNAMIC_WEIGHT = 99;
+
+  /**
+   * {@link TruncDateDynamic}'s locals: the subtract-form slots of {@link #TRUNC_DATE_TMP_COUNT}
+   * it reads ({@code t[0..12]}, the recompose scratch past them unused) plus one of its own for
+   * the level vector, {@code t[}{@link #TRUNC_DYNAMIC_LEVEL_SLOT}{@code ]}. The two scratch
+   * locals its week result's {@link #emitFloorMod7} needs come from {@code dowTmp}, as for
+   * {@code NextDay}, and the four results ride the operand stack.
+   */
+  private static final int TRUNC_DYNAMIC_LEVEL_SLOT = 13;
+  private static final int TRUNC_DYNAMIC_TMP_COUNT = TRUNC_DYNAMIC_LEVEL_SLOT + 1;
 
   /**
    * What {@link VarkaVectorIR.MakeDate} (task 42) weighs against {@link #GROUP_BUDGET}, counted
@@ -798,6 +821,9 @@ public final class VarkaLoopEmitter {
         case QUARTER -> TRUNC_QUARTER_WEIGHT;
       };
     }
+    if (node instanceof TruncDateDynamic) {
+      return TRUNC_DYNAMIC_WEIGHT;
+    }
     if (isChrono(node)) {
       return CHRONO_WEIGHT;
     }
@@ -846,6 +872,7 @@ public final class VarkaLoopEmitter {
       case AddMonths n -> n.days();
       case LastDay n -> n.days();
       case TruncDate n -> n.days();
+      case TruncDateDynamic n -> n.days();
       case WeekOfYear n -> n.days();
       default -> throw new IllegalStateException("not a calendar node: " + node);
     };
@@ -876,6 +903,8 @@ public final class VarkaLoopEmitter {
       // Year and DayOfYear do, under either lowering (the recompose form's January month is a
       // constant).
       case TruncDate n -> n.level() != TruncLevel.YEAR;
+      // Its MONTH and QUARTER results are the literal tails', so it always reads the month.
+      case TruncDateDynamic n -> true;
       // The week tail is the day-of-year tail plus a division: no month.
       case WeekOfYear n -> false;
       default -> throw new IllegalStateException("not a calendar node: " + node);
@@ -972,6 +1001,7 @@ public final class VarkaLoopEmitter {
       case DayOfYear n -> new VarkaVectorIR[] {n.days()};
       case LastDay n -> new VarkaVectorIR[] {n.days()};
       case TruncDate n -> new VarkaVectorIR[] {n.days()};
+      case TruncDateDynamic n -> new VarkaVectorIR[] {n.days(), n.level()};
       case WeekOfYear n -> new VarkaVectorIR[] {n.days()};
       case AddMonths n -> new VarkaVectorIR[] {n.days(), n.months()};
       case MakeDate n -> new VarkaVectorIR[] {n.year(), n.month(), n.day()};
@@ -1282,6 +1312,15 @@ public final class VarkaLoopEmitter {
         case DayOfYear n -> analyzeOp(node, false, n.days());
         case LastDay n -> analyzeOp(node, false, n.days());
         case TruncDate n -> analyzeOp(node, false, n.days());
+        case TruncDateDynamic n -> {
+          // The level is the evaluator's derived int32 column (task 61); a literal level is
+          // the literal TruncDate node, which the compiler builds instead.
+          if (!(n.level() instanceof ColumnRef)) {
+            throw new IllegalArgumentException(
+                "trunc's level must be a column, got " + n.level());
+          }
+          analyzeOp(node, false, n.days(), n.level());
+        }
         case WeekOfYear n -> {
           requireThursdayChild(n.days());
           analyzeOp(node, false, n.days());
@@ -1611,9 +1650,12 @@ public final class VarkaLoopEmitter {
             s.pairTmp.put(node, new int[] {slot++, slot++});
           }
           if (node instanceof DayOfWeek || node instanceof WeekDay || node instanceof NextDay
-              || node instanceof ThursdayOf || node instanceof DayOfWeekIso) {
+              || node instanceof TruncDateDynamic || node instanceof ThursdayOf
+              || node instanceof DayOfWeekIso) {
             // emitFloorMod7's own two scratch slots; NextDay's second copy of the date rides
-            // the operand stack (dup/swap in its emitValue arm) rather than needing a third.
+            // the operand stack (dup/swap in its emitValue arm) rather than needing a third,
+            // and TruncDateDynamic's week result (task 61) reloads the date from the prefix's
+            // own local.
             s.dowTmp.put(node, new int[] {slot++, slot++});
           }
           // A day producer's temporary is behind the option with the guard it serves; a
@@ -1648,6 +1690,7 @@ public final class VarkaLoopEmitter {
             int count = node instanceof AddMonths ? ADD_MONTHS_TMP_COUNT
                 : node instanceof LastDay ? LAST_DAY_TMP_COUNT
                 : node instanceof TruncDate ? TRUNC_DATE_TMP_COUNT
+                : node instanceof TruncDateDynamic ? TRUNC_DYNAMIC_TMP_COUNT
                 : node instanceof DayOfYear || node instanceof WeekOfYear ? CHRONO_PREFIX_SLOTS + 1
                 : CHRONO_PREFIX_SLOTS;
             FragmentKey key = fragmentKey(node, dense, s);
@@ -1708,6 +1751,7 @@ public final class VarkaLoopEmitter {
       case DayOfYear n -> s.wordRef.get(n.days());
       case LastDay n -> s.wordRef.get(n.days());
       case TruncDate n -> s.wordRef.get(n.days());
+      case TruncDateDynamic n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.level()));
       case WeekOfYear n -> s.wordRef.get(n.days());
       case AddMonths n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.months()));
       case DateDiff n -> andRef(s.wordRef.get(n.end()), s.wordRef.get(n.start()));
@@ -2476,6 +2520,14 @@ public final class VarkaLoopEmitter {
       case AddMonths n -> emitAddMonths(cb, n, dense, analysis, s, computed);
       case LastDay n -> emitChrono(cb, node, dense, analysis, s, computed);
       case TruncDate n -> emitChrono(cb, node, dense, analysis, s, computed);
+      case TruncDateDynamic n -> {
+        emitChrono(cb, node, dense, analysis, s, computed);
+        // A column level can be null on its own (task 61), so the node's word is the AND of
+        // both inputs' words - NextDay's rule for its column weekday.
+        if (!dense && s.ownWord.contains(node)) {
+          emitAndWord(cb, s.wordRef.get(node), s.wordRef.get(n.days()), s.wordRef.get(n.level()));
+        }
+      }
       case MakeDate n -> emitMakeDate(cb, n, dense, analysis, s, computed);
       case WeekOfYear n -> emitChrono(cb, node, dense, analysis, s, computed);
       case Greatest n -> emitPick(cb, n, n.left(), n.right(), "max", dense, analysis, s,
@@ -2958,6 +3010,13 @@ public final class VarkaLoopEmitter {
     boolean neri = analysis.options.neriSchneiderMonth();
     boolean julian = analysis.options.julianMap();
 
+    if (node instanceof TruncDateDynamic n) {
+      // The level column first, into the node's own slot, so the prefix's date is the last
+      // child emitted before line() re-tags the instructions as this node's - the order
+      // NextDay keeps for its two children.
+      emitValue(cb, n.level(), dense, analysis, s, computed);
+      cb.astore(t[TRUNC_DYNAMIC_LEVEL_SLOT]);
+    }
     emitChronoPrefixOnce(cb, node, dense, analysis, s, t, computed);
 
     switch (node) {
@@ -2990,6 +3049,7 @@ public final class VarkaLoopEmitter {
       case LastDay n -> emitChronoLastDay(cb, s, t, neri, julian);
       case TruncDate n -> emitChronoTrunc(cb, n, s, t, neri, julian,
           analysis.options.truncDate());
+      case TruncDateDynamic n -> emitChronoTruncDynamic(cb, n, analysis, s, t, neri, julian);
       case WeekOfYear n -> emitChronoWeekOfYear(cb, t, era, century, yearOfCentury, rem, julian);
       default -> throw new IllegalStateException("not a calendar node: " + node);
     }
@@ -3720,56 +3780,20 @@ public final class VarkaLoopEmitter {
     int quarter = t[12];
     switch (form) {
       case SUBTRACT -> {
+        // The three results are factored into helpers so task 61's dynamic node emits the
+        // same bytes for each; the literal node's own bytes did not move (its register and the
+        // byte hashes in PLAN_TASK_61.md 9).
         switch (node.level()) {
-          case MONTH -> {
-            cb.aload(days);
-            emitZeroBasedDayOfMonth(cb, rem, marchMonth, neri);
-            cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-          }
+          case MONTH -> emitTruncMonth(cb, days, rem, marchMonth, neri);
           case YEAR -> {
-            emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
-            cb.astore(year);
-            emitLeapFlag(cb, year);
-            cb.astore(leap);
-            emitJanuaryDayOfYear(cb, rem, leap, mask);
-            cb.astore(dayOfYear);
-            cb.aload(days);
-            cb.aload(dayOfYear);
-            cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-            cb.loadConstant(1);
-            cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
+            emitTruncYearParts(cb, era, rem, century, yearOfCentury, mask, leap, year,
+                dayOfYear, julian);
+            emitTruncYear(cb, days, dayOfYear);
           }
           case QUARTER -> {
-            emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
-            cb.astore(year);
-            emitLeapFlag(cb, year);
-            cb.astore(leap);
-            emitJanuaryDayOfYear(cb, rem, leap, mask);
-            cb.astore(dayOfYear);
-            emitChronoMonth(cb, marchMonth, neri);
-            cb.loadConstant(2);
-            cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
-            emitMagic(cb, VarkaChrono.QUARTER_M, VarkaChrono.QUARTER_K);
-            cb.astore(quarter);
-            // start = 1 (+90 if q >= 2) (+91 if q >= 3) (+92 if q >= 4) (+L if q >= 2)
-            cb.aload(s.species);
-            cb.loadConstant(1);
-            cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
-            int[] steps = {90, 91, 92};
-            for (int q = 2; q <= 4; q++) {
-              cb.loadConstant(steps[q - 2]);
-              emitQuarterAtLeast(cb, quarter, q);
-              cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
-            }
-            cb.loadConstant(1);
-            cb.aload(leap);
-            emitQuarterAtLeast(cb, quarter, 2);
-            cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
-            cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
-            cb.aload(days);
-            cb.aload(dayOfYear);
-            cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-            cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
+            emitTruncYearParts(cb, era, rem, century, yearOfCentury, mask, leap, year,
+                dayOfYear, julian);
+            emitTruncQuarter(cb, s, days, marchMonth, leap, dayOfYear, quarter, neri);
           }
         }
       }
@@ -3804,6 +3828,121 @@ public final class VarkaLoopEmitter {
             t[20], t[21], t[22], t[23]);
       }
     }
+  }
+
+  /** {@code SUBTRACT}'s {@code MONTH}: {@code [] -> [d - dom0]}, two ops over the prefix. */
+  private static void emitTruncMonth(CodeBuilder cb, int days, int rem, int marchMonth,
+      boolean neri) {
+    cb.aload(days);
+    emitZeroBasedDayOfMonth(cb, rem, marchMonth, neri);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+  }
+
+  /**
+   * What {@code SUBTRACT}'s {@code YEAR} and {@code QUARTER} share: the plain year, its leap
+   * flag and the January-based day of year, each left in its slot; nothing on the stack.
+   */
+  private static void emitTruncYearParts(CodeBuilder cb, int era, int rem, int century,
+      int yearOfCentury, int mask, int leap, int year, int dayOfYear, boolean julian) {
+    emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
+    cb.astore(year);
+    emitLeapFlag(cb, year);
+    cb.astore(leap);
+    emitJanuaryDayOfYear(cb, rem, leap, mask);
+    cb.astore(dayOfYear);
+  }
+
+  /** {@code [] -> [d - dayOfYear + 1]}, the year's first day. */
+  private static void emitTruncYear(CodeBuilder cb, int days, int dayOfYear) {
+    cb.aload(days);
+    cb.aload(dayOfYear);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
+  }
+
+  /**
+   * {@code [] -> [d - dayOfYear + start]}, the quarter's first day, with {@code start} the
+   * January-based day of year of the quarter's first day as {@link #emitChronoTrunc}
+   * describes; leaves the quarter in its slot.
+   */
+  private static void emitTruncQuarter(CodeBuilder cb, Slots s, int days, int marchMonth,
+      int leap, int dayOfYear, int quarter, boolean neri) {
+    emitChronoMonth(cb, marchMonth, neri);
+    cb.loadConstant(2);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
+    emitMagic(cb, VarkaChrono.QUARTER_M, VarkaChrono.QUARTER_K);
+    cb.astore(quarter);
+    // start = 1 (+90 if q >= 2) (+91 if q >= 3) (+92 if q >= 4) (+L if q >= 2)
+    cb.aload(s.species);
+    cb.loadConstant(1);
+    cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
+    int[] steps = {90, 91, 92};
+    for (int q = 2; q <= 4; q++) {
+      cb.loadConstant(steps[q - 2]);
+      emitQuarterAtLeast(cb, quarter, q);
+      cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
+    }
+    cb.loadConstant(1);
+    cb.aload(leap);
+    emitQuarterAtLeast(cb, quarter, 2);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
+    cb.aload(days);
+    cb.aload(dayOfYear);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
+  }
+
+  /**
+   * {@code trunc(date, fmt)} with a format column (task 61): the level is a lane value, so the
+   * tail computes every period's first day and selects afterwards. The three calendar results
+   * are {@code SUBTRACT}'s own helpers over one prefix, one year and one day of year; the week
+   * is {@code d - weekday0(d)} with Monday as 0, where {@code weekday0} is {@code WeekDay}'s
+   * tail ({@code floorMod(d + 3, 7)}: 1970-01-01 was a Thursday) - Spark's
+   * {@code getNextDateForDayOfWeek(d - 7, MONDAY)} reduced, checked against it by the sweep.
+   * The select starts from the year and blends the quarter, the month and the week in on
+   * {@code level == 8, 7, 6}; every other code was a null lane before the kernel ran
+   * ({@code TruncLevelLeaf}), and the node's word carries that, so no lane the select does
+   * not cover is ever published. The four results ride the operand stack: the helpers only
+   * load and store named locals in between, so nothing is spilled.
+   */
+  private static void emitChronoTruncDynamic(CodeBuilder cb, TruncDateDynamic node,
+      Analysis analysis, Slots s, int[] t, boolean neri, boolean julian) {
+    int days = t[0];
+    int era = t[1];
+    int rem = t[2];
+    int century = t[3];
+    int yearOfCentury = t[4];
+    int marchMonth = t[5];
+    int mask = t[6];
+    int leap = t[7];
+    int year = t[8];
+    int dayOfYear = t[11];
+    int quarter = t[12];
+    int level = t[TRUNC_DYNAMIC_LEVEL_SLOT];
+    emitTruncYearParts(cb, era, rem, century, yearOfCentury, mask, leap, year, dayOfYear,
+        julian);
+    emitTruncYear(cb, days, dayOfYear);
+    emitTruncQuarter(cb, s, days, marchMonth, leap, dayOfYear, quarter, neri);
+    emitBlendWhereLevel(cb, level, TruncLevelLeaf.QUARTER);
+    emitTruncMonth(cb, days, rem, marchMonth, neri);
+    emitBlendWhereLevel(cb, level, TruncLevelLeaf.MONTH);
+    cb.aload(days);
+    cb.aload(days);
+    emitFloorMod7(cb, node, analysis, s);
+    emitModOffset(cb, s, 3);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+    emitBlendWhereLevel(cb, level, TruncLevelLeaf.WEEK);
+  }
+
+  /** {@code [a, b] -> [a.blend(b, level == code)]}: {@code b} in the lanes at that level. */
+  private static void emitBlendWhereLevel(CodeBuilder cb, int level, int code) {
+    cb.aload(level);
+    cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
+    cb.loadConstant(code);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.invokevirtual(INT_VECTOR, "blend", BLEND);
   }
 
   /** Leaves the mask {@code quarter >= q}, for {@link #emitChronoTrunc}'s start select. */

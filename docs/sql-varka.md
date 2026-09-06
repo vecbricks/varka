@@ -129,13 +129,21 @@ becomes timestamp arithmetic) decline:
   Monday 1 to Sunday 7, as one node: the analyzer spells it `weekday(d) + 1`,
   and that spelling by hand fuses the same way; any other integer arithmetic
   over a field, such as `weekday(d) + 2`, stays residual (milestone 5).
-* `TRUNC(date, fmt)` (task 35) at the date levels, for a literal format only:
+* `TRUNC(date, fmt)` at the date levels. With a literal format (task 35),
   `YEAR`/`YYYY`/`YY`, `MONTH`/`MON`/`MM` and `QUARTER` are one node each with
   the level as part of the kernel's shape, and `WEEK` is rewritten onto
-  `NEXT_DAY` over `DATE_SUB`, which is Spark's own definition of it. The
-  output is a date that can feed further date arithmetic in the same fused
-  chain. A non-foldable or null format, a spelling `trunc` does not accept,
-  and every sub-day level decline: the row engine answers those with a NULL
+  `NEXT_DAY` over `DATE_SUB`, which is Spark's own definition of it. With a
+  stored string column as the format (task 61), one node computes all four
+  periods per row and selects on the level, which the evaluator parses per
+  batch through the row engine's own `parseTruncLevel` into a derived int32
+  input (the mechanism `NEXT_DAY` uses for a weekday column), so any collation
+  is admitted; rows whose format is null, unrecognised or below a day are NULL,
+  as on the row engine, in either ANSI mode. That node costs about the three
+  literal tails plus the week's, so a literal format remains the shape to
+  write. The output is a date that can feed further date arithmetic in the
+  same fused chain. A literal null format, a literal spelling `trunc` does not
+  accept, every sub-day literal level, and a format that is an expression over
+  a column decline: the row engine answers the literal cases with a NULL
   column, which no kernel can produce.
 * `UNIX_DATE` relabels a date column to its underlying `INT` day count with no
   new node and no emitted code (task 41); the paired `DATE_FROM_UNIX_DATE`
@@ -338,7 +346,9 @@ attributes alone did not answer:
   literal or an integer column" for anything else (e.g. a computed
   expression). Since task 59, a `next_day` whose weekday is neither a literal
   nor a stored string column reports "next_day with a weekday that is neither
-  a literal nor a column". Since task 52, a calendar function over arithmetic
+  a literal nor a column"; a `trunc` whose format is neither foldable nor a
+  stored string column keeps task 35's "trunc with a non-foldable format"
+  (task 61). Since task 52, a calendar function over arithmetic
   that can leave the lowering's range reports "day range [lo, hi] leaves the
   calendar lowering's range", with the interval in epoch days, and one over a
   producer

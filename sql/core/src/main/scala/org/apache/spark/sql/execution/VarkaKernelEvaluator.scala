@@ -33,8 +33,9 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, NamedExpression, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{IntRangeOps, SelectionVectorOps,
-  VarkaAllocationSampler, VarkaFallbackEvent, VarkaFusedKernel, VarkaKernelAllocationEvent,
-  VarkaSelectionBitmap, VarkaShapeCache, VarkaShapeKey, VarkaVectorIR, WeekdayLeaf}
+  TruncLevelLeaf, VarkaAllocationSampler, VarkaDerivedKind, VarkaFallbackEvent, VarkaFusedKernel,
+  VarkaKernelAllocationEvent, VarkaSelectionBitmap, VarkaShapeCache, VarkaShapeKey, VarkaVectorIR,
+  WeekdayLeaf}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
@@ -686,9 +687,11 @@ private[sql] abstract class VarkaEvaluatorBase(
    * referenced input column, in dense kernel-input order. `canRun` has vouched for every
    * column this reads. A derived input (task 59) is computed here, before the kernel runs,
    * into the task's scratch buffers: the string column goes through the row engine's own
-   * parser and the kernel reads the int32 result like any other input. The leaf never throws;
-   * under ANSI an unrecognised name declines the batch, and the row engine - which parses a
-   * name only beside a non-null date - raises its own error where one is due.
+   * parser and the kernel reads the int32 result like any other input. The leaves never throw;
+   * under ANSI an unrecognised weekday name declines the batch, and the row engine - which
+   * parses a name only beside a non-null date - raises its own error where one is due. The
+   * trunc level (task 61) has no such route: an unrecognised format is a null lane in every
+   * mode, as it is a NULL result on the row engine.
    */
   protected def fillSources(runner: FusedRunner, input: ColumnarBatch, len: Int): Unit = {
     val plan = fusedPlan.get
@@ -706,8 +709,13 @@ private[sql] abstract class VarkaEvaluatorBase(
           derivedScratch(i, len)
           val data = derivedData(i)
           val validity = derivedValidity(i)
-          val nulls = WeekdayLeaf.fill(acv, len, derived.kind.failOnError,
-            WeekdayLeaf.DEFAULT_PARSER, data.memoryAddress(), validity.memoryAddress())
+          val nulls = derived.kind match {
+            case VarkaDerivedKind.TRUNC_LEVEL =>
+              TruncLevelLeaf.fill(acv, len, data.memoryAddress(), validity.memoryAddress())
+            case _ =>
+              WeekdayLeaf.fill(acv, len, derived.kind.failOnError, WeekdayLeaf.DEFAULT_PARSER,
+                data.memoryAddress(), validity.memoryAddress())
+          }
           if (nulls == WeekdayLeaf.DECLINED) {
             throw new VarkaBatchDeclined(VarkaKernelEvaluator.STATUS_DERIVED_INPUT)
           }
