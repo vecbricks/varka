@@ -49,7 +49,11 @@ import sys
 
 DOCS = ["SKILLS.md", "README.md", "docs/sql-varka.md", "sql/varka/AGENTS.md"]
 DOC_GLOBS = ["sql/varka/plans/*.md"]
-RESULT_GLOBS = ["sql/*/benchmarks/*.txt", "sql/varka/engine/benchmarks/*.txt"]
+RESULT_GLOBS = [
+    "sql/*/benchmarks/*.txt",
+    "sql/varka/engine/benchmarks/*.txt",
+    "sql/varka/bench/benchmarks/*.txt",
+]
 ALLOWLIST = "dev/varka_quote_allowlist.txt"
 QUOTE = re.compile(r"(?<![\w.\-])(\d{2,}\.\d{1,3})(?![\w.%]|\s*x\b|\s*x\)|\s*x,|\s*x\.)")
 

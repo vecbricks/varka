@@ -38,6 +38,10 @@ are marked; rows matching --control (the scalar anchors) are listed first,
 because if they moved the machine moved and nothing else in the file can be
 read. Exit status 0 always; this is a reading aid, not a gate.
 
+--table LABEL=FILE ... prints the date-surface table (task 62): one row per
+entry and shape, every distribution's wall rate and the last one's ratio
+against each of the others, then the executor-time tables the same way.
+
 --requote turns a regeneration's diff into the requoting list: for every moved
 row it searches the documents the quote checker covers (the plans, SKILLS.md,
 the docs, the README) for the old number and prints each line that quotes it.
@@ -194,6 +198,63 @@ def within(text, label_a, label_b, threshold):
     print_rows(rows, threshold) if rows else print("(no pairs found)")
 
 
+SURFACE_NAME = re.compile(r"^(.*) over (\d+) rows(, executor time)?$")
+SELECTIVITY = re.compile(r"^# selectivity: \d+ of \d+ rows, ([\d.]+%)")
+
+
+def selectivities(text):
+    """{entry: selectivity} from the `# selectivity` lines the driver prints under a filter
+    entry's tables; the entry is the table name the line follows."""
+    out, entry = {}, None
+    for line in text.splitlines():
+        h = HEADER.match(line)
+        if h:
+            m = SURFACE_NAME.match(h.group(1).strip())
+            entry = m.group(1) if m else None
+            continue
+        m = SELECTIVITY.match(line)
+        if m and entry:
+            out[entry] = m.group(1)
+    return out
+
+
+def surface_table(specs):
+    """The README's table from the date-surface files: one row per entry and shape, the wall
+    rate of every distribution in M rows/s, and the last distribution's ratio against each of
+    the others; then the same for the executor-time tables. `specs` are LABEL=FILE, the Varka
+    file last."""
+    labels, files, selected = [], [], {}
+    for spec in specs:
+        label, _, path = spec.partition("=")
+        if not path:
+            raise SystemExit(f"--table wants LABEL=FILE, got {spec}")
+        labels.append(label)
+        text = read(path)
+        files.append(parse(text))
+        selected.update(selectivities(text))
+    last_rates, order = files[-1]
+    for executor in (False, True):
+        title = "executor time" if executor else "wall time"
+        head = ["expression", "shape", "selects"] + [f"{l} (M rows/s)" for l in labels]
+        head += [f"{labels[-1]} / {l}" for l in labels[:-1]]
+        print(f"**{title}**")
+        print()
+        print("| " + " | ".join(head) + " |")
+        print("|" + "---|" * len(head))
+        for table, case in order:
+            m = SURFACE_NAME.match(table)
+            if not m or bool(m.group(3)) != executor:
+                continue
+            entry = m.group(1)
+            rates = [f.get((table, case)) for f, _ in files]
+            cells = [f"`{entry}`", case, selected.get(entry, "-") if "filter" in case else "-"]
+            cells += [f"{r:.1f}" if r is not None else "-" for r in rates]
+            for r in rates[:-1]:
+                cells.append(f"**{rates[-1] / r:.2f}x**" if r and rates[-1] else "-")
+            print("| " + " | ".join(cells) + " |")
+        print()
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -221,12 +282,21 @@ def main():
     )
     p.add_argument("--all", action="store_true", help="also list rows within the threshold")
     p.add_argument(
+        "--table",
+        nargs="+",
+        metavar="LABEL=FILE",
+        help="the date-surface table (task 62) from these files, the Varka file last",
+    )
+    p.add_argument(
         "--requote",
         action="store_true",
         help="list every document line quoting a moved row's old number",
     )
     args = p.parse_args()
 
+    if args.table:
+        surface_table(args.table)
+        return
     if args.within:
         if not args.ab:
             p.error("--within needs --ab A B")
