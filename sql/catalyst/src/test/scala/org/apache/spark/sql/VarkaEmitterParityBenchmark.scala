@@ -387,10 +387,10 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // Driven in 4096-row chunks - Spark's COLUMN_BATCH_SIZE - rather than one
         // million-row call, so the per-call prologue is paid at the rate production pays it,
         // and walking the buffer rather than a warm prefix so the kernel and the scalar
-        // anchor below are measured in the same memory regime. The four-field case is here
-        // because task 26 gave
-        // calendar nodes a GROUP_BUDGET weight so they cannot share a loop method; this is
-        // where that is measured rather than assumed.
+        // anchor below are measured in the same memory regime. The multi-field cases are here
+        // because task 26 gave calendar nodes a weight that kept each in its own loop method
+        // and task 32 step B2 lets siblings over one date share one; the separate/shared pairs
+        // below are where that is measured rather than assumed.
         val repeats = 20
         val chunk = 4096
         val benchmark = new Benchmark(s"${numRows.toLong * repeats} rows in 4096-row chunks",
@@ -547,8 +547,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           generalHelpers.withDenseValidityOnce(false))
         val dowGeneral = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 882,
           generalHelpers)
-        val fourSharedGeneral = emit(fourFields, 1, 0, loader, 883,
-          generalHelpers.withGroupBudget(200))
+        val fourSharedGeneral = emit(fourFields, 1, 0, loader, 883, generalHelpers)
         // The selection kernel: a Cond root's slot holds a selection bitmap, which is computed
         // rather than known, so task 45's driver fill cannot serve it and the per-group OR
         // stays in the dense body too. It is the shape the columnar filter runs on every batch
@@ -558,7 +557,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // arm. Both sides carry the width-named helpers, so this pair prices the order alone.
         val orAfter = VarkaEmitOptions.DEFAULTS.withValidityOrFirst(false)
         val yearOrAfter = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 887, orAfter)
-        val fourSharedOrAfter = emit(fourFields, 1, 0, loader, 888, orAfter.withGroupBudget(200))
+        val fourSharedOrAfter = emit(fourFields, 1, 0, loader, 888, orAfter)
         val selectionRoot = new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0))
         val filterKernel = emit(Seq(selectionRoot), 1, 1, loader, 884)
         val filterGeneral = emit(Seq(selectionRoot), 1, 1, loader, 885, generalHelpers)
@@ -680,27 +679,29 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.addCase("year+month+day+quarter, null-free") { _ =>
           chunked(four, false, outputs = 4)
         }
-        // Task 32 step B2's gate (PLAN_TASK_32.md section 7.2): does the emitted fragment,
-        // fused into one loop method by a widened groupBudget, actually reach the throughput
-        // the hand-written ceiling below promises - and at how few fields does it start to pay.
-        // "Separate" is today's shape: each field its own loop method at the shipped
-        // GROUP_BUDGET (16), which is far under a calendar node's CHRONO_WEIGHT (50) so no
-        // budget short of a deliberate widening ever fuses them. "Shared" widens the budget to
-        // 200 - comfortably past four fields' 200 ops (50 each) - so groupOutputs puts every
-        // field in one method, where shareChronoPrefix (on by default since step B1) then runs
-        // the decomposition once. Neither the option nor the grouping affects results, only
-        // which bytes compute them; VarkaLoopEmitterSuite pins that both ways.
-        val wideBudget = VarkaEmitOptions.DEFAULTS.withGroupBudget(200)
+        // Task 32 step B2 (PLAN_TASK_32.md sections 7.2 and 10): siblings over one date in one
+        // loop method, where shareChronoPrefix runs the decomposition once, against each in
+        // its own method. Since B2 the defaults *are* the shared shape - clause 2 of
+        // groupOutputs admits an output that reuses the prefix, up to FUSED_CEILING - so
+        // "shared" is emitted with the defaults and "separate" with sharing off, which turns
+        // clause 2 off along with the fragment and reproduces the pre-B2 grouping exactly
+        // (VarkaLoopEmitterSuite pins both layouts). Before B2 the shared arm was forced with
+        // withGroupBudget(200), the measurement rig 7.2 cleared the gate with; the bytes are
+        // the same. Neither the option nor the grouping affects results, only which bytes
+        // compute them.
+        val separate = VarkaEmitOptions.DEFAULTS.withShareChronoPrefix(false)
         val col0 = new ColumnRef(0)
         val yearMonth = Seq[VarkaVectorIR](new Year(col0), new Month(col0))
         val yearMonthDay = yearMonth :+ new DayOfMonth(col0)
-        val yearMonthSeparate = emit(yearMonth, 1, 0, loader, 805)
-        val yearMonthShared = emit(yearMonth, 1, 0, loader, 806, wideBudget)
-        val yearMonthDaySeparate = emit(yearMonthDay, 1, 0, loader, 807)
-        val yearMonthDayShared = emit(yearMonthDay, 1, 0, loader, 808, wideBudget)
-        val fourShared = emit(fourFields, 1, 0, loader, 809, wideBudget)
+        val yearMonthSeparate = emit(yearMonth, 1, 0, loader, 805, separate)
+        val yearMonthShared = emit(yearMonth, 1, 0, loader, 806)
+        val yearMonthDaySeparate = emit(yearMonthDay, 1, 0, loader, 807, separate)
+        val yearMonthDayShared = emit(yearMonthDay, 1, 0, loader, 808)
+        val fourSeparate = emit(fourFields, 1, 0, loader, 809, separate)
+        // `four` above is the defaults, which is the shared four-field kernel now.
+        val fourShared = four
         val fourSharedPerGroup = emit(fourFields, 1, 0, loader, 831,
-          wideBudget.withDenseValidityOnce(false))
+          VarkaEmitOptions.DEFAULTS.withDenseValidityOnce(false))
         benchmark.addCase("year+month, separate (2 loop methods), null-free") { _ =>
           chunked(yearMonthSeparate, false, outputs = 2)
         }
@@ -724,6 +725,9 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           "year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls") {
           _ => chunked(fourSharedPerGroup, true, outputs = 4)
         }
+        benchmark.addCase("year+month+day+quarter, separate (4 loop methods), null-free") { _ =>
+          chunked(fourSeparate, false, outputs = 4)
+        }
         benchmark.addCase("year+month+day+quarter, shared (1 loop method), null-free") { _ =>
           chunked(fourShared, false, outputs = 4)
         }
@@ -739,12 +743,13 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           chunked(fourSharedOrAfter, true, outputs = 4)
         }
         // The regression guard section 5.2 asks for: two chrono nodes over different dates
-        // must not be pushed into one method by the widened budget clause, since there is
-        // nothing between them to share. VarkaLoopEmitterSuite's correctness test is the one
-        // that would catch a wrong merge; this prices what a right non-merge costs against the
-        // single-date case above.
-        val twoDates = emit(Seq(new Year(col0), new Year(new ColumnRef(1))), 2, 0, loader, 810,
-          wideBudget)
+        // must not be pushed into one method by clause 2, since there is nothing between them
+        // to share. VarkaLoopEmitterSuite pins the two-method layout; this prices what the
+        // right non-merge costs against the single-date case above. Before B2 this kernel was
+        // emitted under withGroupBudget(200), which put the two in one method by clause 1 with
+        // two prefixes in it; under the defaults they are two methods, so this row's number is
+        // not comparable to the one committed before B2.
+        val twoDates = emit(Seq(new Year(col0), new Year(new ColumnRef(1))), 2, 0, loader, 810)
         benchmark.addCase("year(d1), year(d2), two dates, shared option, null-free") { _ =>
           eachChunk { (dataOff, validityOff, n) =>
             val status = twoDates.run(
@@ -1156,6 +1161,70 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         }
         benchmark.addCase("budget 24: one loop method, cross-output CSE kept") { _ =>
           run(together)
+        }
+        benchmark.run()
+      }
+
+      runBenchmark("task 32 B2: the fused-method ladder past four outputs (PLAN_TASK_32.md 10.4)") {
+        // Clause 2 of groupOutputs merges every calendar output that reuses the prefix, up to
+        // FUSED_CEILING, and a projection can carry more of them than the task-26 quartet. The
+        // two-, three- and four-field rows are in the "year" section; this one goes past four
+        // with add_months over the same date under distinct literals - the heaviest tail in
+        // the register (81 ops against a field's 5), so it is the node that decides how many
+        // outputs a ceiling admits: six outputs weigh 214, eight 376, twelve 700. Each row at
+        // four settings: unshared (sharing off, every output its own method); one method (a
+        // ceiling nothing here reaches); and the two candidate ceilings, which split the row
+        // wherever it exceeds them. Null-free data, the "year" section's 4096-row chunks, one
+        // destination per output. The ceiling ships at the widest row whose one-method arm
+        // still beats its unshared arm at both vector widths and whose methods reach tier 4
+        // inside a second (-XX:+PrintCompilation, read in a separate run); the case names
+        // carry each arm's loop-method count, so the file says which split it measured.
+        val repeats = 20
+        val chunk = 4096
+        val benchmark = new Benchmark(s"${numRows.toLong * repeats} rows in 4096-row chunks",
+          numRows.toLong * repeats,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val col = new ColumnRef(0)
+        val fields = Seq[VarkaVectorIR](
+          new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
+        // add_months(d, k), k = 1, 2, ...: one literal slot each.
+        def outputsOf(n: Int): Seq[VarkaVectorIR] =
+          fields ++ (0 until n - 4).map(k => new AddMonths(col, new LiteralSlot(k)))
+        val months = (1 to 8).toArray
+        val dsts = Array.fill(12)(arena.allocate(numRows * 4L, 8))
+        val dstValidities = Array.fill(12)(arena.allocate((numRows + 7) / 8L, 8))
+        def chunkedWide(kernel: VarkaFusedKernel, outputs: Int): Unit = {
+          val lits = months.take(outputs - 4)
+          var pass = 0
+          while (pass < repeats) {
+            var done = 0
+            while (done < numRows) {
+              val n = math.min(chunk, numRows - done)
+              val dataOff = done * 4L
+              val validityOff = done / 8L
+              val status = kernel.run(Array(nfData.address() + dataOff), Array(0L), Array(0),
+                dsts.take(outputs).map(_.address() + dataOff),
+                dstValidities.take(outputs).map(_.address() + validityOff), lits, n)
+              require(status == 0, s"the kernel declined a batch: status $status")
+              done += n
+            }
+            pass += 1
+          }
+        }
+        val settings = Seq(
+          ("unshared", VarkaEmitOptions.DEFAULTS.withShareChronoPrefix(false)),
+          ("one method", VarkaEmitOptions.DEFAULTS.withFusedCeiling(1000)),
+          ("fusedCeiling 200", VarkaEmitOptions.DEFAULTS.withFusedCeiling(200)),
+          ("fusedCeiling 400", VarkaEmitOptions.DEFAULTS.withFusedCeiling(400)))
+        var id = 910
+        for (outputs <- Seq(6, 8, 12); (label, options) <- settings) {
+          val kernel = emit(outputsOf(outputs), 1, outputs - 4, loader, id, options)
+          id += 1
+          val methods = kernel.getClass.getDeclaredMethods.count(_.getName.startsWith("loopDense"))
+          benchmark.addCase(
+            s"$outputs outputs over one date, $label ($methods loop methods), null-free") { _ =>
+            chunkedWide(kernel, outputs)
+          }
         }
         benchmark.run()
       }
@@ -1591,15 +1660,14 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             chunked(dow, chunk, Array.empty[Int], mixed = true)
           }
         }
-        // Task 32 step B1's own case for this ladder (PLAN_TASK_32.md section 7.1): four
-        // calendar outputs share nothing in the *loop* under today's grouping - GROUP_BUDGET
-        // keeps each field in its own method whether or not shareChronoPrefix is set, which
-        // VarkaLoopEmitterSuite pins byte for byte - so the two settings can only differ in the
-        // epilogue, the one method every output shares (task 24). That difference is invisible
-        // at chunk 4096, which every case elsewhere in this file uses and which divides evenly
-        // at every supported lane count, so the epilogue always returns at its length check and
-        // is never timed. This ladder's unaligned arms are the only place in the file that runs
-        // it at all.
+        // Task 32 step B1's own case for this ladder (PLAN_TASK_32.md section 7.1). Until B2
+        // the two settings could differ only in the epilogue: the shipped grouping kept each
+        // field in its own loop method whether or not shareChronoPrefix was set, and the
+        // epilogue is the one method every output shares (task 24) - invisible at chunk 4096,
+        // which divides evenly at every lane count, so the unaligned arms here were the only
+        // place in the file that timed it. Since B2 the shared arm holds the four fields in one
+        // loop method as well, so the aligned rows show the loop's gain and the unaligned rows
+        // add the epilogue's on top of it.
         val fourFieldsCol = Seq[VarkaVectorIR](new Year(new ColumnRef(0)),
           new Month(new ColumnRef(0)), new DayOfMonth(new ColumnRef(0)),
           new Quarter(new ColumnRef(0)))

@@ -995,6 +995,207 @@ in this file's kernels. Confidence was stated as low ("the one most likely to be
 the one with a real chance of capping the mechanism"); it was wrong, in the favorable
 direction.
 
+### 7.6 Step B2's outcome: built, the default, and the ceiling set by the ladder
+
+Section 10's plan, executed on master at aef0b82260e (task 46 merged) in four
+commits: the weights recounted and `fusedCeiling` added as an option with the
+rule not yet wired (no emitted byte moved, asserted by the pre-B2 byte-identity
+test); the rule; the ladder and one regeneration of the parity file at both
+widths; the record swept. Everything below is from that regeneration
+(`VarkaEmitterParityBenchmark-jdk25-results.txt`, `-128bit-results.txt`,
+provenance beside them) unless it says otherwise.
+
+**The weights, recounted first** (10.3), because clause 2 sums the tails against
+the ceiling and a weight that only had to exceed `GROUP_BUDGET` is wrong the day
+it bounds a method. Read off `loopDense0`'s `IntVector` calls with
+`dev/varka_emit.sh`, each node alone and beside `month(d)` in one method; the
+pair minus `month(d)`'s own 35 is the tail, and `VarkaLoopEmitterSuite` pins
+every line against the emitted bytes:
+
+| node | prefix | tail | weight now | weight before |
+|---|---|---|---|---|
+| `year`, `month`, `dayofmonth`, `quarter` | 31 (29 where task 48 elides the month step) | 5, 4, 5, 7 (one constant at 7) | 38 | 40 |
+| `dayofyear` | 31 | 14 | 45 | 51 |
+| `last_day` | 31 | 32 | 63 | 40 (borrowed `CHRONO_WEIGHT`) |
+| `add_months` | 31 | **81** | 112 | 40 (borrowed) |
+| `trunc` `YEAR` / `MONTH` / `QUARTER` | 31 | 16 / 5 / 31 | 47 / 36 / 62 | 53 / 40 / 70 |
+| `trunc` with a format column | 31 | 60 | 91 | 99 |
+| `weekofyear` (prefix over the shift) | 31 | 16 | 47 | 55 |
+
+10.2's illustration assumed a 44-op prefix and 6-op tails. The prefix is 31 and
+the field tails are 4 to 7, so four fields are 52 ops in one method rather than
+62 - but `add_months`'s tail is 81, thirteen times a field's, and that is the
+number that decides how many outputs a ceiling admits: the four fields together
+weigh less than one `add_months`. 10.4's ladder rows therefore weigh 214, 376
+and 700 ops rather than the ~120 to ~200 the plan expected, and the two
+candidate ceilings split them where the plan expected only the widest to split.
+
+**The rule, and what it groups.** Clause 2 as 10.2 wrote it - `saved > 0`, the
+group within `fusedCeiling` - with `saved` counting prefix reuse only, keyed on
+the date the node decomposes (the dense body's fragment key; the masked body's
+key also carries the validity word, so a group may hold two outputs whose
+masked bodies do not share while the dense body and the epilogue do - the
+conservative side, never a wrong grouping). Pinned by loop-method count in the
+suite: four fields over one date, one method; the same with sharing off, four;
+`year(d1), year(d2)`, two; `add_days, sub_days`, one; `x + 1, year(d), month(d)`,
+two; the four fields under a ceiling of prefix plus two tails, two methods of
+two; `year(d), year(d2), month(d)`, three (10.2's limitation, pinned as one)
+against two when adjacent; and `weekofyear(d), yearofweek(d)`, one - task 58's
+debt, closed by the rule rather than by task 44's decision. Non-calendar shapes
+- task 17's pair, a depth-8 chain, `CASE WHEN`, `greatest`/`least`, the mod-7
+family, `datediff` - emit byte-identical loop methods with sharing on and off,
+which is the guard that clause 2 reaches nothing but fragment reuse.
+
+**The numbers, the "year" section** (2, 3 and 4 fields; "separate" is now
+`withShareChronoPrefix(false)`, "shared" the defaults; the forced
+`withGroupBudget(200)` rig is gone):
+
+| fields | AVX-512 separate | shared | ratio | 128-bit separate | shared | ratio |
+|---|---|---|---|---|---|---|
+| 2 | 1713.7 | 2737.9 | 1.60x | 664.0 | 1027.9 | 1.55x |
+| 3 | 1125.4 | 2154.8 | 1.91x | 429.7 | 871.6 | 2.03x |
+| 4 | 818.0 | 1762.6 | 2.15x | 315.2 | 792.5 | 2.51x |
+
+The four-field mixed-null row reads 1124.0 at AVX-512 and 417.7 at 128-bit
+(1050.7 and 408.7 in the file this branch started from, where it was already
+the shared shape under the rig). The `year(d1), year(d2)` guard row is 1663.5
+and 662.4, and is not comparable to the 1606.6 / 658.3 before it: under the rig
+that kernel was one method holding two prefixes (clause 1 at a budget of 200),
+under the defaults it is the two methods it should be.
+
+**The ladder** (10.4; `add_months(d, k)` over the same date, distinct literals,
+null-free, 4096-row chunks; "one method" is a ceiling of 1000, which nothing
+here reaches; the two candidates split the row wherever it exceeds them, and
+the case names in the file carry each arm's loop-method count):
+
+| outputs | ops | AVX-512 unshared | one method | ratio | at 200 | at 400 | 128-bit unshared | one method | ratio | at 200 | at 400 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 6 | 214 | 249.5 | 454.4 | 1.82x | 344.3 (2 methods) | 453.0 (1) | 89.9 | 168.3 | 1.87x | 122.9 (2) | 168.9 (1) |
+| 8 | 376 | 144.9 | 240.1 | 1.66x | 188.3 (3) | 240.8 (1) | 51.6 | 89.0 | 1.72x | 67.8 (3) | 89.1 (1) |
+| 12 | 700 | 76.0 | 136.5 | 1.80x | 94.8 (5) | 124.7 (2) | 27.3 | 53.3 | 1.95x | 33.9 (5) | 44.1 (2) |
+
+One method wins at every row and both widths, and every split costs: at twelve
+outputs the ceiling of 400 (two methods) gives up 9% at AVX-512 and 17% at
+128-bit against one method of 700 ops, and the ceiling of 200 (five methods)
+gives up 31% and 36%. Rule (i) of 10.4 - the one-method arm beats the unshared
+arm at both widths - holds through the widest row measured. Risk 4 (a 128-bit
+register-pressure cliff past four outputs) did not appear: the 128-bit ratios
+are the larger ones throughout.
+
+**Compile time** (rule (ii)), each kernel run hot on its own under
+`-XX:+PrintCompilation` through `VarkaEmitDump --rounds 300000`, wall time from
+the class's first tier-3 compile to its last method's tier-4 landing:
+
+| kernel | loop methods | loop method(s) at tier 4 after | every method at tier 4 after | C1 refused (`out of virtual registers in LIR`) |
+|---|---|---|---|---|
+| 4 fields, 52 ops | 1 (626 bytes) | 93 ms | 147 ms | nothing |
+| 6 outputs, 214 ops | 1 (1898 bytes) | 337 ms | 547 ms | the epilogue (1925 bytes) |
+| 8 outputs, 376 ops | 1 (3174 bytes) | 340 ms | 894 ms | the loop and the epilogue |
+| 12 outputs, 700 ops | 1 (5728 bytes) | 556 ms | 1877 ms | the loop and the epilogue |
+| 12 outputs at a ceiling of 400 | 2 (3296, 3136 bytes) | 623 and 1136 ms | 1713 ms | both loops and the epilogue |
+| 12 outputs at a ceiling of 200 | 5 (1312 to 1920 bytes) | 808 to 1306 ms | 1429 ms | the epilogue |
+
+Every method reached tier 4 once and stayed there - no `blocked` task, no
+`COMPILE SKIPPED` from C2. What did appear is C1's refusal: past about 1900
+bytes the tier-3 compile of a loop method is skipped for want of virtual
+registers (task 43 saw the same refusal land on the epilogue; at eight shared
+outputs it reaches the loop), so until C2 lands the method runs interpreted
+rather than at C1 speed - a slow start of a third of a second at eight outputs,
+paid once per shape per JVM behind the task-18 class cache. And the epilogue is
+what makes the twelve-output kernel slow to settle, at any ceiling: it holds
+every output whatever the loop grouping, its 5767 bytes are the last tier-4
+landing in all three twelve-output runs, and splitting the loops does not
+bring the kernel under a second (1713 ms at two methods, 1429 ms at five
+against 1877 ms at one) - that is task 44's method, not this task's.
+
+**The ceiling: 400.** Rule (i) holds through the widest row measured, so rule
+(ii) decides: eight outputs, 376 ops, is the widest row whose kernel is fully
+at tier 4 inside a second (894 ms); twelve, 700 ops, is not (1877 ms), and its
+loop alone, at 556 ms, would pass a rule about the loop - but the rule was
+written about the kernel, and it is kept as written because the interpreted
+start grows with the method (340 ms at 376 ops, 556 ms at 700). So
+`FUSED_CEILING` ships at 400, the plan's upper candidate, which admits the four
+fields plus four `add_months` over one date, or - by the register - about
+twenty field-sized outputs. What it costs at the one row past it: twelve such
+outputs run as two methods at 124.7 against one method's 136.5 (AVX-512) and
+44.1 against 53.3 (128-bit), 9% and 17% below the unbounded shape and still
+1.6x over the unshared one. A projection that wide over one date has not been
+seen in the corpus; if one turns up, the option is there to price a wider
+ceiling on it.
+
+**Predictions of 10.6, scored.**
+
+1. *The 2/3/4-field ratios reproduce 7.2 and 7.4 within run noise.* **Held,
+   against the file's own post-task-45 values rather than 7.2's**: the file this
+   branch started from already read 1.59x / 1.84x / 2.07x at AVX-512 and 1.56x /
+   2.00x / 2.52x at 128-bit under the rig, and B2's rule gives 1.60x / 1.91x /
+   2.15x and 1.55x / 2.03x / 2.51x - the same bytes, as predicted, and the same
+   numbers to within a few percent. 7.2's 1.29x / 1.57x / 1.80x were measured
+   before task 45, and prediction 6 said why they would rise: the validity write
+   was the same absolute cost on both sides of the ratio, and 45 took it off
+   the dense path.
+2. *Eight outputs beat their unshared shape by at least 2.0x at AVX-512 and 1.5x
+   at 128-bit.* **Missed at AVX-512 (1.66x), held at 128-bit (1.72x)**, and the
+   miss is the weight finding above: the prediction reasoned from "more outputs
+   amortise the same fixed cost" over field-sized tails, and an `add_months`
+   tail is 81 ops of real work per output that sharing cannot touch. By op count
+   alone the rows go 376 to 214, 600 to 376 and 1048 to 700 ops (1.76x, 1.60x,
+   1.50x); the measured 1.66x to 1.95x is that plus the per-method fixed cost
+   7.2 identified, and the gain does not shrink past four - twelve outputs at
+   1.80x / 1.95x sit above eight at both widths.
+3. *Compile time stays under one second through the 12-output row at AVX-512;
+   the ceiling ships at 400.* **Half held.** Under one second through eight outputs (376
+   ops, 894 ms), not through twelve (700 ops, 1877 ms) - and the miss is the
+   epilogue's tier-4 landing, which no ceiling controls, more than the loop's
+   (556 ms). The ceiling ships at 400 as the prediction said, by the rule it
+   named, for the row the prediction did not expect to be the last one: the
+   plan's arithmetic had twelve outputs at ~400 ops, and the recounted
+   `add_months` tail puts them at 700. Confidence was medium-low, and the
+   direction of the miss was the one the plan named ("most likely to set the
+   ceiling lower").
+4. *No non-calendar committed number moves, asserted by construction.* **Held**
+   by the byte-identity test over the non-calendar corpus, which is the claim
+   the prediction made; the regenerated file's non-calendar rows differ from the
+   previous file by run noise, and the one non-calendar pair whose reading
+   changed sign did so one regeneration before this branch (task 17's; the
+   finding below).
+5. *No pinned oracle moves.* **Held**: the line map and the shape hash are
+   unchanged, `DEFAULTS` still renders empty, and the suite's pinned tests pass
+   as written.
+
+**Three findings the ladder did not ask for.**
+
+* **Task 17's rows reversed one regeneration before this branch, and nobody
+  noticed.** The committed file's "budget 16 (shipped): two loop methods" and
+  "budget 24: one loop method, cross-output CSE kept" rows read 16 ahead by
+  ~1.4x in every regeneration from task 48 (1852ba33ec4) through task 61
+  (00eeed82279: 4487.4 against 3253.2), and 24 ahead by 1.3x in the next one,
+  aef0b82260e (4237.4 against 5492.1) - task 46's second half, which moved the
+  validity OR ahead of the vector work so that C2 inlines it. This regeneration
+  reads the same way at both widths: 4511.7 against 5799.7 at AVX-512, 1700.1
+  against 2754.8 at 128-bit. So the loss task 17 measured, and this file, the
+  `GROUP_BUDGET` javadoc and `SKILLS.md` all cited as register pressure, was
+  most plausibly the refused `orValidityBitsAt` call in the wider method (task
+  46's own finding, applied to a shape task 46 did not look at). B2's rule does
+  not depend on which way those rows read - `saved > 0` is a property of the
+  shape - and this task deliberately does not retune `GROUP_BUDGET` on the
+  evidence (10.9): that is task 43's question, now with a live data point. The
+  javadoc, `SKILLS.md` and this file's earlier sections say so where they quoted
+  the old numbers as current; the earlier sections' text is otherwise left as
+  written.
+* **The task-44 section's shared rows moved 87% to 119%** ("shared (4048B
+  epilogue, under HugeMethodLimit)", twenty outputs over five dates, 120.2 to
+  224.8 at chunk 4096): five dates are five prefixes, so clause 2 groups the
+  twenty outputs into five methods of four fields instead of twenty methods of
+  one. The unshared arm is unmoved. This is the end-to-end shape 7.3 priced the
+  epilogue crossing on, and B2 moved its loop side rather than its epilogue.
+* **Task 58's row closed by a factor the debt entry did not predict.**
+  "weekofyear + yearofweek, one shift" reads 1401.8 against 813.8 before, at
+  AVX-512, and 509.2 against 298.0 at 128-bit - within 1% of `weekofyear` alone
+  at both widths (1412.6, 510.8). The entry predicted 0.83x of `weekofyear` for
+  the pair; the pair costs essentially nothing more than one field, because the
+  `Year` tail over an already-decomposed day is five ops.
+
 ## 8. Risks
 
 1. **Prediction 4.** ~~The compile cliff is the one thing that could cap this, and

@@ -200,19 +200,25 @@ public final class VarkaLoopEmitter {
    *
    * <p>Task 17 priced the one candidate the debt register left open - raising the budget so
    * two outputs sharing a deep chain keep their cross-output CSE in one method - and closed
-   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 runs
+   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 ran
    * 4119.9 M rows/s (two loop methods, the shared chain recomputed per lane group) against
-   * 2928.2 M at 24 (one method, CSE kept) - the committed parity file, requoted whenever it
-   * is regenerated, which task 26 had to learn twice and task 32 requoted again.
-   * Recomputing eight ops in registers is cheaper than the wider method's register pressure,
-   * the same effect that made sibling methods the rule in the first place. The parity
-   * benchmark keeps both cases so a future retune is measured rather than argued.
+   * 2928.2 M at 24 (one method, CSE kept), and read that way, ~1.4x, in every regeneration
+   * through task 61. The reading was "recomputing eight ops in registers is cheaper than the
+   * wider method's register pressure"; see the next paragraph for why it was probably not.
+   * The parity benchmark keeps both cases so a future retune is measured rather than argued;
+   * the current file reads 4511.7 against 5799.7 at AVX-512 and 1700.1 against 2754.8 at
+   * 128-bit, the merged method ahead.
    *
    * <p>Task 32 step B2 added the one exception, and it is not task 17's case: an output that
    * reuses a civil-from-days prefix the group already computes joins past this budget, up to
    * {@link #FUSED_CEILING}, because skipping the prefix makes the method less work rather than
-   * more. Two plain chains over a shared subchain have no prefix to reuse and stay split. See
-   * {@link #groupOutputs}.
+   * more. Two plain chains over a shared subchain have no prefix to reuse and stay split - and
+   * whether they still should is open again: the two rows above reversed when task 46 moved
+   * the validity OR ahead of the vector work (budget 24 at 5492.1 against budget 16 at 4237.4
+   * in the file that change regenerated, where every earlier regeneration had 16 ahead by
+   * ~1.4x), which says the loss task 17 measured was the refused OR call in the wider method
+   * rather than register pressure. Retuning this budget on that evidence is task 43's
+   * question, not B2's. See {@link #groupOutputs} and {@code PLAN_TASK_32.md} 7.6.
    */
   public static final int GROUP_BUDGET = 16;
 
@@ -223,10 +229,15 @@ public final class VarkaLoopEmitter {
    * joins that group past the budget and up to this, because joining lets it skip emitting
    * that prefix - the one situation where a wider method is strictly less work rather than a
    * trade (see {@link #groupOutputs}). Set by the ladder in {@code PLAN_TASK_32.md} section
-   * 10.4, and an emit option ({@link VarkaEmitOptions#fusedCeiling}) so a retune is priced
+   * 7.6: one method kept winning through twelve outputs (700 ops) at both widths, so the bound
+   * comes from compile time - an eight-output method of 376 ops has every method at tier 4
+   * within 894 ms of its first compile, the twelve-output one takes 1.9 s, and the rule was one
+   * second. Past about 1900 bytes C1 refuses a loop method ("out of virtual registers in
+   * LIR"), so a method near this ceiling runs interpreted until C2 lands, ~340 ms once per
+   * shape per JVM. An emit option ({@link VarkaEmitOptions#fusedCeiling}) so a retune is priced
    * rather than argued.
    */
-  public static final int FUSED_CEILING = 200;
+  public static final int FUSED_CEILING = 400;
 
   /**
    * The most input columns one emitted loop may read. A node's referenced-column set is a long
@@ -800,12 +811,16 @@ public final class VarkaLoopEmitter {
    *   <li>joining lets it skip a civil-from-days prefix the group already computes, and the
    *       group stays within {@code fusedCeiling} (normally {@link #FUSED_CEILING}) - task 32
    *       step B2. {@link GroupOps#saved} is what opens the wider bound, and it counts prefix
-   *       reuse only: a whole node the group already holds is not reason enough, because task
-   *       17 measured that merging two plain chains over a shared subchain into one method
-   *       <i>loses</i> (4436.3 against 3149.6 M rows/s in the committed parity file), whereas
-   *       an output that skips a prefix makes the method strictly less work rather than a
-   *       trade. With {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared,
-   *       so the clause never fires and the weights count whole.</li>
+   *       reuse only: a whole node the group already holds is not reason enough. An output
+   *       that skips a prefix makes the method strictly less work rather than a trade, which
+   *       is a property of the shape and holds whatever the register pressure of the day;
+   *       whether a merely-shared subchain pays is an empirical question that has already
+   *       answered both ways (task 17 measured the merge as a 1.4x loss; since task 46 moved
+   *       the validity OR ahead of the vector work the same committed rows show it winning by
+   *       1.3x - see {@code PLAN_TASK_32.md} 7.6), so it stays {@link #GROUP_BUDGET}'s own
+   *       retuning question (task 43) rather than riding on this clause. With
+   *       {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared, so the
+   *       clause never fires and the weights count whole.</li>
    * </ol>
    *
    * <p>An output wider than either bound on its own still forms a group: splitting inside one

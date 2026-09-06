@@ -1725,7 +1725,9 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     // because a method of ~180 ops was believed to be a compile cliff. 7.5 measured that away
     // and clause 2 of groupOutputs now admits an output that reuses a prefix the group already
     // computes, up to FUSED_CEILING. Everything clause 2 does not admit keeps today's grouping,
-    // and that half is the guard: task 17 measured merging plain chains as a loss.
+    // and that half is the guard: whether a merely-shared subchain pays to merge is
+    // GROUP_BUDGET's own question (task 17 measured a loss, the file since task 46 shows a win;
+    // task 43 owns it), and B2 deliberately does not answer it.
     val col = new ColumnRef(0)
     val fields = Seq[VarkaVectorIR](
       new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
@@ -2231,7 +2233,7 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     // for shapes with no calendar prefix - the task-17 pair, a deep chain, the CASE WHEN and
     // greatest cases the parity file names, the mod-7 family - every loop method is byte for
     // byte identical with sharing on and off, method names and sizes alike. Asserted by
-    // construction rather than by re-measuring task 17's 1.4x loss.
+    // construction, so it holds whichever way task 17's split-versus-merged rows read.
     val col = new ColumnRef(0)
     def chainOver(base: VarkaVectorIR, depth: Int, slotBase: Int): VarkaVectorIR = {
       var node = base
