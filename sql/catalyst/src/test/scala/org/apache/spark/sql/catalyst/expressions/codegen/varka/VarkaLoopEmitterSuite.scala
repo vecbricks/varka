@@ -1205,6 +1205,129 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Task 61: trunc with a level column (TruncDateDynamic).
+  // -------------------------------------------------------------------------------------------
+
+  private val dynamicTrunc = new TruncDateDynamic(new ColumnRef(0), new ColumnRef(1))
+
+  /** The leaf's four codes, cycled by row; nothing else ever reaches a live level lane. */
+  private def levelByRow(i: Int): Int = TruncLevelLeaf.WEEK + i % 4
+
+  test("task 61: trunc with a level column matches DateTimeUtils.truncDate over the calendar " +
+      "boundaries and every null pattern of both columns, under every prefix and mod-7 form") {
+    // The level cycles the four codes the leaf can hand the kernel, so every boundary date
+    // meets every level somewhere in the matrix; combos(2) drives the null-level-on-a-live-date
+    // pattern that a word aliasing the date's alone would get wrong (task 38's trap, task 59's
+    // again). The mod-7 lowering is the week result's, so all three ship variants run.
+    def data(c: Int, i: Int): Int = if (c == 0) calendarBoundaryDay(0, i) else levelByRow(i)
+    for (mod7 <- VarkaEmitOptions.FloorMod7.values(); julian <- Seq(true, false);
+        neri <- Seq(true, false)) {
+      val options = VarkaEmitOptions.DEFAULTS.withFloorMod7(mod7).withJulianMap(julian)
+        .withNeriSchneiderMonth(neri)
+      checkMatrix(Seq(dynamicTrunc), 2, Array.emptyIntArray, Seq(1, 13, 17, 64, 65, 1000),
+        combos(2), data = data, ctx = s"trunc dynamic $mod7 julianMap=$julian neri=$neri",
+        options = options)
+    }
+  }
+
+  test("task 61: every level over every day of two years, beside the literal node sharing " +
+      "its prefix") {
+    // Day by day over 2023 and 2024 at one level per pass, so every week, month, quarter and
+    // year start is crossed in both year kinds at the level that reads it - the week rows are
+    // the ones no literal test covers, since the literal WEEK is a next_day rewrite. The
+    // literal MONTH node beside it shares the prefix fragment with the dynamic one.
+    val start = LocalDate.of(2023, 1, 1).toEpochDay.toInt
+    val days = (0 until 731).map(start + _)
+    val roots = Seq[VarkaVectorIR](dynamicTrunc, new TruncDate(new ColumnRef(0), TruncLevel.MONTH))
+    for (level <- TruncLevelLeaf.WEEK to TruncLevelLeaf.YEAR) {
+      def data(c: Int, i: Int): Int =
+        if (c == 0) { if (i < days.length) days(i) else i * 9973 - 400000 } else level
+      checkMatrix(roots, 2, Array.emptyIntArray, Seq(731), combos(2).take(4), data = data,
+        ctx = s"trunc dynamic two years level=$level")
+    }
+  }
+
+  test("task 61: a literal level is rejected at analysis - that shape is the literal node") {
+    val e = intercept[IllegalArgumentException](
+      emitMulti(Seq(new TruncDateDynamic(new ColumnRef(0), new LiteralSlot(0))), 1, 1))
+    assert(e.getMessage.contains("trunc's level must be a column"), e.getMessage)
+  }
+
+  test("task 61: the dynamic tail costs what PLAN_TASK_61.md 3.3 registered") {
+    // The literal nodes' own counts are the task 35 register above; their exact bytes were
+    // hashed before and after the factoring (PLAN_TASK_61.md 9). This pins the dynamic form.
+    assert(laneOps(emitMulti(Seq(dynamicTrunc), 2, 0)._2, "loopDense0") === 91)
+  }
+
+  test("the emitted dynamic trunc kernel matches DateTimeUtils.truncDate over the whole " +
+      "covered range at every level (opt-in: -Dvarka.sweep=true; task 61)") {
+    assume(System.getProperty("varka.sweep") == "true",
+      "set -Dvarka.sweep=true to sweep the emitted kernel")
+    for (mod7 <- VarkaEmitOptions.FloorMod7.values(); julian <- Seq(true, false);
+        neri <- Seq(true, false)) {
+      sweepTruncDynamic(VarkaEmitOptions.DEFAULTS.withFloorMod7(mod7).withJulianMap(julian)
+        .withNeriSchneiderMonth(neri))
+    }
+  }
+
+  private def sweepTruncDynamic(options: VarkaEmitOptions): Unit = {
+    val (kernel, loader) = load(emitMulti(Seq(dynamicTrunc), 2, 0, options))
+    try {
+      val arena = Arena.ofConfined()
+      try {
+        val chunk = 1 << 16
+        val data = alloc(arena, chunk * 4L)
+        val levels = alloc(arena, chunk * 4L)
+        val validity = alloc(arena, (chunk + 7) / 8L)
+        validity.fill(0xFF.toByte)
+        val out = makeOutput(arena, chunk)
+        for (level <- TruncLevelLeaf.WEEK to TruncLevelLeaf.YEAR) {
+          var i = 0
+          while (i < chunk) {
+            levels.set(ValueLayout.JAVA_INT, i * 4L, level)
+            i += 1
+          }
+          var day = VarkaChrono.NARROW_MIN_DAYS
+          var mismatches = 0
+          while (day <= VarkaChrono.NARROW_MAX_DAYS) {
+            val n = math.min(chunk, VarkaChrono.NARROW_MAX_DAYS - day + 1)
+            i = 0
+            while (i < n) {
+              data.set(ValueLayout.JAVA_INT, i * 4L, day + i)
+              i += 1
+            }
+            val status = kernel.run(Array(data.address(), levels.address()),
+              Array(validity.address(), validity.address()), Array(0, 0),
+              Array(out._1.address()), Array(out._2.address()), Array.empty[Int], n)
+            assert(status === 0, s"the kernel declined an in-range batch at day $day")
+            i = 0
+            while (i < n) {
+              val d = day + i
+              val got = out._1.get(ValueLayout.JAVA_INT, i * 4L)
+              val want = DateTimeUtils.truncDate(d, level)
+              if (got != want) {
+                mismatches += 1
+                if (mismatches < 4) {
+                  fail(s"day $d level $level under ${options.canonical()}: " +
+                    s"emitted $got, DateTimeUtils.truncDate $want")
+                }
+              }
+              i += 1
+            }
+            day += n
+          }
+          assert(mismatches === 0,
+            s"level $level: the emitted kernel disagreed on $mismatches days")
+        }
+      } finally {
+        arena.close()
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
   private def sweepTrunc(options: VarkaEmitOptions): Unit = {
     val (kernel, loader) = load(emitMulti(truncRoots, 1, 0, options))
     val levels = Seq(DateTimeUtils.TRUNC_TO_YEAR, DateTimeUtils.TRUNC_TO_MONTH,
@@ -2598,14 +2721,16 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     "34=(least 32 33)",
     "35=(nextDay 1 2)",
     "36=(addMonths 1 2)",
-    "37=(makeDate:NULL 1 2 2)",
-    "38=(makeDate:ANSI 1 2 2)",
-    "39=(least 37 38)",
-    "40=(least 36 39)",
-    "41=(least 35 40)",
-    "42=(least 34 41)",
-    "43=(least 31 42)",
-    "44=(if 10 13 43)").mkString("\n")
+    "37=(truncDateDynamic 1 1)",
+    "38=(makeDate:NULL 1 2 2)",
+    "39=(makeDate:ANSI 1 2 2)",
+    "40=(least 38 39)",
+    "41=(least 37 40)",
+    "42=(least 36 41)",
+    "43=(least 35 42)",
+    "44=(least 34 43)",
+    "45=(least 31 44)",
+    "46=(if 10 13 45)").mkString("\n")
 
   /** The class's own LineNumberTable key, parsed back into line -> rendered IR node. */
   private def lineKey(bytes: Array[Byte]): Map[Int, String] = {
@@ -2629,14 +2754,15 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
   test("task 23: the shallow rendering of every node type is pinned, like the shape hash") {
     // The line map travels inside the class bytes and is read back by tooling with no live
     // session, so its rendering is a contract, not an implementation detail - and it used to
-    // ride Record.toString, whose format no JDK promises. One key using all 23 node types (and
+    // ride Record.toString, whose format no JDK promises. One key using all 24 node types (and
     // three CompareOps), so a change to any rendering, to the operand order, or to the
     // topological schedule fails here. If it does: make sure the change is intended, then
     // update the literal and say so in the task plan - the same rule as the pinned shape
     // hashes in VarkaShapeCacheSuite. Task 26 added the four calendar extractions and
     // re-pinned it (PLAN_TASK_26.md); task 33 added NextDay, task 40 added AddMonths, task 36
-    // added LastDay and task 34 added DayOfYear, each re-pinning it again (PLAN_TASK_33.md,
-    // PLAN_TASK_40.md, PLAN_TASK_36.md, PLAN_TASK_34.md). Re-pinned from the failing
+    // added LastDay, task 34 added DayOfYear and task 61 added TruncDateDynamic, each
+    // re-pinning it again (PLAN_TASK_33.md, PLAN_TASK_40.md, PLAN_TASK_36.md, PLAN_TASK_34.md,
+    // PLAN_TASK_61.md). Re-pinned from the failing
     // assertion's own output, never carried over from one side of a merge: a line map that is
     // right for one node set is wrong for the union of two.
     val col = new ColumnRef(0)
@@ -2660,7 +2786,9 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
         new Least(new Least(new WeekDay(col), new DayOfWeekIso(col)),
           new Least(new NextDay(col, lit),
             new Least(new AddMonths(col, lit),
-              new Least(new MakeDate(col, lit, lit, false), new MakeDate(col, lit, lit, true)))))))
+              new Least(new TruncDateDynamic(col, col),
+                new Least(new MakeDate(col, lit, lit, false),
+                  new MakeDate(col, lit, lit, true))))))))
     val (_, bytes) = emitMulti(Seq(everyNode), 1, 1)
     val lineMap = VarkaDebugInfoReader.lineMap(bytes)
     assert(lineMap === pinnedLineMap, s"re-pin pinnedLineMap from this output:\n$lineMap")

@@ -19,9 +19,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
-import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, GreaterThan, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, Literal, MakeDate, Month, Multiply, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Subtract, TimestampAddInterval, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, GreaterThan, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, Literal, MakeDate, Month, Multiply, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Subtract, TimestampAddInterval, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaVectorIR}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, ColumnRef, Compare, CompareOp, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, ColumnRef, Compare, CompareOp, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, IntegerType, ShortType, StringType, TimestampType, YearMonthIntervalType}
 
@@ -646,13 +646,57 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
         Seq(out(TruncDate(d, format)), out(DateAdd(d, Literal(1)))), output).get
       partial.declines(0).reason
     }
-    assert(reason(fmt, childOutput :+ fmt) === "trunc with a non-foldable format")
+    // A stored string column fuses since task 61 (the dynamic node); an expression over one
+    // is what "non-foldable" declines now.
+    assert(reason(Upper(fmt), childOutput :+ fmt) === "trunc with a non-foldable format")
     assert(reason(Literal.create(null, StringType)) === "trunc with a null format")
     // QTR is not a spelling parseTruncLevel accepts (the recipe said it was); the row engine
     // answers it with NULL, which no IR node can produce.
     assert(reason(Literal("QTR")) === "trunc with an unrecognized format")
     assert(reason(Literal("DAY")) === "trunc to a level below a day, which is null for a date")
     assert(reason(Literal("HOUR")) === "trunc to a level below a day, which is null for a date")
+  }
+
+  test("task 61: trunc with a format column compiles to the dynamic node over a derived " +
+      "input, collated or not, beside the literal node") {
+    // A stored string column is read through the TRUNC_LEVEL leaf per batch: the kernel input
+    // is a ColumnRef like any other, inputOrdinals names the string column, and the note tells
+    // the evaluator to fill it before the kernel. No ANSI kind: TruncDate has no error path.
+    val compiled = VarkaExpressionCompiler.compile(Seq(out(TruncDate(d, dow))), withDow).get
+    assert(compiled.outputs === Seq(new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1))))
+    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.inputOrdinals === Seq(0, 5))
+    assert(compiled.literals === Nil)
+    assert(compiled.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+    val lcase = AttributeReference("lc", StringType("UTF8_LCASE"))()
+    val collated = VarkaExpressionCompiler.compile(
+      Seq(out(TruncDate(d, lcase))), childOutput :+ lcase).get
+    assert(collated.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+    // Beside the literal node in one projection: the date column is shared, the literal
+    // spelling stays task 35's node, and one derived input serves both dynamic entries.
+    val both = VarkaExpressionCompiler.compile(Seq(out(TruncDate(d, dow)),
+      out(TruncDate(d, Literal("MONTH"))), out(TruncDate(d2, dow))), withDow).get
+    assert(both.outputs === Seq(
+      new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1)),
+      new IRTruncDate(new ColumnRef(0), TruncLevel.MONTH),
+      new IRTruncDateDynamic(new ColumnRef(2), new ColumnRef(1))))
+    assert(both.inputOrdinals === Seq(0, 5, 1))
+    assert(both.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+  }
+
+  test("task 61: a format that is an expression over the column declines with task 35's " +
+      "reason, and the dynamic node composes under a calendar function") {
+    def reason(format: Expression): String = {
+      val partial = VarkaExpressionCompiler.compilePartial(
+        Seq(out(TruncDate(d, format)), out(DateAdd(d, Literal(1)))), withDow).get
+      partial.declines(0).reason
+    }
+    assert(reason(Upper(dow)) === "trunc with a non-foldable format")
+    assert(reason(Concat(Seq(dow, Literal("")))) === "trunc with a non-foldable format")
+    // The range analysis knows the node - at most 365 days back - so year(trunc(d, fmt)) fuses.
+    val composed = VarkaExpressionCompiler.compile(Seq(out(Year(TruncDate(d, dow)))), withDow).get
+    assert(composed.outputs === Seq(
+      new IRYear(new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1)))))
   }
 
   test("task 26 declines: year over a timestamp, which the analyzer casts") {

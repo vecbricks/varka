@@ -101,6 +101,12 @@ object VarkaReferenceEvaluator {
         case TruncLevel.QUARTER => DateTimeUtils.TRUNC_TO_QUARTER
       }
       evalValue(n.days(), row, lits).map(DateTimeUtils.truncDate(_, level))
+    // The same definition over the level lane (task 61). The leaf hands the kernel no code
+    // outside the four date levels - anything else is a null lane - so a live lane with one is
+    // not a shape the kernel is ever asked, and truncDate's throw on it is the right answer.
+    case n: TruncDateDynamic =>
+      for (d <- evalValue(n.days(), row, lits); level <- evalValue(n.level(), row, lits))
+        yield DateTimeUtils.truncDate(d, level)
     // The oracle is DateTimeUtils.dateAddMonths - the definition AddMonthsBase's nullSafeEval
     // calls - not VarkaChrono.daysFromCivil, which is the model this node's own arithmetic was
     // derived from and checked against; using it here would test the lowering against itself.

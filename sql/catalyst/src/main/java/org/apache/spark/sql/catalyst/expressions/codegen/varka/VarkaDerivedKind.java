@@ -26,13 +26,18 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * 33 folds at compile time when the name is a constant. ANSI mode is part of the kind rather
  * than of the batch because Spark fixes {@code NextDay.failOnError} when the expression is
  * built, and the two modes differ in what an unrecognised name does: a null lane, or a decline
- * to the row engine, which then raises its own error ({@link WeekdayLeaf}).
+ * to the row engine, which then raises its own error ({@link WeekdayLeaf}). The third kind
+ * (task 61) maps {@code trunc}'s format to its level code ({@link TruncLevelLeaf}); it has no
+ * ANSI twin because Spark's {@code TruncDate} has no error path - an unrecognised format is a
+ * NULL result in either mode.
  */
 public enum VarkaDerivedKind {
   /** {@code getDayOfWeekFromString(name) - 1}; an unrecognised name is a null lane. */
   WEEKDAY(false),
   /** The same map; an unrecognised name declines the batch so the row engine raises. */
-  WEEKDAY_ANSI(true);
+  WEEKDAY_ANSI(true),
+  /** {@code parseTruncLevel(format)} where that is a date level; anything else is a null lane. */
+  TRUNC_LEVEL(false);
 
   /** Whether an unrecognised value declines the batch instead of nulling the lane. */
   public final boolean failOnError;

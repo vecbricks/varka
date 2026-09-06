@@ -1302,6 +1302,17 @@ it). Two things came out of building it.
   byte at or above 0x80 to `getDayOfWeekFromString` itself, and `WeekdayLeafSuite` holds both
   parsers to the definition over every case pattern of the 21 spellings, every one- and
   two-byte ASCII string and every printable one-byte mutation of every spelling.
+- **The second leaf had no ANSI question at all, and that was a finding, not an assumption**
+  (task 61, `trunc(d, fmt)` with a format column). `TruncDate` has no `failOnError`, and
+  `TruncInstant.evalHelper` answers every non-date level - a null format, an unrecognised
+  spelling, `'DAY'` and below - with NULL in both modes, so the kind (`TRUNC_LEVEL`) has no
+  ANSI twin and `TruncLevelLeaf` never declines. The order of work that made this cheap: read
+  the row engine's eval for the error path first, and derive the leaf's contract (never throw;
+  null lane or decline) from what that path does. The other transferable piece: when the
+  derived value selects *which computation* applies (the level) rather than feeding one (the
+  weekday's `k`), the kernel computes every alternative and blends on the lane - 91 dense-loop
+  ops for the four periods against 36..62 for one literal level - so the literal form remains
+  the shape a query should write, and the doc says so.
 
 ## A closed `ArrowBuf` still answers `capacity()` and `memoryAddress()`
 
@@ -1399,7 +1410,16 @@ the fuzzer's node generator and the two pinned fixtures.
   how and why, including the committed 128-bit companion file, the machine canary
   (`dev/varka_bench_canary.sh`) the regen script runs first, and the quote check
   (`dev/varka_quote_check.py`, a gate step) that holds every quoted number to a
-  committed file.
+  committed file. A bare class name resolves to `org.apache.spark.sql.<name>`
+  (the script's `*.*) ... *) fqcn="org.apache.spark.sql.$klass"` fallback);
+  `VarkaThroughputBenchmark` actually lives under
+  `org.apache.spark.sql.execution.benchmark`, so the bare name sends `runMain`
+  looking for a class that is not there. The wide run's own stdout - where
+  sbt's "No main class detected" would show - is redirected to `/dev/null` by
+  the regen script, so this fails in about twenty seconds with no visible
+  error at all, just a bare exit 1: pass the fully-qualified name for any
+  benchmark outside `org.apache.spark.sql` directly, rather than trying a bare
+  name first and reading the silence as a machine or environment problem.
 - Run `dev/varka_precommit.sh` before committing, or install it as the pre-commit hook:
   non-ASCII outside strings, lines over 100 columns, TODO/FIXME under Varka
   directories, the quote check, and ruff (`check` and `format --check`) on Python
