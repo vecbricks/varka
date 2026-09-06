@@ -452,9 +452,13 @@ trusting them, not just its ratios.
 ## Vector API on HotSpot, Measured (JDK 25, x86-64)
 
 - **A day-indexed lookup table beats the civil-from-days arithmetic, and a plain
-  scalar loop beats the vector gather** (`VarkaVectorApiProbeBenchmark`,
-  committed). Impala reads `year` out of a table covering 1950-2049 and computes
-  it only outside that window; priced on lanes here, over 20M dates at AVX-512:
+  scalar loop beats the vector gather** (`VarkaVectorApiProbeBenchmark`). Impala
+  reads `year` out of a table covering 1950-2049 and computes it only outside
+  that window; priced on lanes here, over 20M dates at AVX-512. The table below
+  is one run of that benchmark and was never committed; the committed file has
+  since been regenerated twice and its rows sit within 3% of these, which moves
+  no conclusion drawn here. The fused table further down is the probe's first
+  committed run:
 
   | | whole 100-year table (143 KB) | seven-year span (~10 KB, TPC-H shaped) |
   |---|---|---|
