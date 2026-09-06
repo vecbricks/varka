@@ -177,12 +177,18 @@ opens with what its conversion lost. See `papers/README.md` before adding one.
   task 23).
 * Every hot loop method stays small by construction (`GROUP_BUDGET`): C2's compile
   time grows steeply with vector-op count, and a wide method is slower to compile
-  *and* slower to run. Sibling methods, not longer methods. One recorded exception:
+  *and* slower to run. Sibling methods, not longer methods. Two recorded exceptions:
   the budget partitions *between* outputs and never splits inside one, so a single
   output wider than the budget still forms one method - the capped `IN` chain
   (task 20, up to 33 ops in the benchmarked shape) is the known case, its ~30 ms
   one-time C2 compile per fresh shape accepted because the task-18 class cache
-  amortizes it and the measured win at the cap is 4.0x.
+  amortizes it and the measured win at the cap is 4.0x; and calendar outputs over
+  one date share a method up to `FUSED_CEILING` (400 ops), because the
+  shared civil-from-days prefix makes the wider method less work rather than more
+  (task 32, 2.15x on four fields). Nothing else widens a method: two plain
+  chains over a shared subchain stay split, and whether they still should is task
+  43's open question (task 17 measured the merge as a loss; the parity file has read
+  it as a win since task 46 moved the validity OR ahead of the vector work).
 * The ghost fallback is a correctness contract: a Varka failure degrades to the
   row engine and never fails a query. Anything that can return a *wrong* answer
   rather than fail - a cache key, for one - gets its own differential coverage,
