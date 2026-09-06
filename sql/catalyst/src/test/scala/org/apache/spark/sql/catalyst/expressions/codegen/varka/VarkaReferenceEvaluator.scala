@@ -61,6 +61,11 @@ object VarkaReferenceEvaluator {
     case n: NextDay =>
       for (d <- evalValue(n.days(), row, lits); k <- evalValue(n.offset(), row, lits))
         yield d + 1 + Math.floorMod(k - d, 7)
+    case n: ThursdayOf =>
+      // The Thursday of the day's ISO (Monday-based) week, by java.time's own adjuster - not
+      // d + 3 - weekday0, which is what the emitter computes.
+      evalValue(n.days(), row, lits).map(v =>
+        LocalDate.ofEpochDay(v.toLong).`with`(java.time.DayOfWeek.THURSDAY).toEpochDay.toInt)
     // The calendar oracle is java.time, which is what DateTimeUtils.getYear and its three
     // siblings call - not VarkaChrono, so the emitted bytes are checked against the
     // definition rather than against the model they were derived from.
@@ -78,6 +83,12 @@ object VarkaReferenceEvaluator {
         .map(v => LocalDate.ofEpochDay(v.toLong).get(IsoFields.QUARTER_OF_YEAR))
     case n: DayOfYear =>
       evalValue(n.days(), row, lits).map(v => LocalDate.ofEpochDay(v.toLong).getDayOfYear)
+    case n: WeekOfYear =>
+      // The definition (what DateTimeUtils.getWeekOfYear calls), over whatever the child is;
+      // it agrees with the emitter's (doy - 1) / 7 + 1 exactly because the child is a
+      // Thursday, which the analysis enforces.
+      evalValue(n.days(), row, lits)
+        .map(v => LocalDate.ofEpochDay(v.toLong).get(IsoFields.WEEK_OF_WEEK_BASED_YEAR))
     case n: LastDay =>
       // The definition, not the linear-form-plus-leap-flag this task's lowering computes.
       evalValue(n.days(), row, lits).map(DateTimeUtils.getLastDayOfMonth)
@@ -96,6 +107,16 @@ object VarkaReferenceEvaluator {
     case n: AddMonths =>
       for (d <- evalValue(n.days(), row, lits); m <- evalValue(n.months(), row, lits))
         yield DateTimeUtils.dateAddMonths(d, m)
+    case n: MakeDate =>
+      // The definition: LocalDate.of, null (None) where the calendar rejects the triple - never
+      // the length rule the emitter computes. The year limit is the kernel's business, not the
+      // oracle's: a year outside it is a declined batch, which the status assertion catches.
+      for {
+        y <- evalValue(n.year(), row, lits); m <- evalValue(n.month(), row, lits)
+        d <- evalValue(n.day(), row, lits)
+        v <- try Some(LocalDate.of(y, m, d).toEpochDay.toInt)
+          catch { case _: java.time.DateTimeException => None }
+      } yield v
     case n: Greatest =>
       pick(evalValue(n.left(), row, lits), evalValue(n.right(), row, lits), math.max)
     case n: Least =>

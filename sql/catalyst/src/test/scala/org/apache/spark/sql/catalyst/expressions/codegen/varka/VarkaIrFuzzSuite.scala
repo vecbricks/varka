@@ -94,7 +94,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     def value(depth: Int): Gen = {
       if (depth == 0 || budget <= 1) return leaf()
       budget -= 1
-      rnd.nextInt(15) match {
+      rnd.nextInt(18) match {
         case 0 =>
           val a = value(depth - 1); val b = literal()
           Gen(new AddDays(a.node, b.node), a.bound + b.bound)
@@ -128,6 +128,31 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           val a = value(depth - 1)
           Gen(new WeekDay(a.node), 6)
         case 14 =>
+          // make_date (task 42) over a date's own fields: always a valid triple in range, so
+          // both modes run to status 0 and the answer is the date itself; every third one
+          // takes a literal day instead under the NULL form, where an invalid day is a null
+          // output and the batch still runs.
+          val a = value(depth - 1)
+          if (a.bound > chronoBound) return a
+          if (numLiterals > 0 && rnd.nextInt(3) == 0) {
+            val k = literal()
+            Gen(new MakeDate(new Year(a.node), new Month(a.node), k.node, false), a.bound + 31)
+          } else {
+            Gen(new MakeDate(new Year(a.node), new Month(a.node), new DayOfMonth(a.node),
+              rnd.nextBoolean()), a.bound)
+          }
+        case 15 =>
+          // The Thursday of the day's week (task 37): a day-typed producer within three days.
+          val a = value(depth - 1)
+          Gen(new ThursdayOf(a.node), a.bound + 3)
+        case 16 =>
+          // weekofyear as the compiler builds it, the pair as a unit: the week tail is defined
+          // over ThursdayOf only (the emitter refuses any other child), and the subtree has to
+          // stay inside the narrowed range like every calendar node's.
+          val a = value(depth - 1)
+          if (a.bound > chronoBound) return a
+          Gen(new WeekOfYear(new ThursdayOf(a.node)), 53)
+        case 17 =>
           val a = value(depth - 1)
           Gen(new DayOfWeekIso(a.node), 7)
         case n =>

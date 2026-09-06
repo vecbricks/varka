@@ -103,6 +103,17 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
     session.sql("select count(*) from varka_dates").collect()
   }
 
+  /** Task 42's table: the year, month and day of the dates `cacheDates` builds, as three ints. */
+  private def cacheDateParts(session: SparkSession): Unit = {
+    session.sql(
+      """select year(d) as y, month(d) as m, day(d) as dd
+        |from (select date_add(date'2020-01-01', cast(id as int) % 1460) as d
+        |      from range(0, 2000000))""".stripMargin)
+      .createOrReplaceTempView("varka_date_parts")
+    session.catalog.cacheTable("varka_date_parts")
+    session.sql("select count(*) from varka_date_parts").collect()
+  }
+
   private def cacheDatePairs(session: SparkSession): Unit = {
     session.sql(
       """select date_add(date'2020-01-01', cast(id as int) % 1500) as d,
@@ -226,6 +237,8 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       cacheDates(varka)
       cacheDatePairs(baseline)
       cacheDatePairs(varka)
+      cacheDateParts(baseline)
+      cacheDateParts(varka)
       cacheRandomDatePairs(baseline)
       cacheRandomDatePairs(varka)
 
@@ -241,6 +254,9 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         "SELECT date_add(d, i) AS a FROM varka_dates")
       runQueries(baseline, varka, "date + CAST(i AS INTERVAL DAY), bound checked (task 56)",
         "SELECT d + CAST(i AS INTERVAL DAY) AS a FROM varka_dates")
+      // Task 42: a date built from three int columns, under the session's default (ANSI) mode.
+      runQueries(baseline, varka, "make_date",
+        "SELECT make_date(y, m, dd) AS a FROM varka_date_parts")
       runQueries(baseline, varka, "datediff",
         "SELECT datediff(d2, d) AS diff FROM varka_date_pairs")
       // The milestone-2 fusion cases (PLAN_TASK_14.md 2.2). The nested projection is the query
@@ -262,6 +278,10 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       // The one case that replaces an allocating path (Janino's LocalDate round trip) rather
       // than just fusing arithmetic - the kernel-level 36x of PLAN_TASK_11.md at query level.
       runQueries(baseline, varka, "dayofweek", "SELECT dayofweek(d) AS dw FROM varka_dates")
+      // Task 37: the ISO week by the Thursday rule, the widest single-field kernel.
+      runQueries(baseline, varka, "weekofyear", "SELECT weekofyear(d) AS w FROM varka_dates")
+      runQueries(baseline, varka, "yearofweek",
+        "SELECT extract(YEAROFWEEK FROM d) AS y FROM varka_dates")
       runQueries(baseline, varka, "mixed projection (partial fusion)",
         "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates")
       // Chain-depth scaling (PLAN_TASK_14.md 2.3): the fused loop pays one load and one store

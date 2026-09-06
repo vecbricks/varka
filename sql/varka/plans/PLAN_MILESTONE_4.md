@@ -1142,8 +1142,9 @@ by what 37 ships: if 37 exposes the shift as an IR node, this is a compiler
 arm building `Year(ThursdayOf(d))` and nothing in the emitter; if 37 keeps
 the shift inside its own tail, this task lifts it out into that node and 37's
 `WeekOfYear` tail reads it too, so the two nodes over one date share it. Task
-52's `dayRange` needs an arm for the shift, `[-6, +3]` days, so `Year` over it
-is admitted at compile time. No new arithmetic, no new constant, no leap
+52's `dayRange` needs an arm for the shift, `[-3, +3]` days (task 37's
+admission check; this paragraph first said `[-6, +3]`), so `Year` over it is
+admitted at compile time. No new arithmetic, no new constant, no leap
 question: `year` of a computed day is the prefix the family already has.
 
 Validation: the boundary rows are the ones the ISO year moves on - December 28
@@ -1492,6 +1493,72 @@ given one does. A batch with a far offset still declines, through the same
 route, and the differential's far-offset fixtures hold that. Depends on #115
 and on task 56's kernel, both on master before it starts.
 
+### 2.32 Year-month interval columns in the date lane (task 67)
+
+Added 5 September 2026 by the owner's decision, after a survey of which
+Spark types share the date's lane. Exactly three Spark types are int32
+inside and in the Arrow cache: `DateType` (`DateDayVector`), `IntegerType`
+(`IntVector`) and `YearMonthIntervalType`, whose value is a count of months
+whatever its unit (`INTERVAL YEAR`, `INTERVAL MONTH`, `INTERVAL YEAR TO
+MONTH`) and whose Arrow vector is `IntervalYearVector`, a
+`BaseFixedWidthVector` of width four - the buffer layout the kernels already
+read. The Arrow cache serializer already stores and prunes such columns
+(`IntColumnStats`, `calculateMinMaxYearMonthInterval`), and
+`ArrowColumnVector` already reads them (`IntervalYearAccessor`). Nothing in
+the lane changes; what is missing is admission on both sides of the kernel:
+the evaluator's `isArrowBacked` names the vector classes it serves
+(`DateDayVector`, `IntVector`, `VarCharVector` at a derived source), and its
+`allocateVector` names the output types it writes (`DateType`,
+`IntegerType`); the compiler's value leaf admits a `DateType` column only.
+Task 60 declines a stored interval column at the compiler ("year-month
+interval column is not readable by the int32 lanes") because the evaluator
+did not read it, and the evaluator did not read it because no arm asked.
+
+**The task.** Admit the type end to end where no new arithmetic is needed:
+an interval column as a value leaf and an interval literal as a slot; an
+interval-typed kernel output; `d + ym` and `d - ym` with a column interval
+through task 60's guarded `AddMonths` (the value is months in every unit,
+which is what `DateAddYMInterval` adds); comparisons, `IN`, `BETWEEN`,
+`greatest`/`least`, `coalesce`, `IF`/`CASE` over intervals, which the
+existing nodes give once the leaf exists and Spark's type rules keep out of
+the date-only positions; `CAST(i AS INTERVAL MONTH)` as the relabel it is
+(`intToYearMonthInterval` returns its argument for the `MONTH` unit) and
+`CAST(ym AS INT)` for a `MONTH`-ended interval likewise; the interval
+entries in task 62's surface; and the wording in the docs, so that "three
+types" is said exactly as far as it is true. What waits for task 63: the
+`YEAR`-unit casts (a multiply or a division by 12 with the overflow check).
+What is task 68's: everything that computes an interval from something else.
+
+**Why it is worth a row of its own.** The change is small - two arms in the
+evaluator, one leaf and a literal arm in the compiler, a fixture, a
+differential and the surface entries; no IR node, no emitter byte, both
+pinned fixtures unmoved - and it is the difference between the engine
+covering one Spark type and three, which is the sentence the milestone's
+public write-up leads with. The owner's reasoning, recorded: a cheap,
+lane-compatible type is worth taking early for the message it sends,
+provided the claim matches what fuses.
+
+### 2.33 Year-month interval algebra (task 68)
+
+The expressions that produce or transform an interval, once task 63's int32
+arithmetic and task 67's type admission are in: `make_ym_interval(y, m)`
+(`y * 12 + m`, exact in every mode, so always the checked form);
+`extract(YEAR | MONTH FROM ym)` (`/ 12` and `% 12`, a literal-divisor magic
+multiply - the node section 2.30's note asks for, which scope item 11's
+`yyyymmdd` form reuses); `ym * k` and `ym / k` with a literal `k`
+(`MultiplyYMInterval` exact; `DivideYMInterval` rounds `HALF_UP`, so its
+literal form is a magic division plus a rounding step, registered before it
+is built); `ym + ym`, `ym - ym`, `-ym`, `abs(ym)` (task 63's nodes with an
+interval-typed output; Spark computes them with `addExact` and
+`negateExact` in every mode, so they are always the checked form); the
+`YEAR`-unit casts task 67 left. Out, and said so: `ym div ym` (a long),
+`signum(ym)` (a double), `sequence` with an interval step, the timestamp
+side, and `sum`/`avg` of intervals (milestone 6's aggregates). Its
+admission check is the rounding of the literal division and the exactness
+range of the two magic divisions over the full int32 month range, the way
+task 65 is admitted; its measurement is a parity row per new node beside
+the int arithmetic rows task 63 adds.
+
 ## 3. Task breakdown
 
 Tasks 24-44 were the committed spine, in dependency order: 24 halves the
@@ -1566,11 +1633,11 @@ real 512-bit datapath, and the README rewritten from that run (2.29).
 | 34 | `dayofyear`. **DONE** (`PLAN_TASK_34.md`, PR #64) | The node, the January-based conversion off `emitChrono`'s March-based day of year, and the shared leap-flag helper tasks 35-37 reuse | Every Varka suite green at both widths; the pinned fixtures re-pinned; a day outside the covered range still declines (**this decline was removed by task 51**; see 2.19's update note and `PLAN_TASK_51.md`) |
 | 35 | `trunc(date, YEAR/MONTH/QUARTER)`. **DONE** (`PLAN_TASK_35.md` section 8) | One node carrying the level as a shape-bearing field, three lowerings, and the decline path for every level and format this task does not cover | As 34, plus a `DateType` output proved to feed further date arithmetic in the same chain |
 | 36 | `last_day`. **DONE** (`PLAN_TASK_36.md`) | The node and the month-length tail, with February's leap case as its own branch | As 34, with every month length exercised in both a leap and a common year (the decline this inherited from 34 is likewise removed by task 51) |
-| 37 | `weekofyear` | The node and the Thursday rule; no boundary corrections and no weeks-in-year helper, so the prefix runs over a computed day (`t`, not the column) and cannot share a fragment with the other calendar fields of the same date - state that in the plan rather than discover it | As 34, plus a dense day-by-day sweep across forty year boundaries rather than a boundary list: the rule claims to make the boundaries automatic, and the sweep is what checks the claim. Import Velox's Spark-compatibility `weekOfYear` fixtures as pinned cases beside the sweep (`velox/functions/sparksql/tests/DateTimeFunctionsTest.cpp`): 1919-12-31 and 1969-12-31 in week 1, 1960-01-01 in week 53, 0001-01-01 in week 1, 9999-12-31 in week 52, and the leap years ending on Thursday, Friday and Saturday - written against Spark by people who had to match it exactly |
+| 37 | `weekofyear`. **DONE** (`PLAN_TASK_37.md`, rewritten on 4 September 2026 around the Thursday rule as two nodes, `WeekOfYear(ThursdayOf(d))`, so task 58 is `Year` over the same shift; the rule, the division magic and the reciprocal weekday swept in its section 2) | The node and the Thursday rule; no boundary corrections and no weeks-in-year helper, so the prefix runs over a computed day (`t`, not the column) and cannot share a fragment with the other calendar fields of the same date - state that in the plan rather than discover it | As 34, plus a dense day-by-day sweep across forty year boundaries rather than a boundary list: the rule claims to make the boundaries automatic, and the sweep is what checks the claim. Import Velox's Spark-compatibility `weekOfYear` fixtures as pinned cases beside the sweep (`velox/functions/sparksql/tests/DateTimeFunctionsTest.cpp`): 1919-12-31 and 1969-12-31 in week 1, 1960-01-01 in week 53, 0001-01-01 in week 1, 9999-12-31 in week 52, and the leap years ending on Thursday, Friday and Saturday - written against Spark by people who had to match it exactly |
 | 38 | A day offset that is a column. **DONE** (`PLAN_TASK_38.md`, PR #62) | The four guards moved, the `andRef` validity fix, `IntegerType` leaves and Arrow `IntVector` inputs accepted, short and byte offsets declining | A null offset producing a null row, at both widths; short and byte columns declining; **no pinned value and no committed number moves**, since no node type is added and the literal path is untouched |
 | 40 | days-from-civil, and month arithmetic. **DONE** (`PLAN_TASK_40.md`, PR #67) | `emitDaysFromCivil` as a helper three later expressions can call; the node behind `date +- INTERVAL n MONTH/YEAR` and `add_months`; the small-dividend month arithmetic and the literal bound it implies | The round trip tested on its own, not only through the expression; the clamp cases in both directions; a non-foldable or over-large month count declining; green at both widths |
 | 41 | `unix_date` / `date_from_unix_date`. **DONE** (`PLAN_TASK_41.md`, PR #63) | Two compiler arms that unwrap to the child, no IR node and no emitted code; the bare-`ColumnRef` output shape tested | A projection mixing a relabelled entry with an ordinary one fuses both; no pinned value moves, no committed number moves, no emitted bytes change for any existing shape |
-| 42 | `make_date`. **Planned** (`PLAN_TASK_42.md`); its dependency, task 38, landed as PR #62 | The three-child node, the validity predicate as a computed word in non-ANSI and a decline in ANSI, and the engine's year limit declining in both modes | The three-way distinction tested apart - null input, invalid date, unsupported year; both ANSI settings; the ANSI exception identical to the row engine's, compared by running both |
+| 42 | `make_date`. **DONE** (`PLAN_TASK_42.md`, re-planned on 4 September 2026 against master and #115: the decline mask through task 52's accumulator, the year limit as the calendar range's whole years so `year(make_date(...))` fuses, and the first node that nulls a valid input, which takes a body off the dense fast path; starts after #115) | The three-child node, the validity predicate as a computed word in non-ANSI and a decline in ANSI, and the engine's year limit declining in both modes | The three-way distinction tested apart - null input, invalid date, unsupported year; both ANSI settings; the ANSI exception identical to the row engine's, compared by running both |
 | 43 | What bounds a loop method inside one output. **Measured; the decision waits on the emitter** (`PLAN_TASK_43.md` 8) - a 20-to-248-op ladder in one loop method shows no cliff at either width: nanoseconds per row per op flat to +-4% at AVX-512 and improving then flat at 128-bit, and tier-4 compile linear at ~1.1 ms/op, 271 ms standard and **186 ms OSR** at 248 ops against the ~10 seconds at 64 ops the `GROUP_BUDGET` javadoc still cites. Two of four predictions missed: 128-bit does not degrade, and C1's virtual-register refusal is width-independent and lands on the epilogue, never on a loop | The cliff located first - single-output loops at 60 to 250 ops, throughput and time-to-peak - then split, decline or accept, chosen on that number | A committed number per width; whichever mechanism wins, `CASE WHEN year ELSE month` either fuses within a stated bound or declines with a recorded reason |
 | 44 | The epilogue's size. **Not started**; its baseline has moved four times since it was written (the unshared crossing 17, 19, 20, then 21 outputs, the shared 40 then 44) and the crossing's cost is already priced in `PLAN_TASK_32.md` 7.3, so it opens by measuring fresh | A size ladder that can see the problem (4095 and 63, not only 4096), the epilogue measured against `HugeMethodLimit`, and the mechanism chosen on it | The wide-projection epilogue compiles, or declines; the committed ladder shows the epilogue's cost at a non-aligned length, which no committed case does today |
 | 32 | One decomposition, several fields. **REPLANNED; steps A and B1 done (PR #72), step B2 planned and not built** (`PLAN_TASK_32.md` 10, PR #74; the gate is cleared, `groupOutputs` is unchanged and every calendar output still gets its own loop method, as the emitter suite pins) | The first ceiling kernel measured a non-inlining `computeFields` helper rather than the sharing, and was rebuilt hand-inlined, guarded and writing four validity buffers: 692.4/678.8 against 450.4/448.8 M rows/s at AVX-512 (1.5x), and a wash at 128-bit (1.06x, one run of five at 1.50x). Step B builds emitter-side fragment sharing behind a `VarkaEmitOptions` switch, with the default decided at both widths rather than closed. Step B1 built the fragment and made it the default: the epilogue's `HugeMethodLimit` crossing moves from 17 calendar outputs to 40 (**task 51 moves this again, to 19/44, task 48 to 20/44 and task 54 to 21/44 - see the debt register and `PLAN_TASK_54.md` 9**), and B2's grouping relaxation stays gated on the two-field measurement. **The gate cleared** (`PLAN_TASK_32.md` 7.2): 1.29x at two fields, 1.57x at three, 1.80x at four, growing rather than shrinking against prediction 3's expectation - and the emitted dense-body shared kernel turns out to beat `ChronoVectorOps`'s own "ceiling" by 1.15-1.20x, since that kernel has no dense path and was measuring the masked body throughout - and the same 1.29x/1.57x/1.80x pattern reproduces at 128-bit (1.31x/1.47x/1.67x), so the width-dependent bimodality that made the hand-written ceiling a wash at 128-bit (`PLAN_TASK_32.md` 7.4) turns out to belong to that specific kernel and not to the sharing mechanism. The compile-cliff risk `GROUP_BUDGET` itself exists to avoid was also measured directly rather than assumed (`PLAN_TASK_32.md` 7.5): `-XX:+PrintCompilation` on every kernel in the parity suite shows the widest single loop method (200 ops, four fields) reaching tier 4 in 272 ms and the widest kernel overall (twenty separate methods) in 2.4 s, nowhere near the historic 10-second cliff and with no `blocked` compile task anywhere in the log | `ChronoVectorOpsTest` differentials the kernel against `java.time` over its exact sweep range and a boundary set, at both widths (the engine module's own narrow-vector Maven profile); the emitted lowering swept against `LocalDate` over all 16,777,216 covered days under both settings; no pinned oracle moved, and every loop method asserted byte for byte unchanged, so no committed number for any existing shape can have |
@@ -1586,12 +1653,14 @@ real 512-bit datapath, and the README rewritten from that run (2.29).
 | 55 | Assert no allocation inside a kernel loop. **DONE** (`PLAN_TASK_55.md`) | The one failure that keeps every packed instruction in place and still costs 3-13x: a heap box per lane group, which two species of one lane type in one JVM produce (`SKILLS.md`, "Every operator the plans rely on"). Asserted as a *measured rate* - the probe reports heap bytes per call at steady state, the suite allows at most one byte per row - because a count of allocation sites in the disassembly cannot tell a per-call segment view from a per-iteration box (`vectorFourFields` carries four of the former). The site detector (allocation prefetch, mark-word store) is the printed diagnosis, with the `-XX:+PrintInlining` tell. On every kernel and emitted-loop case at both widths | The self-test pair at both widths: a gather alone reads 0 bytes per call and shows `vpgatherdd`; the same gather interleaved with a second species reads 26 bytes per row at 512 bits and 192 at 128, packed instructions intact. A `selectFrom` lookup, the first choice, boxes only if the second species ran hot first, so the gather is the calibrating shape; every existing case reads 0 except `vectorFourFields` at 0.16 per row, its per-call views |
 | 56 | `date + INTERVAL n DAY` with a column interval. **DONE** (`PLAN_TASK_56.md`; its admission check found the int-to-interval cast throws past 106751991 days in every mode, so the rewrite carries a per-batch bound the evaluator checks, measured below this benchmark's resolution at both widths) | The compiler unwrapping `ExtractANSIIntervalDays(Cast(i, INTERVAL DAY))` to the int column itself, onto task 38's `AddDays(col, col)`; a stored `INTERVAL DAY` column declining with its own reason - by the owner's decision this task stays in the date lane, and the int64 column is not read | The rewrite's shape pinned; `d + CAST(i AS INTERVAL DAY)` and `d - CAST(i AS INTERVAL DAY)` differential with nulls on both sides; the stored-interval column still residual with its reason; no pinned value or committed number moves |
 | 57 | `extract(DAYOFWEEK_ISO)` / `DOW_ISO`. **DONE** (`PLAN_TASK_57.md`) | One narrow arm, `Add(WeekDay(child), Literal(1))`, to a new `DayOfWeekIso` node: `WeekDay`'s floorMod7 tail plus one add; no general int arithmetic | The reference arm `getWeekDay + 1`; a whole week under the three `FloorMod7` variants at both widths; the three spellings in one differential; both pinned fixtures re-pinned once; `dayofweek`/`weekday` bytes unchanged |
-| 58 | `extract(YEAROFWEEK)` | `year` over task 37's Thursday shift, `t = d + 3 - weekday0(d)`: a compiler composition if 37 exposes the shift as a node, else the shift lifted out so both nodes share it; a `dayRange` arm of `[-6, +3]` | The December 28 to January 4 rows of years whose week 1 starts early and late, and the century years, against `getWeekBasedYear`; `weekofyear`, `yearofweek` and `year` in one differential; both widths |
+| 58 | `extract(YEAROFWEEK)`. **DONE** (`PLAN_TASK_58.md`; one compiler arm over task 37's `ThursdayOf`, after 37) | `year` over task 37's Thursday shift, `t = d + 3 - weekday0(d)`: a compiler composition if 37 exposes the shift as a node, else the shift lifted out so both nodes share it; a `dayRange` arm of `[-6, +3]` | The December 28 to January 4 rows of years whose week 1 starts early and late, and the century years, against `getWeekBasedYear`; `weekofyear`, `yearofweek` and `year` in one differential; both widths |
 | 59 | `next_day` with a weekday column | The derived int32 leaf: an evaluator pre-pass mapping a string column through the row engine's own parser before the kernel runs, null or the row engine's ANSI error per its rules; `NextDay(days, ColumnRef)` with `requireOffsetShape` and the two words ANDed; the parity number against the row path, registered prediction that a lone `next_day` wins little and reuse wins more | The leaf's null and error rules under both ANSI settings; the two-column `NextDay` over every null pattern at both widths; a differential over mixed spellings and nulls; the literal form byte for byte unchanged; the number committed whichever way it falls |
 | 60 | `add_months` with a month-count column | `AddMonths(days, ColumnRef)` with `requireOffsetShape` and the words ANDed; the compile-time month bound moved to a runtime guard on the count lanes through task 52's `emitProducerGuard` plumbing, `STATUS_CHRONO_RANGE` on an out-of-range lane; `dayRange` answering `ColumnShifted` | The guard declining in a loop lane and an epilogue lane, not under a null count; in-range batches computed at both widths; the differential with in-range and out-of-range counts and nulls, the declined metric firing only for the latter; the count guard's cost measured beside task 52's row |
 | 61 | `trunc` with a format column | Task 59's derived leaf mapping the format through `parseTruncLevel` to a level column whose validity is the output's; `TruncDateDynamic(days, levelRef)`, a chrono node computing all four levels off one prefix and selecting per lane by three blends; the doc saying the literal form is the shape to write | The reference arm `truncDate` per row over the parsed level; the matrix cycling all levels and the invalid codes at both widths; a differential over a format column mixing every level, invalid formats and null; the literal `trunc` byte for byte unchanged |
 | 63 | Int32 arithmetic in the date lane: `Add`, `Subtract`, `Multiply`, `UnaryMinus` over fused fields, int columns and literals (section 2.30). **Planned** (`PLAN_TASK_63.md`; code after the task 61 stack lands) | The compiler arms with an `IntegerType` column leaf; the lanewise op in non-ANSI; the per-lane overflow mask ORed into task 52's accumulator in ANSI, behind a `VarkaEmitOptions` switch; `try_add`/`try_subtract`/`try_multiply` as the mask cleared from validity; `/`, `div`, `%` and int64 left to milestone 5 | Boundary tests at `Int.MaxValue`/`Int.MinValue` in both modes; the error-identity differential under ANSI (same error, same row, as the row engine); the `try_*` differential over overflow-dense and overflow-free data; `year(d) * 100 + month(d)` and `datediff(a, b) + 1` fusing end to end; a parity pair for the check's cost with a registered prediction; both pinned fixtures re-pinned once |
 | 64 | Statistics-directed guard selection (section 2.31) | Step one: the evaluator runs `IntRangeOps.allWithin` over a guarded producer's offset column against `[NARROW_MIN_DAYS - CONTRACT_MIN_DAYS, NARROW_MAX_DAYS - CONTRACT_MAX_DAYS]` and picks the unguarded or the guarded kernel from the shape cache per batch; step two: the Arrow cache's per-batch column bounds attached to the `ColumnarBatch` and read before the pass, answering task 56's bound too; each behind a switch | The guarded kernel never runs on the differential's in-range fixtures and the far-offset fixtures still decline; the pass and the lookup priced against the guard on the parity `year(date_add(d, off))` pair, both widths, with a registered prediction that the null-free and mixed-null cost of task 52's guard is recovered; byte identity of the emitter |
+| 67 | Year-month interval columns in the date lane (section 2.32). **Planned** (`PLAN_TASK_67.md`) | `IntervalYearVector` admitted in `isArrowBacked` and `YearMonthIntervalType` in `allocateVector`; the interval column as a value leaf and the interval literal as a slot in the compiler; `d + ym` and `d - ym` with a column interval through task 60's guarded `AddMonths`; comparisons, `IN`, `BETWEEN`, `greatest`/`least`, `coalesce`, `IF`/`CASE` over intervals; the `MONTH`-unit casts as relabels; the interval entries in task 62's surface; the docs' type list. No IR node, no emitter byte | The differential over a cached table with columns of all three units, nulls and values past task 60's month bound, in both ANSI modes, through the projection and the filter, with zero fallbacks where the plan fuses and the declined metric where the bound trips; the evaluator suite with an `IntervalYearVector` input and output; both pinned fixtures unmoved; the compiler suite's shapes and declines (the `YEAR`-unit casts declined with their reason until task 63) |
+| 68 | Year-month interval algebra (section 2.33) | `make_ym_interval`, `extract(YEAR | MONTH FROM ym)` by literal-divisor magic, `ym * k` and `ym / k` with a literal, `ym +- ym`, `-ym`, `abs(ym)` on task 63's nodes with an interval output, the `YEAR`-unit casts; the literal-divisor node that section 2.30's note and scope item 11 both want | The admission check on the rounding of the literal division and the exactness range of the magic divisions over the whole int32 month range; the differential in both ANSI modes with the overflow rows raising the row engine's own error; a parity row per new node beside task 63's; both pinned fixtures re-pinned once |
 | 62 | The closing measurement: every date expression, on a 512-bit datapath, against stock Spark on JDK 17 and JDK 25 | A Java driver under `sql/varka/bench` submitted to three distributions - stock Spark on JDK 17, stock Spark on JDK 25, this fork on JDK 25 - in one dispatch of the benchmark workflow with `expected-cpu` pinned to a full-width Xeon, running one committed SQL query per covered date expression in the projection and filter shapes over a table sized so the per-job fixed cost is under 5% of every Varka row's wall time (at least 200 ms per Varka query), recording executor time beside wall time for every row, with provenance including the 256-to-512 op-count ladder that proves the datapath; `dev/varka_bench_surface.sh` and the diff script producing the table; README's benchmark section rewritten from the three files with a reproduction guide a reader can follow from the downloads alone; the laptop's run committed as the second data point | Three results files with provenance, generated by one workflow dispatch on a 512-bit runner; every README figure tracing to them (the quote check); every Varka row's fixed share (wall minus executor time, over wall) under 5% in the files; the fork-with-Varka-off row agreeing with stock Spark on JDK 25 within noise on every shape; the ladder in the provenance showing the 256-to-512 step near 2x, or the file labelled 256-bit |
 
 ## 4. Files
@@ -1834,6 +1903,27 @@ rewritten in the past tense with what the sweep found, never deleted.
   inline the Vector API - `vectorDateDiff` null-free at 10000 rows, 1276 against
   the in-process 435 - is what a plain forked JVM measures (1211): the flag was
   measuring the harness, as the entry above suspected.
+* **The week fold costs more than its op count (task 37).** `weekofyear` is 64
+  dense-loop calls against `year`'s prefix-plus-tail, yet runs at 0.41x of `year`'s
+  rate at 256 bits and 0.38x at 128 (`PLAN_TASK_37.md` section 9, prediction 2), a
+  lower share than the extra ops account for. A debt because the same tail shape
+  returns for task 58's `yearofweek`; closing it takes the dense loop's assembly
+  (`dev/varka_emit.sh --asm`) for `weekofyear` beside `year`, to see whether the
+  shift's `floorMod7` scratch or the fold's dependent chain is what the register
+  does not count.
+* **Two calendar outputs over one shift share nothing in production (task 58).** The
+  `weekofyear + yearofweek, one shift` parity row runs at 0.58x of `weekofyear` alone, the
+  ratio of no sharing (64 + 51 ops), where the shared prefix and shift predict 0.83x; the
+  suite's sharing test holds only under a wide `GROUP_BUDGET`, and the shipped budget
+  gives each calendar output its own loop method, so the pair shares only in the epilogue.
+  Closing it is task 44's decision (one loop method for the group) measured on this row.
+* **The parity harness's `dayofweek, chunk 64/63` rows are bimodal on branches after task
+  37.** Two of five regenerations on branches carrying task 37's emitter change read those
+  three rows 23-38% under both master runs (task 37's first run, task 58's second); the
+  other three, and every master run, agree within 6%. No code these rows execute changed.
+  Closing it takes running the section alone under `-XX:+PrintCompilation` in both states
+  to see which kernel's compile the chunk rows land after - the harness's JIT order, not
+  a kernel, is the suspect.
 
 ## 10. Scope catalogue
 

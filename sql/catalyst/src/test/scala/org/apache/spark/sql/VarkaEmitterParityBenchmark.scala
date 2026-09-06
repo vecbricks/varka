@@ -712,6 +712,105 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             chunked(recomposed, true)
           }
         }
+        // Task 42: make_date over three int columns - the year, month and day of nfData's own
+        // dates, so every triple is valid and in range - the NULL and ANSI forms as an adjacent
+        // A/B (they differ by a word store and the mask the guard receives), a mixed-null run
+        // with mxData's validity on the year, and the per-row path Spark uses today.
+        val yData = arena.allocate(numRows * 4L, 8)
+        val mData = arena.allocate(numRows * 4L, 8)
+        val dData = arena.allocate(numRows * 4L, 8)
+        locally {
+          var i = 0
+          while (i < numRows) {
+            val date = java.time.LocalDate.ofEpochDay(nfData.get(ValueLayout.JAVA_INT, i * 4L))
+            yData.set(ValueLayout.JAVA_INT, i * 4L, date.getYear)
+            mData.set(ValueLayout.JAVA_INT, i * 4L, date.getMonthValue)
+            dData.set(ValueLayout.JAVA_INT, i * 4L, date.getDayOfMonth)
+            i += 1
+          }
+        }
+        val col1 = new ColumnRef(1)
+        val col2 = new ColumnRef(2)
+        val makeDateNull = emit(Seq(new MakeDate(col0, col1, col2, false)), 3, 0, loader, 880)
+        val makeDateAnsi = emit(Seq(new MakeDate(col0, col1, col2, true)), 3, 0, loader, 881)
+        def chunkedThree(kernel: VarkaFusedKernel, mixed: Boolean): Unit =
+          eachChunk { (dataOff, validityOff, n) =>
+            val status = if (mixed) {
+              kernel.run(
+                Array(yData.address() + dataOff, mData.address() + dataOff,
+                  dData.address() + dataOff),
+                Array(mxValidity.address() + validityOff, 0L, 0L),
+                Array(nullsIn(n), 0, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            } else {
+              kernel.run(
+                Array(yData.address() + dataOff, mData.address() + dataOff,
+                  dData.address() + dataOff),
+                Array(0L, 0L, 0L), Array(0, 0, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            }
+            require(status == 0, s"the kernel declined a batch: status $status")
+          }
+        benchmark.addCase("make_date, NULL form (task 42 A/B), null-free") { _ =>
+          chunkedThree(makeDateNull, false)
+        }
+        benchmark.addCase("make_date, ANSI form (task 42 A/B), null-free") { _ =>
+          chunkedThree(makeDateAnsi, false)
+        }
+        benchmark.addCase("make_date, NULL form (task 42 A/B), mixed nulls") { _ =>
+          chunkedThree(makeDateNull, true)
+        }
+        benchmark.addCase("make_date, ANSI form (task 42 A/B), mixed nulls") { _ =>
+          chunkedThree(makeDateAnsi, true)
+        }
+        benchmark.addCase("per-row LocalDate.of make_date (the path Spark uses today)") { _ =>
+          var pass = 0
+          while (pass < repeats) {
+            var i = 0
+            while (i < numRows) {
+              val date = java.time.LocalDate.of(yData.get(ValueLayout.JAVA_INT, i * 4L),
+                mData.get(ValueLayout.JAVA_INT, i * 4L), dData.get(ValueLayout.JAVA_INT, i * 4L))
+              dst.set(ValueLayout.JAVA_INT, i * 4L, DateTimeUtils.localDateToDays(date))
+              i += 1
+            }
+            pass += 1
+          }
+        }
+        // Task 37: weekofyear as the compiler builds it, the week tail over the Thursday shift,
+        // beside the dayofyear rows above as the sibling control (the tail is dayofyear's plus
+        // four ops, the shift another seventeen), the shift alone, and the per-row path.
+        val weekOfYear = emit(Seq(new WeekOfYear(new ThursdayOf(col0))), 1, 0, loader, 870)
+        val thursdayOf = emit(Seq(new ThursdayOf(col0)), 1, 0, loader, 872)
+        // Task 58: yearofweek is Year over the same shift; the pair is the sharing row, one
+        // ThursdayOf and one prefix for both fields under CSE.
+        val yearOfWeek = emit(Seq(new Year(new ThursdayOf(col0))), 1, 0, loader, 873)
+        val isoPair = emit(Seq(new WeekOfYear(new ThursdayOf(col0)),
+          new Year(new ThursdayOf(col0))), 1, 0, loader, 874)
+        benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
+        benchmark.addCase("yearofweek (task 58), null-free") { _ => chunked(yearOfWeek, false) }
+        benchmark.addCase("weekofyear + yearofweek, one shift (task 58), null-free") { _ =>
+          chunked(isoPair, false, 2)
+        }
+        benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
+        benchmark.addCase("weekofyear (task 37), mixed nulls") { _ => chunked(weekOfYear, true) }
+        benchmark.addCase("ThursdayOf alone (task 37), null-free") { _ =>
+          chunked(thursdayOf, false)
+        }
+        benchmark.addCase("per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)") {
+          _ =>
+            var pass = 0
+            while (pass < repeats) {
+              var i = 0
+              while (i < numRows) {
+                val days = nfData.get(ValueLayout.JAVA_INT, i * 4L)
+                dst.set(ValueLayout.JAVA_INT, i * 4L, DateTimeUtils.getWeekOfYear(days))
+                i += 1
+              }
+              pass += 1
+            }
+        }
         benchmark.addCase("per-row DateTimeUtils.truncDate YEAR (the path Spark uses today)") {
           _ =>
             var pass = 0

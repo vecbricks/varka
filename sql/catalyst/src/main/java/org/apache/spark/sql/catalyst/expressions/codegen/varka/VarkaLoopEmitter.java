@@ -57,15 +57,18 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.SubDays;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ThursdayOf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -316,6 +319,34 @@ public final class VarkaLoopEmitter {
   private static final int TRUNC_QUARTER_WEIGHT = 70;
 
   /**
+   * What {@link VarkaVectorIR.MakeDate} (task 42) weighs against {@link #GROUP_BUDGET}, counted
+   * the way {@link #DAY_OF_YEAR_WEIGHT} is: the validity arithmetic (the clamp, the month length
+   * with its leap flag, four compares) and {@code emitDaysFromCivil}'s recompose. Read off the
+   * emitted bytes by the register in {@code VarkaLoopEmitterSuite}, not estimated.
+   */
+  private static final int MAKE_DATE_WEIGHT = 60;
+
+  /**
+   * {@code MakeDate}'s locals: the three inputs, the clamped month, the month length, the two
+   * masks (validity, and the year in range), and {@code emitDaysFromCivil}'s eleven scratch
+   * slots - fresh named slots rather than a reuse, {@code PLAN_TASK_36.md}'s lesson.
+   */
+  private static final int MAKE_DATE_TMP_COUNT = 18;
+
+  /**
+   * What {@link VarkaVectorIR.ThursdayOf} and {@link VarkaVectorIR.WeekOfYear} (task 37) weigh
+   * against {@link #GROUP_BUDGET}, counted the way {@link #NEXT_DAY_WEIGHT} and
+   * {@link #DAY_OF_YEAR_WEIGHT} are, and read off the emitted bytes rather than estimated:
+   * the shift's dense loop carries 19 {@code IntVector} calls ({@code weekday}'s 17 plus its
+   * add and subtract), and {@code weekofyear}'s 64 (the shift, then the day-of-year tail and
+   * {@code (doy - 1) / 7 + 1} by {@link VarkaChrono#WEEK_M}). Both exceed the budget, so no
+   * grouping decision turns on the exact figures; the register in
+   * {@code VarkaLoopEmitterSuite} pins the counts.
+   */
+  private static final int THURSDAY_OF_WEIGHT = 19;
+  private static final int WEEK_OF_YEAR_WEIGHT = DAY_OF_YEAR_WEIGHT + 4;
+
+  /**
    * What {@link VarkaVectorIR.DayOfWeekIso} (task 57) weighs against {@link #GROUP_BUDGET},
    * counted the way {@link #NEXT_DAY_WEIGHT} is: {@code WeekDay}'s mod-7 tail (17 dense-loop
    * {@code IntVector} calls under the shipped lowering, per the register in
@@ -560,20 +591,25 @@ public final class VarkaLoopEmitter {
             cb.return_();
           })
           .withMethodBody("run", RUN, AccessFlag.PUBLIC.mask(),
-              (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis))
-          .withMethodBody("runDense", RUN, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> emitBody(cb, true, BodyMode.DRIVER, -1, classDesc, outputs,
-                  analysis, numLiterals, groups))
-          .withMethodBody("epilogueDense", RUN, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> emitBody(cb, true, BodyMode.EPILOGUE, -1, classDesc, outputs,
+              (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis));
+      // A kernel that nulls a valid input (task 42's non-ANSI make_date) has no dense methods:
+      // the dense body writes no per-lane validity, so the dispatch takes the masked methods
+      // for every batch, and the masked body treats a null-free input as a constant word.
+      if (!analysis.nullsFromValidInputs) {
+        b.withMethodBody("runDense", RUN, AccessFlag.PRIVATE.mask(),
+            (CodeBuilder cb) -> emitBody(cb, true, BodyMode.DRIVER, -1, classDesc, outputs,
+                analysis, numLiterals, groups))
+            .withMethodBody("epilogueDense", RUN, AccessFlag.PRIVATE.mask(),
+                (CodeBuilder cb) -> emitBody(cb, true, BodyMode.EPILOGUE, -1, classDesc,
+                    outputs, analysis, numLiterals, groups));
+        for (int g = 0; g < groups.size(); g++) {
+          final int group = g;
+          b.withMethodBody("loopDense" + g, RUN, AccessFlag.PRIVATE.mask(),
+              (CodeBuilder cb) -> emitBody(cb, true, BodyMode.LOOP, group, classDesc, outputs,
                   analysis, numLiterals, groups));
-      for (int g = 0; g < groups.size(); g++) {
-        final int group = g;
-        b.withMethodBody("loopDense" + g, RUN, AccessFlag.PRIVATE.mask(),
-            (CodeBuilder cb) -> emitBody(cb, true, BodyMode.LOOP, group, classDesc, outputs,
-                analysis, numLiterals, groups));
+        }
       }
-      if (anyColumns) {
+      if (anyColumns || analysis.nullsFromValidInputs) {
         b.withMethodBody("runMasked", RUN, AccessFlag.PRIVATE.mask(),
             (CodeBuilder cb) -> emitBody(cb, false, BodyMode.DRIVER, -1, classDesc, outputs,
                 analysis, numLiterals, groups))
@@ -713,6 +749,9 @@ public final class VarkaLoopEmitter {
     if (node instanceof DayOfYear) {
       return DAY_OF_YEAR_WEIGHT;
     }
+    if (node instanceof WeekOfYear) {
+      return WEEK_OF_YEAR_WEIGHT;
+    }
     if (node instanceof TruncDate n) {
       return switch (n.level()) {
         case MONTH -> CHRONO_WEIGHT;
@@ -722,6 +761,12 @@ public final class VarkaLoopEmitter {
     }
     if (isChrono(node)) {
       return CHRONO_WEIGHT;
+    }
+    if (node instanceof MakeDate) {
+      return MAKE_DATE_WEIGHT;
+    }
+    if (node instanceof ThursdayOf) {
+      return THURSDAY_OF_WEIGHT;
     }
     if (node instanceof DayOfWeekIso) {
       return DAY_OF_WEEK_ISO_WEIGHT;
@@ -762,6 +807,7 @@ public final class VarkaLoopEmitter {
       case AddMonths n -> n.days();
       case LastDay n -> n.days();
       case TruncDate n -> n.days();
+      case WeekOfYear n -> n.days();
       default -> throw new IllegalStateException("not a calendar node: " + node);
     };
   }
@@ -791,6 +837,8 @@ public final class VarkaLoopEmitter {
       // Year and DayOfYear do, under either lowering (the recompose form's January month is a
       // constant).
       case TruncDate n -> n.level() != TruncLevel.YEAR;
+      // The week tail is the day-of-year tail plus a division: no month.
+      case WeekOfYear n -> false;
       default -> throw new IllegalStateException("not a calendar node: " + node);
     };
   }
@@ -869,6 +917,7 @@ public final class VarkaLoopEmitter {
       case WeekDay n -> new VarkaVectorIR[] {n.days()};
       case DayOfWeekIso n -> new VarkaVectorIR[] {n.days()};
       case NextDay n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case ThursdayOf n -> new VarkaVectorIR[] {n.days()};
       case Year n -> new VarkaVectorIR[] {n.days()};
       case Month n -> new VarkaVectorIR[] {n.days()};
       case DayOfMonth n -> new VarkaVectorIR[] {n.days()};
@@ -876,7 +925,9 @@ public final class VarkaLoopEmitter {
       case DayOfYear n -> new VarkaVectorIR[] {n.days()};
       case LastDay n -> new VarkaVectorIR[] {n.days()};
       case TruncDate n -> new VarkaVectorIR[] {n.days()};
+      case WeekOfYear n -> new VarkaVectorIR[] {n.days()};
       case AddMonths n -> new VarkaVectorIR[] {n.days(), n.months()};
+      case MakeDate n -> new VarkaVectorIR[] {n.year(), n.month(), n.day()};
       case Greatest n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
@@ -941,6 +992,11 @@ public final class VarkaLoopEmitter {
    * null-free? - selecting {@code runDense} or {@code runMasked} (plan 2.5 of task 10).
    */
   private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
+    if (analysis.nullsFromValidInputs) {
+      // No dense path for this kernel (see emit): every batch is served by the masked methods.
+      invokeBody(cb, classDesc, "runMasked");
+      return;
+    }
     Label masked = cb.newLabel();
     boolean anyColumns = analysis.referencedColumns != 0;
     for (int i = 0; i < analysis.numInputs; i++) {
@@ -1028,6 +1084,22 @@ public final class VarkaLoopEmitter {
      * sides. Filled by {@link #collectGuardedProducers()} once every root is analyzed.
      */
     final Set<VarkaVectorIR> guardedProducers = new HashSet<>();
+
+    /**
+     * The nodes that guard themselves whatever their consumers (task 42's {@code MakeDate}: a
+     * year outside its limits, and in ANSI mode an invalid date, decline the batch). Unlike
+     * {@link #guardedProducers} this set is not behind an option: the check is the node's
+     * correctness, not a producer's insurance.
+     */
+    final Set<VarkaVectorIR> selfGuarding = new HashSet<>();
+
+    /**
+     * Whether some node turns valid inputs into a null output (task 42's non-ANSI
+     * {@code MakeDate}). The dense body assumes valid in, valid out - it writes no per-lane
+     * validity - so a kernel with such a node is dispatched to the masked methods for every
+     * batch; a null-free input costs the masked body only a constant all-true word.
+     */
+    boolean nullsFromValidInputs;
     private final Map<VarkaVectorIR, Integer> height = new HashMap<>();
     /** The union of every node's columns: unreferenced inputs get no locals and no state. */
     long referencedColumns = 0L;
@@ -1055,6 +1127,9 @@ public final class VarkaLoopEmitter {
       for (VarkaVectorIR node : topoOrder) {
         if (isChrono(node)) {
           collectColumnOffsetProducers(chronoChild(node), guardedProducers);
+        }
+        if (node instanceof MakeDate) {
+          selfGuarding.add(node);
         }
       }
     }
@@ -1126,6 +1201,7 @@ public final class VarkaLoopEmitter {
           requireLiteralOffset(n.offset(), "next_day's weekday");
           analyzeOp(node, false, n.days(), n.offset());
         }
+        case ThursdayOf n -> analyzeOp(node, false, n.days());
         case Year n -> analyzeOp(node, false, n.days());
         case Month n -> analyzeOp(node, false, n.days());
         case DayOfMonth n -> analyzeOp(node, false, n.days());
@@ -1133,9 +1209,21 @@ public final class VarkaLoopEmitter {
         case DayOfYear n -> analyzeOp(node, false, n.days());
         case LastDay n -> analyzeOp(node, false, n.days());
         case TruncDate n -> analyzeOp(node, false, n.days());
+        case WeekOfYear n -> {
+          requireThursdayChild(n.days());
+          analyzeOp(node, false, n.days());
+        }
         case AddMonths n -> {
           requireLiteralOffset(n.months(), "add_months' month count");
           analyzeOp(node, false, n.days(), n.months());
+        }
+        case MakeDate n -> {
+          // skips = false: a null input still nulls the output; the reverse direction (a null
+          // from valid inputs) is nullsFromValidInputs, which the dispatch reads.
+          analyzeOp(node, false, n.year(), n.month(), n.day());
+          if (!n.failOnError()) {
+            nullsFromValidInputs = true;
+          }
         }
         case Greatest n -> analyzeOp(node, true, n.left(), n.right());
         case Least n -> analyzeOp(node, true, n.left(), n.right());
@@ -1217,6 +1305,19 @@ public final class VarkaLoopEmitter {
       if (!(offset instanceof LiteralSlot)) {
         throw new IllegalArgumentException(
             position + " must be a literal slot, got " + offset);
+      }
+    }
+
+    /**
+     * {@link WeekOfYear}'s lowering, {@code (dayOfYear - 1) / 7 + 1}, is the ISO week only of
+     * a Thursday (task 37), so the node is defined over {@link ThursdayOf} and nothing else:
+     * the compiler builds the pair, and any other tree is a bug, refused here rather than
+     * emitted as a plausible wrong week.
+     */
+    private static void requireThursdayChild(VarkaVectorIR days) {
+      if (!(days instanceof ThursdayOf)) {
+        throw new IllegalArgumentException(
+            "WeekOfYear's child must be a ThursdayOf, got " + days);
       }
     }
   }
@@ -1329,6 +1430,9 @@ public final class VarkaLoopEmitter {
      * compares it, since the result has to stay on the operand stack for the parent. */
     final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
 
+    /** {@code MakeDate}'s {@link #MAKE_DATE_TMP_COUNT} locals (task 42). */
+    final Map<VarkaVectorIR, int[]> makeDateTmp = new HashMap<>();
+
     Slots(int numInputs, int numOutputs) {
       srcSeg = new int[numInputs];
       srcValSeg = new int[numInputs];
@@ -1399,9 +1503,13 @@ public final class VarkaLoopEmitter {
     // One accumulator per body, and only in a body that emits a guarded producer (task 52):
     // the caller acts on the batch, not the lane, and a body with nothing to guard keeps the
     // slot numbering - and so the bytes - of task 51 exactly, whichever way the option is set.
-    boolean guarding = analysis.options.guardDayProducers() && mode != BodyMode.DRIVER
+    boolean producersGuarding = analysis.options.guardDayProducers() && mode != BodyMode.DRIVER
         && !analysis.guardedProducers.isEmpty()
         && outputs.stream().anyMatch(o -> reaches(o, analysis.guardedProducers));
+    // A self-guarding node (task 42) needs the accumulator whatever the option says.
+    boolean selfGuarding = mode != BodyMode.DRIVER && !analysis.selfGuarding.isEmpty()
+        && outputs.stream().anyMatch(o -> reaches(o, analysis.selfGuarding));
+    boolean guarding = producersGuarding || selfGuarding;
     if (guarding) {
       s.guardAcc = slot++;
     }
@@ -1436,13 +1544,20 @@ public final class VarkaLoopEmitter {
             s.pairTmp.put(node, new int[] {slot++, slot++});
           }
           if (node instanceof DayOfWeek || node instanceof WeekDay || node instanceof NextDay
-              || node instanceof DayOfWeekIso) {
+              || node instanceof ThursdayOf || node instanceof DayOfWeekIso) {
             // emitFloorMod7's own two scratch slots; NextDay's second copy of the date rides
             // the operand stack (dup/swap in its emitValue arm) rather than needing a third.
             s.dowTmp.put(node, new int[] {slot++, slot++});
           }
-          if (guarding && analysis.guardedProducers.contains(node)) {
+          if (producersGuarding && analysis.guardedProducers.contains(node)) {
             s.guardTmp.put(node, slot++);
+          }
+          if (node instanceof MakeDate) {
+            int[] tmp = new int[MAKE_DATE_TMP_COUNT];
+            for (int k = 0; k < MAKE_DATE_TMP_COUNT; k++) {
+              tmp[k] = slot++;
+            }
+            s.makeDateTmp.put(node, tmp);
           }
           if (isChrono(node)) {
             // Six int-vector temporaries and two masks for a plain extraction (see emitChrono
@@ -1460,7 +1575,7 @@ public final class VarkaLoopEmitter {
             int count = node instanceof AddMonths ? ADD_MONTHS_TMP_COUNT
                 : node instanceof LastDay ? LAST_DAY_TMP_COUNT
                 : node instanceof TruncDate ? TRUNC_DATE_TMP_COUNT
-                : node instanceof DayOfYear ? CHRONO_PREFIX_SLOTS + 1
+                : node instanceof DayOfYear || node instanceof WeekOfYear ? CHRONO_PREFIX_SLOTS + 1
                 : CHRONO_PREFIX_SLOTS;
             FragmentKey key = fragmentKey(node, dense, s);
             int[] prefix = shareChronoPrefix ? s.chronoPrefixTmp.get(key) : null;
@@ -1512,6 +1627,7 @@ public final class VarkaLoopEmitter {
       case WeekDay n -> s.wordRef.get(n.days());
       case DayOfWeekIso n -> s.wordRef.get(n.days());
       case NextDay n -> s.wordRef.get(n.days());
+      case ThursdayOf n -> s.wordRef.get(n.days());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
       case DayOfMonth n -> s.wordRef.get(n.days());
@@ -1519,6 +1635,7 @@ public final class VarkaLoopEmitter {
       case DayOfYear n -> s.wordRef.get(n.days());
       case LastDay n -> s.wordRef.get(n.days());
       case TruncDate n -> s.wordRef.get(n.days());
+      case WeekOfYear n -> s.wordRef.get(n.days());
       case AddMonths n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.months()));
       case DateDiff n -> andRef(s.wordRef.get(n.end()), s.wordRef.get(n.start()));
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
@@ -2140,6 +2257,21 @@ public final class VarkaLoopEmitter {
         emitFloorMod7(cb, node, analysis, s);
         emitModOffset(cb, s, 3);
       }
+      case ThursdayOf n -> {
+        // t = d + 3 - weekday0(d), the Thursday of d's Monday-based week (task 37), on
+        // NextDay's pattern: the date's second copy rides the operand stack across
+        // emitFloorMod7, whose two dowTmp slots it would otherwise have to share.
+        emitValue(cb, n.days(), dense, analysis, s, computed);   // [d]
+        cb.dup();                                                // [d, d]
+        line(cb, analysis, node);
+        emitFloorMod7(cb, node, analysis, s);                    // [d, floorMod(d, 7)]
+        emitModOffset(cb, s, 3);                                 // [d, weekday0]
+        cb.swap();                                               // [weekday0, d]
+        cb.loadConstant(3);
+        cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);        // [weekday0, d + 3]
+        cb.swap();                                               // [d + 3, weekday0]
+        cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);        // [d + 3 - weekday0]
+      }
       case DayOfWeekIso n -> {
         // WeekDay's tail plus one (task 57): Monday 1 to Sunday 7.
         emitValue(cb, n.days(), dense, analysis, s, computed);
@@ -2184,6 +2316,8 @@ public final class VarkaLoopEmitter {
       }
       case LastDay n -> emitChrono(cb, node, dense, analysis, s, computed);
       case TruncDate n -> emitChrono(cb, node, dense, analysis, s, computed);
+      case MakeDate n -> emitMakeDate(cb, n, dense, analysis, s, computed);
+      case WeekOfYear n -> emitChrono(cb, node, dense, analysis, s, computed);
       case Greatest n -> emitPick(cb, n, n.left(), n.right(), "max", dense, analysis, s,
           computed);
       case Least n -> emitPick(cb, n, n.left(), n.right(), "min", dense, analysis, s,
@@ -2289,14 +2423,22 @@ public final class VarkaLoopEmitter {
     cb.loadConstant(VarkaChrono.NARROW_MAX_DAYS);
     cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-    if (!dense) {
-      Integer word = s.wordRef.get(node);
-      if (word != null && word != WORD_ALL_TRUE) {
-        cb.aload(s.species);
-        loadWord(cb, word);
-        cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
-        cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
-      }
+    emitGuardCollect(cb, dense ? null : s.wordRef.get(node), dense, s);
+  }
+
+  /**
+   * Consumes a {@code VectorMask} of lanes that condemn the batch and folds it into the body's
+   * accumulator: ANDed with {@code word}, the lanes' validity, in a masked body (a null lane is
+   * not out of range; {@code null} or the all-true constant skips the AND), ANDed with the
+   * epilogue's bounds mask when there is one, ORed into {@code guardAcc}. The tail of task
+   * 52's producer guard, shared with task 42's self-guarding node.
+   */
+  private static void emitGuardCollect(CodeBuilder cb, Integer word, boolean dense, Slots s) {
+    if (!dense && word != null && word != WORD_ALL_TRUE) {
+      cb.aload(s.species);
+      loadWord(cb, word);
+      cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+      cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     if (s.epilogueMask != null) {
       cb.aload(s.epilogueMask);
@@ -2305,6 +2447,127 @@ public final class VarkaLoopEmitter {
     cb.aload(s.guardAcc);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
     cb.astore(s.guardAcc);
+  }
+
+  /**
+   * {@code make_date(year, month, day)} (task 42; PLAN_TASK_42.md 3.1). The three inputs go to
+   * slots; the month is clamped into 1..12 for the length test; the length is the closed form
+   * {@code 30 | (mc - (mc >>> 3))} - equal to the review's {@code 30 | (mc ^ (mc >>> 3))} on
+   * 1..12 without a vector XOR - blended with {@code 28 + leap} where the clamped month is 2;
+   * {@code valid} is month in 1..12 and day in 1..length, {@code okY} the year inside
+   * {@link VarkaChrono#MAKE_DATE_MIN_YEAR}..{@link VarkaChrono#MAKE_DATE_MAX_YEAR}. Two masks,
+   * two destinations: {@code !okY}, plus {@code !valid} under ANSI, goes to the guard
+   * accumulator and declines the batch; under the NULL form {@code valid} is ANDed into the
+   * node's own validity word instead. The value is {@code emitDaysFromCivil} over the year,
+   * the clamped month and the day, garbage wherever a mask said so - a null lane's data is
+   * undefined and a declined batch is recomputed whole. The node always computes its own word
+   * (the AND of its inputs', then the validity), so the guard's AND sees the inputs' word.
+   */
+  private static void emitMakeDate(CodeBuilder cb, MakeDate n, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    int[] t = s.makeDateTmp.get(n);
+    int year = t[0];
+    int month = t[1];
+    int day = t[2];
+    int clamped = t[3];
+    int length = t[4];
+    int valid = t[5];
+    int okY = t[6];
+    emitValue(cb, n.year(), dense, analysis, s, computed);
+    cb.astore(year);
+    emitValue(cb, n.month(), dense, analysis, s, computed);
+    cb.astore(month);
+    emitValue(cb, n.day(), dense, analysis, s, computed);
+    cb.astore(day);
+    line(cb, analysis, n);
+    // clamped = min(max(m, 1), 12)
+    cb.aload(month);
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "max", LANEWISE_VI);
+    cb.loadConstant(12);
+    cb.invokevirtual(INT_VECTOR, "min", LANEWISE_VI);
+    cb.astore(clamped);
+    // length = blend(30 | (mc - (mc >>> 3)), 28 + L, mc == 2)
+    cb.aload(clamped);
+    cb.aload(clamped);
+    emitShift(cb, "LSHR", 3);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+    cb.loadConstant(30);
+    cb.invokevirtual(INT_VECTOR, "or", LANEWISE_VI);
+    cb.aload(s.species);
+    cb.loadConstant(28);
+    cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
+    cb.loadConstant(1);
+    emitLeapFlag(cb, year);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI_MASKED);
+    cb.aload(clamped);
+    cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
+    cb.loadConstant(2);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.invokevirtual(INT_VECTOR, "blend", BLEND);
+    cb.astore(length);
+    // valid = (1 <= m <= 12) & (1 <= d <= length)
+    cb.aload(month);
+    cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.aload(month);
+    cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
+    cb.loadConstant(12);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.aload(day);
+    cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.aload(day);
+    cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
+    cb.aload(length);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VV);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.astore(valid);
+    // okY = MIN_YEAR <= y <= MAX_YEAR
+    cb.aload(year);
+    cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
+    cb.loadConstant(VarkaChrono.MAKE_DATE_MIN_YEAR);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.aload(year);
+    cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
+    cb.loadConstant(VarkaChrono.MAKE_DATE_MAX_YEAR);
+    cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.astore(okY);
+    // The node's word: the inputs' AND, in a masked body.
+    Integer own = dense ? null : s.wordRef.get(n);
+    if (!dense) {
+      loadWord(cb, s.wordRef.get(n.year()));
+      loadWord(cb, s.wordRef.get(n.month()));
+      cb.land();
+      loadWord(cb, s.wordRef.get(n.day()));
+      cb.land();
+      cb.lstore(own);
+    }
+    // The decline mask: a year outside the limits, plus an invalid date under ANSI.
+    cb.aload(okY);
+    cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
+    if (n.failOnError()) {
+      cb.aload(valid);
+      cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
+      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    }
+    emitGuardCollect(cb, own, dense, s);
+    // The value, over the clamped month; garbage where a mask said so.
+    emitDaysFromCivil(cb, year, clamped, day, t[7], t[8], t[9], t[10], t[11], t[12], t[13],
+        t[14], t[15], t[16], t[17]);
+    // Under the NULL form an invalid date is a null output: the validity joins the word.
+    if (!dense && !n.failOnError()) {
+      cb.lload(own);
+      cb.aload(valid);
+      cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);
+      cb.land();
+      cb.lstore(own);
+    }
   }
 
   /**
@@ -2543,6 +2806,7 @@ public final class VarkaLoopEmitter {
       case LastDay n -> emitChronoLastDay(cb, s, t, neri, julian);
       case TruncDate n -> emitChronoTrunc(cb, n, s, t, neri, julian,
           analysis.options.truncDate());
+      case WeekOfYear n -> emitChronoWeekOfYear(cb, t, era, century, yearOfCentury, rem, julian);
       default -> throw new IllegalStateException("not a calendar node: " + node);
     }
   }
@@ -3206,6 +3470,30 @@ public final class VarkaLoopEmitter {
    * ({@link #TRUNC_DATE_TMP_COUNT}); the two prefix carry masks {@code t[6..7]} are dead by here
    * and are reused, as {@code DayOfYear} reuses them.
    */
+  /**
+   * The ISO week tail (task 37): the {@code DayOfYear} tail over the prefix - which here ran
+   * over a {@link ThursdayOf}, the analysis's rule - then {@code (doy - 1) / 7 + 1} by
+   * {@link VarkaChrono#WEEK_M}, four ops. Same slots as {@code DayOfYear}: {@code t[6]} and
+   * {@code t[7]} are the prefix's dead carry scratch, {@code t[8]} the node's own year.
+   * Leaves the week, 1 to 53, on the stack.
+   */
+  private static void emitChronoWeekOfYear(CodeBuilder cb, int[] t, int era, int century,
+      int yearOfCentury, int rem, boolean julian) {
+    int mask = t[6];
+    int leap = t[7];
+    int year = t[8];
+    emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
+    cb.astore(year);
+    emitLeapFlag(cb, year);
+    cb.astore(leap);
+    emitJanuaryDayOfYear(cb, rem, leap, mask);                 // [doy]
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VI);          // [doy - 1]
+    emitMagic(cb, VarkaChrono.WEEK_M, VarkaChrono.WEEK_K);     // [(doy - 1) / 7]
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);          // [week]
+  }
+
   private static void emitChronoTrunc(CodeBuilder cb, TruncDate node, Slots s, int[] t,
       boolean neri, boolean julian, VarkaEmitOptions.TruncDateForm form) {
     int days = t[0];

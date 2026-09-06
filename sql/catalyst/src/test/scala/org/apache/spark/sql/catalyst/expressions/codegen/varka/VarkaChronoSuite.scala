@@ -25,6 +25,7 @@ import scala.util.Random
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono.Fields
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
 /**
  * The scalar half of task 26: `VarkaChrono`'s civil-from-days model, checked against
@@ -275,6 +276,96 @@ class VarkaChronoSuite extends SparkFunSuite {
     // And that the shipped twin is one of the two, whichever the default says.
     val probe = LocalDate.of(2024, 2, 29).toEpochDay.toInt
     assert(VarkaChrono.narrowed(probe) === reference(probe))
+  }
+
+  test("task 42: the make_date year limits are the whole years of the narrow range") {
+    val lo = LocalDate.ofEpochDay(VarkaChrono.NARROW_MIN_DAYS.toLong)
+    val hi = LocalDate.ofEpochDay(VarkaChrono.NARROW_MAX_DAYS.toLong)
+    assert(VarkaChrono.MAKE_DATE_MIN_YEAR === lo.getYear + 1)
+    assert(VarkaChrono.MAKE_DATE_MAX_YEAR === hi.getYear - 1)
+    // Every day of the limit years is inside the range the calendar lowering is exact over.
+    assert(LocalDate.of(VarkaChrono.MAKE_DATE_MIN_YEAR, 1, 1).toEpochDay >=
+      VarkaChrono.NARROW_MIN_DAYS)
+    assert(LocalDate.of(VarkaChrono.MAKE_DATE_MAX_YEAR, 12, 31).toEpochDay <=
+      VarkaChrono.NARROW_MAX_DAYS)
+  }
+
+  test("task 42: the scalar makeDate is LocalDate.of at the corners, and names its two " +
+      "non-answers apart") {
+    def ref(y: Int, m: Int, d: Int): Int =
+      try LocalDate.of(y, m, d).toEpochDay.toInt
+      catch { case _: java.time.DateTimeException => VarkaChrono.MAKE_DATE_INVALID }
+    val cases = Seq(
+      (2024, 2, 29), (2023, 2, 29), (1900, 2, 29), (2000, 2, 29), (2024, 2, 30),
+      (2024, 4, 31), (2024, 4, 30), (2024, 12, 31), (2024, 12, 32), (2024, 13, 1),
+      (2024, 0, 1), (2024, 1, 0), (2024, -1, 15), (2024, 6, -1), (1, 1, 1), (9999, 12, 31),
+      (1970, 1, 1), (1969, 12, 31))
+    for ((y, m, d) <- cases) {
+      assert(VarkaChrono.makeDate(y, m, d) === ref(y, m, d), s"$y-$m-$d")
+    }
+    assert(VarkaChrono.makeDate(VarkaChrono.MAKE_DATE_MIN_YEAR - 1, 1, 1) ===
+      VarkaChrono.MAKE_DATE_OUT_OF_RANGE)
+    assert(VarkaChrono.makeDate(VarkaChrono.MAKE_DATE_MAX_YEAR + 1, 12, 31) ===
+      VarkaChrono.MAKE_DATE_OUT_OF_RANGE)
+    // An out-of-range year with an invalid month is out of range first: the kernel declines it.
+    assert(VarkaChrono.makeDate(VarkaChrono.MAKE_DATE_MAX_YEAR + 1, 13, 1) ===
+      VarkaChrono.MAKE_DATE_OUT_OF_RANGE)
+  }
+
+  test("task 42: the scalar makeDate round-trips every day of the covered years " +
+      "(opt-in: -Dvarka.sweep=true)") {
+    assume(System.getProperty("varka.sweep") == "true",
+      "set -Dvarka.sweep=true to run the exhaustive sweep")
+    var day = LocalDate.of(VarkaChrono.MAKE_DATE_MIN_YEAR, 1, 1).toEpochDay.toInt
+    val end = LocalDate.of(VarkaChrono.MAKE_DATE_MAX_YEAR, 12, 31).toEpochDay.toInt
+    var mismatches = 0
+    while (day <= end) {
+      val date = LocalDate.ofEpochDay(day.toLong)
+      if (VarkaChrono.makeDate(date.getYear, date.getMonthValue, date.getDayOfMonth) != day) {
+        mismatches += 1
+      }
+      day += 1
+    }
+    assert(mismatches === 0)
+  }
+
+  test("task 37: the week magic is exact over the day-of-year domain and one past it") {
+    // (dayOfYear - 1) / 7 for dayOfYear in 1..366 is x / 7 for x in 0..365; the magic holds
+    // to 684 and fails at 685, which is the number to write down rather than "it works".
+    for (x <- 0 to 684) {
+      assert(((x * VarkaChrono.WEEK_M) >>> VarkaChrono.WEEK_K) === x / 7, s"not exact at $x")
+    }
+    assert(((685 * VarkaChrono.WEEK_M) >>> VarkaChrono.WEEK_K) !== 685 / 7)
+    assert(684L * VarkaChrono.WEEK_M < Int.MaxValue.toLong)
+  }
+
+  test("task 37: the scalar weekOfYear is DateTimeUtils.getWeekOfYear at the ISO corners") {
+    val days = Seq(
+      LocalDate.of(2015, 12, 28), LocalDate.of(2016, 1, 1), LocalDate.of(2019, 12, 30),
+      LocalDate.of(2020, 12, 31), LocalDate.of(2021, 1, 1), LocalDate.of(2004, 12, 31),
+      LocalDate.of(2009, 12, 31), LocalDate.of(2026, 12, 31), LocalDate.of(1919, 12, 31),
+      LocalDate.of(1969, 12, 31), LocalDate.of(1960, 1, 1), LocalDate.of(1, 1, 1),
+      LocalDate.of(9999, 12, 31), LocalDate.of(1970, 1, 1), LocalDate.of(2000, 2, 29))
+    for (d <- days) {
+      val days = d.toEpochDay.toInt
+      assert(VarkaChrono.weekOfYear(days) === DateTimeUtils.getWeekOfYear(days), d.toString)
+    }
+  }
+
+  test("task 37: the scalar weekOfYear matches DateTimeUtils over the covered range " +
+      "(opt-in: -Dvarka.sweep=true)") {
+    assume(System.getProperty("varka.sweep") == "true",
+      "set -Dvarka.sweep=true to run the exhaustive sweep")
+    // Three days in from either end: the Thursday of a day at the edge can lie past it, and
+    // the decomposition is only defined inside the range (task 52's arm for the shift is
+    // [-3, +3] for the same reason).
+    var day = VarkaChrono.NARROW_MIN_DAYS + 3
+    var mismatches = 0
+    while (day <= VarkaChrono.NARROW_MAX_DAYS - 3) {
+      if (VarkaChrono.weekOfYear(day) != DateTimeUtils.getWeekOfYear(day)) mismatches += 1
+      day += 1
+    }
+    assert(mismatches === 0)
   }
 
   test("the exhaustive sweep (opt-in: -Dvarka.sweep=true)") {

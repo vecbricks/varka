@@ -390,14 +390,17 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
         new Greatest(new DayOfMonth(columnRef),
           new Least(new Quarter(columnRef),
             new Least(new LastDay(columnRef), new TruncDate(columnRef, TruncLevel.YEAR))))),
-      new DayOfYear(columnRef))
+      new Greatest(new DayOfYear(columnRef), new WeekOfYear(new ThursdayOf(columnRef))))
     val everyNode = new IfElse(
       cond,
       new Greatest(new AddDays(columnRef, literal), new SubDays(columnRef, literal)),
       new Least(new DateDiff(chrono, new DayOfWeek(columnRef)),
         new Least(new Least(new WeekDay(columnRef), new DayOfWeekIso(columnRef)),
-          new Least(new NextDay(columnRef, literal), new AddMonths(columnRef, literal)))))
-    assert(VarkaShapeCache.shapeHash(keyOf(everyNode)) === "424064c1149d8b22")
+          new Least(new NextDay(columnRef, literal),
+            new Least(new AddMonths(columnRef, literal),
+              new Least(new MakeDate(columnRef, literal, literal, false),
+                new MakeDate(columnRef, literal, literal, true)))))))
+    assert(VarkaShapeCache.shapeHash(keyOf(everyNode)) === "264c27595ebf0685")
   }
 
   test("side-table identities are recorded truncated, so one entry cannot grow unbounded") {

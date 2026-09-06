@@ -54,3 +54,4 @@ sql/varka/plans/PLAN_TASK_48.md	2166.5	interleaved re-run compared by minimums; 
 sql/varka/plans/PLAN_TASK_48.md	1042.8	interleaved re-run compared by minimums; per-iteration output not committed
 sql/varka/plans/PLAN_TASK_48.md	7759.6	interleaved re-run compared by minimums; per-iteration output not committed
 sql/varka/plans/SCOPE_MILESTONE_6.md	1853.0	probe figure from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/PLAN_TASK_37.md	1408.3	the second parity run, whose file the third run superseded on the branch; the squash-merge of #123 kept only the third, so the branch commit c3c92bed1a7 is where it traces

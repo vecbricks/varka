@@ -836,6 +836,48 @@ proofs, parsing or the ILP extractor - is planned in `PLAN_EGRAPH_PORT.md`,
 independent of this item and buildable before it; Varka takes it as a
 pinned dependency when this item needs it.
 
+### Item 12. Fork-only date functions on intermediates the kernels already hold
+
+Recorded on 4 September 2026 while planning task 37, at the owner's request.
+A calendar kernel computes, per date, a set of values it then throws away
+after one field is read: the era and year, the March-based day of year, the
+month numerator, the day of month, the leap flag, the January day of year, the
+weekday, the month start and, from task 37, the Thursday of the ISO week. A
+function whose whole cost is a few ops over those is nearly free to fuse. Spark
+has no such functions today, so every one of these is fork-only SQL surface and
+a product decision before it is a task; the ISO ones are the strongest, because
+they answer a grouping question users answer with strings today.
+
+| function | definition | on top of what | about |
+|---|---|---|---|
+| `yearweek(d)` | the ISO week key as one int, `yearofweek * 100 + weekofyear` | task 37's Thursday prefix, shared by both fields | 2 ops |
+| `days_in_month(d)` | the month's length | the closed-form month length of the `datealgo-rs` review plus the leap blend | 3-5 ops, against `day(last_day(d))` recomposing the date |
+| `is_leap_year(d)` | the leap flag itself | `emitLeapFlag`'s four ops; boolean output, so milestone 5's boolean lanes first | 4 ops |
+| `previous_day(d, 'MON')` | the mirror of `next_day` | the same mod 7 with one subtract the other way | as `next_day`, 15 ops |
+| `months_diff(d1, d2)` | `(year1 - year2) * 12 + month1 - month2`, an int | two prefixes | 3 ops past them, against Spark's double-valued `months_between` |
+| `iso_week_start(d)` | the Monday of the ISO week, `ThursdayOf(d) - 3` | task 37's shift | 1 op; `trunc(d, 'WEEK')` already gives it |
+
+Compositions users write for the same things today fuse only as far as the
+date lane goes: `trunc(d, 'WEEK')` for the previous Monday and
+`datediff(d, trunc(d, 'QUARTER'))` for the day of quarter are one kernel,
+but the `+ 1` after that, the `+ 2440588` that turns `unix_date(d)` into a
+Julian day number and the `/ 7 + 1` of a week of month are integer
+arithmetic over an output, which the compiler has no arm for - the entry
+declines whole and the row engine computes it. That is milestone 5's task
+30 (ANSI integer arithmetic), and it is also why task 57 gives
+`extract(DAYOFWEEK_ISO)` a node of its own rather than lowering the
+`Add(WeekDay, 1)` the analyzer desugars it to. Until task 30 lands, the
+functions in the table are the only way to get these as one kernel.
+
+Two cautions. A string or double output leaves the int lane whatever the
+arithmetic costs, so `dayname`, `monthname` and `date_format` fields wait for
+the formatter (section 6) and `months_between` as Spark defines it for the
+double lane. And the sharing rule cuts both ways: `weekofyear(d)` beside
+`year(d)` in one projection decomposes twice, once over the Thursday and once
+over the day, so a query mixing ISO and calendar fields pays two prefixes;
+`yearweek` avoids that by living on the Thursday side alone, which is another
+argument for it.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
