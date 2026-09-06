@@ -200,15 +200,44 @@ public final class VarkaLoopEmitter {
    *
    * <p>Task 17 priced the one candidate the debt register left open - raising the budget so
    * two outputs sharing a deep chain keep their cross-output CSE in one method - and closed
-   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 runs
+   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 ran
    * 4119.9 M rows/s (two loop methods, the shared chain recomputed per lane group) against
-   * 2928.2 M at 24 (one method, CSE kept) - the committed parity file, requoted whenever it
-   * is regenerated, which task 26 had to learn twice and task 32 requoted again.
-   * Recomputing eight ops in registers is cheaper than the wider method's register pressure,
-   * the same effect that made sibling methods the rule in the first place. The parity
-   * benchmark keeps both cases so a future retune is measured rather than argued.
+   * 2928.2 M at 24 (one method, CSE kept), and read that way, ~1.4x, in every regeneration
+   * through task 61. The reading was "recomputing eight ops in registers is cheaper than the
+   * wider method's register pressure"; see the next paragraph for why it was probably not.
+   * The parity benchmark keeps both cases so a future retune is measured rather than argued;
+   * the current file reads 4511.7 against 5799.7 at AVX-512 and 1700.1 against 2754.8 at
+   * 128-bit, the merged method ahead.
+   *
+   * <p>Task 32 step B2 added the one exception, and it is not task 17's case: an output that
+   * reuses a civil-from-days prefix the group already computes joins past this budget, up to
+   * {@link #FUSED_CEILING}, because skipping the prefix makes the method less work rather than
+   * more. Two plain chains over a shared subchain have no prefix to reuse and stay split - and
+   * whether they still should is open again: the two rows above reversed when task 46 moved
+   * the validity OR ahead of the vector work (budget 24 at 5492.1 against budget 16 at 4237.4
+   * in the file that change regenerated, where every earlier regeneration had 16 ahead by
+   * ~1.4x), which says the loss task 17 measured was the refused OR call in the wider method
+   * rather than register pressure. Retuning this budget on that evidence is task 43's
+   * question, not B2's. See {@link #groupOutputs} and {@code PLAN_TASK_32.md} 7.6.
    */
   public static final int GROUP_BUDGET = 16;
+
+  /**
+   * The most op nodes one emitted loop method carries when its outputs share a civil-from-days
+   * prefix (task 32 step B2). {@link #GROUP_BUDGET} is the bound on a method whose outputs
+   * share nothing but whole nodes; an output whose calendar prefix a group already computes
+   * joins that group past the budget and up to this, because joining lets it skip emitting
+   * that prefix - the one situation where a wider method is strictly less work rather than a
+   * trade (see {@link #groupOutputs}). Set by the ladder in {@code PLAN_TASK_32.md} section
+   * 7.6: one method kept winning through twelve outputs (700 ops) at both widths, so the bound
+   * comes from compile time - an eight-output method of 376 ops has every method at tier 4
+   * within 894 ms of its first compile, the twelve-output one takes 1.9 s, and the rule was one
+   * second. Past about 1900 bytes C1 refuses a loop method ("out of virtual registers in
+   * LIR"), so a method near this ceiling runs interpreted until C2 lands, ~340 ms once per
+   * shape per JVM. An emit option ({@link VarkaEmitOptions#fusedCeiling}) so a retune is priced
+   * rather than argued.
+   */
+  public static final int FUSED_CEILING = 400;
 
   /**
    * The most input columns one emitted loop may read. A node's referenced-column set is a long
@@ -216,48 +245,80 @@ public final class VarkaLoopEmitter {
    */
   public static final int MAX_INPUTS = 64;
 
-  /**
-   * What a calendar node weighs against {@link #GROUP_BUDGET}: the vector ops
-   * {@link #emitChrono} emits for one, counted and rounded to the nearest ten. It only has to
-   * exceed the budget for each calendar output to get its own loop method; the real figure is
-   * used rather than a flag so that a future node of intermediate width sorts sensibly beside
-   * it, which is the only reason the exact value matters - re-count it if the lowering
-   * changes shape rather than leaving it to drift. Covers {@code Year}/{@code Month}/
-   * {@code DayOfMonth}/{@code Quarter} (task 26), the shared prefix plus each field's own
-   * short tail; {@code DayOfYear} is heavier and weighs {@link #DAY_OF_YEAR_WEIGHT} instead.
-   *
-   * <p>Re-counted for task 53's numerator, which is exactly what that instruction asks for.
-   * The four extractions measure 39, 38, 39 and 41 emitted {@code IntVector} ops on the
-   * 3-based axis against 39, 40, 43 and 43 on the 0-based one, so the rounded figure moves
-   * from 50 to 40. It still exceeds {@link #GROUP_BUDGET} several times over, so no grouping
-   * decision changes - which is the property the paragraph above says the value is for.
-   */
-  private static final int CHRONO_WEIGHT = 40;
+  // ---------------------------------------------------------------------------------------------
+  // What a calendar node weighs: one shared civil-from-days prefix plus the node's own tail.
+  // ---------------------------------------------------------------------------------------------
 
   /**
-   * What {@code DayOfYear} (task 34) weighs against {@link #GROUP_BUDGET}, counted the same
-   * way as {@link #CHRONO_WEIGHT}: the shared prefix, minus its month step because this tail
-   * does not read the March month (see {@link #tailReadsMarchMonth}), plus
-   * {@link #emitChronoYear} (6), plus {@link #emitLeapFlag} (4), plus the January-based blend
-   * (5) - about 51 total, counted by reading every emitted instruction rather than estimated.
+   * What the civil-from-days prefix costs: the {@code IntVector} ops {@link #emitChronoPrefix}
+   * emits for one date - 31 with the March-month step, 29 where task 48 elides it because no
+   * tail in the group reads the month. The weight is a shape property, so it takes the full
+   * form.
    *
-   * <p>This number has been 73, then 55, and is now 51, and the history is worth a sentence
-   * because twice out of three times the leap flag was the reason. This task first shipped its
-   * own leap test (19 ops, a two-way remainder compare) and deleted it in favour of task 40's
-   * (22 ops), which won on bias range rather than cost. Both are gone: the helper is now
-   * Huffner's perfect hash at 4 ops, so what was the dominant term here is a rounding error.
-   * The last four came off when task 48 landed and this node turned out to be the second one
-   * whose tail reads the January turn off the day of year rather than off the month.
+   * <p>Since task 32 step B2 this is the part of a calendar node's weight that a loop method
+   * pays <i>once</i>, however many calendar outputs over the same date it holds (see
+   * {@link #groupOutputs}); each node's {@code *_TAIL_WEIGHT} below is what it pays per output.
+   * Every calendar weight is written as the sum of the two, so the split {@link #addOps}
+   * counts with and the total {@link #weightOf} reports cannot drift apart.
    *
-   * <p>Both this and {@link #CHRONO_WEIGHT} exceed {@link #GROUP_BUDGET}, so the exact value
-   * does not change today's grouping decision - a lone {@code DayOfYear} output forms its own
-   * loop method either way. What the drop does change is the compile-cliff worry the old value
-   * carried: 51 ops is inside the 59-op single-output width this file's own measurements call
-   * healthy, where 73 was past it and close to the 64-op loop task 26 measured triggering a
-   * ~10 second tier-4 compile stall. Whether a lone {@code SELECT dayofyear(d)} reaches that
-   * stall is still task 43's question, but this task no longer has a reason to expect it.
+   * <p>How the register was taken, so the next recount does it the same way: every node was
+   * emitted alone and beside {@code month(d)} in one loop method ({@code dev/varka_emit.sh
+   * "month(d)" "<node>" --options groupBudget=200}), and the pair's {@code loopDense0} count
+   * minus {@code month(d)}'s own (35) is the node's tail; {@code dayofmonth(d)} alone (36)
+   * minus its tail (5) is the prefix. {@code VarkaLoopEmitterSuite} pins every line of the
+   * register against the emitted bytes, so a lowering change that moves a count fails there
+   * rather than leaving a weight to drift.
    */
-  private static final int DAY_OF_YEAR_WEIGHT = 51;
+  static final int CHRONO_PREFIX_WEIGHT = 31;
+
+  /**
+   * The four task-26 fields' tails - {@code year} 5, {@code month} 4, {@code dayofmonth} 5,
+   * {@code quarter} 7 - as one constant at the widest, since the four share
+   * {@link #CHRONO_WEIGHT} and a two-op difference decides no grouping.
+   */
+  static final int CHRONO_FIELD_TAIL_WEIGHT = 7;
+
+  /**
+   * What {@code Year}/{@code Month}/{@code DayOfMonth}/{@code Quarter} (task 26) weigh against
+   * {@link #GROUP_BUDGET}: the prefix plus the field's own short tail. It exceeds the budget,
+   * so a calendar output never joins a group under clause 1 of {@link #groupOutputs} - it joins
+   * one under clause 2, by reusing the prefix, or forms its own.
+   *
+   * <p>History, because the number has moved with the lowering and will again: 50 at task 26
+   * (rounded to the nearest ten, when it only had to exceed the budget), 40 after task 53's
+   * numerator, and the exact 38 since B2 made the tails bound a method against
+   * {@link #FUSED_CEILING}.
+   */
+  static final int CHRONO_WEIGHT = CHRONO_PREFIX_WEIGHT + CHRONO_FIELD_TAIL_WEIGHT;
+
+  /**
+   * {@code DayOfYear}'s tail (task 34): {@link #emitChronoYear} (6), {@link #emitLeapFlag} (4)
+   * and the January-based blend, 14 in all. Its prefix elides the month step, which is why the
+   * node alone emits 43 rather than 45.
+   *
+   * <p>This tail has been 73, then 55, then 51 as a whole-node weight, and twice out of three
+   * times the leap flag was the reason: the task first shipped its own leap test (19 ops),
+   * replaced it with task 40's (22), and both are gone - the helper is Huffner's perfect hash
+   * at 4 ops.
+   */
+  static final int DAY_OF_YEAR_TAIL_WEIGHT = 14;
+  static final int DAY_OF_YEAR_WEIGHT = CHRONO_PREFIX_WEIGHT + DAY_OF_YEAR_TAIL_WEIGHT;
+
+  /** {@code LastDay}'s tail (task 36): the month's start and the next month's, clamped, and
+   * the blended length. */
+  static final int LAST_DAY_TAIL_WEIGHT = 32;
+  static final int LAST_DAY_WEIGHT = CHRONO_PREFIX_WEIGHT + LAST_DAY_TAIL_WEIGHT;
+
+  /**
+   * {@code AddMonths}'s tail (task 40): the month arithmetic, the day clamp and
+   * {@link #emitDaysFromCivil}'s recompose. By far the heaviest tail, which is what makes it
+   * the node that decides how many outputs {@link #FUSED_CEILING} admits - the four fields
+   * together weigh less than one of these. It used to borrow {@link #CHRONO_WEIGHT} on the
+   * argument that both only had to exceed the budget; under B2 the tail is summed against the
+   * ceiling, so it is counted.
+   */
+  static final int ADD_MONTHS_TAIL_WEIGHT = 81;
+  static final int ADD_MONTHS_WEIGHT = CHRONO_PREFIX_WEIGHT + ADD_MONTHS_TAIL_WEIGHT;
 
   /**
    * How many int-vector/mask locals {@link #emitChronoPrefix} leaves its results in: six
@@ -272,10 +333,7 @@ public final class VarkaLoopEmitter {
    * How many int-vector/mask locals {@link #emitAddMonths} needs: the
    * {@link #CHRONO_PREFIX_SLOTS} {@link #emitChronoPrefix} already uses, three more to hold
    * the decomposed year/month/day, and the rest for the month arithmetic and the
-   * {@code days_from_civil} recompose. Reusing
-   * {@link #CHRONO_WEIGHT} for its {@link #weightOf} cost (rather than a separate, larger
-   * constant) is deliberate: both only need to exceed {@link #GROUP_BUDGET} to force the node
-   * into its own loop method, which 50 already does.
+   * {@code days_from_civil} recompose. What it costs in ops is {@link #ADD_MONTHS_WEIGHT}.
    */
   private static final int ADD_MONTHS_TMP_COUNT = 31;
 
@@ -303,33 +361,29 @@ public final class VarkaLoopEmitter {
   private static final int TRUNC_DATE_TMP_COUNT = 24;
 
   /**
-   * What {@code TruncDate} (task 35) weighs against {@link #GROUP_BUDGET} at the {@code YEAR}
-   * and {@code QUARTER} levels, counted the way {@link #DAY_OF_YEAR_WEIGHT} is: {@code YEAR} is
-   * that tail plus the two-op subtraction, {@code QUARTER} adds the month and quarter steps and
-   * the four-way start select. {@code MONTH} weighs {@link #CHRONO_WEIGHT}: it is the
-   * day-of-month tail with its final increment removed and one subtraction added. Both exceed
-   * {@link #GROUP_BUDGET}, so the grouping does not turn on the exact figure; it is read off
-   * the emitted instructions rather than estimated: the dense loop's {@code IntVector} calls
-   * are 45 for {@code YEAR}, 36 for {@code MONTH} and 62 for {@code QUARTER} under the shipped
-   * subtract form (the register in {@code VarkaLoopEmitterSuite} pins them), against 43 for
-   * {@code DayOfYear}, and the weights carry the same eight-op allowance for the mask work
-   * that count omits. The recompose form is heavier (70, 74 and 79) and is not the default; a
-   * weight is a shape property and does not follow the option.
+   * {@code TruncDate}'s tails (task 35), under the shipped subtract form: {@code YEAR} is the
+   * day-of-year tail plus the two-op subtraction (16; its prefix elides the month step, so the
+   * node alone emits 45), {@code MONTH} is the day-of-month tail with its final increment
+   * removed and one subtraction added (5), {@code QUARTER} adds the month and quarter steps
+   * and the four-way start select (31). The recompose form is heavier and is not the default;
+   * a weight is a shape property and does not follow the option.
    */
-  private static final int TRUNC_YEAR_WEIGHT = 53;
-  private static final int TRUNC_QUARTER_WEIGHT = 70;
+  static final int TRUNC_YEAR_TAIL_WEIGHT = 16;
+  static final int TRUNC_MONTH_TAIL_WEIGHT = 5;
+  static final int TRUNC_QUARTER_TAIL_WEIGHT = 31;
+  static final int TRUNC_YEAR_WEIGHT = CHRONO_PREFIX_WEIGHT + TRUNC_YEAR_TAIL_WEIGHT;
+  static final int TRUNC_MONTH_WEIGHT = CHRONO_PREFIX_WEIGHT + TRUNC_MONTH_TAIL_WEIGHT;
+  static final int TRUNC_QUARTER_WEIGHT = CHRONO_PREFIX_WEIGHT + TRUNC_QUARTER_TAIL_WEIGHT;
 
   /**
-   * What {@link TruncDateDynamic} (task 61) weighs: the row picks its period after the fact,
-   * so the tail computes all four results - the {@code QUARTER} tail, which contains the
-   * {@code YEAR}'s and the prefix; the {@code MONTH}'s two ops; the week's
-   * {@link #emitFloorMod7} and subtract; and the three compare-and-blend pairs of the select -
-   * read off the emitted instructions the way the literal weights are (the register in
-   * {@code VarkaLoopEmitterSuite} pins the dense loop's {@code IntVector} calls at 91), with
-   * the same eight-op allowance. Far past {@link #GROUP_BUDGET}, like the literal levels, so
-   * the exact figure does not steer the grouping.
+   * {@link TruncDateDynamic}'s tail (task 61): the row picks its period after the fact, so the
+   * tail computes all four results - the {@code QUARTER} tail, which contains the
+   * {@code YEAR}'s; the {@code MONTH}'s two ops; the week's {@link #emitFloorMod7} and
+   * subtract; and the three compare-and-blend pairs of the select - 60 past the prefix, 91
+   * for the node alone.
    */
-  private static final int TRUNC_DYNAMIC_WEIGHT = 99;
+  static final int TRUNC_DYNAMIC_TAIL_WEIGHT = 60;
+  static final int TRUNC_DYNAMIC_WEIGHT = CHRONO_PREFIX_WEIGHT + TRUNC_DYNAMIC_TAIL_WEIGHT;
 
   /**
    * {@link TruncDateDynamic}'s locals: the subtract-form slots of {@link #TRUNC_DATE_TMP_COUNT}
@@ -357,17 +411,21 @@ public final class VarkaLoopEmitter {
   private static final int MAKE_DATE_TMP_COUNT = 18;
 
   /**
-   * What {@link VarkaVectorIR.ThursdayOf} and {@link VarkaVectorIR.WeekOfYear} (task 37) weigh
-   * against {@link #GROUP_BUDGET}, counted the way {@link #NEXT_DAY_WEIGHT} and
-   * {@link #DAY_OF_YEAR_WEIGHT} are, and read off the emitted bytes rather than estimated:
-   * the shift's dense loop carries 19 {@code IntVector} calls ({@code weekday}'s 17 plus its
-   * add and subtract), and {@code weekofyear}'s 64 (the shift, then the day-of-year tail and
-   * {@code (doy - 1) / 7 + 1} by {@link VarkaChrono#WEEK_M}). Both exceed the budget, so no
-   * grouping decision turns on the exact figures; the register in
-   * {@code VarkaLoopEmitterSuite} pins the counts.
+   * What {@link VarkaVectorIR.ThursdayOf} (task 37) weighs against {@link #GROUP_BUDGET},
+   * counted the way {@link #NEXT_DAY_WEIGHT} is and read off the emitted bytes: the shift's
+   * dense loop carries 19 {@code IntVector} calls ({@code weekday}'s 17 plus its add and
+   * subtract). It is a plain node, not a calendar one: {@code WeekOfYear} decomposes the
+   * shifted day, so the shift is the child its prefix is keyed on.
    */
   private static final int THURSDAY_OF_WEIGHT = 19;
-  private static final int WEEK_OF_YEAR_WEIGHT = DAY_OF_YEAR_WEIGHT + 4;
+
+  /**
+   * {@code WeekOfYear}'s tail (task 37): the day-of-year tail and {@code (doy - 1) / 7 + 1} by
+   * {@link VarkaChrono#WEEK_M}, 16 past a prefix that elides the month step - so
+   * {@code weekofyear(d)} as a whole emits 64: the shift's 19, the prefix's 29 and this.
+   */
+  static final int WEEK_OF_YEAR_TAIL_WEIGHT = 16;
+  static final int WEEK_OF_YEAR_WEIGHT = CHRONO_PREFIX_WEIGHT + WEEK_OF_YEAR_TAIL_WEIGHT;
 
   /**
    * What {@link VarkaVectorIR.DayOfWeekIso} (task 57) weighs against {@link #GROUP_BUDGET},
@@ -628,13 +686,13 @@ public final class VarkaLoopEmitter {
     // Method layout, all sharing the seven-parameter shape so slots line up everywhere:
     // `run` dispatches per batch to a dense or masked *driver*; the driver zeroes the output
     // validity, takes the all-null shortcut, then calls one sibling *loop* method per output
-    // group (each at most GROUP_BUDGET ops - see that constant for the measured reason) and
-    // finally the sibling *epilogue* method. Separate methods, not one big one: each gets its own
-    // C2 compilation, so no method's node and inlining budgets can starve another's
-    // intrinsics (task 10 measured 3x to 4x on exactly that).
+    // group (within GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar
+    // prefix - see groupOutputs) and finally the sibling *epilogue* method. Separate methods,
+    // not one big one: each gets its own C2 compilation, so no method's node and inlining
+    // budgets can starve another's intrinsics (task 10 measured 3x to 4x on exactly that).
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
-    List<List<Integer>> groups = groupOutputs(outputs, options.groupBudget());
+    List<List<Integer>> groups = groupOutputs(outputs, options);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
     VarkaDebugInfo debugInfo = new VarkaDebugInfo(
@@ -743,66 +801,144 @@ public final class VarkaLoopEmitter {
   private enum BodyMode { DRIVER, LOOP, EPILOGUE }
 
   /**
-   * Partitions the outputs into loop-method groups of at most {@code budget} ops (normally
-   * {@link #GROUP_BUDGET}), greedily in output order, counting only ops new to the group so
-   * shared subtrees keep their outputs together (and their cross-output CSE). An output wider
-   * than the budget on its own still forms a group: splitting inside one output would forfeit
-   * the register residency that is the point.
+   * Partitions the outputs into loop-method groups, greedily in output order, counting only
+   * ops new to the group so shared subtrees keep their outputs together (and their
+   * cross-output CSE). Two clauses admit the next output into the group being built:
+   *
+   * <ol>
+   *   <li>its marginal ops keep the group within {@code groupBudget} (normally
+   *       {@link #GROUP_BUDGET}) - the rule since task 11;</li>
+   *   <li>joining lets it skip a civil-from-days prefix the group already computes, and the
+   *       group stays within {@code fusedCeiling} (normally {@link #FUSED_CEILING}) - task 32
+   *       step B2. {@link GroupOps#saved} is what opens the wider bound, and it counts prefix
+   *       reuse only: a whole node the group already holds is not reason enough. An output
+   *       that skips a prefix makes the method strictly less work rather than a trade, which
+   *       is a property of the shape and holds whatever the register pressure of the day;
+   *       whether a merely-shared subchain pays is an empirical question that has already
+   *       answered both ways (task 17 measured the merge as a 1.4x loss; since task 46 moved
+   *       the validity OR ahead of the vector work the same committed rows show it winning by
+   *       1.3x - see {@code PLAN_TASK_32.md} 7.6), so it stays {@link #GROUP_BUDGET}'s own
+   *       retuning question (task 43) rather than riding on this clause. With
+   *       {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared, so the
+   *       clause never fires and the weights count whole.</li>
+   * </ol>
+   *
+   * <p>An output wider than either bound on its own still forms a group: splitting inside one
+   * output would forfeit the register residency that is the point. Greedy in output order is
+   * a known limitation: in {@code year(d), year(d2), month(d)} the month is offered to the
+   * group holding {@code year(d2)}, whose prefix it cannot reuse, so it forms a third group and
+   * recomputes a prefix it would have shared had it been adjacent to {@code year(d)}. The suite
+   * pins that as a limitation; reordering outputs for prefix affinity is in the milestone's
+   * debt register, because the evaluator's per-output vectors and the debug line map key on
+   * the projection's order.
    */
-  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs, int budget) {
+  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options) {
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
-    Set<VarkaVectorIR> seen = new HashSet<>();
-    int ops = 0;
+    GroupOps group = new GroupOps(options.shareChronoPrefix());
     for (int o = 0; o < outputs.size(); o++) {
-      Set<VarkaVectorIR> withNext = new HashSet<>(seen);
-      int marginal = addOps(outputs.get(o), withNext);
+      GroupOps withNext = group.copy();
+      int marginal = withNext.add(outputs.get(o));
+      boolean fits = group.ops + marginal <= options.groupBudget()
+          || (withNext.saved > 0 && group.ops + marginal <= options.fusedCeiling());
       // marginal == 0 means this output adds no node the group does not already have - it
       // is structurally the same tree - so splitting it off cannot reduce the method's op
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
       // its own: after one calendar output `ops` already exceeds it, so without this test
       // `SELECT year(d) AS a, year(d) AS b` would emit the decomposition twice.
-      if (!current.isEmpty() && marginal > 0 && ops + marginal > budget) {
+      if (!current.isEmpty() && marginal > 0 && !fits) {
         groups.add(current);
         current = new ArrayList<>();
-        withNext = new HashSet<>();
-        marginal = addOps(outputs.get(o), withNext);
-        ops = 0;
+        withNext = new GroupOps(options.shareChronoPrefix());
+        withNext.add(outputs.get(o));
       }
       current.add(o);
-      seen = withNext;
-      ops += marginal;
+      group = withNext;
     }
     groups.add(current);
     return groups;
   }
 
-  /** Adds the subtree's distinct nodes to {@code seen}; returns how many op nodes were new. */
-  private static int addOps(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
-    if (!seen.add(node)) {
-      return 0;
-    }
-    int count = weightOf(node);
-    for (VarkaVectorIR child : childrenOf(node)) {
-      count += addOps(child, seen);
-    }
-    return count;
-  }
-
   /**
-   * What one node costs against {@link #GROUP_BUDGET}. Every node has weighed 1 since task 10,
-   * because every node was one or two lane ops; task 26's calendar nodes are not - each expands
-   * to roughly forty, since a civil-from-days decomposition is mostly division and there is no
-   * vector divide. Counting them as 1 would let four calendar outputs share a loop method of
-   * ~180 vector ops, which is the compile cliff {@link #GROUP_BUDGET} exists to avoid (see its
-   * javadoc: a 64-op loop took a ~10 s tier-4 compile). Weighing them by what they emit puts
-   * each in its own sibling method instead, which is the shape the budget's own doc blesses -
-   * an output wider than the budget forms its own group, and single-output loops measured
-   * healthy at 59 ops.
+   * What one loop-method group costs so far, for {@link #groupOutputs}: the distinct nodes it
+   * holds, the dates whose civil-from-days prefix it computes, and the op total under the
+   * split {@link #CHRONO_PREFIX_WEIGHT} describes - a calendar node whose prefix the group
+   * already computes adds only its tail.
+   *
+   * <p>The prefix is identified by the date it decomposes ({@link #chronoChild}), which is the
+   * dense body's {@link FragmentKey}; the masked body's key also carries the node's validity
+   * word, so a group may hold two calendar outputs whose masked bodies do not share (task 60's
+   * column-count {@code add_months} beside {@code month(d)}) while the dense body and the
+   * epilogue do. Grouping on the child alone is the conservative side of that: the shape is
+   * correct either way, and a share the masked body misses is a missed win, never a wrong
+   * grouping.
+   */
+  private static final class GroupOps {
+    private final boolean sharePrefix;
+    private final Set<VarkaVectorIR> nodes;
+    private final Set<VarkaVectorIR> prefixes;
+    /** The group's op total. */
+    int ops;
+    /** How many ops the last {@link #add} skipped by reusing prefixes the group already
+     * computed; zero for an output that reuses none. */
+    int saved;
+
+    GroupOps(boolean sharePrefix) {
+      this(sharePrefix, new HashSet<>(), new HashSet<>(), 0);
+    }
+
+    private GroupOps(boolean sharePrefix, Set<VarkaVectorIR> nodes,
+        Set<VarkaVectorIR> prefixes, int ops) {
+      this.sharePrefix = sharePrefix;
+      this.nodes = nodes;
+      this.prefixes = prefixes;
+      this.ops = ops;
+    }
+
+    GroupOps copy() {
+      return new GroupOps(sharePrefix, new HashSet<>(nodes), new HashSet<>(prefixes), ops);
+    }
+
+    /** Adds the output's distinct nodes; returns how many ops were new, and leaves in
+     * {@link #saved} how many the output skipped by reusing a prefix already here. */
+    int add(VarkaVectorIR root) {
+      saved = 0;
+      int before = ops;
+      walk(root);
+      return ops - before;
+    }
+
+    private void walk(VarkaVectorIR node) {
+      if (!nodes.add(node)) {
+        return;
+      }
+      int weight = weightOf(node);
+      if (sharePrefix && isChrono(node) && !prefixes.add(chronoChild(node))) {
+        weight -= CHRONO_PREFIX_WEIGHT;
+        saved += CHRONO_PREFIX_WEIGHT;
+      }
+      ops += weight;
+      for (VarkaVectorIR child : childrenOf(node)) {
+        walk(child);
+      }
+    }
+  }
+  /**
+   * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node
+   * has weighed 1 since task 10, because every node was one or two lane ops; task 26's
+   * calendar nodes are not - each expands to thirty-odd or more, since a civil-from-days
+   * decomposition is mostly division and there is no vector divide. Counting them as 1 would
+   * have let four calendar outputs share a method of ~180 ops when the ~10 s compile cliff was
+   * still believed in; weighing them by what they emit gave each its own sibling method
+   * instead. Task 32 then measured the cliff away (272 ms at 200 ops, {@code PLAN_TASK_32.md}
+   * 7.5) and step B2 lets siblings over one date share a method again - deliberately, and only
+   * where the prefix is reused, which is why every calendar weight is written as
+   * {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@link GroupOps} counts the prefix once.
    *
    * <p>This is deliberately only about <i>grouping</i>. {@link #MAX_FUSED_NODES} still counts
-   * nodes, so a projection may fuse as many calendar fields as it likes; they simply do not
-   * share a method.
+   * nodes, so a projection may fuse as many calendar fields as it likes; whether they share a
+   * method is {@link #groupOutputs}' question.
    */
   private static int weightOf(VarkaVectorIR node) {
     if (node instanceof ColumnRef || node instanceof LiteralSlot) {
@@ -816,13 +952,19 @@ public final class VarkaLoopEmitter {
     }
     if (node instanceof TruncDate n) {
       return switch (n.level()) {
-        case MONTH -> CHRONO_WEIGHT;
+        case MONTH -> TRUNC_MONTH_WEIGHT;
         case YEAR -> TRUNC_YEAR_WEIGHT;
         case QUARTER -> TRUNC_QUARTER_WEIGHT;
       };
     }
     if (node instanceof TruncDateDynamic) {
       return TRUNC_DYNAMIC_WEIGHT;
+    }
+    if (node instanceof LastDay) {
+      return LAST_DAY_WEIGHT;
+    }
+    if (node instanceof AddMonths) {
+      return ADD_MONTHS_WEIGHT;
     }
     if (isChrono(node)) {
       return CHRONO_WEIGHT;

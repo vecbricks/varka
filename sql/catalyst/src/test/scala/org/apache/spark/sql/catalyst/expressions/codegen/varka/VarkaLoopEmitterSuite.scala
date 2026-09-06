@@ -1718,21 +1718,51 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
-  test("each calendar output gets its own loop method, whatever GROUP_BUDGET would say") {
-    // Four calendar outputs weigh far more than GROUP_BUDGET, so they must not share a loop
-    // method: one method of ~180 vector ops is the C2 compile cliff the budget exists for.
-    val roots = Seq[VarkaVectorIR](
-      new Year(new ColumnRef(0)), new Month(new ColumnRef(0)),
-      new DayOfMonth(new ColumnRef(0)), new Quarter(new ColumnRef(0)))
-    val names = methodNames(emitMulti(roots, 1, 0, VarkaEmitOptions.DEFAULTS))
-    assert(names.count(_.startsWith("loopDense")) === 4,
-      s"expected one dense loop method per calendar output, got ${names.mkString(", ")}")
-    // A plain chain is unaffected: the weight applies to calendar nodes only.
-    val plain = Seq[VarkaVectorIR](
-      new AddDays(new ColumnRef(0), new LiteralSlot(0)),
-      new SubDays(new ColumnRef(0), new LiteralSlot(0)))
-    assert(methodNames(emitMulti(plain, 1, 1, VarkaEmitOptions.DEFAULTS))
-      .count(_.startsWith("loopDense")) === 1)
+  test("task 32 B2: calendar siblings over one date share a loop method; plain chains, other " +
+      "dates and the ceiling keep them apart") {
+    // PLAN_TASK_32.md 10.2's table, pinned by loop-method count. Before B2 this test asserted
+    // the opposite for the four fields - one method each, "whatever GROUP_BUDGET would say" -
+    // because a method of ~180 ops was believed to be a compile cliff. 7.5 measured that away
+    // and clause 2 of groupOutputs now admits an output that reuses a prefix the group already
+    // computes, up to FUSED_CEILING. Everything clause 2 does not admit keeps today's grouping,
+    // and that half is the guard: whether a merely-shared subchain pays to merge is
+    // GROUP_BUDGET's own question (task 17 measured a loss, the file since task 46 shows a win;
+    // task 43 owns it), and B2 deliberately does not answer it.
+    val col = new ColumnRef(0)
+    val fields = Seq[VarkaVectorIR](
+      new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
+    def loops(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
+        options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Int =
+      methodNames(emitMulti(roots, inputs, lits, options)).count(_.startsWith("loopDense"))
+    // Four fields over one date: one prefix, four tails, 52 ops in one method.
+    assert(loops(fields, 1, 0) === 1)
+    // With sharing off there is no prefix to reuse, clause 2 never fires, and each field
+    // outweighs GROUP_BUDGET on its own: the four methods of before B2, kept as the reference
+    // variant the parity benchmark's "separate" rows are emitted with.
+    assert(loops(fields, 1, 0, unshared) === 4)
+    // Two dates: the second year reuses nothing (saved = 0) and 38 + 38 > 16.
+    assert(loops(Seq(new Year(col), new Year(new ColumnRef(1))), 2, 0) === 2)
+    // A plain chain is untouched: add_days and sub_days fit the budget together as they did.
+    assert(loops(Seq(new AddDays(col, new LiteralSlot(0)), new SubDays(col, new LiteralSlot(0))),
+      1, 1) === 1)
+    // A plain output ahead of the siblings: year reuses nothing against [x + 1] and 1 + 38 > 16,
+    // so it opens a group of its own, which month then joins.
+    assert(loops(Seq(new AddDays(col, new LiteralSlot(0)), new Year(col), new Month(col)),
+      1, 1) === 2)
+    // The ceiling bounds clause 2: at prefix + two tails the third sibling opens a new group,
+    // which the fourth joins - two methods of two.
+    val tight = VarkaEmitOptions.DEFAULTS.withFusedCeiling(
+      VarkaLoopEmitter.CHRONO_PREFIX_WEIGHT + 2 * VarkaLoopEmitter.CHRONO_FIELD_TAIL_WEIGHT)
+    assert(loops(fields, 1, 0, tight) === 2)
+    // Greedy in output order, pinned as the limitation 10.2 names rather than fixed: month(d)
+    // is offered to the group holding year(d2), whose prefix it cannot reuse, so it forms a
+    // third group instead of rejoining year(d). Adjacent, the same three outputs take two.
+    assert(loops(Seq(new Year(col), new Year(new ColumnRef(1)), new Month(col)), 2, 0) === 3)
+    assert(loops(Seq(new Year(col), new Month(col), new Year(new ColumnRef(1))), 2, 0) === 2)
+    // Task 58's debt closes on the way: weekofyear and yearofweek decompose the same shifted
+    // day, so they share a method now rather than only the epilogue.
+    val shift = new ThursdayOf(col)
+    assert(loops(Seq(new WeekOfYear(shift), new Year(shift)), 1, 0) === 1)
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2159,20 +2189,18 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
   }
 
   test("the shared prefix survives two calendar outputs in one loop method") {
-    // Today's GROUP_BUDGET puts every calendar output in its own loop method, so only the
-    // epilogue ever holds two - which means nothing in the default configuration exercises
-    // sharing inside a loop body. A budget wide enough to hold all four does, and that is
-    // the shape step B2 would ship, measured here for correctness before it is measured for
-    // throughput.
+    // Until B2 this ran under a widened GROUP_BUDGET, because the shipped grouping put every
+    // calendar output in its own loop method and only the epilogue ever held two; it was the
+    // shape B2 would ship, measured for correctness before it was measured for throughput.
+    // B2 shipped it, so the defaults are that shape and the test runs under them.
     val col = new ColumnRef(0)
     val roots = Seq[VarkaVectorIR](
       new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
-    val wide = sharing.withGroupBudget(200)
-    assert(methodNames(emitMulti(roots, 1, 0, wide)).count(_.startsWith("loopDense")) === 1,
-      "the wide budget did not put the four outputs in one loop method")
+    assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(_.startsWith("loopDense")) === 1,
+      "the defaults did not put the four outputs in one loop method")
     checkMatrix(roots, 1, Array.empty[Int], remainderLengths ++ Seq(64, 1000),
-      nullPatterns.map(p => Seq(p._2)), data = calendarDays, ctx = "one wide loop method",
-      options = wide)
+      nullPatterns.map(p => Seq(p._2)), data = calendarDays, ctx = "one loop method",
+      options = sharing)
   }
 
   test("two calendar outputs over different dates share nothing") {
@@ -2185,6 +2213,9 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     // the thing that would have moved had the two prefixes collapsed into one.
     assert(epilogueSize(roots, 2, sharing) === epilogueSize(roots, 2, unshared),
       "the epilogue moved for two outputs that have nothing to share")
+    // And clause 2 does not put them in one loop method: the second reuses no prefix.
+    assert(methodNames(emitMulti(roots, 2, 0, sharing)).count(_.startsWith("loopDense")) === 2,
+      "two dates with nothing to share landed in one loop method")
     checkMatrix(roots, 2, Array.empty[Int], remainderLengths,
       // The second date is the first walked from a different index rather than shifted by a
       // constant: adding to a day that is already at the range's edge would push it out and
@@ -2193,34 +2224,50 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
       ctx = "two dates", options = sharing)
   }
 
-  test("sharing the prefix leaves every loop method byte for byte as it was") {
-    // Why no benchmark number moves, established by construction rather than by re-running a
-    // noisy measurement. Today's GROUP_BUDGET gives every calendar output its own loop method,
-    // so no loop body holds two chrono nodes and there is nothing in one for the fragment to
-    // share; the epilogue is the only body that holds them all. The parity benchmark drives
-    // 4096-row chunks, which every lane count divides, so its epilogue returns at the length
-    // check and is never timed - and with the loop methods identical, no committed figure in
-    // VarkaEmitterParityBenchmark-jdk25-results.txt can be affected by this change.
-    //
-    // If a future task relaxes the budget so a loop method does hold two (step B2), this test
-    // fails and that is the signal that the parity file has to be regenerated.
+  test("task 32 B2: with no prefix to reuse, sharing changes no loop method - the guard that " +
+      "clause 2 admits fragment reuse and nothing else") {
+    // Before B2 this test asserted every calendar loop method byte for byte unchanged under
+    // sharing, which was the proof that no committed number could move; its own comment said
+    // B2 would fail it and that the parity file then needs regenerating, which is what
+    // happened. What B2 promises instead is that clause 2 reaches nothing but fragment reuse:
+    // for shapes with no calendar prefix - the task-17 pair, a deep chain, the CASE WHEN and
+    // greatest cases the parity file names, the mod-7 family - every loop method is byte for
+    // byte identical with sharing on and off, method names and sizes alike. Asserted by
+    // construction, so it holds whichever way task 17's split-versus-merged rows read.
     val col = new ColumnRef(0)
-    for (roots <- Seq(
-        Seq[VarkaVectorIR](new Year(col)),
-        Seq[VarkaVectorIR](new Year(col), new Month(col)),
-        Seq[VarkaVectorIR](
-          new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col)))) {
-      val plainBytes = emitMulti(roots, 1, 0, unshared)._2
-      val sharedBytes = emitMulti(roots, 1, 0, sharing)._2
-      val loops = methodNames(emitMulti(roots, 1, 0, unshared))
-        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked"))
-      assert(loops.size === roots.size * 2,
-        s"expected one dense and one masked loop method per output, got $loops")
-      for (name <- loops) {
-        assert(VarkaEmitterTestSupport.codeSize(sharedBytes, name)
-          === VarkaEmitterTestSupport.codeSize(plainBytes, name),
-          s"$name changed size under sharing, so a loop body now holds two calendar nodes " +
-            "and the parity results file needs regenerating")
+    def chainOver(base: VarkaVectorIR, depth: Int, slotBase: Int): VarkaVectorIR = {
+      var node = base
+      for (level <- 0 until depth) {
+        node = if (level % 2 == 0) new AddDays(node, new LiteralSlot(slotBase + level))
+        else new SubDays(node, new LiteralSlot(slotBase + level))
+      }
+      node
+    }
+    val shared8 = chain(8)
+    val corpus = Seq[(String, Seq[VarkaVectorIR], Int, Int)](
+      ("task 17's two outputs over a shared chain",
+        Seq(chainOver(shared8, 6, 8), chainOver(shared8, 6, 14)), 1, 20),
+      ("depth-8 chain", Seq(chain(8)), 1, 8),
+      ("CASE WHEN", Seq(new IfElse(new Compare(CompareOp.LT, col, new LiteralSlot(0)),
+        new AddDays(col, new LiteralSlot(1)), new SubDays(col, new LiteralSlot(1)))), 1, 2),
+      ("greatest and least", Seq(new Greatest(col, new ColumnRef(1)),
+        new Least(col, new ColumnRef(1))), 2, 0),
+      ("dayofweek and weekday", Seq(new DayOfWeek(col), new WeekDay(col)), 1, 0),
+      ("next_day", Seq(new NextDay(col, new LiteralSlot(0))), 1, 1),
+      ("datediff", Seq(new DateDiff(col, new ColumnRef(1))), 2, 0))
+    for ((name, roots, inputs, lits) <- corpus) {
+      val plain = emitMulti(roots, inputs, lits, unshared)
+      val withSharing = emitMulti(roots, inputs, lits, sharing)
+      val loops = methodNames(plain)
+        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted
+      assert(methodNames(withSharing)
+        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted === loops,
+        s"$name: sharing changed the loop-method layout of a shape with no prefix to share")
+      for (method <- loops) {
+        assert(VarkaEmitterTestSupport.codeSize(withSharing._2, method)
+          === VarkaEmitterTestSupport.codeSize(plain._2, method),
+          s"$name: $method changed size under sharing, so clause 2 reached a shape with no " +
+            "prefix to reuse")
       }
     }
   }
@@ -2274,6 +2321,61 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     }
   }
 
+  test("task 32 B2: every calendar weight is the prefix plus the tail the emitter emits") {
+    // The register PLAN_TASK_32.md 10.3 asked for, asserted off the class file the way the
+    // task 53 and 54 registers are. Each calendar node alone emits its prefix plus its tail,
+    // and beside month(d) in one loop method it adds exactly its tail - which is the
+    // arithmetic clause 2 of groupOutputs sums against FUSED_CEILING. A lowering change that
+    // moves a count fails here and names the constant to recount, rather than leaving a
+    // weight to drift the way CHRONO_WEIGHT drifted from 50 to 40 without anything noticing.
+    val col = new ColumnRef(0)
+    def ops(roots: Seq[VarkaVectorIR], inputs: Int = 1, lits: Int = 0,
+        options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Int =
+      laneOps(emitMulti(roots, inputs, lits, options)._2, "loopDense0")
+    val prefix = VarkaLoopEmitter.CHRONO_PREFIX_WEIGHT
+    // A prefix no tail in the group reads the month out of elides the month step (task 48).
+    val prefixNoMonth = prefix - monthStepOps(VarkaEmitOptions.DEFAULTS)
+    val month = new Month(col)
+    val monthAlone = ops(Seq(month))
+    assert(monthAlone === prefix + 4, "month(d), the partner every tail is measured beside")
+    // Wide enough that clause 1 alone puts month(d) and the node in one method, so the pair
+    // measures the fragment's arithmetic whether or not clause 2 exists yet.
+    val wide = VarkaEmitOptions.DEFAULTS.withGroupBudget(400)
+    // (name, node, its tail, whether its own prefix keeps the month step, literals, inputs)
+    val register = Seq(
+      ("year", new Year(col), 5, false, 0, 1),
+      ("dayofmonth", new DayOfMonth(col), 5, true, 0, 1),
+      ("quarter", new Quarter(col), 7, true, 0, 1),
+      ("dayofyear", new DayOfYear(col), VarkaLoopEmitter.DAY_OF_YEAR_TAIL_WEIGHT, false, 0, 1),
+      ("last_day", new LastDay(col), VarkaLoopEmitter.LAST_DAY_TAIL_WEIGHT, true, 0, 1),
+      ("add_months", new AddMonths(col, new LiteralSlot(0)),
+        VarkaLoopEmitter.ADD_MONTHS_TAIL_WEIGHT, true, 1, 1),
+      ("trunc YEAR", new TruncDate(col, TruncLevel.YEAR),
+        VarkaLoopEmitter.TRUNC_YEAR_TAIL_WEIGHT, false, 0, 1),
+      ("trunc MONTH", new TruncDate(col, TruncLevel.MONTH),
+        VarkaLoopEmitter.TRUNC_MONTH_TAIL_WEIGHT, true, 0, 1),
+      ("trunc QUARTER", new TruncDate(col, TruncLevel.QUARTER),
+        VarkaLoopEmitter.TRUNC_QUARTER_TAIL_WEIGHT, true, 0, 1),
+      ("trunc dynamic", new TruncDateDynamic(col, new ColumnRef(1)),
+        VarkaLoopEmitter.TRUNC_DYNAMIC_TAIL_WEIGHT, true, 0, 2))
+    for ((name, node, tail, readsMonth, lits, inputs) <- register) {
+      val alone = ops(Seq(node), inputs, lits)
+      val own = if (readsMonth) prefix else prefixNoMonth
+      assert(alone === own + tail,
+        s"$name alone emits $alone lane ops, not prefix $own + tail $tail - recount the constant")
+      val paired = ops(Seq(month, node), inputs, lits, wide)
+      assert(paired === monthAlone + tail,
+        s"month(d) beside $name emits $paired lane ops, not month's $monthAlone + tail $tail")
+    }
+    // weekofyear decomposes the Thursday-shifted day, so its prefix is keyed on ThursdayOf(d)
+    // and shares nothing with month(d)'s; the shift's own ops are the ThursdayOf node's weight.
+    val shift = new ThursdayOf(col)
+    assert(ops(Seq(new WeekOfYear(shift))) ===
+      ops(Seq(shift)) + prefixNoMonth + VarkaLoopEmitter.WEEK_OF_YEAR_TAIL_WEIGHT)
+    // The four fields share one tail constant, at the widest of the four.
+    assert(VarkaLoopEmitter.CHRONO_FIELD_TAIL_WEIGHT === 7)
+  }
+
   test("task 48: a year-only body computes no month, and the switch says so") {
     assert(VarkaEmitOptions.DEFAULTS.elideChronoMonth(),
       "the elision is no longer the default - the case for it is in PLAN_TASK_48.md section " +
@@ -2312,21 +2414,30 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
         (Seq[VarkaVectorIR](new Month(col), new Year(col)), "month first"))) {
       val elided = emitMulti(roots, 1, 0, sharing)._2
       val kept = emitMulti(roots, 1, 0, sharing.withElideChronoMonth(false))._2
-      // The epilogue holds both outputs, so its one shared prefix is read by the month tail
-      // and must keep the step - whichever of the two siblings happens to emit the prefix.
-      // This is the whole reason the decision is read from the group's consumer set rather
-      // than from the node being emitted.
-      assert(laneOps(elided, "epilogueMasked") === laneOps(kept, "epilogueMasked"),
-        s"the shared epilogue elided the month step with a month tail reading it ($ctx)")
-      // The loop methods hold one output each, so exactly one of them - the year's - elides.
-      val saved = Seq("loopMasked0", "loopMasked1")
-        .map(body => laneOps(kept, body) - laneOps(elided, body))
-      assert(saved.sorted === Seq(0, monthStepOps(sharing)),
-        s"expected exactly one loop method to elide the month step, saved $saved ($ctx)")
+      // Under B2 the pair shares a loop method as well as the epilogue, so in both bodies the
+      // one shared prefix is read by the month tail and must keep the step - whichever of the
+      // two siblings happens to emit it. This is the whole reason the decision is read from
+      // the group's consumer set rather than from the node being emitted.
+      assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(_.startsWith("loopMasked"))
+        === 1, s"the pair no longer shares a loop method ($ctx)")
+      for (body <- Seq("loopMasked0", "epilogueMasked")) {
+        assert(laneOps(elided, body) === laneOps(kept, body),
+          s"$body elided the month step with a month tail reading it ($ctx)")
+      }
       checkMatrix(roots, 1, Array.empty[Int], remainderLengths,
         nullPatterns.map(p => Seq(p._2)), data = calendarDays, ctx = s"shared, $ctx",
         options = sharing)
     }
+    // Over different dates the two keep separate loop methods, and exactly one of them - the
+    // year's, whose prefix no month tail reads - elides. This is the half the pre-B2 version of
+    // the test asserted on year(d), month(d), when those were separate methods too.
+    val split = Seq[VarkaVectorIR](new Year(col), new Month(new ColumnRef(1)))
+    val elided = emitMulti(split, 2, 0, sharing)._2
+    val kept = emitMulti(split, 2, 0, sharing.withElideChronoMonth(false))._2
+    val saved = Seq("loopMasked0", "loopMasked1")
+      .map(body => laneOps(kept, body) - laneOps(elided, body))
+    assert(saved.sorted === Seq(0, monthStepOps(sharing)),
+      s"expected exactly one loop method to elide the month step, saved $saved")
   }
 
   test("task 48: with sharing off the decision is per node, not per fragment") {

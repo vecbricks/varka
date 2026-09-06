@@ -424,6 +424,30 @@ trusting them, not just its ratios.
   compare a *method's* code size (or its instructions), not `Arrays.equals` on the
   class. The false direction is the dangerous one: `!Arrays.equals` passes for any two
   emissions whatsoever, so a test written that way proves nothing at all.
+- **Widen a method for what is strictly less work, never for what is merely shared.**
+  Task 17 measured that merging two outputs over a shared eight-op chain into one
+  method *loses* 1.4x, and that finding is why the calendar fields sat in separate
+  methods for eleven tasks after the fragment could have shared them. The grouping
+  clause that finally admitted them (task 32 B2) is not "the marginal cost fits", which
+  would have re-merged task 17's pair; it is "joining skips a prefix the method already
+  computes" (`saved > 0`), bounded by its own `FUSED_CEILING`. The one situation where a
+  wider method is less work rather than a trade is the only one that opens the bound,
+  and a byte-identity test over non-calendar shapes pins that it opens nothing else.
+  The reason to tie the rule to a shape property rather than to a measurement showed up
+  while B2 was built: task 17's own two rows reversed in the regeneration task 46
+  committed (budget 24 at 5492.1 against budget 16 at 4237.4, where twelve earlier
+  regenerations had 16 ahead by ~1.4x), because moving the validity OR ahead of the
+  vector work let it inline in the wider method - the loss was a refused call, not
+  register pressure. A rule keyed on "what task 17 measured" would have been wrong
+  either before or after that commit; "skips work the method already did" is right in
+  both states, and the question task 17 asked is back on task 43's desk.
+  Measured, the same four fields that lost as four merged chains win 2.15x as one
+  method with one prefix. Two consequences worth carrying: weights that only had to
+  "exceed the budget" become wrong the day they bound a method, so recount them from
+  emitted instructions (add_months' tail turned out to be 81 ops, not the ~6 the plan
+  assumed, and it - not the fields - decides how many outputs a ceiling admits); and
+  greedy grouping in output order leaves `year(d), year(d2), month(d)` with a prefix it
+  need not pay, a limitation to pin rather than a bug to fix in the same change.
 
 ## Vector API on HotSpot, Measured (JDK 25, x86-64)
 
@@ -788,9 +812,13 @@ trusting them, not just its ratios.
   8 dedicated mask registers and marginally in 16 xmm that must hold masks too; C1 refuses
   the 936-byte body outright at both widths ("out of virtual registers in linear scan").
   Task 17's `GROUP_BUDGET` result (raising it to keep two outputs' cross-output CSE in one
-  method lost 4119.9 against 2928.2 M rows/s, current committed parity file) is the same
-  effect. It sets a ceiling on how much sharing can win; it does not decide the sign, and
-  a narrow-vector measurement is not optional for anything that shares live values.
+  method lost 4119.9 against 2928.2 M rows/s in the parity file of the day) looked like
+  the same effect - until the rows reversed when task 46 moved the validity OR ahead of
+  the vector work (the merged method now leads, 5799.7 against 4511.7 at AVX-512 and
+  2754.8 against 1700.1 at 128-bit), which says that loss was a refused call in the wider
+  method, not registers. Register pressure sets a ceiling on how much sharing can win; it
+  does not decide the sign, a narrow-vector measurement is not optional for anything that
+  shares live values, and a "known loss" is only known until the emitter around it moves.
 
 ## Generated Code Can Carry Its Own Debug Info (Class-File API)
 

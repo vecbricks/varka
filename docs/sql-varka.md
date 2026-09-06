@@ -65,10 +65,11 @@ becomes timestamp arithmetic) decline:
   operand must be a bare date column; a non-column operand declines.
 * `GREATEST` / `LEAST` (null-skipping) and `DAYOFWEEK` / `WEEKDAY`.
 * `YEAR` / `MONTH` / `DAYOFMONTH` / `QUARTER`, and the `EXTRACT` spellings that
-  desugar to them (task 26). One civil-from-days decomposition per extraction,
-  lowered entirely to magic multiplies because no vector divide exists; two
-  fields of the same date are computed twice, in sibling loop methods, rather
-  than shared. The lowering is defined over years -12800 to 33134 -
+  desugar to them (task 26). One civil-from-days decomposition per date,
+  lowered entirely to magic multiplies because no vector divide exists, and
+  shared between the fields over it: `year(d), month(d), dayofmonth(d),
+  quarter(d)` run one decomposition and four short tails in one loop method
+  (task 32). The lowering is defined over years -12800 to 33134 -
   every date SQL can write, and then some - and the range is enforced where a
   day can leave it, not at every extraction (tasks 51 and 52). A date column
   is taken to hold `0001-01-01..9999-12-31`, the project's column contract,
@@ -193,22 +194,29 @@ class has a deliberate method anatomy:
   the masked body in task 10), and a *masked* body that builds a
   `VectorMask` per lane group from the bit-packed validity words otherwise.
 * The vector walk is split into sibling loop methods of at most
-  `GROUP_BUDGET` (16) IR nodes each, one output group per method, plus a
-  shared *epilogue* method for the remainder rows. Separate methods, not one
-  big loop: each gets its own C2 compilation, so no method's inlining budget
-  can starve another's intrinsics - task 10 measured 3-4x on exactly that
-  cliff, and task 24 measured the same cliff from the other side when it
-  tried leaving the epilogue inline in a kernel's loop method.
+  `GROUP_BUDGET` (16) IR nodes each - or up to `FUSED_CEILING` (400) vector
+  ops where the outputs in a method share a calendar prefix (task 32) - one
+  output group per method, plus a shared *epilogue* method for the remainder
+  rows. Separate methods, not one big loop: each gets its own C2 compilation,
+  so no method's inlining budget can starve another's intrinsics - task 10
+  measured 3-4x on exactly that cliff, and task 24 measured the same cliff
+  from the other side when it tried leaving the epilogue inline in a kernel's
+  loop method.
 * Interned subtrees (DAG-CSE) are computed once per lane group and reused
   across outputs; literals are hoisted to broadcast vectors in the prologue.
 * Below the node level, the calendar extractions share their civil-from-days
   decomposition: `year(d)`, `month(d)`, `dayofmonth(d)`, `quarter(d)` and
   `add_months(d, n)` are distinct IR nodes, but a method that emits several of
-  them over one date runs the ~45-op decomposition once and gives each output
-  only its own tail (task 32). Today's grouping puts each of those outputs in
-  its own loop method, so this bites in the epilogue, the one method every
-  output shares - which is what keeps a wide date projection's epilogue small
-  enough for HotSpot to compile at all.
+  them over one date runs the 31-op decomposition once and gives each output
+  only its own tail (task 32). The grouping puts such outputs in one loop
+  method for exactly that reason - an output joins a method past
+  `GROUP_BUDGET` only when it reuses a prefix the method already computes,
+  and never past `FUSED_CEILING` - so the hot loop pays the decomposition
+  once: the four-field projection runs at 1762.6 M rows/s against 818.0 with
+  a method per field (2.15x at AVX-512, 2.51x at 128-bit; the parity file).
+  The epilogue, the one method every output shares, decomposes once per date
+  as well, which is what keeps a wide date projection's epilogue small enough
+  for HotSpot to compile at all.
 * Caps: chains up to `MAX_CHAIN_DEPTH` (16) deep, up to `MAX_FUSED_NODES`
   (64) distinct ops and `MAX_INPUTS` (64) input columns per kernel; anything
   beyond falls back.
