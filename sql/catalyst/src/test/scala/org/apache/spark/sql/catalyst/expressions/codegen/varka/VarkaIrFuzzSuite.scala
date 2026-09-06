@@ -47,8 +47,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * day it lands without anyone touching this file.
  *
  * The shapes respect the emitter's structural rules, which are the compiler's: a day offset is a
- * literal slot or a column, `next_day`'s weekday and `add_months`' month count are literal
- * slots, `IsNotNull` is over a column, a selection kernel has one condition root.
+ * literal slot or a column, `next_day`'s weekday and `add_months`' month count are a literal
+ * slot or a column, `IsNotNull` is over a column, a selection kernel has one condition root.
  *
  * Ranges: calendar nodes are defined over `VarkaChrono`'s narrowed day range, so every tree
  * carries a bound on the magnitude of its value and a calendar node is only put over a subtree
@@ -76,8 +76,16 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   private case class Gen(node: VarkaVectorIR, bound: Long)
 
   /** One iteration's shape generator; keeps a node budget so trees stay well inside the
-   *  emitter's `MAX_FUSED_NODES` and `MAX_CHAIN_DEPTH`. */
-  private class Shapes(rnd: Random, numInputs: Int, numLiterals: Int) {
+   *  emitter's `MAX_FUSED_NODES` and `MAX_CHAIN_DEPTH`.
+   *
+   *  `smallOrdinal` is the input column whose values `runOne` keeps inside
+   *  `MONTH_ARITH_MIN/MAX_MONTHS`, or -1 when this iteration has only one input. Every other
+   *  column holds day-magnitude values, which as a month count would trip the runtime guard on
+   *  every batch and decline it - leaving the status-zero assertions nothing to check. Giving
+   *  one ordinal a small range is what lets a *column* month count be fuzzed at all, and it is
+   *  the operand shape task 63 will want too. Its `Gen` bound stays `columnBound` wherever the
+   *  generic leaf draws it, which over-approximates its real range in the safe direction. */
+  private class Shapes(rnd: Random, numInputs: Int, numLiterals: Int, smallOrdinal: Int) {
     private var budget = 20
 
     private def leaf(): Gen =
@@ -166,10 +174,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
             case 12 => Gen(new Quarter(a.node), 4)
             case _ => rnd.nextInt(4) match {
               case 0 => Gen(new DayOfYear(a.node), 366)
-              case 2 if numLiterals > 0 =>
-                // add_months' month count must be a literal slot, like next_day's weekday
-                // (the emitter's message for it says next_day, which is the same check).
-                val m = literal()
+              case 2 if numLiterals > 0 || smallOrdinal >= 0 =>
+                // The count is a literal slot (task 40) or, when this iteration has a
+                // small-magnitude column, that column (task 60). It cannot be any other column:
+                // the rest hold day-magnitude values, vastly past MONTH_ARITH_MIN/MAX_MONTHS, so
+                // the runtime guard would decline every batch and the status-zero assertions
+                // below would have nothing left to check.
+                val m = if (smallOrdinal >= 0 && (numLiterals == 0 || rnd.nextBoolean())) {
+                  Gen(new ColumnRef(smallOrdinal), VarkaChrono.MONTH_ARITH_MAX_MONTHS.toLong)
+                } else {
+                  literal()
+                }
                 Gen(new AddMonths(a.node, m.node), a.bound + m.bound * 31)
               case 3 =>
                 // trunc (task 35) moves a date down by at most a year, so the child's bound
@@ -241,7 +256,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     val rnd = new Random(seed * 1000003L + iteration)
     val numInputs = 1 + rnd.nextInt(3)
     val numLiterals = rnd.nextInt(3)
-    val shapes = new Shapes(rnd, numInputs, numLiterals)
+    // The last input, when there is more than one, holds month-count-magnitude values so a
+    // *column* month count can be fuzzed; see Shapes' doc. With a single input there is no
+    // ordinal to spare - that one has to stay a day column for every other arm.
+    val smallOrdinal = if (numInputs > 1) numInputs - 1 else -1
+    val shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal)
     val depth = 1 + rnd.nextInt(4)
     // Either a projection of value roots or one selection root: the two kinds of kernel
     // production emits, never mixed in one class.
@@ -258,9 +277,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd)
-    val data = Array.fill(numInputs, length)(
-      (rnd.nextLong() % (2 * columnBound + 1) - columnBound).toInt.max(-columnBound.toInt)
-        .min(columnBound.toInt))
+    def draw(bound: Long): Int =
+      (rnd.nextLong() % (2 * bound + 1) - bound).toInt.max(-bound.toInt).min(bound.toInt)
+    val data = Array.tabulate(numInputs, length) { (c, _) =>
+      draw(if (c == smallOrdinal) VarkaChrono.MONTH_ARITH_MAX_MONTHS.toLong else columnBound)
+    }
 
     val context = s"seed=$seed iteration=$iteration " +
       s"roots=${roots.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
