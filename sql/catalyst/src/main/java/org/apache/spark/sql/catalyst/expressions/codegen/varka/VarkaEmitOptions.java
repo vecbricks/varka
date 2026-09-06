@@ -57,6 +57,11 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * @param groupBudget the most vector ops one emitted loop method may carry; see
  *                    {@link VarkaLoopEmitter#GROUP_BUDGET} for the measured reason it is 16, and
  *                    for the retuning question the parity benchmark prices by varying it.
+ * @param fusedCeiling the most vector ops one emitted loop method may carry when the outputs
+ *                     in it share a civil-from-days prefix (task 32 step B2): an output joins a
+ *                     group past {@link #groupBudget} only when doing so lets it skip a prefix
+ *                     the group already computes, and never past this. See
+ *                     {@link VarkaLoopEmitter#FUSED_CEILING} for the ladder that set it.
  * @param cse whether shared subtrees are computed once and reused. Results must not change - CSE
  *            is an optimization, never a semantics change - and the emitter suite pins exactly
  *            that; the parity benchmark uses it to price CSE itself.
@@ -152,6 +157,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  */
 public record VarkaEmitOptions(
     int groupBudget,
+    int fusedCeiling,
     boolean cse,
     boolean shareChronoPrefix,
     boolean denseValidityOnce,
@@ -181,13 +187,17 @@ public record VarkaEmitOptions(
   /** What production always emits with; see the hashing note in the class doc. */
   public static final VarkaEmitOptions DEFAULTS =
       new VarkaEmitOptions(
-          VarkaLoopEmitter.GROUP_BUDGET, true, true, true, true, true, true, true, true, true,
+          VarkaLoopEmitter.GROUP_BUDGET, VarkaLoopEmitter.FUSED_CEILING,
+          true, true, true, true, true, true, true, true, true,
           0,
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
       throw new IllegalArgumentException("groupBudget must be positive: " + groupBudget);
+    }
+    if (fusedCeiling < 1) {
+      throw new IllegalArgumentException("fusedCeiling must be positive: " + fusedCeiling);
     }
     if (truncDate == null) {
       throw new IllegalArgumentException("truncDate must not be null");
@@ -203,87 +213,93 @@ public record VarkaEmitOptions(
 
   /** {@link #DEFAULTS} with one field changed, for the suites and benchmarks that vary one. */
   public VarkaEmitOptions withGroupBudget(int budget) {
-    return new VarkaEmitOptions(budget, cse, shareChronoPrefix, denseValidityOnce,
+    return new VarkaEmitOptions(budget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+  }
+
+  public VarkaEmitOptions withFusedCeiling(int ceiling) {
+    return new VarkaEmitOptions(groupBudget, ceiling, cse, shareChronoPrefix, denseValidityOnce,
         elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
         validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withCse(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, enabled, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, enabled, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withShareChronoPrefix(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, enabled, denseValidityOnce, elideChronoMonth,
-        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
-        lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, enabled, denseValidityOnce,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withDenseValidityOnce(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, enabled, elideChronoMonth,
-        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
-        lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix, enabled,
+        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withElideChronoMonth(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce, enabled,
-        neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
-        lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, enabled, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withNeriSchneiderMonth(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, enabled, julianMap, guardDayProducers, validityByWidth, validityOrFirst,
-        lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, enabled, julianMap, guardDayProducers, validityByWidth,
+        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withJulianMap(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, enabled, guardDayProducers, validityByWidth,
-        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, enabled, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withGuardDayProducers(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, enabled, validityByWidth,
-        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, enabled,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withValidityByWidth(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, enabled,
-        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        enabled, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withValidityOrFirst(boolean enabled) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        enabled, lanesOverride, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, enabled, lanesOverride, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withLanesOverride(int lanes) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        validityOrFirst, lanes, truncDate, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanes, truncDate, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withTruncDate(TruncDateForm form) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        validityOrFirst, lanesOverride, form, floorMod7, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, form, floorMod7, misdescribeAdd);
   }
 
   public VarkaEmitOptions withFloorMod7(FloorMod7 lowering) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        validityOrFirst, lanesOverride, truncDate, lowering, misdescribeAdd);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, lowering, misdescribeAdd);
   }
 
   public VarkaEmitOptions withMisdescribeAdd(boolean misdescribe) {
-    return new VarkaEmitOptions(groupBudget, cse, shareChronoPrefix, denseValidityOnce,
-        elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers, validityByWidth,
-        validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribe);
+    return new VarkaEmitOptions(groupBudget, fusedCeiling, cse, shareChronoPrefix,
+        denseValidityOnce, elideChronoMonth, neriSchneiderMonth, julianMap, guardDayProducers,
+        validityByWidth, validityOrFirst, lanesOverride, truncDate, floorMod7, misdescribe);
   }
 
   public boolean isDefault() {
@@ -307,9 +323,9 @@ public record VarkaEmitOptions(
     if (isDefault()) {
       return "";
     }
-    return "opts(" + groupBudget + '|' + cse + '|' + shareChronoPrefix + '|' + denseValidityOnce
-        + '|' + elideChronoMonth + '|' + neriSchneiderMonth + '|' + julianMap + '|'
-        + guardDayProducers + '|' + validityByWidth + '|' + validityOrFirst + '|' + lanesOverride
-        + '|' + truncDate + '|' + floorMod7 + '|' + misdescribeAdd + ')';
+    return "opts(" + groupBudget + '|' + fusedCeiling + '|' + cse + '|' + shareChronoPrefix
+        + '|' + denseValidityOnce + '|' + elideChronoMonth + '|' + neriSchneiderMonth + '|'
+        + julianMap + '|' + guardDayProducers + '|' + validityByWidth + '|' + validityOrFirst
+        + '|' + lanesOverride + '|' + truncDate + '|' + floorMod7 + '|' + misdescribeAdd + ')';
   }
 }

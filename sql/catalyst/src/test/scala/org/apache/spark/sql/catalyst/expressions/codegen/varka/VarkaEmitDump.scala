@@ -141,7 +141,7 @@ object VarkaEmitDump {
     }
 
     if (rounds > 0) {
-      runHot(bytes, fused.inputOrdinals.size, fused.literals.toArray,
+      runHot(bytes, fused.inputOrdinals.size, fused.outputs.size, fused.literals.toArray,
         fused.inputOrdinals.map(childOutput), rounds)
     }
   }
@@ -229,8 +229,11 @@ object VarkaEmitDump {
   }
 
   /** Load the class and run it `rounds` times over synthetic int32 columns, so a
-   *  `-XX:CompileCommand=print` on the loop method has something to print. */
-  private def runHot(bytes: Array[Byte], numInputs: Int, literals: Array[Int],
+   *  `-XX:CompileCommand=print` on the loop method has something to print. `outputs` is the
+   *  kernel's output count, passed in rather than inferred from its loop methods: since task
+   *  32 step B2 one loop method can hold several outputs, and a destination array sized by
+   *  method count made the kernel index past it. */
+  private def runHot(bytes: Array[Byte], numInputs: Int, outputs: Int, literals: Array[Int],
       inputs: Seq[Attribute], rounds: Int): Unit = {
     if (inputs.exists(a => a.dataType == ShortType || a.dataType == ByteType)) {
       report("(--rounds skipped: synthetic data is int32 only, and a short or byte column is read)")
@@ -248,8 +251,6 @@ object VarkaEmitDump {
       src.foreach(s => (0 until rows).foreach(r => s.set(ValueLayout.JAVA_INT, r * 4L, 18000 + r)))
       val validity = buffer((rows + 7) / 8L)
       validity.fill(0xFF.toByte)
-      val outputs = VarkaEmitterTestSupport.methodNames(bytes).asScala
-        .count(_.startsWith("loopDense")) max 1
       val dst = Array.fill(outputs)(buffer(rows * 4L).address())
       val dstValidity = Array.fill(outputs)(buffer((rows + 7) / 8L).address())
       var status = 0

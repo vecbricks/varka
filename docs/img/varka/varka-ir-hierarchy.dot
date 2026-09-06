@@ -1,5 +1,5 @@
 digraph VarkaIR {
-  graph [rankdir=TB, fontname="Helvetica", fontsize=11, labelloc=t, label=<<b>Varka IR: the sealed node families of VarkaVectorIR</b><br/><font point-size="9">branch varka-task-61, 5 Sep 2026 (master + PRs #126, #128, task 61). Fill: green = date output, amber = int field, violet = condition mask, grey = leaf. Edge = implements. A component named without a type takes any value node; the restricted positions say so.</font>>, pad=0.4, nodesep=0.3, ranksep=0.45, bgcolor="white", newrank=true];
+  graph [rankdir=TB, fontname="Helvetica", fontsize=11, labelloc=t, label=<<b>Varka IR: the sealed node families of VarkaVectorIR</b><br/><font point-size="9">branch varka-task-32-b2, 7 Sep 2026. A weight is the civil-from-days prefix plus the node's own tail (task 32 B2); the prefix is paid once per loop method. Fill: green = date output, amber = int field, violet = condition mask, grey = leaf. Edge = implements. A component named without a type takes any value node; the restricted positions say so.</font>>, pad=0.4, nodesep=0.3, ranksep=0.45, bgcolor="white", newrank=true];
   node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, penwidth=1.2, margin="0.12,0.05"];
   edge  [color="#555555", arrowsize=0.7, penwidth=1];
 
@@ -26,16 +26,16 @@ digraph VarkaIR {
     WeekDay   [label=<<b>WeekDay</b>(days)<br/><font point-size="8">0..6, Monday = 0</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
     NextDay   [label=<<b>NextDay</b>(days, offset)<br/><font point-size="8">offset: literal k or the weekday leaf's column (59); weight 15</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
   }
-  AddMonths [label=<<b>AddMonths</b>(days, months)<br/><font point-size="8">months: literal or guarded int column (60); decompose + recompose,<br/>outside Chrono by design; weight 40</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
+  AddMonths [label=<<b>AddMonths</b>(days, months)<br/><font point-size="8">months: literal or guarded int column (60); decompose + recompose,<br/>outside Chrono by design; weight 31 + 81</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
   subgraph cluster_chrono { label="calendar (tasks 26, 34, 35, 36, 61)"; fontsize=10; color="#9aa3ad"; style="rounded";
-    Year       [label=<<b>Year</b>(days)<br/><font point-size="8">weight 40</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
-    Month      [label=<<b>Month</b>(days)<br/><font point-size="8">weight 40</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
-    DayOfMonth [label=<<b>DayOfMonth</b>(days)<br/><font point-size="8">weight 40</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
-    Quarter    [label=<<b>Quarter</b>(days)<br/><font point-size="8">weight 40</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
-    DayOfYear  [label=<<b>DayOfYear</b>(days)<br/><font point-size="8">weight 51</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
-    LastDay    [label=<<b>LastDay</b>(days)<br/><font point-size="8">weight 40</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
-    TruncDate  [label=<<b>TruncDate</b>(days, level: TruncLevel)<br/><font point-size="8">YEAR | MONTH | QUARTER in the shape; weight 53 / 40 / 70</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
-    TruncDateDynamic [label=<<b>TruncDateDynamic</b>(days, level)<br/><font point-size="8">level: the trunc-level leaf's column only; all four periods blended; weight 99 (task 61, open PR)</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
+    Year       [label=<<b>Year</b>(days)<br/><font point-size="8">weight 31 + 7</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
+    Month      [label=<<b>Month</b>(days)<br/><font point-size="8">weight 31 + 7</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
+    DayOfMonth [label=<<b>DayOfMonth</b>(days)<br/><font point-size="8">weight 31 + 7</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
+    Quarter    [label=<<b>Quarter</b>(days)<br/><font point-size="8">weight 31 + 7</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
+    DayOfYear  [label=<<b>DayOfYear</b>(days)<br/><font point-size="8">weight 31 + 14</font>>, fillcolor="#f6e3b5", color="#c08a1e"];
+    LastDay    [label=<<b>LastDay</b>(days)<br/><font point-size="8">weight 31 + 32</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
+    TruncDate  [label=<<b>TruncDate</b>(days, level: TruncLevel)<br/><font point-size="8">YEAR | MONTH | QUARTER in the shape; weight 31 + 16 / 5 / 31</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
+    TruncDateDynamic [label=<<b>TruncDateDynamic</b>(days, level)<br/><font point-size="8">level: the trunc-level leaf's column only; all four periods blended; weight 31 + 60 (task 61)</font>>, fillcolor="#cfe8e3", color="#2f8f82"];
   }
   subgraph cluster_cond { label="conditions (tasks 11, 20, 21)"; fontsize=10; color="#9aa3ad"; style="rounded";
     Compare   [label=<<b>Compare</b>(op: CompareOp, left, right)<br/><font point-size="8">LT LE GT GE EQ in the shape</font>>, fillcolor="#dcd8f1", color="#6a5bc4"];
