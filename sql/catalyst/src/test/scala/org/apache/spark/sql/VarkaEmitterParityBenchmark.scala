@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 import scala.concurrent.duration._
+import scala.util.control.NonFatal
 
 import org.apache.arrow.vector.VarCharVector
 
@@ -93,6 +94,36 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
     loader.defineGeneratedClass(name,
       VarkaLoopEmitter.emit(name, javaRoots, numInputs, numLiterals, null, null, options))
     loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
+  }
+
+  /**
+   * Closes every non-null vector in `vs`, guarding each so one failure cannot strand the rest.
+   * `failing`, when non-null, is an exception already on its way out: a close failure is
+   * attached to it rather than replacing it, since that one is the reason the run is ending.
+   */
+  private def closeNames(vs: Array[VarCharVector], failing: Throwable): Unit = {
+    if (vs != null) {
+      var i = 0
+      while (i < vs.length) {
+        val v = vs(i)
+        vs(i) = null
+        if (v != null) {
+          try {
+            v.close()
+          } catch {
+            case NonFatal(e) =>
+              if (failing != null) {
+                failing.addSuppressed(e)
+              } else {
+                // scalastyle:off println
+                println(s"closing a benchmark name vector failed: $e")
+                // scalastyle:on println
+              }
+          }
+        }
+        i += 1
+      }
+    }
   }
 
   private def fill(arena: Arena, isNull: Int => Boolean): (MemorySegment, MemorySegment, Int) = {
@@ -1070,21 +1101,42 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val allocator = ArrowUtils.rootAllocator.newChildAllocator("next-day-bench", 0,
           Long.MaxValue)
         val chunks = (numRows + chunk - 1) / chunk
-        def names(bad: Int => Boolean): Array[VarCharVector] = Array.tabulate(chunks) { c =>
-          val n = math.min(chunk, numRows - c * chunk)
-          val v = new VarCharVector("s", allocator)
-          v.allocateNew(n * 10L, n)
-          for (i <- 0 until n) {
-            val row = c * chunk + i
-            val s = if (bad(row)) "xyz" else styled(row)
-            v.setSafe(i, s.getBytes(StandardCharsets.UTF_8))
+        // Builds every chunk's vector, closing the ones already built if a later allocation
+        // fails. `Array.tabulate` would drop the partial array on the way out, leaking each
+        // vector it had filled - and `allocateNew` is exactly the call that can fail here.
+        def names(bad: Int => Boolean): Array[VarCharVector] = {
+          val built = new Array[VarCharVector](chunks)
+          try {
+            var c = 0
+            while (c < chunks) {
+              val n = math.min(chunk, numRows - c * chunk)
+              val v = new VarCharVector("s", allocator)
+              built(c) = v
+              v.allocateNew(n * 10L, n)
+              for (i <- 0 until n) {
+                val row = c * chunk + i
+                val s = if (bad(row)) "xyz" else styled(row)
+                v.setSafe(i, s.getBytes(StandardCharsets.UTF_8))
+              }
+              v.setValueCount(n)
+              c += 1
+            }
+            built
+          } catch {
+            case e: Throwable =>
+              closeNames(built, e)
+              throw e
           }
-          v.setValueCount(n)
-          v
         }
-        val validNames = names(_ => false)
-        val tenthBad = names(_ % 10 == 9)
+        // The two arrays are built *inside* the try, and assigned to vars declared outside it,
+        // so that the finally owns them from the first vector onward. Built before it - as they
+        // were - a failure in the second `names` call left the first array and the allocator
+        // unreachable for the rest of the benchmark JVM.
+        var validNames: Array[VarCharVector] = null
+        var tenthBad: Array[VarCharVector] = null
         try {
+          validNames = names(_ => false)
+          tenthBad = names(_ % 10 == 9)
           val valid = validNames.map(new ArrowColumnVector(_))
           val mixedNames = tenthBad.map(new ArrowColumnVector(_))
           // k as the kernel reads it after the leaf: -1 .. 5, cycling; the leaf's own output
@@ -1160,9 +1212,15 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           }
           benchmark.run()
         } finally {
-          validNames.foreach(_.close())
-          tenthBad.foreach(_.close())
-          allocator.close()
+          // Each vector close is guarded and the allocator close sits in its own finally, so
+          // one failure cannot skip the rest: the allocator is a child of the process-lifetime
+          // root, and skipping its close charges these bytes against the root for the whole run.
+          try {
+            closeNames(validNames, null)
+            closeNames(tenthBad, null)
+          } finally {
+            allocator.close()
+          }
         }
       }
 
