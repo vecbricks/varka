@@ -300,6 +300,29 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
       (null, null, ""),
       (date("2024-01-05"), null, "fri")))
 
+  /**
+   * `varka_dates_trunc_formats` for task 61: dates `d` beside a format string `fmt` - the
+   * accepted spellings in mixed case, sub-day levels, unrecognised strings, the empty string
+   * and nulls, beside null dates too; dates at year, quarter, month and week boundaries in
+   * both year kinds and either side of the epoch. One partition.
+   */
+  protected def cacheDatesTruncFormats(session: SparkSession): Unit = {
+    val rows: Seq[(java.sql.Date, String)] = Seq(
+      (date("2024-03-15"), "YEAR"), (date("2024-03-15"), "yy"), (date("2024-03-15"), "Month"),
+      (date("2024-03-15"), "mm"), (date("2024-03-15"), "QUARTER"), (date("2024-03-15"), "week"),
+      (date("2024-03-15"), "HOUR"), (date("2024-03-15"), "QTR"), (date("2024-03-15"), ""),
+      (date("2024-03-15"), null),
+      (date("2023-12-31"), "yyyy"), (date("2023-12-31"), "MON"), (date("2023-12-31"), "quarter"),
+      (date("2023-12-31"), "WEEK"), (date("2024-02-29"), "Week"), (date("2024-02-29"), "DD"),
+      (date("1969-12-31"), "WEEK"), (date("1970-01-01"), "MONTH"), (date("2024-01-01"), "week"),
+      (date("2024-07-01"), "Quarter"), (date("2024-05-20"), "MICROSECOND"),
+      (date("2024-05-20"), " YEAR"), (date("0001-01-01"), "YEAR"), (date("9999-12-31"), "week"),
+      (null, "YEAR"), (null, "xyz"), (null, null))
+    session.createDataFrame(rows).toDF("d", "fmt").coalesce(1)
+      .createOrReplaceTempView("varka_dates_trunc_formats")
+    session.catalog.cacheTable("varka_dates_trunc_formats")
+  }
+
   /** `varka_dates_weekday_lcase`: the same rows as `varka_dates_weekday`, `s` collated. */
   protected def cacheDatesWeekdayCollated(session: SparkSession): Unit = {
     cacheDatesWeekday(session)

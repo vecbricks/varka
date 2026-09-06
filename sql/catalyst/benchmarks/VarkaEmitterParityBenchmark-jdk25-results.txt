@@ -6,10 +6,10 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 date_add over 1000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-hand-written kernel, null-free                        0              0           0       5694.8           0.2       1.0X
-emitted loop, null-free                               0              0           0      19117.5           0.1       3.4X
-hand-written kernel, mixed nulls                      0              0           0       4843.6           0.2       0.9X
-emitted loop, mixed nulls                             0              0           0      13665.5           0.1       2.4X
+hand-written kernel, null-free                        0              0           0       5592.1           0.2       1.0X
+emitted loop, null-free                               0              0           0      18257.5           0.1       3.3X
+hand-written kernel, mixed nulls                      0              0           0       4829.6           0.2       0.9X
+emitted loop, mixed nulls                             0              0           0      13552.3           0.1       2.4X
 
 
 ================================================================================================
@@ -20,10 +20,10 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 datediff over 1000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-hand-written kernel, null-free                        0              0           0       4231.5           0.2       1.0X
-emitted loop, null-free                               0              0           0      12520.5           0.1       3.0X
-hand-written kernel, mixed nulls                      0              0           0       2421.6           0.4       0.6X
-emitted loop, mixed nulls                             0              0           0       7946.9           0.1       1.9X
+hand-written kernel, null-free                        0              0           0       3731.7           0.3       1.0X
+emitted loop, null-free                               0              0           0      11429.4           0.1       3.1X
+hand-written kernel, mixed nulls                      0              0           0       2784.7           0.4       0.7X
+emitted loop, mixed nulls                             0              0           0       8875.4           0.1       2.4X
 
 
 ================================================================================================
@@ -34,16 +34,16 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 chain over 1000000 rows, mixed nulls:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-fused, depth 1                                        0              0           0      14549.9           0.1       1.0X
-sequential kernels, depth 1                           0              0           0       4871.3           0.2       0.3X
-fused, depth 2                                        0              0           0      14484.6           0.1       1.0X
-sequential kernels, depth 2                           0              1           0       2065.3           0.5       0.1X
-fused, depth 4                                        0              0           0      13754.0           0.1       0.9X
-sequential kernels, depth 4                           2              2           0        650.4           1.5       0.0X
-fused, depth 8                                        0              0           0      11807.9           0.1       0.8X
-sequential kernels, depth 8                           4              5           0        236.3           4.2       0.0X
-fused, depth 16                                       0              0           0       7116.3           0.1       0.5X
-sequential kernels, depth 16                          9              9           0        115.3           8.7       0.0X
+fused, depth 1                                        0              0           0      15153.1           0.1       1.0X
+sequential kernels, depth 1                           0              0           0       4775.5           0.2       0.3X
+fused, depth 2                                        0              0           0      13820.6           0.1       0.9X
+sequential kernels, depth 2                           0              1           0       2034.0           0.5       0.1X
+fused, depth 4                                        0              0           0      13690.0           0.1       0.9X
+sequential kernels, depth 4                           1              2           0        680.8           1.5       0.0X
+fused, depth 8                                        0              0           0      13271.2           0.1       0.9X
+sequential kernels, depth 8                           4              4           0        235.5           4.2       0.0X
+fused, depth 16                                       0              0           0       7861.8           0.1       0.5X
+sequential kernels, depth 16                          9              9           0        113.3           8.8       0.0X
 
 
 ================================================================================================
@@ -54,9 +54,9 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 two outputs over 1000000 rows, mixed nulls:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-fused, CSE                                              0              0           0       3254.2           0.3       1.0X
-fused, memo disabled                                    0              0           0       2742.2           0.4       0.8X
-sequential kernels (9 passes)                           5              5           0        196.9           5.1       0.1X
+fused, CSE                                              0              0           0       3288.0           0.3       1.0X
+fused, memo disabled                                    0              0           0       2748.7           0.4       0.8X
+sequential kernels (9 passes)                           5              5           0        207.6           4.8       0.1X
 
 
 ================================================================================================
@@ -67,10 +67,10 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 depth-4 arms over 1000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-arithmetic depth 4, null-free                         0              0           0      19172.5           0.1       1.0X
-CASE WHEN, depth-4 arms, null-free                    0              0           0      11845.8           0.1       0.6X
-arithmetic depth 4, mixed nulls                       0              0           0      13530.2           0.1       0.7X
-CASE WHEN, depth-4 arms, mixed nulls                  0              0           0       6849.2           0.1       0.4X
+arithmetic depth 4, null-free                         0              0           0      18871.8           0.1       1.0X
+CASE WHEN, depth-4 arms, null-free                    0              0           0      11139.8           0.1       0.6X
+arithmetic depth 4, mixed nulls                       0              0           0      14336.9           0.1       0.8X
+CASE WHEN, depth-4 arms, mixed nulls                  0              0           0       7352.2           0.1       0.4X
 
 
 ================================================================================================
@@ -81,13 +81,13 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek over 1000000 rows:                   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-dayofweek_iso (task 57), null-free                         0              0           0       7529.6           0.1       1.0X
-magic multiply (shipped), null-free                        0              0           0       7533.6           0.1       1.0X
-magic multiply (shipped), mixed nulls                      0              0           0       7765.7           0.1       1.0X
-digit sum (task 11 reference), null-free                   0              0           0       5001.2           0.2       0.7X
-digit sum (task 11 reference), mixed nulls                 0              0           0       3146.2           0.3       0.4X
-lanewise DIV, null-free                                    2              2           0        647.6           1.5       0.1X
-per-row LocalDate (the path Spark uses today)             10             10           0        100.9           9.9       0.0X
+dayofweek_iso (task 57), null-free                         0              0           0       7271.8           0.1       1.0X
+magic multiply (shipped), null-free                        0              0           0       7196.8           0.1       1.0X
+magic multiply (shipped), mixed nulls                      0              0           0       8466.6           0.1       1.2X
+digit sum (task 11 reference), null-free                   0              0           0       4906.3           0.2       0.7X
+digit sum (task 11 reference), mixed nulls                 0              0           0       3291.9           0.3       0.5X
+lanewise DIV, null-free                                    2              2           0        645.7           1.5       0.1X
+per-row LocalDate (the path Spark uses today)             10             10           0        100.4          10.0       0.0X
 
 
 ================================================================================================
@@ -98,85 +98,85 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 20000000 rows in 4096-row chunks:                                                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-year, null-free                                                                                  6              6           0       3458.1           0.3       1.0X
-year, validity OR-ed per group (task 45 A/B), null-free                                          8              8           0       2489.2           0.4       0.7X
-year, validity OR-ed per group (task 45 A/B), mixed nulls                                        8              9           0       2371.3           0.4       0.7X
-year, month step kept (task 48 A/B), null-free                                                   6              6           0       3447.0           0.3       1.0X
-year, mixed nulls                                                                                8              9           1       2363.0           0.4       0.7X
-year, month step kept (task 48 A/B), mixed nulls                                                 9              9           0       2319.0           0.4       0.7X
-add_months(d, 13), null-free                                                                    27             28           1        727.5           1.4       0.2X
-add_months(d, 13), mixed nulls                                                                  29             30           0        680.6           1.5       0.2X
-year, Julian map (task 54 A/B), null-free                                                        6              6           1       3454.0           0.3       1.0X
-year, century-then-year (task 54 A/B), null-free                                                 7              7           0       2700.5           0.4       0.8X
-year, Julian map (task 54 A/B), mixed nulls                                                      8              8           0       2373.0           0.4       0.7X
-year, century-then-year (task 54 A/B), mixed nulls                                              10             10           0       2033.6           0.5       0.6X
-year+month+day+quarter, Julian map (task 54 A/B), null-free                                     24             24           0        827.4           1.2       0.2X
-year+month+day+quarter, century-then-year (task 54 A/B), null-free                              29             29           3        701.5           1.4       0.2X
-add_months(d, 13), Julian map (task 54 A/B), null-free                                          27             27           0        733.5           1.4       0.2X
-add_months(d, 13), century-then-year (task 54 A/B), null-free                                   28             28           0        712.3           1.4       0.2X
-month, Neri-Schneider (task 53 A/B), null-free                                                   6              6           0       3509.1           0.3       1.0X
-month, 0-based axis (task 53 A/B), null-free                                                     6              6           0       3202.7           0.3       0.9X
-month, Neri-Schneider (task 53 A/B), mixed nulls                                                 9              9           0       2326.0           0.4       0.7X
-month, 0-based axis (task 53 A/B), mixed nulls                                                   9              9           1       2213.0           0.5       0.6X
-dayofmonth, Neri-Schneider (task 53 A/B), null-free                                              6              6           0       3392.4           0.3       1.0X
-dayofmonth, 0-based axis (task 53 A/B), null-free                                                7              7           1       2862.3           0.3       0.8X
-dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls                                            9              9           0       2328.7           0.4       0.7X
-dayofmonth, 0-based axis (task 53 A/B), mixed nulls                                             10             10           0       2069.8           0.5       0.6X
-year+month+day+quarter, 0-based axis (task 53 A/B), null-free                                   26             27           2        762.7           1.3       0.2X
-year+month+day+quarter, null-free                                                               24             25           2        824.2           1.2       0.2X
-year+month, separate (2 loop methods), null-free                                                12             12           0       1726.3           0.6       0.5X
-year+month, shared (1 loop method), null-free                                                    7              8           0       2701.6           0.4       0.8X
-year+month+day, separate (3 loop methods), null-free                                            18             18           1       1134.8           0.9       0.3X
-year+month+day, shared (1 loop method), null-free                                                9             10           0       2141.6           0.5       0.6X
-dayofweek, validity OR-ed per group (task 45 A/B), null-free                                     3              3           0       7778.0           0.1       2.2X
-year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free               23             23           0        872.0           1.1       0.3X
-year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls             22             22           0        900.3           1.1       0.3X
-year+month+day+quarter, shared (1 loop method), null-free                                       11             11           0       1818.1           0.6       0.5X
-year+month+day+quarter, shared (1 loop method), mixed nulls                                     22             22           0        908.5           1.1       0.3X
+year, null-free                                                                                  6              6           0       3394.4           0.3       1.0X
+year, validity OR-ed per group (task 45 A/B), null-free                                          8              8           0       2396.2           0.4       0.7X
+year, validity OR-ed per group (task 45 A/B), mixed nulls                                        8              8           0       2549.6           0.4       0.8X
+year, month step kept (task 48 A/B), null-free                                                   6              6           0       3383.4           0.3       1.0X
+year, mixed nulls                                                                                8              8           0       2484.9           0.4       0.7X
+year, month step kept (task 48 A/B), mixed nulls                                                 8              8           0       2476.8           0.4       0.7X
+add_months(d, 13), null-free                                                                    27             30           9        734.1           1.4       0.2X
+add_months(d, 13), mixed nulls                                                                  29             30           5        690.0           1.4       0.2X
+year, Julian map (task 54 A/B), null-free                                                        6              6           0       3385.9           0.3       1.0X
+year, century-then-year (task 54 A/B), null-free                                                 7              7           0       2724.5           0.4       0.8X
+year, Julian map (task 54 A/B), mixed nulls                                                      8              8           1       2473.7           0.4       0.7X
+year, century-then-year (task 54 A/B), mixed nulls                                               9              9           0       2197.4           0.5       0.6X
+year+month+day+quarter, Julian map (task 54 A/B), null-free                                     24             24           0        822.8           1.2       0.2X
+year+month+day+quarter, century-then-year (task 54 A/B), null-free                              29             29           0        701.7           1.4       0.2X
+add_months(d, 13), Julian map (task 54 A/B), null-free                                          27             27           0        733.9           1.4       0.2X
+add_months(d, 13), century-then-year (task 54 A/B), null-free                                   28             28           0        712.5           1.4       0.2X
+month, Neri-Schneider (task 53 A/B), null-free                                                   6              6           0       3453.6           0.3       1.0X
+month, 0-based axis (task 53 A/B), null-free                                                     6              6           1       3199.2           0.3       0.9X
+month, Neri-Schneider (task 53 A/B), mixed nulls                                                 8              8           0       2497.2           0.4       0.7X
+month, 0-based axis (task 53 A/B), mixed nulls                                                   8              9           1       2428.1           0.4       0.7X
+dayofmonth, Neri-Schneider (task 53 A/B), null-free                                              6              6           1       3260.7           0.3       1.0X
+dayofmonth, 0-based axis (task 53 A/B), null-free                                                7              7           0       2857.8           0.3       0.8X
+dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls                                            8              8           0       2510.5           0.4       0.7X
+dayofmonth, 0-based axis (task 53 A/B), mixed nulls                                              9              9           0       2254.8           0.4       0.7X
+year+month+day+quarter, 0-based axis (task 53 A/B), null-free                                   26             26           0        761.5           1.3       0.2X
+year+month+day+quarter, null-free                                                               24             25           0        818.0           1.2       0.2X
+year+month, separate (2 loop methods), null-free                                                12             12           0       1724.9           0.6       0.5X
+year+month, shared (1 loop method), null-free                                                    7              8           1       2705.6           0.4       0.8X
+year+month+day, separate (3 loop methods), null-free                                            18             18           0       1135.9           0.9       0.3X
+year+month+day, shared (1 loop method), null-free                                                9             10           0       2118.8           0.5       0.6X
+dayofweek, validity OR-ed per group (task 45 A/B), null-free                                     3              3           0       7323.1           0.1       2.2X
+year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free               23             24           1        869.8           1.1       0.3X
+year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls             23             24           0        858.0           1.2       0.3X
+year+month+day+quarter, shared (1 loop method), null-free                                       12             12           0       1706.8           0.6       0.5X
+year+month+day+quarter, shared (1 loop method), mixed nulls                                     24             24           0        844.5           1.2       0.2X
 year(d1), year(d2), two dates, shared option, null-free                                         12             12           0       1687.7           0.6       0.5X
-year(date_add(d, off)), producer guard on (task 52 A/B), null-free                               7              7           0       2933.6           0.3       0.8X
-year(date_add(d, off)), producer guard off (task 52 A/B), null-free                              6              7           1       3193.8           0.3       0.9X
-year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls                            11             11           0       1817.5           0.6       0.5X
-year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls                           10             11           3       2076.5           0.5       0.6X
-date_add(d, off) alone, guard option on (task 52 control), null-free                             2              2           0      10506.4           0.1       3.0X
-date_add(d, off) alone, guard option off (task 52 control), null-free                            2              2           0      10693.8           0.1       3.1X
-add_months(d, m), column count (task 60), null-free                                             29             29           0        693.0           1.4       0.2X
-add_months(d, 13), literal count (task 60 control), null-free                                   27             28           0        727.3           1.4       0.2X
-add_months(d, m), column count (task 60), mixed nulls                                           32             32           1        624.3           1.6       0.2X
-add_months(d, 13), literal count (task 60 control), mixed nulls                                 30             30           0        677.8           1.5       0.2X
-trunc YEAR, subtract (task 35 A/B), null-free                                                    9              9           0       2323.1           0.4       0.7X
-trunc YEAR, recompose (task 35 A/B), null-free                                                  13             13           0       1585.3           0.6       0.5X
-trunc MONTH, subtract (task 35 A/B), null-free                                                   6              6           0       3384.4           0.3       1.0X
-trunc MONTH, recompose (task 35 A/B), null-free                                                 17             17           0       1191.0           0.8       0.3X
-trunc QUARTER, subtract (task 35 A/B), null-free                                                13             13           0       1560.9           0.6       0.5X
-trunc QUARTER, recompose (task 35 A/B), null-free                                               19             19           0       1075.5           0.9       0.3X
-trunc YEAR, subtract (task 35 A/B), mixed nulls                                                 11             11           0       1839.1           0.5       0.5X
-trunc YEAR, recompose (task 35 A/B), mixed nulls                                                16             16           0       1269.4           0.8       0.4X
-trunc QUARTER, subtract (task 35 A/B), mixed nulls                                              15             15           0       1316.1           0.8       0.4X
-trunc QUARTER, recompose (task 35 A/B), mixed nulls                                             21             21           0        961.2           1.0       0.3X
-make_date, NULL form (task 42 A/B), null-free                                                   12             12           0       1675.3           0.6       0.5X
-make_date, ANSI form (task 42 A/B), null-free                                                   12             12           0       1686.5           0.6       0.5X
-make_date, NULL form (task 42 A/B), mixed nulls                                                 13             14           0       1488.8           0.7       0.4X
-make_date, ANSI form (task 42 A/B), mixed nulls                                                 14             14           1       1467.7           0.7       0.4X
-per-row LocalDate.of make_date (the path Spark uses today)                                      88             89           0        226.4           4.4       0.1X
-weekofyear (task 37), null-free                                                                 14             14           0       1430.7           0.7       0.4X
-yearofweek (task 58), null-free                                                                 10             10           0       1962.9           0.5       0.6X
-weekofyear + yearofweek, one shift (task 58), null-free                                         24             24           0        823.0           1.2       0.2X
-weekofyear (task 37), null-free                                                                 14             14           0       1430.9           0.7       0.4X
-weekofyear (task 37), mixed nulls                                                               17             17           0       1158.3           0.9       0.3X
-ThursdayOf alone (task 37), null-free                                                            2              3           0       8059.8           0.1       2.3X
-per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)                                377            378           1         53.0          18.9       0.0X
-per-row DateTimeUtils.truncDate YEAR (the path Spark uses today)                               108            111           5        184.5           5.4       0.1X
-year+month+day+quarter, shared decomposition (hand-written ceiling)                             26             26           0        765.8           1.3       0.2X
-year+month+day+quarter, shared decomposition (short live ranges)                                27             27           0        740.8           1.3       0.2X
-year+month+day+quarter, shared decomposition (no validity write)                                12             13           0       1606.0           0.6       0.5X
-scalar year, division (cannot auto-vectorize), null-free                                        97            101          11        205.9           4.9       0.1X
-scalar year, magic multiply (may auto-vectorize), null-free                                     70             70           0        284.5           3.5       0.1X
-probe: trivial body, int[] (control)                                                             1              1           0      34270.6           0.0       9.9X
-probe: trivial body, MemorySegment                                                               3              3           0       6300.9           0.2       1.8X
-probe: full year body, int[]                                                                    70             70           0        287.2           3.5       0.1X
-dayofweek, for scale, null-free                                                                  2              2           0       8412.5           0.1       2.4X
-per-row LocalDate year (the path Spark uses today)                                              42             42           0        480.7           2.1       0.1X
+year(date_add(d, off)), producer guard on (task 52 A/B), null-free                               7              8           0       2676.9           0.4       0.8X
+year(date_add(d, off)), producer guard off (task 52 A/B), null-free                              6              7           0       3087.9           0.3       0.9X
+year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls                            10             11           0       1928.6           0.5       0.6X
+year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls                            9             10           0       2134.1           0.5       0.6X
+date_add(d, off) alone, guard option on (task 52 control), null-free                             2              2           0      10281.4           0.1       3.0X
+date_add(d, off) alone, guard option off (task 52 control), null-free                            2              2           0      10715.8           0.1       3.2X
+add_months(d, m), column count (task 60), null-free                                             29             29           0        691.7           1.4       0.2X
+add_months(d, 13), literal count (task 60 control), null-free                                   27             27           0        730.0           1.4       0.2X
+add_months(d, m), column count (task 60), mixed nulls                                           31             32           3        635.8           1.6       0.2X
+add_months(d, 13), literal count (task 60 control), mixed nulls                                 29             29           0        688.5           1.5       0.2X
+trunc YEAR, subtract (task 35 A/B), null-free                                                    9              9           0       2300.5           0.4       0.7X
+trunc YEAR, recompose (task 35 A/B), null-free                                                  13             13           2       1557.4           0.6       0.5X
+trunc MONTH, subtract (task 35 A/B), null-free                                                   6              6           0       3328.1           0.3       1.0X
+trunc MONTH, recompose (task 35 A/B), null-free                                                 17             17           1       1189.6           0.8       0.4X
+trunc QUARTER, subtract (task 35 A/B), null-free                                                13             13           0       1555.4           0.6       0.5X
+trunc QUARTER, recompose (task 35 A/B), null-free                                               19             19           0       1075.2           0.9       0.3X
+trunc YEAR, subtract (task 35 A/B), mixed nulls                                                 10             10           0       1938.4           0.5       0.6X
+trunc YEAR, recompose (task 35 A/B), mixed nulls                                                15             16           0       1292.9           0.8       0.4X
+trunc QUARTER, subtract (task 35 A/B), mixed nulls                                              15             15           0       1347.8           0.7       0.4X
+trunc QUARTER, recompose (task 35 A/B), mixed nulls                                             20             20           0        997.2           1.0       0.3X
+make_date, NULL form (task 42 A/B), null-free                                                   12             12           0       1643.6           0.6       0.5X
+make_date, ANSI form (task 42 A/B), null-free                                                   12             12           0       1667.5           0.6       0.5X
+make_date, NULL form (task 42 A/B), mixed nulls                                                 14             14           0       1465.3           0.7       0.4X
+make_date, ANSI form (task 42 A/B), mixed nulls                                                 14             14           0       1410.8           0.7       0.4X
+per-row LocalDate.of make_date (the path Spark uses today)                                      88             88           0        226.5           4.4       0.1X
+weekofyear (task 37), null-free                                                                 14             14           0       1414.6           0.7       0.4X
+yearofweek (task 58), null-free                                                                 10             10           0       1953.5           0.5       0.6X
+weekofyear + yearofweek, one shift (task 58), null-free                                         24             24           0        824.5           1.2       0.2X
+weekofyear (task 37), null-free                                                                 14             14           0       1428.4           0.7       0.4X
+weekofyear (task 37), mixed nulls                                                               17             17           0       1183.7           0.8       0.3X
+ThursdayOf alone (task 37), null-free                                                            3              3           0       7826.1           0.1       2.3X
+per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)                                374            376           1         53.5          18.7       0.0X
+per-row DateTimeUtils.truncDate YEAR (the path Spark uses today)                               109            110           0        182.8           5.5       0.1X
+year+month+day+quarter, shared decomposition (hand-written ceiling)                             29             30           1        695.8           1.4       0.2X
+year+month+day+quarter, shared decomposition (short live ranges)                                30             31           3        669.2           1.5       0.2X
+year+month+day+quarter, shared decomposition (no validity write)                                13             14           2       1558.8           0.6       0.5X
+scalar year, division (cannot auto-vectorize), null-free                                        97             97           0        206.0           4.9       0.1X
+scalar year, magic multiply (may auto-vectorize), null-free                                     71             71           0        281.6           3.6       0.1X
+probe: trivial body, int[] (control)                                                             1              1           0      34329.5           0.0      10.1X
+probe: trivial body, MemorySegment                                                               3              3           0       6298.7           0.2       1.9X
+probe: full year body, int[]                                                                    69             70           0        288.5           3.5       0.1X
+dayofweek, for scale, null-free                                                                  2              2           0       8142.8           0.1       2.4X
+per-row LocalDate year (the path Spark uses today)                                              42             42           0        480.8           2.1       0.1X
 
 
 ================================================================================================
@@ -187,8 +187,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 two outputs over a shared chain, 1000000 rows, mixed nulls:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------
-budget 16 (shipped): two loop methods, shared chain recomputed              0              0           0       4276.8           0.2       1.0X
-budget 24: one loop method, cross-output CSE kept                           0              0           0       3127.0           0.3       0.7X
+budget 16 (shipped): two loop methods, shared chain recomputed              0              0           0       4487.4           0.2       1.0X
+budget 24: one loop method, cross-output CSE kept                           0              0           0       3253.2           0.3       0.7X
 
 
 ================================================================================================
@@ -199,8 +199,8 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 4 outputs x depth 16 over 1000000 rows:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-fused, 64 ops                                         1              1           0        992.0           1.0       1.0X
-sequential kernels, 64 passes                        33             33           0         30.2          33.2       0.0X
+fused, 64 ops                                         1              1           0        988.6           1.0       1.0X
+sequential kernels, 64 passes                        33             33           0         30.6          32.7       0.0X
 
 
 ================================================================================================
@@ -211,14 +211,32 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 20000000 rows in 4096-row chunks:                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-next_day(d, 'MON'), literal kernel (control), null-free                2              2           0       9086.2           0.1       1.0X
-next_day(d, k), column kernel, null-free                               2              3           0       8041.6           0.1       0.9X
-next_day(d, k), column kernel, mixed nulls on the date                 3              3           0       6442.0           0.2       0.7X
-weekday leaf, row-engine parser, valid names                         713            727          19         28.0          35.7       0.0X
-weekday leaf, ascii parser, valid names                              341            341           1         58.7          17.0       0.0X
-weekday leaf, row-engine parser, a tenth unrecognised               3520           3556          26          5.7         176.0       0.0X
-weekday leaf, ascii parser, a tenth unrecognised                     333            334           1         60.1          16.6       0.0X
-next_day(d, s) per row, getNextDateExact (the row engine)            741            743           1         27.0          37.1       0.0X
+next_day(d, 'MON'), literal kernel (control), null-free                2              2           0       8937.7           0.1       1.0X
+next_day(d, k), column kernel, null-free                               3              3           0       7447.0           0.1       0.8X
+next_day(d, k), column kernel, mixed nulls on the date                 3              3           0       6758.5           0.1       0.8X
+weekday leaf, row-engine parser, valid names                         685            689           6         29.2          34.2       0.0X
+weekday leaf, ascii parser, valid names                              310            326          32         64.5          15.5       0.0X
+weekday leaf, row-engine parser, a tenth unrecognised               3494           3503          13          5.7         174.7       0.0X
+weekday leaf, ascii parser, a tenth unrecognised                     321            322           1         62.3          16.0       0.0X
+next_day(d, s) per row, getNextDateExact (the row engine)            710            720          11         28.2          35.5       0.0X
+
+
+================================================================================================
+trunc with a format column: the dynamic kernel, the literal controls, the level leaf and the row engine's own path (task 61)
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+20000000 rows in 4096-row chunks:                                       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------
+trunc(d, 'QUARTER'), literal kernel (control), null-free                           13             13           1       1575.8           0.6       1.0X
+trunc(d, 'MONTH'), literal kernel (control), null-free                              6              6           1       3329.3           0.3       2.1X
+trunc(d, level), dynamic kernel, null-free                                         17             17           0       1184.6           0.8       0.8X
+trunc(d, 'QUARTER'), literal kernel (control), mixed nulls                         15             15           0       1363.8           0.7       0.9X
+trunc(d, level), dynamic kernel, mixed nulls on the date                           21             21           3        973.8           1.0       0.6X
+trunc-level leaf, valid formats                                                   671            675           3         29.8          33.5       0.0X
+trunc-level leaf, a tenth sub-day or unrecognised                                 675            677           2         29.6          33.8       0.0X
+trunc(d, fmt) per row, parseTruncLevel then truncDate (the row engine)            831            835           3         24.1          41.6       0.0X
 
 
 ================================================================================================
@@ -229,26 +247,26 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 20000000 rows in chunks:                                                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-depth-4 chain, chunk 4096 (aligned), null-free                                           1              1           0      35960.2           0.0       1.0X
-depth-4 chain, chunk 4096 (aligned), mixed nulls                                         1              1           0      14620.7           0.1       0.4X
-depth-4 chain, chunk 4095 (lanes-1 tail rows), null-free                                 1              1           0      36275.2           0.0       1.0X
-depth-4 chain, chunk 4095 (lanes-1 tail rows), mixed nulls                               1              1           0      14350.8           0.1       0.4X
-depth-4 chain, chunk 64 (aligned), null-free                                             4              5           0       4497.5           0.2       0.1X
-depth-4 chain, chunk 64 (aligned), mixed nulls                                           6              6           0       3250.1           0.3       0.1X
-depth-4 chain, chunk 63 (lanes-1 tail rows), null-free                                   5              5           0       3817.0           0.3       0.1X
-depth-4 chain, chunk 63 (lanes-1 tail rows), mixed nulls                                 8              8           0       2598.4           0.4       0.1X
-dayofweek, chunk 64 (aligned), null-free                                                 4              4           0       4643.8           0.2       0.1X
-dayofweek, chunk 64 (aligned), mixed nulls                                               6              6           0       3421.4           0.3       0.1X
-dayofweek, chunk 63 (lanes-1 tail rows), null-free                                       5              5           0       3966.9           0.3       0.1X
-dayofweek, chunk 63 (lanes-1 tail rows), mixed nulls                                     8              9           1       2374.0           0.4       0.1X
-year+month+day+quarter, unshared, chunk 4096 (aligned), null-free                       23             23           0        857.5           1.2       0.0X
-year+month+day+quarter, shared, chunk 4096 (aligned), null-free                         23             24           2        857.2           1.2       0.0X
-year+month+day+quarter, unshared, chunk 4095 (lanes-1 tail rows), null-free             23             23           0        861.6           1.2       0.0X
-year+month+day+quarter, shared, chunk 4095 (lanes-1 tail rows), null-free               23             23           0        861.6           1.2       0.0X
-year+month+day+quarter, unshared, chunk 64 (aligned), null-free                         28             28           0        722.4           1.4       0.0X
-year+month+day+quarter, shared, chunk 64 (aligned), null-free                           28             28           0        726.6           1.4       0.0X
-year+month+day+quarter, unshared, chunk 63 (lanes-1 tail rows), null-free               25             26           1        789.6           1.3       0.0X
-year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), null-free                 25             26           1        791.3           1.3       0.0X
+depth-4 chain, chunk 4096 (aligned), null-free                                           1              1           0      34231.2           0.0       1.0X
+depth-4 chain, chunk 4096 (aligned), mixed nulls                                         1              1           0      16718.8           0.1       0.5X
+depth-4 chain, chunk 4095 (lanes-1 tail rows), null-free                                 1              1           0      34585.2           0.0       1.0X
+depth-4 chain, chunk 4095 (lanes-1 tail rows), mixed nulls                               1              1           0      15391.5           0.1       0.4X
+depth-4 chain, chunk 64 (aligned), null-free                                             4              4           0       5059.4           0.2       0.1X
+depth-4 chain, chunk 64 (aligned), mixed nulls                                           6              7           0       3164.9           0.3       0.1X
+depth-4 chain, chunk 63 (lanes-1 tail rows), null-free                                   5              5           0       3875.6           0.3       0.1X
+depth-4 chain, chunk 63 (lanes-1 tail rows), mixed nulls                                 9             10           1       2178.2           0.5       0.1X
+dayofweek, chunk 64 (aligned), null-free                                                 4              5           1       4727.6           0.2       0.1X
+dayofweek, chunk 64 (aligned), mixed nulls                                               6              6           0       3410.6           0.3       0.1X
+dayofweek, chunk 63 (lanes-1 tail rows), null-free                                       5              5           1       4007.9           0.2       0.1X
+dayofweek, chunk 63 (lanes-1 tail rows), mixed nulls                                     8              9           0       2435.8           0.4       0.1X
+year+month+day+quarter, unshared, chunk 4096 (aligned), null-free                       23             23           0        857.6           1.2       0.0X
+year+month+day+quarter, shared, chunk 4096 (aligned), null-free                         23             23           0        857.6           1.2       0.0X
+year+month+day+quarter, unshared, chunk 4095 (lanes-1 tail rows), null-free             23             23           0        862.0           1.2       0.0X
+year+month+day+quarter, shared, chunk 4095 (lanes-1 tail rows), null-free               23             23           0        861.4           1.2       0.0X
+year+month+day+quarter, unshared, chunk 64 (aligned), null-free                         28             28           0        726.5           1.4       0.0X
+year+month+day+quarter, shared, chunk 64 (aligned), null-free                           28             28           0        725.4           1.4       0.0X
+year+month+day+quarter, unshared, chunk 63 (lanes-1 tail rows), null-free               25             26           2        796.3           1.3       0.0X
+year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), null-free                 25             25           0        794.2           1.3       0.0X
 
 
 ================================================================================================
@@ -259,14 +277,14 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 20000000 rows, 20 calendar outputs over 5 dates:                                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
-unshared (9436B epilogue, past HugeMethodLimit), chunk 4096 (aligned)                      158            163           2        126.8           7.9       1.0X
-shared (4048B epilogue, under HugeMethodLimit), chunk 4096 (aligned)                       158            161           2        126.9           7.9       1.0X
-unshared (9436B epilogue, past HugeMethodLimit), chunk 4095 (lanes-1 tail rows)            159            160           1        125.6           8.0       1.0X
-shared (4048B epilogue, under HugeMethodLimit), chunk 4095 (lanes-1 tail rows)             159            160           1        125.6           8.0       1.0X
-unshared (9436B epilogue, past HugeMethodLimit), chunk 64 (aligned)                        852            853           1         23.5          42.6       0.2X
-shared (4048B epilogue, under HugeMethodLimit), chunk 64 (aligned)                         824            831           6         24.3          41.2       0.2X
-unshared (9436B epilogue, past HugeMethodLimit), chunk 63 (lanes-1 tail rows)              953            970          11         21.0          47.7       0.2X
-shared (4048B epilogue, under HugeMethodLimit), chunk 63 (lanes-1 tail rows)               968           1022          64         20.7          48.4       0.2X
+unshared (9436B epilogue, past HugeMethodLimit), chunk 4096 (aligned)                      160            164           3        124.7           8.0       1.0X
+shared (4048B epilogue, under HugeMethodLimit), chunk 4096 (aligned)                       156            162           7        128.1           7.8       1.0X
+unshared (9436B epilogue, past HugeMethodLimit), chunk 4095 (lanes-1 tail rows)            157            159           1        127.4           7.8       1.0X
+shared (4048B epilogue, under HugeMethodLimit), chunk 4095 (lanes-1 tail rows)             158            163          15        126.7           7.9       1.0X
+unshared (9436B epilogue, past HugeMethodLimit), chunk 64 (aligned)                        855            859           5         23.4          42.7       0.2X
+shared (4048B epilogue, under HugeMethodLimit), chunk 64 (aligned)                         896            915          25         22.3          44.8       0.2X
+unshared (9436B epilogue, past HugeMethodLimit), chunk 63 (lanes-1 tail rows)             1028           1053          32         19.5          51.4       0.2X
+shared (4048B epilogue, under HugeMethodLimit), chunk 63 (lanes-1 tail rows)              1022           1038          18         19.6          51.1       0.2X
 
 
 ================================================================================================
@@ -277,11 +295,11 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one output over 1000000 rows, null-free:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-20 ops in one loop method (274 bytecode bytes)                0              0           0       7997.8           0.1       1.0X
-58 ops in one loop method (559 bytecode bytes)                0              0           0       2700.9           0.4       0.3X
-96 ops in one loop method (841 bytecode bytes)                1              1           0       1630.0           0.6       0.2X
-153 ops in one loop method (1266 bytecode bytes)              1              1           0       1036.2           1.0       0.1X
-191 ops in one loop method (1550 bytecode bytes)              1              1           0        800.9           1.2       0.1X
-248 ops in one loop method (1976 bytecode bytes)              2              2           0        605.6           1.7       0.1X
+20 ops in one loop method (274 bytecode bytes)                0              0           0       7822.3           0.1       1.0X
+58 ops in one loop method (559 bytecode bytes)                0              0           0       2694.0           0.4       0.3X
+96 ops in one loop method (841 bytecode bytes)                1              1           0       1640.5           0.6       0.2X
+153 ops in one loop method (1266 bytecode bytes)              1              1           0       1041.3           1.0       0.1X
+191 ops in one loop method (1550 bytecode bytes)              1              1           0        802.5           1.2       0.1X
+248 ops in one loop method (1976 bytecode bytes)              2              2           0        606.8           1.6       0.1X
 
 

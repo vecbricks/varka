@@ -29,7 +29,7 @@ import org.apache.arrow.vector.VarCharVector
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.DateTimeExpressionUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR, WeekdayLeaf}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{TruncLevelLeaf, VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
@@ -1262,6 +1262,157 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           } finally {
             allocator.close()
           }
+        }
+      }
+
+      runBenchmark("trunc with a format column: the dynamic kernel, the literal controls, the " +
+          "level leaf and the row engine's own path (task 61)") {
+        // Task 61's measurement (PLAN_TASK_61.md 6). trunc(d, fmt) with a format column runs
+        // as the two-input kernel over an int32 level column the evaluator derives per batch
+        // through the row engine's own parseTruncLevel; the kernel computes all four periods
+        // and blends on the level, so it is priced against the widest and the narrowest
+        // literal tails (QUARTER, MONTH), which must not move. The leaf is priced alone over
+        // valid spellings and over spellings of which a tenth are unrecognised (no error path:
+        // an unrecognised format is a null lane), and the anchor is parseTruncLevel then
+        // truncDate per row, which is what the row engine runs. 4096-row chunks like the year
+        // and next_day sections.
+        val repeats = 20
+        val chunk = 4096
+        val benchmark = new Benchmark(s"${numRows.toLong * repeats} rows in 4096-row chunks",
+          numRows.toLong * repeats,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        def eachChunk(body: (Long, Long, Int) => Unit): Unit = {
+          var pass = 0
+          while (pass < repeats) {
+            var done = 0
+            while (done < numRows) {
+              val n = math.min(chunk, numRows - done)
+              body(done * 4L, done / 8L, n)
+              done += n
+            }
+            pass += 1
+          }
+        }
+        // The format column: the eight accepted spellings in three case styles, cycling; and
+        // the same with every tenth row a sub-day or unrecognised format.
+        val spellings = Seq("YEAR", "YYYY", "YY", "MON", "MONTH", "MM", "QUARTER", "WEEK")
+        def styled(i: Int): String = {
+          val f = spellings(i % spellings.length)
+          (i / spellings.length) % 3 match {
+            case 0 => f
+            case 1 => f.toLowerCase(Locale.ROOT)
+            case _ => f.head.toString + f.tail.toLowerCase(Locale.ROOT)
+          }
+        }
+        val allocator = ArrowUtils.rootAllocator.newChildAllocator("trunc-bench", 0,
+          Long.MaxValue)
+        val chunks = (numRows + chunk - 1) / chunk
+        def formats(bad: Int => Boolean): Array[VarCharVector] = Array.tabulate(chunks) { c =>
+          val n = math.min(chunk, numRows - c * chunk)
+          val v = new VarCharVector("fmt", allocator)
+          v.allocateNew(n * 8L, n)
+          for (i <- 0 until n) {
+            val row = c * chunk + i
+            val f = if (bad(row)) (if (row % 20 == 9) "DAY" else "QTR") else styled(row)
+            v.setSafe(i, f.getBytes(StandardCharsets.UTF_8))
+          }
+          v.setValueCount(n)
+          v
+        }
+        val validFormats = formats(_ => false)
+        val tenthBad = formats(_ % 10 == 9)
+        try {
+          val valid = validFormats.map(new ArrowColumnVector(_))
+          val mixedFormats = tenthBad.map(new ArrowColumnVector(_))
+          // The level column as the kernel reads it after the leaf: the four codes cycling;
+          // also the leaf's own output buffers, overwritten per chunk.
+          val levelData = arena.allocate(numRows * 4L, 8)
+          for (i <- 0 until numRows) {
+            levelData.set(ValueLayout.JAVA_INT, i * 4L, TruncLevelLeaf.WEEK + i % 4)
+          }
+          val levelValidity = arena.allocate((numRows + 7) / 8L, 8)
+          val dynamic = emit(Seq(new TruncDateDynamic(new ColumnRef(0), new ColumnRef(1))),
+            2, 0, loader, 902)
+          val quarter = emit(Seq(new TruncDate(new ColumnRef(0), TruncLevel.QUARTER)), 1, 0,
+            loader, 903)
+          val month = emit(Seq(new TruncDate(new ColumnRef(0), TruncLevel.MONTH)), 1, 0,
+            loader, 904)
+          def chunkedLiteral(kernel: VarkaFusedKernel, mixed: Boolean): Unit =
+            eachChunk { (dataOff, validityOff, n) =>
+              val status = if (mixed) {
+                kernel.run(Array(mxData.address() + dataOff),
+                  Array(mxValidity.address() + validityOff), Array((n + 6) / 7),
+                  Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                  Array.empty[Int], n)
+              } else {
+                kernel.run(Array(nfData.address() + dataOff), Array(0L), Array(0),
+                  Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                  Array.empty[Int], n)
+              }
+              require(status == 0, s"the kernel declined a batch: status $status")
+            }
+          // The dynamic kernel over the level column as the leaf leaves it: null-free, and
+          // with the date's mixed-null pattern on the date side.
+          def chunkedDynamic(mixed: Boolean): Unit = eachChunk { (dataOff, validityOff, n) =>
+            val status = if (mixed) {
+              dynamic.run(Array(mxData.address() + dataOff, levelData.address() + dataOff),
+                Array(mxValidity.address() + validityOff, 0L), Array((n + 6) / 7, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            } else {
+              dynamic.run(Array(nfData.address() + dataOff, levelData.address() + dataOff),
+                Array(0L, 0L), Array(0, 0),
+                Array(dst.address() + dataOff), Array(dstValidity.address() + validityOff),
+                Array.empty[Int], n)
+            }
+            require(status == 0, s"the kernel declined a batch: status $status")
+          }
+          def chunkedLeaf(columns: Array[ArrowColumnVector]): Unit =
+            eachChunk { (dataOff, validityOff, n) =>
+              val nulls = TruncLevelLeaf.fill(columns((dataOff / 4L).toInt / chunk), n,
+                levelData.address() + dataOff, levelValidity.address() + validityOff)
+              require(nulls >= 0)
+            }
+          benchmark.addCase("trunc(d, 'QUARTER'), literal kernel (control), null-free") { _ =>
+            chunkedLiteral(quarter, false)
+          }
+          benchmark.addCase("trunc(d, 'MONTH'), literal kernel (control), null-free") { _ =>
+            chunkedLiteral(month, false)
+          }
+          benchmark.addCase("trunc(d, level), dynamic kernel, null-free") { _ =>
+            chunkedDynamic(false)
+          }
+          benchmark.addCase("trunc(d, 'QUARTER'), literal kernel (control), mixed nulls") { _ =>
+            chunkedLiteral(quarter, true)
+          }
+          benchmark.addCase("trunc(d, level), dynamic kernel, mixed nulls on the date") { _ =>
+            chunkedDynamic(true)
+          }
+          benchmark.addCase("trunc-level leaf, valid formats") { _ =>
+            chunkedLeaf(valid)
+          }
+          benchmark.addCase("trunc-level leaf, a tenth sub-day or unrecognised") { _ =>
+            chunkedLeaf(mixedFormats)
+          }
+          benchmark.addCase("trunc(d, fmt) per row, parseTruncLevel then truncDate (the row " +
+              "engine)") { _ =>
+            eachChunk { (dataOff, _, n) =>
+              val column = valid((dataOff / 4L).toInt / chunk)
+              var i = 0
+              while (i < n) {
+                val days = nfData.get(ValueLayout.JAVA_INT, dataOff + i * 4L)
+                val level = DateTimeUtils.parseTruncLevel(column.getUTF8String(i))
+                dst.set(ValueLayout.JAVA_INT, dataOff + i * 4L,
+                  DateTimeUtils.truncDate(days, level))
+                i += 1
+              }
+            }
+          }
+          benchmark.run()
+        } finally {
+          validFormats.foreach(_.close())
+          tenthBad.foreach(_.close())
+          allocator.close()
         }
       }
 

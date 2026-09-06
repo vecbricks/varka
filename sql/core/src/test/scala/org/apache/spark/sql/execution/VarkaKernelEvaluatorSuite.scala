@@ -26,7 +26,7 @@ import org.apache.arrow.vector.{DateDayVector, VarCharVector}
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, If, In, LessThan, Literal, NamedExpression, NextDay, Year}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, If, In, LessThan, Literal, NamedExpression, NextDay, TruncDate, Year}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -465,6 +465,74 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
       ansi.release(out)
       good.close()
       context.markTaskCompleted(None)
+    } finally {
+      TaskContext.unset()
+      allocator.close()
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Task 61: the derived trunc-level input.
+  // ---------------------------------------------------------------------------------------------
+
+  private def truncEvaluator(): VarkaKernelEvaluator =
+    new VarkaKernelEvaluator(Seq(Alias(TruncDate(attrD, attrS), "a")()), Seq(attrD, attrS),
+      offHeapColumnVectorEnabled = false, operatorName = "Test", None)
+
+  /** The row engine's answer: null for a null date, a null format or a non-date level. */
+  private def truncOf(d: java.lang.Integer, fmt: String): java.lang.Integer = {
+    if (d == null || fmt == null) return null
+    val level = DateTimeUtils.parseTruncLevel(UTF8String.fromString(fmt))
+    if (level < DateTimeUtils.MIN_LEVEL_OF_DATE_TRUNC) null
+    else Int.box(DateTimeUtils.truncDate(d, level))
+  }
+
+  test("task 61: the derived trunc-level input serves the kernel from a string column, an " +
+      "all-invalid batch is all NULL with nothing declined, an on-heap source is refused, and " +
+      "no Arrow memory is left behind") {
+    val initial = ArrowUtils.rootAllocator.getAllocatedMemory
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("varka-test", 0, Long.MaxValue)
+    val context = TaskContext.empty()
+    TaskContext.setTaskContext(context)
+    try {
+      val kernels = truncEvaluator()
+      val dates: Seq[java.lang.Integer] = Seq(19797, null, 19723, 0, -1, 19783, 19797)
+      val formats = Seq("YEAR", "mm", null, "week", "HOUR", "Quarter", "xyz")
+      val batch = weekdayBatch(allocator, dates, formats)
+      assert(kernels.canRun(batch))
+      val out = kernels.project(batch)
+      assert(column(out) === dates.zip(formats).map { case (d, f) => truncOf(d, f) })
+      kernels.release(out)
+      batch.close()
+      // Every format invalid: the leaf reports every lane null, the kernel runs over an
+      // all-null input and the output is all NULL. Nothing declines - unlike the weekday
+      // leaf under ANSI, there is no error the row engine could raise instead.
+      val bad = weekdayBatch(allocator, Seq[java.lang.Integer](19797, 19798, 19799),
+        Seq("DAY", "xyz", ""))
+      val outBad = kernels.project(bad)
+      assert(column(outBad) === Seq(null, null, null))
+      kernels.release(outBad)
+      bad.close()
+      // A longer batch grows the scratch (the maskBuf discipline), then a shorter one reuses it.
+      val bigDates: Seq[java.lang.Integer] = (0 until 70).map(i => Int.box(i * 13 - 100))
+      val bigFormats = (0 until 70).map(i => Seq("yy", "MON", "quarter", "WEEK", "dd")(i % 5))
+      val big = weekdayBatch(allocator, bigDates, bigFormats)
+      val outBig = kernels.project(big)
+      assert(column(outBig) === bigDates.zip(bigFormats).map { case (d, f) => truncOf(d, f) })
+      kernels.release(outBig)
+      big.close()
+      val again = weekdayBatch(allocator, dates, formats)
+      val outAgain = kernels.project(again)
+      assert(column(outAgain) === dates.zip(formats).map { case (d, f) => truncOf(d, f) })
+      kernels.release(outAgain)
+      again.close()
+      val onHeap = weekdayBatch(allocator, Seq[java.lang.Integer](0, 1), Seq("YEAR", "MONTH"),
+        arrowNames = false)
+      assert(!kernels.canRun(onHeap))
+      onHeap.close()
+      context.markTaskCompleted(None)
+      assert(ArrowUtils.rootAllocator.getAllocatedMemory === initial,
+        "the derived input's scratch leaked past task completion")
     } finally {
       TaskContext.unset()
       allocator.close()
