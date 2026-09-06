@@ -24,7 +24,7 @@ import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
 import org.apache.spark.SparkIllegalArgumentException
-import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, BindReferences, BoundReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DateVarkaSupport, DayOfMonth, DayOfWeek, DayOfYear, EqualTo, Expression, ExtractANSIIntervalDays, GreaterThan, GreaterThanOrEqual, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, Month, NamedExpression, NextDay, Not, Or, Quarter, RuntimeReplaceable, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year}
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, BindReferences, BoundReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DateVarkaSupport, DayOfMonth, DayOfWeek, DayOfYear, EqualTo, Expression, ExtractANSIIntervalDays, GreaterThan, GreaterThanOrEqual, Greatest, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, Month, NamedExpression, NextDay, Not, Or, Quarter, RuntimeReplaceable, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, Cond, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, IfElse, IsNotNull => IRIsNotNull, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
@@ -638,6 +638,13 @@ private[sql] object VarkaExpressionCompiler {
       compileNode(child, inputs, literals, sink)
         .flatMap(c => admitCalendar(new ThursdayOf(c), expr, literals, sink))
         .map(new IRWeekOfYear(_))
+    // extract(YEAROFWEEK) / date_part('YEAROFWEEK') (task 58): the ISO week-based year is the
+    // calendar year of the same Thursday, so Year over the same shift - one prefix for both
+    // fields under CSE, and nothing in the emitter.
+    case YearOfWeek(child) =>
+      compileNode(child, inputs, literals, sink)
+        .flatMap(c => admitCalendar(new ThursdayOf(c), expr, literals, sink))
+        .map(new IRYear(_))
     // trunc(date, fmt) (task 35): the format resolves at compile time, like next_day's weekday,
     // because the level chooses which code is emitted. YEAR, MONTH and QUARTER are one node
     // with the level as a shape-bearing field; WEEK is Spark's own definition,

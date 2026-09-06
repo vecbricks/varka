@@ -790,6 +790,16 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // four ops, the shift another seventeen), the shift alone, and the per-row path.
         val weekOfYear = emit(Seq(new WeekOfYear(new ThursdayOf(col0))), 1, 0, loader, 870)
         val thursdayOf = emit(Seq(new ThursdayOf(col0)), 1, 0, loader, 872)
+        // Task 58: yearofweek is Year over the same shift; the pair is the sharing row, one
+        // ThursdayOf and one prefix for both fields under CSE.
+        val yearOfWeek = emit(Seq(new Year(new ThursdayOf(col0))), 1, 0, loader, 873)
+        val isoPair = emit(Seq(new WeekOfYear(new ThursdayOf(col0)),
+          new Year(new ThursdayOf(col0))), 1, 0, loader, 874)
+        benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
+        benchmark.addCase("yearofweek (task 58), null-free") { _ => chunked(yearOfWeek, false) }
+        benchmark.addCase("weekofyear + yearofweek, one shift (task 58), null-free") { _ =>
+          chunked(isoPair, false, 2)
+        }
         benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
         benchmark.addCase("weekofyear (task 37), mixed nulls") { _ => chunked(weekOfYear, true) }
         benchmark.addCase("ThursdayOf alone (task 37), null-free") { _ =>
