@@ -74,9 +74,20 @@ def committed_numbers(top):
             current |= numbers_in(f.read())
     # `git log -p` over the results directories: additions and removals both count,
     # since a plan may quote the number a regeneration replaced.
+    #
+    # --full-history is load-bearing, not defensive. Results files are regenerated rather
+    # than merged textually, so merging master into a task branch resolves them by taking
+    # one side whole - and that leaves the merge TREESAME to that side for these paths, so
+    # git's default history simplification prunes the other parent's entire line. Every
+    # version the other branch wrote then becomes invisible here, and a plan quoting one of
+    # its numbers is reported as an orphan although the number is committed and correct.
+    # Task 60 hit exactly this: 16 orphans on the branch against 0 on master, for numbers
+    # master had measured. --full-history keeps the promise this tool's docstring makes -
+    # any committed version of these files - and costs nothing measurable, since the
+    # directories are small (both forms ran in 1.1s over ~50 MB of patch text).
     dirs = sorted({os.path.dirname(r) for r in rel})
     log = subprocess.run(
-        ["git", "-C", top, "log", "-p", "--format=", "--", *dirs],
+        ["git", "-C", top, "log", "-p", "--full-history", "--format=", "--", *dirs],
         check=True,
         capture_output=True,
         text=True,
