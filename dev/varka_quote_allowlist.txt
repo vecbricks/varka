@@ -115,6 +115,8 @@ sql/varka/plans/PLAN_TASK_62.md	11.15	a section number, not a rate - the tool ca
 sql/varka/plans/PLAN_TASK_62.md	11.16	a section number, not a rate - the tool cannot tell the two apart
 sql/varka/plans/PLAN_TASK_62.md	11.17	a section number, not a rate - the tool cannot tell the two apart
 sql/varka/plans/PLAN_TASK_62.md	11.18	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/PLAN_TASK_78.md	11.12	a section number of PLAN_TASK_62.md cited from 9.5, not a rate
+sql/varka/plans/PLAN_TASK_78.md	11.17	a section number of PLAN_TASK_62.md cited from 9.5, not a rate
 sql/varka/plans/PLAN_MILESTONE_4.md	11.15	a section number of PLAN_TASK_62.md cited from the task row, not a rate
 sql/varka/plans/PLAN_MILESTONE_4.md	11.16	a section number of PLAN_TASK_62.md cited from the task row, not a rate
 sql/varka/plans/PLAN_MILESTONE_4.md	11.17	a section number of PLAN_TASK_62.md cited from the task row, not a rate

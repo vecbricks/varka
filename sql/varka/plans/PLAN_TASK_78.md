@@ -353,3 +353,54 @@ crossing the boundary, still behind stock on this data. It is not this task's
 shape and not this task's cause; it belongs to whoever prices the predicate
 kernel against Janino's on a fully-selecting range, and it is left in the
 milestone's debt register rather than chased here.
+
+### 9.5 Where the remaining measurement can run, which is not where 9.4 said
+
+9.4 left "the pinned-runner dispatch" as the work outstanding, and the milestone
+row says the same. **That dispatch cannot exist.** The constraint is arithmetic
+and it was found while closing task 62, not by trying.
+
+The job-size rule fails a run whose per-iteration constant cost exceeds 5% of
+any Varka row's wall time. Task 62's 11.17 measured that constant on a GitHub
+runner at **36 ms** median; the committed surface files put it at **15 ms** on
+the development laptop. The surface's lightest third runs at 0.5 to 0.8 ns/row,
+so on a runner those entries need
+
+| entry rate | rows to reach 5% on a runner | cached table |
+|---|---|---|
+| 0.5 ns/row | 1.37e9 | about 33 GiB |
+| 0.6 ns/row | 1.14e9 | about 27 GiB |
+| 0.8 ns/row | 0.85e9 | about 21 GiB |
+
+against the 15 GiB a GitHub runner has. Task 62's ladder established that 2e8
+rows (4.6 GiB) is resident and 1e8 was never the ceiling 11.12 thought, but the
+ceiling is nowhere near 1e9. **So the full surface is not measurable on CI at
+any row count, and this task's three rows are surface rows.**
+
+That is not a defeat for this task; it is the same finding task 62 11.13 reached
+from the other side. The surface is a coverage document whose cheap entries are
+memory-bandwidth-bound, and the instrument for a runner is `Chains`. What
+follows for task 78 specifically:
+
+* **The measurement is a laptop regeneration of the whole surface**, at the 1e9
+  rows the committed files use, on the machine that produced them. Priced from
+  those files' own wall times against the driver's methodology - 2s warm-up then
+  five iterations of at least 2s - it is **about 3 hours** of measurement plus
+  four table builds and a fork build, so roughly four hours of a quiet machine.
+  It is dominated by the three row-engine distributions at 54 to 61 minutes
+  each; the Varka arm is 9.5 minutes of it.
+* **Not a partial re-run spliced into the committed file.** `--only` writes a
+  file containing only the entries it ran, and the house rule is to regenerate
+  an affected file in one run rather than patch quoted figures case by case. A
+  file mixing a 7 September run with a later one, even on the same machine, is
+  the thing that rule exists to prevent.
+* **The run is self-guarding on the thing most likely to go wrong.** Task 78
+  already made the three two-column predicates ordinary `Surface.Entry.filter`
+  entries with `expectFused` true, so if the absorbed narrowing stops applying
+  to the surface's exact spelling, `--expect-fused` fails the run rather than
+  publishing a blended rate.
+
+The README's benchmark section said these rows "stay until the runner
+re-measures them", which this section refutes; it now says the table has to be
+regenerated on a machine that can hold a billion rows, and carries a short note
+explaining why the two tables are on different machines.

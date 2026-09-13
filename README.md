@@ -118,7 +118,8 @@ drags the discarded column across the row boundary. One-column predicates never
 hit it, because Spark's own column pruning removes the redundant projection
 before any of this runs. The fix (task 78) is written and turns the shape into a
 1.3x - 2.2x win on the development machine; these committed rows predate it and
-stay until the runner re-measures them.
+stay until this table is regenerated, which has to happen on a machine that can
+hold a billion rows - see the note on where the surface can run.
 
 One row is quoted against the engine-off column instead of stock:
 `trunc(d, 'QUARTER')` reads 32.6x against stock 4.2.0 but **23.7x** against this
@@ -146,6 +147,18 @@ its entries move four bytes in and four out per row and are limited by memory
 bandwidth, not by the vector unit - `date_add(d, 3)` runs at 0.6 ns/row, roughly
 single-core DRAM speed. No width of datapath moves those, which is why the
 chains exist as a separate list.
+
+**Where each table can be measured, which is why they are on different machines.**
+A benchmark row is only worth reading if the job's constant cost - scheduling a
+task and collecting its result - is small against the work being timed, and this
+project fails a run whose constant exceeds 5% of any Varka row's wall time. On
+the development laptop that constant is about 15 ms, so a 0.5 ns/row entry needs
+roughly 500M rows to clear it and a billion is comfortable. On a cloud CI runner
+it is about 36 ms, and the same entry would need **1.4 billion rows - some 33 GiB
+of cached data on a 15 GiB machine**. So the surface, whose lightest third is
+that fast, cannot be measured honestly on a CI runner at all, and stays a
+development-machine table. The chains can, because they do enough arithmetic per
+row to need only 200M.
 
 ### What the 512-bit datapath is worth
 
