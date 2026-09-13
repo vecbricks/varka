@@ -34,7 +34,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.ArrayImplicits._
 
 /**
- * What the two Varka filter nodes share (task 21): the `FilterExec`-compatible output contract
+ * What the two Varka filter nodes share: the `FilterExec`-compatible output contract
  * and the ordering guarantee. The nullability tightening is copied from `FilterExec` rule for
  * rule - a column an `IS NOT NULL` conjunct guards reads as non-nullable downstream - because
  * the rewrite must not change what the planner believes about the columns.
@@ -88,7 +88,7 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
 }
 
 /**
- * The Varka filter with columnar output (task 21): per batch it runs the mask kernel - one
+ * The Varka filter with columnar output: per batch it runs the mask kernel - one
  * fused loop whose single output is the predicate's selection bitmap - and compacts the
  * selected rows into a fresh dense batch. That compaction is the v1 selected-batch contract
  * (milestone open question 2): what leaves this node is an ordinary `ColumnarBatch`, so every
@@ -168,7 +168,7 @@ private[sql] class VarkaFilterEvaluatorFactory(
       condition, childOutput, offHeapColumnVectorEnabled, operatorName = "Filter",
       classDumpDirectory, varkaMetrics)
 
-    // The per-row predicate and converter behind the fallback. Lazy (task 15): a task the
+    // The per-row predicate and converter behind the fallback. Lazy: a task the
     // kernel serves end to end never pays the Janino compile.
     private lazy val fallbackPredicate: BasePredicate = {
       val predicate = Predicate.create(condition, childOutput)
@@ -278,7 +278,7 @@ private[sql] class VarkaFilterEvaluatorFactory(
 }
 
 /**
- * The Varka filter fused with its to-row transition (task 21): the plan a row consumer gets,
+ * The Varka filter fused with its to-row transition: the plan a row consumer gets,
  * the way [[VarkaColumnarToRowExec]] is the row form of [[VarkaProjectExec]]. Per batch it
  * runs the mask kernel and then emits only the selected rows during the row conversion -
  * '''no compaction at all''': the selection bitmap is consumed at the row boundary, which is
@@ -383,7 +383,7 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
 
     // The emitted rows hold their own bytes (an UnsafeProjection copy), so they outlive the
     // input batch exactly as VarkaColumnarToRowExec's rows do; the fallback predicate is the
-    // per-row form of the same condition. Both lazy (task 15).
+    // per-row form of the same condition. Both lazy.
     // Task 78: the absorbed projection's expressions where there is one, and the identity over
     // every child column otherwise - the same object either way, so the narrowed shape costs
     // nothing extra and the unnarrowed one is byte for byte what it was.

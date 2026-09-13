@@ -171,7 +171,7 @@ private[sql] object VarkaColumnarToRowExec {
 
   private[sql] def isFailKernelForTesting: Boolean = failKernelForTesting
 
-  // Test-only hook that makes every kernel invocation decline its batch (task 26), as a kernel
+  // Test-only hook that makes every kernel invocation decline its batch, as a kernel
   // whose lowering met an out-of-range value does. The shipped calendar lowering is the
   // narrowed one, so a real out-of-range date reaches this path too and the differential
   // drives it that way; the hook exists to reach it without depending on any one expression's
@@ -208,7 +208,7 @@ private[sql] object VarkaColumnarToRowExec {
   // Test-only hook that emits every kernel with these options instead of the defaults, so an
   // end-to-end suite can drive a reference variant - task 52's guard-off bytes, whose only
   // observable difference is a metric - through the real evaluator. The options ride the shape
-  // key (task 23), so a variant is cached under its own identity and nothing has to be flushed
+  // key, so a variant is cached under its own identity and nothing has to be flushed
   // when the hook is reset. Same discipline as the three above: static because Spark runs
   // tasks on other threads, reset in a finally block, and here rather than a SQLConf entry so
   // the production configuration surface stays free of emitter knobs.

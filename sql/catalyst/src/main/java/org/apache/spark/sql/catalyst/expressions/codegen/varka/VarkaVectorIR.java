@@ -36,7 +36,7 @@ import java.util.function.ToIntFunction;
  * <p>The IR is a DAG in effect if not in shape: the records carry structural
  * {@code equals}/{@code hashCode}, and the emitter memoizes on them, so a subtree appearing in
  * several outputs is computed once per lane group no matter how the caller built the trees
- * (task 10).
+ *.
  *
  * <p>Task 11 splits the IR into values and <i>conditions</i>: a {@link Cond} node is
  * mask-valued - per lane a known-true and a known-false bit, SQL's three-valued logic.
@@ -67,7 +67,7 @@ public sealed interface VarkaVectorIR
   enum CompareOp { LT, LE, GT, GE, EQ }
 
   /**
-   * The period {@link TruncDate} rounds a date down to (task 35). {@code WEEK} is deliberately
+   * The period {@link TruncDate} rounds a date down to. {@code WEEK} is deliberately
    * absent: Spark defines it as {@code next_day(d - 7, 'MONDAY')}, and the compiler rewrites it
    * onto {@link NextDay} over {@link SubDays} rather than giving it a lowering of its own.
    */
@@ -77,7 +77,7 @@ public sealed interface VarkaVectorIR
   enum IntOp { ADD, SUB, MUL }
 
   /**
-   * What an integer operation does when its result leaves the int32 range (task 63), which is
+   * What an integer operation does when its result leaves the int32 range, which is
    * Spark's {@code EvalMode} under a different name: {@code WRAP} is {@code LEGACY}, where the
    * lane wraps exactly as the JVM's own {@code iadd} does and as Spark's non-ANSI arithmetic
    * does; {@code FAIL} is {@code ANSI}, where an overflowing live lane declines the batch so
@@ -91,7 +91,7 @@ public sealed interface VarkaVectorIR
   enum Overflow { WRAP, FAIL, NULL }
 
   /**
-   * A mask-valued node (task 11): per lane group it evaluates to a known-true and a
+   * A mask-valued node: per lane group it evaluates to a known-true and a
    * known-false mask, and an unknown lane (a null input somewhere below) is neither - which is
    * what makes {@code CASE WHEN}'s null condition fall through to ELSE.
    *
@@ -119,7 +119,7 @@ public sealed interface VarkaVectorIR
 
   /**
    * {@code days}, checked at runtime to lie in the range the calendar lowering decomposes
-   * exactly, and reported through {@code STATUS_CHRONO_RANGE} where it does not (task 93).
+   * exactly, and reported through {@code STATUS_CHRONO_RANGE} where it does not.
    *
    * <p><b>Why the compiler inserts a node instead of the emitter finding the place.</b> The
    * range analysis lives in {@code VarkaExpressionCompiler.dayRange}, and it needs literal
@@ -160,14 +160,14 @@ public sealed interface VarkaVectorIR
 
   /**
    * {@code end - start}, lane-wise, over two date operands - Spark's {@code DateDiff}
-   * (task 10). Lane math is the same {@code isub} as {@link SubDays}; the difference is at the
+   *. Lane math is the same {@code isub} as {@link SubDays}; the difference is at the
    * Spark level, where the result is an {@code IntegerType} day count rather than a date, which
    * the compiler tracks per output so the evaluator allocates the right vector.
    */
   record DateDiff(VarkaVectorIR end, VarkaVectorIR start) implements VarkaVectorIR {}
 
   /**
-   * {@code left OP right} over two int32 lanes (task 63): Spark's {@code Add}, {@code Subtract}
+   * {@code left OP right} over two int32 lanes: Spark's {@code Add}, {@code Subtract}
    * and {@code Multiply} where both operands and the result are {@code IntegerType}. The
    * operands are int-valued nodes - a fused field such as {@link Year} or {@link DateDiff}, an
    * {@code IntegerType} column, an int literal, or nested arithmetic - never a date, which is
@@ -185,7 +185,7 @@ public sealed interface VarkaVectorIR
       implements VarkaVectorIR {}
 
   /**
-   * {@code -child} over an int32 lane (task 63), Spark's {@code UnaryMinus}. Only
+   * {@code -child} over an int32 lane, Spark's {@code UnaryMinus}. Only
    * {@link Overflow#WRAP} and {@link Overflow#FAIL} occur: Spark has no {@code try_negative},
    * so a negation never nulls a valid lane, and the emitter rejects {@link Overflow#NULL}
    * here rather than emitting a form nothing can produce.
@@ -195,7 +195,7 @@ public sealed interface VarkaVectorIR
   record IntNeg(Overflow mode, VarkaVectorIR child) implements VarkaVectorIR {}
 
   /**
-   * {@code left OP right} over two date-valued operands (task 11). Null-intolerant: the result
+   * {@code left OP right} over two date-valued operands. Null-intolerant: the result
    * is known (true or false) exactly where both operands are valid, unknown elsewhere.
    */
   record Compare(CompareOp op, VarkaVectorIR left, VarkaVectorIR right) implements Cond {}
@@ -213,7 +213,7 @@ public sealed interface VarkaVectorIR
   record Not(Cond child) implements Cond {}
 
   /**
-   * The validity predicate (task 20): true exactly where {@code child} is non-null. The first
+   * The validity predicate: true exactly where {@code child} is non-null. The first
    * condition that reads an input's <i>validity</i> rather than comparing lane values - and the
    * first <i>total</i> one: SQL's {@code IS [NOT] NULL} never returns unknown, so its
    * known-true and known-false masks cover every lane ({@code kT = valid(child)},
@@ -228,7 +228,7 @@ public sealed interface VarkaVectorIR
   record IsNotNull(VarkaVectorIR child) implements Cond {}
 
   /**
-   * SQL's if/else over the {@code cond}'s <i>known-true</i> mask (task 11): a lane takes
+   * SQL's if/else over the {@code cond}'s <i>known-true</i> mask: a lane takes
    * {@code thenNode} where the condition is known true and {@code elseNode} everywhere else,
    * unknown included. Validity follows the chosen branch lane-wise; nothing is ANDed globally.
    */
@@ -236,7 +236,7 @@ public sealed interface VarkaVectorIR
       implements VarkaVectorIR {}
 
   /**
-   * Spark's null-skipping {@code greatest} over two operands (task 11): null only where both
+   * Spark's null-skipping {@code greatest} over two operands: null only where both
    * inputs are null; where one side is null the other's value is taken, so the lane math is a
    * substitute-then-max.
    */
@@ -246,7 +246,7 @@ public sealed interface VarkaVectorIR
   record Least(VarkaVectorIR left, VarkaVectorIR right) implements VarkaVectorIR {}
 
   /**
-   * Spark's {@code dayofweek} (task 11): {@code floorMod(days + 4, 7) + 1}, Sunday = 1 -
+   * Spark's {@code dayofweek}: {@code floorMod(days + 4, 7) + 1}, Sunday = 1 -
    * computed as {@code (floorMod(days, 7) + 4) mod 7 + 1} so the offset can never overflow the
    * int days. An {@code IntegerType} output at the Spark level.
    */
@@ -256,7 +256,7 @@ public sealed interface VarkaVectorIR
   record WeekDay(VarkaVectorIR days) implements VarkaVectorIR {}
 
   /**
-   * {@code extract(DAYOFWEEK_ISO FROM d)} / {@code date_part('DOW_ISO', d)} (task 57): Monday 1
+   * {@code extract(DAYOFWEEK_ISO FROM d)} / {@code date_part('DOW_ISO', d)}: Monday 1
    * to Sunday 7, which the analyzer spells {@code Add(WeekDay(d), Literal(1))}. One node rather
    * than a general integer add: the value cannot overflow (a constant one over {@code 0..6}),
    * and integer arithmetic over an output is milestone 5's task 30. The tail is {@link WeekDay}'s
@@ -265,7 +265,7 @@ public sealed interface VarkaVectorIR
   record DayOfWeekIso(VarkaVectorIR days) implements VarkaVectorIR {}
 
   /**
-   * Spark's {@code next_day(date, day_of_week)} (task 33): the first date strictly later than
+   * Spark's {@code next_day(date, day_of_week)}: the first date strictly later than
    * {@code days} falling on the weekday {@code offset} names. {@code offset} is
    * {@code dayOfWeek - 1}, where {@code dayOfWeek} is the {@code [0, 6]} value
    * ({@code THURSDAY = 0 .. WEDNESDAY = 6}) {@code DateTimeUtils#getDayOfWeekFromString}
@@ -279,12 +279,12 @@ public sealed interface VarkaVectorIR
   record NextDay(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {}
 
   /**
-   * The Thursday of the ISO week {@code days} falls in (task 37): {@code d + 3 - weekday0(d)}
+   * The Thursday of the ISO week {@code days} falls in: {@code d + 3 - weekday0(d)}
    * with a Monday-based weekday, so {@code t} lies in {@code [d - 3, d + 3]} and is the day
    * whose calendar year and ordinal define the ISO week and week-based year. A day-typed
    * producer, not a {@link Chrono} member: it is the child the week tail's prefix runs over,
    * which is why it is a node of its own rather than a step inside {@link WeekOfYear} -
-   * {@code Year} over the same node is {@code extract(YEAROFWEEK)} (task 58), sharing the
+   * {@code Year} over the same node is {@code extract(YEAROFWEEK)}, sharing the
    * prefix. Costs {@code NextDay}'s mod-7 plus four ops.
    */
   record ThursdayOf(VarkaVectorIR days) implements VarkaVectorIR {}
@@ -304,7 +304,7 @@ public sealed interface VarkaVectorIR
       TruncDate, TruncDateDynamic, WeekOfYear {}
 
   /**
-   * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months(date, n)} (task 40): month
+   * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months(date, n)}: month
    * arithmetic over a decomposed date, then Hinnant's {@code days_from_civil} recompose -
    * {@link VarkaChrono#daysFromCivil} is the scalar twin. {@code months} carries the (possibly
    * negative) month count as a {@link LiteralSlot} for a foldable count, or (since task 60) a
@@ -318,7 +318,7 @@ public sealed interface VarkaVectorIR
   record AddMonths(VarkaVectorIR days, VarkaVectorIR months) implements VarkaVectorIR {}
 
   /**
-   * Spark's {@code make_date(year, month, day)} (task 42): a date built from three int lanes,
+   * Spark's {@code make_date(year, month, day)}: a date built from three int lanes,
    * each a column or a literal. The first node with three value children and the first whose
    * result is null for non-null inputs: an invalid month or day is a null output when
    * {@code failOnError} is false and a declined batch (the row engine raises Spark's error)
@@ -332,7 +332,7 @@ public sealed interface VarkaVectorIR
       boolean failOnError) implements VarkaVectorIR {}
 
   /**
-   * Spark's {@code year} (task 26): the proleptic Gregorian year of a date, as
+   * Spark's {@code year}: the proleptic Gregorian year of a date, as
    * {@code LocalDate#getYear} gives it. An {@code IntegerType} output at the Spark level.
    *
    * <p>The calendar nodes below are unlike every other node here in one way worth naming:
@@ -340,7 +340,7 @@ public sealed interface VarkaVectorIR
    * vector divide and a civil-from-days decomposition is mostly division. {@link VarkaChrono}
    * holds the arithmetic and the constants; {@link VarkaLoopEmitter} weighs these nodes
    * accordingly when it partitions outputs into loop methods: siblings over one date share a
-   * method and run the decomposition once between them (task 32), and anything else keeps a
+   * method and run the decomposition once between them, and anything else keeps a
    * calendar node in a method of its own.
    *
    * <p>The sharing is below the node level. Two calendar fields of the same date are two nodes,
@@ -366,14 +366,14 @@ public sealed interface VarkaVectorIR
   record DayOfYear(VarkaVectorIR days) implements Chrono {}
 
   /**
-   * Spark's {@code last_day} (task 36): the last date of the month {@code days} falls in - a
+   * Spark's {@code last_day}: the last date of the month {@code days} falls in - a
    * {@link org.apache.spark.sql.types.DateType} output, unlike {@link Year}'s three siblings,
    * which all return an int. See {@link Year} for what a chrono node costs and why.
    */
   record LastDay(VarkaVectorIR days) implements Chrono {}
 
   /**
-   * Spark's {@code trunc(date, fmt)} at its three date levels (task 35): the first day of the
+   * Spark's {@code trunc(date, fmt)} at its three date levels: the first day of the
    * year, month or quarter {@code days} falls in - a {@link org.apache.spark.sql.types.DateType}
    * output like {@link LastDay}'s. The level is a record component rather than a literal slot
    * because it selects which code is emitted, not which value is used: two levels are two
@@ -383,7 +383,7 @@ public sealed interface VarkaVectorIR
   record TruncDate(VarkaVectorIR days, TruncLevel level) implements Chrono {}
 
   /**
-   * {@code trunc(date, fmt)} with a format <i>column</i> (task 61): {@code level} is a
+   * {@code trunc(date, fmt)} with a format <i>column</i>: {@code level} is a
    * {@link ColumnRef} to the int32 column the evaluator derives per batch from the strings
    * ({@code TruncLevelLeaf}), holding {@code DateTimeUtils.parseTruncLevel}'s own code - 6
    * ({@code WEEK}) to 9 ({@code YEAR}) - in every valid lane and a null lane elsewhere. The
@@ -398,7 +398,7 @@ public sealed interface VarkaVectorIR
   record TruncDateDynamic(VarkaVectorIR days, VarkaVectorIR level) implements Chrono {}
 
   /**
-   * Spark's {@code weekofyear} (task 37): the ISO-8601 week of {@code days}, 1 to 53. The
+   * Spark's {@code weekofyear}: the ISO-8601 week of {@code days}, 1 to 53. The
    * lowering is {@code (dayOfYear - 1) / 7 + 1} over the January day of year, which is the
    * ISO week exactly when {@code days} is the Thursday of its week - so the emitter requires
    * the child to be a {@link ThursdayOf}, and the compiler only ever builds the pair
@@ -409,7 +409,7 @@ public sealed interface VarkaVectorIR
   record WeekOfYear(VarkaVectorIR days) implements Chrono {}
 
   /**
-   * A canonical rendering of a node, pinned by hand because the shape hash (task 18) is
+   * A canonical rendering of a node, pinned by hand because the shape hash is
    * derived from it and must be stable across JVMs, restarts and JDK releases - one shape,
    * one {@code VarkaFusedProjection_<hash>} name, everywhere. {@link Record#toString} makes
    * no such promise: its spec fixes only what the string mentions, not the exact format.

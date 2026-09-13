@@ -32,14 +32,14 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * them first and only ORs bits in, so rows it does not write come out null. Data values of null
  * output rows are undefined.
  *
- * <p>Selection outputs (task 21): an output whose IR root is a condition writes no data at all -
+ * <p>Selection outputs: an output whose IR root is a condition writes no data at all -
  * its {@code dstData} slot is never dereferenced and callers pass {@code 0L} there - and its
  * {@code dstValidity} is the selection bitmap: a set bit means the predicate is known true for
  * that row, an unset bit means false or null (SQL's {@code WHERE} rule). The zero-then-OR
  * discipline above doubles as the selection invariant: a row the loop never writes reads as
  * unselected.
  *
- * <p>Status, and why {@code run} returns one (task 26): a lowering may be correct only over
+ * <p>Status, and why {@code run} returns one: a lowering may be correct only over
  * part of its input domain - the narrowed civil-from-days variant is valid over a bounded day
  * range, and nothing at compile time can bound a column's values. Such a kernel detects the
  * lanes it cannot compute and reports them, rather than publishing an answer it does not have.

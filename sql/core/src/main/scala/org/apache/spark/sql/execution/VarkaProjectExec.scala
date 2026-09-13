@@ -47,7 +47,7 @@ import org.apache.spark.util.ArrayImplicits._
  * batch and closes it, so a consumer must not hold on to one past the call that gave it. This
  * node releases each batch when the next is requested - before asking the child for more input,
  * which the evaluator's ordering contract requires now that an output batch can hold forwarded
- * input vectors (task 12) - and [[VarkaKernelEvaluator]]'s
+ * input vectors - and [[VarkaKernelEvaluator]]'s
  * task-completion listener closes whatever is still open if the task stops early.
  *
  * A batch the kernels cannot serve - not Arrow-backed, empty, or a kernel failure - is projected
@@ -155,7 +155,7 @@ private[sql] class VarkaProjectEvaluatorFactory(
       classDumpDirectory, varkaMetrics)
 
     // The per-row projection behind the fallback, and the schema its rows are written back into.
-    // Lazy (task 15): a task the kernels serve end to end never compiles it, so the Janino
+    // Lazy: a task the kernels serve end to end never compiles it, so the Janino
     // compile is paid only by tasks that actually fall back.
     private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
     private val outputSchema: StructType =

@@ -73,7 +73,7 @@ import jdk.incubator.vector.VectorSpecies;
  *       sources, AND their masks so a row is valid only where all of them are.</li>
  *   <li><b>Run the vector loop to {@link VectorSpecies#loopBound} and finish with a masked
  *       epilogue</b> - the fewer than {@code lanes} rows no whole group covered, done as one
- *       more iteration of the same body rather than as a scalar loop beside it (task 24).
+ *       more iteration of the same body rather than as a scalar loop beside it.
  *       {@link VectorSpecies#indexInRange} builds the bounds mask; AND it into the validity
  *       mask and the group is bounded on both counts at once, so a row past the batch is
  *       neither read nor written. Two things change with it and are easy to miss: the row
