@@ -833,3 +833,63 @@ build/sbt "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaFilter
 build/sbt "catalyst/test:runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
 build/sbt "catalyst/test:runMain org.apache.spark.sql.VarkaArithmeticBenchmark"
 ```
+## Development and benchmarking tools
+
+Two dozen scripts under `dev/` support this engine. They exist because Varka's
+correctness and its performance claims are both checked mechanically rather
+than by review, and most of them encode a lesson learned the expensive way.
+Every one answers `--help` with its own usage; what follows is what each is
+*for*, so you can tell which one you want.
+
+### Everyday checks
+
+| Tool | What it is for |
+| :--- | :--- |
+| `varka_precommit.sh` | The house rules that slip most often - a non-ASCII byte outside a string, a source line over 100 columns, a `TODO` marker under a Varka directory, the quote check when a document changed, `ruff` on Python - over the files about to be committed. Install once with `--install-hook`. |
+| `varka_gate.sh` | The full standing gate in one command: everything a task plan's "Verification" section lists, in order, each step logged. Run before proposing a change. |
+| `varka_quote_check.py` | Does every performance number quoted in the plans, `SKILLS.md`, the docs and the README trace to a committed results file? Numbers that predate the tool live in `varka_quote_allowlist.txt` with a reason each, and that list only shrinks. |
+| `varka_worktree.sh` | Lists the task worktrees this repository accumulates and removes the merged ones (`list`, `gc`). |
+| `varka_pr_sweep.sh` | Dry-merges every open pull request against master, and every pair of open pull requests against each other, without touching the working tree - so a conflict between two in-flight branches is found before one of them merges. |
+| `varka_task_new.sh` | Starts a task the way they all start: worktree and branch off master, a plan file from the template, the pre-commit hook installed. |
+| `check_varka_arrow_version.py` | Guards that the engine module's Arrow version still matches the one Spark ships, since the morsel maps Arrow's buffers directly. |
+
+### Understanding what the compiler did
+
+| Tool | What it is for |
+| :--- | :--- |
+| `varka_emit.sh` | The main introspection tool. Give it SQL expressions and it prints what they compile to - the IR, the shape hash, and per emitted method the bytecode size and vector-op counts. `--asm` adds C2's assembly for the dense loop, `--table` prints the op-count table a plan registers, `--options k=v` selects an emitter variant. Start here when asking "why did this not fuse" or "how expensive is this shape". |
+| `varka_hsdis_build.sh` | Builds `hsdis`, the disassembler plugin `-XX:+PrintAssembly` needs and no JDK ships, in seconds from the JDK's own source and the distribution's capstone library. Needed by `varka_emit.sh --asm`. |
+| `varka_trap_census.py` | Splits HotSpot's `LogCompilation` output into the two different things called `uncommon_trap` and reports per-method deoptimisation and compile counts - for when a kernel is fast in isolation and slow in a query. |
+| `varka_word_census.sh` | Reports what validity word each IR value root produces, over the whole corpus - the audit behind the null-handling algebra. |
+
+### Measuring, and not fooling yourself
+
+The benchmark tooling is built around one observation: the same code has
+measured its memory-bound kernels 20-27% apart on different days with every
+compute-bound row flat. So the machine's state is checked before a number is
+believed, and a number is compared against a committed baseline rather than
+remembered.
+
+| Tool | What it is for |
+| :--- | :--- |
+| `varka_bench_canary.sh` | Is this machine in the state the committed files were measured in? Runs three fixed loops - a compute-bound control, a cache-resident vector add, a memory-bound one - and compares them against this host's committed baseline. The regeneration script runs it first and stops if the machine has drifted. |
+| `varka_bench_regen.sh` | Regenerates one benchmark's committed results at both vector widths, with a provenance sidecar, and ends by diffing against what was committed. The normal way to update a results file. |
+| `varka_bench_diff.py` | Reads that diff on its own: before/after between two files or against a git revision, or A/B pairs inside one file. Scalar control rows are listed first, because if they moved the machine moved and nothing else in the file can be read. `--requote` turns a diff into the list of document lines still quoting the old numbers. |
+| `varka_bench_gate.py` | Asserts the invariants a results file must satisfy whatever its numbers are - no duplicate case ids, no missing provenance, no impossible rate. |
+| `varka_bench_band.py` | How far apart do repeated runs of one benchmark land, per case? `--split-half` asks whether that spread itself reproduces. Use it before believing a small win. |
+| `varka_bench_repeat.sh` | Runs one benchmark N times so `varka_bench_band.py` has something to read. |
+| `varka_bench_ids.sh` | Which benchmark case ids are taken and which is the next free one - the ids must be unique per file and picking one by eye gets it wrong. |
+| `varka_nightly.sh` | The checks that need volume or an idle machine, into a dated log: the canary, the IR fuzzer at ten thousand iterations, the exhaustive sweeps, optionally the full gate. |
+
+### The cross-distribution surface benchmark
+
+These four run the public comparison against stock Apache Spark - the numbers
+in the README - and are described from a user's side in that file's
+"Reproducing it" section.
+
+| Tool | What it is for |
+| :--- | :--- |
+| `varka_bench_surface.sh` | Runs the date surface, or the chained expressions, against several Spark distributions one after another and prints the comparison. Refuses a busy machine, records the datapath probe and host in every file, and fails a run whose cached table did not stay in memory or whose per-job fixed cost exceeded 5% of a Varka row's wall time. |
+| `varka_datapath.sh` | Describes the machine and measures its vector datapath, exiting non-zero if it is not what the caller asked for. It reports *lanes per nanosecond* at three widths, because "has AVX-512" does not tell you whether 512-bit operations issue at full rate - some server parts read 1.33x where a full-width one reads 2x. Used as the gate on CI benchmark jobs and runnable on a laptop to see what it has. |
+| `varka_surface_shards.py` | Runs one sharded surface across CI runners and re-dispatches the shards that miss, for when the whole list does not fit one job's time limit. |
+| `varka_bench_merge.py` | Joins those shard files back into one file per distribution. |

@@ -50,12 +50,19 @@
 # script measures. Before reading a regeneration's diff as a regression, run
 # this and compare the diff against the band.
 set -uo pipefail
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+
 root="$(git rev-parse --show-toplevel)"; cd "$root"
-[ "$#" -ge 2 ] || { sed -n '17,45p' "$0"; exit 2; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
+[ "$#" -ge 2 ] || { usage; }
 module="$1"; klass="$2"; runs="${3:-3}"; shift 3 2>/dev/null || shift $#
 narrow=0; band=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) usage 0 ;;
     --narrow) narrow=1; shift ;;
     --band) band="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;

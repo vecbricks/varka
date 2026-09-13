@@ -28,12 +28,18 @@
 # Prints the export to put in your shell; the gate and the emit tool also look
 # in ~/hsdis on their own.
 set -euo pipefail
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+
 src=""; out="$HOME/hsdis"; tag="${VARKA_JDK_TAG:-jdk-25-ga}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) usage 0 ;;
     --src) src="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
-    *) sed -n '17,31p' "$0"; exit 2 ;;
+    *) usage ;;
   esac
 done
 command -v gcc > /dev/null || { echo "gcc not found" >&2; exit 1; }

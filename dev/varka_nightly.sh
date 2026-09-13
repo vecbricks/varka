@@ -27,15 +27,21 @@
 # seed so a failure replays with -Dvarka.fuzz.seed=<seed> -Dvarka.fuzz.only=<n>.
 # Exit status is the number of failed steps.
 set -uo pipefail
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 iterations=10000; seed="$(date +%Y%m%d)"; sweep=1; gate=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) usage 0 ;;
     --iterations) iterations="$2"; shift 2 ;;
     --seed) seed="$2"; shift 2 ;;
     --skip-sweep) sweep=0; shift ;;
     --gate) gate=1; shift ;;
-    *) sed -n '17,30p' "$0"; exit 2 ;;
+    *) usage ;;
   esac
 done
 logdir="target/varka-nightly/$(date +%Y-%m-%d)"

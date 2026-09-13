@@ -90,7 +90,7 @@ cd "$(git rev-parse --show-toplevel)"
 # comment above grew past it, so --help and every usage error stopped mid-sentence and dropped
 # the only paragraph documenting the mandatory LABEL=SPARK_HOME:JAVA_HOME argument - which is
 # precisely what a usage error is about. Ends at the first line that is not a comment.
-usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit 2; }
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 rows=500000000; partitions=1; force=0; only=""; build=1; memory=16g; share=5; dists=()
 shard=""; benchmark=surface
 while [ "$#" -gt 0 ]; do
@@ -104,7 +104,7 @@ while [ "$#" -gt 0 ]; do
     --shard) shard="$2"; shift 2 ;;
     --benchmark) benchmark="$2"; shift 2 ;;
     --skip-build) build=0; shift ;;
-    --help|-h) usage ;;
+    --help|-h) usage 0 ;;
     *=*) dists+=("$1"); shift ;;
     *) usage ;;
   esac

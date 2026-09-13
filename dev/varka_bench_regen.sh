@@ -48,7 +48,8 @@
 # reading anything into it.
 set -euo pipefail
 
-usage() { sed -n '17,40p' "$0"; exit 2; }
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
 [ "$#" -ge 2 ] || usage
 module="$1"; klass="$2"; shift 2
 narrow=1; wide_run=1; force=0; pin=auto

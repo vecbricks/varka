@@ -41,8 +41,23 @@
 # lookup appear only inside the compile-time `<parse>` tree, which this script
 # does not attribute.
 import collections
+import pathlib
 import re
 import sys
+
+
+def _usage(code: int = 2) -> None:
+    """Print this file's header comment, the way the shell tools answer --help."""
+    lines = pathlib.Path(__file__).read_text().splitlines()
+    for line in lines[16:]:
+        if not line.startswith("#"):
+            break
+        print(line[2:] if line.startswith("# ") else line[1:])
+    sys.exit(code)
+
+
+if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+    _usage(0)
 
 path = sys.argv[1]
 ins = collections.Counter()  # compile-time insertions, by reason

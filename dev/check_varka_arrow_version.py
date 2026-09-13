@@ -38,6 +38,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+    print(__doc__.strip())
+    sys.exit(0)
+
 PROPERTY = re.compile(r"<arrow\.version>([^<]+)</arrow\.version>")
 
 ROOT_POM = "pom.xml"

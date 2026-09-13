@@ -40,9 +40,24 @@
 # a table in neither list fails the run: a section added later must be a
 # decision, not an omission.
 
+import pathlib
 import re
 import subprocess
 import sys
+
+
+def _usage(code: int = 2) -> None:
+    """Print this file's header comment, the way the shell tools answer --help."""
+    lines = pathlib.Path(__file__).read_text().splitlines()
+    for line in lines[16:]:
+        if not line.startswith("#"):
+            break
+        print(line[2:] if line.startswith("# ") else line[1:])
+    sys.exit(code)
+
+
+if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+    _usage(0)
 
 ROW = re.compile(r"^(.*?)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)X\s*$")
 HEADER = re.compile(r"^(.*?):\s+Best Time\(ms\)")

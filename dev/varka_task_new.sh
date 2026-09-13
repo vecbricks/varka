@@ -28,12 +28,14 @@
 # first commit is the plan, once its admission check is done, per the template.
 # Refuses to overwrite an existing plan file or reuse an existing branch.
 set -euo pipefail
-usage() { sed -n '17,30p' "$0"; exit 2; }
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
 [ "$#" -ge 2 ] || usage
 n="$1"; title="$2"; shift 2
 dir=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) usage 0 ;;
     --dir) dir="$2"; shift 2 ;;
     *) usage ;;
   esac

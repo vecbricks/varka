@@ -50,15 +50,21 @@
 # its instruction assertions is a gate that lies.
 set -uo pipefail
 
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+
 steps_all=(compile wide narrow sweep doc bench lint quotes)
 only=""; skip=""; engine=0; list=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) usage 0 ;;
     --only) only="$2"; shift 2 ;;
     --skip) skip="$2"; shift 2 ;;
     --engine) engine=1; shift ;;
     --list) list=1; shift ;;
-    *) sed -n '17,45p' "$0"; exit 2 ;;
+    *) usage ;;
   esac
 done
 [ "$engine" -eq 1 ] && steps_all+=(engine)

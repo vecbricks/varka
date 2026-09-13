@@ -41,6 +41,12 @@
 #
 # Exit status is the number of findings.
 set -uo pipefail
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
+
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 
 if [ "${1:-}" = "--install-hook" ]; then

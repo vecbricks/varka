@@ -39,6 +39,11 @@
 
 set -uo pipefail
 
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+
 require="any"
 expected_cpu=""
 github=0
@@ -48,7 +53,7 @@ while [ $# -gt 0 ]; do
     --require) require="$2"; shift 2 ;;
     --expected-cpu) expected_cpu="$2"; shift 2 ;;
     --github) github=1; shift ;;
-    -h|--help) sed -n '18,40p' "$0"; exit 0 ;;
+    -h|--help) usage 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done

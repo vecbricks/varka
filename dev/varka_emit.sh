@@ -37,6 +37,12 @@
 # against, and what a boxed vector (task 55) shows up in as prefetchnta and
 # mark-word stores.
 set -euo pipefail
+# Usage text is found rather than numbered: a hard-coded range silently truncates as the
+# comment above it grows, which had already happened to four of these scripts. Ends at the
+# first line that is not a comment.
+usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
+
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 asm=0; pass=()
 for a in "$@"; do
@@ -45,7 +51,7 @@ for a in "$@"; do
     *) pass+=("$a") ;;
   esac
 done
-[ "${#pass[@]}" -gt 0 ] || { sed -n '17,32p' "$0"; exit 2; }
+[ "${#pass[@]}" -gt 0 ] || { usage; }
 main=org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitDump
 # sbt splits runMain's argument string on spaces; keep each expression one token.
 quoted=""
