@@ -17,11 +17,11 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-// Only the four Class-File API imports that predate task 13 appear here: importing several
-// others (CustomAttribute, AttributedElement, ClassElement...) makes scalac - and so every
-// scaladoc pass over the module - fail with an "illegal cyclic reference" while completing
-// the API's sealed hierarchy. Task-13 additions use fully-qualified names inside method
-// bodies instead, which scalac's Java parser never reads; see VarkaDebugInfo's class doc.
+// Only four Class-File API imports appear here: importing several others (CustomAttribute,
+// AttributedElement, ClassElement...) makes scalac - and so every scaladoc pass over the module -
+// fail with an "illegal cyclic reference" while completing the API's sealed hierarchy. Task-13
+// additions use fully-qualified names inside method bodies instead, which scalac's Java parser
+// never reads; see VarkaDebugInfo's class doc.
 import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.CodeBuilder;
@@ -78,68 +78,68 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
- * Emits a fused vector loop for a {@link VarkaVectorIR} DAG with the Class-File API
- * (milestone 2, tasks 9-11): a class implementing {@link VarkaFusedKernel} whose {@code run}
- * is the loop itself - loads, the op DAG on the operand stack, one store per output -
- * mirroring the hand-written {@code DateVectorOps} kernels' six-step shape, generalized. The
- * kernels remain the reference semantics for the arithmetic ops; this class exists so a whole
- * projection - predication included - runs in one pass with its intermediates in vector
- * registers.
+ * Emits a fused vector loop for a {@link VarkaVectorIR} DAG using the Class-File API: a class
+ * implementing {@link VarkaFusedKernel} whose {@code run} <i>is</i> the loop - loads, the op
+ * DAG on the operand stack, one store per output. It generalizes the six-step shape of the
+ * hand-written {@code DateVectorOps} kernels, which remain the reference semantics for the
+ * arithmetic; this class exists so that a whole projection, predication included, runs in one
+ * pass with its intermediates in vector registers rather than in memory.
  *
- * <p><b>Method layout</b> (task 10's twin bodies, split further in task 11): {@code run}
- * dispatches per batch on one loop-invariant test - are all referenced inputs null-free? - to
- * a dense or masked <i>driver</i>, which zeroes the output validity, takes the all-null
- * shortcut, then calls one sibling <i>loop</i> method per output group (at most
- * {@link #GROUP_BUDGET} ops each; see that constant for the measured reason) and finally the
- * sibling <i>epilogue</i> method. The dense side runs with no validity bookkeeping at all, which
- * task 11's invariant keeps sound: every node maps valid inputs to valid outputs (there is no
- * null-literal node), so null-free in means all-valid out. Separate methods, not one big one:
- * each gets its own C2 compilation, so no method's node and inlining budgets can starve
- * another's intrinsics.
+ * <p>This is the largest file in the engine. The sections below are its design in the order
+ * the emitted code executes.
  *
- * <p><b>Unmasked compute</b> (task 11, plan 2.4): both bodies run unmasked loads, lanewise ops
- * and stores. Inside {@code loopBound} every access is in bounds, an all-null column still has
- * an allocated data buffer, and the engine contract declares invalid destination lanes
- * undefined - so masks carry no correctness inside the loop, and task 10 measured masked ops
- * at 2.3x-2.9x slower even with an all-true mask. Truth lives in the <i>validity words</i>:
- * per lane group each referenced input contributes one long ({@code 0L} all-null, {@code -1L}
- * null-free, {@code validityBitsAt} otherwise), and each node's validity is computed from its
- * children's words by the task-11 mask algebra - AND for the null-intolerant ops, OR for
- * {@code greatest}/{@code least}, a word blend for {@code IfElse}. A {@code VectorMask} is
+ * <p><b>Method layout.</b> {@code run} dispatches per batch on one loop-invariant test - are
+ * all referenced inputs null-free? - to a dense or masked <i>driver</i>, which zeroes the
+ * output validity, takes the all-null shortcut, then calls one sibling <i>loop</i> method per
+ * output group (at most {@link #GROUP_BUDGET} ops each; see that constant for the measured
+ * reason) and finally the sibling <i>epilogue</i> method. The dense side runs with no validity
+ * bookkeeping at all, which is sound because every node maps valid inputs to valid outputs -
+ * there is no null-literal node - so null-free in means all-valid out. Separate methods rather
+ * than one large one: each gets its own C2 compilation, so no method's node and inlining
+ * budgets can starve another's intrinsics.
+ *
+ * <p><b>Unmasked compute.</b> Both bodies run unmasked loads, lanewise ops and stores. Inside
+ * {@code loopBound} every access is in bounds, an all-null column still has an allocated data
+ * buffer, and the engine contract declares invalid destination lanes undefined - so masks
+ * carry no correctness inside the loop, and masked ops measure 2.3x-2.9x slower even with an
+ * all-true mask (see {@code PLAN_TASK_10.md}). Truth lives in the <i>validity words</i>
+ * instead: per lane group each referenced input contributes one long ({@code 0L} all-null,
+ * {@code -1L} null-free, {@code validityBitsAt} otherwise), and each node's validity is
+ * computed from its children's words by the mask algebra - AND for the null-intolerant ops, OR
+ * for {@code greatest}/{@code least}, a word blend for {@code IfElse}. A {@code VectorMask} is
  * materialized only where a blend semantically needs one.
  *
- * <p><b>Conditions</b> (task 11, plan 2.6): a {@link Cond} node evaluates to a known-true and
- * a known-false word pair - three-valued logic, where an unknown lane (a null below the
- * comparison) is neither, and {@code IfElse} takes its ELSE branch there. In the dense body
- * every input lane is valid, so the pair degenerates to the comparison mask itself and the
- * connectives run in mask space. {@code IfElse} validity is
- * {@code (kT & validThen) | (~kT & validElse)}: the chosen branch's validity, lane-wise,
- * nothing ANDed globally.
+ * <p><b>Conditions.</b> A {@link Cond} node evaluates to a known-true and a known-false word
+ * pair - three-valued logic, where an unknown lane (a null below the comparison) is neither,
+ * and {@code IfElse} takes its ELSE branch there. In the dense body every input lane is valid,
+ * so the pair degenerates to the comparison mask itself and the connectives run in mask space.
+ * {@code IfElse} validity is {@code (kT & validThen) | (~kT & validElse)}: the chosen branch's
+ * validity, lane-wise, nothing ANDed globally.
  *
- * <p>{@code dayofweek}/{@code weekday} lower to a full-range mod-7 by base-8 digit sum
- * (pre-measured in PLAN_TASK_11.md: 8x the lanewise-DIV variant, which x86 scalarizes): fold
- * 15-, 6- and 3-bit chunks ({@code 2^(3k) = 1 mod 7}), correct by {@code +3} where the input
- * is negative ({@code 2^32 = 4 mod 7}), one compare-subtract fixup, then the constant offset
+ * <p>{@code dayofweek}/{@code weekday} lower to a full-range mod-7 by base-8 digit sum, which
+ * measures 8x the lanewise-DIV variant that x86 scalarizes (see {@code PLAN_TASK_11.md}): fold
+ * 15-, 6- and 3-bit chunks ({@code 2^(3k) = 1 mod 7}), correct by {@code +3} where the input is
+ * negative ({@code 2^32 = 4 mod 7}), one compare-subtract fixup, then the constant offset
  * applied after the mod so it cannot overflow.
  *
- * <p><b>Selection outputs</b> (task 21): a {@link Cond} may itself be an output root, and such
- * an output is a <i>selection bitmap</i> rather than a column - the root's known-true word
- * OR-ed into {@code dstValidity} exactly where a value root ORs its validity word, with the
+ * <p><b>Selection outputs.</b> A {@link Cond} may itself be an output root, and such an output
+ * is a <i>selection bitmap</i> rather than a column - the root's known-true word OR-ed into
+ * {@code dstValidity} exactly where a value root ORs its validity word, with the
  * {@code dstData} slot unused (callers pass {@code 0L}; the body never materializes it). The
  * bitmap's semantics are SQL's {@code WHERE}: a set bit means known true, so an unknown lane
- * (a null below the comparison) reads as false - free by construction, because {@code kT} is
- * a subset of the operands' validity. This is the filter kernel: one Cond root per predicate,
- * no value outputs beside it in milestone 3.
+ * reads as false - free by construction, because {@code kT} is a subset of the operands'
+ * validity. This is the filter kernel: one Cond root per predicate, with no value outputs
+ * beside it.
  *
- * <p><b>The epilogue, not a scalar tail</b> (task 24): the rows past {@code loopBound} are one
- * more iteration of the same lane-group body, under the mask {@code indexInRange} builds for a
+ * <p><b>The epilogue, not a scalar tail.</b> The rows past {@code loopBound} are one more
+ * iteration of the same lane-group body, under the mask {@code indexInRange} builds for a
  * partial group - {@code i} is {@code loopBound}, {@code lanes} becomes the remainder so every
  * validity helper stays bounded by the group, and only the loads and the stores take their
  * masked overloads. The masked load is required rather than preferred: the data segment is
  * sized to {@code length * 4}, so an unmasked load of the last partial group would run off its
- * end. This replaced a per-row topological pass that lowered every node type a second time
- * into int locals - a complete second walk of the IR, and the half that would have had to grow
- * with every node type added after this.
+ * end. The obvious alternative - a per-row topological pass lowering every node type a second
+ * time into int locals - is rejected because it is a complete second walk of the IR whose
+ * every arm would have to grow with each new node type.
  *
  * <p><b>Inactive lanes read {@code 0}, so no operation in the walk may trap on {@code 0}.</b>
  * That is the invariant the epilogue rests on, and today it holds for free: the mod-7
@@ -148,18 +148,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * blend a safe value into the inactive lanes or use a masked lanewise form, because the
  * epilogue computes them and only declines to store them.
  *
- * <p>Every call the loop makes is declared once in the descriptor table below - erasure is
- * this milestone's named risk ({@code IntVector.add}, {@code compare}, {@code blend},
- * {@code max} all take the <i>erased</i> {@code Vector}), and a wrong descriptor must be found
- * by pointing at one line, not by disassembling the output.
+ * <p>Every call the loop makes is declared once in the descriptor table below. Erasure is a
+ * live hazard here - {@code IntVector.add}, {@code compare}, {@code blend} and {@code max} all
+ * take the <i>erased</i> {@code Vector} - and a wrong descriptor should be found by pointing at
+ * one line rather than by disassembling the output.
  *
  * <p>Out-of-shape IR - unknown lane types, a condition in a value position, out-of-range
  * ordinals or slots, a day offset that is neither a literal slot nor a column, trees past
  * {@link #MAX_CHAIN_DEPTH} or {@link #MAX_FUSED_NODES} - is rejected with
- * {@link IllegalArgumentException}, which the evaluator wiring treats as "fall back".
+ * {@link IllegalArgumentException}, which the evaluator wiring treats as "fall back". Refusing
+ * to emit is a normal outcome here, not an error path: the query still runs, on stock Spark.
  *
- * <p><b>Telemetry</b> (task 13): every emitted class carries a {@code SourceFile} attribute -
- * the caller-supplied name, meant to identify the operator and stage
+ * <p><b>Telemetry.</b> Every emitted class carries a {@code SourceFile} attribute - the
+ * caller-supplied name, meant to identify the operator and stage
  * ({@code Varka_Project_Stage3.java}), so a stack frame in the generated {@code run} names the
  * plan node it came from without any mapping table - and a {@link VarkaDebugInfo} custom
  * attribute holding the IR and the caller's plan fragment, so a captured class is
@@ -177,100 +178,66 @@ public final class VarkaLoopEmitter {
   public static final int MAX_CHAIN_DEPTH = 16;
 
   /**
-   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE
-   * (task 10). Depth alone no longer bounds method size once outputs multiply, so this is the
-   * total-size counterpart of {@link #MAX_CHAIN_DEPTH}: a policy bound far past any real
-   * projection, kept honest by the widest-shape case in the parity benchmark. Since task 11
-   * the ops are spread over loop methods of at most {@link #GROUP_BUDGET} ops each, so this
-   * caps the kernel, not any one compiled method.
+   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE . Depth
+   * alone no longer bounds method size once outputs multiply, so this is the total-size counterpart
+   * of {@link #MAX_CHAIN_DEPTH}: a policy bound far past any real projection, kept honest by the
+   * widest-shape case in the parity benchmark. The ops are spread over loop methods of at most
+   * {@link #GROUP_BUDGET} ops each, so this caps the kernel, not any one compiled method.
    */
   public static final int MAX_FUSED_NODES = 64;
 
   /**
-   * The most op nodes one emitted <i>loop method</i> carries; outputs are partitioned into
-   * sibling loop methods within this budget (task 11).
+   * The most op nodes one emitted <i>loop method</i> carries. Outputs are partitioned into
+   * sibling loop methods within this budget.
    *
-   * <p><b>The original reason for 16 has been retired, and the value has not.</b> Task 11
-   * observed a 64-op loop whose tier-4 compile did not land for ~10 seconds, during which the
-   * loop ran C1-boxed at ~1% speed, and read that as C2's compile time growing steeply with
-   * op count. Task 43 re-measured the same path on JDK 25 and it does not reproduce: a ladder
-   * of single-output loops from 20 to 248 ops compiles linearly at roughly 1.1 ms per op at
-   * AVX-512 and 2.0 at 128-bit, so 248 ops takes 271 ms on the standard path and 186 ms on
-   * the OSR path the original describes. Two orders of magnitude below the folklore, and it
-   * agrees with the independent ~1 ms per op this repository already carried elsewhere.
+   * <p><b>Why bound a method at all.</b> Past roughly 1900 bytes C1 refuses a loop method and
+   * it runs interpreted until C2 lands, so a method that grows without limit has a window in
+   * which it is very slow. Keeping methods small also keeps each one's C2 node and inlining
+   * budgets to itself, so no method's size can cost another its intrinsics.
    *
-   * <p>The observation is not being called a mismeasurement - a rate jumping from 9 to ~1000
-   * M rows/s at t=12s is not subtle - but the honest reading is a compile task <i>queueing</i>
-   * behind others under load rather than ten seconds of compiler work. That keeps the symptom
-   * and drops the inference: <b>a queued compile can bite at any width and any op count, which
-   * is a scheduling property no per-method budget can bound.</b> So this constant is not
-   * currently justified by compile time. What justifies it today is task 71's measurement:
-   * of nine shapes surveyed across budgets from 16 to 64, three regroup at all and only one
-   * above 24 - for a saving of one lane op out of 38 - so raising it buys almost nothing while
-   * growing every method toward C1's refusal threshold (past about 1900 bytes a loop method
-   * runs interpreted until C2 lands). See {@code PLAN_TASK_43.md} 8 and {@code PLAN_TASK_71.md}
-   * 10.5; `SKILLS.md` carries the three-width ladder.
+   * <p><b>Why 16 rather than more.</b> Of nine shapes surveyed across budgets from 16 to 64,
+   * three regroup at all and only one above 24 - and that one saves a single lane op out of
+   * 38. Raising the budget therefore buys almost nothing while growing every method toward
+   * C1's refusal threshold. See {@code PLAN_TASK_71.md} 10.5.
    *
-   * <p>What task 43's ladder does <i>not</i> license: "no cliff exists". It is one Zen 5 host,
-   * one JDK 25 build, one shape family, and it stops at 248 ops. A lowering with more live
-   * values per op could still spill, and the machine is not a full-width 512-bit one - the
-   * compile-time findings should carry over, being a function of the IR, but the throughput
-   * arm would want re-running there.
+   * <p><b>Grouping.</b> Greedy over the output order, counting only nodes new to the group, so
+   * outputs sharing subtrees tend to land together and keep their cross-output CSE. A single
+   * output wider than the budget gets its own group untouched: splitting inside one output
+   * would forfeit the register residency that is the point of fusing at all.
    *
-   * <p>Grouping is greedy over the output order and counts only nodes new to the group, so
-   * outputs sharing subtrees tend to land together and keep their cross-output CSE; a single
-   * output wider than the budget gets its own group untouched - splitting inside an output
-   * would forfeit the register residency that is the point. Numbers in PLAN_TASK_11.md
-   * section 6.
+   * <p><b>Two exceptions let a method exceed this budget</b>, both because the wider method is
+   * less work rather than more. An output that reuses a civil-from-days prefix the group
+   * already computes may join up to {@link #FUSED_CEILING}, since skipping the prefix is a
+   * saving; and under {@link VarkaEmitOptions#shareWholeNodes} an output that reuses whole
+   * nodes may join too. {@link #groupOutputs} implements both.
    *
-   * <p>Task 17 priced the one candidate the debt register left open - raising the budget so
-   * two outputs sharing a deep chain keep their cross-output CSE in one method - and closed
-   * it against the change: on 20 distinct ops split across two outputs, the shipped 16 ran
-   * 4119.9 M rows/s (two loop methods, the shared chain recomputed per lane group) against
-   * 2928.2 M at 24 (one method, CSE kept), and read that way, ~1.4x, in every regeneration
-   * through task 61. The reading was "recomputing eight ops in registers is cheaper than the
-   * wider method's register pressure"; see the next paragraph for why it was probably not.
-   * The parity benchmark keeps both cases so a future retune is measured rather than argued;
-   * the current file reads 4385.5 against 5482.1 at AVX-512 and 1645.6 against 2566.5 at
-   * 128-bit, the merged method ahead.
+   * <p><b>What this bound is not.</b> It is not a compile-time bound. C2's compile time is
+   * roughly linear in op count - about 1.1 ms per op at AVX-512, measured on a ladder from 20
+   * to 248 ops - so even the widest method compiles in a few hundred milliseconds. A loop that
+   * appears to stall for seconds is a compile task queued behind others under load, which is a
+   * scheduling property no per-method budget can bound. That measurement is one host, one JDK
+   * and one shape family, so it does not license "no cliff exists": a lowering with more live
+   * values per op could still spill. See {@code PLAN_TASK_43.md} 8, and {@code SKILLS.md} for
+   * the three-width ladder.
    *
-   * <p>Task 32 step B2 added the first exception: an output that reuses a civil-from-days
-   * prefix the group already computes joins past this budget, up to {@link #FUSED_CEILING},
-   * because skipping the prefix makes the method less work rather than more.
-   *
-   * <p><b>Task 71 settled task 17's case, and the answer was not this number.</b> The budget
-   * bounds the <i>method</i>, while the marginal cost it is compared against already excludes
-   * nodes the group holds - so task 17's pair is 14 + 6 against 16 and is split into two
-   * methods costing 28 nodes of work where one method costs 20. The merge is strictly less
-   * work and clause 1 rejects it anyway. What was missing is the same exception B2 wrote,
-   * generalised: {@link VarkaEmitOptions#shareWholeNodes} lets an output that reuses whole
-   * nodes join too, which merges exactly the shapes a budget of 24 would merge and nothing
-   * else (asserted method for method in {@code VarkaLoopEmitterSuite}), at the shipped budget.
-   * Raising the budget instead would have loosened the bound that keeps compile time in hand -
-   * past about 1900 bytes C1 refuses a loop method and it runs interpreted until C2 lands.
-   *
-   * <p>Two readings this javadoc carried are also retired. The rows did reverse at
-   * {@code aef0b82260e}, but the {@code orValidityBitsAt} call it blamed is not emitted for
-   * this shape at all since task 70's bitmap pass; and the retune was pointed at "task 43's
-   * question", which is task 71's. The static survey behind all of this is
-   * {@code PLAN_TASK_71.md} 10.5. See {@link #groupOutputs} and {@code PLAN_TASK_32.md} 7.6.
+   * <p>The parity benchmark keeps the split and merged forms of the same shape side by side,
+   * so a future retune of this constant is measured rather than argued.
    */
   public static final int GROUP_BUDGET = 16;
 
   /**
    * The most op nodes one emitted loop method carries when its outputs share a civil-from-days
-   * prefix (task 32 step B2). {@link #GROUP_BUDGET} is the bound on a method whose outputs
-   * share nothing but whole nodes; an output whose calendar prefix a group already computes
-   * joins that group past the budget and up to this, because joining lets it skip emitting
-   * that prefix - the one situation where a wider method is strictly less work rather than a
-   * trade (see {@link #groupOutputs}). Set by the ladder in {@code PLAN_TASK_32.md} section
-   * 7.6: one method kept winning through twelve outputs (700 ops) at both widths, so the bound
-   * comes from compile time - an eight-output method of 376 ops has every method at tier 4
-   * within 894 ms of its first compile, the twelve-output one takes 1.9 s, and the rule was one
-   * second. Past about 1900 bytes C1 refuses a loop method ("out of virtual registers in
-   * LIR"), so a method near this ceiling runs interpreted until C2 lands, ~340 ms once per
-   * shape per JVM. An emit option ({@link VarkaEmitOptions#fusedCeiling}) so a retune is priced
-   * rather than argued.
+   * prefix. {@link #GROUP_BUDGET} is the bound on a method whose outputs share nothing but whole
+   * nodes; an output whose calendar prefix a group already computes joins that group past the
+   * budget and up to this, because joining lets it skip emitting that prefix - the one situation
+   * where a wider method is strictly less work rather than a trade (see {@link #groupOutputs}). Set
+   * by the ladder in {@code PLAN_TASK_32.md} section 7.6: one method kept winning through twelve
+   * outputs (700 ops) at both widths, so the bound comes from compile time - an eight-output method
+   * of 376 ops has every method at tier 4 within 894 ms of its first compile, the twelve-output one
+   * takes 1.9 s, and the rule was one second. Past about 1900 bytes C1 refuses a loop method ("out
+   * of virtual registers in LIR"), so a method near this ceiling runs interpreted until C2 lands,
+   * ~340 ms once per shape per JVM. An emit option ({@link VarkaEmitOptions#fusedCeiling}) so a
+   * retune is priced rather than argued.
    */
   public static final int FUSED_CEILING = 400;
 
@@ -281,10 +248,9 @@ public final class VarkaLoopEmitter {
   public static final int MAX_INPUTS = 64;
 
   /**
-   * Task 79: one step of an arm chain - an {@code IfElse} and which of its two arms. The
-   * condition it names is what the guard is qualified by, taken as-is for the then arm and
-   * complemented for the else arm; see {@link #emitArmContext} for why the complement and not
-   * the known-false word.
+   * one step of an arm chain - an {@code IfElse} and which of its two arms. The condition it names
+   * is what the guard is qualified by, taken as-is for the then arm and complemented for the else
+   * arm; see {@link #emitArmContext} for why the complement and not the known-false word.
    */
   record ArmStep(IfElse node, boolean thenBranch) { }
 
@@ -294,15 +260,14 @@ public final class VarkaLoopEmitter {
 
   /**
    * What the civil-from-days prefix costs: the {@code IntVector} ops {@link #emitChronoPrefix}
-   * emits for one date - 31 with the March-month step, 29 where task 48 elides it because no
-   * tail in the group reads the month. The weight is a shape property, so it takes the full
-   * form.
+   * emits for one date - 31 with the March-month step, 29 where the month step is elided because no
+   * tail in the group reads the month. The weight is a shape property, so it takes the full form.
    *
-   * <p>Since task 32 step B2 this is the part of a calendar node's weight that a loop method
-   * pays <i>once</i>, however many calendar outputs over the same date it holds (see
-   * {@link #groupOutputs}); each node's {@code *_TAIL_WEIGHT} below is what it pays per output.
-   * Every calendar weight is written as the sum of the two, so the split {@link #addOps}
-   * counts with and the total {@link #weightOf} reports cannot drift apart.
+   * <p>This is the part of a calendar node's weight that a loop method pays <i>once</i>, however
+   * many calendar outputs over the same date it holds (see {@link #groupOutputs}); each node's
+   * {@code *_TAIL_WEIGHT} below is what it pays per output. Every calendar weight is written as the
+   * sum of the two, so the split {@link #addOps} counts with and the total {@link #weightOf}
+   * reports cannot drift apart.
    *
    * <p>How the register was taken, so the next recount does it the same way: every node was
    * emitted alone and beside {@code month(d)} in one loop method ({@code dev/varka_emit.sh
@@ -322,38 +287,36 @@ public final class VarkaLoopEmitter {
   static final int CHRONO_FIELD_TAIL_WEIGHT = 7;
 
   /**
-   * What {@code Year}/{@code Month}/{@code DayOfMonth}/{@code Quarter} (task 26) weigh against
+   * What {@code Year}/{@code Month}/{@code DayOfMonth}/{@code Quarter} weigh against
    * {@link #GROUP_BUDGET}: the prefix plus the field's own short tail. It exceeds the budget,
    * so a calendar output never joins a group under clause 1 of {@link #groupOutputs} - it joins
    * one under clause 2, by reusing the prefix, or forms its own.
    *
-   * <p>History, because the number has moved with the lowering and will again: 50 at task 26
-   * (rounded to the nearest ten, when it only had to exceed the budget), 40 after task 53's
-   * numerator, and the exact 38 since B2 made the tails bound a method against
-   * {@link #FUSED_CEILING}.
+   * <p>History, because the number has moved with the lowering and will again: 50 (rounded to the
+   * nearest ten, when it only had to exceed the budget), then 40, and the exact 38 since the
+   * shared-prefix rule made the tails bound a method against {@link #FUSED_CEILING}.
    */
   static final int CHRONO_WEIGHT = CHRONO_PREFIX_WEIGHT + CHRONO_FIELD_TAIL_WEIGHT;
 
   /**
-   * {@code DayOfYear}'s tail (task 34): {@link #emitChronoYear} (6), {@link #emitLeapFlag} (4)
+   * {@code DayOfYear}'s tail: {@link #emitChronoYear} (6), {@link #emitLeapFlag} (4)
    * and the January-based blend, 14 in all. Its prefix elides the month step, which is why the
    * node alone emits 43 rather than 45.
    *
-   * <p>This tail has been 73, then 55, then 51 as a whole-node weight, and twice out of three
-   * times the leap flag was the reason: the task first shipped its own leap test (19 ops),
-   * replaced it with task 40's (22), and both are gone - the helper is Huffner's perfect hash
-   * at 4 ops.
+   * <p>This tail has been 73, then 55, then 51 as a whole-node weight, and twice out of three times
+   * the leap flag was the reason: the task first shipped its own leap test (19 ops), replaced it
+   * with the shared one (22), and both are gone - the helper is Huffner's perfect hash at 4 ops.
    */
   static final int DAY_OF_YEAR_TAIL_WEIGHT = 14;
   static final int DAY_OF_YEAR_WEIGHT = CHRONO_PREFIX_WEIGHT + DAY_OF_YEAR_TAIL_WEIGHT;
 
-  /** {@code LastDay}'s tail (task 36): the month's start and the next month's, clamped, and
+  /** {@code LastDay}'s tail: the month's start and the next month's, clamped, and
    * the blended length. */
   static final int LAST_DAY_TAIL_WEIGHT = 32;
   static final int LAST_DAY_WEIGHT = CHRONO_PREFIX_WEIGHT + LAST_DAY_TAIL_WEIGHT;
 
   /**
-   * {@code AddMonths}'s tail (task 40): the month arithmetic, the day clamp and
+   * {@code AddMonths}'s tail: the month arithmetic, the day clamp and
    * {@link #emitDaysFromCivil}'s recompose. By far the heaviest tail, which is what makes it
    * the node that decides how many outputs {@link #FUSED_CEILING} admits - the four fields
    * together weigh less than one of these. It used to borrow {@link #CHRONO_WEIGHT} on the
@@ -404,7 +367,7 @@ public final class VarkaLoopEmitter {
   private static final int TRUNC_DATE_TMP_COUNT = 24;
 
   /**
-   * {@code TruncDate}'s tails (task 35), under the shipped subtract form: {@code YEAR} is the
+   * {@code TruncDate}'s tails, under the shipped subtract form: {@code YEAR} is the
    * day-of-year tail plus the two-op subtraction (16; its prefix elides the month step, so the
    * node alone emits 45), {@code MONTH} is the day-of-month tail with its final increment
    * removed and one subtraction added (5), {@code QUARTER} adds the month and quarter steps
@@ -419,7 +382,7 @@ public final class VarkaLoopEmitter {
   static final int TRUNC_QUARTER_WEIGHT = CHRONO_PREFIX_WEIGHT + TRUNC_QUARTER_TAIL_WEIGHT;
 
   /**
-   * {@link TruncDateDynamic}'s tail (task 61): the row picks its period after the fact, so the
+   * {@link TruncDateDynamic}'s tail: the row picks its period after the fact, so the
    * tail computes all four results - the {@code QUARTER} tail, which contains the
    * {@code YEAR}'s; the {@code MONTH}'s two ops; the week's {@link #emitFloorMod7} and
    * subtract; and the three compare-and-blend pairs of the select - 60 past the prefix, 91
@@ -439,7 +402,7 @@ public final class VarkaLoopEmitter {
   private static final int TRUNC_DYNAMIC_TMP_COUNT = TRUNC_DYNAMIC_LEVEL_SLOT + 1;
 
   /**
-   * What {@link VarkaVectorIR.MakeDate} (task 42) weighs against {@link #GROUP_BUDGET}, counted
+   * What {@link VarkaVectorIR.MakeDate} weighs against {@link #GROUP_BUDGET}, counted
    * the way {@link #DAY_OF_YEAR_WEIGHT} is: the validity arithmetic (the clamp, the month length
    * with its leap flag, four compares) and {@code emitDaysFromCivil}'s recompose. Read off the
    * emitted bytes by the register in {@code VarkaLoopEmitterSuite}, not estimated.
@@ -454,7 +417,7 @@ public final class VarkaLoopEmitter {
   private static final int MAKE_DATE_TMP_COUNT = 18;
 
   /**
-   * What {@link VarkaVectorIR.ThursdayOf} (task 37) weighs against {@link #GROUP_BUDGET},
+   * What {@link VarkaVectorIR.ThursdayOf} weighs against {@link #GROUP_BUDGET},
    * counted the way {@link #NEXT_DAY_WEIGHT} is and read off the emitted bytes: the shift's
    * dense loop carries 19 {@code IntVector} calls ({@code weekday}'s 17 plus its add and
    * subtract). It is a plain node, not a calendar one: {@code WeekOfYear} decomposes the
@@ -463,7 +426,7 @@ public final class VarkaLoopEmitter {
   private static final int THURSDAY_OF_WEIGHT = 19;
 
   /**
-   * {@code WeekOfYear}'s tail (task 37): the day-of-year tail and {@code (doy - 1) / 7 + 1} by
+   * {@code WeekOfYear}'s tail: the day-of-year tail and {@code (doy - 1) / 7 + 1} by
    * {@link VarkaChrono#WEEK_M}, 16 past a prefix that elides the month step - so
    * {@code weekofyear(d)} as a whole emits 64: the shift's 19, the prefix's 29 and this.
    */
@@ -471,7 +434,7 @@ public final class VarkaLoopEmitter {
   static final int WEEK_OF_YEAR_WEIGHT = CHRONO_PREFIX_WEIGHT + WEEK_OF_YEAR_TAIL_WEIGHT;
 
   /**
-   * What {@link VarkaVectorIR.DayOfWeekIso} (task 57) weighs against {@link #GROUP_BUDGET},
+   * What {@link VarkaVectorIR.DayOfWeekIso} weighs against {@link #GROUP_BUDGET},
    * counted the way {@link #NEXT_DAY_WEIGHT} is: {@code WeekDay}'s mod-7 tail (17 dense-loop
    * {@code IntVector} calls under the shipped lowering, per the register in
    * {@code VarkaLoopEmitterSuite}) plus one add.
@@ -508,10 +471,10 @@ public final class VarkaLoopEmitter {
   private static final ClassDesc VO_COMPARISON =
       ClassDesc.ofDescriptor("Ljdk/incubator/vector/VectorOperators$Comparison;");
   /**
-   * {@code VectorOperators.Associative}, which is what {@code AND}, {@code OR} and {@code XOR}
-   * are declared as - not {@code Binary}, though it extends it. A {@code getstatic} carries the
+   * {@code VectorOperators.Associative} , which is what {@code AND} , {@code OR} and {@code XOR}
+   * are declared as - not {@code Binary} , though it extends it. A {@code getstatic} carries the
    * field's own descriptor, so reading them as {@code Binary} links cleanly and then throws
-   * {@code NoSuchFieldError} the first time the kernel runs (task 63 met exactly that).
+   * {@code NoSuchFieldError} the first time the kernel runs (this has been hit in practice).
    */
   private static final ClassDesc VO_ASSOCIATIVE =
       ClassDesc.of("jdk.incubator.vector.VectorOperators$Associative");
@@ -544,11 +507,11 @@ public final class VarkaLoopEmitter {
   private static final MethodTypeDesc SET_VALID =
       MethodTypeDesc.of(ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_int);
   /**
-   * Task 70's whole-batch pass, one call per node of a served root's word expression:
+   * The whole-batch bitmap pass, one call per node of a served root's word expression:
    * {@code copyColumnValidity(MemorySegment dst, long addr, int nulls, int rows)} for a single
-   * input, {@code and|orColumnValidity(dst, aAddr, aNulls, bAddr, bNulls, rows)} for the first
-   * two of several, {@code and|orColumnValidityInto(dst, bAddr, bNulls, rows)} for each one
-   * after. The operand states - a bitmap, all ones, all zeros - are resolved inside the engine
+   * input, {@code and|orColumnValidity(dst, aAddr, aNulls, bAddr, bNulls, rows)} for the first two
+   * of several, {@code and|orColumnValidityInto(dst, bAddr, bNulls, rows)} for each one after. The
+   * operand states - a bitmap, all ones, all zeros - are resolved inside the engine
    * (PLAN_TASK_70.md 2.3), so the driver passes what it holds and emits no branch.
    */
   private static final MethodTypeDesc COPY_COLUMN_VALIDITY = MethodTypeDesc.of(
@@ -565,13 +528,13 @@ public final class VarkaLoopEmitter {
   private static final MethodTypeDesc OR_VALIDITY_BITS_AT = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_long,
       ConstantDescs.CD_int);
-  /** {@code long VarkaVectorSupport.validityBitsAt<N>(MemorySegment, long)} (task 46). */
+  /** {@code long VarkaVectorSupport.validityBitsAt<N>(MemorySegment, long)}. */
   private static final MethodTypeDesc VALIDITY_BITS_AT_WIDTH = MethodTypeDesc.of(
       ConstantDescs.CD_long, MEMORY_SEGMENT, ConstantDescs.CD_long);
-  /** {@code void VarkaVectorSupport.orValidityBitsAt<N>(MemorySegment, long, long)} (task 46). */
+  /** {@code void VarkaVectorSupport.orValidityBitsAt<N>(MemorySegment, long, long)}. */
   private static final MethodTypeDesc OR_VALIDITY_BITS_AT_WIDTH = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_long);
-  /** {@code void VarkaVectorSupport.putValidityWord(MemorySegment, long, long)} (task 47). */
+  /** {@code void VarkaVectorSupport.putValidityWord(MemorySegment, long, long)}. */
   private static final MethodTypeDesc PUT_VALIDITY_WORD = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_long);
 
@@ -581,7 +544,7 @@ public final class VarkaLoopEmitter {
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
   /**
    * {@code VectorMask VectorSpecies.indexInRange(int, int)} - the partial lane group's mask,
-   * and the whole reason the epilogue can replace a scalar walk (task 24).
+   * and the whole reason the epilogue can replace a scalar walk.
    */
   private static final MethodTypeDesc INDEX_IN_RANGE =
       MethodTypeDesc.of(VECTOR_MASK, ConstantDescs.CD_int, ConstantDescs.CD_int);
@@ -600,7 +563,7 @@ public final class VarkaLoopEmitter {
   private static final MethodTypeDesc FROM_MEMORY_SEGMENT_DENSE = MethodTypeDesc.of(INT_VECTOR,
       VECTOR_SPECIES, MEMORY_SEGMENT, ConstantDescs.CD_long, BYTE_ORDER);
   /**
-   * The same load with a mask (task 24): the epilogue's only reason to differ from the loop.
+   * The same load with a mask: the epilogue's only reason to differ from the loop.
    * Lanes outside the mask are neither read nor faulted on, which is what lets one masked
    * iteration cover a partial lane group whose data segment ends at {@code length * 4}.
    */
@@ -622,7 +585,7 @@ public final class VarkaLoopEmitter {
   private static final MethodTypeDesc LANEWISE_VI_MASKED =
       MethodTypeDesc.of(INT_VECTOR, ConstantDescs.CD_int, VECTOR_MASK);
   /** {@code IntVector IntVector.lanewise(VectorOperators.Binary, Vector)} - XOR and AND, which
-   *  the integral vectors expose only through {@code lanewise} (task 63's overflow check). */
+   *  the integral vectors expose only through {@code lanewise} (the overflow check). */
   private static final MethodTypeDesc LANEWISE_BINARY_V =
       MethodTypeDesc.of(INT_VECTOR, VO_BINARY, VECTOR);
   /** {@code IntVector IntVector.lanewise(VectorOperators.Binary, int)} - the shifts. */
@@ -660,7 +623,7 @@ public final class VarkaLoopEmitter {
   // The word-reference value meaning "constant all-true" (a literal-only subtree).
   private static final int WORD_ALL_TRUE = -1;
   /**
-   * The word-reference value meaning "this word is dead in this body" (task 70): no consumer
+   * The word-reference value meaning "this word is dead in this body": no consumer
    * left in the method reads it, so it is neither allocated nor computed. Only an own word
    * takes this value - an input's word keeps its slot for parity with the dense body's layout
    * and is marked dead in {@link Slots#deadRefs} instead. {@link #loadWord} refuses both.
@@ -668,10 +631,10 @@ public final class VarkaLoopEmitter {
   private static final int WORD_DEAD = -2;
 
   /**
-   * The lane count this JVM's kernels run at, read once. An emitted class is defined by the
-   * shape cache in the JVM that will run it and lives only in memory, so what
-   * {@code IntVector.SPECIES_PREFERRED} answers here is what the class will see - and since
-   * task 46 the class does not ask: it carries the matching species constant instead.
+   * The lane count this JVM's kernels run at, read once. An emitted class is defined by the shape
+   * cache in the JVM that will run it and lives only in memory, so what
+   * {@code IntVector.SPECIES_PREFERRED} answers here is what the class will see - and the class
+   * does not ask: it carries the matching species constant instead.
    */
   private static final int PREFERRED_LANES = jdk.incubator.vector.IntVector.SPECIES_PREFERRED
       .length();
@@ -679,7 +642,7 @@ public final class VarkaLoopEmitter {
   /**
    * The lane count to emit for, or 0 for "do not bake one" - which is what
    * {@link VarkaEmitOptions#validityByWidth} off means, and what any width without a
-   * specialised pair of validity helpers means (task 46).
+   * specialised pair of validity helpers means.
    *
    * <p>{@link VarkaVectorSupport} has a pair per int lane count the Vector API produces on
    * hardware that exists: 2, 4, 8 and 16, whose species are {@code SPECIES_64} through
@@ -766,13 +729,13 @@ public final class VarkaLoopEmitter {
     analysis.planWordAlgebra();
     analysis.planBitmapPass(outputs);
 
-    // Method layout, all sharing the seven-parameter shape so slots line up everywhere:
-    // `run` dispatches per batch to a dense or masked *driver*; the driver zeroes the output
-    // validity, takes the all-null shortcut, then calls one sibling *loop* method per output
-    // group (within GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar
-    // prefix - see groupOutputs) and finally the sibling *epilogue* method. Separate methods,
-    // not one big one: each gets its own C2 compilation, so no method's node and inlining
-    // budgets can starve another's intrinsics (task 10 measured 3x to 4x on exactly that).
+    // Method layout, all sharing the seven-parameter shape so slots line up everywhere: `run`
+    // dispatches per batch to a dense or masked *driver*; the driver zeroes the output validity,
+    // takes the all-null shortcut, then calls one sibling *loop* method per output group (within
+    // GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar prefix - see
+    // groupOutputs) and finally the sibling *epilogue* method. Separate methods, not one big one:
+    // each gets its own C2 compilation, so no method's node and inlining budgets can starve
+    // another's intrinsics (measured 3x to 4x; see `PLAN_TASK_10.md`).
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
     List<List<Integer>> groups = groupOutputs(outputs, options);
@@ -795,9 +758,9 @@ public final class VarkaLoopEmitter {
           })
           .withMethodBody("run", RUN, AccessFlag.PUBLIC.mask(),
               (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis));
-      // A kernel that nulls a valid input (task 42's non-ANSI make_date) has no dense methods:
-      // the dense body writes no per-lane validity, so the dispatch takes the masked methods
-      // for every batch, and the masked body treats a null-free input as a constant word.
+      // A kernel that nulls a valid input (non-ANSI make_date) has no dense methods: the dense body
+      // writes no per-lane validity, so the dispatch takes the masked methods for every batch, and
+      // the masked body treats a null-free input as a constant word.
       if (!analysis.nullsFromValidInputs) {
         b.withMethodBody("runDense", RUN, AccessFlag.PRIVATE.mask(),
             (CodeBuilder cb) -> emitBody(cb, true, BodyMode.DRIVER, -1, classDesc, outputs,
@@ -888,23 +851,19 @@ public final class VarkaLoopEmitter {
    * ops new to the group so shared subtrees keep their outputs together (and their
    * cross-output CSE). Two clauses admit the next output into the group being built:
    *
-   * <ol>
-   *   <li>its marginal ops keep the group within {@code groupBudget} (normally
-   *       {@link #GROUP_BUDGET}) - the rule since task 11;</li>
-   *   <li>joining lets it skip a civil-from-days prefix the group already computes, and the
-   *       group stays within {@code fusedCeiling} (normally {@link #FUSED_CEILING}) - task 32
-   *       step B2. {@link GroupOps#saved} is what opens the wider bound, and it counts prefix
-   *       reuse only: a whole node the group already holds is not reason enough. An output
-   *       that skips a prefix makes the method strictly less work rather than a trade, which
-   *       is a property of the shape and holds whatever the register pressure of the day;
-   *       whether a merely-shared subchain pays is an empirical question that has already
-   *       answered both ways (task 17 measured the merge as a 1.4x loss; since task 46 moved
-   *       the validity OR ahead of the vector work the same committed rows show it winning by
-   *       1.3x - see {@code PLAN_TASK_32.md} 7.6), so it stays {@link #GROUP_BUDGET}'s own
-   *       retuning question (task 43) rather than riding on this clause. With
-   *       {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared, so the
-   *       clause never fires and the weights count whole.</li>
-   * </ol>
+   * <ol> <li>its marginal ops keep the group within {@code groupBudget} (normally
+   * {@link #GROUP_BUDGET} ) - the ordinary rule;</li> <li>joining lets it skip a civil-from-days
+   * prefix the group already computes, and the group stays within {@code fusedCeiling} (normally
+   * {@link #FUSED_CEILING} ). {@link GroupOps#saved} is what opens the wider bound, and it counts
+   * prefix reuse only: a whole node the group already holds is not reason enough. An output that
+   * skips a prefix makes the method strictly less work rather than a trade, which is a property of
+   * the shape and holds whatever the register pressure of the day; whether a merely-shared subchain
+   * pays is an empirical question that has already answered both ways (the merge measured a 1.4x
+   * loss before the validity OR moved ahead of the vector work the same committed rows show it
+   * winning by 1.3x - see {@code PLAN_TASK_32.md} 7.6), so it stays {@link #GROUP_BUDGET} 's own
+   * retuning question rather than riding on this clause. With
+   * {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared, so the clause never
+   * fires and the weights count whole.</li> </ol>
    *
    * <p>An output wider than either bound on its own still forms a group: splitting inside one
    * output would forfeit the register residency that is the point. Greedy in output order is
@@ -923,12 +882,11 @@ public final class VarkaLoopEmitter {
     for (int o = 0; o < outputs.size(); o++) {
       GroupOps withNext = group.copy();
       int marginal = withNext.add(outputs.get(o));
-      // What clause 2 counts as reuse. By default only a civil-from-days prefix the group
-      // already computes (task 32 step B2). Under `shareWholeNodes` (task 71) any node the
-      // group already holds counts too, measured as what this output would cost on its own
-      // less what it actually adds - which is the prefix accounting generalised, since a
-      // reused prefix is reused nodes. The gate stays `> 0`: reuse opens the wider bound,
-      // its size does not.
+      // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
+      // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
+      // what this output would cost on its own less what it actually adds - which is the prefix
+      // accounting generalised, since a reused prefix is reused nodes. The gate stays `> 0`: reuse
+      // opens the wider bound, its size does not.
       int reuse = withNext.saved;
       if (options.shareWholeNodes()) {
         GroupOps alone = new GroupOps(options.shareChronoPrefix());
@@ -961,12 +919,11 @@ public final class VarkaLoopEmitter {
    * already computes adds only its tail.
    *
    * <p>The prefix is identified by the date it decomposes ({@link #chronoChild}), which is the
-   * dense body's {@link FragmentKey}; the masked body's key also carries the node's validity
-   * word, so a group may hold two calendar outputs whose masked bodies do not share (task 60's
-   * column-count {@code add_months} beside {@code month(d)}) while the dense body and the
-   * epilogue do. Grouping on the child alone is the conservative side of that: the shape is
-   * correct either way, and a share the masked body misses is a missed win, never a wrong
-   * grouping.
+   * dense body's {@link FragmentKey}; the masked body's key also carries the node's validity word,
+   * so a group may hold two calendar outputs whose masked bodies do not share (the column-count
+   * {@code add_months} beside {@code month(d)}) while the dense body and the epilogue do. Grouping
+   * on the child alone is the conservative side of that: the shape is correct either way, and a
+   * share the masked body misses is a missed win, never a wrong grouping.
    */
   private static final class GroupOps {
     private final boolean sharePrefix;
@@ -1019,16 +976,16 @@ public final class VarkaLoopEmitter {
     }
   }
   /**
-   * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node
-   * has weighed 1 since task 10, because every node was one or two lane ops; task 26's
-   * calendar nodes are not - each expands to thirty-odd or more, since a civil-from-days
-   * decomposition is mostly division and there is no vector divide. Counting them as 1 would
-   * have let four calendar outputs share a method of ~180 ops when the ~10 s compile cliff was
-   * still believed in; weighing them by what they emit gave each its own sibling method
-   * instead. Task 32 then measured the cliff away (272 ms at 200 ops, {@code PLAN_TASK_32.md}
-   * 7.5) and step B2 lets siblings over one date share a method again - deliberately, and only
-   * where the prefix is reused, which is why every calendar weight is written as
-   * {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@link GroupOps} counts the prefix once.
+   * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node has
+   * weighed 1, because every node was one or two lane ops; the calendar nodes are not - each
+   * expands to thirty-odd or more, since a civil-from-days decomposition is mostly division and
+   * there is no vector divide. Counting them as 1 would have let four calendar outputs share a
+   * method of ~180 ops when the ~10 s compile cliff was still believed in; weighing them by what
+   * they emit gave each its own sibling method instead. The cliff was then measured away (272 ms at
+   * 200 ops, {@code PLAN_TASK_32.md} 7.5) and step B2 lets siblings over one date share a method
+   * again - deliberately, and only where the prefix is reused, which is why every calendar weight
+   * is written as {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@link GroupOps} counts the prefix
+   * once.
    *
    * <p>This is deliberately only about <i>grouping</i>. {@link #MAX_FUSED_NODES} still counts
    * nodes, so a projection may fuse as many calendar fields as it likes; whether they share a
@@ -1086,7 +1043,7 @@ public final class VarkaLoopEmitter {
   /** Whether {@code node} runs a civil-from-days decomposition and so needs
    * {@link #CHRONO_WEIGHT}: one of the extractions in the IR's sealed {@link Chrono} family,
    * whose membership makes weighing a new extraction total without touching this method - or
-   * {@link AddMonths} (task 40), which decomposes and recomposes but is not itself an
+   * {@link AddMonths}, which decomposes and recomposes but is not itself an
    * extraction, so it stays outside {@link Chrono} and is checked for by hand here instead. */
   private static boolean isChrono(VarkaVectorIR node) {
     return node instanceof Chrono || node instanceof AddMonths;
@@ -1156,11 +1113,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * A run of emitted lane ops that several nodes need, that depends on one shared child, and
-   * that leaves its results in scratch locals rather than on the operand stack (task 32 step
-   * B). It is the sub-node counterpart of the CSE {@link #emitValue} already does between whole
-   * nodes: what is worth sharing between {@code year(d)} and {@code month(d)} is not a node -
-   * the IR has none for it - but the forty-odd ops in the middle of both their emissions.
+   * A run of emitted lane ops that several nodes need, that depends on one shared child, and that
+   * leaves its results in scratch locals rather than on the operand stack. It is the sub-node
+   * counterpart of the CSE {@link #emitValue} already does between whole nodes: what is worth
+   * sharing between {@code year(d)} and {@code month(d)} is not a node - the IR has none for it -
+   * but the forty-odd ops in the middle of both their emissions.
    *
    * <p>One kind so far. The key carries it so that a second one is additive rather than a
    * rewrite of everything keyed on it.
@@ -1171,21 +1128,20 @@ public final class VarkaLoopEmitter {
    * What makes two emissions of a fragment interchangeable: the kind, the child they decompose,
    * and the reference the node's validity word resolves to.
    *
-   * <p>The word's presence in the key is now conservative rather than load-bearing, and the
-   * reason recorded here was true only until task 51. It used to be that
-   * {@link #emitChronoPrefix} carried task 26's narrow-range guard and the guard read the node's
-   * validity word, so two nodes with different words could not share a prefix. Task 51 removed
-   * that guard and the prefix reads no word at all today, so keying on the word cannot make a
-   * shared fragment wrong - it can only miss a share that would have been sound.
+   * <p>The word's presence in the key is now conservative rather than load-bearing, and the reason
+   * recorded here no longer applies: {@link #emitChronoPrefix} once carried the narrow-range guard,
+   * which read the node's validity word, so two nodes with different words could not share a
+   * prefix. The prefix reads no word at all today, so keying on the word cannot make a shared
+   * fragment wrong - it can only miss a share that would have been sound.
    *
-   * <p>It costs one, and task 60 is where that starts to show: {@code planWordRef} aliases every
-   * {@link Chrono} extraction's word to its child's, so {@code year(d)} and {@code month(d)}
-   * agree and share, but {@link AddMonths}'s word is the AND of the date's and the month count's,
-   * so a column-count {@code add_months(d, m)} is the first chrono node whose word is its own -
-   * and it no longer shares the forty-odd-op decomposition of {@code d} with {@code month(d)}.
-   * Only a masked body pays: in a dense body no word is planned at all and the child alone
-   * decides. Dropping {@code word} from the key would recover the share, and is safe as far as
-   * this analysis goes, but it changes emitted bytes and so wants its own measurement.
+   * <p>It costs one, and that starts to show where {@code planWordRef} aliases every {@link Chrono}
+   * extraction's word to its child's, so {@code year(d)} and {@code month(d)} agree and share, but
+   * {@link AddMonths} 's word is the AND of the date's and the month count's, so a column-count
+   * {@code add_months(d, m)} is the first chrono node whose word is its own - and it no longer
+   * shares the forty-odd-op decomposition of {@code d} with {@code month(d)} . Only a masked body
+   * pays: in a dense body no word is planned at all and the child alone decides. Dropping
+   * {@code word} from the key would recover the share, and is safe as far as this analysis goes,
+   * but it changes emitted bytes and so wants its own measurement.
    *
    * @param word the node's validity-word reference, or null in a dense body.
    */
@@ -1193,7 +1149,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Which of this lane group's prefix fragments a tail in it reads the March-based month out
-   * of, over the union of the group's outputs' subtrees (task 48). The walk is the group's own
+   * of, over the union of the group's outputs' subtrees. The walk is the group's own
    * because {@link Slots#fragmentsReadingMonth} is the group's own - see its doc for why the
    * body's whole output list would be too wide - and it precedes every emission in the group,
    * so no sibling's order can change what it decides.
@@ -1290,7 +1246,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * How the bitmap pass (task 70) classified the value roots of this shape under
+   * How the bitmap pass classified the value roots of this shape under
    * {@code options}: {@code [served, declined]}, where a declined root is one whose word is a
    * pure expression that mixes AND and OR, which no chain of one operator can fold into the
    * destination. Every other unserved root - a computed word, a {@code Cond}, the whole shape
@@ -1349,7 +1305,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * The public {@code run}: one loop-invariant test per batch - are all referenced inputs
-   * null-free? - selecting {@code runDense} or {@code runMasked} (plan 2.5 of task 10).
+   * null-free? - selecting {@code runDense} or {@code runMasked} (`PLAN_TASK_10.md` 2.5).
    */
   private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
     if (analysis.nullsFromValidInputs) {
@@ -1396,17 +1352,17 @@ public final class VarkaLoopEmitter {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // The validity-word algebra (task 70).
+  // The validity-word algebra.
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Which word a value node's validity <i>is</i>, stated before any slot exists: one input's
-   * bitmap word, the all-true constant a literal-only subtree has, or a word the node computes
-   * into a slot of its own. This is {@link #planWordRef} in symbolic form - the same aliasing
-   * rules over names instead of slot numbers - and {@link #planSlots} asserts the two agree on
-   * every node it plans, so the algebra {@link WordExpr} states cannot drift from the emission
-   * it describes. Task 70's bitmap pass and its word-liveness rule both read this map rather
-   * than the slot numbers, because they have to decide things before the slots are assigned.
+   * Which word a value node's validity <i>is</i>, stated before any slot exists: one input's bitmap
+   * word, the all-true constant a literal-only subtree has, or a word the node computes into a slot
+   * of its own. This is {@link #planWordRef} in symbolic form - the same aliasing rules over names
+   * instead of slot numbers - and {@link #planSlots} asserts the two agree on every node it plans,
+   * so the algebra {@link WordExpr} states cannot drift from the emission it describes. The bitmap
+   * pass and the word-liveness rule both read this map rather than the slot numbers, because they
+   * have to decide things before the slots are assigned.
    */
   private sealed interface WordOwner {
     record Input(int ordinal) implements WordOwner {}
@@ -1415,14 +1371,14 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * The bitmap expression a value node's validity word denotes, where that word is a pure
-   * function of the inputs' bitmaps: an input's bitmap, the all-true constant, the AND of two
-   * (task 11's null-intolerant rule) or the OR of two ({@code greatest}/{@code least}'s
-   * null-skipping rule). A node whose word is computed from something other than input
-   * bitmaps - {@code IfElse}'s blend by the known-true mask, {@code make_date}'s validity
-   * test, a {@code Cond} - has no expression here. Folded as it is built: all-true is the
-   * identity of AND and the annihilator of OR, and equal operands collapse, which is exactly
-   * the folding {@link #andRef} does on slots, so the two views name the same thing.
+   * The bitmap expression a value node's validity word denotes, where that word is a pure function
+   * of the inputs' bitmaps: an input's bitmap, the all-true constant, the AND of two (the
+   * null-intolerant rule) or the OR of two ({@code greatest}/{@code least}'s null-skipping rule). A
+   * node whose word is computed from something other than input bitmaps - {@code IfElse}'s blend by
+   * the known-true mask, {@code make_date}'s validity test, a {@code Cond} - has no expression
+   * here. Folded as it is built: all-true is the identity of AND and the annihilator of OR, and
+   * equal operands collapse, which is exactly the folding {@link #andRef} does on slots, so the two
+   * views name the same thing.
    */
   private sealed interface WordExpr {
     record Input(int ordinal) implements WordExpr {}
@@ -1515,7 +1471,7 @@ public final class VarkaLoopEmitter {
     final List<VarkaVectorIR> topoOrder = new ArrayList<>();
     /**
      * Each distinct node's 1-based position in {@link #topoOrder}, which is the line number
-     * the emitted {@code LineNumberTable} attributes its instructions to (task 16). The
+     * the emitted {@code LineNumberTable} attributes its instructions to. The
      * mapping from those lines back to nodes is recorded in the class's
      * {@link VarkaDebugInfo}, so a stack frame or profile sample naming
      * {@code Varka_Project_Stage3.java:7} resolves to an IR node without a live session.
@@ -1524,43 +1480,42 @@ public final class VarkaLoopEmitter {
     /** Whether the subtree holds a null-skipping node (IfElse, Greatest, Least). */
     final Map<VarkaVectorIR, Boolean> skipping = new HashMap<>();
     /**
-     * The producers that carry a runtime range guard on their own result: every {@link
-     * AddDays}/{@link SubDays} whose offset is a column (not a {@link LiteralSlot}) and which
-     * some calendar node reads, directly or through further arithmetic (task 52), and every
-     * {@link AddMonths} whose month count is a column (task 60) - the latter wherever it sits,
-     * because that guard protects the node's own magic-multiply arithmetic rather than a
-     * consumer's, so a bare {@code add_months(d, m)} with no further calendar wrapper still
-     * needs it. Empty on every kernel with no such column-driven producer - which is what makes
-     * the guard's default cheap: nothing is planned or emitted for it then, and every such
-     * shape stays byte-identical under either setting of
-     * {@link VarkaEmitOptions#guardDayProducers}.
+     * The producers that carry a runtime range guard on their own result: every {@link AddDays} /
+     * {@link SubDays} whose offset is a column (not a {@link LiteralSlot} ) and which some calendar
+     * node reads, directly or through further arithmetic, and every {@link AddMonths} whose month
+     * count is a column - the latter wherever it sits, because that guard protects the node's own
+     * magic-multiply arithmetic rather than a consumer's, so a bare {@code add_months(d, m)} with
+     * no further calendar wrapper still needs it. Empty on every kernel with no such column-driven
+     * producer - which is what makes the guard's default cheap: nothing is planned or emitted for
+     * it then, and every such shape stays byte-identical under either setting of
+     * {@link VarkaEmitOptions#guardDayProducers} .
      *
-     * <p>The set is hand-picked, not derived: the compiler's {@code dayRange} and {@code
-     * compileMonths} analyses bound every other producer at compile time and decline a node
-     * they do not know, so a future column-driven producer fails safe as a residual entry until
-     * it is taught to both sides. Filled by {@link #collectGuardedProducers()} once every root
-     * is analyzed.
+     * <p>The set is hand-picked, not derived: the compiler's {@code dayRange} and
+     * {@code compileMonths} analyses bound every other producer at compile time and decline a node
+     * they do not know, so a future column-driven producer fails safe as a residual entry until it
+     * is taught to both sides. Filled by {@link #collectGuardedProducers()} once every root is
+     * analyzed.
      */
     final Set<VarkaVectorIR> guardedProducers = new HashSet<>();
 
     /**
-     * The nodes that guard themselves whatever their consumers (task 42's {@code MakeDate}: a
-     * year outside its limits, and in ANSI mode an invalid date, decline the batch). Unlike
+     * The nodes that guard themselves whatever their consumers ( {@code MakeDate} : a year outside
+     * its limits, and in ANSI mode an invalid date, decline the batch). Unlike
      * {@link #guardedProducers} this set is not behind an option: the check is the node's
      * correctness, not a producer's insurance.
      */
     final Set<VarkaVectorIR> selfGuarding = new HashSet<>();
-    /** Task 63: the int arithmetic nodes whose overflow check condemns the batch through the
-     *  same accumulator task 52's guard uses - the FAIL ones. A NULL node checks too but
+    /** the int arithmetic nodes whose overflow check condemns the batch through the
+     *  same accumulator the producer guard uses - the FAIL ones. A NULL node checks too but
      *  disposes of the mask into its own validity word, so it is not one of these. */
     final Set<VarkaVectorIR> checkedArith = new HashSet<>();
 
     /**
-     * Task 79: for each node, the chain of {@code IfElse} arms every one of its uses sits
-     * under, innermost last - or the empty list where its uses do not agree on one, which
-     * includes a use outside any arm and a use in a condition. A guard on a node with a
-     * non-empty chain condemns the batch only on the lanes that chain selects; a guard on a
-     * node with the empty chain condemns as it always has.
+     * for each node, the chain of {@code IfElse} arms every one of its uses sits under, innermost
+     * last - or the empty list where its uses do not agree on one, which includes a use outside any
+     * arm and a use in a condition. A guard on a node with a non-empty chain condemns the batch
+     * only on the lanes that chain selects; a guard on a node with the empty chain condemns as it
+     * always has.
      *
      * <p>Empty rather than absent is the unqualified answer, and the two are different: absent
      * means the walk has not reached the node. {@link #collectArmContexts} fills it once every
@@ -1569,22 +1524,22 @@ public final class VarkaLoopEmitter {
     final Map<VarkaVectorIR, List<ArmStep>> armChain = new HashMap<>();
 
     /**
-     * Task 70: per value node, which word its validity is - see {@link WordOwner}. Filled by
+     * per value node, which word its validity is - see {@link WordOwner} . Filled by
      * {@link #planWordAlgebra()} once every root is analyzed; {@code Cond} nodes have no entry.
      */
     final Map<VarkaVectorIR, WordOwner> wordOwner = new HashMap<>();
     /**
-     * Task 70: per value node whose word is a pure function of the inputs' bitmaps, the
-     * expression it denotes - see {@link WordExpr}. A value node absent here has a computed
-     * word ({@code IfElse}, {@code MakeDate}, or anything over one of those).
+     * per value node whose word is a pure function of the inputs' bitmaps, the expression it
+     * denotes - see {@link WordExpr}. A value node absent here has a computed word ({@code IfElse},
+     * {@code MakeDate}, or anything over one of those).
      */
     final Map<VarkaVectorIR, WordExpr> pureWord = new HashMap<>();
 
     /**
-     * Task 70: per output position, the whole-batch bitmap expression the masked driver writes
-     * for that root, or null where the root keeps its per-group write - a {@code Cond}, a root
-     * whose word is computed, a root whose expression mixes AND and OR, or every root when
-     * {@link VarkaEmitOptions#validityByBitmap} is off. Filled by {@link #planBitmapPass}.
+     * per output position, the whole-batch bitmap expression the masked driver writes for that
+     * root, or null where the root keeps its per-group write - a {@code Cond} , a root whose word
+     * is computed, a root whose expression mixes AND and OR, or every root when
+     * {@link VarkaEmitOptions#validityByBitmap} is off. Filled by {@link #planBitmapPass} .
      */
     BitmapPass[] served;
     /** How many value roots the pass declined for a mixed AND/OR tree - the safety net in
@@ -1592,10 +1547,10 @@ public final class VarkaLoopEmitter {
     int declinedBitmapRoots;
 
     /**
-     * Whether some node turns valid inputs into a null output (task 42's non-ANSI
-     * {@code MakeDate}). The dense body assumes valid in, valid out - it writes no per-lane
-     * validity - so a kernel with such a node is dispatched to the masked methods for every
-     * batch; a null-free input costs the masked body only a constant all-true word.
+     * Whether some node turns valid inputs into a null output (non-ANSI {@code MakeDate}). The
+     * dense body assumes valid in, valid out - it writes no per-lane validity - so a kernel with
+     * such a node is dispatched to the masked methods for every batch; a null-free input costs the
+     * masked body only a constant all-true word.
      */
     boolean nullsFromValidInputs;
     private final Map<VarkaVectorIR, Integer> height = new HashMap<>();
@@ -1611,9 +1566,9 @@ public final class VarkaLoopEmitter {
     }
 
     void analyzeRoot(VarkaVectorIR root) {
-      // A Cond root is legal since task 21: it emits this output's selection bitmap into
-      // dstValidity, with the dstData slot unused (see the class doc). Value positions
-      // below a root still reject conditions via requireValue.
+      // A Cond root is legal: it emits this output's selection bitmap into dstValidity, with the
+      // dstData slot unused (see the class doc). Value positions below a root still reject
+      // conditions via requireValue.
       analyze(root);
       if (height.get(root) > MAX_CHAIN_DEPTH) {
         throw new IllegalArgumentException(
@@ -1634,8 +1589,8 @@ public final class VarkaLoopEmitter {
      * rather than a slower one.
      */
     /**
-     * Task 79's context walk: assigns every node the arm chain its uses agree on, by the rule
-     * in {@code PLAN_TASK_79.md} 3.3 - narrow only where every use sits under one and the same
+     * The context walk: assigns every node the arm chain its uses agree on, by the rule in
+     * {@code PLAN_TASK_79.md} 3.3 - narrow only where every use sits under one and the same
      * innermost arm chain, and keep the unqualified guard for anything else.
      *
      * <p>It is its own walk rather than a stack in {@link #analyze}, because that one memoises
@@ -1941,7 +1896,7 @@ public final class VarkaLoopEmitter {
         case WeekDay n -> analyzeOp(node, false, n.days());
         case DayOfWeekIso n -> analyzeOp(node, false, n.days());
         case NextDay n -> {
-          // A literal slot (task 33) or a column (task 59's derived weekday leaf).
+          // A literal slot or a column (the derived weekday leaf).
           requireOffsetShape(n.offset(), "next_day's weekday");
           analyzeOp(node, false, n.days(), n.offset());
         }
@@ -1957,7 +1912,7 @@ public final class VarkaLoopEmitter {
         case LastDay n -> analyzeOp(node, false, n.days());
         case TruncDate n -> analyzeOp(node, false, n.days());
         case TruncDateDynamic n -> {
-          // The level is the evaluator's derived int32 column (task 61); a literal level is
+          // The level is the evaluator's derived int32 column; a literal level is
           // the literal TruncDate node, which the compiler builds instead.
           if (!(n.level() instanceof ColumnRef)) {
             throw new IllegalArgumentException(
@@ -2068,16 +2023,15 @@ public final class VarkaLoopEmitter {
       skipping.put(node, skips || childSkips);
     }
 
-    // task 38 widened the offset from LiteralSlot-only to a literal or a column, but it is
-    // still not an arbitrary subtree - VarkaExpressionCompiler only ever emits one of these
-    // two shapes, and this check fails fast if a future IR producer emits anything else. It
-    // guards NextDay's weekday (task 59), the stricter requireLiteralOffset that used to cover
-    // it having no caller left; the day offset it also guarded took a third kind in task 63 and
-    // moved to requireDayOffsetShape, and AddMonths' month count took the same kind in task 68
-    // and moved to requireMonthCountShape. {@code
-    // position} names the operand that failed, because one message shared across operands is
-    // exactly what sent the IR fuzzer's first failure (#110) hunting for a next_day the shape
-    // did not contain - the reason the check requireLiteralOffset replaced carried the name too.
+    // The offset may be a literal or a column, but it is still not an arbitrary subtree -
+    // VarkaExpressionCompiler only ever emits one of these two shapes, and this check fails fast if
+    // a future IR producer emits anything else. It guards NextDay's weekday, the stricter
+    // requireLiteralOffset that used to cover it having no caller left; the day offset and
+    // AddMonths' month count each // took a third kind and moved to requireDayOffsetShape and
+    // requireMonthCountShape. {@code position} names the operand that failed, because one message
+    // shared across operands is exactly what sent the IR fuzzer's first failure (#110) hunting for
+    // a next_day the shape did not contain - the reason the check requireLiteralOffset replaced
+    // carried the name too.
     //
     // This one stays a local instanceof pair rather than moving to a shared predicate the way
     // requireDayOffsetShape moved to isDayOffsetShape, and the difference is which of the two
@@ -2087,8 +2041,8 @@ public final class VarkaLoopEmitter {
     // *constructs* a LiteralSlot or a derived column and can build nothing else - so there is no
     // second copy here, only a defence against a future producer.
     //
-    // It served AddMonths' month count too until task 68, on a reason that turned out to be
-    // true of only one of them: see requireMonthCountShape.
+    // It once served AddMonths' month count too, on a reason true of only one of them: see
+    // requireMonthCountShape.
     private static void requireOffsetShape(VarkaVectorIR offset, String position) {
       if (!(offset instanceof LiteralSlot) && !(offset instanceof ColumnRef)) {
         throw new IllegalArgumentException(
@@ -2097,26 +2051,25 @@ public final class VarkaLoopEmitter {
     }
 
     /**
-     * The month count of {@code AddMonths}, which task 68 widened by the kind task 63 built:
-     * a literal slot, a column, or int arithmetic over those - {@code d - ym_col}, whose count
-     * is an {@link IntNeg} over the interval column, and {@code CAST(i AS INTERVAL YEAR)},
-     * whose count is that column times twelve.
+     * The month count of {@code AddMonths}, which accepts: a literal slot, a column, or int
+     * arithmetic over those - {@code d - ym_col}, whose count is an {@link IntNeg} over the
+     * interval column, and {@code CAST(i AS INTERVAL YEAR)}, whose count is that column times
+     * twelve.
      *
-     * <p>This position and {@code next_day}'s weekday shared {@link #requireOffsetShape} until
-     * task 68, under one sentence covering both - that each "carries a runtime bound a derived
-     * value cannot declare". That is true of the weekday and false here, which
-     * {@code PLAN_TASK_67.md} 2.1 recorded and this split acts on. A column-count
-     * {@code AddMonths} is in {@link Analysis#selfGuarding} and is checked at run time against
-     * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS}/{@code MAX_MONTHS} by a lanewise test on the
-     * count's own <i>value</i>, which cares nothing about what produced it - so a derived count
-     * is covered by exactly the guard a column count is. {@code next_day}'s weekday has no such
-     * guard: its range is established by a compile-time fold or by task 59's derived leaf, and a
+     * <p>This position and {@code next_day} 's weekday once shared {@link #requireOffsetShape} ,
+     * under one sentence covering both - that each "carries a runtime bound a derived value cannot
+     * declare". That is true of the weekday and false here, which {@code PLAN_TASK_67.md} 2.1
+     * recorded and this split acts on. A column-count {@code AddMonths} is in
+     * {@link Analysis#selfGuarding} and is checked at run time against
+     * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS} / {@code MAX_MONTHS} by a lanewise test on the
+     * count's own <i>value</i>, which cares nothing about what produced it - so a derived count is
+     * covered by exactly the guard a column count is. {@code next_day} 's weekday has no such
+     * guard: its range is established by a compile-time fold or by the derived weekday leaf, and a
      * derived value there would reach {@code emitFloorMod7} unchecked.
      *
      * <p>The two therefore share no rule any more. {@code VarkaExpressionCompiler.compileMonths}
-     * admits exactly these three kinds; the two are meant to be read together, and the
-     * enumeration test milestone 5's task 86 asks for is what would keep them together
-     * mechanically.
+     * admits exactly these three kinds; the two are meant to be read together, and an enumeration
+     * test over the kinds is what would keep them together mechanically.
      */
     private static void requireMonthCountShape(VarkaVectorIR months, String position) {
       if (!isDayOffsetShape(months)) {
@@ -2126,16 +2079,15 @@ public final class VarkaLoopEmitter {
     }
 
     /**
-     * The day offset of {@code AddDays}/{@code SubDays}, which task 63 widened by one kind:
-     * a literal slot, a column, or int arithmetic over those - {@code date_add(d, i * 7)}.
-     * Not every node, which is the point of keeping a check here at all: a date-valued
-     * subtree in this position would be read as a day count and produce a plausible wrong
-     * date, and {@code next_day}'s weekday next door still takes the stricter
-     * {@link #requireOffsetShape}, because its range comes from a compile-time fold with no
-     * runtime guard behind it - unlike {@code add_months}' month count, which task 68 widened
-     * to this same shape for the reason {@link #requireMonthCountShape} gives.
-     * `VarkaExpressionCompiler.compileOffset` admits exactly these three kinds; the two are
-     * meant to be read together.
+     * The day offset of {@code AddDays}/{@code SubDays}, which accepts: a literal slot, a column,
+     * or int arithmetic over those - {@code date_add(d, i * 7)}. Not every node, which is the point
+     * of keeping a check here at all: a date-valued subtree in this position would be read as a day
+     * count and produce a plausible wrong date, and {@code next_day}'s weekday next door still
+     * takes the stricter {@link #requireOffsetShape}, because its range comes from a compile-time
+     * fold with no runtime guard behind it - unlike {@code add_months}' month count, which takes
+     * this same shape for the reason {@link #requireMonthCountShape} gives.
+     * `VarkaExpressionCompiler.compileOffset` admits exactly these three kinds; the two are meant
+     * to be read together.
      */
     private static void requireDayOffsetShape(VarkaVectorIR offset, String position) {
       if (!isDayOffsetShape(offset)) {
@@ -2146,7 +2098,7 @@ public final class VarkaLoopEmitter {
 
     /**
      * {@link WeekOfYear}'s lowering, {@code (dayOfYear - 1) / 7 + 1}, is the ISO week only of
-     * a Thursday (task 37), so the node is defined over {@link ThursdayOf} and nothing else:
+     * a Thursday, so the node is defined over {@link ThursdayOf} and nothing else:
      * the compiler builds the pair, and any other tree is a bug, refused here rather than
      * emitted as a plausible wrong week.
      */
@@ -2204,18 +2156,18 @@ public final class VarkaLoopEmitter {
     final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
     /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
     final Map<VarkaVectorIR, int[]> pairTmp = new HashMap<>();
-    /** Task 63: the left operand, the right operand and the result of a checked
+    /** the left operand, the right operand and the result of a checked
      *  {@link IntArith}, parked so the overflow mask can read all three. */
     final Map<VarkaVectorIR, int[]> intArithTmp = new HashMap<>();
     /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
      * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
      * emitValue arm keeps that copy on the operand stack instead (dup/swap). */
     final Map<VarkaVectorIR, int[]> dowTmp = new HashMap<>();
-    /** Per calendar node: the civil-from-days temporaries (task 26), six vectors and two
+    /** Per calendar node: the civil-from-days temporaries, six vectors and two
      * masks - the decomposition is too long to keep on the operand stack. The first
      * {@link #CHRONO_PREFIX_SLOTS} are the prefix fragment's and may be shared with a sibling
      * (see {@link #chronoPrefixTmp}); anything past them is the node's own, which is where
-     * task 34's leap-flag tail for {@code DayOfYear} keeps its two extra locals. */
+     * the leap-flag tail for {@code DayOfYear} keeps its two extra locals. */
     final Map<VarkaVectorIR, int[]> chronoTmp = new HashMap<>();
     /** Per prefix fragment: the {@link #CHRONO_PREFIX_SLOTS} locals its run leaves its results
      * in. Two nodes with the same {@link FragmentKey} name the same locals, which is what lets
@@ -2224,7 +2176,7 @@ public final class VarkaLoopEmitter {
     final Map<FragmentKey, int[]> chronoPrefixTmp = new HashMap<>();
     /**
      * The prefix fragments some tail of the lane group being emitted now reads the March-based
-     * month out of (task 48). Filled by {@link #planFragmentsReadingMonth} at the top of
+     * month out of. Filled by {@link #planFragmentsReadingMonth} at the top of
      * {@link #emitLaneGroup}, from that group's outputs and no others.
      *
      * <p>The lane group is the right scope precisely because {@link #emittedFragments} has it:
@@ -2250,7 +2202,7 @@ public final class VarkaLoopEmitter {
      */
     final Set<FragmentKey> emittedFragments = new HashSet<>();
     /**
-     * The epilogue's bounds mask (task 24), or null in every other body role. Non-null is
+     * The epilogue's bounds mask, or null in every other body role. Non-null is
      * exactly the signal that loads and stores take their masked overloads: the value is a
      * {@code VectorMask} local, live for the whole single pass.
      */
@@ -2259,50 +2211,50 @@ public final class VarkaLoopEmitter {
     int status;
     /**
      * The guard's accumulated out-of-range mask, or null when nothing in this body sets one.
-     * Non-null is exactly the signal that the method returns something other than a constant
-     * zero. Task 26's calendar extractions used to set this; task 51 removed that guard, and
-     * task 52 moved it to the producers in {@link Analysis#guardedProducers}, so it is non-null
-     * exactly when this body's outputs reach one of those and the option is on - or reach a
-     * node in {@link Analysis#selfGuarding}, which is not behind the option.
+     * Non-null is exactly the signal that the method returns something other than a constant zero.
+     * The calendar extractions once set this; the guard now lives on the producers in
+     * {@link Analysis#guardedProducers} , so it is non-null exactly when this body's outputs reach
+     * one of those and the option is on - or reach a node in {@link Analysis#selfGuarding} , which
+     * is not behind the option.
      */
     Integer guardAcc;
     /**
      * Per guarded node: the local the guarded vector is parked in while the guard compares it,
      * since that vector has to stay on the operand stack for the parent. What is guarded differs
-     * by node. For {@code AddDays}/{@code SubDays} (task 52) it is the node's own result, checked
-     * against the range the calendar lowering is exact over. For {@code AddMonths} (task 60) it
+     * by node. For {@code AddDays}/{@code SubDays} it is the node's own result, checked
+     * against the range the calendar lowering is exact over. For {@code AddMonths} it
      * is the month count operand, checked against the range the magic multiply is exact over,
      * and so parked before the node's own value exists at all.
      */
     /**
-     * Task 47: one {@code long} accumulator per output whose validity this body writes a word
-     * at a time, or {@code -1} for an output that keeps the per-lane-group read-modify-write.
-     * Null in every body that does not word-write at all, which is what keeps such a body's
-     * slot numbering - and so its bytes - exactly what it was before this task.
+     * one {@code long} accumulator per output whose validity this body writes a word at a time, or
+     * {@code -1} for an output that keeps the per-lane-group read-modify-write. Null in every body
+     * that does not word-write at all, which is what keeps such a body's slot numbering - and so
+     * its bytes - exactly what it was before this task.
      */
     int[] validityAcc;
 
     final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
 
-    /** {@code MakeDate}'s {@link #MAKE_DATE_TMP_COUNT} locals (task 42). */
+    /** {@code MakeDate}'s {@link #MAKE_DATE_TMP_COUNT} locals. */
     final Map<VarkaVectorIR, int[]> makeDateTmp = new HashMap<>();
 
     /**
-     * Task 70: the word slots this body stored ({@link #storeWord}) and how often it loaded
-     * each ({@link #loadWord}). {@link #assertWordsLive} reads them at the end of a loop or
-     * epilogue body: every word the body defines must be read at least once, and every word it
-     * reads must be one it defined. The inventory of word consumers in {@code PLAN_TASK_70.md}
-     * 2.2 is how the liveness rule was designed; these counters are what keep a consumer that
-     * inventory missed from being missed silently, since {@code loadWord} is the one call every
-     * consumer reads a word through.
+     * the word slots this body stored ( {@link #storeWord} ) and how often it loaded each (
+     * {@link #loadWord} ). {@link #assertWordsLive} reads them at the end of a loop or epilogue
+     * body: every word the body defines must be read at least once, and every word it reads must be
+     * one it defined. The inventory of word consumers in {@code PLAN_TASK_70.md} 2.2 is how the
+     * liveness rule was designed; these counters are what keep a consumer that inventory missed
+     * from being missed silently, since {@code loadWord} is the one call every consumer reads a
+     * word through.
      */
     final Map<Integer, Integer> wordUses = new HashMap<>();
     final Set<Integer> wordDefs = new HashSet<>();
     /**
-     * Task 70: the input word slots this body never reads. Allocated all the same, so the
-     * masked layout stays the dense one's and a method whose every word is dead comes out
-     * byte-identical to its dense twin; never stored, and {@link #loadWord} refuses them.
-     * Empty when {@link VarkaEmitOptions#validityByBitmap} is off.
+     * the input word slots this body never reads. Allocated all the same, so the masked layout
+     * stays the dense one's and a method whose every word is dead comes out byte-identical to its
+     * dense twin; never stored, and {@link #loadWord} refuses them. Empty when
+     * {@link VarkaEmitOptions#validityByBitmap} is off.
      */
     final Set<Integer> deadRefs = new HashSet<>();
 
@@ -2355,10 +2307,10 @@ public final class VarkaLoopEmitter {
     for (int j = 0; j < numLiterals; j++) {
       s.scalarArg[j] = slot++;
     }
-    // Broadcasts are hoisted into vector locals only where they are used - the loop methods -
-    // and only in the regime task 9 measured the hoist as a win: one output, at most a chain's
-    // worth of literals. Any wider body inlines them at each use and lets C2 rematerialize
-    // under register pressure (PLAN_TASK_10.md).
+    // Broadcasts are hoisted into vector locals only where they are used - the loop methods - and
+    // only in the regime where the hoist measures as a win (see `PLAN_TASK_9.md`): one output, at
+    // most a chain's worth of literals. Any wider body inlines them at each use and lets C2
+    // rematerialize under register pressure (PLAN_TASK_10.md).
     s.broadcastSlot = mode == BodyMode.LOOP
         && outputs.size() == 1 && numLiterals <= MAX_CHAIN_DEPTH ? new int[numLiterals] : null;
     if (s.broadcastSlot != null) {
@@ -2373,23 +2325,23 @@ public final class VarkaLoopEmitter {
     slot += 2;
     s.maskTmp = slot++;
     s.status = slot++;
-    // One accumulator per body, and only in a body that emits a guarded producer (task 52):
-    // the caller acts on the batch, not the lane, and a body with nothing to guard keeps the
-    // slot numbering - and so the bytes - of task 51 exactly, whichever way the option is set.
+    // One accumulator per body, and only in a body that emits a guarded producer: the caller acts
+    // on the batch, not the lane, and a body with nothing to guard keeps the slot numbering - and
+    // so the bytes - unchanged, whichever way the option is set.
     boolean producersGuarding = analysis.options.guardDayProducers() && mode != BodyMode.DRIVER
         && !analysis.guardedProducers.isEmpty()
         && outputs.stream().anyMatch(o -> reaches(o, analysis.guardedProducers));
-    // A self-guarding node (task 42) needs the accumulator whatever the option says.
+    // A self-guarding node needs the accumulator whatever the option says.
     boolean selfGuarding = mode != BodyMode.DRIVER && !analysis.selfGuarding.isEmpty()
         && outputs.stream().anyMatch(o -> reaches(o, analysis.selfGuarding));
-    // Task 63: a checked int operation condemns the batch through the same accumulator, so a
-    // body holding one needs it allocated whether or not anything else is guarded. The scratch
-    // slots for the check itself are allocated in the node loop below; this is the accumulator
-    // they fold into, and missing it is an emit-time failure rather than a wrong answer -
-    // which is how it was found.
+    // a checked int operation condemns the batch through the same accumulator, so a body holding
+    // one needs it allocated whether or not anything else is guarded. The scratch slots for the
+    // check itself are allocated in the node loop below; this is the accumulator they fold into,
+    // and missing it is an emit-time failure rather than a wrong answer - which is how it was
+    // found.
     boolean checkedArith = mode != BodyMode.DRIVER && analysis.options.checkIntOverflow()
         && outputs.stream().anyMatch(o -> reaches(o, analysis.checkedArith));
-    // Task 93's range check folds into the same accumulator and is behind no option, so a body
+    // The re-armed range check folds into the same accumulator and is behind no option, so a body
     // holding one needs it allocated on that ground alone.
     boolean rearmed = mode != BodyMode.DRIVER
         && outputs.stream().anyMatch(o -> reachesGuardedDay(o, new HashSet<>()));
@@ -2397,10 +2349,9 @@ public final class VarkaLoopEmitter {
     if (guarding) {
       s.guardAcc = slot++;
     }
-    // Task 47: one accumulator per output this body writes a word at a time. Allocated after
-    // guardAcc and before epilogueMask, and only in a loop body that word-writes at all, so
-    // every other emission keeps the slot numbering it had - the byte-identity the option's
-    // off arm is asserted on.
+    // one accumulator per output this body writes a word at a time. Allocated after guardAcc and
+    // before epilogueMask, and only in a loop body that word-writes at all, so every other emission
+    // keeps the slot numbering it had - the byte-identity the option's off arm is asserted on.
     if (mode == BodyMode.LOOP && wordWrites(analysis)) {
       for (int o : outputIdx) {
         if (keepsPerGroupWrite(analysis, dense, outputs, o)) {
@@ -2413,9 +2364,9 @@ public final class VarkaLoopEmitter {
         }
       }
     }
-    // Task 70: which words this body still reads, or null for "all of them" - the pass off, or
-    // a dense body, which has no words. Decided before the allocation loop because it decides
-    // what the loop allocates.
+    // which words this body still reads, or null for "all of them" - the pass off, or a dense body,
+    // which has no words. Decided before the allocation loop because it decides what the loop
+    // allocates.
     Set<WordOwner> live = !dense && mode != BodyMode.DRIVER && analysis.options.validityByBitmap()
         ? liveWords(outputs, outputIdx, analysis, producersGuarding, selfGuarding, checkedArith)
         : null;
@@ -2466,14 +2417,14 @@ public final class VarkaLoopEmitter {
           if (!dense && (node instanceof Greatest || node instanceof Least)) {
             s.pairTmp.put(node, new int[] {slot++, slot++});
           }
-          // Task 63's overflow check reads both operands and the result after the lanewise
-          // op has consumed the operands off the stack, so all three are parked. Allocated in
-          // both bodies, unlike pairTmp: a dense batch overflows exactly as a masked one does,
-          // and the check is what the mode asks for, not what the null state asks for. That
-          // reads as true of both modes and is true of FAIL: a NULL node has no dense body at
-          // all, because `analyze` sets nullsFromValidInputs for it and `emit` then builds
-          // none, so its dense slots are planned and never used. Harmless, and worth knowing
-          // before counting dense locals against a method budget.
+          // The overflow check reads both operands and the result after the lanewise op has
+          // consumed the operands off the stack, so all three are parked. Allocated in both bodies,
+          // unlike pairTmp: a dense batch overflows exactly as a masked one does, and the check is
+          // what the mode asks for, not what the null state asks for. That reads as true of both
+          // modes and is true of FAIL: a NULL node has no dense body at all, because `analyze` sets
+          // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
+          // and never used. Harmless, and worth knowing before counting dense locals against a
+          // method budget.
           if (analysis.options.checkIntOverflow() && node instanceof IntArith n
               && n.mode() != Overflow.WRAP) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
@@ -2483,7 +2434,7 @@ public final class VarkaLoopEmitter {
               || node instanceof DayOfWeekIso) {
             // emitFloorMod7's own two scratch slots; NextDay's second copy of the date rides
             // the operand stack (dup/swap in its emitValue arm) rather than needing a third,
-            // and TruncDateDynamic's week result (task 61) reloads the date from the prefix's
+            // and TruncDateDynamic's week result reloads the date from the prefix's
             // own local.
             s.dowTmp.put(node, new int[] {slot++, slot++});
           }
@@ -2503,11 +2454,11 @@ public final class VarkaLoopEmitter {
           }
           if (isChrono(node)) {
             // Six int-vector temporaries and two masks for a plain extraction (see emitChrono
-            // for what stays live); AddMonths (task 40) needs the same eight plus the rest of
+            // for what stays live); AddMonths needs the same eight plus the rest of
             // emitAddMonths's own locals, since it decomposes and recomposes in one node;
-            // DayOfYear (task 34) needs one more, for the plain year its leap flag is computed
+            // DayOfYear needs one more, for the plain year its leap flag is computed
             // from - t[6] and t[7] are the prefix's carry scratch and are dead by the time its
-            // tail runs, so only t[8] is genuinely extra; and LastDay (task 36) needs the same
+            // tail runs, so only t[8] is genuinely extra; and LastDay needs the same
             // eight plus emitChronoLastDay's own month-length and leap-flag scratch.
             // The first eight are the prefix fragment's and are allocated once per fragment
             // when sharing is on, so siblings over one date name the same locals; the rest are
@@ -2595,7 +2546,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 70: the slot reference {@link #planWordRef} assigned and the symbolic owner
+   * the slot reference {@link #planWordRef} assigned and the symbolic owner
    * {@link Analysis#planWordAlgebra()} derived must name the same word, and the algebra
    * {@link Analysis#pureWord} states must not contradict what the emission computes.
    *
@@ -2660,12 +2611,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Whether {@code node} condemns the batch from this body, and so needs its own validity word
-   * kept alive for {@link #emitGuardCollect} to qualify the condemning mask with. Read by
-   * {@link #liveWords}: a node that collects into the accumulator without its word surviving
-   * the liveness pass would fail loudly in {@code loadWord}, which is the failure this one
-   * predicate exists to make impossible for the next kind added. Tasks 52 and 60 added the
-   * first two kinds, task 63 the third.
+   * Whether {@code node} condemns the batch from this body, and so needs its own validity word kept
+   * alive for {@link #emitGuardCollect} to qualify the condemning mask with. Read by
+   * {@link #liveWords} : a node that collects into the accumulator without its word surviving the
+   * liveness pass would fail loudly in {@code loadWord} , which is the failure this one predicate
+   * exists to make impossible for the next kind added.
    */
   /**
    * The node kinds a {@code date_add}/{@code date_sub} day offset may be. Public because
@@ -2690,14 +2640,13 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Whether {@code node} needs {@link Slots#guardTmp}, the scratch local a guard parks its
-   * value in before testing it. A subset of {@link #guardedWord}, and deliberately not the
-   * same question: a guarded day producer's value is on the stack when the guard runs
-   * ({@code emitValue} stores it) and {@code AddMonths} guards its count the same way, but
-   * task 63's checked arithmetic already parks its operands and result in
-   * {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with {@code dup},
-   * so neither ever loads this slot. Allocating one for them reserved a local nothing read and
-   * shifted every later local in the body.
+   * Whether {@code node} needs {@link Slots#guardTmp}, the scratch local a guard parks its value in
+   * before testing it. A subset of {@link #guardedWord}, and deliberately not the same question: a
+   * guarded day producer's value is on the stack when the guard runs ({@code emitValue} stores it)
+   * and {@code AddMonths} guards its count the same way, but the checked int arithmetic already
+   * parks its operands and result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its
+   * operand back with {@code dup}, so neither ever loads this slot. Allocating one for them
+   * reserved a local nothing read and shifted every later local in the body.
    */
   /** Whether any node under {@code root} is a {@link GuardedDay}, memoised against sharing. */
   private static boolean reachesGuardedDay(VarkaVectorIR root, Set<VarkaVectorIR> seen) {
@@ -2718,36 +2667,32 @@ public final class VarkaLoopEmitter {
   private static boolean guardScratch(Analysis analysis, VarkaVectorIR node,
       boolean producersGuarding, boolean selfGuarding) {
     // GuardedDay is unconditional - not behind either flag - because the compiler admits the
-    // expression on the strength of this check (task 93, PLAN_TASK_93.md 3.4). A flag that
-    // removed it would leave the compile-time bound standing over a value nothing bounds,
-    // which is the wrong-answer case the column-count AddMonths javadoc names.
+    // expression on the strength of this check (see `PLAN_TASK_93.md` 3.4). A flag that removed it
+    // would leave the compile-time bound standing over a value nothing bounds, which is the
+    // wrong-answer case the column-count AddMonths javadoc names.
     return node instanceof GuardedDay
         || (producersGuarding && analysis.guardedProducers.contains(node))
         || (selfGuarding && node instanceof AddMonths && analysis.selfGuarding.contains(node));
   }
 
   /**
-   * Task 70's word liveness for one loop or epilogue body: the set of words some consumer in
-   * the body still reads once the bitmap pass has taken over the served roots' writes. A word
-   * is <i>demanded</i> by a consumer and then <i>propagated</i> to the operands its computation
-   * reads, to a fixpoint. The consumers, from PLAN_TASK_70.md 2.2 plus the one that inventory
-   * missed - the null-skipping pick's value substitution, which blends by the operands' words
-   * whether or not its own word is wanted:
-   * <ul>
-   *   <li>a value root the pass does not serve: its own word, for the per-group write;</li>
-   *   <li>a guarded producer (task 52) or self-guarding {@code AddMonths} (task 60): its own
-   *       word, which {@link #emitGuardCollect} ANDs with the condemning mask;</li>
-   *   <li>{@code MakeDate}: its own word, always - it stores it unconditionally and its guard
-   *       reads it - and so, by propagation, its three inputs';</li>
-   *   <li>{@code Greatest}/{@code Least}, emitted at all: both operands' words, for the value;</li>
-   *   <li>every {@code Compare} and {@code IsNotNull} reached, whether under an {@code IfElse}
-   *       or a {@code Cond} root: its operands' words, for the known-true/false pair.</li>
-   * </ul>
-   * Propagation: a demanded own word demands what its arm loads - both operands for the AND
-   * family and the picks, the two branches for {@code IfElse} (its condition's leaves are
-   * demanded by the walk already), the three inputs for {@code MakeDate}. Nothing is demanded
-   * for a served root's own write, which is the point. {@link #assertWordsLive} then checks
-   * the result against what the emission actually loaded, in both directions.
+   * Word liveness for one loop or epilogue body: the set of words some consumer in the body still
+   * reads once the bitmap pass has taken over the served roots' writes. A word is <i>demanded</i>
+   * by a consumer and then <i>propagated</i> to the operands its computation reads, to a fixpoint.
+   * The consumers, from PLAN_TASK_70.md 2.2 plus the one that inventory missed - the null-skipping
+   * pick's value substitution, which blends by the operands' words whether or not its own word is
+   * wanted: <ul> <li>a value root the pass does not serve: its own word, for the per-group
+   * write;</li> <li>a guarded producer or self-guarding {@code AddMonths}: its own word, which
+   * {@link #emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
+   * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
+   * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
+   * words, for the value;</li> <li>every {@code Compare} and {@code IsNotNull} reached, whether
+   * under an {@code IfElse} or a {@code Cond} root: its operands' words, for the known-true/false
+   * pair.</li> </ul> Propagation: a demanded own word demands what its arm loads - both operands
+   * for the AND family and the picks, the two branches for {@code IfElse} (its condition's leaves
+   * are demanded by the walk already), the three inputs for {@code MakeDate}. Nothing is demanded
+   * for a served root's own write, which is the point. {@link #assertWordsLive} then checks the
+   * result against what the emission actually loaded, in both directions.
    *
    * <p>With {@link VarkaEmitOptions#misdescribeWordLiveness} the verdict is inverted word by
    * word, so a test can watch each half of that invariant fail.
@@ -2979,12 +2924,12 @@ public final class VarkaLoopEmitter {
       if (!(outputs.get(o) instanceof Cond)) {
         loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
       }
-      // Task 47: an output this emission writes a word at a time needs the segment to own the
-      // whole last word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is
-      // short of it for every length not a multiple of 64. The Arrow buffer behind it carries
-      // that at every length (VarkaKernelEvaluatorSuite), and the driver's zero below then
-      // covers exactly the bytes the loop stores. Every other output keeps the nominal size,
-      // so an emission that word-writes nothing keeps its bytes.
+      // an output this emission writes a word at a time needs the segment to own the whole last
+      // word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is short of it for
+      // every length not a multiple of 64. The Arrow buffer behind it carries that at every length
+      // (VarkaKernelEvaluatorSuite), and the driver's zero below then covers exactly the bytes the
+      // loop stores. Every other output keeps the nominal size, so an emission that word-writes
+      // nothing keeps its bytes.
       if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
         cb.aload(P_DST_VALIDITY);
         cb.loadConstant(o);
@@ -3002,15 +2947,15 @@ public final class VarkaLoopEmitter {
       } else {
         loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
       }
-      // Task 70: an output the bitmap pass serves is written whole between steps (4) and (5)
-      // below - after the null state it reads exists and before the shortcut can return - and
-      // that write is what keeps this step's invariant for it, not a zero it overwrites.
+      // an output the bitmap pass serves is written whole between steps (4) and (5) below - after
+      // the null state it reads exists and before the shortcut can return - and that write is what
+      // keeps this step's invariant for it, not a zero it overwrites.
       if (mode == BodyMode.DRIVER && !servedByPass(analysis, dense, o)) {
         cb.aload(s.dstValSeg[o]);
         if (fillsValidityOnce(analysis, dense, outputs.get(o))) {
-          // Task 45: on a dense batch every value output is valid on every row, so the bits are
-          // known here and the loop's per-lane-group OR is writing ones over ones. Setting them
-          // once costs a fill of the same bytes this zero would have touched.
+          // on a dense batch every value output is valid on every row, so the bits are known here
+          // and the loop's per-lane-group OR is writing ones over ones. Setting them once costs a
+          // fill of the same bytes this zero would have touched.
           cb.iload(P_LENGTH);
           cb.invokestatic(SUPPORT, "setValid", SET_VALID);
         } else {
@@ -3027,19 +2972,17 @@ public final class VarkaLoopEmitter {
       if (!referenced(analysis, i)) {
         continue;
       }
-      // Task 70: a loop or epilogue body whose every reader of this input's word is gone
-      // needs none of its null state either. This is what makes such a body the dense one's
-      // bytes.
+      // a loop or epilogue body whose every reader of this input's word is gone needs none of its
+      // null state either. This is what makes such a body the dense one's bytes.
       //
       // The driver still derives all of it, and most of that is dead there: `hasNulls[i]`,
-      // `srcValSeg[i]` and `srcSeg[i]` are read only inside `emitLaneGroup` and `emitValue`,
-      // which only a loop or epilogue body calls, so in the masked driver they are written
-      // and never read; `dead[i]` is read by the all-null shortcut alone, and is dead too on
-      // any shape that emits no shortcut - a `Cond` root, a null-skipping root, an output
-      // over no column. The liveness pass this task added is what could remove it, but the
-      // driver is planned with `live = null` (see planSlots) and this is deliberately not
-      // that change: it is the residue PLAN_TASK_70.md 9.2 prediction 3 measures and leaves
-      // to task 47, which owns the driver.
+      // `srcValSeg[i]` and `srcSeg[i]` are read only inside `emitLaneGroup` and `emitValue`, which
+      // only a loop or epilogue body calls, so in the masked driver they are written and never
+      // read; `dead[i]` is read by the all-null shortcut alone, and is dead too on any shape that
+      // emits no shortcut - a `Cond` root, a null-skipping root, an output over no column. The
+      // liveness pass this task added is what could remove it, but the driver is planned with `live
+      // = null` (see planSlots) and this is deliberately not that change: it is the residue
+      // PLAN_TASK_70.md 9.2 prediction 3 measures and leaves // to the driver.
       if (dense || s.deadRefs.contains(s.word[i])) {
         loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
         continue;
@@ -3084,12 +3027,12 @@ public final class VarkaLoopEmitter {
       loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
     }
 
-    // (4b) Task 70's bitmap pass (PLAN_TASK_70.md 3.1): for each served output, its validity
-    // written whole from the input bitmaps, here and not per lane group. Between (4) and (5)
-    // on purpose - the null counts it passes are read in (4), and a batch the shortcut returns
-    // from in (5) must already have every served bitmap written, since nothing after (5) runs
-    // for it. The engine resolves each operand's three states, so this is one call per node of
-    // the flattened expression and no branch: arguments straight from the kernel's parameters.
+    // (4b) The bitmap pass (see PLAN_TASK_70.md 3.1): for each served output, its validity written
+    // whole from the input bitmaps, here and not per lane group. Between (4) and (5) on purpose -
+    // the null counts it passes are read in (4), and a batch the shortcut returns from in (5) must
+    // already have every served bitmap written, since nothing after (5) runs for it. The engine
+    // resolves each operand's three states, so this is one call per node of the flattened
+    // expression and no branch: arguments straight from the kernel's parameters.
     if (!dense && mode == BodyMode.DRIVER) {
       for (int o = 0; o < numOutputs; o++) {
         BitmapPass pass = analysis.served[o];
@@ -3103,7 +3046,7 @@ public final class VarkaLoopEmitter {
     // Sound only for null-intolerant outputs - a null-skipping subtree (greatest, IfElse) can
     // be valid over an all-null column - and emitted in the masked driver only (the dense
     // body has nothing null; the loop and epilogue methods never run when it fires), and
-    // only when every output references a column. A Cond root (task 21) is excluded outright
+    // only when every output references a column. A Cond root is excluded outright
     // rather than reasoned about: Or(unknown, known-true) is known true, so an OR over one
     // all-null column and one live one still selects rows, which the zeroed bitmap the
     // shortcut leaves behind would deny. The loop needs no shortcut to be correct there -
@@ -3142,11 +3085,10 @@ public final class VarkaLoopEmitter {
     // Species, lane count, loop bound, and the hoisted scalar arguments (LICM). The species is
     // read with getstatic so it stays a JIT constant - what lets C2 intrinsify the calls.
     //
-    // Which species: the concrete one this emission was built for where task 46's
-    // width-specialised validity helpers are in use, so the class cannot disagree with the
-    // helper names beside it, and the lane count is a bytecode constant rather than a call.
-    // Otherwise SPECIES_PREFERRED and its length(), which is what every emission did before
-    // task 46 and what a width with no specialised helpers still does.
+    // Which species: the concrete one this emission was built for where the width-specialised
+    // validity helpers are in use, so the class cannot disagree with the helper names beside it,
+    // and the lane count is a bytecode constant rather than a call. Otherwise SPECIES_PREFERRED and
+    // its length(), which is what a width with no specialised helpers does.
     cb.getstatic(INT_VECTOR, speciesField(analysis.lanes), VECTOR_SPECIES);
     cb.astore(s.species);
     if (analysis.lanes != 0) {
@@ -3240,12 +3182,12 @@ public final class VarkaLoopEmitter {
 
   private static void emitVectorLoop(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
-    // Task 47: each validity accumulator is zeroed before the loop, not because the first
-    // group needs it - it starts a word and clears the accumulator itself - but because the
-    // verifier does. The clear sits behind `if ((i & 63) == 0)`, so at that branch's merge one
-    // incoming edge has assigned the local and the other has not, and a merge of `long` with
-    // `top` is `top`: `VerifyError: Bad local variable type` on the first `lload`. Two
-    // bytecodes once per method make the local definitely assigned on every path into the loop.
+    // each validity accumulator is zeroed before the loop, not because the first group needs it -
+    // it starts a word and clears the accumulator itself - but because the verifier does. The clear
+    // sits behind `if ((i & 63) == 0)`, so at that branch's merge one incoming edge has assigned
+    // the local and the other has not, and a merge of `long` with `top` is `top`: `VerifyError: Bad
+    // local variable type` on the first `lload`. Two bytecodes once per method make the local
+    // definitely assigned on every path into the loop.
     if (s.validityAcc != null) {
       for (int o : outputIdx) {
         if (s.validityAcc[o] >= 0) {
@@ -3276,7 +3218,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * (7) The masked epilogue, as its own method body (task 24): the rows past
+   * (7) The masked epilogue, as its own method body: the rows past
    * {@code loopBound}, done as one more iteration of the very same lane-group body rather
    * than as a second, scalar walk of the IR. Three substitutions make it so - {@code i} is
    * {@code loopBound} with no back edge, {@code lanes} becomes the remainder so every
@@ -3289,11 +3231,10 @@ public final class VarkaLoopEmitter {
    * of the segment. Its other consequence is the invariant recorded in the class doc - lanes
    * outside the mask read {@code 0}, so no operation in the walk may trap on {@code 0}.
    *
-   * <p>What this replaces: a per-row topological pass that computed every distinct node's
-   * value (and, masked, its validity bit and a condition's kT/kF bits) into int locals - a
-   * complete second lowering of the IR, roughly 330 lines and a second {@code switch} over
-   * every node type, which every node type added after task 24 would have had to extend
-   * twice and keep in agreement row for row.
+   * <p>What this replaces: a per-row topological pass that computed every distinct node's value
+   * (and, masked, its validity bit and a condition's kT/kF bits) into int locals - a complete
+   * second lowering of the IR, roughly 330 lines and a second {@code switch} over every node type,
+   * which every node type added would have had to extend twice and keep in agreement row for row.
    */
   private static void emitEpilogue(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
@@ -3334,9 +3275,9 @@ public final class VarkaLoopEmitter {
    * emitters differ only in the name they pass. Getting this wrong is silent, not loud: a
    * nine-row group handed to the whole-group form reads one byte and calls its ninth row null.
    *
-   * <p>Since task 46 a whole group also names the width, through
-   * {@link #emitValidityRead}/{@link #emitValidityOr}: these two return the general forms,
-   * which stay the fallback for the epilogue and for any width with no specialised sibling.
+   * <p>A whole group also names the width, through {@link #emitValidityRead} /
+   * {@link #emitValidityOr} : these two return the general forms, which stay the fallback for the
+   * epilogue and for any width with no specialised sibling.
    */
   private static String validityBits(Slots s) {
     return s.epilogueMask != null ? "partialValidityBitsAt" : "validityBitsAt";
@@ -3347,10 +3288,10 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Whether this call site takes task 46's width-specialised helper: a whole lane group, in an
-   * emission that baked a lane count. The epilogue's partial group never does - its row count
-   * is the batch's remainder rather than a width, and it runs once per batch, so the general
-   * form's switch costs nothing worth naming a method over.
+   * Whether this call site takes the width-specialised helper: a whole lane group, in an emission
+   * that baked a lane count. The epilogue's partial group never does - its row count is the batch's
+   * remainder rather than a width, and it runs once per batch, so the general form's switch costs
+   * nothing worth naming a method over.
    */
   private static boolean widthSpecialised(Analysis analysis, Slots s) {
     return s.epilogueMask == null && analysis.lanes != 0;
@@ -3436,7 +3377,7 @@ public final class VarkaLoopEmitter {
     // Each output of this group: the DAG post-order with intermediates on the operand stack
     // (or in a shared node's local), one unmasked store, and this lane group's validity bits -
     // the root's word (all-true when dense), which orValidityBitsAt truncates itself.
-    // A Cond root (task 21) writes no data at all: its output is the selection bitmap - the
+    // A Cond root writes no data at all: its output is the selection bitmap - the
     // known-true word, which is unknown-as-false by construction (kT is a subset of valid) -
     // OR-ed into dstValidity exactly where a value root ORs its validity word; the dstData
     // slot stays untouched, per the interface contract.
@@ -3457,14 +3398,14 @@ public final class VarkaLoopEmitter {
         });
         continue;
       }
-      // The validity OR goes *before* the vector computation wherever its word is already
-      // known - an aliased input word in the masked body, the constant in the dense one - and
-      // after it only where the word is computed by the node itself (IfElse, Greatest, Least).
-      // Same bytes either way; what changes is where C2's parser meets the call. Task 46 read
-      // the compiled loop and found the OR helper a real call in every arm, refused with
-      // NodeCountInliningCutoff: the caller is over C2's node budget by the time it reaches the
-      // last call in program order, after the body's Vector API intrinsics have been parsed,
-      // and no size of callee changes that. Parsed first, it is inlined.
+      // The validity OR goes *before* the vector computation wherever its word is already known -
+      // an aliased input word in the masked body, the constant in the dense one - and after it only
+      // where the word is computed by the node itself (IfElse, Greatest, Least). Same bytes either
+      // way; what changes is where C2's parser meets the call. Reading // the compiled loop showed
+      // the OR helper a real call in every arm, refused with NodeCountInliningCutoff: the caller is
+      // over C2's node budget by the time it reaches the last call in program order, after the
+      // body's Vector API intrinsics have been parsed, and no size of callee changes that. Parsed
+      // first, it is inlined.
       boolean validityWritten = fillsValidityOnce(analysis, dense, root)
           || servedByPass(analysis, dense, o);
       boolean wordKnownEarly = analysis.options.validityOrFirst()
@@ -3527,8 +3468,8 @@ public final class VarkaLoopEmitter {
    * the group's own {@code lanes} bits unspecified - the read helpers deliberately leave the
    * neighbouring rows in place, and {@link VectorMask#fromLong} ignores them.
    *
-   * <p>The per-group form (task 46) hands segment, row and bits to {@code orValidityBitsAt*},
-   * which masks and shifts them itself. The word form (task 47) does that arithmetic here,
+   * <p>The per-group form hands segment, row and bits to {@code orValidityBitsAt*},
+   * which masks and shifts them itself. The word form does that arithmetic here,
    * because the bits go into a register rather than into memory:
    *
    * <pre>
@@ -3588,7 +3529,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether this output's validity is written once by the driver rather than per lane group by
-   * the loop (task 45).
+   * the loop.
    *
    * <p>Three conditions, and each is load-bearing. The option, because this is a lowering change
    * and the older form stays a reference variant the differential checks against. Dense, because
@@ -3607,7 +3548,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether output {@code o}'s validity is written whole by the masked driver's bitmap pass
-   * (task 70), so the loop and epilogue skip its per-group OR. The same one-place discipline as
+   *, so the loop and epilogue skip its per-group OR. The same one-place discipline as
    * {@link #fillsValidityOnce}, and for the same reason: the driver's write and the elided OR
    * are decided by one predicate, read from both sides, so they cannot disagree.
    */
@@ -3616,11 +3557,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Whether output {@code o} still writes its validity once per lane group - neither filled by
-   * the driver (task 45) nor written whole by the bitmap pass (task 70). This is task 47's
-   * population, and it is <i>not</i> "the masked path": {@link #servedByPass} is false for
-   * every output of a dense body and {@link #fillsValidityOnce} excludes a {@link Cond} root by
-   * design, so a fused filter is in it on every batch, dense included.
+   * Whether output {@code o} still writes its validity once per lane group - neither filled by the
+   * driver nor written whole by the bitmap pass. This is the driver's population, and it is
+   * <i>not</i> "the masked path": {@link #servedByPass} is false for every output of a dense body
+   * and {@link #fillsValidityOnce} excludes a {@link Cond} root by design, so a fused filter is in
+   * it on every batch, dense included.
    */
   private static boolean keepsPerGroupWrite(Analysis analysis, boolean dense,
       List<VarkaVectorIR> outputs, int o) {
@@ -3628,7 +3569,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Whether this emission writes destination validity a 64-bit word at a time (task 47).
+   * Whether this emission writes destination validity a 64-bit word at a time.
    *
    * <p>Three conditions. The option, because the per-group form stays a reference variant the
    * differential checks against. A baked lane count, because the accumulator's shift is
@@ -3701,15 +3642,14 @@ public final class VarkaLoopEmitter {
 
   /**
    * The {@code LineNumberTable}'s decoding key: one {@code <line>=<node>} entry per distinct
-   * IR node, newline separated, in the topological order the line numbers index (task 16).
+   * IR node, newline separated, in the topological order the line numbers index.
    * Recorded in {@link VarkaDebugInfo} so the mapping travels inside the class bytes.
    *
-   * <p>Nodes render through {@link VarkaVectorIR#canonicalShallow}, which task 23 added for
-   * this: the key used to be built from {@link Record#toString}, whose format no JDK promises,
-   * and which inlined each node's whole subtree - so a shared subexpression was repeated once
-   * per parent and the key grew quadratically in the sharing the emitter is built to exploit.
-   * Children are their own line numbers here, so the key reconstructs the DAG and each node is
-   * written once.
+   * <p>Nodes render through {@link VarkaVectorIR#canonicalShallow}, which exists for this: the key
+   * used to be built from {@link Record#toString}, whose format no JDK promises, and which inlined
+   * each node's whole subtree - so a shared subexpression was repeated once per parent and the key
+   * grew quadratically in the sharing the emitter is built to exploit. Children are their own line
+   * numbers here, so the key reconstructs the DAG and each node is written once.
    */
   private static String renderLineMap(Analysis analysis) {
     StringBuilder key = new StringBuilder();
@@ -3742,7 +3682,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Attributes the instructions emitted next to the node's own line of the notional source
-   * file - its 1-based topological index (task 16). Called immediately before each node's
+   * file - its 1-based topological index. Called immediately before each node's
    * defining instruction, so a stack trace through the generated loop names the IR node that
    * threw rather than only the method; {@link VarkaDebugInfo} carries the decoding key.
    */
@@ -3776,12 +3716,12 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 70's invariant over one loop or epilogue body, checked when its lane group has been
-   * emitted: every word the body stored was loaded at least once, and every word it loaded was
-   * one it stored. The first half is what the liveness rule will make load-bearing - a word
-   * defined and never read is per-group work the pass was meant to remove; the second is a
-   * verifier error stated in the emitter's own terms. Both hold on the emitter as it stood
-   * before the pass, which the whole suite and the fuzzer establish by running.
+   * The word invariant over one loop or epilogue body, checked when its lane group has been
+   * emitted: every word the body stored was loaded at least once, and every word it loaded was one
+   * it stored. The first half is what the liveness rule will make load-bearing - a word defined and
+   * never read is per-group work the pass was meant to remove; the second is a verifier error
+   * stated in the emitter's own terms. Both hold on the emitter as it stood before the pass, which
+   * the whole suite and the fuzzer establish by running.
    */
   private static void assertWordsLive(Slots s, BodyMode mode) {
     for (int ref : s.wordDefs) {
@@ -3869,7 +3809,7 @@ public final class VarkaLoopEmitter {
       }
       case GuardedDay n -> {
         // The value passes through untouched; what this node adds is two compares beside it
-        // (task 93). The word is the child's, because a range check does not change validity -
+        //. The word is the child's, because a range check does not change validity -
         // it decides whether the batch is answered at all, not which lanes are null.
         emitValue(cb, n.days(), dense, analysis, s, computed);
         line(cb, analysis, node);
@@ -3880,7 +3820,7 @@ public final class VarkaLoopEmitter {
         }
       }
       case ThursdayOf n -> {
-        // t = d + 3 - weekday0(d), the Thursday of d's Monday-based week (task 37), on
+        // t = d + 3 - weekday0(d), the Thursday of d's Monday-based week, on
         // NextDay's pattern: the date's second copy rides the operand stack across
         // emitFloorMod7, whose two dowTmp slots it would otherwise have to share.
         emitValue(cb, n.days(), dense, analysis, s, computed);   // [d]
@@ -3895,7 +3835,7 @@ public final class VarkaLoopEmitter {
         cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);        // [d + 3 - weekday0]
       }
       case DayOfWeekIso n -> {
-        // WeekDay's tail plus one (task 57): Monday 1 to Sunday 7.
+        // WeekDay's tail plus one: Monday 1 to Sunday 7.
         emitValue(cb, n.days(), dense, analysis, s, computed);
         line(cb, analysis, node);
         emitFloorMod7(cb, node, analysis, s);
@@ -3924,7 +3864,7 @@ public final class VarkaLoopEmitter {
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VV);
         cb.loadConstant(1);
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
-        // A column weekday (task 59) can be null on its own, so the node's word is the AND of
+        // A column weekday can be null on its own, so the node's word is the AND of
         // both inputs' words, stored here as AddMonths does by hand; a literal weekday is the
         // all-true word and planWordRef aliases the date's, so nothing is stored.
         if (!dense && s.ownWord.contains(node)) {
@@ -3942,7 +3882,7 @@ public final class VarkaLoopEmitter {
       case TruncDate n -> emitChrono(cb, node, dense, analysis, s, computed);
       case TruncDateDynamic n -> {
         emitChrono(cb, node, dense, analysis, s, computed);
-        // A column level can be null on its own (task 61), so the node's word is the AND of
+        // A column level can be null on its own, so the node's word is the AND of
         // both inputs' words - NextDay's rule for its column weekday.
         if (!dense && s.ownWord.contains(node)) {
           emitAndWord(cb, s, s.wordRef.get(node), s.wordRef.get(n.days()),
@@ -3993,11 +3933,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 63's {@code IntArith}: the lanewise op, then - in `FAIL` and `NULL` - the overflow
-   * check. The check is the standard sign-based test, which needs both operands and the
-   * result, and the lanewise call has consumed the operands off the stack by the time the
-   * result exists, so all three are parked in {@link Slots#intArithTmp} first. `emitRangeGuard`
-   * parks its one value for the same reason.
+   * {@code IntArith}: the lanewise op, then - in `FAIL` and `NULL` - the overflow check. The check
+   * is the standard sign-based test, which needs both operands and the result, and the lanewise
+   * call has consumed the operands off the stack by the time the result exists, so all three are
+   * parked in {@link Slots#intArithTmp} first. `emitRangeGuard` parks its one value for the same
+   * reason.
    *
    * <p>{@code ADD} overflows exactly where the operands share a sign that the result does not:
    * {@code ((a ^ r) & (b ^ r)) < 0}. {@code SUB} overflows where the operands differ in sign
@@ -4015,12 +3955,12 @@ public final class VarkaLoopEmitter {
    * node's own validity word instead, so the row is null and the batch runs on - which is why
    * `analyze` marks a `NULL` node as one that nulls valid inputs.
    *
-   * <p>The {@code FAIL} route inherits {@link #emitGuardCollect}'s untaken-arm cliff, which is
-   * milestone 4's task 79: the mask is ANDed with the node's word and the epilogue mask but
-   * not with an enclosing {@code IfElse}'s condition, and a vector body computes both arms, so
-   * a checked node under a {@code CASE} arm condemns the batch from a lane the condition would
-   * have sent the other way. Answers stay right - the row engine recomputes the batch - and
-   * only the fusion is lost, on exactly the data the check exists for.
+   * <p>The {@code FAIL} route inherits {@link #emitGuardCollect}'s untaken-arm cliff, which is the
+   * untaken-arm case: the mask is ANDed with the node's word and the epilogue mask but not with an
+   * enclosing {@code IfElse}'s condition, and a vector body computes both arms, so a checked node
+   * under a {@code CASE} arm condemns the batch from a lane the condition would have sent the other
+   * way. Answers stay right - the row engine recomputes the batch - and only the fusion is lost, on
+   * exactly the data the check exists for.
    */
   private static void emitIntArith(CodeBuilder cb, IntArith n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -4083,11 +4023,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 63's {@code IntNeg}, emitted as a multiply by -1 so it needs no unary descriptor: the
-   * two agree on every lane, {@link Integer#MIN_VALUE} included, where both return the input.
-   * That single value is the whole of the overflow test, so the check is one compare rather
-   * than the four ops {@link #emitIntArith} needs, and it reads the operand rather than the
-   * result - no scratch slot at all.
+   * {@code IntNeg} , emitted as a multiply by -1 so it needs no unary descriptor: the two agree on
+   * every lane, {@link Integer#MIN_VALUE} included, where both return the input. That single value
+   * is the whole of the overflow test, so the check is one compare rather than the four ops
+   * {@link #emitIntArith} needs, and it reads the operand rather than the result - no scratch slot
+   * at all.
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -4190,7 +4130,8 @@ public final class VarkaLoopEmitter {
     }
     Integer guardTmp = s.guardTmp.get(node);
     if (guardTmp != null) {
-      // Task 52 guards this node's own result, so the word that qualifies it is this node's.
+      // The producer guard covers this node's own result, so the word that qualifies it is this
+      // node's.
       emitRangeGuard(cb, node, dense ? null : s.wordRef.get(node), guardTmp, dense, analysis, s,
           VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
     }
@@ -4198,39 +4139,38 @@ public final class VarkaLoopEmitter {
 
   /**
    * The runtime range guard on a column-driven producer's own result: lanes outside
-   * {@code [lo, hi]} are ORed into {@link Slots#guardAcc}, and {@link #emitStatusReturn} turns
-   * a non-empty accumulator into {@code STATUS_CHRONO_RANGE}, which the evaluator answers by
-   * recomputing the batch on the row engine. Task 52 calls this on the result of a
-   * column-offset {@code AddDays}/{@code SubDays} some calendar node reads, with {@code lo}/
-   * {@code hi} = {@link VarkaChrono#NARROW_MIN_DAYS}/{@link VarkaChrono#NARROW_MAX_DAYS}; task
-   * 60 calls it on {@code AddMonths}' own month count, with {@code lo}/{@code hi} =
-   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS}/{@link VarkaChrono#MONTH_ARITH_MAX_MONTHS} - two
-   * compares are two compares regardless of what they bound. The guarded value stays on the
-   * operand stack for the caller; it is parked in {@code guardTmp} only for the compares.
+   * {@code [lo, hi]} are ORed into {@link Slots#guardAcc} , and {@link #emitStatusReturn} turns a
+   * non-empty accumulator into {@code STATUS_CHRONO_RANGE} , which the evaluator answers by
+   * recomputing the batch on the row engine. The producer guard calls this on the result of a
+   * column-offset {@code AddDays} / {@code SubDays} some calendar node reads, with {@code lo} /
+   * {@code hi} = {@link VarkaChrono#NARROW_MIN_DAYS} / {@link VarkaChrono#NARROW_MAX_DAYS} ; task
+   * 60 calls it on {@code AddMonths} ' own month count, with {@code lo} / {@code hi} =
+   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS} / {@link VarkaChrono#MONTH_ARITH_MAX_MONTHS} - two
+   * compares are two compares regardless of what they bound. The guarded value stays on the operand
+   * stack for the caller; it is parked in {@code guardTmp} only for the compares.
    *
    * <p>{@code word} is the validity word to AND the out-of-range mask with in a masked body, or
    * null in a dense one. The caller passes it rather than this method looking it up from a node,
-   * because the value being guarded and the word that qualifies it are not always the same
-   * node's: task 52 guards a node's own result under that node's own word, while task 60 guards
-   * an operand - the month count - under the {@code AddMonths} node's word. Resolving it here
-   * from one node reference made those two cases indistinguishable, and reading the word slot
-   * before the arm that fills it is what produced this task's VerifyError; making the caller
-   * state it keeps the two facts together at the site that knows both.
+   * because the value being guarded and the word that qualifies it are not always the same node's:
+   * a producer guard covers a node's own result under that node's own word, while the month-count
+   * guard covers an operand under the {@code AddMonths} node's word. Resolving it here from one
+   * node reference made those two cases indistinguishable, and reading the word slot before the arm
+   * that fills it is what produced this task's VerifyError; making the caller state it keeps the
+   * two facts together at the site that knows both.
    *
-   * <p>This is task 26's guard block, which task 51 deleted from {@code emitEra} and task 52
-   * retargeted from the extraction's input to the producer's output - so it runs once per
-   * distinct producer rather than once per calendar node reading it, and not at all for the
-   * shapes the compiler bounds. The set is keyed on the guarded node, not on the operand it
-   * checks, so two {@code AddMonths} over one count column each emit their own guard over that
-   * column - redundant, not wrong, and the price of keying on the node that owns the validity
-   * word the guard has to AND with. Two ANDs carry over unchanged and for the same reasons:
-   * with the node's validity word in the masked body, because a null row's lanes are undefined
-   * and must not condemn the batch (the node's word is the AND of every input, so a null offset
-   * or a null count is covered), and with the epilogue's bounds mask, because a partial group's
-   * padding lanes hold whatever the masked load left. The dense body skips the word AND: every
-   * lane is valid there. A producer used more than once is emitted once per lane group under
-   * CSE, guard included; with CSE off it is re-emitted per use, which repeats the guard -
-   * correct, merely redundant, and not a shape production emits.
+   * <p>This is the old per-extraction guard block, retargeted from the extraction's input to the
+   * producer's output - so it runs once per distinct producer rather than once per calendar node
+   * reading it, and not at all for the shapes the compiler bounds. The set is keyed on the guarded
+   * node, not on the operand it checks, so two {@code AddMonths} over one count column each emit
+   * their own guard over that column - redundant, not wrong, and the price of keying on the node
+   * that owns the validity word the guard has to AND with. Two ANDs carry over unchanged and for
+   * the same reasons: with the node's validity word in the masked body, because a null row's lanes
+   * are undefined and must not condemn the batch (the node's word is the AND of every input, so a
+   * null offset or a null count is covered), and with the epilogue's bounds mask, because a partial
+   * group's padding lanes hold whatever the masked load left. The dense body skips the word AND:
+   * every lane is valid there. A producer used more than once is emitted once per lane group under
+   * CSE, guard included; with CSE off it is re-emitted per use, which repeats the guard - correct,
+   * merely redundant, and not a shape production emits.
    */
   private static void emitRangeGuard(CodeBuilder cb, VarkaVectorIR node, Integer word,
       int guardTmp, boolean dense, Analysis analysis, Slots s, int lo, int hi) {
@@ -4250,29 +4190,29 @@ public final class VarkaLoopEmitter {
 
   /**
    * Consumes a {@code VectorMask} of lanes that condemn the batch and folds it into the body's
-   * accumulator: ANDed with {@code word}, the lanes' validity, in a masked body (a null lane is
-   * not out of range; {@code null} or the all-true constant skips the AND), ANDed with the
-   * epilogue's bounds mask when there is one, ORed into {@code guardAcc}. The tail of task
-   * 52's producer guard, shared with task 42's self-guarding node.
+   * accumulator: ANDed with {@code word}, the lanes' validity, in a masked body (a null lane is not
+   * out of range; {@code null} or the all-true constant skips the AND), ANDed with the epilogue's
+   * bounds mask when there is one, ORed into {@code guardAcc}. The tail of the producer guard,
+   * shared with the self-guarding nodes.
    *
-   * <p>Since task 79 it is also ANDed with the enclosing {@code IfElse} arms' condition, where
-   * {@code node}'s uses all sit under the same chain of them ({@link #emitArmContext}). A vector
-   * body computes both arms and a guard condemns rather than producing a value the blend can
-   * discard, so without that a lane the condition sends to the other arm declines the batch it
-   * is in. The batch fell back and the answers stayed right; the fusion was what was lost.
+   * <p>It is also ANDed with the enclosing {@code IfElse} arms' condition, where {@code node}'s
+   * uses all sit under the same chain of them ({@link #emitArmContext}). A vector body computes
+   * both arms and a guard condemns rather than producing a value the blend can discard, so without
+   * that a lane the condition sends to the other arm declines the batch it is in. The batch fell
+   * back and the answers stayed right; the fusion was what was lost.
    */
   private static void emitGuardCollect(CodeBuilder cb, VarkaVectorIR node, Integer word,
       boolean dense, Analysis analysis, Slots s) {
     // WORD_DEAD is deliberately not screened here beside the all-true constant. A guarded node
-    // whose word the liveness pass killed is a bug in that pass, not a case to emit around:
-    // the AND is what keeps a null lane from condemning the batch, so skipping it quietly
-    // would turn a liveness error into spurious batch declines on nullable data. `loadWord`
-    // refuses instead, and that refusal is what {@code misdescribeWordLiveness} arms in the
-    // "loaded" direction. What makes the case unreachable is {@link #guardedWord}, which the
-    // liveness pass reads and which contains {@link #guardScratch}, the slot planner's
-    // predicate, by construction - so the planner cannot decide this node is guarded while the
-    // liveness pass decides its word is dead. It was one predicate until task 63 found that
-    // its two readers ask different questions; the containment is what preserves the property.
+    // whose word the liveness pass killed is a bug in that pass, not a case to emit around: the AND
+    // is what keeps a null lane from condemning the batch, so skipping it quietly would turn a
+    // liveness error into spurious batch declines on nullable data. `loadWord` refuses instead, and
+    // that refusal is what {@code misdescribeWordLiveness} arms in the "loaded" direction. What
+    // makes the case unreachable is {@link #guardedWord}, which the liveness pass reads and which
+    // contains {@link #guardScratch}, the slot planner's predicate, by construction - so the
+    // planner cannot decide this node is guarded while the liveness pass decides its word is dead.
+    // It was one predicate, but its two readers ask different questions; the containment is what
+    // preserves the property.
     if (!dense && word != null && word != WORD_ALL_TRUE) {
       cb.aload(s.species);
       loadWord(cb, s, word);
@@ -4290,10 +4230,9 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 79: ANDs the condemning mask on the stack with the arms {@code node} sits under, where
-   * its uses agree on one chain of them. Nothing is emitted for the empty chain, which is what
-   * every shape had before this task and what {@link VarkaEmitOptions#guardUnderArm} off
-   * restores.
+   * ANDs the condemning mask on the stack with the arms {@code node} sits under, where its uses
+   * agree on one chain of them. Nothing is emitted for the empty chain, which is what every shape
+   * had before this task and what {@link VarkaEmitOptions#guardUnderArm} off restores.
    *
    * <p>Polarity follows SQL's {@code CASE}, in which an <em>unknown</em> condition falls to
    * {@code ELSE}: the then arm's mask is the condition's known-true set and the else arm's is
@@ -4303,10 +4242,10 @@ public final class VarkaLoopEmitter {
    *
    * <p>The condition is read from the slot it already owns, per body: a word in the masked body
    * ({@code kt}, complemented by XOR), a {@code VectorMask} in the dense one ({@code condMask},
-   * complemented by {@code not()}). Both are per-condition-node maps, so a nested arm reads its
-   * own and cannot clobber the enclosing one, and both are set by {@code emitCond} before either
-   * arm's values are emitted. Neither goes through {@link #loadWord}, so task 70's liveness
-   * bookkeeping is untouched.
+   * complemented by {@code not()}). Both are per-condition-node maps, so a nested arm reads its own
+   * and cannot clobber the enclosing one, and both are set by {@code emitCond} before either arm's
+   * values are emitted. Neither goes through {@link #loadWord}, so the liveness bookkeeping is
+   * untouched.
    */
   private static void emitArmContext(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s) {
@@ -4331,18 +4270,18 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * {@code make_date(year, month, day)} (task 42; PLAN_TASK_42.md 3.1). The three inputs go to
-   * slots; the month is clamped into 1..12 for the length test; the length is the closed form
-   * {@code 30 | (mc - (mc >>> 3))} - equal to the review's {@code 30 | (mc ^ (mc >>> 3))} on
-   * 1..12 without a vector XOR - blended with {@code 28 + leap} where the clamped month is 2;
+   * {@code make_date(year, month, day)} (see PLAN_TASK_42.md 3.1). The three inputs go to slots;
+   * the month is clamped into 1..12 for the length test; the length is the closed form
+   * {@code 30 | (mc - (mc >>> 3))} - equal to the review's {@code 30 | (mc ^ (mc >>> 3))} on 1..12
+   * without a vector XOR - blended with {@code 28 + leap} where the clamped month is 2;
    * {@code valid} is month in 1..12 and day in 1..length, {@code okY} the year inside
-   * {@link VarkaChrono#MAKE_DATE_MIN_YEAR}..{@link VarkaChrono#MAKE_DATE_MAX_YEAR}. Two masks,
-   * two destinations: {@code !okY}, plus {@code !valid} under ANSI, goes to the guard
-   * accumulator and declines the batch; under the NULL form {@code valid} is ANDed into the
-   * node's own validity word instead. The value is {@code emitDaysFromCivil} over the year,
-   * the clamped month and the day, garbage wherever a mask said so - a null lane's data is
-   * undefined and a declined batch is recomputed whole. The node always computes its own word
-   * (the AND of its inputs', then the validity), so the guard's AND sees the inputs' word.
+   * {@link VarkaChrono#MAKE_DATE_MIN_YEAR} .. {@link VarkaChrono#MAKE_DATE_MAX_YEAR} . Two masks,
+   * two destinations: {@code !okY} , plus {@code !valid} under ANSI, goes to the guard accumulator
+   * and declines the batch; under the NULL form {@code valid} is ANDed into the node's own validity
+   * word instead. The value is {@code emitDaysFromCivil} over the year, the clamped month and the
+   * day, garbage wherever a mask said so - a null lane's data is undefined and a declined batch is
+   * recomputed whole. The node always computes its own word (the AND of its inputs', then the
+   * validity), so the guard's AND sees the inputs' word.
    */
   private static void emitMakeDate(CodeBuilder cb, MakeDate n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -4419,10 +4358,10 @@ public final class VarkaLoopEmitter {
     cb.invokevirtual(INT_VECTOR, "compare", COMPARE_VI);
     cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     cb.astore(okY);
-    // The node's word: the inputs' AND, in a masked body. Gated on `ownWord` like every other
-    // arm rather than on `!dense` alone: liveness demands this word unconditionally today (the
-    // guard below reads it), so the two conditions agree, but a rule that stopped demanding it -
-    // a conditional guard, which is task 64's direction - would otherwise leave the store in
+    // The node's word: the inputs' AND, in a masked body. Gated on `ownWord` like every other arm
+    // rather than on `!dense` alone: liveness demands this word unconditionally today (the guard
+    // below reads it), so the two conditions agree, but a rule that stopped demanding it - a
+    // conditional guard, which is a possible future direction - would otherwise leave the store in
     // with no reader and `assertWordsLive` would refuse a correct emission.
     Integer own = dense ? null : s.wordRef.get(n);
     boolean ownLive = !dense && s.ownWord.contains(n);
@@ -4506,22 +4445,20 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Consumes the child's {@code IntVector} on the stack and leaves {@code floorMod(v, 7)},
-   * full range. The shipped variant (the task 14 follow-up) is two 15-bit digit-sum folds
-   * ({@code 2^15 = 1 mod 7}) followed by Granlund-Montgomery magic division: the folds
-   * leave {@code v <= 32771} (unsigned reading), the +3-where-negative fixup
-   * ({@code 2^32 = 4 mod 7}) raises that to at most 32774, and in that range the magic is
-   * exact in the <i>low</i> 32 bits - with {@code M = ceil(2^18 / 7) = 37450} and
-   * {@code e = 7 * M - 2^18 = 6}, {@code v * e < 2^18} makes {@code q = (v * M) >>> 18}
-   * exactly {@code v / 7}, and {@code v * M < 2^31} keeps the low-half multiply from
-   * overflowing, so {@code r = v - q * 7} needs no final fixup at all. The multiply-high
-   * the classic trick wants is not expressible in the Vector API; pre-folding makes the
-   * low half sufficient. Measured 1.6-1.8x the task 11 digit sum at buffer level and a
-   * ~10-op-smaller loop method, which also shortens the per-task JIT warm-up
-   * (PLAN_TASK_14.md 7.5). The full digit sum behind
-   * {@link VarkaEmitOptions.FloorMod7#DIGIT_SUM} and the lanewise DIV behind
-   * {@link VarkaEmitOptions.FloorMod7#DIV} are the reference variants the parity benchmark
-   * prices this one against.
+   * Consumes the child's {@code IntVector} on the stack and leaves {@code floorMod(v, 7)} , full
+   * range. The shipped variant (the follow-up) is two 15-bit digit-sum folds (
+   * {@code 2^15 = 1 mod 7} ) followed by Granlund-Montgomery magic division: the folds leave
+   * {@code v <= 32771} (unsigned reading), the +3-where-negative fixup ( {@code 2^32 = 4 mod 7} )
+   * raises that to at most 32774, and in that range the magic is exact in the <i>low</i> 32 bits -
+   * with {@code M = ceil(2^18 / 7) = 37450} and {@code e = 7 * M - 2^18 = 6} , {@code v * e < 2^18}
+   * makes {@code q = (v * M) >>> 18} exactly {@code v / 7} , and {@code v * M < 2^31} keeps the
+   * low-half multiply from overflowing, so {@code r = v - q * 7} needs no final fixup at all. The
+   * multiply-high the classic trick wants is not expressible in the Vector API; pre-folding makes
+   * the low half sufficient. Measured 1.6-1.8x the digit sum at buffer level and a ~10-op-smaller
+   * loop method, which also shortens the per-task JIT warm-up (PLAN_TASK_14.md 7.5). The full digit
+   * sum behind {@link VarkaEmitOptions.FloorMod7#DIGIT_SUM} and the lanewise DIV behind
+   * {@link VarkaEmitOptions.FloorMod7#DIV} are the reference variants the parity benchmark prices
+   * this one against.
    *
    * <p>Slot contract: {@code node}'s {@code dowTmp} entry supplies exactly the two scratch
    * locals this method uses as its own working storage ({@code tmp[0]} for the input value,
@@ -4555,7 +4492,7 @@ public final class VarkaLoopEmitter {
       return;
     }
     if (analysis.options.floorMod7() == VarkaEmitOptions.FloorMod7.DIGIT_SUM) {
-      // The task 11 shipped variant: folds of two 15-bit halves, one 6-bit, three 3-bit.
+      // The shipped variant: folds of two 15-bit halves, one 6-bit, three 3-bit.
       emitFold(cb, orig, fold, 0x7FFF, 15);
       emitFold(cb, fold, fold, 0x7FFF, 15);
       emitFold(cb, fold, fold, 63, 6);
@@ -4631,11 +4568,10 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Consumes the child's {@code IntVector} of epoch days and leaves one of the five calendar
-   * fields (task 26, plus {@code dayOfYear} from task 34). {@link VarkaChrono} is the scalar
-   * twin of everything below - it holds every constant this method loads, and its own javadoc
-   * carries the derivation - so the two cannot drift and a disagreement between them is an
-   * emission bug rather than an arithmetic one.
+   * Consumes the child's {@code IntVector} of epoch days and leaves one of the five calendar fields
+   * (including {@code dayOfYear}). {@link VarkaChrono} is the scalar twin of everything below - it
+   * holds every constant this method loads, and its own javadoc carries the derivation - so the two
+   * cannot drift and a disagreement between them is an emission bug rather than an arithmetic one.
    *
    * <p>The shape is a civil-from-days decomposition in a March-based year, where the leap day
    * is a year's last day rather than an interior one. There is no vector divide, so every
@@ -4644,12 +4580,11 @@ public final class VarkaLoopEmitter {
    * followed by carries that are one compare and two masked adjustments each. That is the
    * whole reason this node weighs {@link #CHRONO_WEIGHT} rather than 1.
    *
-   * <p>The temporaries are locals rather than operand-stack juggling because six values stay
-   * live across the tail - era, century, year of century, day of year, the March month, and
-   * two masks - which is past what the stack can hold legibly. The March month is the one of
-   * them a tail may not need: {@link Year} reads the January turn off the day of year instead,
-   * so a body whose calendar tails are all years never computes it (task 48, see
-   * {@link #tailReadsMarchMonth}).
+   * <p>The temporaries are locals rather than operand-stack juggling because six values stay live
+   * across the tail - era, century, year of century, day of year, the March month, and two masks -
+   * which is past what the stack can hold legibly. The March month is the one of them a tail may
+   * not need: {@link Year} reads the January turn off the day of year instead, so a body whose
+   * calendar tails are all years never computes it (see {@link #tailReadsMarchMonth}).
    */
   private static void emitChrono(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
@@ -4658,8 +4593,8 @@ public final class VarkaLoopEmitter {
     int rem = t[2];
     int century = t[3];
     int yearOfCentury = t[4];
-    // t[5] under task 53's switch is the affine numerator, not the March month; every reader
-    // below takes the axis from here rather than deciding for itself.
+    // t[5] under the affine-numerator switch is the affine numerator, not the March month; every
+    // reader below takes the axis from here rather than deciding for itself.
     int marchMonth = t[5];
     boolean neri = analysis.options.neriSchneiderMonth();
     boolean julian = analysis.options.julianMap();
@@ -4692,7 +4627,7 @@ public final class VarkaLoopEmitter {
         int year = t[8];
         // year - Year's own formula, recomputed here because the leap flag needs a plain
         // year and nothing upstream keeps one around. emitLeapFlag applies its own bias.
-        // Like Year's own tail this reads the January bit off the day of year (task 48), so
+        // Like Year's own tail this reads the January bit off the day of year, so
         // this node is the second one whose prefix never needs the month step.
         emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
         cb.astore(year);
@@ -4710,11 +4645,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * The prefix, and the date it consumes, emitted unless a sibling over that same date already
-   * left the prefix in these very locals earlier in this lane group (task 32 step B). This is
-   * the only place a value node's child is emitted from anywhere but its own {@link #emitValue}
-   * arm, and it has to be: {@link #emitChronoPrefix} takes the date off the operand stack, so
-   * whether the date is emitted at all is the same decision as whether the prefix is.
+   * The prefix, and the date it consumes, emitted unless a sibling over that same date already left
+   * the prefix in these very locals earlier in this lane group. This is the only place a value
+   * node's child is emitted from anywhere but its own {@link #emitValue} arm, and it has to be:
+   * {@link #emitChronoPrefix} takes the date off the operand stack, so whether the date is emitted
+   * at all is the same decision as whether the prefix is.
    *
    * <p>With {@link VarkaEmitOptions#shareChronoPrefix} off this is exactly what the four
    * extraction arms and {@link #emitAddMonths} used to do inline, in the same order and with
@@ -4746,20 +4681,19 @@ public final class VarkaLoopEmitter {
 
   /**
    * The civil-from-days decomposition through the March-based month, shared by every field
-   * {@link #emitChrono} computes and by {@link #emitAddMonths} (task 40), which needs three of
-   * the four fields at once rather than one. Factored out of what was a single {@code
-   * emitChrono} method - the split changes no emitted instruction for {@link Year}, {@link
-   * Month}, {@link DayOfMonth} or {@link Quarter}, only where the Java source that emits them
-   * lives, so it moves no pinned value.
+   * {@link #emitChrono} computes and by {@link #emitAddMonths} , which needs three of the four
+   * fields at once rather than one. Factored out of what was a single {@code emitChrono} method -
+   * the split changes no emitted instruction for {@link Year} , {@link Month} , {@link DayOfMonth}
+   * or {@link Quarter} , only where the Java source that emits them lives, so it moves no pinned
+   * value.
    *
-   * <p>Leaves {@code era}, {@code century}, {@code yearOfCentury} and {@code marchMonth} in
-   * {@code t[1..5]} for a field's own tail to read, and the day of year in {@code t[2]}
-   * ({@code rem}, reused across the prefix the way the original method reused it). All but
-   * {@code marchMonth} unconditionally: {@code emitMonth} false drops the month step, which
-   * task 48 does exactly where no tail of this fragment reads it. Under
-   * {@link VarkaEmitOptions#julianMap} (task 54) {@code t[4]} holds the year of era rather than
-   * the year of century and {@code t[3]} is dead once the prefix is done; see
-   * {@link #emitJulianYearOfEra}.
+   * <p>Leaves {@code era} , {@code century} , {@code yearOfCentury} and {@code marchMonth} in
+   * {@code t[1..5]} for a field's own tail to read, and the day of year in {@code t[2]} (
+   * {@code rem} , reused across the prefix the way the original method reused it). All but
+   * {@code marchMonth} unconditionally: {@code emitMonth} false drops the month step, which happens
+   * exactly where no tail of this fragment reads it. Under {@link VarkaEmitOptions#julianMap}
+   * {@code t[4]} holds the year of era rather than the year of century and {@code t[3]} is dead
+   * once the prefix is done; see {@link #emitJulianYearOfEra} .
    *
    * <p>Those five locals outliving the call is what makes the run a shareable fragment, since
    * {@link #emitChronoYear}, {@link #emitChronoMonth} and {@link #emitChronoDayOfMonth} read
@@ -4784,8 +4718,8 @@ public final class VarkaLoopEmitter {
     emitEra(cb, days, era, rem, mask);
 
     if (analysis.options.julianMap()) {
-      // Task 54: the year of era and the day of year through the Julian map - one division
-      // stage fewer than the split below, and no leap correction in the prefix at all.
+      // the year of era and the day of year through the Julian map - one division stage fewer than
+      // the split below, and no leap correction in the prefix at all.
       emitJulianYearOfEra(cb, rem, century, yearOfCentury, mask, leap);
     } else {
       // rem is now the day of era, in [0, 146096]. Everything below works on that.
@@ -4869,14 +4803,14 @@ public final class VarkaLoopEmitter {
     }
 
     // mp = (5 * doy + 2) / 153: the March-based month, 0 for March through 11 for February.
-    // Skipped where no tail of this fragment reads it (task 48) - four lane ops and a store
+    // Skipped where no tail of this fragment reads it - four lane ops and a store
     // that a year-only kernel would compute and drop. t[5] stays allocated either way; an
     // elided prefix simply never writes it, and any reader of it that did not say so through
     // tailReadsMarchMonth is rejected by the verifier at class load rather than read as
     // garbage.
     if (emitMonth) {
       if (analysis.options.neriSchneiderMonth()) {
-        // num = 2141 * doy + 197913 (task 53). Two ops where the 0-based form takes four, and
+        // num = 2141 * doy + 197913. Two ops where the 0-based form takes four, and
         // what it leaves in t[5] is not a month but a numerator carrying both the month index
         // in its high half and the day of month in its low half - which is why the day tail
         // stops needing emitMonthStart run forwards.
@@ -4899,10 +4833,10 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Task 54: the day of era to the year of era and the March-based day of year through Ben
-   * Joffe's Julian map, in place of the century-then-year split in {@link #emitChronoPrefix}.
-   * The scalar twin is {@code VarkaChrono.narrowedJulian}; the constants' javadoc there says why
-   * each of the two divisions needs exactly one carry.
+   * the day of era to the year of era and the March-based day of year through Ben Joffe's Julian
+   * map, in place of the century-then-year split in {@link #emitChronoPrefix}. The scalar twin is
+   * {@code VarkaChrono.narrowedJulian}; the constants' javadoc there says why each of the two
+   * divisions needs exactly one carry.
    *
    * <p>Scale the day of era by four and add three; one round-down magic gives the century, and
    * a carry makes it exact. Add four back per century: the count is now in a calendar where
@@ -4910,11 +4844,11 @@ public final class VarkaLoopEmitter {
    * era, and the remainder shifted right by two is the day of year with 29 February in the
    * right place. Nothing here tests for a leap year, and the era's last day needs no fold.
    *
-   * <p>Slots: {@code rem} arrives as the day of era and leaves as the day of year; {@code
-   * century} is written (the map needs it) but no tail reads it; {@code yearOfEra} is the slot
-   * the other form leaves the year of century in - which is why {@link #emitChronoYear} takes
-   * the form as an argument rather than deciding what the slot holds; {@code mask} and {@code
-   * scratch} are the carries' scratch, the same two the other form uses.
+   * <p>Slots: {@code rem} arrives as the day of era and leaves as the day of year; {@code century}
+   * is written (the map needs it) but no tail reads it; {@code yearOfEra} is the slot the other
+   * form leaves the year of century in - which is why {@link #emitChronoYear} takes the form as an
+   * argument rather than deciding what the slot holds; {@code mask} and {@code scratch} are the
+   * carries' scratch, the same two the other form uses.
    */
   private static void emitJulianYearOfEra(CodeBuilder cb, int rem, int century, int yearOfEra,
       int mask, int scratch) {
@@ -4959,7 +4893,7 @@ public final class VarkaLoopEmitter {
   }
 
   /** Leaves the reported (January-based) year - {@code 400 * era + 100 * century + yoc} under
-   * the century-then-year form, {@code 400 * era + yearOfEra} under the Julian map (task 54),
+   * the century-then-year form, {@code 400 * era + yearOfEra} under the Julian map,
    * where {@code t[4]} holds the year of era - plus one where the March year has turned
    * January. The {@link Year} tail, factored out so {@link #emitAddMonths} can call it too.
    *
@@ -4996,7 +4930,7 @@ public final class VarkaLoopEmitter {
   }
 
   /** The zero-based day of month, {@link #emitChronoDayOfMonth} one step before its increment
-   * - which is exactly what {@code trunc(d, 'MONTH')} subtracts (task 35). */
+   * - which is exactly what {@code trunc(d, 'MONTH')} subtracts. */
   private static void emitZeroBasedDayOfMonth(CodeBuilder cb, int rem, int monthSlot,
       boolean neri) {
     if (neri) {
@@ -5015,11 +4949,11 @@ public final class VarkaLoopEmitter {
 
   /**
    * Leaves the day of the March-based year on which March-based month {@code mp} begins:
-   * {@code (153 * mp + 2) / 5}, exact for every {@code mp} in {@code [0, 11]} - the same magic
-   * multiply {@link #emitChronoDayOfMonth} runs in reverse. Task 40's {@link #emitAddMonths}
-   * calls this twice to get a month's length by subtraction, which is what makes a twelve-entry
-   * length table unnecessary: every month but the year's last (February, here) is one
-   * subtraction between two calls to this.
+   * {@code (153 * mp + 2) / 5} , exact for every {@code mp} in {@code [0, 11]} - the same magic
+   * multiply {@link #emitChronoDayOfMonth} runs in reverse. {@link #emitAddMonths} calls this twice
+   * to get a month's length by subtraction, which is what makes a twelve-entry length table
+   * unnecessary: every month but the year's last (February, here) is one subtraction between two
+   * calls to this.
    */
   private static void emitMonthStart(CodeBuilder cb, int marchMonth) {
     cb.aload(marchMonth);
@@ -5031,7 +4965,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months} (task 40). Decomposes
+   * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months}. Decomposes
    * {@code node.days()} via {@link #emitChronoPrefix} into year, month and day; does the month
    * arithmetic over a small, non-negative dividend (folding the year in would put it near
    * 400,000 - past the range any magic multiply admits, {@code PLAN_TASK_40.md} section 2.2);
@@ -5045,11 +4979,11 @@ public final class VarkaLoopEmitter {
    * 34-37 need per {@code PLAN_TASK_34.md} section 2.1. Both branches are computed for every
    * lane and blended, since a vector lane cannot skip work the way a scalar branch would.
    *
-   * <p>{@code node.months()} is a {@link LiteralSlot} or, since task 60, a column: when it is a
-   * column, {@link #emitRangeGuard} runs on it right after it loads, against
-   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS}/{@code MAX_MONTHS} - the same bound a literal
-   * count is checked against at compile time (task 40) - because the magic multiply a few lines
-   * below is exact only there.
+   * <p> {@code node.months()} is a {@link LiteralSlot} or a column: when it is a column,
+   * {@link #emitRangeGuard} runs on it right after it loads, against
+   * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS} / {@code MAX_MONTHS} - the same bound a literal
+   * count is checked against at compile time - because the magic multiply a few lines below is
+   * exact only there.
    */
   private static void emitAddMonths(CodeBuilder cb, AddMonths node, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
@@ -5100,19 +5034,19 @@ public final class VarkaLoopEmitter {
     emitValue(cb, node.months(), dense, analysis, s, computed);
     // The node's own word (the AND of both children's) used to be computed after this method
     // returned, from the caller's dispatch; the guard below needs it already stored, and both
-    // children's words are ready by now (the date's from the prefix just above, the count's
-    // from the emitValue call just above), so it moves here instead - earlier than task 40
-    // needed it, but the AND itself is unchanged.
+    // children's words are ready by now (the date's from the prefix just above, the count's from
+    // the emitValue call just above), so it moves here instead - earlier than // strictly needed,
+    // but the AND itself is unchanged.
     if (!dense && s.ownWord.contains(node)) {
       emitAndWord(cb, s, s.wordRef.get(node), s.wordRef.get(node.days()),
           s.wordRef.get(node.months()));
     }
     Integer monthsGuardTmp = s.guardTmp.get(node);
     if (monthsGuardTmp != null) {
-      // Task 60 guards the month count, which is this node's operand rather than its result -
-      // the value on the stack here is node.months(). The word is still this node's, the AND of
-      // both children's, stored just above: a lane whose date is null is not out of range even
-      // if its count is, and the row is null either way.
+      // The month-count guard covers this node's operand rather than its result - the value on the
+      // stack here is node.months(). The word is still this node's, the AND of both children's,
+      // stored just above: a lane whose date is null is not out of range even if its count is, and
+      // the row is null either way.
       line(cb, analysis, node);
       emitRangeGuard(cb, node, dense ? null : s.wordRef.get(node), monthsGuardTmp, dense,
           analysis, s,
@@ -5141,9 +5075,9 @@ public final class VarkaLoopEmitter {
     cb.astore(ny);
 
     // mp2 = nm - 2 + 12 where nm <= 1 (the new month is January or February) - the March-based
-    // month for the length lookup below. emitDaysFromCivil redoes this test on its own terms
-    // for the recompose itself; the two are independent, not shared, the way task 17 found
-    // recomputing beats threading a value across an unrelated boundary.
+    // month for the length lookup below. emitDaysFromCivil redoes this test on its own terms for
+    // the recompose itself; the two are independent, not shared, since // recomputing beats
+    // threading a value across an unrelated boundary.
     cb.aload(nm);
     cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
     cb.loadConstant(1);
@@ -5204,7 +5138,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Hinnant's {@code days_from_civil} (task 40): the exact inverse of {@link #emitChronoPrefix}
+   * Hinnant's {@code days_from_civil}: the exact inverse of {@link #emitChronoPrefix}
    * plus a field tail, recomposing a date from its (January-based) {@code year}, (1-12)
    * {@code month} and already-clamped {@code day}. {@link VarkaChrono#daysFromCivil} is its
    * scalar twin, and this redoes the {@code month <= 2} split on its own terms rather than
@@ -5340,7 +5274,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * The January-based day of year from the March-based one (task 34):
+   * The January-based day of year from the March-based one:
    * {@code doy >= 306 ? doy - 305 : doy + 60 + L}, with {@code leap} the year's leap mask as
    * {@link #emitLeapFlag} leaves it and {@code mask} a scratch local for the branch select.
    * Factored out of the {@code DayOfYear} arm for {@link #emitChronoTrunc}'s {@code YEAR} and
@@ -5368,7 +5302,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * {@code trunc(date, level)} (task 35): the first day of the year, month or quarter, under
+   * {@code trunc(date, level)}: the first day of the year, month or quarter, under
    * one of two lowerings selected by {@link VarkaEmitOptions#truncDate()}.
    *
    * <p><b>{@code SUBTRACT}</b> takes the elapsed part of the period off the date. {@code MONTH}
@@ -5383,11 +5317,11 @@ public final class VarkaLoopEmitter {
    * January-based month - never off the March month directly, which would be right from April
    * on and wrong for January to March.
    *
-   * <p><b>{@code RECOMPOSE}</b> rebuilds the period's first day from its year and month through
-   * {@link #emitDaysFromCivil}: {@code (year, 1, 1)}, {@code (year, month, 1)} and
-   * {@code (year, 3 * quarter - 2, 1)}. No leap flag anywhere; the recomposition does its own
-   * era arithmetic. Its value beyond the measurement is a second caller for task 40's helper,
-   * which {@code add_months}'s own day clamp could otherwise mask a defect in.
+   * <p><b> {@code RECOMPOSE} </b> rebuilds the period's first day from its year and month through
+   * {@link #emitDaysFromCivil} : {@code (year, 1, 1)} , {@code (year, month, 1)} and
+   * {@code (year, 3 * quarter - 2, 1)} . No leap flag anywhere; the recomposition does its own era
+   * arithmetic. Its value beyond the measurement is a second caller for the day-clamp helper, which
+   * {@code add_months} 's own day clamp could otherwise mask a defect in.
    *
    * <p>Both leave the epoch-day vector on the operand stack and read nothing but the prefix's
    * results in {@code t[0..5]} plus this node's own slots from {@code t[6]} on
@@ -5395,7 +5329,7 @@ public final class VarkaLoopEmitter {
    * and are reused, as {@code DayOfYear} reuses them.
    */
   /**
-   * The ISO week tail (task 37): the {@code DayOfYear} tail over the prefix - which here ran
+   * The ISO week tail: the {@code DayOfYear} tail over the prefix - which here ran
    * over a {@link ThursdayOf}, the analysis's rule - then {@code (doy - 1) / 7 + 1} by
    * {@link VarkaChrono#WEEK_M}, four ops. Same slots as {@code DayOfYear}: {@code t[6]} and
    * {@code t[7]} are the prefix's dead carry scratch, {@code t[8]} the node's own year.
@@ -5435,9 +5369,9 @@ public final class VarkaLoopEmitter {
     int quarter = t[12];
     switch (form) {
       case SUBTRACT -> {
-        // The three results are factored into helpers so task 61's dynamic node emits the
-        // same bytes for each; the literal node's own bytes did not move (its register and the
-        // byte hashes in PLAN_TASK_61.md 9).
+        // The three results are factored into helpers so the dynamic node emits the same bytes for
+        // each; the literal node's own bytes did not move (its register and the byte hashes in
+        // PLAN_TASK_61.md 9).
         switch (node.level()) {
           case MONTH -> emitTruncMonth(cb, days, rem, marchMonth, neri);
           case YEAR -> {
@@ -5550,7 +5484,7 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * {@code trunc(date, fmt)} with a format column (task 61): the level is a lane value, so the
+   * {@code trunc(date, fmt)} with a format column: the level is a lane value, so the
    * tail computes every period's first day and selects afterwards. The three calendar results
    * are {@code SUBTRACT}'s own helpers over one prefix, one year and one day of year; the week
    * is {@code d - weekday0(d)} with Monday as 0, where {@code weekday0} is {@code WeekDay}'s
@@ -5609,16 +5543,15 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * {@code last_day(date)} (task 36): {@code days + length - dayOfMonth}, where {@code length}
-   * is the current March-based month's own length and {@code dayOfMonth} is {@link
-   * #emitChronoDayOfMonth}'s own value. The length reuses {@link #emitMonthStart} the same way
-   * {@link #emitAddMonths} does for the month it lands on: every month but the March-based
-   * year's last (February) is one subtraction between two calls to it, clamping the second
-   * call's input the same way {@link #emitAddMonths} does, since {@link #emitMonthStart}'s
-   * magic is only exact up to {@code mp} 11. February needs the year's own total length
-   * instead, which is where {@link #emitLeapFlag} comes in - the same flag {@link
-   * #emitAddMonths} needs for its own February case, and the same reason this reuses it rather
-   * than a second copy of the leap test.
+   * {@code last_day(date)} : {@code days + length - dayOfMonth} , where {@code length} is the
+   * current March-based month's own length and {@code dayOfMonth} is {@link #emitChronoDayOfMonth}
+   * 's own value. The length reuses {@link #emitMonthStart} the same way {@link #emitAddMonths}
+   * does for the month it lands on: every month but the March-based year's last (February) is one
+   * subtraction between two calls to it, clamping the second call's input the same way
+   * {@link #emitAddMonths} does, since {@link #emitMonthStart} 's magic is only exact up to
+   * {@code mp} 11. February needs the year's own total length instead, which is where
+   * {@link #emitLeapFlag} comes in - the same flag {@link #emitAddMonths} needs for its own
+   * February case, and the same reason this reuses it rather than a second copy of the leap test.
    */
   private static void emitChronoLastDay(CodeBuilder cb, Slots s, int[] t, boolean neri,
       boolean julian) {
@@ -5636,9 +5569,9 @@ public final class VarkaLoopEmitter {
     int monthStartNext = t[12];
     int length = t[13];
 
-    // The year is only wanted for the leap flag; task 48 made emitChronoYear read the January
-    // turn off the day of year rather than off the month, so this passes `rem`. The month step
-    // still runs for this node - the month-length arithmetic below is what needs it.
+    // The year is only wanted for the leap flag; emitChronoYear reads the January turn off the day
+    // of year rather than off the month, so this passes `rem`. The month step still runs for this
+    // node - the month-length arithmetic below is what needs it.
     emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
     cb.astore(year);
     emitChronoDayOfMonth(cb, rem, marchMonth, neri);
@@ -5648,11 +5581,11 @@ public final class VarkaLoopEmitter {
     // March-based year's last month), which needs the year's own total length instead - the
     // same split emitAddMonths uses for the month it lands on.
     //
-    // This is the one node whose month-length arithmetic reads the prefix slot directly rather
-    // than through a tail, so it is the one place task 53's axis has to be handled here: under
-    // the numerator, mpNextClamped holds a 3-based index and the February test is against
-    // MONTH3_JANUARY + 1 rather than MARCH_YEAR_JANUARY + 1. Both are "one past the year's
-    // last month" on their own axis.
+    // This is the one node whose month-length arithmetic reads the prefix slot directly rather than
+    // through a tail, so it is the one place the affine numerator's axis has to be handled here:
+    // under the numerator, mpNextClamped holds a 3-based index and the February test is against
+    // MONTH3_JANUARY + 1 rather than MARCH_YEAR_JANUARY + 1. Both are "one past the year's last
+    // month" on their own axis.
     int lastMonth = neri ? VarkaChrono.MONTH3_JANUARY + 1 : VarkaChrono.MARCH_YEAR_JANUARY + 1;
     if (neri) {
       emitMonthIndex3(cb, marchMonth);
@@ -5714,24 +5647,23 @@ public final class VarkaLoopEmitter {
    * years -12800 to 33134, which contains every date SQL can write but is reachable past by
    * {@code date_add}.
    *
-   * <p><b>No guard here (tasks 51 and 52).</b> Every {@link Chrono} node used to carry a
-   * per-lane range check on this step's input, declining the whole batch to the row engine when
-   * a lane fell outside the range above. That guard re-verified the same fact at every calendar
-   * extraction downstream of a value, including ones CSE and task 32's fragment sharing had
-   * already proven in range together - real cost with no new information on the common path.
-   * Task 51 removed it and task 52 replaced it in two halves: the compiler bounds the day shift
-   * under every calendar node and declines an entry whose interval can leave this range
-   * (literal offsets, {@code next_day}, {@code add_months}, {@code last_day}, and their
-   * compositions), and the one producer it cannot bound - {@code date_add}/{@code date_sub} with
-   * a column offset - carries the check on its own result ({@link #emitRangeGuard}), once per
-   * producer instead of once per reader. This step therefore trusts its input, and the
-   * {@link VarkaEmitOptions#guardDayProducers} reference variant is the only way to hand it a
-   * day outside the range. (Task 60 reuses the same guard block on a separate producer and a
-   * separate range - {@code AddMonths}' own month count against the magic multiply's bound.
-   * That one does bear on this step: when a calendar node reads an {@code add_months} result,
-   * the day decomposed here is that result, and nothing checks it at run time - it is inside
-   * the range only because {@code dayRange} bounded the count's shift at compile time, which
-   * it can do only because the count guard fires.)
+   * <p><b>No guard here.</b> Every {@link Chrono} node used to carry a per-lane range check on this
+   * step's input, declining the whole batch to the row engine when a lane fell outside the range
+   * above. That guard re-verified the same fact at every calendar extraction downstream of a value,
+   * including ones CSE and the calendar fragment sharing had already proven in range together -
+   * real cost with no new information on the common path. It was replaced by two halves: the
+   * compiler bounds the day shift under every calendar node and declines an entry whose interval
+   * can leave this range (literal offsets, {@code next_day} , {@code add_months} , {@code last_day}
+   * , and their compositions), and the one producer it cannot bound - {@code date_add} /
+   * {@code date_sub} with a column offset - carries the check on its own result (
+   * {@link #emitRangeGuard} ), once per producer instead of once per reader. This step therefore
+   * trusts its input, and the {@link VarkaEmitOptions#guardDayProducers} reference variant is the
+   * only way to hand it a day outside the range. (The month count reuses the same guard block on a
+   * separate producer and a separate range - {@code AddMonths} ' own month count against the magic
+   * multiply's bound. That one does bear on this step: when a calendar node reads an
+   * {@code add_months} result, the day decomposed here is that result, and nothing checks it at run
+   * time - it is inside the range only because {@code dayRange} bounded the count's shift at
+   * compile time, which it can do only because the count guard fires.)
    */
   private static void emitEra(CodeBuilder cb, int days, int era, int rem, int mask) {
     // w = days + BIAS, non-negative throughout the range, so one round-down magic and one
@@ -5796,7 +5728,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Leaves the mask of lanes whose March-based year has already turned into January, read off
-   * whichever axis {@code t[5]} carries: {@code monthIndex3 >= 13} under task 53's numerator,
+   * whichever axis {@code t[5]} carries: {@code monthIndex3 >= 13} under the affine numerator,
    * {@code marchMonth >= 10} under the 0-based form. The two are the same test, and
    * {@code VarkaChronoSuite} asserts that on all 366 days rather than leaving it here.
    */
@@ -5836,7 +5768,7 @@ public final class VarkaLoopEmitter {
   /** The same mask as {@link #emitJanuaryMask}, taken off the March-based day of year instead
    * of the month it would otherwise be derived from - {@code (5 * doy + 2) / 153 >= 10} is
    * {@code doy >= 306} exactly, see {@link VarkaChrono#MARCH_TO_JANUARY_DAYS}. This is what
-   * lets a year tail run without the prefix's month step (task 48). */
+   * lets a year tail run without the prefix's month step. */
   private static void emitJanuaryMaskFromDayOfYear(CodeBuilder cb, int dayOfYear) {
     cb.aload(dayOfYear);
     cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
@@ -5845,10 +5777,9 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * Leaves the January-based month. On the 0-based axis that is {@code mp + 3}, less 12 once
-   * the year has turned; on task 53's 3-based axis it is {@code m3} itself, less 12 - one
-   * operation fewer, which is the whole reason the axis changes rather than being converted
-   * back.
+   * Leaves the January-based month. On the 0-based axis that is {@code mp + 3}, less 12 once the
+   * year has turned; on the 3-based axis it is {@code m3} itself, less 12 - one operation fewer,
+   * which is the whole reason the axis changes rather than being converted back.
    *
    * <p>The 3-based path computes {@code m3} once and reaches it twice with {@code dup}/
    * {@code swap} rather than a scratch local: the mask needs the same vector the result is

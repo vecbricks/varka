@@ -125,8 +125,8 @@ object VarkaColumnarRule extends ColumnarRule {
     }
   }
 
-  // The compiler is the single eligibility oracle (task 10): a projection is fused exactly when
-  // at least one entry compiles to the vector IR (task 12) - nested chains, shared subtrees and
+  // The compiler is the single eligibility oracle: a projection is fused exactly when
+  // at least one entry compiles to the vector IR - nested chains, shared subtrees and
   // predication included - with bare columns forwarded and the rest evaluated per row.
   private def isVarkaEligible(
       projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean = {
