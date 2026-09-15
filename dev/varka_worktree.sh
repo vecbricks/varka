@@ -35,6 +35,11 @@ usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 case "${1:-}" in -h|--help) usage 0 ;; esac
 
 remote="${VARKA_BASE_REMOTE:-origin}"
+# The repository is read from the base remote's URL and passed to gh explicitly. Without
+# --repo, gh guesses a default from the remotes, and a checkout that also carries apache/spark
+# as `upstream` (the preflight in CLAUDE.md expects one) makes it guess wrong - this script
+# then sees eight merged heads instead of two hundred and calls every worktree unmerged.
+repo="$(git remote get-url "$remote" | sed -E 's#\.git$##; s#.*[:/]([^/]+/[^/]+)$#\1#')"
 cmd="${1:-list}"; yes=0
 [ "${2:-}" = "--yes" ] && yes=1
 root="$(git rev-parse --show-toplevel)"
@@ -42,7 +47,8 @@ git -C "$root" fetch -q "$remote" master
 base="$(git -C "$root" rev-parse "$remote/master")"
 main="$(git -C "$root" worktree list --porcelain | sed -n '1s/^worktree //p')"
 # The head SHAs of merged PRs, one per line; empty when gh is unavailable.
-merged_heads="$(gh pr list --state merged --limit 500 --json headRefOid --jq '.[].headRefOid' \
+merged_heads="$(gh pr list --repo "$repo" --state merged --limit 500 --json headRefOid \
+  --jq '.[].headRefOid' \
   2>/dev/null || true)"
 [ -n "$merged_heads" ] || echo "note: gh gave no merged PR list; using the ancestor test only" >&2
 
