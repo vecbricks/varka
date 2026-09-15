@@ -137,16 +137,28 @@ test is this repository plus upstream commits it does not carry, and a failing t
 can belong entirely to Spark rather than to anything here.
 
 That is not hypothetical. `AvroSchemaHelperSuite."SPARK-59311: a pathologically
-nested map-key type names the map-key property on overflow"` fails on every branch
-in this fork, including documentation-only ones, and the test exists nowhere in this
-repository: `grep -rn "SPARK-59311" .` finds nothing outside CI logs, and the local
-copy of that suite has no such case.
+nested map-key type names the map-key property on overflow"` failed on every branch
+in this fork for a week, including documentation-only ones, while the test existed
+nowhere in this repository: `grep -rn "SPARK-59311" .` found nothing outside CI logs.
 
 **The check, and the order to do it in.** Before investigating a failing test, grep
 this repository for its name. If the test is not here, the failure is upstream's and
 nothing in the branch can have caused it - stop. Only if it is here does the usual
 question arise, which is whether the branch or the machine caused it, and which
 `.github` documents under "Investigating PR CI Failures".
+
+**The second check, once the sync has brought the test in.** After task 117 synced
+the fork with upstream master, the same test was in the tree and still red, and the
+grep no longer settles it. The next question is whether upstream's own CI fails it
+at the same JDK: this fork builds on Java 25 (`build_main.yml` sets `java: 25`),
+upstream's default job on 17. `gh run list --repo apache/spark --workflow
+build_java25.yml --branch master` and the Avro shard of the latest run answered it
+in one command - upstream's Java 25 run fails the identical test, its Java 17 run
+passes, and the fork has no diff against upstream under `connector/avro` or the
+parser. Locally the test fails three runs out of three on JDK 25, so it is not a
+flake to re-run past. That makes it upstream's Java 25 problem, which the fork
+inherits on every pull request until upstream fixes it, and still not a milestone
+row: what the fork can do about it is know why the shard is red.
 
 Doing that backwards is expensive and the expense is invisible: comparing a failure
 across several branches establishes only that it is widespread, which is a weaker

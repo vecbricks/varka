@@ -61,16 +61,35 @@ ignored_file_patterns = (
     "/dev/spark_merge_footer.py",
     "/dev/spark-test-image/lint/Dockerfile",
     "/dev/structured_logging_style.py",
-    # Varka's prose: milestone and task plans, and transcribed source papers. These are
-    # documentation only - nothing compiles them and no test reads them - but until they were
-    # listed here they matched no module, which sends `determine_modules_for_files` to the
-    # `root` module and makes a plan-only pull request run the entire CI matrix, Kubernetes and
-    # YARN included. `sql/varka/AGENTS.md` was already covered by the bare `AGENTS.md` pattern
-    # above; these are the rest of it.
-    "/sql/varka/plans/",
+    # Varka's transcribed source papers: documentation only, read by no check, so a change to
+    # them should run nothing. Until they were listed here they matched no module, which
+    # sends `determine_modules_for_files` to the `root` module and runs the entire CI matrix.
+    # Varka's other prose - plans, lessons, the READMEs - is claimed by the `varka-docs` module
+    # below and exempted from this list in `is_ignored_file`, because two checks do read it.
     "/sql/varka/papers/",
     "/ui-test/package-lock.json",
     "/ui-test/package.json",
+)
+
+
+# The documents the Varka docs job checks - `dev/varka_quote_check.py` reads them for
+# quoted performance numbers and `dev/varka_toc.py` keeps SKILLS.md's index in step with
+# the lesson files - plus the two checks and the quote check's allowlist. This tuple is the
+# `varka-docs` module's source set and an exemption from `ignored_file_patterns`: the bare
+# `README.md`, `SKILLS.md` and `AGENTS.md` patterns there would otherwise drop the root
+# documents before any module could claim them, and a documentation change would run no
+# job at all. `re.match` anchors each regex at the start of the path, so `README\.md$` is
+# the root README and not every README in the tree.
+varka_docs_regexes = (
+    r"README\.md$",
+    r"SKILLS\.md$",
+    r"docs/sql-varka\.md$",
+    r"sql/varka/[^/]+\.md$",
+    r"sql/varka/plans/",
+    r"sql/varka/skills/",
+    r"dev/varka_quote_check\.py$",
+    r"dev/varka_quote_allowlist\.txt$",
+    r"dev/varka_toc\.py$",
 )
 
 
@@ -83,6 +102,17 @@ def is_ignored_file(filename: str) -> bool:
     >>> is_ignored_file("python/README.md")
     True
 
+    The Varka documents are claimed by the `varka-docs` module and never ignored,
+    even where a bare pattern would match them:
+    >>> is_ignored_file("README.md")
+    False
+    >>> is_ignored_file("SKILLS.md")
+    False
+    >>> is_ignored_file("sql/varka/AGENTS.md")
+    False
+    >>> is_ignored_file("sql/varka/plans/PLAN_TASK_31.md")
+    False
+
     Leading slashes anchor at the repository root:
     >>> is_ignored_file("SECURITY.md")
     True
@@ -91,8 +121,6 @@ def is_ignored_file(filename: str) -> bool:
 
     A trailing slash ignores a directory subtree:
     >>> is_ignored_file("dev/create-release/spark-rm/Dockerfile")
-    True
-    >>> is_ignored_file("sql/varka/plans/PLAN_TASK_31.md")
     True
     >>> is_ignored_file("sql/varka/papers/neri-schneider-2022.md")
     True
@@ -105,6 +133,8 @@ def is_ignored_file(filename: str) -> bool:
     >>> is_ignored_file("xasfZyaml")
     False
     """
+    if any(re.match(p, filename) for p in varka_docs_regexes):
+        return False
     path = PurePath("/") / filename
     for pattern in ignored_file_patterns:
         # TODO: When Python 3.13 becomes the minimum supported version, migrate
@@ -380,6 +410,19 @@ varka_bench = Module(
     source_file_regexes=[
         "sql/varka/bench/",
     ],
+    sbt_test_goals=[],
+)
+
+# Varka's documents and the two checks that read them (task 106): every performance number
+# a document quotes must trace to a committed results file, and SKILLS.md's index must
+# match the lesson files. The job runs both in seconds with no build. A leaf like the bench
+# module: a documentation change should run this and nothing else, where before it ran
+# either nothing (the root READMEs and the plans were ignored) or the whole matrix (the
+# lesson files and sql/varka/VISION.md fell through to `root`).
+varka_docs = Module(
+    name="varka-docs",
+    dependencies=[],
+    source_file_regexes=list(varka_docs_regexes),
     sbt_test_goals=[],
 )
 

@@ -201,6 +201,7 @@ jobs:
           build_core_utils=`./dev/is-changed.py -m "core,unsafe,kvstore,utils,utils-java,network-common,network-shuffle,sketch,variant,launcher"`
           varka_engine=`./dev/is-changed.py -m varka-engine`
           varka_bench=`./dev/is-changed.py -m varka-bench`
+          varka_docs=`./dev/is-changed.py -m varka-docs`
           # Disabled on this fork since 7 September 2026: the Kubernetes integration job
           # cannot build its Docker image, because booting buildx's own builder fails with
           # "failed to inspect pulled image moby/buildkit:buildx-stable-1: Error response
@@ -216,6 +217,7 @@ jobs:
               \"build-core-utils\": \"$build_core_utils\",
               \"varka-engine\": \"$varka_engine\",
               \"varka-bench\": \"$varka_bench\",
+              \"varka-docs\": \"$varka_docs\",
               \"pyspark\": \"$pyspark\",
               \"pyspark-pandas\": \"$pandas\",
               \"pyspark-install\": \"$pyspark_install\",
@@ -1202,6 +1204,35 @@ jobs:
           varka-bench-m2-${{ runner.os }}-
     - name: Run the bench module's tests
       run: ./build/mvn -f sql/varka/bench/pom.xml test
+
+  # The Varka documents' checks (task 106). Every performance number a Varka document quotes
+  # must trace to a committed results file (dev/varka_quote_check.py), and SKILLS.md's index
+  # must match the lesson files under sql/varka/skills (dev/varka_toc.py). Both are
+  # standard-library Python and finish in seconds; before this job neither ran anywhere but
+  # on a developer's machine, through the pre-commit hook.
+  #
+  # This job checks out the branch itself, with its full history, rather than the
+  # apache/spark tree with the branch squash-merged on top that checkout-and-sync gives every
+  # other job. The quote check accepts a number that appears in any committed version of a
+  # results file - plans quote the figure a change moved away from - and on the squashed tree
+  # that history is a single commit, which turns most of the documents' quotes into orphans
+  # (PLAN_TASK_106.md, section 2). The documents are the fork's; upstream's tree has no
+  # bearing on whether they quote the fork's numbers.
+  varka-docs:
+    needs: [precondition]
+    if: fromJson(needs.precondition.outputs.required).varka-docs == 'true'
+    name: Varka docs checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout the branch with its full history
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Every quoted number traces to a committed results file
+      run: ./dev/varka_quote_check.py
+    - name: SKILLS.md's index matches the lesson files
+      run: ./dev/varka_toc.py --check SKILLS.md --from sql/varka/skills
 
   # Documentation build
   docs:
