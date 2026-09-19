@@ -217,7 +217,21 @@ class VarkaCoverageSuite extends SparkFunSuite {
       Row("CASE WHEN l < l2 THEN l ELSE l2 END"),
       Row("if(l IS NULL, l2, l)"),
       Row("greatest(t, t2)"),
-      Row("CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END")))
+      Row("CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END"))),
+
+    Family("Time arithmetic", predicates = false, Seq(
+      Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
+      Row("time_diff('HOUR', t, t2)",
+        "the unit is a literal; a column of units would need a kernel per distinct value"),
+      Row("time_diff('microsecond', t2, t)", "units are read case-insensitively, as " +
+        "DateTimeUtils reads them"),
+      Row("time_trunc('MINUTE', t)"),
+      Row("time_trunc('MILLISECOND', t2)"),
+      Row("t + INTERVAL '0 00:00:00' DAY TO SECOND",
+        "a zero interval on purpose: this fixture reaches both ends of the day, so any other " +
+          "constant crosses midnight on some row, where Spark raises an error rather than a " +
+          "value. The sum is still guarded to the day; the crossing case, and a column " +
+          "interval, are VarkaTimeArithmeticSuite's")))
   )
 
   private def out(e: Expression): NamedExpression = Alias(e, "c")()

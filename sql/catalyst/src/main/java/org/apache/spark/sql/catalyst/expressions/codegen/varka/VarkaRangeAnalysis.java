@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -166,6 +167,12 @@ public final class VarkaRangeAnalysis {
       // Whatever the child's interval was, what leaves a GuardedDay is inside the range its
       // check enforces: a lane outside is reported and the batch recomputed on the row engine.
       case GuardedDay n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN : NARROW;
+      // A range guard's own bounds are what leaves it, whatever the child was - the same
+      // promise the day guard makes, with the bounds the node names. Answered only for the
+      // int kinds this lattice tracks; the long lane is UNKNOWN throughout, and its callers
+      // prove their bounds structurally (task 102) or through a guard like this one.
+      case GuardedRange n -> kind == Kind.INT
+          ? VarkaValueRange.of(n.lo(), n.hi()) : VarkaValueRange.UNKNOWN;
       case Greatest n -> hull(n.left(), n.right(), kind, policy, literals);
       case Least n -> hull(n.left(), n.right(), kind, policy, literals);
       case IfElse n -> hull(n.thenNode(), n.elseNode(), kind, policy, literals);

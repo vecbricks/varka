@@ -565,3 +565,21 @@ emitter agree by forcing the stricter of the two to win. That is safe and it is
 also lossy, because the stricter side's reason travels with the *predicate*
 rather than with each *call site*, and a reason that is only sometimes true
 gets applied everywhere the name appears.
+
+## Adding an IR node moves the bytes oracle's fuzz digests, not its shapes - prove it by diffing keys
+
+`VarkaEmittedBytesSuite` pins two shape sets: every coverage row, keyed by name,
+and ten thousand shapes drawn from `VarkaIrGrammar` at a fixed seed, keyed by
+block. A new node type adds an arm to the grammar's `rnd.nextInt(n)` draw, and
+that reshuffles the whole sample: every fuzz block "moves" although no
+emission changed. The suite's failure lists the blocks and says to regenerate
+if the change was meant, which is the wrong test to apply here - what has to be
+established is that *only* the fuzz half moved.
+
+The check that establishes it, from task 102's `GuardedRange` (19 September
+2026): regenerate, then diff the JSON's flattened keys between `HEAD` and the
+working tree. The expected answer is exactly two changed keys,
+`lanes/4/fuzz/blocks` and `lanes/16/fuzz/blocks`, no coverage key changed, none
+added or removed. Any coverage key in that diff is a real emission change and
+needs its own explanation. The coverage half is the oracle for emission; the
+fuzz half is the oracle for the grammar.

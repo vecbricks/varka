@@ -386,6 +386,17 @@ VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'
 | `greatest(t, t2)` |  |
 | `CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END` |  |
 
+#### Time arithmetic
+
+| Expression | Notes |
+|---|---|
+| `t - t2` | a day-time interval, the nanosecond difference divided by a thousand |
+| `time_diff('HOUR', t, t2)` | the unit is a literal; a column of units would need a kernel per distinct value |
+| `time_diff('microsecond', t2, t)` | units are read case-insensitively, as DateTimeUtils reads them |
+| `time_trunc('MINUTE', t)` |  |
+| `time_trunc('MILLISECOND', t2)` |  |
+| `t + INTERVAL '0 00:00:00' DAY TO SECOND` | a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's |
+
 <!-- END generated coverage table -->
 
 ## Glossary

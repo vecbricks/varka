@@ -65,6 +65,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Read two fields out of one product, and put the axis where the formula wants it](sql/varka/skills/emitter-and-ir.md#read-two-fields-out-of-one-product-and-put-the-axis-where-the-formula-wants-it)
 * [The shape a test picked because nothing lowered it](sql/varka/skills/emitter-and-ir.md#the-shape-a-test-picked-because-nothing-lowered-it)
 * [A refusal shared by two positions carries one reason, and it can be true of only one](sql/varka/skills/emitter-and-ir.md#a-refusal-shared-by-two-positions-carries-one-reason-and-it-can-be-true-of-only-one)
+* [Adding an IR node moves the bytes oracle's fuzz digests, not its shapes - prove it by diffing keys](sql/varka/skills/emitter-and-ir.md#adding-an-ir-node-moves-the-bytes-oracles-fuzz-digests-not-its-shapes---prove-it-by-diffing-keys)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)

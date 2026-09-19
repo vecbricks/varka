@@ -50,6 +50,9 @@ object VarkaReferenceEvaluator {
     // notion of a declined batch, and a lane the guard would report is one the kernel does not
     // answer at all, so the differential never compares against it. The value passes through.
     case n: GuardedDay => evalValue(n.days(), row, lits)
+    // A range guard changes no value; a lane outside it declines the batch, which the suites
+    // assert on the status rather than on a value this evaluator could spell.
+    case n: GuardedRange => evalValue(n.child(), row, lits)
     case n: DateDiff =>
       for (e <- evalValue(n.end(), row, lits); s <- evalValue(n.start(), row, lits)) yield e - s
     case n: DayOfWeek =>
@@ -227,6 +230,7 @@ object VarkaReferenceEvaluator {
       }) yield v
     case n: ConstDivide =>
       evalLong(n.child(), row, lits).map(_ / n.divisor())
+    case n: GuardedRange => evalLong(n.child(), row, lits)
     case n: Greatest =>
       (evalLong(n.left(), row, lits), evalLong(n.right(), row, lits)) match {
         case (Some(a), Some(b)) => Some(math.max(a, b))

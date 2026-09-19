@@ -48,6 +48,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
     intCol,
     intLit,
     new GuardedDay(intCol),
+    new GuardedRange(intCol, -10, 10),
     new AddDays(intCol, intLit),
     new SubDays(intCol, intLit),
     new DateDiff(intCol, intCol),
@@ -83,7 +84,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
   private val derivesItsLane: Set[Class[_]] = Set(
     classOf[IntArith], classOf[IntNeg], classOf[Greatest], classOf[Least], classOf[IfElse],
     classOf[Compare], classOf[And], classOf[Or], classOf[Not], classOf[IsNotNull],
-    classOf[ConstDivide])
+    classOf[ConstDivide], classOf[GuardedRange])
 
   /** Every concrete node type the sealed hierarchy permits, nested interfaces expanded. */
   private def concreteNodeTypes(root: Class[_]): Set[Class[_]] =
@@ -300,6 +301,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
         case "IsNotNull" => new IsNotNull(c)
         case "IfElse" => new IfElse(new IsNotNull(c), c, c1)
         case "GuardedDay" => new GuardedDay(c)
+        case "GuardedRange" => new GuardedRange(c, -10, 10)
         case "AddDays" => new AddDays(c, l)
         case "SubDays" => new SubDays(c, l)
         case "DateDiff" => new DateDiff(c, c1)
@@ -346,8 +348,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
     // The subset PLAN_TASK_85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
-      "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide"),
-      "the long lane serves the lane-generic subset plus task 88 step 3's division")
+      "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide", "GuardedRange"),
+      "the long lane serves the lane-generic subset, task 88's division and task 102's guard")
   }
 
   test("a baked lane count has both a species constant and a validity helper pair") {

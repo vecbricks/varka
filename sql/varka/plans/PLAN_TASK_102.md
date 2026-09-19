@@ -321,4 +321,88 @@ representation rather than on anything about the lane.
 
 ## 7. Outcome
 
-*To be written when the work lands.*
+### 7.1 Groups B and A, 19 September 2026
+
+Built in that order, which reverses 6.1's, and the reason is worth keeping: group
+B needed no new machinery once #255 had landed the long-lane divide - three
+compiler arms over nodes that already existed - while group A needed a new IR
+node. The cheaper commit went first and proved the compiler path with the least
+behind it; A followed on a path already known to work.
+
+**Group B is three arms and no emitter change.** `subtractTimes`, `timeDiff` and
+`timeTrunc` are matched by the `DateTimeUtils` method their `StaticInvoke` names,
+through #254's table, and lower to a wrapping subtraction and a `ConstDivide` (or
+a divide and a multiply for `time_trunc`). Every dividend is bounded by the type
+- nanoseconds of day are below 2^47, and so is the difference of two - which is
+the one place in the lane's arithmetic where `ConstDivide`'s bound is a property
+of the type rather than of the data. No per-batch check is registered. A unit or
+level that is not a literal declines, since the divisor is part of the kernel's
+shape.
+
+**Group A is a wrapping add under two range guards.** Spark's `timeAddInterval`
+is `addExact(t, multiplyExact(dt, 1000))`, a throw if the sum leaves the day,
+then a truncation to the target precision. The interval is held to a day first,
+for two reasons that are one: beyond a day every sum leaves the day and Spark
+throws on every row, and inside a day the multiply and the add stay under 2^48,
+so wrapping arithmetic is exact. The sum is then held to the day, which is the
+throw as a decline. A literal interval's guard is decided at compile time - a
+literal beyond a day declines outright, one inside it folds to a slot.
+
+**The precision step is not emitted, and the argument is code.** The time is a
+multiple of 10^(9 - p), the interval's nanoseconds a multiple of 10^3 - or of a
+whole minute for an end field coarser than SECOND - and the target
+`TimeAddInterval.replacement` computes makes the sum already a multiple of what
+the truncation would remove, in both cases. `timeAddIntervalTruncates` checks
+that against the types at compile time and declines if it ever fails; a test
+holds it across precisions in both directions, one case included that does
+truncate so the check is not vacuous.
+
+**The guard is `GuardedRange(child, lo, hi)`**, `GuardedDay`'s twin at whichever
+lane the child is on, with the bounds inside the node so that two shapes with
+different bounds cannot share a kernel. It reaches every site the day guard does.
+`emitRangeGuard`'s bounds widened to `long`, which moved no int-lane byte.
+
+**The bytes oracle's fuzz half moved, and the diff says why.** Adding a node type
+adds an arm to the grammar's draw, which reshuffles its fixed-seed sample of ten
+thousand shapes. Exactly two keys changed in `emitted_bytes.json`, the fuzz-block
+digests at lanes 4 and 16, and no coverage row - every named shape's bytes are
+identical. That is the check to run whenever a node is added: the coverage half
+is the oracle for emission, the fuzz half for the grammar.
+
+**What the coverage fixture could not hold, and what holds it instead.** The
+differential's fixture reaches both ends of the day, so no non-zero constant
+interval keeps every row of `t + dt` inside it - Spark raises `DATETIME_OVERFLOW`
+on the row that crosses, in both engines. The coverage row therefore adds a zero
+interval, on purpose and with the reason in its note, and
+`VarkaTimeArithmeticSuite` carries the real tests: every second of the day with
+a per-row interval that stays inside, the crossing case raising Spark's own error
+under Varka rather than a wrapped time, and a `CASE` whose crossing rows sit in
+the untaken arm - where the row engine does not throw, the kernel's guard fires,
+and the decline shows in `numFallbackBatchesDeclined`. That last one is what
+separates "declined" from "wrong" for a guard no value can show.
+
+**Two things the decline test taught about the test, not the kernel.** The
+end-to-end test that shows a declined batch in the node's metric is a conjunction
+whose left side the row engine short-circuits and whose right side adds a
+crossing interval. Its first form selected with `t = TIME'12:00:00'`, and the
+optimizer's constant propagation rewrote the sum's `t` to the literal - a literal
+noon plus any interval in the fixture stays inside the day, so the guard had
+nothing to fire on and the batch was served correctly. A range on `t` is not
+propagated, and with it the guard fires, the batch declines, and the row engine
+answers the same row. And under `guardUnderArm` a crossing row in an untaken
+`CASE` arm neither throws nor declines, which a test now pins: the `TIME` guard
+rides the arm qualification the day guard does.
+
+**On [SPARK-57853](https://issues.apache.org/jira/browse/SPARK-57853).** If
+upstream adopts ANSI's modulo-24, the change here is the deletion of one
+`GuardedRange` wrapper and the substitution of a floor-mod; the interval's guard
+stays, since the multiply's exactness rests on it. Task 146 follows the ticket.
+
+**Still owed:** group C's extracts, which wait on 2.5's question or task 28; group
+D's decimal pair; task 119's fuzzer at the long lane, since the grammar still
+generates no `LONG` node and the new guard is fuzzed only at the int lane.
+
+## 6.2 Sequencing, as it happened
+
+Steps 2, 4, 5 and 3 of 6.1 in that order: the table (#254), task 88 step 3
+(#255), group B, group A. Step 6 is next.

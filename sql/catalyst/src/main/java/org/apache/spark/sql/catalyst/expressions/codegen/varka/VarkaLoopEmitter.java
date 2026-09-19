@@ -53,6 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -1517,6 +1518,7 @@ public final class VarkaLoopEmitter {
       case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case GuardedDay n -> new VarkaVectorIR[] {n.days()};
+      case GuardedRange n -> new VarkaVectorIR[] {n.child()};
       case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
       case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
       case WeekDay n -> new VarkaVectorIR[] {n.days()};
@@ -2120,6 +2122,7 @@ public final class VarkaLoopEmitter {
         case DayOfWeekIso n -> wordOwner.get(n.days());
         case ThursdayOf n -> wordOwner.get(n.days());
         case GuardedDay n -> wordOwner.get(n.days());
+        case GuardedRange n -> wordOwner.get(n.child());
         case Year n -> wordOwner.get(n.days());
         case Month n -> wordOwner.get(n.days());
         case DayOfMonth n -> wordOwner.get(n.days());
@@ -2172,6 +2175,7 @@ public final class VarkaLoopEmitter {
         case DayOfWeekIso n -> pureWord.get(n.days());
         case ThursdayOf n -> pureWord.get(n.days());
         case GuardedDay n -> pureWord.get(n.days());
+        case GuardedRange n -> pureWord.get(n.child());
         case Year n -> pureWord.get(n.days());
         case Month n -> pureWord.get(n.days());
         case DayOfMonth n -> pureWord.get(n.days());
@@ -2271,6 +2275,15 @@ public final class VarkaLoopEmitter {
         // A pass-through of its child's value with a range check beside it, so it analyses
         // exactly as any other one-date operation: same validity, own word, one child.
         case GuardedDay n -> analyzeOp(node, false, n.days());
+        case GuardedRange n -> {
+          // At the int lane the bounds have to be what the lane can compare against; the long
+          // lane holds any bound. Refused here, where the tree is, rather than at the push.
+          if (lane == Lane.INT && (n.lo() < Integer.MIN_VALUE || n.hi() > Integer.MAX_VALUE)) {
+            throw new IllegalArgumentException(
+                "a range guard at the int lane needs int bounds: " + node);
+          }
+          analyzeOp(node, false, n.child());
+        }
         case Year n -> analyzeOp(node, false, n.days());
         case Month n -> analyzeOp(node, false, n.days());
         case DayOfMonth n -> analyzeOp(node, false, n.days());
@@ -2922,6 +2935,7 @@ public final class VarkaLoopEmitter {
       case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case ThursdayOf n -> s.wordRef.get(n.days());
       case GuardedDay n -> s.wordRef.get(n.days());
+      case GuardedRange n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
       case DayOfMonth n -> s.wordRef.get(n.days());
@@ -3053,7 +3067,7 @@ public final class VarkaLoopEmitter {
     if (!seen.add(root)) {
       return false;
     }
-    if (root instanceof GuardedDay) {
+    if (root instanceof GuardedDay || root instanceof GuardedRange) {
       return true;
     }
     for (VarkaVectorIR child : childrenOf(root)) {
@@ -3070,7 +3084,7 @@ public final class VarkaLoopEmitter {
     // expression on the strength of this check (see `PLAN_TASK_93.md` 3.4). A flag that removed it
     // would leave the compile-time bound standing over a value nothing bounds, which is the
     // wrong-answer case the column-count AddMonths javadoc names.
-    return node instanceof GuardedDay
+    return node instanceof GuardedDay || node instanceof GuardedRange
         || (producersGuarding && analysis.guardedProducers.contains(node))
         || (selfGuarding && node instanceof AddMonths && analysis.selfGuarding.contains(node));
   }
@@ -3153,6 +3167,7 @@ public final class VarkaLoopEmitter {
         // range, so that word has to survive the liveness pass. It is the child's: this node
         // checks a value without changing its validity, so it forwards rather than owning one.
         case GuardedDay g -> demand.accept(analysis.wordOwner.get(g.days()));
+        case GuardedRange g -> demand.accept(analysis.wordOwner.get(g.child()));
         // The rest read no word here. A value node's own word, where it needs one, is
         // demanded by its root write, by a guard below, or by a consumer above it; a leaf
         // owns no word at all; and `IfElse`'s blend reads its branches' words through the
@@ -3208,6 +3223,7 @@ public final class VarkaLoopEmitter {
         case AddDays x -> { demand.accept(analysis.wordOwner.get(x.days()));
           demand.accept(analysis.wordOwner.get(x.offset())); }
         case GuardedDay x -> demand.accept(analysis.wordOwner.get(x.days()));
+        case GuardedRange x -> demand.accept(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand.accept(analysis.wordOwner.get(x.days()));
           demand.accept(analysis.wordOwner.get(x.offset())); }
         case NextDay x -> { demand.accept(analysis.wordOwner.get(x.days()));
@@ -4238,6 +4254,17 @@ public final class VarkaLoopEmitter {
               analysis, s, VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
         }
       }
+      case GuardedRange n -> {
+        // The day guard's twin at whichever lane the child is on, with the bounds the node
+        // carries. The value passes through; the word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        Integer guardTmp = s.guardTmp.get(node);
+        if (guardTmp != null) {
+          emitRangeGuard(cb, node, dense ? null : s.wordRef.get(n.child()), guardTmp, dense,
+              analysis, s, n.lo(), n.hi());
+        }
+      }
       case ThursdayOf n -> {
         analysis.lane.requireInt(n);
         // t = d + 3 - weekday0(d), the Thursday of d's Monday-based week, on
@@ -4595,7 +4622,7 @@ public final class VarkaLoopEmitter {
    * merely redundant, and not a shape production emits.
    */
   private static void emitRangeGuard(CodeBuilder cb, VarkaVectorIR node, Integer word,
-      int guardTmp, boolean dense, Analysis analysis, Slots s, int lo, int hi) {
+      int guardTmp, boolean dense, Analysis analysis, Slots s, long lo, long hi) {
     cb.dup();
     cb.astore(guardTmp);
     cb.aload(guardTmp);

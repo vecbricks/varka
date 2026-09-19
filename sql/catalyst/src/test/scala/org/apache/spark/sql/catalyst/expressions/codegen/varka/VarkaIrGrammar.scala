@@ -141,6 +141,7 @@ object VarkaIrGrammar {
       // bound is the child's, so a subtree that would leave the range still shows as one -
       // the guard reports such a batch rather than making it representable.
       case n: GuardedDay => (v(n.days()), g(n.days()))
+      case n: GuardedRange => (v(n.child()), g(n.child()))
       case n: WeekOfYear => (53L, g(n.days()))
       case n: Year => (40000L, g(n.days()))
       case n: Month => (12L, g(n.days()))
@@ -263,7 +264,7 @@ object VarkaIrGrammar {
     def value(depth: Int): Gen = {
       if (depth == 0 || budget <= 1) return leaf()
       budget -= 1
-      rnd.nextInt(22) match {
+      rnd.nextInt(23) match {
         case 0 =>
           val a = value(depth - 1); val b = literal()
           Gen(new AddDays(a.node, b.node), satAdd(a.bound, b.bound))
@@ -381,6 +382,17 @@ object VarkaIrGrammar {
           val a = value(depth - 1)
           if (!fitsUnderChrono(a)) return a
           Gen(new GuardedDay(a.node), a.bound)
+        case 22 =>
+          // Task 102's range guard, with bounds that contain the child's own bound, for the
+          // reason the day guard's arm gives: a guard that fires declines the batch, and the
+          // reference evaluator has no spelling for that. Its firing is asserted in the
+          // emitter suite. The int lane's analysis refuses bounds an int cannot hold, so a
+          // bound the grammar's saturating arithmetic has pushed past int is replaced by the
+          // whole int range, which contains every value the lane can produce.
+          val a = value(depth - 1)
+          val bound = if (a.bound > Int.MaxValue.toLong) Int.MaxValue.toLong else a.bound
+          val lo = if (a.bound > Int.MaxValue.toLong) Int.MinValue.toLong else -bound
+          Gen(new GuardedRange(a.node, lo, bound), a.bound)
         case n =>
           // The calendar family, over a subtree that stays inside the narrowed range.
           val a = value(depth - 1)

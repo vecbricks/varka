@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import java.util.Locale
 import java.util.function.IntUnaryOperator
 
 import scala.collection.mutable
@@ -27,10 +28,10 @@ import org.apache.spark.SparkIllegalArgumentException
 import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, BindReferences, BoundReference, CaseWhen, Cast, Coalesce, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DateVarkaSupport, DayOfMonth, DayOfWeek, DayOfYear, EqualTo, EvalMode, Expression, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, Or, Quarter, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractTimes, TimeAddInterval, TimeDiff, TimeTrunc, TruncDate, UnaryMinus, UnixDate, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaLoopEmitter, VarkaRangeAnalysis, VarkaValueRange, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis.{GuardPolicy, Kind}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, Cond, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedDay, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, Cond, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedDay, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Not => IRNot, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
-import org.apache.spark.sql.catalyst.util.DateTimeUtils
-import org.apache.spark.sql.types.{BooleanType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, IntegerType, LongType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.catalyst.util.{DateTimeConstants, DateTimeUtils}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, IntegerType, LongType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -587,6 +588,159 @@ private[sql] object VarkaExpressionCompiler {
   private def timeNotLoweredYet(label: String): String =
     s"$label is a TIME expression Varka does not lower yet (task 102)"
 
+  /**
+   * The lowerings of the `TIME` expressions, keyed on the `DateTimeUtils` method each one's
+   * replacement invokes - which is the one name that survives the optimizer (see
+   * `timeTargets`). The arithmetic is read off `DateTimeUtils` itself, not off the expression:
+   *
+   * {{{
+   *   subtractTimes(end, start) = (end - start) / NANOS_PER_MICROS
+   *   timeDiff(unit, start, end) = (end - start) / nanosPerUnit(unit)
+   *   timeTrunc(level, nanos)    = nanos truncatedTo level, i.e. (nanos / u) * u
+   * }}}
+   *
+   * Every one is a same-lane subtraction or a constant division, and every dividend is
+   * bounded by construction: a `TIME` is nanoseconds of day, below 2^47, and the difference of
+   * two stays below 2^47 in magnitude. That is far inside `ConstDivide.EXACT_DIVIDEND_BOUND`,
+   * so the division is exact and no per-batch bound is needed - the one place in the lane's
+   * arithmetic where the bound is a property of the type rather than of the data. The
+   * subtraction cannot overflow for the same reason, so it wraps; the truncating multiply's
+   * product is at most its dividend.
+   *
+   * A non-literal unit or level declines: the divisor is part of the kernel's shape, and a
+   * column of unit names would need a kernel per distinct value. `trunc(d, fmt)` made the same
+   * choice for the date lane.
+   */
+  private def compileTime(
+      si: StaticInvoke,
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): Option[VarkaVectorIR] = {
+    val label = timeTargets((si.staticObject, si.functionName))
+    def long(e: Expression): Option[VarkaVectorIR] =
+      compileNode(e, inputs, literals, sink).filter { ir =>
+        // The arguments are TIME and interval columns, literals and their widening casts, all
+        // of which the leaf arms above put on the long lane; anything else declined already.
+        ir.laneType() == LaneType.LONG
+      }
+    def literalUnit(e: Expression, table: Map[String, Long], what: String): Option[Long] =
+      e match {
+        case Literal(u: UTF8String, _) =>
+          val found = table.get(u.toString.toUpperCase(Locale.ROOT))
+          if (found.isEmpty) sink.note(s"$label: unknown $what '$u'", si)
+          found
+        case other =>
+          sink.note(s"$label: the $what is not a literal, and the divisor is part of the " +
+            "kernel's shape", other)
+          None
+      }
+    (si.functionName, si.arguments) match {
+      case ("subtractTimes", Seq(end, start)) =>
+        for (e <- long(end); st <- long(start)) yield
+          new ConstDivide(new IntArith(IntOp.SUB, Overflow.WRAP, e, st),
+            DateTimeConstants.NANOS_PER_MICROS)
+      case ("timeDiff", Seq(unit, start, end)) =>
+        for {
+          nanos <- literalUnit(unit, nanosPerTimeUnit, "unit")
+          e <- long(end)
+          st <- long(start)
+        } yield new ConstDivide(new IntArith(IntOp.SUB, Overflow.WRAP, e, st), nanos)
+      case ("timeTrunc", Seq(level, time)) =>
+        for {
+          unit <- literalUnit(level, nanosPerTimeUnit, "level")
+          t <- long(time)
+        } yield new IntArith(IntOp.MUL, Overflow.WRAP, new ConstDivide(t, unit),
+          sink.longSlot(unit))
+      // timeAddInterval(t, p, dt, endField, target): addExact(t, multiplyExact(dt, 1000)),
+      // thrown out of if the sum leaves [0, NANOS_PER_DAY), then truncated to `target` digits.
+      // Two guards make the lane's wrapping arithmetic exact and the throw a decline. The
+      // interval is held to one day either way first: any |dt| beyond that puts every t's sum
+      // outside the day, so Spark throws on every such row and the row engine may as well
+      // raise it; inside it, dt * 1000 and the sum both stay under 2^48 and cannot overflow.
+      // The sum is then held to the day, which is the throw itself. The precision truncation
+      // is the identity and is not emitted - see `timeAddIntervalTruncates`, which proves it.
+      case ("timeAddInterval",
+          Seq(time, Literal(_, IntegerType), interval, Literal(_, ByteType),
+            Literal(target: Int, IntegerType))) =>
+        if (timeAddIntervalTruncates(time.dataType, interval.dataType, target)) {
+          // Not reachable for any type Spark admits today; a decline rather than a wrong
+          // answer if that ever changes.
+          sink.note(s"$label: the precision truncation is not the identity for these types",
+            si)
+          return None
+        }
+        // A literal interval's guard is decided here rather than per lane: one outside a day
+        // crosses midnight for every time, which is the row engine's error to raise for every
+        // row, and one inside it is already nanoseconds the kernel can add. A column takes the
+        // guard and the multiply.
+        // A def, not a val: the time is compiled first, so the inputs keep the expression's
+        // argument order, as every other lowering's do.
+        def nanos: Option[VarkaVectorIR] = interval match {
+          case Literal(micros: Long, _: DayTimeIntervalType) =>
+            if (math.abs(micros) > DateTimeConstants.MICROS_PER_DAY) {
+              sink.note(s"$label: the interval is longer than a day, so every time crosses " +
+                "midnight and the row engine raises the error", si)
+              None
+            } else {
+              Some(sink.longSlot(micros * DateTimeConstants.NANOS_PER_MICROS))
+            }
+          case _ =>
+            long(interval).map { dt =>
+              val micros = new GuardedRange(dt, -DateTimeConstants.MICROS_PER_DAY,
+                DateTimeConstants.MICROS_PER_DAY)
+              new IntArith(IntOp.MUL, Overflow.WRAP, micros,
+                sink.longSlot(DateTimeConstants.NANOS_PER_MICROS))
+            }
+        }
+        for (t <- long(time); n <- nanos) yield
+          new GuardedRange(new IntArith(IntOp.ADD, Overflow.WRAP, t, n), 0L,
+            DateTimeConstants.NANOS_PER_DAY - 1)
+      case _ =>
+        sink.note(timeNotLoweredYet(label), si)
+        None
+    }
+  }
+
+  /**
+   * Whether `truncateTimeToPrecision(sum, target)` inside `timeAddInterval` can change the sum,
+   * which decides whether the lowering must emit it. It cannot, for every input type Spark
+   * admits, and this is the argument the kernel rests on rather than a re-derivation per call:
+   * the time is a multiple of 10^(9 - p) by its type, and the interval in nanoseconds is a
+   * multiple of 10^3 - or of a whole minute when its end field is coarser than SECOND. The
+   * target is max(p, 6) in the first case and p in the second, and in both the sum is a
+   * multiple of 10^(9 - target), which is exactly what the truncation removes nothing from.
+   * Kept as a function so the claim is checked against the types at compile time and a
+   * future TimeType or interval that breaks the argument refuses to lower rather than lowering
+   * wrongly.
+   */
+  private[codegen] def timeAddIntervalTruncates(
+      time: DataType, interval: DataType, target: Int): Boolean = {
+    val p = time.asInstanceOf[TimeType].precision
+    val endField = interval.asInstanceOf[DayTimeIntervalType].endField
+    val sumGranularity = if (endField < DayTimeIntervalType.SECOND) {
+      // Whole minutes at least: 6e10 nanoseconds, which every 10^(9 - p) divides.
+      math.min(9 - p, 10)
+    } else {
+      // Microseconds: 10^3 nanoseconds.
+      math.min(9 - p, 3)
+    }
+    // The truncation is the identity iff the sum's granularity is at least the target's.
+    sumGranularity < 9 - target
+  }
+
+  /**
+   * The nanoseconds in each unit `time_diff` and `time_trunc` accept, spelled as
+   * `DateTimeUtils.getNanosPerTimeUnit` and `parseTimeTruncLevel` spell them - the same five
+   * names, and nothing coarser than an hour, because a `TIME` has no day.
+   */
+  private val nanosPerTimeUnit: Map[String, Long] = Map(
+    "MICROSECOND" -> DateTimeConstants.NANOS_PER_MICROS,
+    "MILLISECOND" -> DateTimeConstants.NANOS_PER_MILLIS,
+    "SECOND" -> DateTimeConstants.NANOS_PER_SECOND,
+    "MINUTE" -> DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE,
+    "HOUR" -> DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE
+      * DateTimeConstants.MINUTES_PER_HOUR)
+
   /** The reason an entry of one lane records when the kernel is already on the other. */
   private def laneMismatch(entry: LaneType, kernel: LaneType): String =
     s"the $entry lane in a kernel on the $kernel lane: one kernel holds one lane"
@@ -1092,10 +1246,10 @@ private[sql] object VarkaExpressionCompiler {
     case r: RuntimeReplaceable =>
       compileNode(r.replacement, inputs, literals, sink)
     // A TIME expression, which arrives as the StaticInvoke its RuntimeReplaceable rewrote itself
-    // into. None is lowered yet; the table exists so the decline names which one it was.
+    // into (see `timeTargets`). The lowered ones are matched by the method they invoke; the
+    // rest decline by name through the same table.
     case si: StaticInvoke if timeTargets.contains((si.staticObject, si.functionName)) =>
-      sink.note(timeNotLoweredYet(timeTargets((si.staticObject, si.functionName))), si)
-      None
+      compileTime(si, inputs, literals, sink)
     case other =>
       sink.note("unsupported expression", other)
       None

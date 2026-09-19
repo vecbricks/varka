@@ -59,7 +59,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.Cond,
-            VarkaVectorIR.GuardedDay {
+            VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange {
 
   /**
    * The physical lane a node's value occupies: {@code INT} is a 32-bit lane, {@code LONG} a
@@ -96,6 +96,7 @@ public sealed interface VarkaVectorIR
       case SubDays n -> LaneType.INT;
       case DateDiff n -> LaneType.INT;
       case GuardedDay n -> LaneType.INT;
+      case GuardedRange n -> n.child().laneType();
       case DayOfWeek n -> LaneType.INT;
       case WeekDay n -> LaneType.INT;
       case DayOfWeekIso n -> LaneType.INT;
@@ -274,6 +275,33 @@ public sealed interface VarkaVectorIR
   record GuardedDay(VarkaVectorIR days) implements VarkaVectorIR {
     public GuardedDay {
       requireInt("guardedDay", days);
+    }
+  }
+
+  /**
+   * {@code child}, passed through unchanged, with the batch declined if any live lane is
+   * outside {@code [lo, hi]}. {@link GuardedDay}'s sibling for a range the caller names and a
+   * lane the caller chooses: the day guard's range is the calendar's and its lane is the int
+   * one by construction, where this one exists for values the row engine would <i>throw</i> on
+   * rather than compute - {@code TIME + INTERVAL} past midnight is the first - so that the
+   * batch goes to the row engine, which raises the identical error on the identical row.
+   *
+   * <p>The bounds are part of the node, for the reason {@link GuardedDay}'s placement is: two
+   * plans with the same tree and different bounds must not share a kernel, and the shape key
+   * separates them only if the bounds are inside the IR. They are {@code long} because the
+   * node serves both lanes; at the int lane they must fit an int, which the emitter checks
+   * when it pushes them.
+   *
+   * <p>Like the day guard, the check is unconditional: the compiler admits the expression on
+   * the strength of it, so an option that removed it would produce a wrong answer, not a
+   * slower one.
+   */
+  record GuardedRange(VarkaVectorIR child, long lo, long hi) implements VarkaVectorIR {
+    public GuardedRange {
+      if (lo > hi) {
+        throw new IllegalArgumentException("an empty range guards nothing: [" + lo + ", " + hi
+            + "]");
+      }
     }
   }
 
@@ -757,6 +785,8 @@ public sealed interface VarkaVectorIR
       case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
+      case GuardedRange n -> "(guardedRange " + canonical(n.child()) + " " + n.lo() + " "
+          + n.hi() + ")";
       case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
       case Compare n ->
           "(cmp:" + n.op().name() + " " + canonical(n.left()) + " " + canonical(n.right()) + ")";
@@ -825,6 +855,8 @@ public sealed interface VarkaVectorIR
       case SubDays n -> "(subDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + lineOf.applyAsInt(n.days()) + ")";
+      case GuardedRange n -> "(guardedRange " + lineOf.applyAsInt(n.child()) + " " + n.lo()
+          + " " + n.hi() + ")";
       case DateDiff n -> "(dateDiff " + lineOf.applyAsInt(n.end()) + " "
           + lineOf.applyAsInt(n.start()) + ")";
       case Compare n -> "(cmp:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "

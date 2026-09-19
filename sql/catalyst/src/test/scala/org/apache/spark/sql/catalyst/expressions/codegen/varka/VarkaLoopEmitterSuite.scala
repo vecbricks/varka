@@ -4790,6 +4790,68 @@ class VarkaLoopEmitterSuite extends SparkFunSuite {
     assert(tooWide.getMessage.contains("needs an int divisor"), tooWide.getMessage)
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Task 102: a range guard at the long lane, which is what makes `TIME + INTERVAL` a decline
+  // rather than a wrap where Spark throws.
+  // -------------------------------------------------------------------------------------------
+
+  test("a long-lane range guard passes the value through and declines the batch on a lane " +
+      "outside its bounds, in the loop and in the epilogue") {
+    // GuardedDay's twin at 64 bits, with bounds the node carries. Three things are checked
+    // and fail differently: the value is unchanged where the guard holds; a single lane out of
+    // range reports STATUS_CHRONO_RANGE, in a full lane group and in the masked tail; and a
+    // null lane outside the bounds does not fire, since a null has no value to be out of range.
+    val root = Seq[VarkaVectorIR](new GuardedRange(new ColumnRef(0, LaneType.LONG), 0L,
+      86399999999999L))
+    for (lanes <- Seq(2, 8)) {
+      val (kernel, loader) = load(emitMulti(root, 1, 0,
+        VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes)))
+      try {
+        def status(length: Int, value: Int => Long, isNull: Int => Boolean): Int = {
+          val arena = Arena.ofConfined()
+          try {
+            val in = makeLongInput(arena, length, isNull, value)
+            val (data, validity) = makeLongOutput(arena, length)
+            val st = kernel.run(Array(in.data.address()), Array(in.validityAddress(length)),
+              Array(in.nullCount), Array(data.address()), Array(validity.address()),
+              Array.empty[Int], Array.empty[Long], length)
+            if (st == 0) {
+              for (i <- 0 until length if !isNull(i)) {
+                assert(data.get(ValueLayout.JAVA_LONG, i * 8L) === value(i),
+                  s"lanes=$lanes row $i passed through unchanged")
+              }
+            }
+            st
+          } finally {
+            arena.close()
+          }
+        }
+        val none = (_: Int) => false
+        assert(status(64, i => i.toLong * 1000000007L % 86400000000000L, none) === 0)
+        // One lane at the top of the day plus one nanosecond: the loop body's guard.
+        assert(status(64, i => if (i == 5) 86400000000000L else 1L, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE, "a loop lane")
+        // The same lane in the masked tail of a 17-row batch.
+        assert(status(17, i => if (i == 16) -1L else 1L, none) ===
+          VarkaFusedKernel.STATUS_CHRONO_RANGE, "an epilogue lane")
+        // A null lane holding an out-of-range payload does not fire the guard.
+        assert(status(64, i => if (i == 5) -1L else 1L, i => i == 5) === 0, "a null lane")
+      } finally {
+        loader.release()
+      }
+    }
+  }
+
+  test("a range guard at the int lane refuses bounds an int cannot hold, and an empty range " +
+      "is refused where it is built") {
+    val col = new ColumnRef(0, LaneType.INT)
+    val wide = intercept[IllegalArgumentException](
+      emitMulti(Seq(new GuardedRange(col, 0L, 1L << 40)), 1, 0))
+    assert(wide.getMessage.contains("needs int bounds"), wide.getMessage)
+    val empty = intercept[IllegalArgumentException](new GuardedRange(col, 5L, 4L))
+    assert(empty.getMessage.contains("empty range"), empty.getMessage)
+  }
+
   test("a comparison root emits the selection bitmap with null-as-false") {
     // The simplest filter kernel: one Compare root, its bitmap checked against the Kleene
     // reference with unknown collapsed to false at the root - across lengths (partial lane
