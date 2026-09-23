@@ -90,6 +90,18 @@ larger than that is **never compiled, by either tier**. From the JVM's own
 * **16 outputs, `-XX:-DontCompileHugeMethods`.** `epilogueDense` (9524 bytes)
   compiled at tier 3 and tier 4.
 
+*Correction, 23 September 2026, from step 3: this section reads as if the
+crossing were the admission check's discovery, and it was not. Task 24 made the
+epilogue "one method over every output" as a deliberate decision, and tasks 44,
+51, 54 and 70 each re-measured where a calendar-fields ladder crosses 8000
+bytes - unshared 21 fits and 22 crosses, shared 49 - and pinned it in
+`VarkaEmitterBudgetSuite`, whose comment already names the cost: "interpreted,
+boxed vectors, on every batch whose length is not a lane multiple". What the
+admission check added is the proof from the JVM's own output that the limit
+does what the comment says, the measured cost of it, a second family crossing
+at 13 and 14, and the reading that the fix had been deferred rather than
+missed. The record had it; the check should have started from it.*
+
 *Correction, 23 September 2026 (2.7): the tier-3 lines above are C1's attempts,
 read from truncated log lines. Read in full, C1 refuses every method here over
 about 1900 bytes - the 2498-byte epilogue and the 2455-byte loop method at four

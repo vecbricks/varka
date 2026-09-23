@@ -17,6 +17,10 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Chrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -42,10 +46,78 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  * the temporary-slot counts those lowerings reserve, and {@link #weightOf}, which prices a node
  * for the grouping pass. The emitter imports these statically; the entry the compiler asks,
  * {@code VarkaLoopEmitter.fitsBudgets}, stays on the emitter.
+ *
+ * <p>Weight is a proxy. The quantities the JVM actually enforces - a method's bytecode length,
+ * a class's constant pool, a method's parameter slots - are the limits at the top of this
+ * class, and {@link #overLimits} reads an emitted class against them ({@code PLAN_TASK_87.md}).
  */
 final class VarkaEmitBudget {
 
   private VarkaEmitBudget() {
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // What the JVM enforces: bytes and entries, not weight.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The bytecode length past which HotSpot never compiles a method, at any tier. It is
+   * {@code HugeMethodLimit}, a develop-only flag fixed at 8000 in a product build, applied
+   * whenever {@code DontCompileHugeMethods} is on, which it is by default. A method over it is
+   * not an error: it loads, verifies and runs - interpreted, with every vector operation boxed,
+   * for the life of the JVM, and nothing reports that it did. This is the limit that bites
+   * first. Two more sit below it and are not limits in the same sense: C1 refuses a method from
+   * roughly 1900 bytes ("out of virtual registers"), which is register pressure and only
+   * correlates with bytes, so such a method is interpreted until C2 compiles it; and a loop
+   * reaches C2 quickly through its backedges where a method with no loop, such as an epilogue,
+   * reaches it only by invocation count. See {@code PLAN_TASK_87.md} 2.3 and 2.6.5.
+   */
+  static final int HUGE_METHOD_LIMIT = 8000;
+
+  /** The class-file format's cap on one method's bytecode length: a {@code u2} of code bytes. */
+  static final int METHOD_CODE_CAP = 65535;
+
+  /**
+   * The class-file format's cap on {@code constant_pool_count}. The count includes the unused
+   * slot zero, which is why {@link VarkaEmittedClass#constantPoolCount} reports it that way. A
+   * kernel of many distinct literals, divisors and magic constants approaches this from a
+   * direction method length never does, which is why it is counted separately.
+   */
+  static final int CONSTANT_POOL_CAP = 65535;
+
+  /** The JVM's cap on a method's parameter slots, {@code this} included. */
+  static final int PARAMETER_SLOT_CAP = 255;
+
+  /**
+   * Every way an emitted class is over what the JVM enforces, one sentence each, naming the
+   * method and the number; empty when the class is within every limit. A method over
+   * {@link #HUGE_METHOD_LIMIT} is reported although it would load, because it would never be
+   * compiled, and an emitted method that is never compiled is the failure this class is here
+   * to make visible. Nothing acts on the list yet: the emitter reports it and the tools print
+   * it, and turning it into a regroup or a decline is the rest of task 87.
+   */
+  static List<String> overLimits(VarkaEmittedClass emitted) {
+    List<String> findings = new ArrayList<>();
+    for (Map.Entry<String, Integer> e : emitted.codeLength().entrySet()) {
+      if (e.getValue() > METHOD_CODE_CAP) {
+        findings.add(e.getKey() + " is " + e.getValue() + " bytes, over the class-file cap of "
+            + METHOD_CODE_CAP + ": the class cannot be built");
+      } else if (e.getValue() > HUGE_METHOD_LIMIT) {
+        findings.add(e.getKey() + " is " + e.getValue() + " bytes, over HugeMethodLimit "
+            + HUGE_METHOD_LIMIT + ": HotSpot never compiles it");
+      }
+    }
+    for (Map.Entry<String, Integer> e : emitted.parameterSlots().entrySet()) {
+      if (e.getValue() > PARAMETER_SLOT_CAP) {
+        findings.add(e.getKey() + " takes " + e.getValue() + " parameter slots, over the cap of "
+            + PARAMETER_SLOT_CAP);
+      }
+    }
+    if (emitted.constantPoolCount() > CONSTANT_POOL_CAP) {
+      findings.add("the constant pool has " + emitted.constantPoolCount()
+          + " entries, over the cap of " + CONSTANT_POOL_CAP);
+    }
+    return findings;
   }
 
   /**
