@@ -37,7 +37,9 @@ import java.lang.reflect.AccessFlag;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
@@ -374,10 +376,16 @@ public final class VarkaLoopEmitter {
     // and crosses HugeMethodLimit at thirteen make_date outputs, after which it is never
     // compiled at all (`PLAN_TASK_87.md` 2.2). Split by the loop's groups it is bounded by what
     // bounds the loops.
+    //
+    // Under the byte budget the class is measured after it is built, in the units the JVM
+    // enforces (VarkaEmittedClass), and a group with a method over the budget is split in two
+    // and the class built again, until every group's methods fit or the groups over budget
+    // are single outputs. Weight groups first because weight is known before anything is
+    // built; bytes decide because bytes are what the JVM reads. A shape still over a limit
+    // when no split is left declines with the reason (VarkaEmitDeclined): a single output
+    // whose method is over budget, a driver over it - the driver sets up every output and
+    // gains a call per group, so no regroup shrinks it - or a class over the class-file caps.
     ClassDesc classDesc = ClassDesc.of(className);
-    boolean anyColumns = analysis.referencedColumns != 0;
-    List<List<Integer>> groups = groupOutputs(outputs, options);
-    boolean epiloguePerGroup = options.methodByteBudget() > 0;
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
     VarkaDebugInfo debugInfo = new VarkaDebugInfo(
@@ -385,6 +393,46 @@ public final class VarkaLoopEmitter {
             + ", numLiterals=" + numLiterals,
         planFragment != null ? planFragment : "",
         VarkaBodyEmitter.renderLineMap(analysis));
+    int budget = options.methodByteBudget();
+    Set<Integer> forcedStarts = new HashSet<>();
+    while (true) {
+      List<List<Integer>> groups = groupOutputs(outputs, options, forcedStarts);
+      byte[] bytes = build(classDesc, source, debugInfo, outputs, analysis, numLiterals, groups,
+          budget > 0);
+      if (budget == 0) {
+        return bytes;
+      }
+      VarkaEmittedClass measured = VarkaEmittedClass.measure(bytes);
+      SortedMap<Integer, Map.Entry<String, Integer>> over = groupsOver(measured, budget);
+      boolean split = false;
+      List<Integer> stuck = new ArrayList<>();
+      for (int g : over.keySet()) {
+        List<Integer> group = groups.get(g);
+        if (group.size() > 1) {
+          forcedStarts.add(group.get(group.size() / 2));
+          split = true;
+        } else {
+          stuck.add(group.get(0));
+        }
+      }
+      if (split) {
+        continue;
+      }
+      List<String> findings = overLimits(measured, budget);
+      if (findings.isEmpty()) {
+        return bytes;
+      }
+      throw new VarkaEmitDeclined(String.join("; ", findings)
+          + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
+              + " cannot be regrouped smaller"), stuck);
+    }
+  }
+
+  /** One build of the class over {@code groups}; see the method-layout note in {@link #emit}. */
+  private static byte[] build(ClassDesc classDesc, String source, VarkaDebugInfo debugInfo,
+      List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
+      List<List<Integer>> groups, boolean epiloguePerGroup) {
+    boolean anyColumns = analysis.referencedColumns != 0;
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
@@ -523,6 +571,16 @@ public final class VarkaLoopEmitter {
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
+    return groupOutputs(outputs, options, Set.of());
+  }
+
+  /**
+   * As above, with {@code forcedStarts}: outputs that begin a new group whatever the weights
+   * say. The byte-budget regroup in {@link #emit} adds the middle output of a group whose
+   * methods measured over the budget, so the split halves a group and never reorders one.
+   */
+  private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options, Set<Integer> forcedStarts) {
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
     GroupOps group = new GroupOps(options.shareChronoPrefix());
@@ -546,7 +604,7 @@ public final class VarkaLoopEmitter {
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
       // its own: after one calendar output `ops` already exceeds it, so without this test
       // `SELECT year(d) AS a, year(d) AS b` would emit the decomposition twice.
-      if (!current.isEmpty() && marginal > 0 && !fits) {
+      if (!current.isEmpty() && ((marginal > 0 && !fits) || forcedStarts.contains(o))) {
         groups.add(current);
         current = new ArrayList<>();
         withNext = new GroupOps(options.shareChronoPrefix());

@@ -117,8 +117,14 @@ class VarkaEmittedBytesSuite extends SparkFunSuite {
     // The arm is applied over the width, not under it: every arm below leaves the lane count
     // alone, and the oracle's two widths are what the arm is being compared across.
     val options = arm(VarkaEmitOptions.DEFAULTS.withLanesOverride(laneCount))
-    val bytes = VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null,
-      options)
+    val bytes =
+      try {
+        VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
+      } catch {
+        // An arm may decline a shape the defaults emit (task 87's byte budget on a heavy single
+        // output); the audit records that as the arm's answer rather than failing on it.
+        case d: VarkaEmitDeclined => return Seq("<declined>" -> sha(d.getMessage))
+      }
     ("<class>" -> sha(VarkaEmitterTestSupport.classSummary(bytes))) +:
       VarkaEmitterTestSupport.methodBodies(bytes).asScala.toSeq.map { case (m, body) =>
         m -> sha(body)

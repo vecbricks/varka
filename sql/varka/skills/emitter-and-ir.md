@@ -719,3 +719,17 @@ What made it small, and what to carry to the next width change:
   rows from `sql/varka/coverage.json`, which `VarkaCoverageSuite` writes, so in
   one combined run they audited the old rows and passed; run the coverage suite
   first and the readers after, and rerun the readers when it changed the file.
+
+## The class-file caps are out of reach of any admitted shape, so their checks are pinned on hand-built measurements
+
+The IR caps (`MAX_FUSED_NODES` 64, `MAX_CHAIN_DEPTH` 16) bound what one kernel can carry, and
+the heaviest shapes they admit stop well short of the class-file format's caps of 65535 bytes of
+code in a method and 65535 constant pool entries. The heaviest ladder the op cap admits - sixty-two
+`add_months(d, k)` outputs - puts the legacy single epilogue at 49339 bytes, and a balanced
+`greatest` over thirty-two `add_months`, the heaviest single output, at 25629 bytes for its masked
+loop method; the constant pool stays in the hundreds either way (task 87, step 5). So no test can
+reach those caps with an expression, and a test that claimed to would be pinning a shape's
+current size, not the cap. `VarkaEmitBudget.overLimits` reads the caps from a `VarkaEmittedClass`
+measurement, and the test that pins the readings builds the measurement by hand. A change that
+raises the IR caps has to re-read this: past roughly 80 `add_months`-weight outputs the legacy
+epilogue would cross the method cap, and the emitter would then measure it before the JVM did.

@@ -106,7 +106,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
               Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 2, 3)(rnd.nextInt(4))))
           } else if (m.getName == "withMethodByteBudget") {
             // Task 87's switch: off, or the limit HotSpot enforces. A small number here would
-            // later mean "every method is over budget", which is a decline, not a variant.
+            // mean "every method is over budget", which is a decline, not a variant.
             Some(Integer.valueOf(Seq(0, 8000)(rnd.nextInt(2))))
           } else {
             Some(Integer.valueOf(Seq(8, 24, 32)(rnd.nextInt(3))))
@@ -172,6 +172,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       try {
         VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
       } catch {
+        // Under the byte budget a shape whose single output is over the budget declines with a
+        // reason, by design (task 87): the fuzzer draws such shapes and there is nothing to run.
+        case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
+          assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
+          return
         case e: IllegalArgumentException =>
           fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
       }
@@ -282,6 +287,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       try {
         VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
       } catch {
+        // Under the byte budget a shape whose single output is over the budget declines with a
+        // reason, by design (task 87): the fuzzer draws such shapes and there is nothing to run.
+        case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
+          assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
+          return
         case e: IllegalArgumentException =>
           fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
       }

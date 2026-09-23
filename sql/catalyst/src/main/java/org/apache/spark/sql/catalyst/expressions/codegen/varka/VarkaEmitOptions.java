@@ -277,15 +277,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        only at a baked lane count, since the half of the preferred species has no named
  *        constant; at count 0 the store is the masked form either way. The A/B is
  *        {@code PLAN_TASK_156.md}'s.
- * @param methodByteBudget task 87's switch, and the bytecode length a method is held to once the
- *        budget acts. {@code 0}, the default until the task's last commit, is today's emission
- *        exactly. A positive value turns on the per-group prologue: a loop method sets up the
- *        destination segments and literals of the outputs its own group writes, where the legacy
- *        form set up every output of the kernel in every method - the term that grew each loop
- *        method with the whole kernel and put wide-prefixed slots past 255 locals
- *        ({@code PLAN_TASK_87.md} 2.6.2). Later commits use the value as the limit a method's
- *        code length is measured against. Test-only until the default flips; every value is
- *        fuzzed.
+ * @param methodByteBudget task 87's switch, and the bytecode length every emitted method is
+ *        held to. {@code 0}, the default until the task's last commit, is the legacy emission
+ *        exactly: weight groups the loop, one epilogue holds every output, nothing is measured.
+ *        A positive value is a limit in bytes, {@code VarkaEmitBudget.HUGE_METHOD_LIMIT} in
+ *        production: a group's loop and epilogue methods set up only that group's outputs and
+ *        literals ({@code PLAN_TASK_87.md} 2.6.2), the epilogue is one method per group, the
+ *        built class is measured and a group over the limit is split and the class built
+ *        again, and a shape still over a limit when no split is left declines with the reason
+ *        ({@link VarkaEmitDeclined}). A small value is how a test sees a regroup or a decline
+ *        on a shape of a few outputs. Test-only until the default flips; fuzzed at 0 and at
+ *        the production value.
  */
 public record VarkaEmitOptions(
     int groupBudget,

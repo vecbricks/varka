@@ -20,6 +20,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Chrono;
@@ -93,18 +95,29 @@ final class VarkaEmitBudget {
    * method and the number; empty when the class is within every limit. A method over
    * {@link #HUGE_METHOD_LIMIT} is reported although it would load, because it would never be
    * compiled, and an emitted method that is never compiled is the failure this class is here
-   * to make visible. Nothing acts on the list yet: the emitter reports it and the tools print
-   * it, and turning it into a regroup or a decline is the rest of task 87.
+   * to make visible. The tools print this list; the emitter acts on the form below, measured
+   * against the budget it was given.
    */
   static List<String> overLimits(VarkaEmittedClass emitted) {
+    return overLimits(emitted, HUGE_METHOD_LIMIT);
+  }
+
+  /**
+   * As above, with {@code methodLimit} in place of {@link #HUGE_METHOD_LIMIT}: the emitter
+   * measures against {@link VarkaEmitOptions#methodByteBudget}, which is that limit in
+   * production and a small number in a test that wants to see a regroup or a decline on a
+   * shape of a few outputs.
+   */
+  static List<String> overLimits(VarkaEmittedClass emitted, int methodLimit) {
     List<String> findings = new ArrayList<>();
     for (Map.Entry<String, Integer> e : emitted.codeLength().entrySet()) {
       if (e.getValue() > METHOD_CODE_CAP) {
         findings.add(e.getKey() + " is " + e.getValue() + " bytes, over the class-file cap of "
             + METHOD_CODE_CAP + ": the class cannot be built");
-      } else if (e.getValue() > HUGE_METHOD_LIMIT) {
-        findings.add(e.getKey() + " is " + e.getValue() + " bytes, over HugeMethodLimit "
-            + HUGE_METHOD_LIMIT + ": HotSpot never compiles it");
+      } else if (e.getValue() > methodLimit) {
+        findings.add(e.getKey() + " is " + e.getValue() + " bytes, over the method budget of "
+            + methodLimit + (methodLimit == HUGE_METHOD_LIMIT
+                ? " (HugeMethodLimit): HotSpot never compiles it" : ""));
       }
     }
     for (Map.Entry<String, Integer> e : emitted.parameterSlots().entrySet()) {
@@ -118,6 +131,40 @@ final class VarkaEmitBudget {
           + " entries, over the cap of " + CONSTANT_POOL_CAP);
     }
     return findings;
+  }
+
+  /**
+   * The group a loop or epilogue method belongs to, read off its name ({@code loopMasked3},
+   * {@code epilogueDense12}), or -1 for a method that is not a group's: the drivers, the
+   * dispatcher, the constructor, and the legacy form's single epilogue.
+   */
+  static int groupOf(String method) {
+    if (!method.startsWith("loop") && !method.startsWith("epilogue")) {
+      return -1;
+    }
+    int i = method.length();
+    while (i > 0 && Character.isDigit(method.charAt(i - 1))) {
+      i--;
+    }
+    return i == method.length() ? -1 : Integer.parseInt(method.substring(i));
+  }
+
+  /**
+   * The groups with a method over {@code methodLimit}, each with its largest such method:
+   * what the emitter's regroup splits. A group's methods are its loop and its epilogue on
+   * each side, so the largest of the four decides.
+   */
+  static SortedMap<Integer, Map.Entry<String, Integer>> groupsOver(VarkaEmittedClass emitted,
+      int methodLimit) {
+    SortedMap<Integer, Map.Entry<String, Integer>> over = new TreeMap<>();
+    for (Map.Entry<String, Integer> e : emitted.codeLength().entrySet()) {
+      int g = groupOf(e.getKey());
+      if (g >= 0 && e.getValue() > methodLimit
+          && (!over.containsKey(g) || over.get(g).getValue() < e.getValue())) {
+        over.put(g, e);
+      }
+    }
+    return over;
   }
 
   /**

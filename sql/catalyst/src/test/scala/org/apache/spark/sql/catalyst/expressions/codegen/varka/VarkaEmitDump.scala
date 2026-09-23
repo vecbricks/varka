@@ -142,8 +142,15 @@ object VarkaEmitDump {
     report(s"shape hash: ${VarkaShapeCacheImpl.shapeHash(key)}  options: " +
       (if (options.isDefault) "(defaults)" else options.canonical()))
 
-    val bytes = VarkaLoopEmitter.emit(className, fused.outputs.asJava, fused.inputOrdinals.size,
-      fused.numLiterals, null, null, options)
+    val bytes =
+      try {
+        VarkaLoopEmitter.emit(className, fused.outputs.asJava, fused.inputOrdinals.size,
+          fused.numLiterals, null, null, options)
+      } catch {
+        case d: VarkaEmitDeclined =>
+          report(s"declined by the emitter: ${d.getMessage}")
+          return
+      }
     report("")
     report(f"${"method"}%-18s ${"bytes"}%6s ${"IntVector"}%9s ${"LongVector"}%10s " +
       f"${"DoubleVector"}%12s ${"convert"}%7s ${"VectorMask"}%10s ${"validity"}%8s ${"lines"}%5s")
@@ -232,12 +239,22 @@ object VarkaEmitDump {
           val counts = columns.map { case (_, opts) =>
             // The literal count is both arrays': a long-lane shape keeps its literals in
             // longArgs, which `f.literals` does not count.
-            val bytes = VarkaLoopEmitter.emit(className, f.outputs.asJava,
-              f.inputOrdinals.size, f.numLiterals, null, null, opts)
-            laneOps(bytes)
+            try {
+              val bytes = VarkaLoopEmitter.emit(className, f.outputs.asJava,
+                f.inputOrdinals.size, f.numLiterals, null, null, opts)
+              Some(laneOps(bytes))
+            } catch {
+              case _: VarkaEmitDeclined => None
+            }
           }
-          val deltas = counts.tail.map(c => f"${c - counts.head}%+d")
-          report(s"| `$text` | " + counts.mkString(" | ") +
+          val cells = counts.map(_.map(_.toString).getOrElse("declined"))
+          val deltas = counts.tail.map { c =>
+            (c, counts.head) match {
+              case (Some(a), Some(b)) => f"${a - b}%+d"
+              case _ => "-"
+            }
+          }
+          report(s"| `$text` | " + cells.mkString(" | ") +
             deltas.map(d => s" | $d").mkString + " |")
       }
     }

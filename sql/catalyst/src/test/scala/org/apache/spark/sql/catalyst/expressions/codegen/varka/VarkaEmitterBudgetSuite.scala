@@ -548,4 +548,105 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
         options = on, forceMasked = true, ctx = s"per-group epilogue, masked, lanes=$lanes")
     }
   }
+
+  test("a group whose methods are over the byte budget is split until they fit, and the " +
+      "split kernel answers the same (task 87, step 5)") {
+    // PLAN_TASK_87.md 3.1 step 2: weight groups first, bytes decide. Under a budget no
+    // make_date group of two fits (a single output's methods read about 1200 bytes, a pair's
+    // about 1700, the driver about 1400), the sixteen-output ladder regroups past weight's
+    // four groups until every method reads under the budget - down to single outputs at this
+    // one. The regroup is inside emit, so emitting twice is byte-identical, and the shape
+    // cache sees one emission like any other.
+    val roots = VarkaHugeMethodProbe.ladder(16)
+    val four = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+    val split = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(1500)
+    val bytes = emitMulti(roots, 1, 16, split)._2
+    val names = VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
+    val loops = names.count(_.startsWith("loopMasked"))
+    assert(loops > 4 && names.count(_.startsWith("epilogueMasked")) === loops,
+      names.sorted.mkString(", "))
+    for (m <- names) {
+      val size = VarkaEmitterTestSupport.codeSize(bytes, m)
+      assert(size <= 1500, s"$m is $size bytes over a budget of 1500 ($loops groups)")
+    }
+    assert(VarkaEmitterTestSupport.methodNames(emitMulti(roots, 1, 16, four)._2).asScala
+      .count(_.startsWith("loopMasked")) === 4, "at HugeMethodLimit weight's four groups stand")
+    // Method by method with the class name normalised: each emission carries its own name,
+    // and the drivers call their siblings through it.
+    def bodies(b: Array[Byte]): Map[String, String] = VarkaEmitterTestSupport.methodBodies(b)
+      .asScala.toMap.map { case (m, body) => m -> body.replaceAll("VarkaFusedTest\\d+", "K") }
+    assert(bodies(bytes) === bodies(emitMulti(roots, 1, 16, split)._2),
+      "the regroup is deterministic")
+    val lits = (1 to 16).toArray
+    val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
+    checkMatrix(roots, 1, lits, Seq(1, 1024, 1031), patterns, options = split,
+      ctx = "regrouped to single outputs")
+  }
+
+  test("a shape still over the byte budget when no split is left declines with a reason that " +
+      "names the method, the bytes, the budget and the outputs (task 87, step 5)") {
+    // Three shapes at three limits. One make_date output under a budget its own method
+    // exceeds: the group is one output and cannot be regrouped, so the decline names it. The
+    // whole ladder under that budget: every output is stuck, so every output is named, in
+    // order. And a heavy single output at the production limit - a balanced greatest over
+    // thirty-two add_months, one group of some twenty-five thousand bytes - is what a real
+    // projection can bring: the legacy form emits it into a method HotSpot never compiles,
+    // and the budget declines it. A VarkaEmitDeclined is an IllegalArgumentException, so
+    // every caller's fallback contract holds.
+    val roots = VarkaHugeMethodProbe.ladder(16)
+    val tiny = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(300)
+    val one = intercept[VarkaEmitDeclined] { emitMulti(roots.take(1), 1, 1, tiny) }
+    assert(one.outputs.asScala === Seq(0), one.getMessage)
+    assert(one.getMessage.contains("loopMasked0 is ") && one.getMessage.contains(" bytes") &&
+      one.getMessage.contains("budget of 300") && one.getMessage.contains("output [0]"),
+      one.getMessage)
+    val all = intercept[VarkaEmitDeclined] { emitMulti(roots, 1, 16, tiny) }
+    assert(all.outputs.asScala === (0 until 16), all.getMessage)
+
+    def tree(lo: Int, hi: Int): VarkaVectorIR =
+      if (lo == hi) new AddMonths(new ColumnRef(0), new LiteralSlot(lo - 1))
+      else new Greatest(tree(lo, (lo + hi) / 2), tree((lo + hi) / 2 + 1, hi))
+    val heavy = Seq(tree(1, 32))
+    val legacy = VarkaEmitterTestSupport.codeSize(emitMulti(heavy, 1, 32)._2, "loopMasked0")
+    assert(legacy > VarkaEmitBudget.HUGE_METHOD_LIMIT, s"the legacy loop method is $legacy bytes")
+    val production =
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+    val declined = intercept[VarkaEmitDeclined] { emitMulti(heavy, 1, 32, production) }
+    assert(declined.outputs.asScala === Seq(0) &&
+      declined.getMessage.contains("HugeMethodLimit"), declined.getMessage)
+    assert(declined.isInstanceOf[IllegalArgumentException])
+  }
+
+  test("a driver over the byte budget declines naming it and no output, and the class-file " +
+      "caps are read from the measurement (task 87, step 5)") {
+    // The driver sets up every output and gains a call per group, so no regroup can shrink it
+    // (PLAN_TASK_87.md 2.7 item 9): under a budget the single-output groups fit but the
+    // sixty-output driver does not, the decline names the driver and blames no output. The
+    // class-file caps - 65535 bytes of code in one method, 65535 constant pool entries - are
+    // out of any shape the IR caps admit, so the reading is pinned on a measurement built by
+    // hand rather than claimed covered by a shape.
+    val roots = VarkaHugeMethodProbe.ladder(60)
+    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000)
+    val driver = intercept[VarkaEmitDeclined] { emitMulti(roots, 1, 60, budget) }
+    assert(driver.outputs.isEmpty && driver.getMessage.startsWith("runDense is ") &&
+      !driver.getMessage.contains("loop"), driver.getMessage)
+
+    def measured(code: (String, Int)*): VarkaEmittedClass = {
+      val lengths = new java.util.LinkedHashMap[String, Integer]()
+      code.foreach { case (m, n) => lengths.put(m, n) }
+      val slots = new java.util.LinkedHashMap[String, Integer]()
+      code.foreach { case (m, _) => slots.put(m, 8) }
+      new VarkaEmittedClass(lengths, slots, 300)
+    }
+    val cap = VarkaEmitBudget.overLimits(measured("run" -> 38, "epilogueMasked" -> 70000)).asScala
+    assert(cap === Seq("epilogueMasked is 70000 bytes, over the class-file cap of 65535: the " +
+      "class cannot be built"))
+    val pool = new VarkaEmittedClass(new java.util.LinkedHashMap[String, Integer](),
+      new java.util.LinkedHashMap[String, Integer](), 70000)
+    assert(VarkaEmitBudget.overLimits(pool).asScala ===
+      Seq("the constant pool has 70000 entries, over the cap of 65535"))
+    assert(VarkaEmitBudget.groupOf("loopMasked12") === 12 &&
+      VarkaEmitBudget.groupOf("epilogueDense0") === 0 &&
+      VarkaEmitBudget.groupOf("epilogueMasked") === -1 && VarkaEmitBudget.groupOf("run") === -1)
+  }
 }

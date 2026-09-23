@@ -670,3 +670,58 @@ limit on its own - a single output of great weight, or a `FUSED_CEILING` group
 whose shared prefix is small beside its tails - and the decline is for a shape
 that is over a limit as a single output. 6's benchmark scores predictions 3
 and 4 on both forms.
+
+### 9.4 Step 5: the regroup and the declines, 24 September 2026
+
+`methodByteBudget` is now the limit its name says. After the class is built the
+emitter measures it (`VarkaEmittedClass`), and a group with a loop or epilogue
+method over the budget is split at its middle output and the class built again,
+until every group's methods fit or the groups over budget are single outputs.
+Weight groups first because weight is known before anything is built; bytes
+decide because bytes are what the JVM reads. A shape still over a limit when no
+split is left declines with `VarkaEmitDeclined`, an `IllegalArgumentException`
+carrying the reason - the method, its bytes, the budget - and the outputs whose
+own group cannot fit, so that a compiler can fuse the rest without them. The
+driver is measured too and cannot be regrouped; a driver over the budget
+declines naming no output. The class-file caps (65535 bytes of code in one
+method, 65535 constant pool entries) are read from the same measurement.
+
+**What the production limit does on this family: nothing.** At 8000 bytes the
+`make_date` ladder's weight groups already fit after steps 3a and 4, so no rung
+regroups and none declines, and `VarkaEmitterBudgetSuite` sees the regroup by
+lowering the budget: at 1500 bytes, where a single output's methods read 1067
+to 1236 and no pair fits, the sixteen-output ladder regroups from weight's four
+groups to sixteen single outputs, every method under the budget,
+the answers unchanged, and the emission byte-identical run to run. At 300 bytes
+every output is stuck and the decline names all sixteen in order. At 2000 bytes
+over sixty outputs the single-output groups fit and the driver, at 2806 bytes,
+does not: the decline names `runDense` and no output.
+
+**The shape that declines at the production limit is a single heavy output**: a
+balanced `greatest` over thirty-two `add_months(d, k)`, sixty-three operations
+under the sixty-four the IR admits, is one group whose masked loop method reads
+25629 bytes. The legacy form emits it into methods HotSpot never compiles; the
+budget declines it with `loopDense0 is 23505 bytes, over the method budget of
+8000 (HugeMethodLimit): HotSpot never compiles it; ... output [0] cannot be
+regrouped smaller`. Splitting inside one output is deliberately not attempted:
+it would forfeit the register residency that is the point of fusing.
+
+**The class-file caps are out of reach of any admitted shape**, in either form.
+Sixty-two `add_months` outputs, the heaviest ladder the op cap admits, put the
+legacy single epilogue at 49339 bytes, and under the budget no group exceeds a
+few thousand. Risk 4 said as much for the constant pool; it holds for the
+method cap too. The readings are pinned on a measurement built by hand, and the
+test says so rather than claiming a shape covers them. The fuzz coordinate of
+2.1 that once crossed 65535 is not recoverable; whatever shape it was, the
+emitter now measures it before the JVM does.
+
+**What is not in this step: the compiler.** `VarkaLoopEmitter.emit` declines;
+`VarkaExpressionCompiler` admits by the weight caps alone and does not yet ask
+the emitter about bytes, so a heavy single output is fused at plan time and
+declines on the executor, where `VarkaKernelEvaluator` catches the
+`IllegalArgumentException` as it always has and falls back per batch with an
+emission failure counted. Making that a plan-time decline that EXPLAIN shows,
+demoting exactly the outputs `VarkaEmitDeclined` names, is task 169's contract
+(`PLAN_MILESTONE_6.md` 2.3) and is done there with the typed decline this step
+provides. The fuzzer treats a size decline under the budget as an outcome and
+asserts it carries a size; the dump tool prints it.
