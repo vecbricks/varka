@@ -284,8 +284,8 @@ configuration does not attempt it.
 
 ### 2.5 The size ladder, and the figure (task 171)
 
-*Absorbs milestone 4's row 44, which asked for a ladder that can see the problem -
-4095 and 63 rather than only 4096 - and the epilogue measured against
+*Absorbs milestone 4's row 44, which asked for a ladder that can see the problem
+- 4095 and 63 rather than only 4096 - and the epilogue measured against
 `HugeMethodLimit`.*
 
 **The task.** A benchmark whose x-axis is the number of expressions in one
