@@ -725,3 +725,63 @@ demoting exactly the outputs `VarkaEmitDeclined` names, is task 169's contract
 (`PLAN_MILESTONE_6.md` 2.3) and is done there with the typed decline this step
 provides. The fuzzer treats a size decline under the budget as an outcome and
 asserts it carries a size; the dump tool prints it.
+
+### 9.5 Step 6: both forms measured, 24 September 2026
+
+`VarkaMethodSizeBenchmark` regenerated with both forms in one table per rung
+(`-jdk25-results.txt`, `-128bit-results.txt`, `-provenance.txt`: pinned, load
+0.57 at start, canary clean) and banded over ten runs. Rates in M rows/s, the
+single epilogue against the epilogue per group, from the committed files:
+
+| outputs | 512-bit masked, even | 512-bit masked, ragged | 128-bit masked, even | 128-bit masked, ragged |
+| ---: | :--- | :--- | :--- | :--- |
+| 4 | 441.9 -> 434.1 | 431.2 -> 442.8 | 123.7 -> 130.1 | 123.8 -> 127.7 |
+| 8 | 207.3 -> 210.3 | 216.0 -> 220.9 | 63.9 -> 63.7 | 63.8 -> 63.6 |
+| 12 | 134.0 -> 143.1 | 135.2 -> 142.3 | 42.6 -> 45.5 | 42.4 -> 45.5 |
+| 13 | 120.9 -> 132.9 | 40.7 -> **131.7** | 38.1 -> 43.9 | 24.9 -> **44.0** |
+| 14 | 116.0 -> 130.4 | 38.6 -> 127.7 | 37.3 -> 39.9 | 23.5 -> 40.0 |
+| 16 | 94.4 -> 106.3 | 32.9 -> 104.9 | 31.0 -> 33.5 | 20.1 -> 33.6 |
+| 32 | 46.0 -> 53.8 | 16.3 -> 53.0 | 14.7 -> 16.6 | 9.7 -> 16.6 |
+| 60 | 24.1 -> 29.4 | 8.7 -> 28.9 | 8.3 -> 9.1 | 5.4 -> 9.2 |
+
+**Prediction 3 held, and understated it.** The cliff is gone: on ragged batches
+the per-group form reads within a few percent of its own even-batch rate at
+every rung, where the single form had lost three quarters of its rate from
+thirteen outputs at 512 bits and two fifths at 128. And it cost nothing on even
+batches - it gained. From twelve outputs the per-group form is faster on even
+batches too, by 7% at twelve and 22% at sixty, which no prediction had: the
+loop methods are unchanged in what they compute, but each now sets up only its
+group (3a), and the driver's twelve extra calls that risk 6 priced are cheaper
+than the setup they replaced. At four outputs the per-group form reads 2%
+lower on even masked batches at 512 bits and 5% higher at 128, both inside
+those cases' tier-1 bands. The one cell that reads lower by more, four outputs
+null-free ragged at 512 bits (618.8 -> 524.6), is a tier-2 case whose committed
+spread is 23%.
+
+**Prediction 4 fell, in the direction nobody minds.** The loop methods' op
+counts are unchanged and their rates were predicted within band; from twelve
+outputs the per-group form's even-batch rate is outside the band on the fast
+side. The explanation is 3a's, not the epilogue's: a loop method that sets up
+sixty segments and sixty literals before its loop is not the same compiled
+method as one that sets up five, whatever its op count.
+
+**Prediction 5 is superseded by the design.** It priced a warmup below 8000
+bytes; the per-group epilogues are all below it, and the band puts the
+per-group masked rows in tiers 0 and 1 at every rung but thirteen ragged (tier
+2, a 10.8% spread), so whatever warmup there is sits inside the measurement.
+No per-group row is tier 3: the rows the single form's deoptimization cycle
+made unreadable read under the per-group form, at both lengths.
+
+**Task 189 did not follow the per-group form into the fork.** The single form's
+null-free rows at 128 bits from twelve outputs read 0.3 to 0.7 M rows/s on
+ragged batches - the deoptimization cycle 2.12 of the milestone plan describes,
+in this fork as in the baseline's - and the per-group form's read 40 to 56 in
+the same JVM. One fork proves nothing about a bimodal effect, and the row is
+recorded as a lead for task 189 rather than as a property: smaller loop methods
+may change what the profiled loop predicate sees.
+
+**The rule for the default is met** on the masked arm at every rung, length and
+width, and on the null-free arm up to twelve outputs, so the default flips in
+step 6b: `methodByteBudget` is `HUGE_METHOD_LIMIT` unless a caller says
+otherwise, and the legacy form stays reachable at 0 as the reference the
+differential tests and the benchmark's first arm keep.
