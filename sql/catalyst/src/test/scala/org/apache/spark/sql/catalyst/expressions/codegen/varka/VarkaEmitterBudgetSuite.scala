@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -347,7 +349,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       val col = new ColumnRef(c)
       Seq[VarkaVectorIR](new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
     }
-    val limit = 8000
+    val limit = VarkaEmitBudget.HUGE_METHOD_LIMIT
     // Task 70 (PLAN_TASK_70.md 9): with the bitmap pass on by default, every word in these
     // methods is dead, so epilogueMasked is epilogueDense's bytes and the crossing is the
     // dense epilogue's - unshared 21 fits (7563) and 22 crosses (8033); shared reaches
@@ -387,7 +389,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
         (unshared, "unshared")); on <- Seq(true, false)) {
       val bytes = emitMulti(fields(dates), dates, 0, base.withValidityByBitmap(on))._2
       val driver = VarkaEmitterTestSupport.codeSize(bytes, "runMasked")
-      assert(driver < 8000, s"$layout, $dates dates, pass=$on: runMasked is $driver bytes")
+      assert(driver < VarkaEmitBudget.HUGE_METHOD_LIMIT,
+        s"$layout, $dates dates, pass=$on: runMasked is $driver bytes")
     }
     val off = VarkaEmitterTestSupport.codeSize(
       emitMulti(fields(12), 12, 0, sharing.withValidityByBitmap(false))._2, "runMasked")
@@ -395,5 +398,52 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       emitMulti(fields(12), 12, 0, sharing.withValidityByBitmap(true))._2, "runMasked")
     assert(on > off && on - off < 600,
       s"48 outputs: the driver went from $off to $on bytes; prediction 6 said under 500 more")
+  }
+
+  test("the emitted class is measured in the JVM's own units, and the reader agrees with " +
+      "the one the suites use") {
+    // Weight is the emitter's proxy for size; this is the size. The two class-file readers -
+    // VarkaEmittedClass in main, which the emitter and the tools use, and the test support's
+    // codeSize - must agree method for method, or a size a test pins is not the size a tool
+    // prints. The run method's parameter slots are the int lane's signature: six arrays and
+    // an int, plus `this`.
+    val (_, bytes) = emitMulti(Seq(new Year(new ColumnRef(0))), 1, 0)
+    val measured = VarkaEmittedClass.measure(bytes)
+    VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>").foreach { m =>
+      assert(measured.codeLength.get(m) === VarkaEmitterTestSupport.codeSize(bytes, m),
+        s"$m: the two readers disagree")
+    }
+    assert(measured.parameterSlots.get("run") === 8)
+    assert(measured.constantPoolCount > 0 && measured.constantPoolCount < 1000,
+      s"one-output kernel: ${measured.constantPoolCount} constant pool entries")
+    assert(VarkaEmitBudget.overLimits(measured).isEmpty)
+  }
+
+  test("a make_date ladder crosses HugeMethodLimit in the masked epilogue at 13 outputs and " +
+      "the dense one at 14, with every loop method under it (task 87)") {
+    // PLAN_TASK_87.md 2.2 and 2.3: the epilogue holds every output while the loop is grouped,
+    // so on this family the epilogue is the first method over 8000 bytes, and past it HotSpot
+    // never compiles it - PrintCompilation shows the 16-output dense epilogue absent at every
+    // tier and present under -XX:-DontCompileHugeMethods. The rungs are pinned rather than the
+    // sizes, because a lowering change moves the bytes and this test should say when it moved
+    // the crossing. The overLimits reader has to name exactly the two epilogues at 16 outputs
+    // and nothing else, since the loop methods are grouped under the budget.
+    def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
+      val col = new ColumnRef(0)
+      new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
+    }
+    val limit = VarkaEmitBudget.HUGE_METHOD_LIMIT
+    def size(n: Int, method: String): Int =
+      VarkaEmitterTestSupport.codeSize(emitMulti(ladder(n), 1, n)._2, method)
+    assert(size(12, "epilogueMasked") < limit && size(13, "epilogueMasked") > limit)
+    assert(size(13, "epilogueDense") < limit && size(14, "epilogueDense") > limit)
+    val at16 = VarkaEmittedClass.measure(emitMulti(ladder(16), 1, 16)._2)
+    at16.codeLength.asScala.filter(_._1.startsWith("loop")).foreach { case (m, bytes) =>
+      assert(bytes < limit, s"$m is $bytes bytes: a loop method over HugeMethodLimit")
+    }
+    val over = VarkaEmitBudget.overLimits(at16).asScala
+    assert(over.size === 2 && over.forall(_.contains("HugeMethodLimit")), over.mkString("\n"))
+    assert(over.exists(_.startsWith("epilogueDense ")) &&
+      over.exists(_.startsWith("epilogueMasked ")), over.mkString("\n"))
   }
 }

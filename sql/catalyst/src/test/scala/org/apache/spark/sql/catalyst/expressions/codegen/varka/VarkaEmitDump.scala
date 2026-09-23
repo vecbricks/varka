@@ -50,6 +50,10 @@ import org.apache.spark.sql.types.{ByteType, DataType, DateType, DayTimeInterval
  * line-map entries. With
  * `--rounds N` the kernel is also loaded and run N times over synthetic data, which is what
  * lets the wrapper's `--asm` get C2's standard compilation of the loop method printed.
+ * After the table comes the class against what the JVM enforces (`PLAN_TASK_87.md`): the
+ * constant pool count, the widest signature's parameter slots, and either a line saying every
+ * method is under `HugeMethodLimit` or one `OVER LIMIT` line per method that is not - a method
+ * HotSpot will load and run interpreted for the life of the JVM without saying so.
  * `--rows N` sets the batch length (1024 by default). A length that is not a multiple of the
  * lane count gives every batch a tail, so the epilogue does vector work rather than returning
  * at once, which is the only way a probe can see what the tail costs. The time of the second
@@ -169,6 +173,20 @@ object VarkaEmitDump {
       val lines = VarkaEmitterTestSupport.lineNumbers(bytes, m).size
       report(f"$m%-18s $size%6d $vectorOps%9d $longOps%10d $doubleOps%12d $convertOps%7d " +
         f"$maskOps%10d $validityOps%8d $lines%5d")
+    }
+    // The class against what the JVM enforces (PLAN_TASK_87.md): weight is the emitter's proxy,
+    // and these are the quantities it stands in for. A method over HugeMethodLimit is the
+    // finding this line exists to make visible, since the class would load and run regardless.
+    val measured = VarkaEmittedClass.measure(bytes)
+    val widest = measured.parameterSlots.asScala.maxBy(_._2)
+    report(f"class: constant pool ${measured.constantPoolCount}%d of " +
+      f"${VarkaEmitBudget.CONSTANT_POOL_CAP}%d entries; widest signature ${widest._1} at " +
+      f"${widest._2}%d of ${VarkaEmitBudget.PARAMETER_SLOT_CAP}%d parameter slots")
+    val over = VarkaEmitBudget.overLimits(measured).asScala
+    if (over.isEmpty) {
+      report(s"every method is under HugeMethodLimit (${VarkaEmitBudget.HUGE_METHOD_LIMIT})")
+    } else {
+      over.foreach(finding => report(s"OVER LIMIT: $finding"))
     }
     VarkaDebugInfo.read(bytes).ifPresent { info =>
       report("")
