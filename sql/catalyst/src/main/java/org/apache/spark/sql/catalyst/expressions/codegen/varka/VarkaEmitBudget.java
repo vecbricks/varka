@@ -53,7 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  * a class's constant pool, a method's parameter slots - are the limits at the top of this
  * class, and {@link #overLimits} reads an emitted class against them ({@code PLAN_TASK_87.md}).
  */
-final class VarkaEmitBudget {
+public final class VarkaEmitBudget {
 
   private VarkaEmitBudget() {
   }
@@ -74,7 +74,7 @@ final class VarkaEmitBudget {
    * reaches C2 quickly through its backedges where a method with no loop, such as an epilogue,
    * reaches it only by invocation count. See {@code PLAN_TASK_87.md} 2.3 and 2.6.5.
    */
-  static final int HUGE_METHOD_LIMIT = 8000;
+  public static final int HUGE_METHOD_LIMIT = 8000;
 
   /** The class-file format's cap on one method's bytecode length: a {@code u2} of code bytes. */
   static final int METHOD_CODE_CAP = 65535;
