@@ -72,7 +72,13 @@ final class VarkaBodyEmitter {
       all.add(o);
     }
     List<Integer> bodyOutputs = mode == BodyMode.LOOP ? groups.get(group) : all;
-    Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals);
+    // Task 87: under the byte budget a loop method sets up only what its group writes and reads.
+    // The driver still owns every output - it zeroes each validity bitmap and runs the bitmap
+    // pass - and the epilogue holds every output until it is partitioned, so both keep the
+    // whole-kernel prologue whichever way the option is set.
+    boolean perGroup = mode == BodyMode.LOOP && analysis.options.methodByteBudget() > 0;
+    Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup);
+    List<Integer> prologueOutputs = perGroup ? bodyOutputs : all;
 
     // (1) if (length <= 0) return 0 - nothing ran, so there is nothing to report.
     Label nonEmpty = cb.newLabel();
@@ -102,7 +108,7 @@ final class VarkaBodyEmitter {
     // Cond root's data address is 0L by the interface contract and must not be materialized
     // (the same rule as an all-null input's validity address); zeroing its bitmap doubles
     // as the selection invariant - an unwritten row reads as unselected.
-    for (int o = 0; o < numOutputs; o++) {
+    for (int o : prologueOutputs) {
       if (!(outputs.get(o) instanceof Cond)) {
         loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
       }
@@ -286,6 +292,9 @@ final class VarkaBodyEmitter {
     cb.invokeinterface(VECTOR_SPECIES, "loopBound", LOOP_BOUND);
     cb.istore(s.loopBound);
     for (int j = 0; j < numLiterals; j++) {
+      if (s.scalarArg[j] < 0) {
+        continue; // a literal no output of this group reads (per-group planning, task 87)
+      }
       cb.aload(analysis.lane.scalarArgsSlot());
       cb.loadConstant(j);
       analysis.lane.arrayLoad(cb);

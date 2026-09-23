@@ -236,6 +236,25 @@ final class Slots {
     dstValSeg = new int[numOutputs];
   }
 
+  /** The literal slots the trees of the outputs in {@code outputIdx} read, as a set of indices. */
+  static java.util.BitSet referencedLiterals(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
+      int numLiterals) {
+    java.util.BitSet used = new java.util.BitSet(numLiterals);
+    for (int o : outputIdx) {
+      collectLiterals(outputs.get(o), used);
+    }
+    return used;
+  }
+
+  private static void collectLiterals(VarkaVectorIR node, java.util.BitSet into) {
+    if (node instanceof VarkaVectorIR.LiteralSlot l) {
+      into.set(l.index());
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      collectLiterals(child, into);
+    }
+  }
+
   /**
    * Assigns every local slot the body needs, including the per-node word and condition slots,
    * with word aliasing: a node whose validity equals one child's (a literal offset, a unary
@@ -245,6 +264,20 @@ final class Slots {
    */
   static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, Analysis analysis, int numLiterals) {
+    return plan(dense, mode, outputs, outputIdx, analysis, numLiterals, false);
+  }
+
+  /**
+   * As above; with {@code perGroup} the body gets slots only for the outputs in {@code outputIdx}
+   * and the literals their trees reference, and every other output or literal slot is {@code -1}
+   * so that an emission which reaches for one fails to build rather than reading a stale local.
+   * A loop method under task 87's byte budget plans this way: setting up every output of the
+   * kernel in every group was the term that grew each loop method with the whole kernel
+   * ({@code PLAN_TASK_87.md} 2.6.2). The driver and, until it is partitioned, the epilogue keep
+   * planning for every output, since they write them all.
+   */
+  static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
+      List<Integer> outputIdx, Analysis analysis, int numLiterals, boolean perGroup) {
     int numInputs = analysis.numInputs;
     Slots s = new Slots(numInputs, outputs.size());
     int slot = analysis.lane.firstLocal;
@@ -252,7 +285,16 @@ final class Slots {
     slot += 2;
     s.validityBytes = slot;
     slot += 2;
+    java.util.BitSet planned = new java.util.BitSet(outputs.size());
+    for (int o : outputIdx) {
+      planned.set(o);
+    }
     for (int o = 0; o < outputs.size(); o++) {
+      if (perGroup && !planned.get(o)) {
+        s.dstSeg[o] = -1;
+        s.dstValSeg[o] = -1;
+        continue;
+      }
       s.dstSeg[o] = slot++;
       s.dstValSeg[o] = slot++;
     }
@@ -271,7 +313,13 @@ final class Slots {
     s.lanes = slot++;
     s.loopBound = slot++;
     s.scalarArg = new int[numLiterals];
+    java.util.BitSet usedLiterals = perGroup
+        ? referencedLiterals(outputs, outputIdx, numLiterals) : null;
     for (int j = 0; j < numLiterals; j++) {
+      if (usedLiterals != null && !usedLiterals.get(j)) {
+        s.scalarArg[j] = -1;
+        continue;
+      }
       s.scalarArg[j] = slot;
       // A long occupies two JVM locals; an int one. Stepping by the lane's own width is what
       // keeps two long literals from overlapping in the frame.

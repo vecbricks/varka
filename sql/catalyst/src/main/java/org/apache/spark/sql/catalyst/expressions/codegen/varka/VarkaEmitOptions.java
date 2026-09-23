@@ -277,6 +277,15 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        only at a baked lane count, since the half of the preferred species has no named
  *        constant; at count 0 the store is the masked form either way. The A/B is
  *        {@code PLAN_TASK_156.md}'s.
+ * @param methodByteBudget task 87's switch, and the bytecode length a method is held to once the
+ *        budget acts. {@code 0}, the default until the task's last commit, is today's emission
+ *        exactly. A positive value turns on the per-group prologue: a loop method sets up the
+ *        destination segments and literals of the outputs its own group writes, where the legacy
+ *        form set up every output of the kernel in every method - the term that grew each loop
+ *        method with the whole kernel and put wide-prefixed slots past 255 locals
+ *        ({@code PLAN_TASK_87.md} 2.6.2). Later commits use the value as the limit a method's
+ *        code length is measured against. Test-only until the default flips; every value is
+ *        fuzzed.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -303,7 +312,8 @@ public record VarkaEmitOptions(
     boolean shareWholeNodes,
     boolean validityByWord,
     boolean mulHiDivide,
-    boolean narrowHalfSpecies) {
+    boolean narrowHalfSpecies,
+    int methodByteBudget) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -407,7 +417,7 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, true, true, true, true,
           0,
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
-          false, false, true, true, false, true, false);
+          false, false, true, true, false, true, false, 0);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -425,6 +435,10 @@ public record VarkaEmitOptions(
     if (useAVX < USE_AVX_UNKNOWN) {
       throw new IllegalArgumentException("useAVX must be a level or " + USE_AVX_UNKNOWN
           + " for none, not " + useAVX);
+    }
+    if (methodByteBudget < 0) {
+      throw new IllegalArgumentException("methodByteBudget must be 0 (off) or a positive byte "
+          + "count: " + methodByteBudget);
     }
     if (division == null) {
       throw new IllegalArgumentException("division must not be null");
@@ -467,6 +481,7 @@ public record VarkaEmitOptions(
       b.validityByWord = validityByWord;
       b.mulHiDivide = mulHiDivide;
       b.narrowHalfSpecies = narrowHalfSpecies;
+      b.methodByteBudget = methodByteBudget;
     return b;
   }
 
@@ -497,6 +512,7 @@ public record VarkaEmitOptions(
     private boolean validityByWord;
     private boolean mulHiDivide;
     private boolean narrowHalfSpecies;
+    private int methodByteBudget;
 
     private Builder() {
     }
@@ -626,6 +642,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder methodByteBudget(int methodByteBudget) {
+      this.methodByteBudget = methodByteBudget;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -633,7 +654,7 @@ public record VarkaEmitOptions(
           validityByWidth, validityOrFirst, validityByBitmap, checkIntOverflow,
           lanesOverride, truncDate, floorMod7, division, useAVX, misdescribeAdd,
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
-          mulHiDivide, narrowHalfSpecies);
+          mulHiDivide, narrowHalfSpecies, methodByteBudget);
     }
   }
 
@@ -644,6 +665,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withNarrowHalfSpecies(boolean enabled) {
     return toBuilder().narrowHalfSpecies(enabled).build();
+  }
+
+  public VarkaEmitOptions withMethodByteBudget(int bytes) {
+    return toBuilder().methodByteBudget(bytes).build();
   }
 
   public VarkaEmitOptions withShareWholeNodes(boolean enabled) {
@@ -788,6 +813,6 @@ public record VarkaEmitOptions(
         + truncDate + '|' + floorMod7 + '|' + division + '|' + useAVX + '|'
         + misdescribeAdd + '|' + misdescribeWordLiveness + '|' + guardUnderArm + '|'
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
-        + '|' + narrowHalfSpecies + ')';
+        + '|' + narrowHalfSpecies + '|' + methodByteBudget + ')';
   }
 }

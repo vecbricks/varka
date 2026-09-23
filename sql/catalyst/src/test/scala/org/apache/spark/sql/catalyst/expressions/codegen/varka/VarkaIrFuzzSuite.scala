@@ -104,6 +104,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           } else if (m.getName == "withUseAVX") {
             Some(Integer.valueOf(
               Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 2, 3)(rnd.nextInt(4))))
+          } else if (m.getName == "withMethodByteBudget") {
+            // Task 87's switch: off, or the limit HotSpot enforces. A small number here would
+            // later mean "every method is over budget", which is a decline, not a variant.
+            Some(Integer.valueOf(Seq(0, 8000)(rnd.nextInt(2))))
           } else {
             Some(Integer.valueOf(Seq(8, 24, 32)(rnd.nextInt(3))))
           }

@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -395,5 +397,52 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       emitMulti(fields(12), 12, 0, sharing.withValidityByBitmap(true))._2, "runMasked")
     assert(on > off && on - off < 600,
       s"48 outputs: the driver went from $off to $on bytes; prediction 6 said under 500 more")
+  }
+
+  test("under the byte budget a loop method sets up only its group's outputs and literals, " +
+      "and answers the same (task 87, step 3a)") {
+    // PLAN_TASK_87.md 2.6.2: every loop method used to materialize the destination segments of
+    // every output in the kernel and load every literal, so a group's bytes grew with the whole
+    // kernel - the term a regroup could never shrink - and past 255 locals every load took a
+    // wide prefix. Under the switch the group sets up what it writes and reads. The op count
+    // is untouched by construction, the epilogue and the driver are untouched until their own
+    // steps, and a kernel of one group has nothing to drop, so its bytes are identical.
+    def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
+      val col = new ColumnRef(0)
+      new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
+    }
+    // 8000 is HotSpot's HugeMethodLimit; step 3 names it VarkaEmitBudget.HUGE_METHOD_LIMIT.
+    val on = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(8000)
+    def sizes(n: Int, options: VarkaEmitOptions): Map[String, Int] = {
+      val bytes = emitMulti(ladder(n), 1, n, options)._2
+      VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
+        .map(m => m -> VarkaEmitterTestSupport.codeSize(bytes, m)).toMap
+    }
+    def ops(n: Int, options: VarkaEmitOptions, method: String): Int =
+      VarkaEmitterTestSupport.invocationCount(
+        emitMulti(ladder(n), 1, n, options)._2, method, "jdk.incubator.vector.IntVector")
+
+    val (off60, on60) = (sizes(60, VarkaEmitOptions.DEFAULTS), sizes(60, on))
+    for (m <- off60.keys if m.startsWith("loop")) {
+      assert(on60(m) < off60(m), s"$m: ${off60(m)} -> ${on60(m)} bytes, expected smaller")
+      assert(ops(60, on, m) === ops(60, VarkaEmitOptions.DEFAULTS, m), s"$m: the op count moved")
+    }
+    for (m <- Seq("epilogueDense", "epilogueMasked", "runDense", "runMasked")) {
+      assert(on60(m) === off60(m), s"$m is not a loop method and must not move in this step")
+    }
+    assert(sizes(4, on) === sizes(4, VarkaEmitOptions.DEFAULTS), "one group: nothing to drop")
+
+    // The same answers as the reference evaluator, on both bodies, at ragged and even lengths.
+    // `forceMasked` reports one null over a full-set bitmap to reach the masked body, and at
+    // length 1 that one null is the whole batch: the kernel marks the input dead and nulls every
+    // output, which is right for what it was told. So the forced arm starts at 7; the null
+    // pattern covers the masked body at length 1 honestly, with a null the reference also sees.
+    val lits = (1 to 16).toArray
+    val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
+    val lengths = Seq(1, 7, 16, 17, 100)
+    checkMatrix(ladder(16), 1, lits, lengths, patterns, options = on,
+      ctx = "per-group prologue")
+    checkMatrix(ladder(16), 1, lits, lengths.filter(_ > 1), patterns, options = on,
+      forceMasked = true, ctx = "per-group prologue, masked")
   }
 }

@@ -457,3 +457,22 @@ single real failure is row 87's epilogue cap again -
 renders 79645 bytes against the JVM's 65535 limit. Two campaigns a fortnight
 apart have now found that shape family and nothing else, which is worth knowing
 before a public post and is not a reason to run a third.
+
+## A forced masked batch of length 1 is all-null, and the kernel is right to say so
+
+`VarkaEmitterTestBase.checkMatrix(forceMasked = true)` reaches the masked body
+by reporting one null over a full-set bitmap, since the dispatcher tests only
+`nullCount != 0`. That is a lie the kernel does not check, and at length 1 it
+is a different lie than at length 16: one null is then the whole batch, the
+prologue marks the input dead because `nullCount == length`, and every output
+computed from it is null. The reference evaluator sees no nulls and disagrees,
+and the failure reads exactly like a masked-epilogue bug on the shortest batch -
+which is what task 87's step 3a spent a run believing, on a shape the legacy
+emission answered the same way.
+
+So a forced-masked matrix starts at a length above one, and length 1 is covered
+by a null pattern that puts a real null in the batch, where the reference and
+the kernel agree on what is null. The general form of the lesson: a harness
+trick that fakes a count must be checked against every length the matrix
+runs, because a count that is a small fraction of one batch is the whole of
+another.

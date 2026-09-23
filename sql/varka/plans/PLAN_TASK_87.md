@@ -582,3 +582,39 @@ what warmup there is sits inside them.
 Predictions 3 and 4 are about the per-group form and wait for it. The 128-bit
 null-free column is not shown: that fork landed in task 189's cycle at every
 rung from twelve, and the band names those cases unreadable.
+
+### 9.2 Step 3a: a group's bytes are the group's, 23 September 2026
+
+Behind `methodByteBudget`, a loop method plans slots and sets up segments and
+literals only for the outputs its group writes and the literals their trees
+read; the driver and the epilogue keep the whole-kernel prologue, the one
+because it zeroes every bitmap and runs the bitmap pass, the other until step 4
+partitions it. From `dev/varka_emit.sh`, legacy against the switch, bytes with
+the `IntVector` count beside them:
+
+| method | 16 outputs | 60 outputs |
+| :--- | :--- | :--- |
+| `loopDense0` | 3294 -> 2956 (313) | 5072 -> 2956 (313) |
+| `loopMasked0` | 3533 -> 3195 (313) | 5357 -> 3195 (313) |
+| `loopMasked3` | 1657 -> 1210 (93) | 5597 -> 3910 (313) |
+| `epilogueMasked` | 10314 -> 10314 (918) | 41338 -> 41338 (3338) |
+| `runMasked` | 824 -> 824 | 2700 -> 2700 |
+
+**The first group reads 3195 bytes at sixteen outputs and 3195 at sixty.** A
+group's size is now a function of the group, which is the property step 5's
+regroup needs and the property 2.6.2 found the legacy form could not give: the
+same group had grown from 3533 to 5357 as outputs it never wrote were added
+around it. The op counts are unchanged by construction, the epilogue and the
+driver are byte-identical, and a kernel of one group is byte-identical whichever
+way the switch is set. `VarkaEmitterBudgetSuite` pins all of that and runs the
+sixteen-output ladder against the reference evaluator on both bodies at ragged
+and even lengths under the switch.
+
+**Two things the step found.** The suites' `forceMasked` - one reported null
+over a full-set bitmap, to reach the masked body - is a lie the kernel is right
+to act on at length 1: one null is then the whole batch, the input is dead and
+every output null, and the first draft of this step's test read that as a bug
+in the emission. It is recorded in `sql/varka/skills/testing-and-debugging.md`.
+And the fuzzer draws 8, 24 or 32 for an int setter it does not know, which as
+a byte budget would later mean "every method is over budget"; the setter now
+has its own domain there, off or 8000.
