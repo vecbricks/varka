@@ -485,7 +485,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite {
       "groupBudget=64" -> ((o: VarkaEmitOptions) => o.withGroupBudget(64)),
       "groupBudget=800" -> ((o: VarkaEmitOptions) => o.withGroupBudget(800)),
       "fusedCeiling=200" -> ((o: VarkaEmitOptions) => o.withFusedCeiling(200)),
-      "fusedCeiling=800" -> ((o: VarkaEmitOptions) => o.withFusedCeiling(800)))
+      "fusedCeiling=800" -> ((o: VarkaEmitOptions) => o.withFusedCeiling(800)),
+      "methodByteBudget=8000" -> ((o: VarkaEmitOptions) => o.withMethodByteBudget(8000)))
     flags ++ division ++ avx ++ budgets
   }
 

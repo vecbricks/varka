@@ -453,8 +453,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // every output in the kernel and load every literal, so a group's bytes grew with the whole
     // kernel - the term a regroup could never shrink - and past 255 locals every load took a
     // wide prefix. Under the switch the group sets up what it writes and reads. The op count
-    // is untouched by construction, the epilogue and the driver are untouched until their own
-    // steps, and a kernel of one group has nothing to drop, so its bytes are identical.
+    // is untouched by construction, the driver is untouched, and a kernel of one group has
+    // nothing to drop, so its loop methods' bytes are identical. The epilogue is step 4's.
     def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
       val col = new ColumnRef(0)
       new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
@@ -474,10 +474,17 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       assert(on60(m) < off60(m), s"$m: ${off60(m)} -> ${on60(m)} bytes, expected smaller")
       assert(ops(60, on, m) === ops(60, VarkaEmitOptions.DEFAULTS, m), s"$m: the op count moved")
     }
-    for (m <- Seq("epilogueDense", "epilogueMasked", "runDense", "runMasked")) {
-      assert(on60(m) === off60(m), s"$m is not a loop method and must not move in this step")
+    // The driver sets up every output either way; what it gains is one call per epilogue the
+    // switch splits off (step 4), a few bytes each, never a setup term.
+    val groups = off60.keys.count(_.startsWith("loopMasked"))
+    for (m <- Seq("runDense", "runMasked")) {
+      val grew = on60(m) - off60(m)
+      assert(grew > 0 && grew <= 32 * (groups - 1),
+        s"$m: ${off60(m)} -> ${on60(m)} bytes for ${groups - 1} more epilogue calls")
     }
-    assert(sizes(4, on) === sizes(4, VarkaEmitOptions.DEFAULTS), "one group: nothing to drop")
+    val loopsAndDrivers = (m: Map[String, Int]) => m.filter(_._1.startsWith("loop"))
+    assert(loopsAndDrivers(sizes(4, on)) === loopsAndDrivers(sizes(4, VarkaEmitOptions.DEFAULTS)),
+      "one group: nothing to drop")
 
     // The same answers as the reference evaluator, on both bodies, at ragged and even lengths.
     // `forceMasked` reports one null over a full-set bitmap to reach the masked body, and at
@@ -491,5 +498,54 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       ctx = "per-group prologue")
     checkMatrix(ladder(16), 1, lits, lengths.filter(_ > 1), patterns, options = on,
       forceMasked = true, ctx = "per-group prologue, masked")
+  }
+
+  test("under the byte budget the epilogue is one method per group with its loop method's op " +
+      "count, every method fits HugeMethodLimit up the ladder at both widths, and the answers " +
+      "hold (task 87, step 4)") {
+    // PLAN_TASK_87.md 3.1 step 1 and 3.3: the single epilogue carried every output's tail and
+    // crossed HugeMethodLimit at thirteen make_date outputs, past which the JVM never compiles
+    // it. Split by the loop's groups, each epilogue<g> is one lane group of the same outputs as
+    // loop<g>, so it carries exactly that method's IntVector count, and the loop methods' counts
+    // do not move. The ladder runs at the JVM's own width and at 128 bits, where the two-lane
+    // long species makes a partial group of one row possible and a batch of one row is shorter
+    // than any group.
+    val rungs = Seq(4, 8, 12, 13, 14, 16, 32, 60)
+    for (lanes <- Seq(0, 4)) {
+      val off = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes)
+      val on = off.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+      for (n <- rungs) {
+        val roots = VarkaHugeMethodProbe.ladder(n)
+        val (bytesOn, bytesOff) = (emitMulti(roots, 1, n, on)._2, emitMulti(roots, 1, n, off)._2)
+        val ctx = s"lanes=$lanes outputs=$n"
+        val names = VarkaEmitterTestSupport.methodNames(bytesOn).asScala.filter(_ != "<init>")
+        for (side <- Seq("Dense", "Masked")) {
+          val groups = names.count(_.startsWith("loop" + side))
+          val epilogues = names.filter(_.startsWith("epilogue" + side))
+            .sortBy(_.stripPrefix("epilogue" + side).toInt)
+          assert(epilogues === (0 until groups).map("epilogue" + side + _),
+            s"$ctx: one epilogue per group")
+          for (g <- 0 until groups) {
+            assert(laneOps(bytesOn, s"epilogue$side$g") === laneOps(bytesOn, s"loop$side$g"),
+              s"$ctx: epilogue$side$g is one lane group of loop$side$g's outputs")
+            assert(laneOps(bytesOn, s"loop$side$g") === laneOps(bytesOff, s"loop$side$g"),
+              s"$ctx: the switch moved loop$side$g's op count")
+          }
+        }
+        for (m <- names) {
+          val size = VarkaEmitterTestSupport.codeSize(bytesOn, m)
+          assert(size <= VarkaEmitBudget.HUGE_METHOD_LIMIT, s"$ctx: $m is $size bytes")
+        }
+      }
+      // The reference evaluator agrees at an even batch, a ragged one and one shorter than any
+      // lane group - the last through the null pattern alone, since a forced null over a
+      // one-row batch is the whole batch (step 3a).
+      val lits = (1 to 16).toArray
+      val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
+      checkMatrix(VarkaHugeMethodProbe.ladder(16), 1, lits, Seq(1, 1024, 1031), patterns,
+        options = on, ctx = s"per-group epilogue, lanes=$lanes")
+      checkMatrix(VarkaHugeMethodProbe.ladder(16), 1, lits, Seq(1024, 1031), patterns,
+        options = on, forceMasked = true, ctx = s"per-group epilogue, masked, lanes=$lanes")
+    }
   }
 }

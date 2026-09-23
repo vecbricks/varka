@@ -630,3 +630,43 @@ in the emission. It is recorded in `sql/varka/skills/testing-and-debugging.md`.
 And the fuzzer draws 8, 24 or 32 for an int setter it does not know, which as
 a byte budget would later mean "every method is over budget"; the setter now
 has its own domain there, off or 8000.
+
+### 9.3 Step 4: the epilogue per group, 23 September 2026
+
+Behind the same switch the epilogue is one method per group beside its loop
+method, `epilogueDense<g>` and `epilogueMasked<g>`, each planning and setting
+up only its group as 3a's loop methods do, and each keeping its own even-batch
+return (2.6.3). The driver calls them in turn after the loops. From
+`dev/varka_emit.sh`, the `make_date` ladder under the switch, bytes with the
+`IntVector` count beside them; the legacy column is 9.2's single epilogue:
+
+| outputs | single `epilogueMasked` | `epilogueMasked<g>` under the switch | `runMasked` |
+| ---: | :--- | :--- | :--- |
+| 16 | 10314 (918) | 3257, 3269, 3844, 1236 (313, 313, 313, 93) | 824 -> 888 |
+| 60 | 41338 (3338) | 3257 .. 3972, twelve of them (313 each) | 2700 -> 2924 |
+
+The dense side reads the same way: 3006 to 3691 bytes a group at sixty outputs.
+**Every method of the ladder now fits HugeMethodLimit at both widths through
+sixty outputs**, which `VarkaEmitterBudgetSuite` asserts rung by rung, and each
+`epilogue<g>` carries exactly its `loop<g>`'s `IntVector` count - the per-group
+invariant 3.3 registered after the sum invariant fell. The sum is what 3.3 said
+it would be: twelve epilogues at 313 are 3756 operations against the single
+method's 3338, and the difference, 418, is the 38-operation civil-from-days
+prefix repeated in eleven more groups. The driver gains one call per epilogue,
+about twenty bytes each.
+
+**The property the task exists for, read from the JVM.** `VarkaHugeMethodSuite`
+forks a JVM under `-Xbatch -XX:+PrintCompilation`, runs the sixteen-output
+ladder hot on ragged batches, and reads the tiers HotSpot prints for the
+emitted class. Under the switch every loop and epilogue method reaches tier 4.
+Without it the single `epilogueDense` and `epilogueMasked` never appear at any
+tier while every loop method reaches tier 4 - `DontCompileHugeMethods`
+refusing them silently, as 2.3 read by hand and this suite now pins.
+
+**What this leaves for step 5.** On this family the regroup has nothing to do:
+weight grouping already leaves every group's methods under 8000 bytes once
+each carries only its own group. The regroup is for a group that is over the
+limit on its own - a single output of great weight, or a `FUSED_CEILING` group
+whose shared prefix is small beside its tails - and the decline is for a shape
+that is over a limit as a single output. 6's benchmark scores predictions 3
+and 4 on both forms.

@@ -52,7 +52,8 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * <p><b>The key is a method, not a shape</b> ( {@code PLAN_TASK_50.md} 2.1). A generated kernel is
  * not one method: it is deliberately split into {@code run}, {@code runDense},
  * {@code runMasked}, {@code loopDense}<i>g</i>, {@code loopMasked}<i>g</i>,
- * {@code epilogueDense} and {@code epilogueMasked}, whose compiled sizes differ from each other
+ * {@code epilogueDense} and {@code epilogueMasked} (per group, with a <i>g</i> suffix, under
+ * the byte budget), whose compiled sizes differ from each other
  * by an order of magnitude. Keyed on the shape alone, the second method compiled for a shape
  * would be compared against the first and reported as a divergence, and the detector would fire
  * constantly on a healthy JVM. Measured on a throwaway probe, one method at one tier moved with

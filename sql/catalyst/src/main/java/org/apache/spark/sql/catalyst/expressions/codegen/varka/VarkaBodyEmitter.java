@@ -71,12 +71,19 @@ final class VarkaBodyEmitter {
     for (int o = 0; o < numOutputs; o++) {
       all.add(o);
     }
-    List<Integer> bodyOutputs = mode == BodyMode.LOOP ? groups.get(group) : all;
-    // Task 87: under the byte budget a loop method sets up only what its group writes and reads.
-    // The driver still owns every output - it zeroes each validity bitmap and runs the bitmap
-    // pass - and the epilogue holds every output until it is partitioned, so both keep the
+    // A loop method is always one group's; the epilogue is one group's under the byte budget
+    // and every output's without it (the method layout in VarkaLoopEmitter.emit); the driver
+    // is every output's.
+    List<Integer> bodyOutputs = group >= 0 ? groups.get(group) : all;
+    // Task 87: under the byte budget a group's method sets up only what its group writes and
+    // reads, so its size is the group's and not the kernel's. The driver still owns every
+    // output - it zeroes each validity bitmap and runs the bitmap pass - so it keeps the
     // whole-kernel prologue whichever way the option is set.
-    boolean perGroup = mode == BodyMode.LOOP && analysis.options.methodByteBudget() > 0;
+    boolean perGroup = mode != BodyMode.DRIVER && analysis.options.methodByteBudget() > 0;
+    if (perGroup && group < 0) {
+      throw new IllegalArgumentException(
+          "a " + mode + " body under the byte budget is one group's");
+    }
     Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup);
     List<Integer> prologueOutputs = perGroup ? bodyOutputs : all;
 
@@ -327,22 +334,36 @@ final class VarkaBodyEmitter {
           cb.ior();
           cb.istore(s.status);
         }
-        // The rows past loopBound belong to the sibling epilogue method.
-        cb.iload(s.status);
-        invokeCall(cb, classDesc, dense ? "epilogueDense" : "epilogueMasked", analysis.lane);
-        cb.ior();
+        // The rows past loopBound belong to the sibling epilogue: one method, or one per group
+        // under the byte budget. Each epilogue keeps its own even-batch return rather than the
+        // driver testing once for all of them: the calls that return at once are what warm the
+        // method up on a scan whose batches mostly divide evenly (PLAN_TASK_87.md 2.6.3).
+        String epilogue = dense ? "epilogueDense" : "epilogueMasked";
+        if (analysis.options.methodByteBudget() > 0) {
+          for (int g = 0; g < groups.size(); g++) {
+            cb.iload(s.status);
+            invokeCall(cb, classDesc, epilogue + g, analysis.lane);
+            cb.ior();
+            cb.istore(s.status);
+          }
+          cb.iload(s.status);
+        } else {
+          cb.iload(s.status);
+          invokeCall(cb, classDesc, epilogue, analysis.lane);
+          cb.ior();
+        }
         cb.ireturn();
       }
       case LOOP -> {
-        emitVectorLoop(cb, dense, outputs, groups.get(group), analysis, s);
+        emitVectorLoop(cb, dense, outputs, bodyOutputs, analysis, s);
         assertWordsLive(s, mode);
         emitStatusReturn(cb, s);
       }
       case EPILOGUE -> {
-        // One method for every output, not one per group: the epilogue runs a single pass per
-        // batch, so GROUP_BUDGET - which exists to keep a *hot* method's C2 compile cheap -
-        // has nothing to bound here. This is the same shape the scalar tail it replaces had.
-        emitEpilogue(cb, dense, outputs, all, analysis, s);
+        // The loop body run once over the partial lane group past loopBound - the same shape
+        // the scalar tail it replaces had - for every output, or for one group's under the
+        // byte budget.
+        emitEpilogue(cb, dense, outputs, bodyOutputs, analysis, s);
         assertWordsLive(s, mode);
         emitStatusReturn(cb, s);
       }

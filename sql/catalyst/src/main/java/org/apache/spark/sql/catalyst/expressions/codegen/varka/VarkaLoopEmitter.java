@@ -362,12 +362,22 @@ public final class VarkaLoopEmitter {
     // dispatches per batch to a dense or masked *driver*; the driver zeroes the output validity,
     // takes the all-null shortcut, then calls one sibling *loop* method per output group (within
     // GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar prefix - see
-    // groupOutputs) and finally the sibling *epilogue* method. Separate methods, not one big one:
-    // each gets its own C2 compilation, so no method's node and inlining budgets can starve
-    // another's intrinsics (measured 3x to 4x; see `PLAN_TASK_10.md`).
+    // groupOutputs) and finally the *epilogue*. Separate methods, not one big one: each gets its
+    // own C2 compilation, so no method's node and inlining budgets can starve another's
+    // intrinsics (measured 3x to 4x; see `PLAN_TASK_10.md`).
+    //
+    // The epilogue is one method for every output, or - under the byte budget - one per group
+    // beside its loop method, `epilogueDense<g>` and `epilogueMasked<g>`. One method was the
+    // right shape while GROUP_BUDGET was the only bound: the epilogue runs once per batch, so a
+    // hot method's C2 cost had nothing to bound there. It is the wrong shape for the JVM's size
+    // limit, which reads bytes rather than heat: a single epilogue carries every output's tail
+    // and crosses HugeMethodLimit at thirteen make_date outputs, after which it is never
+    // compiled at all (`PLAN_TASK_87.md` 2.2). Split by the loop's groups it is bounded by what
+    // bounds the loops.
     ClassDesc classDesc = ClassDesc.of(className);
     boolean anyColumns = analysis.referencedColumns != 0;
     List<List<Integer>> groups = groupOutputs(outputs, options);
+    boolean epiloguePerGroup = options.methodByteBudget() > 0;
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
     VarkaDebugInfo debugInfo = new VarkaDebugInfo(
@@ -391,34 +401,42 @@ public final class VarkaLoopEmitter {
       // writes no per-lane validity, so the dispatch takes the masked methods for every batch, and
       // the masked body treats a null-free input as a constant word.
       if (!analysis.nullsFromValidInputs) {
-        b.withMethodBody("runDense", analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-            (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, true, BodyMode.DRIVER, -1,
-                classDesc, outputs, analysis, numLiterals, groups))
-            .withMethodBody("epilogueDense", analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-                (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, true, BodyMode.EPILOGUE, -1,
-                    classDesc, outputs, analysis, numLiterals, groups));
-        for (int g = 0; g < groups.size(); g++) {
-          final int group = g;
-          b.withMethodBody("loopDense" + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, true, BodyMode.LOOP, group,
-                  classDesc, outputs, analysis, numLiterals, groups));
-        }
+        emitBodies(b, true, classDesc, outputs, analysis, numLiterals, groups, epiloguePerGroup);
       }
       if (anyColumns || analysis.nullsFromValidInputs) {
-        b.withMethodBody("runMasked", analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-            (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, false, BodyMode.DRIVER, -1,
-                classDesc, outputs, analysis, numLiterals, groups))
-            .withMethodBody("epilogueMasked", analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-                (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, false, BodyMode.EPILOGUE, -1,
-                    classDesc, outputs, analysis, numLiterals, groups));
-        for (int g = 0; g < groups.size(); g++) {
-          final int group = g;
-          b.withMethodBody("loopMasked" + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
-              (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, false, BodyMode.LOOP, group,
-                  classDesc, outputs, analysis, numLiterals, groups));
-        }
+        emitBodies(b, false, classDesc, outputs, analysis, numLiterals, groups, epiloguePerGroup);
       }
     });
+  }
+
+  /**
+   * One side's methods - dense or masked: the driver, a loop method per group, and the
+   * epilogue, which is one method over every output or, with {@code epiloguePerGroup}, one per
+   * group. See the method-layout note in {@link #emit}.
+   */
+  private static void emitBodies(ClassBuilder b, boolean dense, ClassDesc classDesc,
+      List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
+      List<List<Integer>> groups, boolean epiloguePerGroup) {
+    String side = dense ? "Dense" : "Masked";
+    b.withMethodBody("run" + side, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+        (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.DRIVER, -1,
+            classDesc, outputs, analysis, numLiterals, groups));
+    if (!epiloguePerGroup) {
+      b.withMethodBody("epilogue" + side, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+          (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, -1,
+              classDesc, outputs, analysis, numLiterals, groups));
+    }
+    for (int g = 0; g < groups.size(); g++) {
+      final int group = g;
+      b.withMethodBody("loop" + side + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+          (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.LOOP, group,
+              classDesc, outputs, analysis, numLiterals, groups));
+      if (epiloguePerGroup) {
+        b.withMethodBody("epilogue" + side + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+            (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, group,
+                classDesc, outputs, analysis, numLiterals, groups));
+      }
+    }
   }
 
   /**

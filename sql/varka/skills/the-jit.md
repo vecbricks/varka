@@ -442,6 +442,12 @@ paid on every batch whether aligned or not, is measurably more expensive when th
 never leave the interpreter. The unaligned case remains far larger (7.3x at a chunk where
 most of the batch is remainder) because there real interpreted arithmetic dominates too.
 
+The refusal is silent: `-XX:+PrintCompilation` prints no line for a method
+`DontCompileHugeMethods` rejects, at any tier, so the evidence that a method is over the
+limit is the *absence* of its line while its siblings reach tier 4. `VarkaHugeMethodSuite`
+pins that from a forked JVM under `-Xbatch`, both ways: the legacy single epilogue absent,
+and under `methodByteBudget` every loop and epilogue method at tier 4.
+
 ## A hand-written comparison kernel needs every fast path the real one has
 
 `ChronoVectorOps.vectorFourFields` was built as task 32's throughput ceiling: same
