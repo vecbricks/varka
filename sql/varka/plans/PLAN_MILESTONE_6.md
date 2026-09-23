@@ -508,6 +508,69 @@ out loud - the log line, or the generated code's own size - with the Spark
 revision named; the Varka arm beside it; and, where Varka is immune, the
 argument for *why*, in the plan, not in a commit message.
 
+### 2.12 A dense loop in a C2 deoptimization cycle at twelve outputs (task 189)
+
+*Opened 23 September 2026 from task 87's benchmark, which met it while measuring
+something else. Recorded here rather than absorbed there, because it is not a
+method-size cliff and task 87's mechanism would not touch it.*
+
+**The observation.** `VarkaMethodSizeBenchmark`'s null-free arm collapses from
+twelve `make_date` outputs on, at both batch lengths alike - about a hundred
+times slower than the arm with nulls over the same kernel - and the JVM's own
+output says why. Under `-XX:+PrintCompilation` and `-Xlog:deoptimization=debug`,
+the second output group's dense loop method, `loopDense1`, is compiled at tier 4
+and made not entrant **eighteen times in one benchmark case**, every time with
+`profile_predicate maybe_recompile` at the loop's back-edge (the `goto` back to
+the loop head; the loop head itself traps four times at its own predicate and
+stops, which is `PerBytecodeTrapLimit`). The timeline is a cycle with the period
+of the method's own C2 compile: a compile at 3703 ms, not entrant at 3964; a
+compile at 3971, not entrant at 4228; and so on every 250 to 260 milliseconds to
+the end of the case. Each new version traps on first execution, so the method
+runs interpreted for the whole window. `-XX:-UseProfiledLoopPredicate` removes
+every one of these traps and the method compiles once. The masked loop over the
+same kernel does not enter the cycle at all.
+
+**What it is not**, each ruled out by a run rather than an argument. Not the
+other kernels in the JVM (it reproduces with the twelve-output rung alone). Not
+mixed batch lengths (it reproduces at 1024-row calls only, and with a row count
+that leaves no remainder call). Not the masked path having run over the same
+kernel first (it reproduces with the null-free arm alone). Not the kernel's
+inputs (it reproduces with the dump tool's exact data values, a real all-ones
+validity bitmap and 1024-row buffers). Not the harness's `System.gc()` between
+cases (`-XX:+DisableExplicitGC` changes nothing). And yet the `--rounds` probe
+of `dev/varka_emit.sh` runs the identical kernel over identical inputs, compiles
+the method once and never traps. The one visible divergence is that the
+benchmark's run performs an **OSR compilation** of the loop right after the four
+loop-head traps and the dump tool's never does; what in the harness provokes
+that, and
+why the standard compile that follows carries a back-edge predicate its first
+execution violates, is the question this row opens.
+
+**Why it matters beyond the benchmark.** A projection of a dozen calendar
+outputs is an ordinary reporting shape, the loop method is 3.2KB - nowhere near
+any size limit - and nothing reports the cycle: the query is simply a hundred
+times slower on null-free data than on data with nulls. It is the third JIT
+cliff this milestone has found that the emitter cannot see, after the epilogue's
+size and C1's register limit, and the only one of the three that is not about
+size at all. `PerMethodTrapLimit` is 100 and `PerMethodRecompilationCutoff` 400
+on this JDK, so on a long-running query the cycle presumably ends after some
+tens of seconds of compile time; whether it does, and what the kernel runs at
+afterwards, is part of the question.
+
+**How.** Reproduce it in a forked probe under `-XX:+PrintCompilation` and
+`-Xlog:deoptimization=debug`, the way `VarkaAssemblySuite` forks its probes, so
+the cycle is asserted from the JVM's words rather than a rate. Then find the
+trigger between the two harnesses - the OSR compile is the lead - and read what
+the back-edge predicate is a predicate *on*, from `-XX:+PrintOptoAssembly` or
+the ideal graph if it comes to that. The fixes available, in order of
+preference: a loop shape the predicate does not misjudge, if the shape is the
+cause; a documented `-XX:-UseProfiledLoopPredicate` for Varka executors, if it
+is the JIT's; and, failing both, a decline for the shape with a reason. **Done
+when** the probe passes on the twelve-output shape with the method compiled once
+and no `profile_predicate` trap, and `VarkaMethodSizeBenchmark`'s null-free arm
+reads within band of its masked arm at every rung. Size: medium, and the
+investigation is the larger half.
+
 ### 2.10 The closing task (task 181)
 
 The post itself, in task 118's shape: the claim of 1.1, the figure of 2.5, the
@@ -556,6 +619,7 @@ milestone 4.
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
 | 187 | The constant-pool cliff | 2.11 | small |
 | 188 | The census: every place Spark's codegen gives up | 2.11 | medium |
+| 189 | A dense loop enters a C2 deoptimization cycle at twelve outputs | 2.12, from task 87's benchmark | medium |
 | 181 | The closing task: the post | 2.10 | last by definition |
 
 ## 4. Ordering
@@ -568,7 +632,7 @@ then published.
 | wave | tasks | why they wait |
 | ---: | :--- | :--- |
 | 0 | 87, 176, 178, 179, 182 | 87 opens the milestone; the infrastructure tasks are independent of everything and pay for themselves immediately, and 182 is what lets 171's ladder be claimed against an upstream baseline |
-| 1 | 168, 148, 173, 174, 184 | 168 after 87, because 87's measurement decides the shape of the budget; 148 rides with it, since both move `emitted_bytes.json` and one regeneration should carry both; 173 and 174 are independent |
+| 1 | 168, 148, 173, 174, 184, 189 | 168 after 87, because 87's measurement decides the shape of the budget; 189 beside 168, because it distorts the dense arm of the benchmark both read; 148 rides with 168, since both move `emitted_bytes.json` and one regeneration should carry both; 173 and 174 are independent |
 | 2 | 169, 177 | 169 after 168: the decline reasons are the budget's, and 177 wants the oracle's proof to be stable first |
 | 3 | 170, 171, 185, 186, 187 | 170 and 171 need the budget to exist before a ladder means anything; the three cliff studies are the vanilla half of what 171 plots, and each is independent of the others |
 | 3b | 188 | after 185, 186 and 187: the census is written against three worked examples rather than from a cold read |

@@ -289,6 +289,37 @@ it stands and says so; the list here is the record.
 10. **2.6.6 quoted a probe's timings as performance claims** with no committed
     file behind them; they are removed and the magnitudes left to section 6.
 
+### 2.8 What the benchmark found on its first run, 23 September 2026
+
+Step 2 built `VarkaMethodSizeBenchmark` as section 6 specifies, and its smoke
+run - one run at the host width, not a committed number - showed two things.
+
+**The masked arm shows the cliff where the plan put it.** Ragged against even,
+with nulls: flat at twelve outputs, about three times at thirteen, and three
+times from there on. Masked first, at thirteen, as prediction 1 says; about
+three times rather than more than an order of magnitude, as 2.6.6's probe
+suggested. The committed file scores it.
+
+**The null-free arm collapses from twelve outputs on, at both lengths, for a
+reason that is not this task's.** The second group's dense loop method enters a
+C2 deoptimization cycle - a new tier-4 compile installed every 250 milliseconds
+and made not entrant on first execution at a `profile_predicate` trap on the
+loop's back-edge - and runs interpreted for the whole measured window, a hundred
+times slower. It survives every isolation this task could afford in an evening:
+the rung alone, one batch length, no remainder call, the null-free arm alone,
+the dump tool's exact inputs, explicit GC disabled. Turning off
+`UseProfiledLoopPredicate` removes it. It is `PLAN_MILESTONE_6.md` 2.12, task
+189, with the evidence and what was ruled out.
+
+**What it changes here.** Section 6's dense arm above twelve outputs measures
+task 189's cycle until that task closes it, and cannot score this task's
+predictions; the masked arm can, and does. The benchmark is committed as it is,
+because a baseline that records what the JVM does to today's kernel - cycle
+included - is the number both tasks improve against, and the file's header says
+which rows mean what. The benchmark also gained three diagnostic knobs -
+`varka.bench.rungs`, `varka.bench.chunks` and `varka.bench.nulls` - because the
+isolation above needed each of them; a committed file always runs everything.
+
 ## 3. The design
 
 ### 3.1 The budget counts the method it emitted
@@ -451,7 +482,9 @@ improvement (the project's rule for a benchmark that does not exist yet).
    had already read it. It is kept apart from 1 to 4 for that reason.*
 
 **The rule for the default:** flip when the per-group form is nowhere worse than
-the single form beyond its band, at any rung, length or width.
+the single form beyond its band, at any rung, length or width - read on the
+masked arm at every rung, and on the null-free arm only up to twelve outputs
+until task 189 closes (2.8).
 
 ## 7. Risks
 
