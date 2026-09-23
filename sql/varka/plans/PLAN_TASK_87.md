@@ -301,6 +301,47 @@ it stands and says so; the list here is the record.
 10. **2.6.6 quoted a probe's timings as performance claims** with no committed
     file behind them; they are removed and the magnitudes left to section 6.
 
+### 2.8 What the benchmark found on its first run, 23 September 2026
+
+Step 2 built `VarkaMethodSizeBenchmark` as section 6 specifies, and its smoke
+run - one run at the host width, not a committed number - showed two things.
+
+**The masked arm shows the cliff where the plan put it.** Ragged against even,
+with nulls: flat at twelve outputs, about three times at thirteen, and three
+times from there on. Masked first, at thirteen, as prediction 1 says; about
+three times rather than more than an order of magnitude, as 2.6.6's probe
+suggested. The committed file scores it.
+
+**The null-free arm collapses from twelve outputs on, at both lengths, for a
+reason that is not this task's.** The second group's dense loop method enters a
+C2 deoptimization cycle - a new tier-4 compile installed every 250 milliseconds
+and made not entrant on first execution at a `profile_predicate` trap on the
+loop's back-edge - and runs interpreted for the whole measured window, a hundred
+times slower. It survives every isolation this task could afford in an evening:
+the rung alone, one batch length, no remainder call, the null-free arm alone,
+the dump tool's exact inputs, explicit GC disabled. Turning off
+`UseProfiledLoopPredicate` removes it. It is `PLAN_MILESTONE_6.md` 2.12, task
+189, with the evidence and what was ruled out.
+
+*Read again after the band, the same night: the cycle is not this harness
+against that one, it is one JVM fork against another. Ten forks of the
+benchmark put every null-free case from twelve outputs up in tier 3 - 2.4
+against 178.2 M rows/s for the same twelve-output case - and the committed
+512-bit file landed in the good mode at every rung while its 128-bit companion
+landed in the cycle at every rung from twelve. `PLAN_MILESTONE_6.md` 2.12 has
+the reading.*
+
+**What it changes here.** Section 6's null-free arm above twelve outputs is tier
+3 - unreadable from a diff, by the band's own verdict - until task 189 closes;
+it can carry a prediction only in a fork that lands well, and a file cannot
+promise which fork it was. The masked arm is tier 0 or 1 at every rung and both
+lengths, and scores this task's predictions. The benchmark is committed as it
+is, because a baseline that records what the JVM does to today's kernel - cycle
+included - is the number both tasks improve against, and the file's header says
+which rows mean what. The benchmark also gained three diagnostic knobs -
+`varka.bench.rungs`, `varka.bench.chunks` and `varka.bench.nulls` - because the
+isolation above needed each of them; a committed file always runs everything.
+
 ## 3. The design
 
 ### 3.1 The budget counts the method it emitted
@@ -463,7 +504,9 @@ improvement (the project's rule for a benchmark that does not exist yet).
    had already read it. It is kept apart from 1 to 4 for that reason.*
 
 **The rule for the default:** flip when the per-group form is nowhere worse than
-the single form beyond its band, at any rung, length or width.
+the single form beyond its band, at any rung, length or width - read on the
+masked arm at every rung, and on the null-free arm only up to twelve outputs
+until task 189 closes (2.8).
 
 ## 7. Risks
 
@@ -512,4 +555,42 @@ Each commit green on its own.
 
 ## 9. Outcome
 
-*Written when the measurement lands.*
+### 9.1 The baseline, 23 September 2026
+
+The legacy form's files are committed with their band and provenance
+(`VarkaMethodSizeBenchmark-jdk25-results.txt`, `-128bit-results.txt`,
+`-band.txt`, `-provenance.txt`: pinned, load 0.73 at start, canary clean), and
+two of 6.1's predictions are about the legacy form alone, so they are scored
+now. Per row, even length against ragged, from the committed files:
+
+| outputs | masked, 512-bit | masked, 128-bit | null-free, 512-bit |
+| ---: | :--- | :--- | :--- |
+| 12 | 7.3 -> 7.4 ns | 23.7 -> 23.6 ns | 6.1 -> 5.6 ns |
+| 13 | 8.1 -> **24.6 ns** | 26.4 -> **41.2 ns** | 6.0 -> 6.0 ns |
+| 14 | 8.6 -> 26.1 ns | 26.9 -> 42.8 ns | 6.5 -> **23.0 ns** |
+| 16 | 10.5 -> 30.4 ns | 32.8 -> 50.7 ns | 8.8 -> 27.1 ns |
+| 60 | 41.5 -> 116.5 ns | 121.5 -> 189.5 ns | 34.8 -> 102.9 ns |
+
+**Prediction 1: the rung held and the magnitude did not.** The masked epilogue
+steps at thirteen outputs and the dense one at fourteen, exactly where 2.2's
+byte sizes cross 8000 - and the null-free column scores it too, because this
+fork landed in task 189's good mode. The step is about three times per row at
+512 bits and about one and a half at 128, not "more than an order of
+magnitude": the plan priced the interpreted epilogue as if the whole batch
+paid for it, and it is one lane group's work per batch, interpreted, against
+the whole batch compiled. 2.6.6's probe had already said as much.
+
+**Prediction 2 held.** On even batches the ladder is smooth through thirteen,
+fourteen and beyond on the masked arm at both widths, and on the null-free arm
+in this fork; the single epilogue returns before any vector work, as 2.4 read
+from the code.
+
+**Prediction 5 is scored by the band rather than by these files**, and
+differently than written: the ragged penalty below 8000 is not "warmup only",
+it is absent from the committed numbers altogether, because every case ran
+long enough for C2 to land; and the masked arm's bands are tier 0 and 1, so
+what warmup there is sits inside them.
+
+Predictions 3 and 4 are about the per-group form and wait for it. The 128-bit
+null-free column is not shown: that fork landed in task 189's cycle at every
+rung from twelve, and the band names those cases unreadable.

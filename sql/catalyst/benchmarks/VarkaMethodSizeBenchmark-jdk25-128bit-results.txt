@@ -1,0 +1,151 @@
+Narrow-width companion of VarkaMethodSizeBenchmark-jdk25-results.txt: the same benchmark under
+-XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
+  benchmark:   org.apache.spark.sql.VarkaMethodSizeBenchmark
+  commit:      f87873c87e6 (working tree dirty)
+  date:        2026-09-23T19:35:34Z
+  jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  kernel:      7.0.0-31-generic
+  cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+  power:       governor=performance epp=performance profile=performance
+  pinned to:   taskset -c 0,12,13,14,15,1,2,3
+  load at start: 0.73
+  canary:      ok (compute +0.0% cache -0.7% memory -1.3% )
+  wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaMethodSizeBenchmark
+  narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaMethodSizeBenchmark"
+
+Running benchmark: 4 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 357 iterations, 2004 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 247 iterations, 2002 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 357 iterations, 2005 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 253 iterations, 2003 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4 make_date outputs over 1000000 rows in chunks:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free                  6              6           0        178.8           5.6       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                8              8           0        124.5           8.0       0.7X
+single epilogue, chunk 1031 (ragged), null-free                5              6           0        183.6           5.4       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls              8              8           0        127.4           7.8       0.7X
+Running benchmark: 8 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 174 iterations, 2000 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 127 iterations, 2006 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 175 iterations, 2008 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 127 iterations, 2005 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+8 make_date outputs over 1000000 rows in chunks:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free                 11             11           0         88.0          11.4       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               16             16           0         63.6          15.7       0.7X
+single epilogue, chunk 1031 (ragged), null-free               11             11           0         87.8          11.4       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls             15             16           0         68.1          14.7       0.8X
+Running benchmark: 12 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 7540 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 84 iterations, 2001 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 7357 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 84 iterations, 2005 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+12 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free               1491           1508          10          0.7        1491.5       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               24             24           0         42.3          23.7      63.0X
+single epilogue, chunk 1031 (ragged), null-free             1462           1471          12          0.7        1462.2       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls             24             24           0         42.4          23.6      63.2X
+Running benchmark: 13 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 12427 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 76 iterations, 2015 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 12219 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 48 iterations, 2003 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+13 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free               2453           2486          25          0.4        2452.7       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               26             27           0         37.9          26.4      92.8X
+single epilogue, chunk 1031 (ragged), null-free             2430           2444          13          0.4        2429.9       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls             41             42           0         24.3          41.2      59.6X
+Running benchmark: 14 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 13732 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 74 iterations, 2007 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 13641 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 46 iterations, 2003 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+14 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free               2733           2747          12          0.4        2733.3       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               27             27           0         37.1          26.9     101.4X
+single epilogue, chunk 1031 (ragged), null-free             2715           2728           8          0.4        2715.3       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls             43             44           1         23.3          42.8      63.8X
+Running benchmark: 16 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 15180 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 61 iterations, 2003 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 15146 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 39 iterations, 2015 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free               3021           3036          18          0.3        3021.3       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               33             33           0         30.5          32.8      92.2X
+single epilogue, chunk 1031 (ragged), null-free             3019           3029           9          0.3        3018.9       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls             51             52           1         19.7          50.7      59.6X
+Running benchmark: 32 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 38989 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 31 iterations, 2056 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 38781 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 20 iterations, 2072 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+32 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free               7763           7798          31          0.1        7763.3       1.0X
+single epilogue, chunk 1024 (even), mixed nulls               66             66           0         15.2          65.9     117.9X
+single epilogue, chunk 1031 (ragged), null-free             7746           7756          18          0.1        7745.6       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls            102            104           1          9.8         102.0      76.1X
+Running benchmark: 60 make_date outputs over 1000000 rows in chunks
+  Running case: single epilogue, chunk 1024 (even), null-free
+  Stopped after 5 iterations, 86245 ms
+  Running case: single epilogue, chunk 1024 (even), mixed nulls
+  Stopped after 17 iterations, 2074 ms
+  Running case: single epilogue, chunk 1031 (ragged), null-free
+  Stopped after 5 iterations, 86173 ms
+  Running case: single epilogue, chunk 1031 (ragged), mixed nulls
+  Stopped after 11 iterations, 2108 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+60 make_date outputs over 1000000 rows in chunks:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+single epilogue, chunk 1024 (even), null-free              17153          17249          82          0.1       17153.2       1.0X
+single epilogue, chunk 1024 (even), mixed nulls              121            122           0          8.2         121.5     141.2X
+single epilogue, chunk 1031 (ragged), null-free            17116          17235         107          0.1       17115.5       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls            190            192           2          5.3         189.5      90.5X
