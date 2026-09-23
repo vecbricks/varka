@@ -284,8 +284,8 @@ configuration does not attempt it.
 
 ### 2.5 The size ladder, and the figure (task 171)
 
-*Absorbs milestone 4's row 44, which asked for a ladder that can see the problem
-- 4095 and 63 rather than only 4096 - and the epilogue measured against
+*Absorbs milestone 4's row 44, which asked for a ladder that can see the problem -
+4095 and 63 rather than only 4096 - and the epilogue measured against
 `HugeMethodLimit`.*
 
 **The task.** A benchmark whose x-axis is the number of expressions in one
@@ -537,14 +537,26 @@ that leaves no remainder call). Not the masked path having run over the same
 kernel first (it reproduces with the null-free arm alone). Not the kernel's
 inputs (it reproduces with the dump tool's exact data values, a real all-ones
 validity bitmap and 1024-row buffers). Not the harness's `System.gc()` between
-cases (`-XX:+DisableExplicitGC` changes nothing). And yet the `--rounds` probe
-of `dev/varka_emit.sh` runs the identical kernel over identical inputs, compiles
-the method once and never traps. The one visible divergence is that the
-benchmark's run performs an **OSR compilation** of the loop right after the four
-loop-head traps and the dump tool's never does; what in the harness provokes
-that, and
-why the standard compile that follows carries a back-edge predicate its first
-execution violates, is the question this row opens.
+cases (`-XX:+DisableExplicitGC` changes nothing).
+
+**It is nondeterministic across JVM forks, and that is the finding.** The band
+taken the same evening - ten forks of the wide benchmark, nothing changed -
+puts every null-free case from twelve outputs up in tier 3, with spreads of
+3000% to 14300%: at twelve outputs the same case reads 2.4 M rows/s in one fork
+and 178.2 in another, and the low reading is the cycle while the high one is a
+kernel that compiled once and ran. The committed 512-bit file happened to land
+in the good mode at every rung; its 128-bit companion, one fork later, landed in
+the cycle at every rung from twelve on. That also settles the discrepancy with
+the `--rounds` probe of `dev/varka_emit.sh`, which runs the identical kernel
+over identical inputs and compiles it once: it was a fork that landed well.
+Whatever provokes the cycle is decided at or near the first C2 compile of the
+method - the bad forks show an **OSR compilation** of the loop right after the
+four loop-head traps that the good forks do not - and is then stable for the
+fork's life. This is the per-fork C2 lottery `PLAN_TASK_32.md` 11 traced to
+JDK-8380195 and task 90 measured across files, with a mechanism named for the
+first time: a profiled loop predicate at a back-edge, and a compile-trap cycle
+behind it. What decides the mode at the first compile is the question this row
+opens.
 
 **Why it matters beyond the benchmark.** A projection of a dozen calendar
 outputs is an ordinary reporting shape, the loop method is 3.2KB - nowhere near
@@ -558,18 +570,19 @@ tens of seconds of compile time; whether it does, and what the kernel runs at
 afterwards, is part of the question.
 
 **How.** Reproduce it in a forked probe under `-XX:+PrintCompilation` and
-`-Xlog:deoptimization=debug`, the way `VarkaAssemblySuite` forks its probes, so
-the cycle is asserted from the JVM's words rather than a rate. Then find the
-trigger between the two harnesses - the OSR compile is the lead - and read what
-the back-edge predicate is a predicate *on*, from `-XX:+PrintOptoAssembly` or
-the ideal graph if it comes to that. The fixes available, in order of
-preference: a loop shape the predicate does not misjudge, if the shape is the
-cause; a documented `-XX:-UseProfiledLoopPredicate` for Varka executors, if it
-is the JIT's; and, failing both, a decline for the shape with a reason. **Done
-when** the probe passes on the twelve-output shape with the method compiled once
-and no `profile_predicate` trap, and `VarkaMethodSizeBenchmark`'s null-free arm
-reads within band of its masked arm at every rung. Size: medium, and the
-investigation is the larger half.
+`-Xlog:deoptimization=debug`, the way `VarkaAssemblySuite` forks its probes, run
+enough forks to see both modes, and assert the cycle from the JVM's words rather
+than a rate. Then find what differs at the first compile between a good fork and
+a bad one - the OSR compile is the lead, and `-XX:+PrintIdeal` or the ideal
+graph says what the back-edge predicate is a predicate *on*. The fixes
+available, in order of preference: a loop shape the predicate does not misjudge,
+if the shape is the cause; a documented `-XX:-UseProfiledLoopPredicate` for
+Varka executors, if it is the JIT's; and, failing both, a decline for the shape
+with a reason. **Done when** the probe passes on the twelve-output shape in
+every fork of a run of twenty, the method compiled once and no
+`profile_predicate` trap, and `VarkaMethodSizeBenchmark`'s null-free cases leave
+tier 3 in a regenerated band. Size: medium, and the investigation is the larger
+half.
 
 ### 2.10 The closing task (task 181)
 

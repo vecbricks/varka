@@ -56,15 +56,16 @@ import org.apache.spark.sql.types.DateType
  * lands beside it the two labels survive the default changing. This file is committed with the
  * legacy form only, so the baseline exists before the change that is measured against it.
  *
- * What the null-free arm measures from 12 outputs on is a different cliff, and the file says
- * so rather than hiding it (`PLAN_MILESTONE_6.md` section 2.12, task 189). Under this harness
- * the second group's dense loop method enters a C2 deoptimization cycle: a new tier-4 compile
- * is installed about every 250 milliseconds - the method's own compile time - and made not
- * entrant on first execution at a `profile_predicate` trap on the loop's back-edge, so the
- * method runs interpreted for the whole measured window, a hundred times slower, at both
- * batch lengths alike. `-XX:-UseProfiledLoopPredicate` removes it. The masked arm does not
- * enter it, so the masked rows carry the epilogue comparison this file exists for, and the
- * null-free rows above 12 outputs are that cycle's baseline until task 189 closes it.
+ * The null-free rows from 12 outputs on are a different cliff, and the file says so rather
+ * than hiding it (`PLAN_MILESTONE_6.md` section 2.12, task 189). In some JVM forks the second
+ * group's dense loop method enters a C2 deoptimization cycle - a new tier-4 compile installed
+ * about every 250 milliseconds, the method's own compile time, and made not entrant on first
+ * execution at a `profile_predicate` trap on the loop's back-edge - and runs interpreted for
+ * the fork's life, a hundred times slower at both batch lengths alike; in other forks the same
+ * method compiles once. `-XX:-UseProfiledLoopPredicate` removes the cycle. The band therefore
+ * puts those rows in tier 3, unreadable from a diff, and a committed file shows whichever mode
+ * its fork landed in. The masked arm never enters the cycle, so the masked rows carry the
+ * epilogue comparison this file exists for.
  *
  * Outputs past the 28th add a year offset - `make_date(year(d) + 1, month(d), k)` - because a
  * day literal above 28 is not a valid date in every month and the emitted kernel would decline
