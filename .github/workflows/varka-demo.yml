@@ -1,0 +1,132 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+# Runs sql/varka/demo/method_size_cliff.scala, the reader's demo of Spark's method-size cliff,
+# on the stock Spark distribution under each JDK Spark supports, and uploads what it prints.
+# The demo needs no build of this repository: it is a spark-shell script, run the way a reader
+# runs it. The outputs committed beside the script come from here, with the runner's CPU named.
+#
+# It runs when a push changes the demo, and by hand. A hand dispatch needs the workflow on the
+# repository's default branch; a push needs only the branch it is pushed to.
+
+name: Varka demo
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sql/varka/demo/**'
+      - '.github/workflows/varka-demo.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17, 21, 25]
+    env:
+      STOCK_VERSION: 4.2.0
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Install Java ${{ matrix.java }}
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: ${{ matrix.java }}
+
+    - name: Restore the stock Spark distribution
+      id: cache-stock
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/stock-spark
+        key: stock-spark-${{ env.STOCK_VERSION }}-hadoop3
+
+    # The download step of varka-surface-benchmark.yml, falling back to the Apache archive
+    # once the mirror has dropped the release.
+    - name: Download the stock Spark distribution
+      if: ${{ steps.cache-stock.outputs.cache-hit != 'true' }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/stock-spark && cd ~/stock-spark
+        TGZ="spark-${STOCK_VERSION}-bin-hadoop3.tgz"
+        BASE="https://dlcdn.apache.org/spark/spark-${STOCK_VERSION}"
+        curl -fsSLO "$BASE/$TGZ" || {
+          BASE="https://archive.apache.org/dist/spark/spark-${STOCK_VERSION}"
+          curl -fsSLO "$BASE/$TGZ"
+        }
+        curl -fsSLO "$BASE/$TGZ.sha512"
+        WANT="$(tr -d ' \n' < "$TGZ.sha512" | tr 'A-F' 'a-f' | grep -oE '[0-9a-f]{128}' | head -1)"
+        GOT="$(sha512sum "$TGZ" | cut -d' ' -f1)"
+        if [ -z "$WANT" ] || [ "$WANT" != "$GOT" ]; then
+          echo "::error::checksum mismatch for $TGZ (want '$WANT' got '$GOT')"
+          exit 1
+        fi
+        tar -xzf "$TGZ" && rm -f "$TGZ" "$TGZ.sha512"
+
+    - name: Save the stock Spark distribution
+      if: ${{ steps.cache-stock.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: ~/stock-spark
+        key: stock-spark-${{ env.STOCK_VERSION }}-hadoop3
+
+    # The demo, then the demo again under -XX:+PrintCompilation for the JVM's side. The output
+    # file is what is committed: the runner's CPU, the Java version, and the demo's table.
+    - name: Run the demo
+      run: |
+        set -euo pipefail
+        SPARK="$HOME/stock-spark/spark-${STOCK_VERSION}-bin-hadoop3"
+        cd sql/varka/demo
+        "$SPARK/bin/spark-shell" --master 'local[1]' --conf spark.ui.enabled=false \
+          -i method_size_cliff.scala > run.log 2>&1
+        "$SPARK/bin/spark-shell" --master 'local[1]' --conf spark.ui.enabled=false \
+          --driver-java-options "-XX:+PrintCompilation" \
+          -i method_size_cliff.scala > compile.log 2>&1
+        out="method_size_cliff-jdk${{ matrix.java }}-output.txt"
+        {
+          echo "Output of method_size_cliff.scala on a GitHub-hosted runner, by varka-demo.yml."
+          echo "run:     ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "commit:  ${GITHUB_SHA::11}"
+          echo "cpu:     $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
+          echo "java:    $(java -version 2>&1 | head -1)"
+          echo "spark:   ${STOCK_VERSION}"
+          echo
+          sed -n '/^entries/,/^\* past/p' run.log
+          echo
+          echo "Sizes of project_doConsume the JIT compiled (-XX:+PrintCompilation), with counts:"
+          grep 'project_doConsume' compile.log | grep -oE '\([0-9]+ bytes\)' | sort | uniq -c
+        } > "$out"
+        cat "$out"
+        grep -q '^\* past' "$out"
+
+    - name: Upload the output
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: varka-demo-jdk${{ matrix.java }}
+        path: |
+          sql/varka/demo/method_size_cliff-jdk${{ matrix.java }}-output.txt
+          sql/varka/demo/run.log
+          sql/varka/demo/compile.log
