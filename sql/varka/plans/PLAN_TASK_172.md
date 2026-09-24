@@ -299,3 +299,18 @@ This plan says Spark does not report a method past HotSpot's 8000-byte limit. It
 INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
 cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
 has the evidence.
+
+### 9.5 The band, 25 September 2026
+
+Ten runs of `VarkaRangeFilterBenchmark` on an unchanged file, on the quiet laptop, written to
+`VarkaRangeFilterBenchmark-jdk25-band.txt`. This section is numbered after `#369`'s 9.4.
+
+* **Design B's claim stands.** The Varka arm spreads by at most 12% (tier 2 at 100 ranges, tier 1
+  at 150 and 200), which cannot touch a ratio of 185.
+* **The claim of about twice as fast below the crossing stands too.** At 48 and 49 ranges both arms
+  are tier 0 or 1 (at most 4%). At 10 ranges the vanilla arm is tier 2 (16%), so 9.3's 2.2 there is
+  the run's figure and a band's worth of it is noise; the 48 and 49 rungs carry the claim.
+* **The vanilla arm past the crossing reads tier 0 only because of the file's resolution.** It runs
+  at one to three hundred thousand rows a second, which the Rate column prints as the same single
+  digit every run; the band cannot see its spread, as 9.6 of `PLAN_TASK_192.md` says of the same
+  column.

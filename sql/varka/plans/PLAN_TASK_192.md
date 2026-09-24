@@ -325,3 +325,22 @@ This plan says Spark does not report a method past HotSpot's 8000-byte limit. It
 INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
 cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
 has the evidence.
+
+### 9.6 The band of the laptop's default run, 25 September 2026
+
+Ten runs of `VarkaSizeLadderTuningBenchmark` on an unchanged file, on the quiet laptop, written to
+`VarkaSizeLadderTuningBenchmark-jdk25-band.txt`. This section is numbered after `#369`'s 9.5.
+
+* **Every claim against Varka stands.** No vanilla case moves by more than about a third between
+  runs, and the ratios 9.4 quotes against Varka are eleven and fifteen times.
+* **Below the cliff the compiled arms are steady** (tier 1 at 16 and 32 entries, tier 0 at 48 and
+  52 for the defaults). The one real swing is `wholeStage=false` at 32 entries, tier 3: the runs
+  spread by about 31% at a rate where the file's resolution is a few percent.
+* **9.4's "about a quarter" for `wholeStage=false` below the cliff is not readable from one file.**
+  That arm is tier 2 at 48 and 52 entries (20 and 22%), and the ratio 9.4 reads is under 1.3, so by
+  the house rule it wants a run compared by minimums before it is repeated anywhere.
+* **The tiers past the cliff measure the file's resolution, not the machine.** The band reads the
+  Rate column, which the benchmark prints to one decimal. A case running under one million rows a
+  second can only move in steps of 0.1, so the tuned arms past 52 entries land in tiers 2 and 3 on
+  a single step, and the defaults arm, at a few hundred thousand rows a second, reads tier 0
+  because every run prints the same digit. Neither says how stable the case is.

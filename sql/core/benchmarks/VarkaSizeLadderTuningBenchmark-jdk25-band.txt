@@ -1,0 +1,40 @@
+Band for 27 cases: how far apart repeated runs of an unchanged file land.
+Written by dev/varka_bench_band.py. Read by dev/varka_bench_diff.py --band, which
+uses a case's tier to decide whether its move in a regeneration means anything.
+
+tier 0 <= 3%   1 <= 10%   2 <= 25%   3 not readable from a diff at all
+
+runs:    10
+commit:  efe3017de8a
+date:    2026-09-24T22:36:48+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+
+tier   spread occ  table | case
+0     0.00   1  100 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+0     0.00   1  100 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+0     0.00   1  100 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+1     5.26   1  16 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+1     5.13   1  16 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+1     6.25   1  16 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+1     5.00   1  32 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+1     5.00   1  32 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+3    30.77   1  32 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  48 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+0     0.00   1  48 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+2    20.00   1  48 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  52 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+0     0.00   1  52 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+2    22.22   1  52 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  54 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+2    11.11   1  54 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+2    11.11   1  54 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  56 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+2    25.00   1  56 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+2    25.00   1  56 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  64 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+3    28.57   1  64 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+3    28.57   1  64 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
+0     0.00   1  80 entries over 2000000 Arrow-cached rows | vanilla Spark, defaults
+2    16.67   1  80 entries over 2000000 Arrow-cached rows | vanilla Spark, hugeMethodLimit=8000
+2    16.67   1  80 entries over 2000000 Arrow-cached rows | vanilla Spark, wholeStage=false
