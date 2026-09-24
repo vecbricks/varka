@@ -69,8 +69,8 @@ import org.apache.spark.sql.internal.SQLConf
  * Vanilla arms only, so the vector width does not matter and there is no narrow companion.
  */
 object VarkaSizeLadderTuningBenchmark extends SqlBasedBenchmark {
-  import VarkaSizeLadderBenchmark.{cacheDates, createSession, entry, numRows, rungs,
-    vanillaMethodBytes}
+  import VarkaArrowSessions.{createSession, vanillaMethodBytes}
+  import VarkaSizeLadder.{cacheDates, entry, numRows, rungs}
 
   /** The `hugeMethodLimit` arm's value: HotSpot's `HugeMethodLimit`, as Spark's doc advises. */
   private val tunedLimit = CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT

@@ -22,14 +22,41 @@ import java.nio.charset.StandardCharsets
 import scala.concurrent.duration._
 
 import org.apache.spark.benchmark.Benchmark
-import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, FusedOutput,
   VarkaExpressionCompiler}
-import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec,
-  VarkaProjectExec, WholeStageCodegenExec}
-import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
-import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
+import org.apache.spark.sql.execution.{VarkaColumnarToRowExec, VarkaProjectExec}
+
+/**
+ * The size ladder's rungs, data and query, shared by [[VarkaSizeLadderBenchmark]] and
+ * [[VarkaSizeLadderTuningBenchmark]]. A plain object, not the benchmark's, for the reason
+ * [[VarkaArrowSessions]] gives.
+ */
+object VarkaSizeLadder {
+
+  /**
+   * Two million rows, as `VarkaThroughputBenchmark` reads: each case plans its query afresh, and
+   * planning a wide projection plus its first row costs tens of milliseconds, which over a
+   * hundred thousand rows was most of the Varka arm's time per row and most of its kernel's
+   * warmup (`PLAN_TASK_171.md` 9).
+   */
+  private[benchmark] val numRows = 2000000
+
+  /** Straddling the vanilla crossing; see [[VarkaSizeLadderBenchmark]]. */
+  private[benchmark] val rungs = Seq(16, 32, 48, 52, 54, 56, 64, 80, 100)
+
+  private[benchmark] def entry(k: Int): String =
+    s"greatest(add_months(d, $k), date_add(d, $k), last_day(d)) AS c$k"
+
+  private[benchmark] def cacheDates(session: SparkSession): Unit = {
+    session.sql(
+      s"""select case when id % 31 = 0 then null
+         |       else date_add(date'2020-01-01', cast(id as int) % 1460) end as d
+         |from range(0, $numRows)""".stripMargin)
+      .createOrReplaceTempView("ladder_dates")
+    VarkaArrowSessions.cache(session, "ladder_dates")
+  }
+}
 
 /**
  * The size ladder (task 171): one projection widened rung by rung, on stock Spark and on
@@ -65,57 +92,8 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * }}}
  */
 object VarkaSizeLadderBenchmark extends SqlBasedBenchmark {
-
-  /**
-   * Two million rows, as `VarkaThroughputBenchmark` reads: each case plans its query afresh, and
-   * planning a wide projection plus its first row costs tens of milliseconds, which over a
-   * hundred thousand rows was most of the Varka arm's time per row and most of its kernel's
-   * warmup (`PLAN_TASK_171.md` 9).
-   */
-  private[benchmark] val numRows = 2000000
-
-  /** Straddling the vanilla crossing; see the class doc. */
-  private[benchmark] val rungs = Seq(16, 32, 48, 52, 54, 56, 64, 80, 100)
-
-  private[benchmark] def entry(k: Int): String =
-    s"greatest(add_months(d, $k), date_add(d, $k), last_day(d)) AS c$k"
-
-  private[benchmark] def createSession(appName: String, varkaEnabled: Boolean): SparkSession = {
-    val builder = SparkSession.builder()
-      .master("local[1]")
-      .appName(appName)
-      .config(UI_ENABLED.key, false)
-      .config(SQLConf.SHUFFLE_PARTITIONS.key, 1)
-      .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
-      .config(StaticSQLConf.SPARK_CACHE_SERIALIZER.key,
-        classOf[ArrowCachedBatchSerializer].getName)
-      .config(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
-    if (varkaEnabled) {
-      builder
-        .config(SQLConf.VARKA_ENABLED.key, "true")
-        .withExtensions(_.injectColumnar(_ => VarkaColumnarRule))
-    }
-    builder.getOrCreate()
-  }
-
-  private[benchmark] def cacheDates(session: SparkSession): Unit = {
-    session.sql(
-      s"""select case when id % 31 = 0 then null
-         |       else date_add(date'2020-01-01', cast(id as int) % 1460) end as d
-         |from range(0, $numRows)""".stripMargin)
-      .createOrReplaceTempView("ladder_dates")
-    session.catalog.cacheTable("ladder_dates")
-    session.sql("select count(*) from ladder_dates").collect()
-  }
-
-  /** Vanilla's largest generated method for the rung, from Spark's own compile of the stage. */
-  private[benchmark] def vanillaMethodBytes(baseline: SparkSession, query: String): Int = {
-    val stages = baseline.sql(query).queryExecution.executedPlan.collect {
-      case w: WholeStageCodegenExec => w
-    }
-    require(stages.nonEmpty, s"no whole-stage codegen for the vanilla arm of: $query")
-    stages.map(w => CodeGenerator.compile(w.doCodeGen()._2)._2.maxMethodCodeSize).max
-  }
+  import VarkaArrowSessions.{createSession, vanillaMethodBytes}
+  import VarkaSizeLadder.{cacheDates, entry, numRows, rungs}
 
   /** How many entries the Varka arm fused, after checking that it ran as a kernel. */
   private def varkaFused(varka: SparkSession, query: String): Int = {
