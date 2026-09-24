@@ -647,6 +647,7 @@ milestone 4.
 | 187 | The constant-pool cliff | 2.11 | small |
 | 188 | The census: every place Spark's codegen gives up | 2.11 | medium |
 | 189 | A dense loop enters a C2 deoptimization cycle at twelve outputs. *Lead from `PLAN_TASK_87.md` 9.5: in the fork where the single-epilogue form's null-free rows sat in the cycle at 128 bits, the per-group form's did not* | 2.12, from task 87's benchmark | medium |
+| 190 | The op cap gives way to the byte budget. **Planned** (`PLAN_TASK_190.md`, 24 September 2026): `MAX_FUSED_NODES` admits 15 entries of the ladder's family where vanilla steps at 48 to 64, and task 87's budget now bounds every method, so bytes decide; past the driver's ceiling at about 150 entries, a split driver and several kernels per projection are built and measured | task 171's admission check | medium |
 | 181 | The closing task: the post | 2.10 | last by definition |
 
 ## 4. Ordering

@@ -122,7 +122,7 @@ wait_completed() {
       echo "${s#* }"
       return 0
     fi
-    sleep "$poll"
+    sleep "$poll" 8>&-
   done
   echo "timeout"
   return 1
@@ -144,7 +144,7 @@ wait_fork_idle() {
       echo "  $(now): waiting for run $busy"
       said="$busy"
     fi
-    sleep "$poll"
+    sleep "$poll" 8>&-
   done
   echo "  gave up waiting for the fork to go idle after $deadline_minutes minutes"
   return 1
@@ -199,7 +199,9 @@ cmd_hold() {
 }
 
 cmd_run() {
-  # One runner per clone: a second would start a run beside the first one's.
+  # One runner per clone: a second would start a run beside the first one's. The sleeps below
+  # close the lock's descriptor (8>&-), so a runner that is killed mid-sleep releases the lock
+  # at once rather than leaving an orphaned sleep holding it for the rest of its interval.
   exec 8>"$state.run"
   if ! flock -n 8; then
     echo "another dev/varka_ci_queue.sh run holds this queue"
@@ -237,7 +239,7 @@ cmd_run() {
       echo "#$pr: $(now): reran run $id"
       # A rerun takes a few seconds to leave the completed state; without this the wait
       # below would read the old conclusion and return at once.
-      sleep 30
+      sleep 30 8>&-
     else
       echo "#$pr: run $id is already $rstatus; waiting on it"
     fi
