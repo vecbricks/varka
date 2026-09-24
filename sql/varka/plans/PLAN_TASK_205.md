@@ -1,0 +1,455 @@
+# Task 205: the history of Spark's method-size limits, sourced
+
+*Row 205 of `PLAN_MILESTONE_6.md`. Compiled on 24 September 2026 by a research
+agent working from a clone of apache/spark and the public ASF JIRA, then
+spot-checked: SPARK-21871's default of 8000 and SPARK-23267's change to 65535
+against the commits, and `WholeStageCodegenSizeBenchmark`'s AQE setting
+against its source. Section (d) at the end records what was settled after the
+research. The post about the method-size cliff takes its history from here, and
+every entry can be re-checked with the commands given.*
+
+
+Compiled 2026-09-24 from a local apache/spark clone (remote `apache`, master
+fetched 2026-09-24, tip dated 2026-09-24), the public ASF JIRA REST API, and,
+for two PR-state facts only, read-only GitHub API calls. Every hash below is the
+commit on apache/master unless marked "backport". "First release" is the
+lowest final tag (vX.Y.Z, no rc/preview) from `git tag --contains <sha>`.
+Dates are commit dates (author and committer dates agree for every commit
+listed here).
+
+Conventions used in commands below:
+
+    S=<a clone of apache/spark>
+    JIRA='https://issues.apache.org/jira/rest/api/2/issue'
+    # JIRA fields:
+    curl -s "$JIRA/SPARK-NNNNN?fields=summary,fixVersions,resolution,created,resolutiondate,status"
+    # commits for a JIRA, on all branches, with first final tag:
+    git -C $S log --all --format='%h %cd %s' --date=short --grep='SPARK-NNNNN\]'
+    git -C $S tag --contains <sha> | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1
+
+## (a) Chronological table
+
+| Date       | JIRA        | First release (git) | What changed |
+|------------|-------------|---------------------|--------------|
+| 2015-08-10 | SPARK-9620  | 1.5.0 (backport), 1.6.0 (master) | `CodeGenContext.splitExpressions` introduced; UnsafeProjection split into many methods. |
+| 2016-04-06 | SPARK-14224 | 2.0.0 | `spark.sql.codegen.maxFields` added (default 200); whole-stage codegen off for wide schemas. |
+| 2016-06-10 | SPARK-15759 | 2.0.0 (backport), 2.1.0 (master) | `spark.sql.codegen.fallback` (default true): a stage that fails to compile runs interpreted; same commit lowered maxFields to 100. |
+| 2016-05-23 / 2016-08-17 | SPARK-15285 | 2.0.1 (backport), 2.1.0 | SafeProjection.apply split; first commit reverted the same day (Scala 2.10 build break), relanded in August. |
+| 2016-10-03 | SPARK-17702 | 2.1.0 | Constructor field-extraction code split into helper methods (too many mutable states). |
+| 2017-01-10 | SPARK-16845 | 2.1.1 (backport), 2.2.0 (master) | SpecificOrdering.compare split. |
+| 2017-06-15 | SPARK-18016 | 2.3.0 | Generated classes split into private nested classes (constant-pool limit); backports to 2.1/2.2 reverted. |
+| 2017-08-16 | SPARK-21603 | 2.3.0 (never released in this form) | `spark.sql.codegen.maxLinesPerFunction` (2667, then 4000 lines): give up whole-stage codegen for long functions. |
+| 2017-09-25 | SPARK-22103 | 2.3.0 | HashAggregateExec parent consume code moved to one helper method, not expanded twice. |
+| 2017-10-04 | SPARK-21871 | 2.3.0 | maxLinesPerFunction replaced by `spark.sql.codegen.hugeMethodLimit`, measured in bytecode, default 8000. |
+| 2017-10-27 | SPARK-22226 | 2.3.0 | Split methods placed in nested classes are called via a grouping method to save constant-pool entries. |
+| 2017-11 (series) | SPARK-21720, SPARK-22501, SPARK-22520, ... | 2.2.1 / 2.3.0 | The "Fix 64KB JVM bytecode limit problem with X" wave: AND/OR, IN, CASE WHEN, concat, elt, cast, least/greatest, hash... |
+| 2017-12-15 | SPARK-22774 | 2.3.0 | TPCDSQuerySuite starts compiling every whole-stage subtree (`checkGeneratedCode`). |
+| 2017-12-20 | SPARK-18016 | 2.3.0 | Mutable state compacted into arrays (<= 32768 elements) to cut constant-pool entries. |
+| 2018-01-25 | SPARK-21717 | 2.3.0 (backport), 2.4.0 (master) | `spark.sql.codegen.splitConsumeFuncByOperator` (default true). |
+| 2018-01-30 | SPARK-23267 | 2.3.0 (backport), 2.4.0 (master) | hugeMethodLimit default raised 8000 -> 65535 before 2.3.0 shipped; doc now says 8000 "may be preferable" on HotSpot. |
+| 2018-11-05 | SPARK-25850 | 3.0.0 | `spark.sql.codegen.methodSplitThreshold` (1024 source chars). |
+| 2019-09-06 | SPARK-21870 | 3.0.0 | HashAggregateExec: one method per aggregate function (`splitAggregateFunc.enabled`). |
+| 2019-09-22 | SPARK-29084 | 3.0.0 | `checkGeneratedCode` also asserts max method bytecode <= 8000; `modified-q3` excluded, citing SPARK-29128. |
+| 2019-09-18 (filed) | SPARK-29128 | none | "Split predicate code in OR expressions": still In Progress, no commit; its PR was closed by the stale bot in 2020. |
+| 2020-12-07 | SPARK-33679 | 3.2.0 | AQE on by default; from here the executedPlan of the benchmark suites is an AdaptiveSparkPlanExec leaf. |
+| 2022-10-12 | SPARK-40697 | 3.4.0 | Read-side CHAR padding added; TPCDSQuerySuite disables it "so that the generated code is less than 8000". |
+| 2026-05-17 (filed) | SPARK-56908 | open umbrella | "Reduce the size of code generated by whole-stage codegen", 58 subtasks. |
+| 2026-07-04 | SPARK-57915 | unreleased (JIRA 4.3.0) | WholeStageCodegenSizeBenchmark: planning-only TPC-DS codegen size benchmark. |
+| 2026-08-03 | SPARK-57370 | unreleased (JIRA 4.3.0) | `spark.sql.codegen.compiler` = janino (default) or jdk (javac backend). |
+| 2026-09-24 (filed) | SPARK-59764 | open; PR #59017 open | `checkGeneratedCode` checks nothing under AQE; fix disables AQE in BenchmarkQueryTest. |
+
+## (b) Topics
+
+### 1. Early "grows beyond 64 KB" failures and splitting
+
+**SPARK-9620** - "generated UnsafeProjection does not support many columns or
+large exressions" [sic]. JIRA: Fixed, fixVersions [1.5.0], created 2015-08-04,
+resolved 2015-08-10. Master commit fe2fb7fb7189d183a4273ad27514af4b6b461f26
+(2015-08-10, Davies Liu), first release v1.6.0; branch-1.5 commit
+23842482f46 (2015-08-10), first release v1.5.0. JIRA and git agree once the
+backport is counted. The commit adds `def splitExpressions(row: String,
+expressions: Seq[String])` to the codegen context and splits the projection
+body into methods; its message says wide tables then work "up to 64k columns
+(hit max number of constants limit in Java)".
+
+    git -C $S log apache/master --reverse --format='%h %ad %s' --date=short -S'def splitExpressions' | head -1
+    git -C $S show fe2fb7fb718 | grep -n -A3 '^+.*def splitExpressions'
+
+**SPARK-15285** - "Generated SpecificSafeProjection.apply method grows beyond
+64 KB". JIRA: Fixed, [2.0.1, 2.1.0]. First commit fa244e5a906 (2016-05-23),
+reverted by de726b0d533 the same day (branch-2.0: d0bcec157d2 and revert
+1890f5fdf50). Relanded as 56d86742d2600b8426d75bd87ab3c73332dca1d2
+(2016-08-17, Kazuaki Ishizaki), first release v2.1.0; branch-2.0 backport
+22c7660a874, first release v2.0.1. The reland message: the original "breaks a
+build with Scala 2.10 since Scala 2.10 does not [support] a case class with
+large number of members". Splits SafeProjection.apply with
+`ctx.splitExpressions()`.
+
+**SPARK-17702** - "Code generation including too many mutable states exceeds
+JVM size limit." JIRA: Fixed, [2.1.0]. Commit
+b1b47274bfeba17a9e4e9acebd7385289f31f6c8 (2016-10-03, Takuya Ueshin), first
+release v2.1.0. Splits the constructor code that extracts `references` into
+fields into smaller functions.
+
+**SPARK-16845** - "org.apache.spark.sql.catalyst.expressions.GeneratedClass$SpecificOrdering"
+grows beyond 64 KB". JIRA: Fixed, [1.6.4, 2.0.3, 2.1.1, 2.2.0]. Master commit
+acfc5f354332107cc744fb636e3730f6fc48b2fe (2017-01-10, Liwei Lin), first
+release v2.2.0; backport 65c866ef9e0 first in v2.1.1; branch-1.6 (23f9faa40d1)
+and branch-2.0 (0cc992c8938) backports of 2017-03-06 are in no final tag in
+this clone (1.6.4 and 2.0.3 were never released). Splits the generated
+`compare` method.
+
+**The November 2017 wave.** `git log --grep='64 *KB' -i` shows a burst of
+per-expression fixes between 2017-11-10 and 2017-12-13, most by Kazuaki
+Ishizaki and Marco Gaido. Representative ones:
+
+- **SPARK-21720** - JIRA summary "Filter predicate with many conditions throw
+  stackoverflow error"; commit title "Fix 64KB JVM bytecode limit problem with
+  AND or OR". JIRA: Fixed, [2.2.1, 2.3.0]. Master
+  9bf696dbece6b1993880efba24a6d32c54c4d11c (2017-11-12), first release
+  v2.3.0; backport 114dc42471a, first release v2.2.1. Places the left and
+  right operand code of AND/OR in separate methods when large.
+- **SPARK-22501** - "64KB JVM bytecode limit problem with in". JIRA: Fixed,
+  [2.2.1, 2.3.0]. Master 7f2e62ee6b9d1f32772a18d626fb9fd907aa7733
+  (2017-11-16), first release v2.3.0; backport 0b51fd3eba0, first release
+  v2.2.1. Splits the argument code of `In` into methods.
+- **SPARK-22520** - "Support code generation also for complex CASE WHEN".
+  JIRA: Fixed, [2.3.0]. Commit 087879a77acb37b790c36f8da67355b90719c2dc
+  (2017-11-28, Marco Gaido), first release v2.3.0. Before it, CaseWhen with
+  more than `spark.sql.codegen.maxCaseBranches` (20) branches was not
+  code-generated "to prevent the well known 64KB method limit exception"; it
+  now splits and so could drop that config.
+- **SPARK-22608** - "Avoid code duplication regarding
+  CodeGeneration.splitExpressions()". JIRA: Fixed, [2.3.0]. Commit
+  284836862b2 (2017-11-30), v2.3.0. Adds the generic
+  `splitExpressions(expressions, funcName, arguments, ...)` API the wave used.
+- **SPARK-22600** - "Fix 64kb limit for deeply nested expressions under
+  wholestage codegen". JIRA: resolution Incomplete, no fixVersion, resolved
+  2019-10-08. Committed as c7d0148615c (2017-12-13) and reverted by
+  2a29a60da32 (2017-12-14). A counter-example: not every 64KB fix stuck.
+
+    git -C $S log apache/master --format='%h %ad %s' --date=short --grep='64 *KB' -i
+
+Aggregates: **SPARK-22103** - "Move HashAggregateExec parent consume to a
+separate function in codegen". JIRA: Fixed, [2.3.0]. Commit
+038b185736fbc5bcdaf00ddcd59593571745f25f (2017-09-25, Juliusz Sompolski),
+v2.3.0. The parent's consume code was expanded twice (fast hash map path and
+generic path); it is now one helper method. **SPARK-21870** - "Split
+codegen'd aggregation code into small functions for the HotSpot". JIRA:
+Fixed, [3.0.0], created 2017-08-30, resolved 2019-09-06. Commit
+cb0cddffe9452937033e0e6b1fc0e600d2c787ad (2019-09-06, Takeshi Yamamuro),
+v3.0.0. One method per aggregate function, controlled by
+`spark.sql.codegen.aggregate.splitAggregateFunc.enabled` (default true,
+`.version("3.0.0")`); the message names TPC-DS q66 as a query that went over
+the JIT limit.
+
+**SPARK-25850** - "Make the split threshold for the code generated method
+configurable". JIRA: Fixed, [3.0.0]. Commit e017cb39642 (2018-11-05, yucai),
+v3.0.0. Adds `spark.sql.codegen.methodSplitThreshold`, default 1024
+characters of source; the doc says a HotSpot method's bytecode "should not go
+beyond 8KB, otherwise it will not be JITted".
+
+### 2. Fallback and `spark.sql.codegen.hugeMethodLimit`
+
+**SPARK-15759** - "Fallback to non-codegen if fail to compile generated code".
+JIRA: Fixed, [2.0.0]. Master 7504bc73f20fe0e6546a019ed91c3fd3804287ba
+(2016-06-10, Davies Liu), first release v2.1.0; branch-2.0 f0fa0a8946f, first
+release v2.0.0. Adds `spark.sql.codegen.fallback` (internal, default true):
+when compiling a whole-stage subtree throws, `WholeStageCodegenExec.doExecute`
+logs a warning and runs `child.execute()`. The fallback is disabled when
+`Utils.isTesting`, then (v2.0.0) and now (master), so tests see the compile
+error. Current doc: "When true, (whole stage) codegen could be temporary
+disabled for the part of query that fail to compile generated code",
+`.version("2.0.0")`.
+
+    git -C $S show v2.0.0:sql/core/src/main/scala/org/apache/spark/sql/execution/WholeStageCodegenExec.scala | grep -n -A6 'wholeStageFallback'
+
+The size limit went through three designs before 2.3.0 shipped:
+
+1. **SPARK-21603** - "The wholestage codegen will be much slower then
+   wholestage codegen is closed when the function is too long". JIRA: Fixed,
+   [2.3.0]. Commit 1cce1a3b639 (2017-08-16), v2.3.0; follow-up 6942aeeb0a0
+   (2017-08-23) "Change the default value of maxLinesPerFunction into 4000".
+   Adds `spark.sql.codegen.maxLinesPerFunction`, first default 2667 ("the max
+   length of byte code JIT supported for a single function(8000) divided by
+   3"), then 4000. The commit message reports a benchmark "10x slower when the
+   generated function is too long".
+2. **SPARK-21871** - "Check actual bytecode size when compiling generated
+   code". JIRA: Fixed, [2.3.0]. Commit
+   4a779bdac3e75c17b7d36c5a009ba6c948fa9fb6 (2017-10-04, Takeshi Yamamuro),
+   v2.3.0; follow-up 83488cc3180 (2017-10-05) "Fix infinite loop when bytecode
+   size is larger than spark.sql.codegen.hugeMethodLimit". Renames the config
+   to `spark.sql.codegen.hugeMethodLimit`, measures compiled bytecode instead
+   of source lines, default `CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT`
+   (8000), doc "this is a limit in the OpenJDK JVM implementation".
+3. **SPARK-23267** - "Increase spark.sql.codegen.hugeMethodLimit to 65535".
+   JIRA: Fixed, [2.3.0], created and resolved 2018-01-30. Master
+   31c00ad8b090d7eddc4622e73dc4440cd32624de (2018-01-30, gatorsmile), first
+   release v2.4.0; backport 2e0c1e5f3e4, first release v2.3.0. Reason in the
+   message: "Still saw the performance regression introduced by
+   spark.sql.codegen.hugeMethodLimit in our internal workloads", the measured
+   size is not exactly the method's bytecode size, and a single operator such
+   as `SerializeFromObject` can exceed 8K on its own; "Since it is close to
+   the release of 2.3, we decide to increase it to 64K".
+
+Consequence: no final release ever shipped maxLinesPerFunction or a default
+hugeMethodLimit of 8000. v2.3.0 (tag dated 2018-02-22) already has 65535:
+
+    git -C $S show v2.3.0:sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala \
+      | sed -n '/codegen.hugeMethodLimit/,/createWithDefault/p'
+
+The doc text in v2.3.0 and on master today is identical: "The maximum
+bytecode size of a single compiled Java function generated by whole-stage
+codegen. When the compiled function exceeds this threshold, the whole-stage
+codegen is deactivated for this subtree of the current query plan. The default
+value is 65535, which is the largest bytecode size possible for a valid Java
+method. When running on HotSpot, it may be preferable to set the value to
+${CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT} to match HotSpot's
+implementation." Master: internal, `.version("2.3.0")`,
+`createWithDefault(65535)`; `DEFAULT_JVM_HUGE_METHOD_LIMIT = 8000` in
+CodeGenerator.scala with the comment "the default value of HugeMethodLimit in
+the OpenJDK HotSpot JVM, beyond which methods will be rejected from JIT
+compilation". On master, `WholeStageCodegenExec.doExecute` compares
+`compiledCodeStats.maxMethodCodeSize > conf.hugeMethodLimit` and, if so, logs
+"Found too long generated codes and JIT optimization might not work" and runs
+`child.execute()`. **SPARK-25113** (commit 3c614d0565a, 2018-08-14, v2.4.0,
+JIRA Fixed [2.4.0]) added logging in CodeGenerator when any generated method
+goes above HugeMethodLimit.
+
+Since the limit only deactivates a stage when a method exceeds 65535 bytes, and
+Janino rejects such a method anyway, with the default the check triggers only
+on the compile-failure path; methods between 8000 and 65535 bytes run in
+whole-stage codegen and, on HotSpot with default flags, interpreted.
+(The last clause is the JVM's documented behaviour, not something this
+research measured.)
+
+### 3. `spark.sql.codegen.maxFields`
+
+**SPARK-14224** - "Cannot project all columns from a table with ~1,100
+columns". JIRA: Fixed, [2.0.0]. Commit
+5a4b11a901703464b9261dea0642d80cf8d4856c (2016-04-06, Davies Liu; title
+"[SPARK-14224] [SPARK-14223] [SPARK-14310] [SQL] fix RowEncoder and parquet
+reader for wide table"), first release v2.0.0. Adds internal
+`spark.sql.codegen.maxFields`, "The maximum number of fields (including nested
+fields) that will be supported before deactivating whole-stage codegen",
+default 200. SPARK-15759's commit 7504bc73f20 (2016-06-10) changed the default
+to 100, and v2.0.0 ships 100. Master: default 100, `.version("2.0.0")`.
+
+    git -C $S show 5a4b11a9017 -- sql/core/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala | grep '^[-+]'
+    git -C $S show 7504bc73f20 -- sql/core/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala | grep '^[-+]'
+
+### 4. Constant pool, nested classes, consume functions
+
+**SPARK-18016** - "Code Generation: Constant Pool Past Limit for Wide/Nested
+Dataset". JIRA: Fixed, [2.3.0], created 2016-10-19, resolved 2017-12-19.
+Commits on master:
+
+- b32b2123ddca66e00acf4c9d956232e07f779f9f (2017-06-15, Aleksander Eskilson),
+  "Constant Pool Limit - Class Splitting", v2.3.0: when a generated class's
+  code passes a size threshold (1600000 in that commit, counted in source
+  characters by `currClassSize`), later functions go into a private nested
+  class; `addNewFunction` returns the qualified name to call.
+- 680b33f1669 (2017-07-09) follow-up merging the nested-class helpers.
+- ee56fc3432e7e328c29b88a255f7e2c2a4739754 (2017-12-20, Kazuaki Ishizaki),
+  "reduce entries for mutable state", v2.3.0: non-primitive mutable state goes
+  into arrays of at most 32768 elements, since index 32767 is the largest
+  that needs no constant-pool entry (`MUTABLESTATEARRAY_SIZE_LIMIT = 32768`,
+  `OUTER_CLASS_VARIABLES_THRESHOLD = 10000` on master); follow-up 5683984520c
+  (2017-12-28).
+- The class-splitting commit was backported to branch-2.2 (198e3a036fb,
+  2017-06-22) and branch-2.1, and both backports were reverted (b99c0e9d1cb
+  2017-06-23; 26f4f340ce5 2017-06-25). So it first shipped in 2.3.0.
+
+**SPARK-22226** - JIRA "splitExpression can create too many method calls
+(generating a Constant Pool limit error)". JIRA: Fixed, [2.3.0]. Commit
+b3d8fc3dc458d42cf11d961762ce99f551f68548 (2017-10-27, Marco Gaido), v2.3.0.
+Calls from the outer class to many methods in a nested class each cost
+constant-pool entries, so they are grouped into one method in the nested
+class; the same commit set `GENERATED_CLASS_SIZE_THRESHOLD = 1000000`, the
+value on master today.
+
+    git -C $S log apache/master --format='%h %ad %s' --date=short \
+      -S'GENERATED_CLASS_SIZE_THRESHOLD = 1000000' -- \
+      sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/codegen/CodeGenerator.scala
+
+**SPARK-21717** - "Decouple the generated codes of consuming rows in operators
+under whole-stage codegen". JIRA: Fixed, [2.3.0]. Master
+d20bbc2d87ae6bd56d236a7c3d036b52c5f20ff5 (2018-01-25, Liang-Chi Hsieh), first
+release v2.4.0; branch-2.3 c79e771f895 (2018-01-25), first release v2.3.0.
+Adds `spark.sql.codegen.splitConsumeFuncByOperator` (internal, default true):
+each operator's consume logic goes into its own method "instead of a single
+big method", citing SPARK-21603's JIT degradation. **Discrepancy:** v2.3.0
+already contains the config (checked with `git show
+v2.3.0:.../SQLConf.scala`), but master's SQLConf declares `.version("2.3.1")`.
+The version annotations were added later by the SPARK-30841 series
+(0e9dca81d61, 2020-04-07), which appears to have picked the wrong release.
+
+### 5. SPARK-29084, SPARK-29128 and `modified-q3`
+
+**SPARK-22774** - "Add compilation check for generated code in
+TPCDSQuerySuite". JIRA: Fixed, [2.3.0]. Commit
+606ae491e41017c117301aeccfdf7221adec7f23 (2017-12-15), v2.3.0. Adds
+`checkGeneratedCode`, which walks `executedPlan` for `WholeStageCodegenExec`
+nodes and compiles each one's code. (TPC-H SPARK-22787 3fea5c4f19c and SSB
+SPARK-22800 9fafa8209c5 suites followed the same week.)
+
+**SPARK-29084** - "Check method bytecode size in BenchmarkQueryTest". JIRA:
+Fixed, [3.0.0], created 2019-09-14, resolved 2019-09-22. Commit
+7a2ea58e782cde4c9b7ec887c6eeb642659d8614 (2019-09-22, Takeshi Yamamuro,
+PR #25788), first release v3.0.0. `checkGeneratedCode` gains
+`checkMethodCodeSize` and asserts `maxMethodCodeSize <=
+CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT` ("too long generated codes found
+... and JIT optimization might not work"). The same commit adds to
+TPCDSQuerySuite:
+
+    // List up the known queries having too large code in a generated function.
+    // A JIRA file for `modified-q3` is as follows;
+    // [SPARK-29128] Split predicate code in OR expressions
+    val blackListForMethodCodeSizeCheck = Set("modified-q3")
+
+(later renamed `excludeListForMethodCodeSizeCheck`; the comment is unchanged
+on master).
+
+**SPARK-29128** - "Split predicate code in OR expressions". JIRA: status In
+Progress, resolution none, no fixVersion, no assignee, no comments, created
+2019-09-18. Description: modified-q3 "had too big functions. That's because
+too long OR chains in the query generate too long code in a single function."
+No commit on any branch (`git log --all --grep='SPARK-29128'` finds only the
+TPCDSQuerySuite comment's commit, which cites it). Its PR, apache/spark#25827
+by maropu (opened 2019-09-18, 44 comments), was closed unmerged on 2020-07-06
+by `github-actions[bot]` (the stale-PR bot):
+
+    gh api repos/apache/spark/pulls/25827 --jq '{state,created_at,closed_at,merged_at}'
+    gh api repos/apache/spark/issues/25827/events --jq '.[]|select(.event=="closed")|.actor.login'
+
+So the exclusion has been in place for seven years for a fix that never
+landed.
+
+### 6. SPARK-40697 and "less than 8000"
+
+**SPARK-40697** - "Add read-side char/varchar handling to cover external data
+files" (commit title: "Add read-side char padding to cover external data
+files"). JIRA: Fixed, [3.4.0], created 2022-10-07, resolved 2022-10-12. Commit
+b9998cf1bf3501936bdf7c0d2a8cc3ddf0115a06 (2022-10-12, Wenchen Fan, PR #38151),
+first release v3.4.0; follow-up 5196ff5c9aa (2022-11-04) "Read-side char
+padding should only be applied if necessary", v3.4.0. Adds
+`spark.sql.readSideCharPadding` (default true, `.version("3.4.0")`) and, in
+the same commit, to TPCDSQuerySuite:
+
+    override protected def sparkConf: SparkConf =
+      // Disable read-side char padding so that the generated code is less than 8000.
+      super.sparkConf.set(SQLConf.READ_SIDE_CHAR_PADDING, false)
+
+    git -C $S show b9998cf1bf3 -- sql/core/src/test/scala/org/apache/spark/sql/TPCDSQuerySuite.scala
+
+The PR's three commits are "add read-side char/varchar handling...", "fix
+incline CTE" and "fix tests" (2022-10-10); no PR comment mentions 8000 or
+TPCDSQuerySuite. Note the date: this was 22 months after AQE became the
+default, when (per SPARK-59764) the size check could not see any stage.
+
+### 7. SPARK-33679 (AQE by default) and SPARK-59764
+
+**SPARK-33679** - "Enable spark.sql.adaptive.enabled true by default". JIRA:
+Fixed, [3.2.0], created 2020-12-06, resolved 2020-12-08. Commit
+031c5ef280e0cba8c4718a6457a44b6cccb17f46 (2020-12-07, Dongjoon Hyun, PR
+#30628), first release v3.2.0; it changes only SQLConf.scala and the
+migration guide ("Pass the CIs" as testing). Docs follow-up 286c231c1ea
+(2021-07-12, first in v3.3.0) with branch-3.2 backport 969c6916014 (in
+v3.2.0). The config itself carries `.version("1.6.0")`, the release that
+introduced it, not the one that flipped the default.
+
+Why it matters here: `AdaptiveSparkPlanExec` is a `LeafExecNode` (master
+AdaptiveSparkPlanExec.scala line 77, and already in 2022 at b9998cf1bf3), and
+`InsertAdaptiveSparkPlan.shouldApplyAQE` wraps any plan containing an
+Exchange, a required child distribution, or a subquery, i.e. practically
+every TPC-DS/TPC-H plan. `checkGeneratedCode` walks the plan with `plan
+foreach` plus `subqueries`, so it stops at the leaf and finds no
+`WholeStageCodegenExec`. Neither BenchmarkQueryTest, TPCDSBase nor the test
+session turns AQE off (`git grep -i adaptive` over those files on master
+finds nothing).
+
+**SPARK-59764** - "BenchmarkQueryTest.checkGeneratedCode checks nothing under
+adaptive query execution". JIRA: Open, no resolution, no fixVersion, affects
+version 5.0.0, component SQL, created 2026-09-24. PR apache/spark#59017
+"[SPARK-59764][SQL][TESTS] Check generated code of benchmark queries with AQE
+disabled", open, not merged, created 2026-09-24. No commit on master. The
+JIRA's evidence: 0 whole-stage stages found with AQE on over 103 + 32 + 21
+TPC-DS and 22 TPC-H queries; with AQE off about 1,700 TPC-DS stages and 126
+TPC-H stages, exactly one over 8000 bytes (modified-q3, 12214 bytes; 12167
+with injected stats); and read-side char padding moves the largest method of
+some queries by at most about 500 bytes, never across 8000. (These numbers
+are the JIRA's; this research did not re-run them.)
+
+Window of an effective size check: from 7a2ea58e782 (2019-09-22) to
+031c5ef280e (2020-12-07) on master, i.e. releases 3.0.x and 3.1.x only.
+
+### 8. Other things the search turned up (2026)
+
+- **SPARK-56908** - "Reduce the size of code generated by whole-stage
+  codegen". JIRA: status Reopened, no fixVersion, created 2026-05-17, 58
+  subtasks; 45 commits on master cite it (first: 003228ff4ea, 2026-05-18,
+  SPARK-56916). Mostly "Simplify X codegen under ANSI mode" and "extract a
+  static Java helper" changes.
+- **SPARK-57915** - "Add a TPC-DS whole-stage-codegen size benchmark". JIRA:
+  Fixed, [4.3.0]. Commit bcad90da12663e31fc5d13e8469482af20d8ac81
+  (2026-07-04, Gengliang Wang), in no release tag yet. Adds
+  WholeStageCodegenSizeBenchmark, which plans TPC-DS queries without data and
+  reports source size, max method bytecode, inner classes, constant-pool
+  entries, compile time and fallbacks. Its message cites both the 64KB limit
+  and the "HotSpot 8KB JIT-compilation threshold". Whether it plans with AQE
+  on (and so sees stages at all) was not checked here.
+- **SPARK-57370** - "Add a JDK (javac) compiler backend for whole-stage
+  codegen". JIRA: Fixed, [4.3.0]. Commit f014c2ba30f (2026-08-03, YangJie),
+  no release tag yet. Adds internal `spark.sql.codegen.compiler`
+  (`janino` default, or `jdk`), `.version("4.3.0")`; the doc notes Janino's
+  last release is 3.1.12 (Feb 2024). javac has the same 64KB method limit.
+- **SPARK-58506** - "Assert Spark's own error contract in codegen compile
+  failure tests". JIRA: Fixed, [4.3.0]. Commit 1e6bc6ea858 (2026-08-03).
+
+## (c) Not verified
+
+- Why SPARK-40697 needed `readSideCharPadding=false` in TPCDSQuerySuite in
+  October 2022, when AQE was already the default and the check should have
+  seen no stage. No PR comment explains it and the CI log of #38151 was not
+  examined. SPARK-59764 reports the override is unnecessary even with AQE off.
+- The 8000-byte and interpreted-execution behaviour of HotSpot
+  (`HugeMethodLimit`, `DontCompileHugeMethods`) is taken from Spark's own
+  comments and docs; no JVM source or flag output was checked here.
+- The SPARK-59764 stage counts and byte sizes are quoted from the JIRA, not
+  reproduced.
+- JIRA fixVersions 1.6.4 and 2.0.3 for SPARK-16845 name releases that were
+  never cut; the branch commits exist but are in no final tag in this clone.
+- The individual JIRA fields of the smaller November 2017 fixes (concat,
+  elt, cast, least/greatest, hash, FormatString, ...) were not fetched; only
+  the representative ones above were.
+- Whether SPARK-57915's benchmark runs with AQE disabled.
+- Which release first had a hugeMethodLimit-triggered fallback log in the
+  form it has on master (the MDC structured-logging form is recent); only the
+  2.4.0 logging commit SPARK-25113 was checked.
+
+## (d) Settled after the research
+
+- **SPARK-57915's benchmark runs with AQE disabled.** Its `getSparkSession` sets
+  `spark.sql.adaptive.enabled=false`, with a comment saying the plan is then
+  fully materialised at planning time. It plans over empty tables, though, so
+  its broadcast joins generate stubs: on master, 324 of the 2201 stages of the
+  TPC-DS v1.4 and v2.7 queries carried the empty-relation stub. Filed as
+  SPARK-59765, fixed by apache/spark#59018, which regenerates the benchmark's
+  results: the stage count is unchanged, and the generated source grows by
+  about 19% and the summed largest-method bytecode by about 11%.
+- **Why SPARK-40697's override could matter in 2022.** `LogicalPlanTagInSparkPlanSuite`
+  extends `TPCDSQuerySuite` with AQE disabled, and did so before October 2022,
+  so the size check did run there. The first version of the SPARK-59764 patch
+  dropped the override on the argument that it guarded nothing; review showed
+  that argument false for that suite, and apache/spark#59017 keeps the
+  override. The entry in (c) that says SPARK-59764 reports it unnecessary
+  describes that first version.
+- **HotSpot's 8000-byte behaviour** is no longer taken from Spark's comments
+  alone: `VarkaSizeLadderJitSuite` reads it from `-XX:+PrintCompilation` in a
+  forked JVM, and `PLAN_TASK_192.md` 9.2 reads it on stock Spark 4.2.0 on JDK
+  17, 21 and 25.
+- **The check did not stop everywhere in 3.2.** Where this record says the
+  method-size check stopped working when AQE became the default, that holds for
+  `TPCDSQuerySuite` and its variants, `TPCHQuerySuite` and `SSBQuerySuite`.
+  `LogicalPlanTagInSparkPlanSuite` disables AQE itself and kept running the
+  check on the TPC-DS queries, over stub joins (SPARK-59765).
