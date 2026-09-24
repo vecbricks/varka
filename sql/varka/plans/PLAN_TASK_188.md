@@ -812,3 +812,14 @@ one. It becomes row 206.
 **What remains for the row.** The reproducers of section 4, each making vanilla say it out loud
 with the Spark revision named, and the Varka column checked entry by entry against them. The
 census is complete as a reading of the source; it is not yet backed by committed reproducers.
+
+## 6. The reproducers, as they land
+
+* **G26, 24 September 2026.** `VarkaCodegenCliffLogSuite` runs the size ladder's projection on
+  vanilla Spark and captures `CodeGenerator`'s log: at 56 entries it logs "Generated method too
+  long to be JIT compiled" for the consume method, with a size past 8000 bytes, and at 48 entries
+  it logs no such line. It accepts INFO or WARN, since SPARK-59774 (apache/spark#59020) proposes
+  raising the line to a warning that names the remedy.
+* **The Varka gap of section 5, closed the same day (row 206).** A filter with a nondeterministic
+  conjunct now declines every conjunct with the reason, and the fusion report shows each conjunct's
+  reason even when none fuses, where it used to print one line saying none was eligible.
