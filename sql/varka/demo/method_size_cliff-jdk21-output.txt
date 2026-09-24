@@ -1,0 +1,18 @@
+Output of method_size_cliff.scala on a GitHub-hosted runner, by varka-demo.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36021565464
+commit:  be252a29615
+cpu:     Intel(R) Xeon(R) 6973P-C
+java:    openjdk version "21.0.12" 2026-07-21 LTS
+spark:   4.2.0
+
+entries  largest method       ns per row, defaults   ns per row, hugeMethodLimit=8000
+44       7285 bytes                          717.2                              698.4
+48       7945 bytes                          734.7                              731.6
+52       8677 bytes *                       3375.4                              945.2
+56       9513 bytes *                       3691.0                             1053.3
+
+* past 8000 bytes: HotSpot will not compile the method. At 52 entries it is 8677 bytes (Spark 4.2.0, Java 21.0.12).
+
+Sizes of project_doConsume the JIT compiled (-XX:+PrintCompilation), with counts:
+      4 (7285 bytes)
+      3 (7945 bytes)

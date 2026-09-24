@@ -182,4 +182,24 @@ nanoseconds per row. The bytes are 7285, 7945, 8677 and 9513 at 44, 48, 52 and
 56 entries on every JDK. Under `-XX:+PrintCompilation` on JDK 25, the compile
 log names the 7285- and 7945-byte methods and never the 8677- or 9513-byte ones.
 
-<!-- The runner's outputs and the predictions' scores follow when the workflow has run. -->
+### 9.2 The runner check, 24 September 2026
+
+`varka-demo.yml`'s first run, triggered by the push that added it
+(`method_size_cliff-jdk{17,21,25}-output.txt`, each naming its run and CPU).
+JDK 17 and 25 drew an AMD EPYC 7763, JDK 21 an Intel Xeon 6973P-C.
+
+1. **Held.** The bytes are 7945 at 48 entries and 8677 at 52 on all three, as
+   on the laptop.
+2. **Held.** The step between 48 and 52 entries under the defaults is 5.5 times
+   on JDK 17 (1574.5 to 8712.7 ns a row), 4.6 on JDK 21 (734.7 to 3375.4) and 6.2
+   on JDK 25 (1483.9 to 9194.0).
+3. **Held.** Under `hugeMethodLimit=8000` it is 1.22, 1.29 and 1.12 times
+   (1616.6 to 1979.3, 731.6 to 945.2, 1465.5 to 1648.0).
+4. **Held.** On every JDK the compile log names the 7285- and 7945-byte methods
+   and never the 8677- or 9513-byte ones.
+
+The EPYC 7763's times are about twice the Xeon's and the laptop's, the ratios
+are not; which is what the script's header tells a reader to expect.
+
+What remains is the post's link to the script and the choice of which output
+it shows.
