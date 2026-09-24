@@ -1,0 +1,86 @@
+================================================================================================
+vanilla Spark's settings on the size ladder (DontCompileHugeMethods=false)
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+16 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                              730            743          17          2.7         365.1       1.0X
+vanilla Spark, hugeMethodLimit=8000                  698            706           9          2.9         348.8       1.0X
+vanilla Spark, wholeStage=false                      765            773           9          2.6         382.4       1.0X
+
+rung 16: vanilla's largest generated method is 2416 bytes, under HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 whole-stage, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+32 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             1350           1381          30          1.5         674.9       1.0X
+vanilla Spark, hugeMethodLimit=8000                 1347           1424          87          1.5         673.5       1.0X
+vanilla Spark, wholeStage=false                     1736           1746           7          1.2         867.8       0.8X
+
+rung 32: vanilla's largest generated method is 4800 bytes, under HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 whole-stage, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+48 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             2023           2041          20          1.0        1011.3       1.0X
+vanilla Spark, hugeMethodLimit=8000                 2023           2048          25          1.0        1011.7       1.0X
+vanilla Spark, wholeStage=false                     2362           2374          13          0.8        1181.2       0.9X
+
+rung 48: vanilla's largest generated method is 7184 bytes, under HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 whole-stage, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+52 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             2187           2208          22          0.9        1093.5       1.0X
+vanilla Spark, hugeMethodLimit=8000                 2200           2211          11          0.9        1100.1       1.0X
+vanilla Spark, wholeStage=false                     2507           2518          11          0.8        1253.3       0.9X
+
+rung 52: vanilla's largest generated method is 7868 bytes, under HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 whole-stage, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+54 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             2282           2290          12          0.9        1141.1       1.0X
+vanilla Spark, hugeMethodLimit=8000                 2610           2658          92          0.8        1305.1       0.9X
+vanilla Spark, wholeStage=false                     2597           2610          19          0.8        1298.3       0.9X
+
+rung 54: vanilla's largest generated method is 8254 bytes, past HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 per-operator, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+56 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             2360           2375          14          0.8        1179.9       1.0X
+vanilla Spark, hugeMethodLimit=8000                 2729           2756          20          0.7        1364.7       0.9X
+vanilla Spark, wholeStage=false                     2710           2739          21          0.7        1355.1       0.9X
+
+rung 56: vanilla's largest generated method is 8640 bytes, past HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 per-operator, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+64 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             2714           2857          81          0.7        1356.8       1.0X
+vanilla Spark, hugeMethodLimit=8000                 3335           3359          31          0.6        1667.7       0.8X
+vanilla Spark, wholeStage=false                     3115           3156          44          0.6        1557.5       0.9X
+
+rung 64: vanilla's largest generated method is 10184 bytes, past HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 per-operator, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+80 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             3363           3436          66          0.6        1681.3       1.0X
+vanilla Spark, hugeMethodLimit=8000                 3912           3934          37          0.5        1956.1       0.9X
+vanilla Spark, wholeStage=false                     3903           3911           8          0.5        1951.4       0.9X
+
+rung 80: vanilla's largest generated method is 13272 bytes, past HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 per-operator, wholeStage=false no whole-stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+100 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, defaults                             19084          19176          81          0.1        9542.1       1.0X
+vanilla Spark, hugeMethodLimit=8000                  4993           5043          56          0.4        2496.5       3.8X
+vanilla Spark, wholeStage=false                      5005           5041          49          0.4        2502.6       3.8X
+
+rung 100: vanilla's largest generated method is 17132 bytes, past HugeMethodLimit 8000; defaults whole-stage, hugeMethodLimit=8000 per-operator, wholeStage=false no whole-stage
+

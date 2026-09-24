@@ -251,3 +251,36 @@ between 48 and 52 entries and the fork between 52 and 54. The fork tracks
 Spark master, and its codegen differs. The post compares against the Spark a
 reader downloads, so it should name the crossing it quotes, and the ladder's
 vanilla arm is the fork's; row 194 now carries a stock arm.
+
+### 9.3 The runners' runs, 24 September 2026
+
+Both runs through `.github/workflows/benchmark.yml` at `eafc3e0e340`, each file
+beside the laptop's with its provenance. They drew different machines: the
+default run an Intel Xeon Platinum 8573C
+(`VarkaSizeLadderTuningBenchmark-jdk25-runner-results.txt`), the flag run the
+AMD EPYC 9V45 (`-dontcompilehugemethods-off-runner-results.txt`). Every arm is
+vanilla Spark's scalar code, so the datapath's width does not bear on them,
+but the two files are two machines: each is read against its own defaults arm,
+not against the other.
+
+**The laptop's reading holds on both.** On the Xeon the defaults step from
+1241.4 ns a row at 52 entries to 4650.0 at 54, while `hugeMethodLimit=8000`
+goes from 1239.7 to 1562.3 and `wholeStage=false` from 1485.8 to 1561.1. Past
+the limit the tuned line costs about 1.2 times the defaults' pre-cliff cost per
+entry (1562.3 at 54, 2860.7 at a hundred, against 1241.4 at 52), a little more
+than the laptop's 1.1. `wholeStage=false` costs a fifth below the cliff here
+(1485.8 against 1241.4 at 52).
+
+**The flag's second cliff reproduces on the 9V45.** Under
+`-XX:-DontCompileHugeMethods` the defaults run with no step through the limit
+(1093.5 at 52, 1141.1 at 54, 1681.3 at 80) and return to the interpreted cost at
+a hundred entries: 9542.1, against 2496.5 for `hugeMethodLimit=8000` in the same
+file. That is 9.2's C2 failure, on a second machine and CPU vendor.
+
+**Varka against the best tuned vanilla, on one machine.** The 9V45 carries both
+this flag run and task 171's runner ladder. At 54 entries the best vanilla
+setting there is the flag's compiled defaults, 1141.1 ns a row, against Varka's
+69.6; at a hundred it is `hugeMethodLimit=8000`, 2496.5 against 111.4. So on the
+published machine, tuned vanilla is 16 and 22 times slower.
+
+What remains: the band of the laptop's default run.
