@@ -261,3 +261,33 @@ replaces the boundary suite of 9.1, pins that every number of ranges fuses and t
 kernel's methods stay under 2000 bytes. The IR fuzzer draws range sets, against a reference
 evaluator written from the node's meaning, and the reach test holds it to that. The bytes oracle
 moved in exactly the twelve keys that hash every fuzz shape and no coverage key.
+
+### 9.3 Design B, measured, 24 September 2026
+
+`VarkaRangeFilterBenchmark` again, on the laptop, both widths, with the range set: the files of 9.1
+regenerated, so the vanilla arm is re-measured beside it. Nanoseconds a row at the wide width:
+
+| ranges | vanilla | Varka, range set | vanilla / Varka |
+|---:|---:|---:|---:|
+| 10 | 19.3 | 8.9 | 2.2 |
+| 48 | 28.0 | 13.1 | 2.1 |
+| 49 | 26.9 | 12.6 | 2.1 |
+| 100 | 3736.6 | 19.5 | 192 |
+| 150 | 5425.0 | 27.8 | 195 |
+| 200 | 6781.7 | 36.6 | 185 |
+
+**Varka now takes the whole query's filter, and the cliff is gone from its side.** Where step 1's
+Varka arm declined from 49 ranges and ran vanilla's code, it now runs its kernel at every rung, and
+at the query's 200 ranges it is 185 times faster than vanilla. Below vanilla's crossing, where both
+compile, it is about twice as fast, and the loop costs no more than the tree of comparisons it
+replaced where both fit (13.1 against 9.1's 14.0 at 48 ranges). At 128 bits the ratio at 200
+ranges is 102 (67.2 against 6834.5).
+
+**Prediction 3 failed, as 9.2 expected.** The range set's time grows with the ranges, about 0.16 ns
+a row a range at the wide width (12.6 at 49, 36.6 at 200), because the loop compares every lane
+with every range. A binary search would grow with their logarithm; whether it is worth its gathers
+is the variant 9.2 leaves open. At 36.6 ns a row for 200 ranges against vanilla's 6781.7, the loop
+is not what limits the claim.
+
+**Prediction 4 held for design B**: faster than vanilla at every rung, and by more than ten times
+past vanilla's crossing. Design A is still to build and to score.
