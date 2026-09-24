@@ -284,3 +284,36 @@ setting there is the flag's compiled defaults, 1141.1 ns a row, against Varka's
 published machine, tuned vanilla is 16 and 22 times slower.
 
 What remains: the band of the laptop's default run.
+
+### 9.4 Correction, 24 September 2026: the cache was not Arrow
+
+`VarkaSizeLadderTuningBenchmark` took its sessions from `VarkaSizeLadderBenchmark.createSession`.
+A benchmark object creates its default session when it is initialised, so the call started a
+SparkContext before `createSession` built its session, and the Arrow cache setting of that session
+was ignored: every file of this task, the laptop's and the runners', measured vanilla reading
+Spark's default cache (`DefaultCachedBatchSerializer`, on-heap vectors), not the Arrow cache the
+tables name. Task 172's benchmark exposed it, because Varka's filter rule needs Arrow vectors and
+refused. The helpers now live in plain objects (`VarkaArrowSessions`, `VarkaSizeLadder`), and every
+one of these benchmarks refuses a table that is not Arrow-cached. The size ladder called its own
+helper after stopping its own session and passes the check, so task 171's files stand.
+
+**The laptop's files are re-measured**, both runs, with the Arrow cache. What changes:
+
+* **The defaults arm is now the ladder's vanilla arm**, as 3.1 said it would be: 763.2 ns a row at
+  52 entries in both files. Over the default cache it had read 886.2; the Arrow path is about a
+  seventh cheaper below the cliff.
+* **The tuned settings cost a little more than 9.1 read.** Past the limit `hugeMethodLimit=8000`
+  costs about 1.3 times the defaults' pre-cliff cost per entry (1059.0 at 54 entries, 1893.5 at a
+  hundred, against 763.2 at 52), not 1.1: the Arrow path made the compiled line cheaper and left
+  the per-operator path about where it was. Prediction 1 still falls short of its registered one
+  and a half to three.
+* **`wholeStage=false` costs about a quarter below the cliff** (976.6 against 763.2 at 52), not a
+  tenth.
+* **The flag's second cliff is unchanged**: compiled through 80 entries, 7989.1 at a hundred.
+* **Against Varka, now on the same cache.** The best tuned vanilla on the laptop is the flag run's
+  compiled defaults at 54 entries, 789.6 ns a row against Varka's 70.6, eleven times; at a hundred
+  it is `wholeStage=false` under the flag, 1856.3 against 122.8, fifteen times.
+
+**The runners' files of 9.3 carry the same fault** and are not re-measured yet: their within-file
+ratios stand, their comparison with Varka does not. They are dispatched again once the fix is on
+master, and 9.3's "16 and 22 times" is superseded by what that run says.

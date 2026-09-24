@@ -186,4 +186,43 @@ interpreted without a word, and the post says the silence is the problem.
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+### 9.1 Step 1: the boundary pinned and the baseline measured, 24 September 2026
+
+`VarkaRangeFilterBoundarySuite` pins that Varka fuses the first 48 of the ranges and declines the
+49th for the byte budget. It parses the ranges rather than building the `or` chain by hand: the
+parser builds a long chain of one connective as a balanced tree, while a hand-built left-deep chain
+of 48 is declined for its depth before its size is asked, which is how the test's first version
+failed.
+
+`VarkaRangeFilterBenchmark`, laptop, both widths (`VarkaRangeFilterBenchmark-jdk25-results.txt` and
+its 128-bit companion). Nanoseconds a row, at the wide width:
+
+| ranges | vanilla | Varka today | vanilla's method |
+|---:|---:|---:|---:|
+| 10 | 19.5 | 8.8 (kernel) | 1510 bytes |
+| 48 | 28.0 | 14.0 (kernel) | 6906 bytes |
+| 49 | 27.3 | 27.2 (declined) | 7048 bytes |
+| 100 | 3675.6 | 3694.2 (declined) | 14299 bytes |
+| 200 | 6695.8 | 6699.4 (declined) | 28699 bytes |
+
+**The cliff is far steeper than the size ladder's.** Vanilla goes from 27.3 ns a row at 49 ranges
+to 3675.6 at 100, about 135 times, where the ladder's projection steps about five times. The filter
+is generated into the scan's `processNext`, so when that method is not compiled the whole scan loop
+runs in the interpreter, not one method called from a compiled loop.
+
+**Prediction 1 failed.** Vanilla's method grows about 145 bytes a range and passes 8000 near 55
+ranges, not between 120 and 160. The prediction extrapolated from the census's 12167 bytes for
+`modified-q3`'s stage (task 193), which is not this benchmark's stage: in Spark's TPC-DS schema
+`store_sales` is partitioned by `ss_sold_date_sk`, the query's scan is planned against that, and
+this benchmark filters a plain cached column, whose method is 28699 bytes at the same 200 ranges.
+Why the two differ by that much was not examined.
+
+**Varka's kernel is 2.2 times vanilla at 10 ranges and 2.0 times at 48** (8.8 against 19.5, 14.0
+against 28.0); at 128 bits 1.9 and 1.5 times. Past 48 it declines and the two arms are the same
+code.
+
+**The benchmark also exposed a fault in its neighbours.** Its first run declined even 10 ranges:
+the session's cache was Spark's default, not Arrow, and Varka's filter rule needs Arrow vectors.
+The cause and its consequences for task 192 are in `PLAN_TASK_192.md` 9.4.
+
+What remains: designs B and A, and the predictions they carry.

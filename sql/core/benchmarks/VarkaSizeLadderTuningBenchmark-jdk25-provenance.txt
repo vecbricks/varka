@@ -1,11 +1,11 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSizeLadderTuningBenchmark
-commit:      f55f3982f5c
-date:        2026-09-24T11:07:39Z
+commit:      d57e69bf1a2
+date:        2026-09-24T16:37:27Z
 jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
 kernel:      7.0.0-31-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 power:       governor=performance epp=performance profile=performance
 pinned to:   taskset -c 0,12,13,14,15,1,2,3
-load at start: 0.66
-canary:      ok (compute +0.1% cache +2.0% memory -0.5% )
+load at start: 0.87
+canary:      ok (compute +0.1% cache -0.2% memory -0.6% )
 wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaSizeLadderTuningBenchmark
