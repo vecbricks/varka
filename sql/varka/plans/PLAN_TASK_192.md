@@ -199,3 +199,55 @@ cannot write the flag's file.
 
 What remains: the band of the default run, in a quiet window; the runner's two
 runs for the published figure, as for task 171; and row 201.
+
+### 9.2 The JVM's own account, 24 September 2026: rows 201 and 196
+
+**Row 201: at a hundred entries C2 runs out of nodes.** The flag run repeated
+under `-XX:+PrintCompilation -XX:+LogCompilation`, in the fork's own benchmark
+JVM. At every size past the limit, C1 gives up on the consume method first
+("out of virtual registers", in the LIR generator or in linear scan) and hands
+it to C2. At 64 and 80 entries (10184 and 13272 bytes) C2 compiles it, which is
+why those rungs cost the same per entry as below the limit. At a hundred (17132
+bytes) C2 fails too, both times the rung plans the query:
+
+    project_doConsume_0$ (17132 bytes)   COMPILE SKIPPED: out of nodes during split
+
+This is C2's node budget, `MaxNodeLimit`, which it can run out of while
+splitting live ranges during register allocation. With C1 and C2 both failed,
+the method stays interpreted, and the rung runs at the defaults' interpreted
+cost. So the flag moves the cliff rather than removing it: past a size that
+depends on the method's shape, the JIT's own budgets stop it, and nothing is
+logged except by `PrintCompilation`. The forked probe of 9.1 had C2 start on the
+method but did not show it failing; a compile that starts is not one that
+succeeds. Whether raising `MaxNodeLimit` as well removes this step is not
+tested; it would be a second JVM tuning flag, which is the point.
+
+The size is not the only factor. The same query on stock Spark 4.2.0 under the
+flag (below) generates an 18709-byte method at a hundred entries, and there C2
+compiles it. The node count depends on what the bytes do, not only on how many
+there are.
+
+**Row 196: the cliff holds on JDK 17, on stock Spark.** The fork's classes are
+built for Java 25 (class-file version 69), so the fork cannot run on JDK 17.
+The question is about the Spark users run anyway, so it was asked of the stock
+Spark 4.2.0 distribution, the one the date surface compares against. The query is
+the ladder's, over two million generated dates rather than the Arrow cache,
+through `spark-shell --master local[1]` with `-XX:+PrintCompilation`:
+
+| entries | consume method | JDK 17 | JDK 25 |
+|---:|---:|---|---|
+| 44 | 7285 bytes | not run | compiled |
+| 48 | 7945 bytes | not run | compiled |
+| 52 | 8677 bytes | never compiled | never compiled |
+| 54 | 9095 bytes | never compiled | never compiled |
+
+"Never compiled" means the method does not appear in the compile log at all,
+as for the fork's defaults in `VarkaSizeLadderJitSuite`. JDK 21 is not installed
+on the laptop yet; it is the one JDK left.
+
+**Stock Spark crosses a little earlier than the fork.** Its consume method is
+8677 bytes at 52 entries, where the fork's is 7868, so stock 4.2.0 crosses
+between 48 and 52 entries and the fork between 52 and 54. The fork tracks
+Spark master, and its codegen differs. The post compares against the Spark a
+reader downloads, so it should name the crossing it quotes, and the ladder's
+vanilla arm is the fork's; row 194 now carries a stock arm.
