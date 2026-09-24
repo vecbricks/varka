@@ -3341,6 +3341,38 @@ cheap to compute from counts Varka's filter node already has. **Done when**
 Items 16 and 20 either adopt it with a measurement or record why not. Size:
 small.
 
+### Item 53. Varka as a plugin for stock Spark
+
+*Added on 24 September 2026, from the review of spark-vector.*
+
+Varka ships as a fork of Spark, so trying it means building that fork.
+spark-vector, a Java Vector API engine of about the same age, ships as a jar
+for stock Spark 4.1.3 and turns on with `spark.plugins` and two JVM options.
+For the readers the posts bring, "add a jar" and "build our Spark" are very
+different asks. The item is an inventory before any design: every place
+Varka's filter and projection path touches the fork rather than a public
+extension point (the columnar rule, the Arrow cache serializer, the
+`VARKA_ENABLED` setting, the exec nodes, the codegen hooks), and for each,
+whether `SparkSessionExtensions`, a `SparkPlugin` or a cache serializer
+setting already carries it on stock Spark. **Done when** the inventory says
+which of them a plugin build could carry and what the rest would cost - a
+patch upstream, or a feature the plugin gives up. Size: small for the
+inventory; the build it leads to is its own item.
+
+### Item 54. An expression support table for users
+
+*Added on 24 September 2026, from the review of spark-vector.*
+
+Comet publishes one row per Spark expression: whether it runs natively, for
+which types, and the exact reason it falls back where it does. spark-vector's
+`docs/expressions.md` copies that format. Varka has the facts - the fusion
+report, the coverage table (task 120) and each lowering's refusal reasons -
+but they are written for this project, not for a reader deciding whether
+Varka covers their query. The item is that table, generated from the coverage
+data rather than written by hand, so it cannot fall behind the lowerings.
+**Done when** the table is committed and a check fails when a lowering is
+added or removed without it. Size: small.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
