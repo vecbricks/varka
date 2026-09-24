@@ -190,6 +190,22 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
     assert(cache.hitCount === 0 && cache.missCount === 0)
   }
 
+  test("a size decline is remembered: the next lookup rethrows it without emitting again") {
+    // Task 87's byte budget declines a shape whose single output is over it, and the decline is
+    // the same on every call, so the cache keeps it: without that, every task that reaches the
+    // shape would build and measure the class again only to decline it again. A 300-byte budget
+    // declines one make_date output, whose methods read over a thousand bytes.
+    val cache = new VarkaShapeCacheImpl(8)
+    val key = new VarkaShapeKey(
+      java.util.List.of[VarkaVectorIR](new VarkaVectorIR.MakeDate(
+        new VarkaVectorIR.Year(columnRef), new VarkaVectorIR.Month(columnRef), literal, true)),
+      1, 1, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(300))
+    val first = intercept[VarkaEmitDeclined] { cache.getOrEmit(parent, key, "exec") }
+    val second = intercept[VarkaEmitDeclined] { cache.getOrEmit(parent, key, "exec") }
+    assert(second eq first, "the second lookup must rethrow the remembered decline")
+    assert(cache.hitCount === 0 && cache.missCount === 0 && cache.size === 0)
+  }
+
   test("eviction releases the evicted loader, and the class unloads once unreferenced") {
     val cache = new VarkaShapeCacheImpl(2)
     val queue = new ReferenceQueue[ClassLoader]()

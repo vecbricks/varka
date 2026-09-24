@@ -727,7 +727,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
    * that pin where that method crossed HugeMethodLimit measure this form on purpose: the
    * crossing is the fact the per-group epilogue answers, and it stays measurable at budget 0.
    */
-  protected def epilogueSize(
+  protected def singleEpilogueSize(
       roots: Seq[VarkaVectorIR], numInputs: Int, options: VarkaEmitOptions): Int =
     VarkaEmitterTestSupport.codeSize(
       emitMulti(roots, numInputs, 0, options.withMethodByteBudget(0))._2, "epilogueMasked")

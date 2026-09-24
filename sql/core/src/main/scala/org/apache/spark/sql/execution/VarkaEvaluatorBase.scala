@@ -34,8 +34,8 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Attribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{IntRangeOps, TruncLevelLeaf,
-  VarkaAllocationSampler, VarkaDerivedKind, VarkaEmitOptions, VarkaFallbackEvent, VarkaFusedKernel,
-  VarkaShapeCache, VarkaShapeKey, VarkaVectorIR, WeekdayLeaf}
+  VarkaAllocationSampler, VarkaDerivedKind, VarkaEmitDeclined, VarkaEmitOptions, VarkaFallbackEvent,
+  VarkaFusedKernel, VarkaShapeCache, VarkaShapeKey, VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
@@ -113,6 +113,18 @@ private[sql] abstract class VarkaEvaluatorBase(
       try {
         Some(new FusedRunner(plan))
       } catch {
+        case d: VarkaEmitDeclined =>
+          // A shape over the emitter's method budget: the same reason on every task, so it is
+          // logged once per JVM, and as a reason rather than a stack trace. The compiler does not
+          // yet decline such a shape at plan time (task 169), so it reaches this path.
+          if (VarkaKernelEvaluator.loggedDeclines.add(d.getMessage)) {
+            logWarning(s"The Varka emitter declined $kernelIdentity: ${d.getMessage}; " +
+              "falling back to the per-row path.")
+          }
+          metrics.emissionFailures.foreach(_ += 1)
+          VarkaKernelEvaluator.emitFallbackEvent(VarkaFallbackEvent.EMISSION_FAILURE,
+            kernelIdentity, d.getClass.getName)
+          None
         case e if isCatchable(e) =>
           logWarning(s"Failed to emit the Varka fused kernel $kernelIdentity; falling back " +
             "to the per-row path.", e)

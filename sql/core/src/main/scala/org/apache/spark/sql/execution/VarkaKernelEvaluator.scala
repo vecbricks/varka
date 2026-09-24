@@ -372,4 +372,10 @@ private[execution] object VarkaKernelEvaluator {
   // because a file left by an older emitter under the same shape name must be refreshed.
   private[execution] val dumpedClassFiles =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
+  // The emitter's size declines this JVM has logged, by reason, so a shape declined on every
+  // task logs one warning rather than one per task. A reason names the method and its bytes,
+  // so it is per shape; the set grows with the declined shapes a JVM sees, which are few.
+  private[execution] val loggedDeclines =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 }

@@ -86,7 +86,9 @@ public final class VarkaEmitterTestSupport {
    * HotSpot measures against {@code HugeMethodLimit} (8000 bytes by default) when it decides
    * whether to compile the method at all. Past that limit the method is never compiled by C1 or
    * C2 and runs interpreted with boxed vectors, so this is the number a wide emitted body has to
-   * stay under; see {@code PLAN_MILESTONE_4.md}'s task 44. Zero when the method does not exist.
+   * stay under; see {@code PLAN_MILESTONE_4.md}'s task 44. Fails when the method does not
+   * exist: a zero would let a test that names a method the layout no longer emits compare zero
+   * with zero and pass while asserting nothing, which is how a renamed method goes unnoticed.
    */
   public static int codeSize(byte[] bytes, String methodName) {
     for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
@@ -96,7 +98,13 @@ public final class VarkaEmitterTestSupport {
             .orElse(0);
       }
     }
-    return 0;
+    throw missing(bytes, methodName);
+  }
+
+  /** The failure {@link #codeSize} and {@link #invocationCount} give for a method not there. */
+  private static IllegalArgumentException missing(byte[] bytes, String methodName) {
+    return new IllegalArgumentException("the class has no method " + methodName + "; it has "
+        + methodNames(bytes));
   }
 
   /**
@@ -104,8 +112,8 @@ public final class VarkaEmitterTestSupport {
    * name, e.g. {@code jdk.incubator.vector.IntVector}) - the emitted lane-op count, read off
    * the class file rather than counted in the emitter's source. It is the deterministic half
    * of an optimization's deliverable: a test can pin exactly how many lane ops a lowering
-   * costs, where a timing can only say that it did not get slower. Zero when the method does
-   * not exist.
+   * costs, where a timing can only say that it did not get slower. Fails when the method does
+   * not exist, for {@link #codeSize}'s reason.
    */
   public static int invocationCount(byte[] bytes, String methodName, String owner) {
     return invocationCount(bytes, methodName, owner, List.of());

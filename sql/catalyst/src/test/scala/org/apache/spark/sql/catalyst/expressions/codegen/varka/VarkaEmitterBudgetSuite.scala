@@ -322,9 +322,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
   test("sharing the prefix moves the epilogue's HugeMethodLimit crossing, and the bitmap " +
     "pass moves " +
       "it again: unshared 21 to 22, shared 44 to 49") {
-    // This is what step B1 is for, and the only thing it is for under today's grouping. The
-    // epilogue is one method over *every* output by task 24's deliberate decision, so its size
-    // grows with the whole projection rather than with a group. Four fields over one date
+    // This is what step B1 was for, measured in the single-epilogue form (budget 0) that task 24
+    // chose: one epilogue over *every* output, whose size grows with the whole projection rather
+    // than with a group. Task 87 split it per group; the crossing stays pinned here as the fact
+    // that split answers (singleEpilogueSize measures that form). Four fields over one date
     // repeat the decomposition four times; sharing it is most of the method.
     //
     // The outputs must be distinct nodes to count: the IR's records compare by value, so
@@ -354,13 +355,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // methods is dead, so epilogueMasked is epilogueDense's bytes and the crossing is the
     // dense epilogue's - unshared 21 fits (7563) and 22 crosses (8033); shared reaches
     // 49. The per-group arm keeps the old boundaries, asserted beside.
-    assert(epilogueSize(fields(6).take(21), 12, unshared) < limit)
-    assert(epilogueSize(fields(6).take(22), 12, unshared) > limit)
-    assert(epilogueSize(fields(12), 12, sharing) < limit,
+    assert(singleEpilogueSize(fields(6).take(21), 12, unshared) < limit)
+    assert(singleEpilogueSize(fields(6).take(22), 12, unshared) > limit)
+    assert(singleEpilogueSize(fields(12), 12, sharing) < limit,
       "forty-eight shared outputs fit under the pass; the boundary is further out")
-    assert(epilogueSize(fields((49 + 3) / 4).take(49 - 1), 13,
+    assert(singleEpilogueSize(fields((49 + 3) / 4).take(49 - 1), 13,
       sharing) < limit)
-    val past = epilogueSize(fields((49 + 3) / 4).take(49), 13,
+    val past = singleEpilogueSize(fields((49 + 3) / 4).take(49), 13,
       sharing)
     assert(past > limit,
       s"49 shared calendar outputs now fit in $past bytes - the pass reaches " +
@@ -368,10 +369,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // The reference variant: the boundaries task 54 left, 20/21 unshared and 44 shared.
     val perGroupUnshared = unshared.withValidityByBitmap(false)
     val perGroupShared = sharing.withValidityByBitmap(false)
-    assert(epilogueSize(fields(5), 12, perGroupUnshared) < limit)
-    assert(epilogueSize(fields(6).take(21), 12, perGroupUnshared) > limit)
-    assert(epilogueSize(fields(10), 12, perGroupShared) < limit)
-    assert(epilogueSize(fields(11), 12, perGroupShared) > limit)
+    assert(singleEpilogueSize(fields(5), 12, perGroupUnshared) < limit)
+    assert(singleEpilogueSize(fields(6).take(21), 12, perGroupUnshared) > limit)
+    assert(singleEpilogueSize(fields(10), 12, perGroupShared) < limit)
+    assert(singleEpilogueSize(fields(11), 12, perGroupShared) > limit)
   }
 
   test("the driver stays under HugeMethodLimit on the output ladder, with the pass " +

@@ -23,9 +23,9 @@ import scala.concurrent.duration._
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection,
-  VarkaExpressionCompiler, VarkaGeneratedClassLoader}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitBudget, VarkaEmitOptions,
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator,
+  CompiledVarkaProjection, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions,
   VarkaFusedKernel, VarkaLoopEmitter, VarkaSqlResolve, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
@@ -151,7 +151,7 @@ object VarkaMethodSizeBenchmark extends BenchmarkBase {
   private val forms: Seq[(String, VarkaEmitOptions)] = Seq(
     "single epilogue" -> VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0),
     "epilogue per group" ->
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT))
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT))
 
   private def emit(fused: CompiledVarkaProjection, loader: VarkaGeneratedClassLoader,
       n: Int, form: (String, VarkaEmitOptions)): VarkaFusedKernel = {

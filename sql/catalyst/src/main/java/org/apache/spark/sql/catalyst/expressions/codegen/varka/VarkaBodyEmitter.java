@@ -341,13 +341,16 @@ final class VarkaBodyEmitter {
         // (PLAN_TASK_87.md 2.6.3).
         String epilogue = dense ? "epilogueDense" : "epilogueMasked";
         if (analysis.options.methodByteBudget() > 0) {
+          // The last call's status is returned as it is rather than stored and reloaded: the
+          // driver is the one method no regroup can shrink, so its bytes are worth keeping.
           for (int g = 0; g < groups.size(); g++) {
             cb.iload(s.status);
             invokeCall(cb, classDesc, epilogue + g, analysis.lane);
             cb.ior();
-            cb.istore(s.status);
+            if (g < groups.size() - 1) {
+              cb.istore(s.status);
+            }
           }
-          cb.iload(s.status);
         } else {
           cb.iload(s.status);
           invokeCall(cb, classDesc, epilogue, analysis.lane);

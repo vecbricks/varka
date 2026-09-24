@@ -822,3 +822,36 @@ existing catch (9.4). Task 170: whether a limit below 8000 - C1's, about
 1900 - earns the calls it adds. Task 189: 9.5's lead, that the per-group form
 did not enter the deoptimization cycle in the fork the single form did. Rows
 87 and 168 are done.
+
+### 9.7 What the review of step 6b corrected, 24 September 2026
+
+Seven findings, each fixed in the same pull request:
+
+1. **A test went vacuous under the default.** "With sharing off the decision
+   is per node" read `epilogueMasked0`, which under the per-group default holds
+   only `year(d)`: the unshared fields are two groups. It pins budget 0 now.
+2. **A declined shape was re-emitted on every task.** With the budget as the
+   default, a heavy single output reaches `VarkaShapeCache` from every task,
+   and the cache did not remember failures, so each task built and measured
+   the class again and logged a stack trace. The cache now remembers a
+   `VarkaEmitDeclined` per shape and rethrows it, and the evaluator logs each
+   reason once per JVM. The plan-time decline is still task 169's; this only
+   stops the executor path from costing an emission per task.
+3. **The fuzzer skipped the heaviest trees.** With 8000 the default, a shape
+   the budget declines returned early in most iterations; it is now run in
+   the single-epilogue form instead.
+4. **A missing method read as zero.** `VarkaEmitterTestSupport.codeSize` and
+   `invocationCount` returned 0 for a method the class does not have, so a
+   stale name compared across two emissions passed while asserting nothing.
+   Both fail now, naming the methods the class has.
+5. **Row 87 overstated the null-free arm.** "Within a few percent of its
+   even-batch rate at every rung" is the masked arm's; the null-free arm is
+   within 15%. The row says so.
+6. **The per-group driver stored and reloaded its last status**, four bytes in
+   every driver of every kernel for nothing. The last call's status is
+   returned directly; the oracle is regenerated again and the walkthrough's
+   drivers read their earlier sizes.
+7. **`VarkaEmitBudget` had been made public** only so a benchmark could name
+   8000; it is package-private again and the benchmark names
+   `CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT`. `epilogueSize` is
+   `singleEpilogueSize`, saying at the call site which form it measures.

@@ -991,7 +991,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     assert(VarkaEmitOptions.DEFAULTS.shareChronoPrefix(),
       "the shared prefix is no longer the default - the epilogue-size case for it is in " +
         "PLAN_TASK_32.md section 7.1, so say why here if it was deliberately turned off")
-    assert(epilogueSize(roots, 1, sharing) < epilogueSize(roots, 1, unshared),
+    assert(singleEpilogueSize(roots, 1, sharing) < singleEpilogueSize(roots, 1, unshared),
       "the shared epilogue is no smaller, so the prefix is still being emitted four times")
     // Both settings over the same matrix and the same java.time oracle. Running the unshared
     // one here too is what makes this a differential rather than a second correctness test:
@@ -1585,7 +1585,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     // Not the whole class: emitMulti gives every emission a fresh name, so the constant pool
     // differs whatever the body does. The epilogue is where two outputs meet, so its size is
     // the thing that would have moved had the two prefixes collapsed into one.
-    assert(epilogueSize(roots, 2, sharing) === epilogueSize(roots, 2, unshared),
+    assert(singleEpilogueSize(roots, 2, sharing) === singleEpilogueSize(roots, 2, unshared),
       "the epilogue moved for two outputs that have nothing to share")
     // And clause 2 does not put them in one loop method: the second reuses no prefix.
     assert(methodNames(emitMulti(roots, 2, 0, sharing)).count(_.startsWith("loopDense")) === 2,
@@ -1715,12 +1715,15 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     // Unshared, year(d) and month(d) name different locals even though their fragment keys are
     // equal, so the year's own prefix elides and the month's does not - keying the decision on
     // the fragment there would make the year pay for a month it shares nothing with.
+    // Unshared, the two fields are two loop groups and, since task 87, two epilogues, so only
+    // the single-epilogue form (budget 0) puts both prefixes in one method.
     val col = new ColumnRef(0)
     val roots = Seq[VarkaVectorIR](new Year(col), new Month(col))
-    val elided = emitMulti(roots, 1, 0, unshared)._2
-    val kept = emitMulti(roots, 1, 0, unshared.withElideChronoMonth(false))._2
-    assert(laneOps(elided, "epilogueMasked0") ===
-      laneOps(kept, "epilogueMasked0") - monthStepOps(unshared),
+    val single = unshared.withMethodByteBudget(0)
+    val elided = emitMulti(roots, 1, 0, single)._2
+    val kept = emitMulti(roots, 1, 0, single.withElideChronoMonth(false))._2
+    assert(laneOps(elided, "epilogueMasked") ===
+      laneOps(kept, "epilogueMasked") - monthStepOps(unshared),
       "the unshared epilogue holds two prefixes and exactly one of them - the year's - is " +
         "supposed to lose its month step")
     checkMatrix(roots, 1, Array.empty[Int], remainderLengths,

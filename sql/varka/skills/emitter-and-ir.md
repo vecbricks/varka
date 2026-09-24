@@ -746,4 +746,9 @@ that a heavy single output landed in a method HotSpot never compiled. A test tha
 those passes `withMethodByteBudget(0)` explicitly (`VarkaEmitterTestBase.epilogueSize` does it
 for its callers), so the assertion keeps measuring the thing it names when the default moves
 again. A test that names `"epilogueMasked"` without the suffix under the defaults is asking for a
-method that no longer exists, and the failure reads as a missing method, not as a wrong number.
+method that no longer exists, and `VarkaEmitterTestSupport.codeSize` and `invocationCount` fail
+on it, naming the methods the class does have. They returned zero for a missing method until
+task 87's review, so a stale name compared across two emissions read zero against zero and
+passed while asserting nothing. A test can also go vacuous without a missing name: under the
+per-group default, `epilogueMasked0` of a kernel whose outputs are two groups holds only the
+first group, so a test about what one epilogue holds across outputs pins budget 0.

@@ -168,15 +168,18 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
 
     val className =
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzz${classCounter.addAndGet(1)}"
+    def emitWith(o: VarkaEmitOptions): Array[Byte] =
+      VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
     val bytes =
       try {
-        VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
+        emitWith(options)
       } catch {
         // Under the byte budget a shape whose single output is over the budget declines with a
-        // reason, by design (task 87): the fuzzer draws such shapes and there is nothing to run.
+        // reason, by design (task 87). The heaviest trees are the ones most worth checking, so
+        // the shape is run in the form without the budget rather than skipped.
         case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
           assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
-          return
+          emitWith(options.withMethodByteBudget(0))
         case e: IllegalArgumentException =>
           fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
       }
@@ -283,15 +286,18 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
 
     val className =
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzzLong${classCounter.addAndGet(1)}"
+    def emitWith(o: VarkaEmitOptions): Array[Byte] =
+      VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
     val bytes =
       try {
-        VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
+        emitWith(options)
       } catch {
         // Under the byte budget a shape whose single output is over the budget declines with a
-        // reason, by design (task 87): the fuzzer draws such shapes and there is nothing to run.
+        // reason, by design (task 87). The heaviest trees are the ones most worth checking, so
+        // the shape is run in the form without the budget rather than skipped.
         case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
           assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
-          return
+          emitWith(options.withMethodByteBudget(0))
         case e: IllegalArgumentException =>
           fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
       }

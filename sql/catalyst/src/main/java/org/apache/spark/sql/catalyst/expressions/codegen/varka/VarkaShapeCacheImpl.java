@@ -168,6 +168,14 @@ public final class VarkaShapeCacheImpl {
   // identities is at most a few hundred KB.
   private final Cache<String, LinkedHashSet<String>> executions;
 
+  // Shapes the emitter declined for size (VarkaEmitDeclined), so a later lookup rethrows the
+  // decline instead of building and measuring the class again on every task. A decline is a
+  // property of the shape and its options, the same on every call and under every loader, which
+  // is what makes remembering it sound - unlike the failures loadOnce deliberately does not
+  // share, which belong to one caller (a cancellation, an interrupt). Bounded like the side
+  // table; a shape evicted from it is declined again, correctly, at the cost of one emission.
+  private final Cache<VarkaShapeKey, VarkaEmitDeclined> declined;
+
   public VarkaShapeCacheImpl(int maxEntries) {
     if (maxEntries < 0) {
       throw new IllegalArgumentException("maxEntries must not be negative: " + maxEntries);
@@ -183,6 +191,7 @@ public final class VarkaShapeCacheImpl {
     this.executions = CacheBuilder.newBuilder()
         .maximumSize(Math.max((long) maxEntries * 4, 64))
         .build();
+    this.declined = CacheBuilder.newBuilder().maximumSize(64).build();
   }
 
   public int maxEntries() {
@@ -197,6 +206,10 @@ public final class VarkaShapeCacheImpl {
    * lifecycle through this same path.
    */
   public VarkaShapeLookup getOrEmit(ClassLoader parent, VarkaShapeKey key, String execution) {
+    VarkaEmitDeclined known = declined.getIfPresent(key);
+    if (known != null) {
+      throw known;
+    }
     LoaderShapeKey loaderKey = new LoaderShapeKey(parent, key);
     // A one-element array, not a local: the loading callable has to report back whether it ran,
     // and a lambda can only capture something effectively final.
@@ -266,6 +279,9 @@ public final class VarkaShapeCacheImpl {
           // slot rather than back into this dead future (see the ordering note above), then hand
           // this caller its own cause, unwrapped.
           Throwable cause = unwrapGuava(t);
+          if (cause instanceof VarkaEmitDeclined d) {
+            declined.put(key.shape(), d);
+          }
           inFlight.remove(key, mine);
           mine.completeExceptionally(cause);
           throw sneakyThrow(cause);
