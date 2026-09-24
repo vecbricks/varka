@@ -77,6 +77,12 @@ queue_del() {
   awk -v pr="$1" '$1 != pr' "$state" > "$tmp"
   mv "$tmp" "$state"
 }
+queue_del_if() { # removes the PR's line only if it still names this run, so a re-hold survives
+  local tmp; tmp="$(mktemp)"
+  awk -v pr="$1" -v run="$2" '!($1 == pr && $2 == run)' "$state" > "$tmp"
+  mv "$tmp" "$state"
+}
+queued_run() { awk -v pr="$1" '$1 == pr { print $2 }' "$state"; }
 
 # ---- GitHub
 
@@ -194,8 +200,8 @@ cmd_run() {
     echo "another dev/varka_ci_queue.sh run holds this queue"
     return 1
   fi
-  local pr fork branch sha st run id rstatus rconcl rsha verdict failures=0
-  while read -r pr _ < <(head -1 "$state") && [ -n "${pr:-}" ]; do
+  local pr qid fork branch sha st run id rstatus rconcl rsha verdict failures=0
+  while read -r pr qid < <(head -1 "$state") && [ -n "${pr:-}" ]; do
     read -r fork branch sha st <<<"$(pr_info "$pr")"
     if [ "$st" != "open" ]; then
       echo "#$pr is $st: skipped"
@@ -216,6 +222,12 @@ cmd_run() {
     fi
     if [ "$rstatus" = "completed" ]; then
       wait_fork_idle "$fork" || return 1
+      # The wait can be long, and the queue may have changed under it: a PR dropped or held
+      # again meanwhile is not this iteration's to rerun.
+      if [ "$(queued_run "$pr")" != "$qid" ]; then
+        echo "#$pr: changed on the queue while waiting; reading the queue again"
+        continue
+      fi
       gh run rerun "$id" --repo "$fork" >/dev/null
       echo "#$pr: $(now): reran run $id"
       # A rerun takes a few seconds to leave the completed state; without this the wait
@@ -226,13 +238,18 @@ cmd_run() {
     fi
     verdict="$(wait_completed "$fork" "$id")" || { echo "#$pr: run $id: $verdict"; return 1; }
     echo "#$pr: $(now): run $id finished: $verdict"
+    if [ "$(queued_run "$pr")" != "$qid" ]; then
+      # Held again or dropped while its run went: that run's verdict is not the PR's.
+      echo "#$pr: changed on the queue while its run went; the verdict above is for an old head"
+      continue
+    fi
     if [ "$verdict" = "success" ]; then
       echo "#$pr: ready to merge"
     else
       failures=$((failures + 1))
       failed_steps "$fork" "$id" || true
     fi
-    locked queue_del "$pr"
+    locked queue_del_if "$pr" "$qid"
   done
   echo "queue empty"
   return "$failures"
