@@ -56,6 +56,9 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * and whole-stage codegen, the Varka arm through its kernel - so they differ in the engine and
  * nothing else, as `VarkaThroughputBenchmark`'s baseline does.
  *
+ * `VarkaSizeLadderTuningBenchmark` times vanilla Spark's own settings against the same rungs,
+ * data and query, which it takes from here.
+ *
  * To run this benchmark:
  * {{{
  *   dev/varka_bench_regen.sh sql VarkaSizeLadderBenchmark
@@ -69,15 +72,15 @@ object VarkaSizeLadderBenchmark extends SqlBasedBenchmark {
    * hundred thousand rows was most of the Varka arm's time per row and most of its kernel's
    * warmup (`PLAN_TASK_171.md` 9).
    */
-  private val numRows = 2000000
+  private[benchmark] val numRows = 2000000
 
   /** Straddling the vanilla crossing; see the class doc. */
-  private val rungs = Seq(16, 32, 48, 52, 54, 56, 64, 80, 100)
+  private[benchmark] val rungs = Seq(16, 32, 48, 52, 54, 56, 64, 80, 100)
 
-  private def entry(k: Int): String =
+  private[benchmark] def entry(k: Int): String =
     s"greatest(add_months(d, $k), date_add(d, $k), last_day(d)) AS c$k"
 
-  private def createSession(appName: String, varkaEnabled: Boolean): SparkSession = {
+  private[benchmark] def createSession(appName: String, varkaEnabled: Boolean): SparkSession = {
     val builder = SparkSession.builder()
       .master("local[1]")
       .appName(appName)
@@ -95,7 +98,7 @@ object VarkaSizeLadderBenchmark extends SqlBasedBenchmark {
     builder.getOrCreate()
   }
 
-  private def cacheDates(session: SparkSession): Unit = {
+  private[benchmark] def cacheDates(session: SparkSession): Unit = {
     session.sql(
       s"""select case when id % 31 = 0 then null
          |       else date_add(date'2020-01-01', cast(id as int) % 1460) end as d
@@ -106,7 +109,7 @@ object VarkaSizeLadderBenchmark extends SqlBasedBenchmark {
   }
 
   /** Vanilla's largest generated method for the rung, from Spark's own compile of the stage. */
-  private def vanillaMethodBytes(baseline: SparkSession, query: String): Int = {
+  private[benchmark] def vanillaMethodBytes(baseline: SparkSession, query: String): Int = {
     val stages = baseline.sql(query).queryExecution.executedPlan.collect {
       case w: WholeStageCodegenExec => w
     }

@@ -240,10 +240,15 @@ jobs:
         java $EXTRA_JAVA_OPTIONS -XX:+PrintFlagsFinal -version 2>/dev/null \
           | grep -E ' (MaxVectorSize|UseAVX|UseSVE|UseRVV) ' || true
         # In benchmark, we use local as master so set driver memory only. Note that GitHub Actions has 7 GB memory limit.
+        # The Varka engine jar is on the Varka benchmarks' classpath only as a test-scope jar of
+        # the sbt build (VarkaEngineDependency), so it is named here as the tests jars are; a
+        # Varka benchmark run without it finds no kernels and refuses to time its Varka arm. It
+        # also needs the incubating Vector API opened, through extra-java-options:
+        # "--add-modules jdk.incubator.vector".
         bin/spark-submit \
           --driver-memory 6g --class org.apache.spark.benchmark.Benchmarks \
           "${EXTRA_ARGS[@]}" \
-          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`" \
+          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' -o -name 'varka-engine_*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`" \
           "`find . -name 'spark-core*-SNAPSHOT-tests.jar'`" \
           "${{ inputs.class }}"
         # To keep the directory structure and file permissions, tar them
