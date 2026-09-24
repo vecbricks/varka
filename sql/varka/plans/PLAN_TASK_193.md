@@ -253,6 +253,38 @@ does, or through `AdaptiveSparkPlanHelper` after running.
 * **One sbt run, not four parallel JVMs**: compiling every plan takes about a
   minute, so there was nothing to parallelise.
 
+### 9.4 Correction, the same day: the joins were stubs
+
+A review of the upstream patch for the check in 9.1 (SPARK-59764, apache/spark
+#59017) pointed out that the census inherits a second blind spot from the
+same machinery. A broadcast hash join generates its code from the broadcast's
+value, which it computes while generating code, and over the empty tables the
+TPC bases create that value is `EmptyHashedRelation`. For it, `HashJoin` emits
+a one-line comment in place of an inner or semi join and everything after it
+in the stage. So 9.1 measured every stage with a broadcast join short.
+
+The census now generates each stage's code from a copy in which every
+broadcast exchange reads one row of non-null default values, counts the
+exchanges it replaced in a new `broadcasts` column, and fails if any stage's
+code still carries the empty-relation comment. Rerun at the commit its files
+name:
+
+* **The conclusion holds.** Still one stage past 8000 bytes in every
+  configuration, `modified-q3`'s.
+* **Many stages were short.** Of the default configuration's stages, 374 grew
+  once their joins were generated in full, the most by 3567 bytes: TPC-DS q13's
+  stage 6, from 1435 to 5002 bytes, which is now the largest stage of any
+  unmodified query in that configuration. TPC-H's largest is now q19's stage 2,
+  2533 bytes. The files are the corrected ones; the figures in 9.1 that differ
+  are superseded by them.
+* **One join shape is still approximate.** A one-row build side makes every
+  join key unique, so a join generates its unique-key form. For a join whose
+  real build side repeats keys, the loop over matches is missing; it is a
+  small addition to the stage, not an order of magnitude.
+
+The upstream suites share the blind spot, which #59017 names as a known
+limitation for a follow-up.
+
 The post can now say how often the cliff occurs in the standard benchmarks -
 once in 178 queries, and in a shape a BI tool writes - rather than implying it
 is everywhere.
