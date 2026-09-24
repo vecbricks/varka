@@ -646,7 +646,7 @@ milestone 4.
 | 180 | Promotion, continuously | 2.9 | continuous |
 | 183 | Onboarding: task tables as issues, a hardware census, templates | item 38 | small |
 | 184 | The refactoring tools under `dev/` | item 46 | small |
-| 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
+| 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. **Planned** (`PLAN_TASK_185.md`, 24 September 2026): reproducers at 100 and 101 fields, a Varka scan that reads the Arrow cache as batches whatever its width, and a recorded reason where that does not reach. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
 | 187 | The constant-pool cliff | 2.11 | small |
 | 188 | The census: every place Spark's codegen gives up. **Census drafted** (`PLAN_TASK_188.md`, 24 September 2026): 34 entries from the source with Varka's answer to each; it found the 8000-byte cliff logged at INFO, correcting this milestone's "silent"; the reproducers remain | 2.11 | medium |
