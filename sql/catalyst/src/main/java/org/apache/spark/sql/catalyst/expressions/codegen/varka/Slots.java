@@ -48,6 +48,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Gre
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
@@ -203,6 +204,12 @@ final class Slots {
   int[] validityAcc;
 
   final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
+
+  /**
+   * {@link InRanges}' three locals: the value it tests (a vector), the loop's range index (an
+   * int) and the mask it accumulates (a {@code VectorMask}).
+   */
+  final Map<VarkaVectorIR, int[]> rangeTmp = new HashMap<>();
 
   /** {@code MakeDate}'s {@code MAKE_DATE_TMP_COUNT} locals. */
   final Map<VarkaVectorIR, int[]> makeDateTmp = new HashMap<>();
@@ -519,6 +526,9 @@ final class Slots {
             s.chronoTmp.put(node, tmp);
           }
         } else if (dense) {
+          if (node instanceof InRanges) {
+            s.rangeTmp.put(node, new int[] {slot++, slot++, slot++});
+          }
           s.condMask.put(node, slot++);
         } else {
           if (node instanceof Not n) {
@@ -526,6 +536,9 @@ final class Slots {
             s.kt.put(node, s.kf.get(n.child()));
             s.kf.put(node, s.kt.get(n.child()));
           } else {
+            if (node instanceof InRanges) {
+              s.rangeTmp.put(node, new int[] {slot++, slot++, slot++});
+            }
             s.kt.put(node, slot);
             slot += 2;
             s.kf.put(node, slot);
@@ -764,6 +777,7 @@ final class Slots {
           demand.accept(analysis.wordOwner.get(c.right()));
         }
         case IsNotNull c -> demand.accept(analysis.wordOwner.get(c.child()));
+        case InRanges c -> demand.accept(analysis.wordOwner.get(c.child()));
         case Greatest g -> {
           demand.accept(analysis.wordOwner.get(g.left()));
           demand.accept(analysis.wordOwner.get(g.right()));
@@ -887,6 +901,7 @@ final class Slots {
         case Or x -> { }
         case Not x -> { }
         case IsNotNull x -> { }
+        case InRanges x -> { }
       }
     }
     if (analysis.options.misdescribeWordLiveness()) {

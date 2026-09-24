@@ -227,6 +227,71 @@ The cause and its consequences for task 192 are in `PLAN_TASK_192.md` 9.4.
 
 What remains: designs B and A, and the predictions they carry.
 
+### 9.2 Design B, built, 24 September 2026
+
+A new condition node, `InRanges(child, bounds)`, and a compiler case before the generic `Or`:
+a disjunction of two or more ranges over one int or date column with literal bounds - written
+as `>=`/`<=` in either operand order, as strict bounds, which move by one, or as equalities - is
+one range set. The compiler sorts the ranges and merges those that overlap or touch, so one set
+of rows is one shape however the query ordered it, and drops empty ones. Anything else compiles
+as the comparisons it is written as.
+
+**Three departures from 3.2, and why.**
+
+* **A loop over the bounds, not a binary search.** The kernel holds each range set's bounds in a
+  `private static final int[]` that the class initialiser fills, and the node emits one loop that
+  ORs, range by range, the lanes with `lo <= v && v <= hi` into a mask, comparing against each
+  bound as a scalar. Its code is the same size whatever the number of ranges, which is what
+  removes the cliff; its time grows with them. A binary search needs a gather per step, and a
+  gather of an `int[]` takes its indices from another array, spilled from the vector each step;
+  the loop needs neither. The bounds are not literal slots: the literal table is keyed by value,
+  so it cannot hold a contiguous block of bounds, and each slot is copied into a local at every
+  method's entry, which at 400 bounds would have cost about 4 KB a method. The binary search stays
+  possible as a variant to measure against the loop.
+* **No emit option.** The baseline measured in 9.1 is the "off" arm, committed; design A brings
+  the option when there is a second design to compare with.
+* **Date columns too**, since a date range filter is the same shape on the same lane.
+
+**What checks it.** `VarkaRangeSetCompilerSuite` pins the matching: sorting, merging, strict
+bounds, equalities, operand order, empty ranges, the int extremes, date literals, and five shapes
+that are not a set. `VarkaRangeSetSuite` runs such filters on the row engine and on Varka over the
+same Arrow-cached rows, nulls and the int extremes included, and requires the same answer with the
+kernel having run, `modified-q3`'s 200 ranges among them. `VarkaRangeFilterFusionSuite`, which
+replaces the boundary suite of 9.1, pins that every number of ranges fuses and that the 200-range
+kernel's methods stay under 2000 bytes. The IR fuzzer draws range sets, against a reference
+evaluator written from the node's meaning, and the reach test holds it to that. The bytes oracle
+moved in exactly the twelve keys that hash every fuzz shape and no coverage key.
+
+### 9.3 Design B, measured, 24 September 2026
+
+`VarkaRangeFilterBenchmark` again, on the laptop, both widths, with the range set: the files of 9.1
+regenerated, so the vanilla arm is re-measured beside it. Nanoseconds a row at the wide width:
+
+| ranges | vanilla | Varka, range set | vanilla / Varka |
+|---:|---:|---:|---:|
+| 10 | 19.3 | 8.9 | 2.2 |
+| 48 | 28.0 | 13.1 | 2.1 |
+| 49 | 26.9 | 12.6 | 2.1 |
+| 100 | 3736.6 | 19.5 | 192 |
+| 150 | 5425.0 | 27.8 | 195 |
+| 200 | 6781.7 | 36.6 | 185 |
+
+**Varka now takes the whole query's filter, and the cliff is gone from its side.** Where step 1's
+Varka arm declined from 49 ranges and ran vanilla's code, it now runs its kernel at every rung, and
+at the query's 200 ranges it is 185 times faster than vanilla. Below vanilla's crossing, where both
+compile, it is about twice as fast, and the loop costs no more than the tree of comparisons it
+replaced where both fit (13.1 against 9.1's 14.0 at 48 ranges). At 128 bits the ratio at 200
+ranges is 102 (67.2 against 6834.5).
+
+**Prediction 3 failed, as 9.2 expected.** The range set's time grows with the ranges, about 0.16 ns
+a row a range at the wide width (12.6 at 49, 36.6 at 200), because the loop compares every lane
+with every range. A binary search would grow with their logarithm; whether it is worth its gathers
+is the variant 9.2 leaves open. At 36.6 ns a row for 200 ranges against vanilla's 6781.7, the loop
+is not what limits the claim.
+
+**Prediction 4 held for design B**: faster than vanilla at every rung, and by more than ten times
+past vanilla's crossing. Design A is still to build and to score.
+
 ### Correction, 24 September 2026: the cliff is logged
 
 This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0

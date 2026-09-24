@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.ToIntFunction;
@@ -94,6 +95,7 @@ public sealed interface VarkaVectorIR
       case Or n -> n.left().laneType();
       case Not n -> n.child().laneType();
       case IsNotNull n -> n.child().laneType();
+      case InRanges n -> LaneType.INT;
       case AddDays n -> LaneType.INT;
       case SubDays n -> LaneType.INT;
       case DateDiff n -> LaneType.INT;
@@ -219,7 +221,7 @@ public sealed interface VarkaVectorIR
    * unknown and the degenerate single-mask form gives the same answer.
    */
   sealed interface Cond extends VarkaVectorIR
-      permits Compare, And, Or, Not, IsNotNull {}
+      permits Compare, And, Or, Not, IsNotNull, InRanges {}
 
   /**
    * The input column at {@code ordinal}, loaded once per lane group however often it is used,
@@ -679,6 +681,60 @@ public sealed interface VarkaVectorIR
   record IsNotNull(VarkaVectorIR child) implements Cond {}
 
   /**
+   * Whether {@code child} lies in one of a set of ranges: true where some range
+   * {@code [bounds[2i], bounds[2i + 1]]} contains it, false where none does, unknown where
+   * {@code child} is null. It is what a disjunction of ranges over one int value compiles to -
+   * {@code c between a and b or c between d and e or ...}, the partition-key filter a BI tool
+   * writes for a set of date ranges - instead of a tree of comparisons whose code grows with
+   * every range. The emitter evaluates it with a loop over the bounds, which the class holds in a
+   * static table, so its code is the same size whatever the number of ranges.
+   *
+   * <p>The bounds are part of the node, for {@link GuardedRange}'s reason: two plans with the same
+   * tree and different ranges must not share a kernel. The compiler sorts and merges them, so the
+   * node holds disjoint, non-adjacent ranges in ascending order, which the constructor checks;
+   * that makes the set's rendering, and so the shape, the same however the query ordered its
+   * ranges. The int lane only: the ranges are over an int value and the table is an
+   * {@code int[]}.
+   */
+  record InRanges(VarkaVectorIR child, List<Integer> bounds) implements Cond {
+    public InRanges {
+      requireInt("inRanges", child);
+      bounds = List.copyOf(bounds);
+      if (bounds.isEmpty() || bounds.size() % 2 != 0) {
+        throw new IllegalArgumentException(
+            "a range set needs pairs of bounds, got " + bounds.size());
+      }
+      for (int i = 0; i < bounds.size(); i += 2) {
+        if (bounds.get(i) > bounds.get(i + 1)) {
+          throw new IllegalArgumentException("an empty range in a range set: [" + bounds.get(i)
+              + ", " + bounds.get(i + 1) + "]");
+        }
+        if (i > 0 && (long) bounds.get(i - 1) + 1 >= bounds.get(i)) {
+          throw new IllegalArgumentException("a range set's ranges must be sorted, disjoint and"
+              + " not adjacent: [.., " + bounds.get(i - 1) + "] then [" + bounds.get(i) + ", ..]");
+        }
+      }
+    }
+
+    /** How many ranges the set has. */
+    public int ranges() {
+      return bounds.size() / 2;
+    }
+
+    /** The ranges as {@code lo-hi,lo-hi,...}, for the canonical form. */
+    String renderBounds() {
+      StringBuilder out = new StringBuilder();
+      for (int i = 0; i < bounds.size(); i += 2) {
+        if (i > 0) {
+          out.append(',');
+        }
+        out.append(bounds.get(i)).append('-').append(bounds.get(i + 1));
+      }
+      return out.toString();
+    }
+  }
+
+  /**
    * SQL's if/else over the {@code cond}'s <i>known-true</i> mask: a lane takes
    * {@code thenNode} where the condition is known true and {@code elseNode} everywhere else,
    * unknown included. Validity follows the chosen branch lane-wise; nothing is ANDed globally.
@@ -967,6 +1023,7 @@ public sealed interface VarkaVectorIR
       case Or n -> "(or " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Not n -> "(not " + canonical(n.child()) + ")";
       case IsNotNull n -> "(isNotNull " + canonical(n.child()) + ")";
+      case InRanges n -> "(inRanges " + canonical(n.child()) + " " + n.renderBounds() + ")";
       case IfElse n -> "(if " + canonical(n.cond()) + " " + canonical(n.thenNode()) + " "
           + canonical(n.elseNode()) + ")";
       case Greatest n -> "(greatest " + canonical(n.left()) + " " + canonical(n.right()) + ")";
@@ -1043,6 +1100,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case Not n -> "(not " + lineOf.applyAsInt(n.child()) + ")";
       case IsNotNull n -> "(isNotNull " + lineOf.applyAsInt(n.child()) + ")";
+      case InRanges n -> "(inRanges " + lineOf.applyAsInt(n.child()) + " " + n.ranges()
+          + " ranges)";
       case IfElse n -> "(if " + lineOf.applyAsInt(n.cond()) + " "
           + lineOf.applyAsInt(n.thenNode()) + " " + lineOf.applyAsInt(n.elseNode()) + ")";
       case Greatest n -> "(greatest " + lineOf.applyAsInt(n.left()) + " "

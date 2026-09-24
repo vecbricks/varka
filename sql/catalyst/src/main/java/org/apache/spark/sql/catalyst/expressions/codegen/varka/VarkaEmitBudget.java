@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Col
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
@@ -501,6 +502,11 @@ final class VarkaEmitBudget {
       // operations. That under-count predates this lane and correcting it moves committed
       // bytes, so it is a task of its own rather than a side effect of this one.
       return CONST_DIVIDE_WEIGHT;
+    }
+    if (node instanceof InRanges) {
+      // Emitted as one loop whatever the number of ranges: a start mask, and a body of two scalar
+      // compares, an AND and an OR. Its time grows with the ranges; its code does not.
+      return 6;
     }
     return node instanceof NextDay ? NEXT_DAY_WEIGHT : 1;
   }
