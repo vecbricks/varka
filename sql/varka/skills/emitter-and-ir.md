@@ -733,3 +733,17 @@ current size, not the cap. `VarkaEmitBudget.overLimits` reads the caps from a `V
 measurement, and the test that pins the readings builds the measurement by hand. A change that
 raises the IR caps has to re-read this: past roughly 80 `add_months`-weight outputs the legacy
 epilogue would cross the method cap, and the emitter would then measure it before the JVM did.
+
+## The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so
+
+Since task 87 the default emission splits the epilogue per group and sets up each group's
+methods for that group alone, so a single-group kernel's epilogues are `epilogueDense0` and
+`epilogueMasked0`, and the form before it - one epilogue over every output, every method set up
+for the whole kernel - is what `methodByteBudget` 0 emits. That form is not dead: it is the arm
+`VarkaMethodSizeBenchmark` measures the split against, and several facts the suites pin are facts
+about it - where its single epilogue crossed 8000 bytes, that prefix sharing moved the crossing,
+that a heavy single output landed in a method HotSpot never compiled. A test that pins one of
+those passes `withMethodByteBudget(0)` explicitly (`VarkaEmitterTestBase.epilogueSize` does it
+for its callers), so the assertion keeps measuring the thing it names when the default moves
+again. A test that names `"epilogueMasked"` without the suffix under the defaults is asking for a
+method that no longer exists, and the failure reads as a missing method, not as a wrong number.

@@ -721,11 +721,16 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
   protected def monthStepOps(options: VarkaEmitOptions): Int =
     if (options.neriSchneiderMonth()) 2 else 4
 
-  /** The masked epilogue's bytecode size - the one method every output shares (task 24). */
+  /**
+   * The single masked epilogue's bytecode size in the form before task 87 - the one method
+   * every output shared (task 24) - whatever `options` says about the byte budget. The tests
+   * that pin where that method crossed HugeMethodLimit measure this form on purpose: the
+   * crossing is the fact the per-group epilogue answers, and it stays measurable at budget 0.
+   */
   protected def epilogueSize(
       roots: Seq[VarkaVectorIR], numInputs: Int, options: VarkaEmitOptions): Int =
     VarkaEmitterTestSupport.codeSize(
-      emitMulti(roots, numInputs, 0, options)._2, "epilogueMasked")
+      emitMulti(roots, numInputs, 0, options.withMethodByteBudget(0))._2, "epilogueMasked")
 
   /** Runs a two-input kernel with one output, returning the batch status. */
   protected def runKernel2(kernel: VarkaFusedKernel, a: Col, b: Col,

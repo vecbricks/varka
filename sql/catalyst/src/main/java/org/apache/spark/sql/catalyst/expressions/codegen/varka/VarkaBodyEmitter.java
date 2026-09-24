@@ -71,14 +71,14 @@ final class VarkaBodyEmitter {
     for (int o = 0; o < numOutputs; o++) {
       all.add(o);
     }
-    // A loop method is always one group's; the epilogue is one group's under the byte budget
-    // and every output's without it (the method layout in VarkaLoopEmitter.emit); the driver
-    // is every output's.
+    // A loop method is always one group's; the epilogue is one group's, or every output's in
+    // the form before task 87 (the method layout in VarkaLoopEmitter.emit); the driver is
+    // every output's.
     List<Integer> bodyOutputs = group >= 0 ? groups.get(group) : all;
-    // Task 87: under the byte budget a group's method sets up only what its group writes and
-    // reads, so its size is the group's and not the kernel's. The driver still owns every
-    // output - it zeroes each validity bitmap and runs the bitmap pass - so it keeps the
-    // whole-kernel prologue whichever way the option is set.
+    // A group's method sets up only what its group writes and reads, so its size is the
+    // group's and not the kernel's (task 87). The driver owns every output - it zeroes each
+    // validity bitmap and runs the bitmap pass - so it keeps the whole-kernel prologue
+    // whichever way the option is set.
     boolean perGroup = mode != BodyMode.DRIVER && analysis.options.methodByteBudget() > 0;
     if (perGroup && group < 0) {
       throw new IllegalArgumentException(
@@ -334,10 +334,11 @@ final class VarkaBodyEmitter {
           cb.ior();
           cb.istore(s.status);
         }
-        // The rows past loopBound belong to the sibling epilogue: one method, or one per group
-        // under the byte budget. Each epilogue keeps its own even-batch return rather than the
-        // driver testing once for all of them: the calls that return at once are what warm the
-        // method up on a scan whose batches mostly divide evenly (PLAN_TASK_87.md 2.6.3).
+        // The rows past loopBound belong to the sibling epilogues, one per group (or the one
+        // method of the pre-task-87 form). Each epilogue keeps its own even-batch return
+        // rather than the driver testing once for all of them: the calls that return at once
+        // are what warm the method up on a scan whose batches mostly divide evenly
+        // (PLAN_TASK_87.md 2.6.3).
         String epilogue = dense ? "epilogueDense" : "epilogueMasked";
         if (analysis.options.methodByteBudget() > 0) {
           for (int g = 0; g < groups.size(); g++) {

@@ -316,7 +316,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
         ("datediff(d, d2)", Seq[VarkaVectorIR](new DateDiff(d, d2)), 2))) {
       val bytes = emitMulti(roots, n, 0, bitmapOn)._2
       for ((masked, dense) <- Seq(("loopMasked0", "loopDense0"),
-          ("epilogueMasked", "epilogueDense"))) {
+          ("epilogueMasked0", "epilogueDense0"))) {
         assert(VarkaEmitterTestSupport.codeSize(bytes, masked) ===
           VarkaEmitterTestSupport.codeSize(bytes, dense), s"$name: $masked against $dense")
       }
@@ -369,12 +369,12 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
         (Seq[VarkaVectorIR](chain(4)), "chain4"))) {
       val off = emitMulti(roots, 1, 4, VarkaEmitOptions.DEFAULTS.withDenseValidityOnce(false))._2
       val on = emitMulti(roots, 1, 4, VarkaEmitOptions.DEFAULTS.withDenseValidityOnce(true))._2
-      for (body <- Seq("loopMasked0", "epilogueMasked")) {
+      for (body <- Seq("loopMasked0", "epilogueMasked0")) {
         assert(VarkaEmitterTestSupport.codeSize(off, body) ===
           VarkaEmitterTestSupport.codeSize(on, body),
           s"$name: $body moved, so this task reached the masked path")
       }
-      for (body <- Seq("loopDense0", "epilogueDense")) {
+      for (body <- Seq("loopDense0", "epilogueDense0")) {
         assert(VarkaEmitterTestSupport.codeSize(on, body) <
           VarkaEmitterTestSupport.codeSize(off, body),
           s"$name: $body did not shrink, so the per-group OR is still being emitted")
@@ -541,7 +541,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
 
   /** The four body methods' sizes, which is how a change's blast radius is asserted here. */
   private def bodySizes(named: (String, Array[Byte])): Seq[Int] =
-    Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")
+    Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")
       .map(VarkaEmitterTestSupport.codeSize(named._2, _))
 
   test("the word writer reaches the outputs that keep a per-group write, and only " +

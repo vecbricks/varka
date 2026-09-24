@@ -527,7 +527,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
   test("the check costs bytes only where it is emitted, and none with it off") {
     val a = new ColumnRef(0)
     val b = new ColumnRef(1)
-    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")
+    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")
     def sizes(root: VarkaVectorIR, options: VarkaEmitOptions): Seq[Int] = {
       val bytes = emitMulti(Seq(root), 2, 0, options)._2
       bodies.map(VarkaEmitterTestSupport.codeSize(bytes, _))
@@ -556,11 +556,11 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
     val tryAdd = methodNames(emitMulti(Seq[VarkaVectorIR](
       new IntArith(IntOp.ADD, Overflow.NULL, a, b)), 2, 0))
     assert(!tryAdd.exists(_.startsWith("loopDense")), tryAdd.mkString(", "))
-    assert(!tryAdd.contains("epilogueDense"), tryAdd.mkString(", "))
-    assert(tryAdd.contains("loopMasked0") && tryAdd.contains("epilogueMasked"))
+    assert(!tryAdd.contains("epilogueDense0"), tryAdd.mkString(", "))
+    assert(tryAdd.contains("loopMasked0") && tryAdd.contains("epilogueMasked0"))
     val failAdd = methodNames(emitMulti(Seq[VarkaVectorIR](
       new IntArith(IntOp.ADD, Overflow.FAIL, a, b)), 2, 0))
-    assert(failAdd.contains("loopDense0") && failAdd.contains("epilogueDense"))
+    assert(failAdd.contains("loopDense0") && failAdd.contains("epilogueDense0"))
   }
 
   test("the composite key's masked body is its dense twin's bytes") {
@@ -575,7 +575,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
       new IntArith(IntOp.MUL, Overflow.WRAP, new Year(d), new LiteralSlot(0)), new Month(d))
     val wrapped = emitMulti(Seq(key(Overflow.WRAP)), 1, 1)._2
     for ((masked, dense) <- Seq(("loopMasked0", "loopDense0"),
-        ("epilogueMasked", "epilogueDense"))) {
+        ("epilogueMasked0", "epilogueDense0"))) {
       assert(VarkaEmitterTestSupport.codeSize(wrapped, masked) ===
         VarkaEmitterTestSupport.codeSize(wrapped, dense), s"WRAP: $masked against $dense")
     }

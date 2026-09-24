@@ -610,8 +610,8 @@ milestone 4.
 
 | task | what it is | where it came from | size |
 | ---: | :--- | :--- | :--- |
-| 87 | The epilogue is the one method no budget bounds. **Planned** (`PLAN_TASK_87.md`, 23 September 2026, together with 168): the admission check found a 16-output epilogue the JIT never compiles, and by size the masked one crosses 8000 bytes at 13 outputs | `PLAN_MILESTONE_5.md` 2.18, item 15 | medium |
-| 168 | One budget, counted in bytes, over every emitted method. **Planned** with 87 in `PLAN_TASK_87.md`: one mechanism with two halves | 2.2, from 87's analysis | medium |
+| 87 | The epilogue is the one method no budget bounds. **Done** (`PLAN_TASK_87.md`, 24 September 2026, with 168): the epilogue is one method per group beside its loop method, each group's methods set up only their group, and the make_date ladder that lost three quarters of its rate on ragged batches from 13 outputs reads within a few percent of its even-batch rate at every rung - and faster on even batches from 12 outputs (9.5 there) | `PLAN_MILESTONE_5.md` 2.18, item 15 | medium |
+| 168 | One budget, counted in bytes, over every emitted method. **Done** with 87 (`PLAN_TASK_87.md` 9.4): `methodByteBudget`, 8000 by default, is measured against every method after the class is built; a group over it is split and the class built again, and a shape no split can fit declines with `VarkaEmitDeclined` naming the method, the bytes and the outputs. The compiler's plan-time reading of that decline is task 169's | 2.2, from 87's analysis | medium |
 | 148 | The weight the budget counts is wrong for a division | `PLAN_MILESTONE_5.md` 2.84, item 39 | small |
 | 169 | No exception escapes the emitter | 2.3, the ghost-fallback contract | small |
 | 170 | Eight thousand, not sixty-five thousand: the JIT cliff. *Narrowed by task 87 to whether a limit below 8000 - C1's, about 1900 - earns its extra calls* | 2.4 | small, measured |
@@ -632,7 +632,7 @@ milestone 4.
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
 | 187 | The constant-pool cliff | 2.11 | small |
 | 188 | The census: every place Spark's codegen gives up | 2.11 | medium |
-| 189 | A dense loop enters a C2 deoptimization cycle at twelve outputs | 2.12, from task 87's benchmark | medium |
+| 189 | A dense loop enters a C2 deoptimization cycle at twelve outputs. *Lead from `PLAN_TASK_87.md` 9.5: in the fork where the single-epilogue form's null-free rows sat in the cycle at 128 bits, the per-group form's did not* | 2.12, from task 87's benchmark | medium |
 | 181 | The closing task: the post | 2.10 | last by definition |
 
 ## 4. Ordering

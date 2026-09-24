@@ -222,16 +222,16 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
       val (name, bytes) = emitMulti(roots, 1, 1,
         VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes).withNarrowHalfSpecies(half))
       // The store, counted from the bytes: one int store per narrowed root across the dense
-      // bodies, the same in the masked epilogue, and nothing else on the int species - no int
-      // arithmetic, so the narrowing is the store and only the store.
+      // bodies, the same across the masked epilogues (one per group, like the loop methods),
+      // and nothing else on the int species - no int arithmetic, so the narrowing is the store
+      // and only the store.
       def intVectorCalls(method: String): Int =
         VarkaEmitterTestSupport.invocationCount(bytes, method, "jdk.incubator.vector.IntVector")
-      val denseBodies = VarkaEmitterTestSupport.methodNames(bytes).asScala
-        .filter(_.startsWith("loopDense"))
-      assert(denseBodies.map(intVectorCalls).sum === 3,
+      val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala
+      assert(methods.filter(_.startsWith("loopDense")).map(intVectorCalls).sum === 3,
         s"at $lanes lanes, half=$half: three narrowed stores")
-      assert(intVectorCalls("epilogueMasked") === 3,
-        s"at $lanes lanes, half=$half: three in the epilogue")
+      assert(methods.filter(_.startsWith("epilogueMasked")).map(intVectorCalls).sum === 3,
+        s"at $lanes lanes, half=$half: three in the epilogues")
       val (kernel, loader) = load((name, bytes))
       try {
         for (length <- Seq(1, 7, 17, 64, 129); (patternName, isNull) <- nullPatterns) {

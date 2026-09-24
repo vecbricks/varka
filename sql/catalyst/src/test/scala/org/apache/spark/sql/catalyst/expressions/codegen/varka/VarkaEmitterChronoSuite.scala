@@ -1240,7 +1240,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     for ((name, (roots, inputs, literals)) <- shapes) {
       val on = emitMulti(roots, inputs, literals)._2
       val off = emitMulti(roots, inputs, literals, armOff)._2
-      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")) {
+      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")) {
         assert(VarkaEmitterTestSupport.codeSize(on, body) ===
           VarkaEmitterTestSupport.codeSize(off, body), s"$name: $body moved")
       }
@@ -1332,7 +1332,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
   test("the guard is emitted only where a calendar node reads a column-offset " +
       "producer, and adds bytes nowhere else") {
     val producer = new AddDays(new ColumnRef(0), new ColumnRef(1))
-    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")
+    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")
     def sizes(root: VarkaVectorIR, numInputs: Int, options: VarkaEmitOptions): Seq[Int] = {
       val bytes = emitMulti(Seq(root), numInputs, 0, options)._2
       bodies.map(VarkaEmitterTestSupport.codeSize(bytes, _))
@@ -1525,7 +1525,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       "form's bytes do not move") {
     val literal = new AddMonths(new ColumnRef(0), new LiteralSlot(0))
     val column = new AddMonths(new ColumnRef(0), new ColumnRef(1))
-    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")
+    val bodies = Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")
     def sizes(root: VarkaVectorIR, numInputs: Int, lits: Int, options: VarkaEmitOptions)
         : Seq[Int] = {
       val bytes = emitMulti(Seq(root), numInputs, lits, options)._2
@@ -1661,7 +1661,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       val kept = emitMulti(roots, 1, 0, axis.withElideChronoMonth(false))._2
       // Every body role, because every one of them runs the prefix: the two loop methods and
       // the two epilogues each hold this single year and nothing that reads a month.
-      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")) {
+      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")) {
         assert(laneOps(elided, body) === laneOps(kept, body) - monthStepOps(axis),
           s"$body did not lose exactly the month step at neri=${axis.neriSchneiderMonth()}: " +
             s"${laneOps(kept, body)} lane ops with the step kept, ${laneOps(elided, body)} " +
@@ -1691,7 +1691,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       // the group's consumer set rather than from the node being emitted.
       assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(_.startsWith("loopMasked"))
         === 1, s"the pair no longer shares a loop method ($ctx)")
-      for (body <- Seq("loopMasked0", "epilogueMasked")) {
+      for (body <- Seq("loopMasked0", "epilogueMasked0")) {
         assert(laneOps(elided, body) === laneOps(kept, body),
           s"$body elided the month step with a month tail reading it ($ctx)")
       }
@@ -1719,8 +1719,8 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     val roots = Seq[VarkaVectorIR](new Year(col), new Month(col))
     val elided = emitMulti(roots, 1, 0, unshared)._2
     val kept = emitMulti(roots, 1, 0, unshared.withElideChronoMonth(false))._2
-    assert(laneOps(elided, "epilogueMasked") ===
-      laneOps(kept, "epilogueMasked") - monthStepOps(unshared),
+    assert(laneOps(elided, "epilogueMasked0") ===
+      laneOps(kept, "epilogueMasked0") - monthStepOps(unshared),
       "the unshared epilogue holds two prefixes and exactly one of them - the year's - is " +
         "supposed to lose its month step")
     checkMatrix(roots, 1, Array.empty[Int], remainderLengths,
@@ -1742,7 +1742,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
         VarkaEmitOptions.DEFAULTS.withNeriSchneiderMonth(false))) {
       val elided = emitMulti(alone, 1, 0, axis)._2
       val kept = emitMulti(alone, 1, 0, axis.withElideChronoMonth(false))._2
-      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense", "epilogueMasked")) {
+      for (body <- Seq("loopDense0", "loopMasked0", "epilogueDense0", "epilogueMasked0")) {
         assert(laneOps(elided, body) === laneOps(kept, body) - monthStepOps(axis),
           s"$body did not lose exactly the month step at neri=${axis.neriSchneiderMonth()}: " +
             s"${laneOps(kept, body)} lane ops with the step kept, ${laneOps(elided, body)} " +
@@ -1754,7 +1754,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     val withMonth = Seq[VarkaVectorIR](new DayOfYear(col), new Month(col))
     val sharedElided = emitMulti(withMonth, 1, 0, sharing)._2
     val sharedKept = emitMulti(withMonth, 1, 0, sharing.withElideChronoMonth(false))._2
-    assert(laneOps(sharedElided, "epilogueMasked") === laneOps(sharedKept, "epilogueMasked"),
+    assert(laneOps(sharedElided, "epilogueMasked0") === laneOps(sharedKept, "epilogueMasked0"),
       "the shared epilogue elided the month step with a month tail reading it")
     for ((options, ctx) <- Seq((VarkaEmitOptions.DEFAULTS, "alone"), (sharing, "shared"))) {
       checkMatrix(if (ctx == "alone") alone else withMonth, 1, Array.empty[Int],

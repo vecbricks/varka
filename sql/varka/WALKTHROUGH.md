@@ -69,13 +69,13 @@ the class got, with their bytecode size and how many Vector API lane
 operations each one runs:
 
     method              bytes IntVector LongVector DoubleVector convert VectorMask validity lines
-    epilogueDense         209         1          1            1       3          0        0     3
-    epilogueMasked        209         1          1            1       3          0        0     3
+    epilogueDense0        209         1          1            1       3          0        0     3
+    epilogueMasked0       209         1          1            1       3          0        0     3
     loopDense0            194         1          1            1       3          0        0     3
     loopMasked0           194         1          1            1       3          0        0     3
     run                    42         0          0            0       0          0        0     0
-    runDense              133         0          0            0       0          0        1     0
-    runMasked             200         0          0            0       0          0        1     0
+    runDense              137         0          0            0       0          0        1     0
+    runMasked             204         0          0            0       0          0        1     0
 
 `run` reads the batch's validity and picks a path: `runDense` when no input
 has nulls in this batch, `runMasked` when one does, so a batch without nulls

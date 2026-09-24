@@ -247,7 +247,7 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     assert(key(key.size).startsWith("(dateDiff"), s"the root should be last: ${key(key.size)}")
     assert(key.values.exists(_.startsWith("col:")))
     assert(key.values.count(_.startsWith("(addDays")) === 1)
-    for (method <- Seq("loopMasked0", "epilogueMasked", "loopDense0", "epilogueDense")) {
+    for (method <- Seq("loopMasked0", "epilogueMasked0", "loopDense0", "epilogueDense0")) {
       val lines = VarkaEmitterTestSupport.lineNumbers(bytes, method)
       assert(lines.asScala.nonEmpty, s"$method carries no LineNumberTable")
       assert(lines.asScala.forall(line => key.contains(line)),

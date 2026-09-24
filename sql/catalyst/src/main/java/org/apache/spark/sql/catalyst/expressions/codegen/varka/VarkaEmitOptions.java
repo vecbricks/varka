@@ -277,17 +277,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        only at a baked lane count, since the half of the preferred species has no named
  *        constant; at count 0 the store is the masked form either way. The A/B is
  *        {@code PLAN_TASK_156.md}'s.
- * @param methodByteBudget task 87's switch, and the bytecode length every emitted method is
- *        held to. {@code 0}, the default until the task's last commit, is the legacy emission
- *        exactly: weight groups the loop, one epilogue holds every output, nothing is measured.
- *        A positive value is a limit in bytes, {@code VarkaEmitBudget.HUGE_METHOD_LIMIT} in
- *        production: a group's loop and epilogue methods set up only that group's outputs and
- *        literals ({@code PLAN_TASK_87.md} 2.6.2), the epilogue is one method per group, the
- *        built class is measured and a group over the limit is split and the class built
- *        again, and a shape still over a limit when no split is left declines with the reason
- *        ({@link VarkaEmitDeclined}). A small value is how a test sees a regroup or a decline
- *        on a shape of a few outputs. Test-only until the default flips; fuzzed at 0 and at
- *        the production value.
+ * @param methodByteBudget the bytecode length every emitted method is held to, by default
+ *        {@code VarkaEmitBudget.HUGE_METHOD_LIMIT}, the length past which HotSpot never
+ *        compiles a method: a group's loop and epilogue methods set up only that group's
+ *        outputs and literals ({@code PLAN_TASK_87.md} 2.6.2), the epilogue is one method per
+ *        group, the built class is measured and a group over the limit is split and the class
+ *        built again, and a shape still over a limit when no split is left declines with the
+ *        reason ({@link VarkaEmitDeclined}). {@code 0} is the form before task 87, kept as the
+ *        reference the differential tests and {@code VarkaMethodSizeBenchmark}'s first arm
+ *        measure against: weight groups the loop, one epilogue holds every output, nothing is
+ *        measured. A small value is how a test sees a regroup or a decline on a shape of a few
+ *        outputs. Fuzzed at 0 and at the default.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -419,7 +419,8 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, true, true, true, true,
           0,
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
-          false, false, true, true, false, true, false, 0);
+          false, false, true, true, false, true, false,
+          VarkaEmitBudget.HUGE_METHOD_LIMIT);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {

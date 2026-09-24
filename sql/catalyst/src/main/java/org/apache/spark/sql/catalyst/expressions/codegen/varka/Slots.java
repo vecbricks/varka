@@ -271,10 +271,10 @@ final class Slots {
    * As above; with {@code perGroup} the body gets slots only for the outputs in {@code outputIdx}
    * and the literals their trees reference, and every other output or literal slot is {@code -1}
    * so that an emission which reaches for one fails to build rather than reading a stale local.
-   * A group's loop and epilogue methods under task 87's byte budget plan this way: setting up
-   * every output of the kernel in every group was the term that grew each group's methods with
-   * the whole kernel ({@code PLAN_TASK_87.md} 2.6.2). The driver keeps planning for every
-   * output, since it zeroes and serves them all.
+   * A group's loop and epilogue methods plan this way (task 87): setting up every output of the
+   * kernel in every group was the term that grew each group's methods with the whole kernel
+   * ({@code PLAN_TASK_87.md} 2.6.2). The driver keeps planning for every output, since it
+   * zeroes and serves them all.
    */
   static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, Analysis analysis, int numLiterals, boolean perGroup) {

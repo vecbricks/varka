@@ -1972,9 +1972,12 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           Seq[VarkaVectorIR](new Year(col), new Month(col), new DayOfMonth(col),
             new Quarter(col))
         }
-        val unshared20 = emit(roots20, cols, 0, loader, 900,
-          VarkaEmitOptions.DEFAULTS.withShareChronoPrefix(false))
-        val shared20 = emit(roots20, cols, 0, loader, 901)
+        // Both arms in the single-epilogue form (methodByteBudget 0): task 87's default splits
+        // the epilogue per group, under which neither arm crosses the limit and this section
+        // would price nothing. VarkaMethodSizeBenchmark measures the split form against this one.
+        val single = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
+        val unshared20 = emit(roots20, cols, 0, loader, 900, single.withShareChronoPrefix(false))
+        val shared20 = emit(roots20, cols, 0, loader, 901, single)
         val srcValidityZero = Array.fill(cols)(0L)
         val srcNullsZero = Array.fill(cols)(0)
         def chunked20(kernel: VarkaFusedKernel, chunk: Int): Unit = {

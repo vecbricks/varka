@@ -368,14 +368,15 @@ public final class VarkaLoopEmitter {
     // own C2 compilation, so no method's node and inlining budgets can starve another's
     // intrinsics (measured 3x to 4x; see `PLAN_TASK_10.md`).
     //
-    // The epilogue is one method for every output, or - under the byte budget - one per group
-    // beside its loop method, `epilogueDense<g>` and `epilogueMasked<g>`. One method was the
-    // right shape while GROUP_BUDGET was the only bound: the epilogue runs once per batch, so a
-    // hot method's C2 cost had nothing to bound there. It is the wrong shape for the JVM's size
-    // limit, which reads bytes rather than heat: a single epilogue carries every output's tail
-    // and crosses HugeMethodLimit at thirteen make_date outputs, after which it is never
-    // compiled at all (`PLAN_TASK_87.md` 2.2). Split by the loop's groups it is bounded by what
-    // bounds the loops.
+    // The epilogue is one method per group beside its loop method, `epilogueDense<g>` and
+    // `epilogueMasked<g>`; with methodByteBudget 0, the form before task 87, it is one method
+    // for every output. One method was the right shape while GROUP_BUDGET was the only bound:
+    // the epilogue runs once per batch, so a hot method's C2 cost had nothing to bound there.
+    // It is the wrong shape for the JVM's size limit, which reads bytes rather than heat: a
+    // single epilogue carries every output's tail and crosses HugeMethodLimit at thirteen
+    // make_date outputs, after which it is never compiled at all (`PLAN_TASK_87.md` 2.2).
+    // Split by the loop's groups it is bounded by what bounds the loops, and the split kernel
+    // measured faster on even batches too (9.5 there).
     //
     // Under the byte budget the class is measured after it is built, in the units the JVM
     // enforces (VarkaEmittedClass), and a group with a method over the budget is split in two

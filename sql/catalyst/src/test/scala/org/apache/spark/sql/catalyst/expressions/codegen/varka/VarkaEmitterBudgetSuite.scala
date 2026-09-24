@@ -433,11 +433,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
     }
     val limit = VarkaEmitBudget.HUGE_METHOD_LIMIT
+    // The form before task 87, which is what crossed: the default splits the epilogue.
+    val single = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
     def size(n: Int, method: String): Int =
-      VarkaEmitterTestSupport.codeSize(emitMulti(ladder(n), 1, n)._2, method)
+      VarkaEmitterTestSupport.codeSize(emitMulti(ladder(n), 1, n, single)._2, method)
     assert(size(12, "epilogueMasked") < limit && size(13, "epilogueMasked") > limit)
     assert(size(13, "epilogueDense") < limit && size(14, "epilogueDense") > limit)
-    val at16 = VarkaEmittedClass.measure(emitMulti(ladder(16), 1, 16)._2)
+    val at16 = VarkaEmittedClass.measure(emitMulti(ladder(16), 1, 16, single)._2)
     at16.codeLength.asScala.filter(_._1.startsWith("loop")).foreach { case (m, bytes) =>
       assert(bytes < limit, s"$m is $bytes bytes: a loop method over HugeMethodLimit")
     }
@@ -460,6 +462,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
     }
     val on = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+    val legacy = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
     def sizes(n: Int, options: VarkaEmitOptions): Map[String, Int] = {
       val bytes = emitMulti(ladder(n), 1, n, options)._2
       VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
@@ -469,10 +472,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       VarkaEmitterTestSupport.invocationCount(
         emitMulti(ladder(n), 1, n, options)._2, method, "jdk.incubator.vector.IntVector")
 
-    val (off60, on60) = (sizes(60, VarkaEmitOptions.DEFAULTS), sizes(60, on))
+    val (off60, on60) = (sizes(60, legacy), sizes(60, on))
     for (m <- off60.keys if m.startsWith("loop")) {
       assert(on60(m) < off60(m), s"$m: ${off60(m)} -> ${on60(m)} bytes, expected smaller")
-      assert(ops(60, on, m) === ops(60, VarkaEmitOptions.DEFAULTS, m), s"$m: the op count moved")
+      assert(ops(60, on, m) === ops(60, legacy, m), s"$m: the op count moved")
     }
     // The driver sets up every output either way; what it gains is one call per epilogue the
     // switch splits off (step 4), a few bytes each, never a setup term.
@@ -483,7 +486,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
         s"$m: ${off60(m)} -> ${on60(m)} bytes for ${groups - 1} more epilogue calls")
     }
     val loopsAndDrivers = (m: Map[String, Int]) => m.filter(_._1.startsWith("loop"))
-    assert(loopsAndDrivers(sizes(4, on)) === loopsAndDrivers(sizes(4, VarkaEmitOptions.DEFAULTS)),
+    assert(loopsAndDrivers(sizes(4, on)) === loopsAndDrivers(sizes(4, legacy)),
       "one group: nothing to drop")
 
     // The same answers as the reference evaluator, on both bodies, at ragged and even lengths.
@@ -512,7 +515,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // than any group.
     val rungs = Seq(4, 8, 12, 13, 14, 16, 32, 60)
     for (lanes <- Seq(0, 4)) {
-      val off = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes)
+      val off = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes).withMethodByteBudget(0)
       val on = off.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
       for (n <- rungs) {
         val roots = VarkaHugeMethodProbe.ladder(n)
@@ -607,7 +610,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       if (lo == hi) new AddMonths(new ColumnRef(0), new LiteralSlot(lo - 1))
       else new Greatest(tree(lo, (lo + hi) / 2), tree((lo + hi) / 2 + 1, hi))
     val heavy = Seq(tree(1, 32))
-    val legacy = VarkaEmitterTestSupport.codeSize(emitMulti(heavy, 1, 32)._2, "loopMasked0")
+    val legacy = VarkaEmitterTestSupport.codeSize(
+      emitMulti(heavy, 1, 32, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))._2, "loopMasked0")
     assert(legacy > VarkaEmitBudget.HUGE_METHOD_LIMIT, s"the legacy loop method is $legacy bytes")
     val production =
       VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)

@@ -71,6 +71,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The bytes oracle pins one point in the option space, so an option a session can set needs an arm of its own](sql/varka/skills/emitter-and-ir.md#the-bytes-oracle-pins-one-point-in-the-option-space-so-an-option-a-session-can-set-needs-an-arm-of-its-own)
 * [A lane can change width at a root's store without the loop ever holding two widths](sql/varka/skills/emitter-and-ir.md#a-lane-can-change-width-at-a-roots-store-without-the-loop-ever-holding-two-widths)
 * [The class-file caps are out of reach of any admitted shape, so their checks are pinned on hand-built measurements](sql/varka/skills/emitter-and-ir.md#the-class-file-caps-are-out-of-reach-of-any-admitted-shape-so-their-checks-are-pinned-on-hand-built-measurements)
+* [The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so](sql/varka/skills/emitter-and-ir.md#the-single-epilogue-form-is-a-reference-variant-at-methodbytebudget-0-and-the-tests-that-pin-its-facts-say-so)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)
