@@ -310,7 +310,13 @@ row:
 51.4 ns a row at 49 ranges to 9121.0 at 100, about 180 times; Varka's loop grows with the ranges
 as on the laptop, about 0.3 ns a row a range (24.2 at 49 ranges, 70.2 at 200). At the query's 200 ranges Varka is 250 times
 faster. The published figure is to come from the EPYC 9V45, the pool's full-width machine, as the
-size ladder's does; two more dispatches are out for it.
+size ladder's does.
+
+Two more dispatches drew a second EPYC 9V74 and an Intel Xeon Platinum 8573C
+(`-runner-9v74-2-results.txt`, `-runner-xeon8573c-results.txt`). At 200 ranges they read 14084.8
+against 49.1 ns a row, 287 times, and 10269.4 against 50.7, 203 times: the ratio moves with the
+machine's interpreter speed, and the shape does not move at all. More dispatches are out for the
+9V45.
 
 ### Correction, 24 September 2026: the cliff is logged
 
