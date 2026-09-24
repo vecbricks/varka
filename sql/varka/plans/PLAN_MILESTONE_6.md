@@ -613,7 +613,7 @@ milestone 4.
 | 87 | The epilogue is the one method no budget bounds. **Planned** (`PLAN_TASK_87.md`, 23 September 2026, together with 168): the admission check found a 16-output epilogue the JIT never compiles, and by size the masked one crosses 8000 bytes at 13 outputs | `PLAN_MILESTONE_5.md` 2.18, item 15 | medium |
 | 168 | One budget, counted in bytes, over every emitted method. **Planned** with 87 in `PLAN_TASK_87.md`: one mechanism with two halves | 2.2, from 87's analysis | medium |
 | 148 | The weight the budget counts is wrong for a division | `PLAN_MILESTONE_5.md` 2.84, item 39 | small |
-| 169 | No exception escapes the emitter | 2.3, the ghost-fallback contract | small |
+| 169 | No exception escapes the emitter. **Planned** (`PLAN_TASK_169.md`, 24 September 2026): the one reachable gap is the byte budget, so the compiler asks the shape cache for the kernel it admitted and demotes what the emitter declines, with the reason | 2.3, the ghost-fallback contract | small |
 | 170 | Eight thousand, not sixty-five thousand: the JIT cliff. *Narrowed by task 87 to whether a limit below 8000 - C1's, about 1900 - earns its extra calls* | 2.4 | small, measured |
 | 171 | The size ladder, and the figure | 2.5, absorbing milestone 4's row 44 | medium |
 | 172 | One realistic query | 2.6 | small to medium |
