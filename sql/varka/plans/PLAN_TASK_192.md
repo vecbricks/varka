@@ -137,4 +137,65 @@ ladder does.
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+### 9.1 The laptop's runs, 24 September 2026
+
+Both runs on the laptop, pinned to its fast cores, one after the other
+(`VarkaSizeLadderTuningBenchmark-jdk25-results.txt` and
+`-dontcompilehugemethods-off-results.txt`, each with its provenance file).
+Every rung passed the check in 5: the defaults ran whole-stage everywhere,
+`wholeStage=false` had no whole-stage stage, and `hugeMethodLimit=8000` ran
+per-operator exactly from 54 entries on.
+
+**The answer: *cannot* does not stand, and the claim becomes a silent cliff in
+the default configuration.** Each of Spark's settings removes most of the step.
+Where the defaults go from 886.2 ns a row at 52 entries to 4177.2 at 54,
+`hugeMethodLimit=8000` goes from 879.8 to 1029.9 and `wholeStage=false` from
+979.5 to 1028.8. The flag run's defaults, compiled past the limit, go from 781.7
+to 812.2 with no step at all. What Varka keeps is its line: none of the
+settings comes near it. The ladder's Varka arm, measured on the same laptop the
+same day, is 70.6 ns at 54 entries against the best tuned vanilla's 812.2, and
+122.8 at a hundred against 1872.4. So the post can say three things, and must
+say all of them: the cliff is real and silent under the defaults; its remedies
+are an internal setting whose default is the value its own doc advises against,
+or a JVM flag, or whole-stage codegen off, and each has a price below the cliff
+or a limit above it; and Varka is an order of magnitude faster than vanilla
+under any of them, which is Varka's advantage and not the cliff's.
+
+**Prediction 1 held on the step and failed on the price, in vanilla's favour.**
+Past the limit `hugeMethodLimit=8000` costs about 19 ns an entry (1029.9 at 54,
+1872.4 at a hundred) against the defaults' 17 below it (886.2 at 52): about 1.1
+times, not the one and a half to three registered. Below the limit it changes
+nothing, as it should (288.0 and 284.3 at sixteen).
+
+**Prediction 2 held.** `wholeStage=false` is the same line as
+`hugeMethodLimit=8000` above the cliff (1028.8 against 1029.9 at 54 entries,
+1868.5 against 1872.4 at a hundred), and about a tenth slower than the defaults
+below it (314.2 against 288.0 at sixteen, 979.5 against 886.2 at 52), which is
+the per-operator path's price where whole-stage codegen worked.
+
+**Prediction 3 held to 80 entries and failed at a hundred.** Under the flag the
+defaults cost the same per entry above the limit as below it (812.2 at 54, 1193.6
+at 80), so C2 compiles the 13 KB method well. At a hundred the step comes back:
+7999.6, the defaults' interpreted cost (7923.5 in the default run). A forked
+probe under `-Xbatch -XX:+PrintCompilation -XX:-DontCompileHugeMethods` shows
+C1 giving up on the method at both sizes ("out of virtual registers in LIR
+generator") and C2 starting on it at both. Why the benchmark stays slow at a hundred
+is not established; row 201 is to find out from the JVM's own output. Until then
+the flag is a remedy only up to some size between 80 and a hundred entries.
+The flag run's defaults below the cliff are faster than the default run's (259.8
+against 288.0 at sixteen), but they are two JVMs and there is no band yet, so
+that difference is not read as the flag's.
+
+**Prediction 4 held**, as above.
+
+**Two departures from the design, both on the side of checking more.** The
+plan said whether whole-stage codegen ran would be read from the executed plan.
+But the plan cannot tell: past `hugeMethodLimit` the whole-stage node stays in
+it and executes its child instead, so the benchmark reads the stage's
+`pipelineTime` metric, which only the compiled pipeline updates. And the flag
+run does not refuse to start without the flag; it reads the flag from the
+diagnostic MXBean and names its file after it, so a run without the flag
+cannot write the flag's file.
+
+What remains: the band of the default run, in a quiet window; the runner's two
+runs for the published figure, as for task 171; and row 201.
