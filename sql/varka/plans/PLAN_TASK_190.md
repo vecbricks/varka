@@ -103,6 +103,23 @@ widths: throughput per entry, emission time, class size. The measurement decides
 whether B ships, A' ships, or both - B is also the shape a projection wider than
 `MAX_INPUTS` columns would need, which A' cannot help.
 
+*Added on 24 September 2026, from `READING_MILESTONE_6.md` section 3.* Two
+things the tensor compilers settle for this step before it is built:
+
+* **A third form, C: shared work computed once.** AStitch's hierarchical data
+  reuse keeps a producer that several consumers share in a buffer they all read,
+  rather than recomputing it in each. For Varka that is the civil-from-days
+  prefix, which every group using it recomputes today (`PLAN_TASK_87.md` 3.3),
+  computed once per batch into a scratch vector. It changes what B costs - B's
+  price is exactly a prefix recomputed per kernel - so it is measured beside A'
+  and B, and milestone row 198 measures it first on today's kernels, where it
+  already applies.
+* **Where B may cut.** XLA merges a producer into its consumers only when it
+  fuses with all of them and the code it duplicates stays small. B's partition
+  cuts only between outputs that share no subtree, and a cut through a shared
+  prefix is costed as the recomputation it forces - or, under C, as the scratch
+  vector it writes and reads.
+
 ### 3.3 What is deliberately unchanged
 
 * `MAX_CHAIN_DEPTH` and `MAX_INPUTS`: they bound the tree and the column set.

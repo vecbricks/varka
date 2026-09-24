@@ -3309,6 +3309,38 @@ keep the throw - and `PLAN_TASK_102.md` 4.1 says which, with its guard deleted
 or kept accordingly. Size: small in Varka, and unbounded upstream, which is
 why nothing in Varka blocks on it; 102's guard is built to be easy to delete.
 
+### Item 51. A mapping type per IR node, before the non-element-wise operators
+
+*Added on 24 September 2026, from `READING_MILESTONE_6.md` section 3.*
+
+Every operator Varka fuses today is element-wise - one input lane to one output
+lane - so any two of them fuse legally and profitably, and the emitter has never
+had to ask. That ends with the operators this catalogue plans: aggregates
+(Items 4 to 6), a hash-based `IN` (Item 3), strings. TVM classifies operators as
+injective, reduction, complex-out-fusable and opaque; DNNFusion by mapping type,
+as one-to-one, one-to-many, many-to-many, reorganize or shuffle, with a table of
+which pairs fuse profitably, which do not, and which need a measurement.
+
+The proposal is that each IR node carries its mapping type from the day the
+first non-element-wise node is added, and that fusion across a many-to-one or
+an opaque node (a UDF - XLA's custom-call) is a kernel boundary by rule, with
+DNNFusion's "needs profiling" pairs measured before they are allowed. **Done
+when** the first non-element-wise node lands with its type and the rule. Size:
+small, if it is done then rather than retrofitted.
+
+### Item 52. Velox's adaptive filter order
+
+*Added on 24 September 2026, from `READING_MILESTONE_6.md` section 2.*
+
+Velox orders conjunctive filters at run time by a score per filter,
+time / (1 + values in - values out), so the filter that drops the most values
+in the least time runs first (Pedreira et al., PVLDB 15(12), section 4.5.1). It
+is one concrete rule for what Items 16 and 20 leave open - which conjunct of a
+fused filter runs first, and whether the order may change per batch - and it is
+cheap to compute from counts Varka's filter node already has. **Done when**
+Items 16 and 20 either adopt it with a measurement or record why not. Size:
+small.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
