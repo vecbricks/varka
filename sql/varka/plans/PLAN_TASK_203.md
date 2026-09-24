@@ -203,3 +203,11 @@ are not; which is what the script's header tells a reader to expect.
 
 What remains is the post's link to the script and the choice of which output
 it shows.
+
+### Correction, 24 September 2026: the cliff is logged
+
+This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0
+`CodeGenerator` logs "Generated method too long to be JIT compiled: <class>.<method> is N bytes" at
+INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
+cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
+has the evidence.

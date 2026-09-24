@@ -8,15 +8,17 @@
 // See the License for the specific language governing permissions and limitations under the
 // License.
 
-// Spark's silent method-size cliff, on your own machine.
+// Spark's method-size cliff, on your own machine.
 //
 // Spark compiles a projection into one Java method. HotSpot never JIT-compiles a method whose
 // bytecode is past 8000 bytes, so once a projection's method crosses that size it runs in the
-// bytecode interpreter, several times slower, and Spark says nothing. This script widens one
-// projection across the crossing and prints the method's size and the time per row, under
-// Spark's defaults and under spark.sql.codegen.hugeMethodLimit=8000, the internal setting that
-// makes Spark give up whole-stage codegen for such a method instead. The ratios are the point;
-// the absolute times depend on your machine.
+// bytecode interpreter, several times slower. Spark notices: a batch job's log has an INFO line,
+// "Generated method too long to be JIT compiled", which the shell's WARN level hides. It then
+// runs the method uncompiled anyway. This script widens one projection across the crossing and
+// prints the method's size and the time per row, under Spark's defaults and under
+// spark.sql.codegen.hugeMethodLimit=8000, the internal setting that makes Spark give up
+// whole-stage codegen for such a method instead. The ratios are the point; the absolute times
+// depend on your machine.
 //
 //   bin/spark-shell --master local[1] -i method_size_cliff.scala
 //

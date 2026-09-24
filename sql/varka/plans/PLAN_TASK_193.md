@@ -302,3 +302,11 @@ on the query as it is, so they stand; only the description of it was wrong.
 The post can now say how often the cliff occurs in the standard benchmarks -
 once in 178 queries, and in a shape a BI tool writes - rather than implying it
 is everywhere.
+
+### Correction, 24 September 2026: the cliff is logged
+
+This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0
+`CodeGenerator` logs "Generated method too long to be JIT compiled: <class>.<method> is N bytes" at
+INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
+cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
+has the evidence.

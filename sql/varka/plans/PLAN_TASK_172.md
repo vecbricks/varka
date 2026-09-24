@@ -226,3 +226,11 @@ the session's cache was Spark's default, not Arrow, and Varka's filter rule need
 The cause and its consequences for task 192 are in `PLAN_TASK_192.md` 9.4.
 
 What remains: designs B and A, and the predictions they carry.
+
+### Correction, 24 September 2026: the cliff is logged
+
+This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0
+`CodeGenerator` logs "Generated method too long to be JIT compiled: <class>.<method> is N bytes" at
+INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
+cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
+has the evidence.

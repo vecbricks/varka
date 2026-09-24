@@ -317,3 +317,11 @@ helper after stopping its own session and passes the check, so task 171's files 
 **The runners' files of 9.3 carry the same fault** and are not re-measured yet: their within-file
 ratios stand, their comparison with Varka does not. They are dispatched again once the fix is on
 master, and 9.3's "16 and 22 times" is superseded by what that run says.
+
+### Correction, 24 September 2026: the cliff is logged
+
+This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0
+`CodeGenerator` logs "Generated method too long to be JIT compiled: <class>.<method> is N bytes" at
+INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
+cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
+has the evidence.
