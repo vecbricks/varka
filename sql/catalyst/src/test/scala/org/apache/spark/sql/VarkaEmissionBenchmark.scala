@@ -127,6 +127,29 @@ object VarkaEmissionBenchmark extends BenchmarkBase {
       benchmark.run()
     }
 
+    // Task 190: kernels as wide as a real projection gets once the op cap no longer bounds them.
+    // One emission per iteration - a four-hundred-output emission is not microseconds - and the
+    // byte budget set out of reach at 200 and 400 outputs, where the default would decline the
+    // driver: the rungs price emission itself, which the designs past the driver's ceiling
+    // (PLAN_TASK_190.md 3.2) both pay, and prediction 2 there reads them.
+    runBenchmark("emitting a wide kernel: four-op outputs (task 190)") {
+      val benchmark = new Benchmark("one emission", 1,
+        minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+      def entry(k: Int): VarkaVectorIR = new Greatest(new Greatest(
+        new AddMonths(col, new LiteralSlot(k)), new AddDays(col, new LiteralSlot(k))),
+        new LastDay(col))
+      for (n <- Seq(25, 50, 100, 200, 400)) {
+        val roots = java.util.List.of((0 until n).map(entry): _*)
+        val wide = if (n <= 100) options else options.withMethodByteBudget(1 << 20)
+        val label = if (n <= 100) s"$n outputs" else s"$n outputs, budget out of reach"
+        benchmark.addCase(label) { _ =>
+          sink += VarkaLoopEmitter.emit("VarkaEmissionBenchmarkWide", roots, 1, n, null, null,
+            wide).length
+        }
+      }
+      benchmark.run()
+    }
+
     // Keeps the emitted bytes and the defined classes live to the end of the run.
     if (sink == Int.MinValue) {
       // scalastyle:off println

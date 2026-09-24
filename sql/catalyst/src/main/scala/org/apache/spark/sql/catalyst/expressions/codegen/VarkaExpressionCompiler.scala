@@ -312,9 +312,11 @@ private[sql] object VarkaExpressionCompiler {
    * The most literals an `IN` list may hold and still fuse, counted after dedup.
    * The basis, recorded in `PLAN_TASK_20.md`: 16 is depth-safe under any fold shape
    * (`MAX_CHAIN_DEPTH` = 16 while the balanced chain here is `ceil(log2 16) + 1` = 5
-   * levels), and its 31 op nodes leave half the emitter's `MAX_FUSED_NODES` = 64 budget to
-   * the rest of the projection. (The emitter's broadcast hoist is NOT part of the basis:
-   * its gate counts the kernel's total literal slots, so a capped IN plus any other
+   * levels), and its 31 op nodes left half the emitter's `MAX_FUSED_NODES` = 64 budget to
+   * the rest of the projection when that cap bounded every kernel; under the byte budget it
+   * bounds only the reference form, and the choice of 16 stands on the depth argument. (The
+   * emitter's broadcast hoist is NOT part of the basis: its gate counts the kernel's total
+   * literal slots, so a capped IN plus any other
    * literal already re-broadcasts inline - the review pass corrected an earlier claim
    * here.) Above the cap the entry declines with a reason instead of silently losing the
    * whole kernel at emission.
@@ -373,7 +375,7 @@ private[sql] object VarkaExpressionCompiler {
       options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
     var demoted = Map.empty[Int, String]
     while (true) {
-      val classified = classifyOnce(projectList, childOutput, demoted)
+      val classified = classifyOnce(projectList, childOutput, demoted, options)
       val more = classified._1.map { partial =>
         val fusedAt = partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
         admitBySize(partial.fused, options).map { case (outputs, reason) =>
@@ -391,7 +393,8 @@ private[sql] object VarkaExpressionCompiler {
   private def classifyOnce(
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
-      demoted: Map[Int, String])
+      demoted: Map[Int, String],
+      options: VarkaEmitOptions)
       : (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
     // Both tables assign dense indices in first-occurrence order, which makes the compiled
     // shape deterministic in the projection alone.
@@ -455,7 +458,8 @@ private[sql] object VarkaExpressionCompiler {
             // time, where a breach can only become a silent per-batch fallback - no decline reason,
             // and EXPLAIN still claims fusion. So the compiler mirrors them and demotes the
             // overflowing entry to residual.
-            case Some(ir) if VarkaLoopEmitter.fitsBudgets((outputs :+ ir).asJava, inputs.size) =>
+            case Some(ir)
+                if VarkaLoopEmitter.fitsBudgets((outputs :+ ir).asJava, inputs.size, options) =>
               sink.take()
               outputs += ir
               outputTypes += e.dataType
@@ -556,7 +560,7 @@ private[sql] object VarkaExpressionCompiler {
     // last-admitted conjunct and the rest are asked again.
     var demoted = Map.empty[Int, String]
     while (true) {
-      val compiled = predicateOnce(condition, childOutput, demoted)
+      val compiled = predicateOnce(condition, childOutput, demoted, options)
       val more = compiled.flatMap { predicate =>
         admitBySize(predicate.fused, options).map { case (_, reason) =>
           predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
@@ -573,7 +577,8 @@ private[sql] object VarkaExpressionCompiler {
   private def predicateOnce(
       condition: Expression,
       childOutput: Seq[Attribute],
-      demoted: Map[Int, String]): Option[CompiledVarkaPredicate] = {
+      demoted: Map[Int, String],
+      options: VarkaEmitOptions): Option[CompiledVarkaPredicate] = {
     // The split hoists fused conjuncts below the residual ones, which reorders evaluation.
     // That is sound only when every conjunct is deterministic - Spark's own predicate
     // pushdown stops at the first nondeterministic conjunct (span(_.deterministic)) for the
@@ -608,7 +613,7 @@ private[sql] object VarkaExpressionCompiler {
             VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
           case Some(cond) if VarkaLoopEmitter.fitsBudgets(
               java.util.List.of(VarkaConditionCompiler.andFold(fusedConds.toSeq :+ cond)),
-              inputs.size) =>
+              inputs.size, options) =>
             sink.take()
             fusedConds += cond
             VarkaConjunctSpec(conjunct, fused = true, decline = None)

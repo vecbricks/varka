@@ -734,6 +734,14 @@ measurement, and the test that pins the readings builds the measurement by hand.
 raises the IR caps has to re-read this: past roughly 80 `add_months`-weight outputs the legacy
 epilogue would cross the method cap, and the emitter would then measure it before the JVM did.
 
+*Re-read on 24 September 2026, when task 190 lifted the op cap under the byte budget.* The method
+and constant-pool caps are still out of reach: every group method stays under 4500 bytes at 400
+four-op outputs, and the pool reads 1384 entries there. A third class-file cap was not: the
+`VarkaDebugInfo` attribute writes the rendered IR as one constant-pool UTF-8 entry, which a u2
+counts, and at 800 outputs the builder refused the class with "string too long". That one is
+reachable by an expression and is tested with one - an oversized plan fragment - and the fix is to
+bound the metadata (`VarkaDebugInfo.bounded`), never to decline a kernel for it.
+
 ## The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so
 
 Since task 87 the default emission splits the epilogue per group and sets up each group's

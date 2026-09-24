@@ -178,4 +178,46 @@ the two forms (the project's rule for a new family).
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+### 9.1 Step 1: bytes decide, 24 September 2026
+
+`MAX_FUSED_NODES` bounds only the form without a byte budget. `fitsBudgets`
+takes the emit options, the compiler passes them from its admission, and
+`Analysis` skips the op count under the budget; `VarkaDebugInfo` cuts each field
+to fit its constant and marks the cut. `dev/varka_emit.sh` over a hundred
+`greatest(add_months(d, k), date_add(d, k), last_day(d))` entries reproduces 2's
+row: twenty-five groups, the largest group method 4448 bytes, `runDense` 5174,
+`runMasked` 5828, 484 constant pool entries, and every entry fused.
+
+**What the tests pin.** A hundred of these entries all fuse under the default
+and fifteen under the budget-off form; two hundred fuse a suffix short of the
+whole, demoted with the driver's reason at plan time. The IR form of the
+hundred emits with every method under 8000 bytes and answers as the reference
+evaluator. An oversized debug payload builds and ends with the mark. The three
+tests that pinned the op cap now pin it on the form it still bounds, and say
+what the default admits instead.
+
+**Predictions.** 1 held: the bytes oracle is unmoved, since no oracle shape was
+past 64 ops. 2 is read from `VarkaEmissionBenchmark`'s new section, one
+emission per iteration, at 512 bits (the 128-bit file agrees to within 3%):
+
+| outputs | ns per emission |
+| ---: | ---: |
+| 25 | 1641141.0 |
+| 50 | 3876786.0 |
+| 100 | 10122976.0 |
+| 200 | 31042842.0 |
+| 400 | 103358023.0 |
+
+Each doubling costs 2.4 to 3.3 times as much, so emission is superlinear, as
+the scratch run said. The cause 6.1 asked to be named before step 2, read from
+the code rather than yet measured: every group's four methods plan their slots
+over the whole kernel's topological order (`Slots.plan` walks
+`analysis.topoOrder` for every body), so the planning is groups times nodes,
+and both grow with the outputs. A per-group topological order would make it
+linear. It is milestone row 191, added the same day at the owner's request, and
+lands before step 2: how much A' costs against B, which emits several small
+kernels and so never meets it, depends on it.
+
+At the ladder's widths the cost is small against the query it serves - ten
+milliseconds at a hundred entries, once per shape per JVM - so step 1 unblocks
+task 171 as it stands.

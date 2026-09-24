@@ -1629,11 +1629,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     // Two 16-literal INs are exactly 64 distinct ops (2 x (16 EQ + 15 OR + 1 IfElse)); a
     // third entry's single op would be the 65th. Before task 20 this shape reached the
     // emitter and lost the whole kernel to a silent per-batch fallback; now the overflow
-    // entry demotes to residual with a recorded reason.
-    val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(inIf(0), inIf(1000), out(DateAdd(d, Literal(9999)))), childOutput).get
+    // entry demotes to residual with a recorded reason. The op cap bounds the form without a
+    // byte budget; under the default the third entry fuses too (task 190).
+    val threeEntries = Seq(inIf(0), inIf(1000), out(DateAdd(d, Literal(9999))))
+    val partial = VarkaExpressionCompiler.compilePartial(threeEntries, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
     assert(partial.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
     assert(partial.declines(2).reason === "exceeds the emitter's fused budget")
+    assert(VarkaExpressionCompiler.compilePartial(threeEntries, childOutput).get.specs ===
+      Seq(FusedOutput(0), FusedOutput(1), FusedOutput(2)))
     // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
     // 20 and then failed at emission.
     val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
@@ -1826,15 +1830,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
   test("the budget mirror demotes conjuncts past MAX_FUSED_NODES to residual") {
     // Each conjunct is one Compare op and the fold adds one And per accepted conjunct, so k
     // accepted conjuncts cost 2k - 1 distinct ops: 32 fit the 64-op budget, the 33rd would
-    // make 65. The overflow conjuncts demote with the recorded budget reason.
+    // make 65. The overflow conjuncts demote with the recorded budget reason. The op cap bounds
+    // the form without a byte budget; under the default all forty fuse (task 190).
     val condition = (1 to 40)
       .map(k => GreaterThan(d, Literal(k, DateType)): Expression)
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
-    val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
+    val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
     assert(predicate.fusedConjuncts.size === 32)
     assert(predicate.residualConjuncts.size === 8)
     val decline = predicate.specs.reverse.head.decline.get
     assert(decline.reason === "exceeds the emitter's fused budget")
+    assert(VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
+      .fusedConjuncts.size === 40)
   }
 
   // Task 56: date +- INTERVAL n DAY with a column interval, through the analyzer's own resolver so
@@ -2410,5 +2418,26 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     VarkaExpressionCompiler.compilePartial(list, childOutput)
     VarkaExpressionCompiler.compilePartial(list, childOutput)
     assert(VarkaShapeCache.missCount === misses, "a repeated compile emitted again")
+  }
+
+  test("a hundred four-op entries all fuse under the byte budget, and past the driver's " +
+      "ceiling the last-admitted are demoted with its reason (task 190)") {
+    // PLAN_TASK_190.md 1 and 2: the op cap fused fifteen of these entries; the byte budget
+    // fuses the ladder's whole range. The driver sets up every output and grows with them, so
+    // past about a hundred and fifty it is over the budget, and task 169's plan-time decline
+    // demotes a suffix naming it, rather than any entry failing on the executor.
+    def entry(k: Int): NamedExpression =
+      out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
+    val hundred = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput).get
+    assert(hundred.specs.forall(_.isInstanceOf[FusedOutput]))
+    val capped = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+    assert(capped.specs.count(_.isInstanceOf[FusedOutput]) === 15)
+    val wide = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput).get
+    val fused = wide.specs.count(_.isInstanceOf[FusedOutput])
+    assert(fused > 100 && fused < 200, s"$fused of 200 fused")
+    assert(wide.specs.drop(fused).forall(_ == ResidualOutput))
+    assert(wide.declines(fused).reason.startsWith("over the emitter's method budget (run"),
+      wide.declines(fused).reason)
   }
 }

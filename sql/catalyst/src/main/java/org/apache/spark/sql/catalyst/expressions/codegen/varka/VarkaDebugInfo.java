@@ -75,9 +75,43 @@ public final class VarkaDebugInfo {
   private final String lineMap;
 
   public VarkaDebugInfo(String ir, String planFragment, String lineMap) {
-    this.ir = Objects.requireNonNull(ir, "ir");
-    this.planFragment = Objects.requireNonNull(planFragment, "planFragment");
-    this.lineMap = Objects.requireNonNull(lineMap, "lineMap");
+    this.ir = bounded(Objects.requireNonNull(ir, "ir"));
+    this.planFragment = bounded(Objects.requireNonNull(planFragment, "planFragment"));
+    this.lineMap = bounded(Objects.requireNonNull(lineMap, "lineMap"));
+  }
+
+  /**
+   * The mark a field ends with when it was cut to fit; see {@link #bounded}. A reader that
+   * finds it knows the rendering is a prefix of the kernel's IR, not all of it.
+   */
+  public static final String TRUNCATED = " ...(truncated)";
+
+  /** The most bytes one field may take as a class-file UTF-8 constant, which a u2 counts. */
+  static final int MAX_FIELD_BYTES = 65535;
+
+  /**
+   * {@code s} cut, at a character boundary, so that it fits one constant-pool UTF-8 entry, and
+   * marked with {@link #TRUNCATED} when it was cut. Each field is written as one such entry, and
+   * a kernel of several hundred outputs renders an IR past the limit, which the class-file
+   * builder refuses with "string too long" - failing the whole class for the sake of metadata
+   * the JVM never reads ({@code PLAN_TASK_190.md} 2). The count is the class file's modified
+   * UTF-8: one byte for U+0001 to U+007F, two for U+0000 and up to U+07FF, three beyond.
+   */
+  static String bounded(String s) {
+    int bytes = 0;
+    int limit = MAX_FIELD_BYTES - TRUNCATED.length();
+    int cut = -1;
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      bytes += (c >= 0x0001 && c <= 0x007F) ? 1 : (c <= 0x07FF ? 2 : 3);
+      if (cut < 0 && bytes > limit) {
+        cut = i;
+      }
+      if (bytes > MAX_FIELD_BYTES) {
+        return s.substring(0, cut) + TRUNCATED;
+      }
+    }
+    return s;
   }
 
   /** The {@link VarkaVectorIR} roots the class was emitted from, rendered by the emitter. */

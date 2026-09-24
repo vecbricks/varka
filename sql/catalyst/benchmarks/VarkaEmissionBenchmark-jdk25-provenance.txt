@@ -1,0 +1,12 @@
+benchmark:   org.apache.spark.sql.VarkaEmissionBenchmark
+commit:      60d8b593010 (working tree dirty)
+date:        2026-09-24T06:03:39Z
+jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+kernel:      7.0.0-31-generic
+cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+power:       governor=performance epp=performance profile=performance
+pinned to:   taskset -c 0,12,13,14,15,1,2,3
+load at start: 0.82
+canary:      ok (compute +0.2% cache +2.8% memory -0.3% )
+wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark
+narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark"

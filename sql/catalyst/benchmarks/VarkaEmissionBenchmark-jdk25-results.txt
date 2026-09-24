@@ -2,33 +2,48 @@
 emitting a fused kernel: bytes only
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-a column, copied                                      3              4           0          0.1       17361.9       1.0X
-d + 3                                                 4              4           0          0.0       20527.5       0.8X
-i + 1, ANSI checked                                   6              6           0          0.0       29650.4       0.6X
-year(d)                                               6              6           0          0.0       31111.1       0.6X
-a predicate: d < d2 AND d IS NOT NULL                 7              7           0          0.0       33022.3       0.5X
-make_date(year(d), month(d), 1)                      13             13           0          0.0       66043.8       0.3X
-four calendar outputs over one date                  16             16           0          0.0       78092.8       0.2X
+a column, copied                                      4              4           0          0.1       19925.7       1.0X
+d + 3                                                 4              5           0          0.0       22364.0       0.9X
+i + 1, ANSI checked                                   6              7           0          0.0       32395.7       0.6X
+year(d)                                               7              7           0          0.0       33835.0       0.6X
+a predicate: d < d2 AND d IS NOT NULL                 7              7           0          0.0       35757.8       0.6X
+make_date(year(d), month(d), 1)                      14             14           0          0.0       70294.8       0.3X
+four calendar outputs over one date                  18             18           0          0.0       88115.8       0.2X
 
 
 ================================================================================================
 emitting a fused kernel: bytes and a defined class
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission and definition:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-a column, copied                                      6             10          14          0.0       29299.6       1.0X
-d + 3                                                 7             11          14          0.0       32573.2       0.9X
-i + 1, ANSI checked                                   9             16          23          0.0       44841.8       0.7X
-year(d)                                               9             16          28          0.0       45864.3       0.6X
-a predicate: d < d2 AND d IS NOT NULL                10             13          21          0.0       47989.7       0.6X
-make_date(year(d), month(d), 1)                      17             24          15          0.0       86342.6       0.3X
-four calendar outputs over one date                  20             29          20          0.0       97922.4       0.3X
+a column, copied                                      6              9           8          0.0       32094.5       1.0X
+d + 3                                                 7             10           9          0.0       35403.1       0.9X
+i + 1, ANSI checked                                  10             13          13          0.0       48553.2       0.7X
+year(d)                                              10             12          11          0.0       49407.3       0.6X
+a predicate: d < d2 AND d IS NOT NULL                10             13          10          0.0       50975.1       0.6X
+make_date(year(d), month(d), 1)                      19             23           8          0.0       92635.9       0.3X
+four calendar outputs over one date                  22             26          10          0.0      109244.2       0.3X
+
+
+================================================================================================
+emitting a wide kernel: four-op outputs (task 190)
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+25 outputs                                            2              2           0          0.0     1641141.0       1.0X
+50 outputs                                            4              4           0          0.0     3876786.0       0.4X
+100 outputs                                          10             10           0          0.0    10122976.0       0.2X
+200 outputs, budget out of reach                     31             32           0          0.0    31042842.0       0.1X
+400 outputs, budget out of reach                    103            106           1          0.0   103358023.0       0.0X
 
 

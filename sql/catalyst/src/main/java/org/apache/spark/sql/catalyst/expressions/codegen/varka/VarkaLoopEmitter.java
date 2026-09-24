@@ -194,11 +194,14 @@ public final class VarkaLoopEmitter {
   public static final int MAX_CHAIN_DEPTH = 16;
 
   /**
-   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE. Depth
-   * alone no longer bounds method size once outputs multiply, so this is the total-size counterpart
-   * of {@link #MAX_CHAIN_DEPTH}: a policy bound far past any real projection, kept honest by the
-   * widest-shape case in the parity benchmark. The ops are spread over loop methods of at most
-   * {@code GROUP_BUDGET} ops each, so this caps the kernel, not any one compiled method.
+   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE, in the
+   * form without a byte budget ({@code methodByteBudget} 0). Depth alone does not bound method
+   * size once outputs multiply, and that form has nothing else that does, so this is its
+   * total-size bound. Under the byte budget - the default - it does not apply: every method is
+   * measured in bytes and regrouped until it fits, and a kernel no regroup can fit (a driver past
+   * the budget, which grows with the outputs) is declined with a reason, at plan time. The cap had
+   * been a proxy for that size, and it admitted a quarter of the entries a real wide projection
+   * has ({@code PLAN_TASK_190.md} 1).
    */
   public static final int MAX_FUSED_NODES = 64;
 
@@ -858,21 +861,23 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
-   * structural budgets ({@link #MAX_FUSED_NODES} distinct ops across all outputs,
-   * {@link #MAX_CHAIN_DEPTH} height per output, {@link #MAX_INPUTS} columns), counted
-   * exactly as {@link Analysis} and {@link #emit} count them. The compiler mirrors the
-   * budgets with this before accepting an entry: an over-budget shape that reaches
-   * {@link #emit} fails there with an {@code IllegalArgumentException} the evaluator can
-   * only turn into a silent per-batch fallback - no task-16 decline reason, and EXPLAIN
-   * still claims fusion. Checked here instead, the offending entry is demoted to residual
-   * with a recorded reason.
+   * structural budgets ({@link #MAX_CHAIN_DEPTH} height per output, {@link #MAX_INPUTS} columns,
+   * and {@link #MAX_FUSED_NODES} distinct ops across all outputs where {@code options} have no
+   * byte budget), counted exactly as {@link Analysis} and {@link #emit} count them. The
+   * compiler mirrors the budgets with this before accepting an entry: an over-budget shape that
+   * reaches {@link #emit} fails there with an {@code IllegalArgumentException} the evaluator can
+   * only turn into a silent per-batch fallback - no task-16 decline reason, and EXPLAIN still
+   * claims fusion. Checked here instead, the offending entry is demoted to residual with a
+   * recorded reason.
    *
    * <p>The lane agreement {@link #laneOf} demands is checked on the same terms and for the
    * same reason: one class holds one species, so outputs on different lanes are two kernels,
    * and a caller that learned that from an exception at {@code emit} would have learned it too
    * late to record why.
    */
-  public static boolean fitsBudgets(java.util.List<VarkaVectorIR> outputs, int numInputs) {
+  public static boolean fitsBudgets(java.util.List<VarkaVectorIR> outputs, int numInputs,
+      VarkaEmitOptions options) {
+    boolean capOps = options.methodByteBudget() == 0;
     if (numInputs > MAX_INPUTS || outputs.isEmpty()) {
       return false;
     }
@@ -885,7 +890,7 @@ public final class VarkaLoopEmitter {
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
       if (budgetWalk(root, heights, opNodes) > MAX_CHAIN_DEPTH
-          || opNodes[0] > MAX_FUSED_NODES) {
+          || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }
     }

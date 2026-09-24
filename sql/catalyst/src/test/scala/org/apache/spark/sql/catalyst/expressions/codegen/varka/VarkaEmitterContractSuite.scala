@@ -55,13 +55,17 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)), 0, 1), "numInputs")
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)),
       VarkaLoopEmitter.MAX_INPUTS + 1, 1), "numInputs")
-    // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap. The cap
-    // counts nodes after CSE: the same 4 chains repeated as 8 outputs stay within it.
+    // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap of the form
+    // without a byte budget. The cap counts nodes after CSE: the same 4 chains repeated as 8
+    // outputs stay within it. Under the byte budget, the default, bytes decide instead and the
+    // five chains emit (task 190).
     val disjointChains = (0 until 5).map(k => chain(13, slotBase = k * 13))
-    rejects(emitMulti(disjointChains, 1, 65), "MAX_FUSED_NODES")
+    val reference = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
+    rejects(emitMulti(disjointChains, 1, 65, reference), "MAX_FUSED_NODES")
     val (_, sharedOk) = emitMulti(
-      disjointChains.take(4) ++ disjointChains.take(4), 1, 52)
+      disjointChains.take(4) ++ disjointChains.take(4), 1, 52, reference)
     assert(sharedOk.nonEmpty)
+    assert(emitMulti(disjointChains, 1, 65)._2.nonEmpty)
     // Task 11: conditions are never values. (A condition as an output ROOT became legal in
     // task 21 - it emits a selection bitmap - so only the value positions reject now.)
     val cmp = new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(0))
@@ -314,5 +318,27 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     assert(VarkaDebugInfoReader.sourceFile(bytes) === s"$simpleName.java")
     assert(VarkaDebugInfoReader.ir(bytes).contains("(addDays col:0 lit:0)"))
     assert(VarkaDebugInfoReader.planFragment(bytes) === "")
+  }
+
+  test("a debug payload past a class-file constant's limit is cut and marked, and the class " +
+      "still builds (task 190)") {
+    // Each VarkaDebugInfo field is one constant-pool UTF-8 entry, which a u2 counts, and a
+    // kernel of several hundred outputs renders an IR past it; the class-file builder then
+    // refused the whole class ("string too long") over metadata the JVM never reads. The plan
+    // fragment is the caller's string, so an oversized one reproduces that without the width.
+    val name = s"org.apache.spark.sql.varka.execution.VarkaFusedTest${classCounter.addAndGet(1)}"
+    val fragment = "x" * 70000
+    val bytes = VarkaLoopEmitter.emit(name, Seq(addDays(0)).asJava, 1, 1, null, fragment)
+    assert(VarkaEmitterTestSupport.verify(bytes).isEmpty)
+    val recorded = VarkaDebugInfoReader.planFragment(bytes)
+    assert(recorded.endsWith(VarkaDebugInfo.TRUNCATED) && fragment.startsWith(
+      recorded.stripSuffix(VarkaDebugInfo.TRUNCATED)), recorded.takeRight(40))
+    assert(recorded.length <= 65535)
+    // Three bytes a character is the worst case the count has to get right.
+    val wide = VarkaDebugInfo.bounded(0x4e2d.toChar.toString * 30000)
+    assert(wide.endsWith(VarkaDebugInfo.TRUNCATED) &&
+      (wide.length - VarkaDebugInfo.TRUNCATED.length) * 3 + VarkaDebugInfo.TRUNCATED.length
+        <= 65535, wide.length)
+    assert(VarkaDebugInfo.bounded("short") === "short")
   }
 }

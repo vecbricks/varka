@@ -33,21 +33,27 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       (0 until depth).foldLeft[VarkaVectorIR](new ColumnRef(base)) { (n, _) =>
         new AddDays(n, new LiteralSlot(0))
       }
-    assert(VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](chain(0, 16)), 1))
-    assert(!VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](chain(0, 17)), 1))
+    // The op cap bounds only the form without a byte budget (task 190); the depth and column
+    // caps bound every form.
+    val reference = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
+    def fits(roots: Seq[VarkaVectorIR], inputs: Int,
+        options: VarkaEmitOptions = reference): Boolean =
+      VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](roots: _*), inputs, options)
+    assert(fits(Seq(chain(0, 16)), 1))
+    assert(!fits(Seq(chain(0, 17)), 1))
+    assert(!fits(Seq(chain(0, 17)), 1, VarkaEmitOptions.DEFAULTS))
     // Five disjoint depth-13 chains are 65 distinct ops - the same shape the emitter's own
-    // rejection test uses against MAX_FUSED_NODES.
+    // rejection test uses against MAX_FUSED_NODES - and under the byte budget they fit.
     val five: Seq[VarkaVectorIR] = (0 until 5).map(k => chain(k, 13))
-    assert(!VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](five: _*), 5))
+    assert(!fits(five, 5))
+    assert(fits(five, 5, VarkaEmitOptions.DEFAULTS))
     // A shared subtree is one node, exactly as Analysis counts it.
     val shared = chain(0, 13)
-    val sharedFive: Seq[VarkaVectorIR] = Seq.fill(5)(shared)
-    assert(VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](sharedFive: _*), 1))
+    assert(fits(Seq.fill(5)(shared), 1))
     // The input-column cap is mirrored too (the review found it missing): the emitter's
     // emit() rejects numInputs > 64, so the compiler must never accept such a projection.
-    val one = java.util.List.of[VarkaVectorIR](chain(0, 1))
-    assert(VarkaLoopEmitter.fitsBudgets(one, 64))
-    assert(!VarkaLoopEmitter.fitsBudgets(one, 65))
+    assert(fits(Seq(chain(0, 1)), 64, VarkaEmitOptions.DEFAULTS))
+    assert(!fits(Seq(chain(0, 1)), 65, VarkaEmitOptions.DEFAULTS))
   }
 
   test("calendar siblings over one date share a loop method; plain chains, other " +
@@ -653,5 +659,29 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     assert(VarkaEmitBudget.groupOf("loopMasked12") === 12 &&
       VarkaEmitBudget.groupOf("epilogueDense0") === 0 &&
       VarkaEmitBudget.groupOf("epilogueMasked") === -1 && VarkaEmitBudget.groupOf("run") === -1)
+  }
+
+  test("a hundred four-op outputs fuse in one kernel under the byte budget, every method fits, " +
+      "and the answers hold (task 190)") {
+    // PLAN_TASK_190.md: the op cap admitted fifteen of these; the byte budget bounds every
+    // method, so all hundred fuse, and the driver - the one method that grows with the
+    // outputs - is the only one near the limit. The reference form keeps the op cap.
+    def entry(k: Int): VarkaVectorIR = {
+      val col = new ColumnRef(0)
+      new Greatest(new Greatest(new AddMonths(col, new LiteralSlot(k)),
+        new AddDays(col, new LiteralSlot(k))), new LastDay(col))
+    }
+    val roots = (0 until 100).map(entry)
+    val bytes = emitMulti(roots, 1, 100)._2
+    for (m <- VarkaEmitterTestSupport.methodNames(bytes).asScala if m != "<init>") {
+      val size = VarkaEmitterTestSupport.codeSize(bytes, m)
+      assert(size <= VarkaEmitBudget.HUGE_METHOD_LIMIT, s"$m is $size bytes")
+    }
+    intercept[IllegalArgumentException] {
+      emitMulti(roots, 1, 100, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))
+    }
+    val lits = (1 to 100).toArray
+    val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
+    checkMatrix(roots, 1, lits, Seq(1, 1031), patterns, ctx = "a hundred wide outputs")
   }
 }

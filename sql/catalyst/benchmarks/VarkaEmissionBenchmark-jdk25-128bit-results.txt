@@ -1,0 +1,87 @@
+Narrow-width companion of VarkaEmissionBenchmark-jdk25-results.txt: the same benchmark under
+-XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
+  benchmark:   org.apache.spark.sql.VarkaEmissionBenchmark
+  commit:      60d8b593010 (working tree dirty)
+  date:        2026-09-24T06:03:39Z
+  jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  kernel:      7.0.0-31-generic
+  cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+  power:       governor=performance epp=performance profile=performance
+  pinned to:   taskset -c 0,12,13,14,15,1,2,3
+  load at start: 0.82
+  canary:      ok (compute +0.2% cache +2.8% memory -0.3% )
+  wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark
+  narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark"
+
+Running benchmark: one emission
+  Running case: a column, copied
+  Stopped after 488 iterations, 2001 ms
+  Running case: d + 3
+  Stopped after 428 iterations, 2000 ms
+  Running case: i + 1, ANSI checked
+  Stopped after 294 iterations, 2005 ms
+  Running case: year(d)
+  Stopped after 282 iterations, 2004 ms
+  Running case: a predicate: d < d2 AND d IS NOT NULL
+  Stopped after 270 iterations, 2006 ms
+  Running case: make_date(year(d), month(d), 1)
+  Stopped after 135 iterations, 2011 ms
+  Running case: four calendar outputs over one date
+  Stopped after 109 iterations, 2014 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+a column, copied                                      4              4           0          0.0       20143.0       1.0X
+d + 3                                                 5              5           0          0.0       22880.2       0.9X
+i + 1, ANSI checked                                   7              7           0          0.0       33616.4       0.6X
+year(d)                                               7              7           0          0.0       35067.2       0.6X
+a predicate: d < d2 AND d IS NOT NULL                 7              7           0          0.0       36670.7       0.5X
+make_date(year(d), month(d), 1)                      15             15           0          0.0       73676.9       0.3X
+four calendar outputs over one date                  18             18           0          0.0       91068.8       0.2X
+Running benchmark: one emission and definition
+  Running case: a column, copied
+  Stopped after 213 iterations, 2006 ms
+  Running case: d + 3
+  Stopped after 184 iterations, 2008 ms
+  Running case: i + 1, ANSI checked
+  Stopped after 155 iterations, 2006 ms
+  Running case: year(d)
+  Stopped after 156 iterations, 2009 ms
+  Running case: a predicate: d < d2 AND d IS NOT NULL
+  Stopped after 157 iterations, 2008 ms
+  Running case: make_date(year(d), month(d), 1)
+  Stopped after 83 iterations, 2000 ms
+  Running case: four calendar outputs over one date
+  Stopped after 75 iterations, 2009 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission and definition:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+a column, copied                                      7              9           8          0.0       32586.6       1.0X
+d + 3                                                 7             11          12          0.0       35911.2       0.9X
+i + 1, ANSI checked                                  10             13           9          0.0       49802.3       0.7X
+year(d)                                              10             13          12          0.0       50912.8       0.6X
+a predicate: d < d2 AND d IS NOT NULL                10             13           9          0.0       52181.7       0.6X
+make_date(year(d), month(d), 1)                      19             24           8          0.0       96127.5       0.3X
+four calendar outputs over one date                  23             27          10          0.0      112730.2       0.3X
+Running benchmark: one emission
+  Running case: 25 outputs
+  Stopped after 1191 iterations, 2000 ms
+  Running case: 50 outputs
+  Stopped after 513 iterations, 2001 ms
+  Running case: 100 outputs
+  Stopped after 195 iterations, 2003 ms
+  Running case: 200 outputs, budget out of reach
+  Stopped after 66 iterations, 2029 ms
+  Running case: 400 outputs, budget out of reach
+  Stopped after 20 iterations, 2086 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+25 outputs                                            2              2           0          0.0     1642173.0       1.0X
+50 outputs                                            4              4           0          0.0     3829458.0       0.4X
+100 outputs                                          10             10           0          0.0    10055070.0       0.2X
+200 outputs, budget out of reach                     30             31           1          0.0    30000401.0       0.1X
+400 outputs, budget out of reach                    102            104           1          0.0   102449312.0       0.0X

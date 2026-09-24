@@ -820,7 +820,8 @@ final class Analysis {
    */
   private void analyzeOp(VarkaVectorIR node, boolean skips, VarkaVectorIR... children) {
     opNodes++;
-    if (opNodes > MAX_FUSED_NODES) {
+    // Only the form without a byte budget is capped by op count; see MAX_FUSED_NODES.
+    if (opNodes > MAX_FUSED_NODES && options.methodByteBudget() == 0) {
       throw new IllegalArgumentException(
           "more than MAX_FUSED_NODES=" + MAX_FUSED_NODES + " distinct ops");
     }
