@@ -292,6 +292,13 @@ about 460 stages differed by an entry or two. Generated code depends on state
 that differs between runs, such as the order in which names are allocated. No
 conclusion here rests on a margin that small.
 
+### 9.5 Correction: two hundred ranges, not fifty
+
+9.1 describes `modified-q3`'s filter as "about fifty" ranges. That figure came
+from reading the top of the query file, not from counting: the file has 200
+`ss_sold_date_sk between a and b` clauses. The stage sizes above were measured
+on the query as it is, so they stand; only the description of it was wrong.
+
 The post can now say how often the cliff occurs in the standard benchmarks -
 once in 178 queries, and in a shape a BI tool writes - rather than implying it
 is everywhere.
