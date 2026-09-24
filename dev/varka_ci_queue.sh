@@ -248,6 +248,12 @@ cmd_run() {
       echo "#$pr: changed on the queue while its run went; the verdict above is for an old head"
       continue
     fi
+    if [ "$verdict" = "cancelled" ]; then
+      # Still queued with this run, so the cancel was a hold's, which GitHub applies a few
+      # seconds after it is asked: the run is waiting for its turn, not finished with.
+      echo "#$pr: run $id was cancelled by a hold; it will be rerun in turn"
+      continue
+    fi
     if [ "$verdict" = "success" ]; then
       echo "#$pr: ready to merge"
     else

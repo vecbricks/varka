@@ -105,7 +105,12 @@ None: no performance claim.
    PR's old head for a few seconds, so `hold` matched the old run as current and
    queued it. The head is read from the fork's branch instead, which the push
    updates at once. *Added 24 September 2026, found holding #342.*
-4. **GitHub's run list is eventually consistent**: a rerun takes a few seconds
+4. **A hold's cancel lands after the hold returns.** A runner that reads the
+   held run a moment later still sees it running, waits, and reads
+   `cancelled`, which the first version reported as a failure and dropped. A
+   run that ends cancelled while its PR is still queued with it is now rerun
+   in turn; taking a PR out of CI is `drop`'s job. *Added 24 September 2026.*
+5. **GitHub's run list is eventually consistent**: a rerun takes a few seconds
    to leave `completed`, so `run` sleeps thirty seconds after a rerun before its
    first poll. Without that it would read the old conclusion and move on.
 
