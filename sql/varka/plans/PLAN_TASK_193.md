@@ -285,6 +285,13 @@ name:
 The upstream suites share the blind spot, which #59017 names as a known
 limitation for a follow-up.
 
+**The figures are exact to within a few bytes, not to the byte.** Two runs at
+the same commit gave the same bytes for every TPC-DS stage, but TPC-H q22's
+stage 3 read 225 bytes in one and 233 in the other, and the constant pools of
+about 460 stages differed by an entry or two. Generated code depends on state
+that differs between runs, such as the order in which names are allocated. No
+conclusion here rests on a margin that small.
+
 The post can now say how often the cliff occurs in the standard benchmarks -
 once in 178 queries, and in a shape a BI tool writes - rather than implying it
 is everywhere.
