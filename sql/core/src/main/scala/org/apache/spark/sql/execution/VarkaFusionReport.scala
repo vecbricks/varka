@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 
 /**
  * How a Varka node serves each entry of its projection, in words.
@@ -68,8 +69,11 @@ private[sql] object VarkaFusionReport {
   }
 
   /** The same, compiling the projection first - the plan-side entry point. */
-  def lines(projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Seq[String] = {
-    lines(VarkaExpressionCompiler.compilePartial(projectList, childOutput),
+  def lines(
+      projectList: Seq[NamedExpression],
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Seq[String] = {
+    lines(VarkaExpressionCompiler.compilePartial(projectList, childOutput, options),
       projectList, childOutput)
   }
 
@@ -80,8 +84,11 @@ private[sql] object VarkaFusionReport {
    * `FilterExec` above); the mixed rendering exists for logs and for reporting the original,
    * unsplit condition.
    */
-  def predicateLines(condition: Expression, childOutput: Seq[Attribute]): Seq[String] = {
-    VarkaExpressionCompiler.compilePredicate(condition, childOutput) match {
+  def predicateLines(
+      condition: Expression,
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Seq[String] = {
+    VarkaExpressionCompiler.compilePredicate(condition, childOutput, options) match {
       case Some(predicate) =>
         predicate.specs.map { spec =>
           if (spec.fused) {

@@ -37,7 +37,10 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, L
 
 /**
  * The emitted-bytes oracle (task 85, step 1): what the emitter produces for every shape, pinned
- * so that a refactor of the emitter can prove it changed nothing.
+ * so that a refactor of the emitter can prove it changed nothing. It is also the check that the
+ * compiler never builds IR the emitter rejects: every coverage row goes through the compiler and
+ * is emitted at both widths, and an emitter rejection of any of them fails this suite
+ * (`PLAN_TASK_169.md` 2.1, the IR contract violations).
  *
  * Three shape sets. Every row of the coverage table (`sql/varka/coverage.json`, compiled to IR
  * the way `VarkaCoverageSuite` compiles it, on both lanes), ten thousand random int32 trees

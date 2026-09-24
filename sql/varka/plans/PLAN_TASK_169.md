@@ -202,4 +202,52 @@ instead:
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+Implemented 24 September 2026, in one pull request.
+
+**The compiler asks, as 3.1 designed.** `VarkaExpressionCompiler.classify` and
+`compilePredicate` admit by weight as before, then ask the shape cache for the
+kernel (`admitBySize`) with the key the evaluator builds. A `VarkaEmitDeclined`
+demotes the outputs it names, or the last-admitted one when it names none, and
+the classification runs again with those entries forced residual, so the shared
+input and literal tables are rebuilt from the entries that remain rather than
+patched. A filter demotes its last-admitted conjunct. The emit options reach
+every caller through one function, `VarkaColumnarToRowExec.emitOptions`, which
+the evaluator's shape key uses too, so the plan and the task cannot classify a
+projection differently.
+
+**What the tests pin.** In `VarkaExpressionCompilerSuite`: the heavy single
+output residual with the budget's reason and its neighbours fused; a class-wide
+decline over sixty `make_date` outputs at a 2000-byte budget demoting a suffix
+until the largest method fits; a three-conjunct filter at a budget measured
+between two conjuncts and three demoting the third; a repeated compile costing
+no emission. In `VarkaProjectExecSuite`: the heavy output residual in EXPLAIN
+with the reason, the row path's answers, and `numEmissionFailures` 0.
+
+**Two things differ from the plan, and one it did not foresee.**
+
+1. *Step 2's coverage sweep already existed.* `VarkaEmittedBytesSuite` compiles
+   every coverage row through the compiler and emits it at both widths, so an
+   emitter rejection of IR the compiler builds already fails it. Its class doc
+   now says that is one of its jobs, instead of a second suite doing the same.
+2. *No byte margin (risk 2).* Asking against the budget less a byte would give
+   the compiler a different shape key from the evaluator's, so the plan-time
+   emission would no longer be the class the evaluator finds in a local JVM.
+   The key is kept identical; a shape within a byte of the budget on another
+   width is declined on the executor, where the shape cache's memo and the
+   evaluator's log-once of `PLAN_TASK_87.md` 9.7 keep it to one emission and
+   one warning per JVM.
+3. *Demoting an entry can admit another.* A heavy output beside `year(d)` and
+   `month(d)` leaves `month(d)` out under the weight caps alone, since the first
+   two fill the op cap; once the heavy one is demoted `month(d)` fits, and it
+   fuses. The first test pins both halves.
+
+**Predictions.** 6.1's first holds by construction and is pinned by the
+repeated-compile test: a second compile of a shape adds no miss to the shape
+cache. Its emission-cost bound was not measured separately; the cost is one
+emission, which `VarkaEmissionBenchmark` prices. The second holds for the
+shapes that reached the executor path before: the heavy output now reads
+`numEmissionFailures` 0.
+
+Milestone 6's first "done when" is met: every shape the compiler admits is one
+the emitter serves, and a shape it cannot is declined at plan time with a reason
+EXPLAIN prints. Row 169 is done.

@@ -66,14 +66,14 @@ private[sql] class VarkaFilterEvaluator(
       emitUseAVX) {
 
   private lazy val compiled = {
-    val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput)
+    val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput, emitOptions)
       .filter(_.residualConjuncts.isEmpty)
     // The account for a filter, once per task at debug level - the projection
     // evaluator's counterpart, which the base-class split had dropped (task-21 review,
     // second pass) although the docs promise it.
     predicate.foreach { _ =>
       logDebug(s"Varka $operatorName fusion: " +
-        VarkaFusionReport.predicateLines(condition, childOutput).mkString("; "))
+        VarkaFusionReport.predicateLines(condition, childOutput, emitOptions).mkString("; "))
     }
     predicate
   }

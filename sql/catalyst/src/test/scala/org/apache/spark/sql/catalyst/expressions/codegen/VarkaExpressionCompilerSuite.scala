@@ -17,11 +17,13 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
@@ -2310,5 +2312,103 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong).get
     assert(in.specs.map(_.fused) === Seq(true, false))
     assert(in.specs(1).decline.get.reason === "unsupported predicate")
+  }
+
+  // --- Task 169: the emitter's size decline, taken at plan time -------------------------------
+
+  /** A balanced `greatest` over `add_months(d, lo..hi)`: one output, as heavy as it is wide. */
+  private def heavy(lo: Int, hi: Int): Expression =
+    if (lo == hi) AddMonths(d, Literal(lo))
+    else Greatest(Seq(heavy(lo, (lo + hi) / 2), heavy((lo + hi) / 2 + 1, hi)))
+
+  /** The largest method of the kernel `fused` makes under `budget`, measured from its bytes. */
+  private def largestMethod(fused: CompiledVarkaProjection, budget: Int): Int = {
+    val bytes = VarkaLoopEmitter.emit(
+      s"org.apache.spark.sql.varka.execution.VarkaCompilerSizeProbe${System.nanoTime()}",
+      fused.outputs.asJava,
+      fused.inputOrdinals.size, fused.numLiterals, null, null,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(budget))
+    val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
+    methods.map(VarkaEmitterTestSupport.codeSize(bytes, _)).max
+  }
+
+  test("an output the emitter declines in bytes is residual at plan time, with the reason, " +
+      "and the rest of the projection still fuses (task 169)") {
+    // PLAN_TASK_169.md 3.1: the weight caps admit a balanced greatest over thirty-two
+    // add_months - sixty-three ops, one under MAX_FUSED_NODES - and its one group's loop method
+    // is past HugeMethodLimit, which no regroup can shrink. The compiler asks the emitter and
+    // demotes exactly that entry; the entries beside it fuse. Without the byte budget the
+    // emitter serves it, into a method HotSpot never compiles, and so does the compiler - and
+    // then month(d) is the one left out, because year(d) and the tree already fill the op cap.
+    // Demoting the tree is what makes room for it.
+    val list = Seq(out(Year(d)), out(heavy(1, 32)), out(Month(d)))
+    val partial = VarkaExpressionCompiler.compilePartial(list, childOutput).get
+    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput, FusedOutput(1)))
+    val reason = partial.declines(1).reason
+    assert(reason.startsWith("over the emitter's method budget (") &&
+      reason.contains("HugeMethodLimit"), reason)
+    assert(partial.fused.outputs.size === 2)
+    val legacy = VarkaExpressionCompiler.compilePartial(list, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+    assert(legacy.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
+    assert(legacy.declines(2).reason === "exceeds the emitter's fused budget")
+    // The heavy output alone: nothing is left to fuse, so the projection does not fuse at all,
+    // and the tools still say why.
+    assert(VarkaExpressionCompiler.compilePartial(Seq(out(heavy(1, 32))), childOutput).isEmpty)
+    assert(VarkaExpressionCompiler.declines(Seq(out(heavy(1, 32))), childOutput)(0).reason
+      .startsWith("over the emitter's method budget ("))
+  }
+
+  test("a class-wide decline demotes the last-admitted outputs until the driver fits " +
+      "(task 169)") {
+    // The driver sets up every output and cannot be regrouped, so over a budget the
+    // single-output groups meet it is the driver that declines, naming no output, and the
+    // compiler demotes from the end. Sixty make_date outputs put the driver past 2000 bytes.
+    val list = (1 to 60).map { k =>
+      out(MakeDate(Year(d), Month(d), Literal((k - 1) % 28 + 1), failOnError = true))
+    }
+    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000)
+    val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, budget).get
+    val fused = partial.specs.count(_.isInstanceOf[FusedOutput])
+    assert(fused > 1 && fused < 60, s"$fused of 60 fused under a 2000-byte budget")
+    assert(partial.specs.take(fused).forall(_.isInstanceOf[FusedOutput]) &&
+      partial.specs.drop(fused).forall(_ == ResidualOutput), "the residual ones are a suffix")
+    for (at <- fused until 60) {
+      assert(partial.declines(at).reason.startsWith("over the emitter's method budget (run"),
+        partial.declines(at).reason)
+    }
+    assert(largestMethod(partial.fused, 2000) <= 2000)
+  }
+
+  test("a filter whose folded condition is over the budget demotes its last-admitted " +
+      "conjunct (task 169)") {
+    // The fused conjuncts fold into one condition root, which the emitter cannot split by name,
+    // so the compiler drops the last conjunct it admitted and asks again. The budget is set
+    // between what two of these conjuncts and all three emit, measured rather than assumed.
+    val conjuncts = (1 to 3).map(k => GreaterThan(heavy(k * 10, k * 10 + 3), d2))
+    val condition = conjuncts.reduceLeft[Expression](And(_, _))
+    val two = VarkaExpressionCompiler.compilePredicate(
+      conjuncts.take(2).reduceLeft[Expression](And(_, _)), childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+    val three = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+    val limit = largestMethod(two.fused, 60000)
+    assert(largestMethod(three.fused, 60000) > limit, "the third conjunct has to add bytes")
+    val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(limit)).get
+    assert(predicate.specs.map(_.fused) === Seq(true, true, false))
+    assert(predicate.specs(2).decline.get.reason.startsWith("over the emitter's method budget"))
+  }
+
+  test("asking the emitter at plan time costs one emission per shape: a second compile of " +
+      "the same projection is a cache hit (task 169)") {
+    // PLAN_TASK_169.md 2.3: the compiler runs at planning, for EXPLAIN and once per task on the
+    // executor, so the question goes through the shape cache with the key the evaluator builds.
+    val list = Seq(out(Year(d)), out(DayOfMonth(DateAdd(d, Literal(4321)))))
+    VarkaExpressionCompiler.compilePartial(list, childOutput)
+    val misses = VarkaShapeCache.missCount
+    VarkaExpressionCompiler.compilePartial(list, childOutput)
+    VarkaExpressionCompiler.compilePartial(list, childOutput)
+    assert(VarkaShapeCache.missCount === misses, "a repeated compile emitted again")
   }
 }

@@ -29,10 +29,11 @@ import java.util.List;
  * caps. It is an {@link IllegalArgumentException} so that every caller's existing contract
  * holds - the emitter refused, fall back to the row engine - and a type of its own so that a
  * caller can tell a size decline from a structural one and report it as such. {@link #outputs}
- * is what a compiler acts on: the outputs whose own group cannot fit, so the rest of the
- * projection can be fused without them; it is empty for a class-wide limit, where no output is
- * to blame on its own. Routing every emitter refusal through a typed decline is task 169's;
- * this type is the one task 87's limits need.
+ * is what {@code VarkaExpressionCompiler} acts on at plan time: the outputs whose own group
+ * cannot fit, which it demotes to the row path with this reason so that the rest of the
+ * projection fuses without them; it is empty for a class-wide limit, where no output is to blame
+ * on its own. The emitter's other refusals are not declines: they reject IR the compiler never
+ * builds, and stay plain {@code IllegalArgumentException}s ({@code PLAN_TASK_169.md} 2.1).
  */
 public final class VarkaEmitDeclined extends IllegalArgumentException {
 

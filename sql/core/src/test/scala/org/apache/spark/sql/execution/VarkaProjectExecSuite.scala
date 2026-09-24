@@ -19,9 +19,10 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.{SparkArithmeticException, TaskContext}
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, ExtractANSIIntervalDays, Literal, NamedExpression, Remainder}
+import org.apache.spark.sql.catalyst.expressions.{AddMonths, Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, Expression, ExtractANSIIntervalDays, Greatest, Literal, NamedExpression, Remainder}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAllocationSampler,
   VarkaChrono, VarkaFallbackEvent, VarkaJfrTestSupport, VarkaKernelAllocationEvent}
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
@@ -292,6 +293,30 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
     assert(explained.contains("a: fused"), explained)
     assert(explained.contains("i: forwarded from i"), explained)
     assert(explained.contains("inc: residual (unsupported expression:"), explained)
+  }
+
+  test("an entry the emitter declines in bytes is residual in the plan, and no task fails " +
+      "to emit (task 169)") {
+    // PLAN_TASK_169.md: a balanced greatest over thirty-two add_months is one output whose loop
+    // method is past HugeMethodLimit. The compiler asks the emitter at planning and leaves it to
+    // the row path with the reason, so EXPLAIN says so and the kernel the tasks emit is the one
+    // the emitter serves: no emission failure, which before this task was one per task.
+    def heavy(lo: Int, hi: Int): Expression =
+      if (lo == hi) AddMonths(attrD, Literal(lo))
+      else Greatest(Seq(heavy(lo, (lo + hi) / 2), heavy((lo + hi) / 2 + 1, hi)))
+    val days = Seq(0, 1, 100, -4000)
+    val plan = node(
+      project(Alias(heavy(1, 32), "h")(), Alias(DateAdd(attrD, Literal(3)), "a")()),
+      Seq(BatchSpec("arrow", Seq(days.map(Int.box)))),
+      Seq(attrD))
+    val explained = plan.verboseStringWithOperatorId()
+    assert(explained.contains("h: residual (over the emitter's method budget ("), explained)
+    assert(explained.contains("a: fused"), explained)
+    // The greatest of add_months(d, k) over k in 1..32 is add_months(d, 32): the row path's
+    // answer, computed here the way Spark computes it.
+    assert(values(plan) === days.map(d => Int.box(DateTimeUtils.dateAddMonths(d, 32))))
+    assert(plan.metrics("numEmissionFailures").value === 0)
+    assert(plan.metrics("numResidualEntries").value === 1)
   }
 
   test("the fallback projection is compiled lazily, only when a batch falls back") {

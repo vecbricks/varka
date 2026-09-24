@@ -72,7 +72,8 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   // One driver-side compilation serves every EXPLAIN render (task-21 review, second pass:
   // parity with the projection nodes' memoized classification).
   @transient private lazy val fusionLines =
-    VarkaFusionReport.predicateLines(condition, child.output)
+    VarkaFusionReport.predicateLines(condition, child.output,
+      VarkaColumnarToRowExec.emitOptions(conf.varkaEmitUseAVX))
 
   // The question for a filter is "why didn't my predicate fuse?", answered per conjunct.
   // The condition renders as FilterExec renders its own - a plain line, because

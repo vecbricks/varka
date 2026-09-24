@@ -104,7 +104,7 @@ private[sql] class VarkaKernelEvaluator(
   // IR; None when no entry is Varka-eligible (should not happen given [[VarkaColumnarRule]],
   // but be safe).
   private lazy val compiled: Option[PartialVarkaProjection] = {
-    val partial = VarkaExpressionCompiler.compilePartial(projectList, childOutput)
+    val partial = VarkaExpressionCompiler.compilePartial(projectList, childOutput, emitOptions)
     // the same per-entry account verbose EXPLAIN prints, once per task at debug level.
     partial.foreach { plan =>
       logDebug(s"Varka $operatorName fusion: " +

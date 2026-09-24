@@ -21,12 +21,14 @@ import java.util.function.IntUnaryOperator
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
+import scala.util.control.NonFatal
 
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Attribute, BindReferences,
   BoundReference, Cast, EvalMode, Expression, Greatest, Least, Literal, Multiply, NamedExpression,
   RuntimeReplaceable, Subtract, UnaryMinus}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDerivedKind, VarkaLoopEmitter,
-  VarkaRangeAnalysis, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDerivedKind, VarkaEmitDeclined,
+  VarkaEmitOptions, VarkaLoopEmitter, VarkaRangeAnalysis, VarkaShapeCache, VarkaShapeKey,
+  VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{ColumnRef, Cond,
   Greatest => IRGreatest, IntArith, IntNeg, IntOp, LaneType, Least => IRLeast, LiteralSlot,
   Overflow}
@@ -322,8 +324,9 @@ private[sql] object VarkaExpressionCompiler {
   /** The all-entries-fused special case of [[compilePartial]], kept for callers that need it. */
   def compile(
       projectList: Seq[NamedExpression],
-      childOutput: Seq[Attribute]): Option[CompiledVarkaProjection] = {
-    compilePartial(projectList, childOutput).collect {
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[CompiledVarkaProjection] = {
+    compilePartial(projectList, childOutput, options).collect {
       case partial if partial.specs.forall(_.isInstanceOf[FusedOutput]) => partial.fused
     }
   }
@@ -333,11 +336,17 @@ private[sql] object VarkaExpressionCompiler {
    * into one sub-projection. `Some` exactly when at least one entry fused and the fused trees
    * reference at least one column - the emitted loop reads columns or has nothing to
    * vectorize over.
+   *
+   * `options` are the emit options the kernel will be emitted with, which every caller has to
+   * pass alike: they decide whether the emitter can serve the fused entries in bytes (see
+   * [[admitBySize]]), so a caller that passed different ones could classify the same
+   * projection differently from the evaluator that runs it.
    */
   def compilePartial(
       projectList: Seq[NamedExpression],
-      childOutput: Seq[Attribute]): Option[PartialVarkaProjection] = {
-    classify(projectList, childOutput)._1
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[PartialVarkaProjection] = {
+    classify(projectList, childOutput, options)._1
   }
 
   /**
@@ -347,13 +356,43 @@ private[sql] object VarkaExpressionCompiler {
    */
   private[sql] def declines(
       projectList: Seq[NamedExpression],
-      childOutput: Seq[Attribute]): Map[Int, VarkaDecline] = {
-    classify(projectList, childOutput)._2
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Map[Int, VarkaDecline] = {
+    classify(projectList, childOutput, options)._2
   }
 
+  /**
+   * The per-entry classification, then the size admission: the entries the weight caps admit
+   * are asked of the emitter as the one kernel they make, and an entry the emitter declines in
+   * bytes is classified again as residual, with the emitter's reason, until the kernel it leaves
+   * is one the emitter serves. Each round demotes at least one entry, so it ends.
+   */
   private def classify(
       projectList: Seq[NamedExpression],
-      childOutput: Seq[Attribute]): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+    var demoted = Map.empty[Int, String]
+    while (true) {
+      val classified = classifyOnce(projectList, childOutput, demoted)
+      val more = classified._1.map { partial =>
+        val fusedAt = partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
+        admitBySize(partial.fused, options).map { case (outputs, reason) =>
+          outputs.map(fusedAt.toMap).map(_ -> reason).toMap
+        }.getOrElse(Map.empty[Int, String])
+      }.getOrElse(Map.empty[Int, String])
+      if (more.isEmpty) {
+        return classified
+      }
+      demoted ++= more
+    }
+    throw new IllegalStateException("unreachable")
+  }
+
+  private def classifyOnce(
+      projectList: Seq[NamedExpression],
+      childOutput: Seq[Attribute],
+      demoted: Map[Int, String])
+      : (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
     // Both tables assign dense indices in first-occurrence order, which makes the compiled
     // shape deterministic in the projection alone.
     val inputs = mutable.LinkedHashMap.empty[Int, Int]
@@ -376,6 +415,12 @@ private[sql] object VarkaExpressionCompiler {
         // A bare column is compilable as a node but never emitted as an output: emitting it
         // would be a copy loop, while forwarding the input's vector is zero-copy.
         case br: BoundReference => ForwardedOutput(br.ordinal)
+        // An entry the size admission demoted in an earlier round: residual with the emitter's
+        // reason, and compiled not at all, so it registers nothing in the shared tables.
+        case e if demoted.contains(position) =>
+          sink.note(demoted(position), e)
+          sink.take().foreach(decline => declines += position -> decline)
+          ResidualOutput
         case e =>
           // The tables are shared across entries (CSE across outputs depends on it), so a
           // declining entry must not leave the columns and literals its failing subtrees
@@ -443,6 +488,42 @@ private[sql] object VarkaExpressionCompiler {
     }
   }
 
+  /**
+   * Whether the emitter serves `fused` in bytes, asked of the emitter itself: `None` when it
+   * does, and otherwise the fused outputs to demote with the reason. The weight caps admit an
+   * entry before anything is built, and weight does not bound size (`PLAN_TASK_87.md`), so a
+   * shape the caps admit can still be one the emitter's method budget declines - a single
+   * output whose own method is past it, or a driver over it. Asking here moves that decline
+   * from every task on the executor to the plan, where EXPLAIN shows it (`PLAN_TASK_169.md`).
+   *
+   * The question goes through the shape cache with the key the evaluator will build, so a
+   * shape is emitted once per JVM whoever asks first: the compiler runs at planning, for
+   * EXPLAIN and once per task on the executor, and a direct emission here would put a class
+   * build on every one of those. A decline names the outputs whose own group cannot fit; a
+   * class-wide one names none, and the last-admitted output is demoted, since the driver it
+   * leaves over the budget grows with the number of outputs. Any other failure admits the
+   * shape as before: the executor meets it where it always has, behind the ghost fallback.
+   */
+  private def admitBySize(
+      fused: CompiledVarkaProjection,
+      options: VarkaEmitOptions): Option[(Seq[Int], String)] = {
+    if (options.methodByteBudget() == 0) {
+      return None
+    }
+    val key = new VarkaShapeKey(
+      fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options)
+    try {
+      VarkaShapeCache.getOrEmit(key, "plan-time admission")
+      None
+    } catch {
+      case d: VarkaEmitDeclined =>
+        val named = d.outputs().asScala.map(_.intValue).toSeq
+        val reason = s"over the emitter's method budget (${d.getMessage.split("; ").head})"
+        Some((if (named.nonEmpty) named else Seq(fused.outputs.size - 1), reason))
+      case NonFatal(_) => None
+    }
+  }
+
   /** Drops the entries a failed compile appended after `mark` (insertion order). */
   private[codegen] def truncate(table: mutable.LinkedHashMap[Int, Int], mark: Int): Unit = {
     if (table.size > mark) {
@@ -468,7 +549,31 @@ private[sql] object VarkaExpressionCompiler {
    */
   def compilePredicate(
       condition: Expression,
-      childOutput: Seq[Attribute]): Option[CompiledVarkaPredicate] = {
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[CompiledVarkaPredicate] = {
+    // The size admission of [[classify]], for conjuncts. The fused conjuncts fold into one
+    // condition root, which the emitter cannot split by name, so a decline demotes the
+    // last-admitted conjunct and the rest are asked again.
+    var demoted = Map.empty[Int, String]
+    while (true) {
+      val compiled = predicateOnce(condition, childOutput, demoted)
+      val more = compiled.flatMap { predicate =>
+        admitBySize(predicate.fused, options).map { case (_, reason) =>
+          predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
+        }
+      }
+      if (more.isEmpty) {
+        return compiled
+      }
+      demoted += more.get
+    }
+    throw new IllegalStateException("unreachable")
+  }
+
+  private def predicateOnce(
+      condition: Expression,
+      childOutput: Seq[Attribute],
+      demoted: Map[Int, String]): Option[CompiledVarkaPredicate] = {
     // The split hoists fused conjuncts below the residual ones, which reorders evaluation.
     // That is sound only when every conjunct is deterministic - Spark's own predicate
     // pushdown stops at the first nondeterministic conjunct (span(_.deterministic)) for the
@@ -480,40 +585,45 @@ private[sql] object VarkaExpressionCompiler {
     val literals = mutable.LinkedHashMap.empty[Int, Int]
     val sink = new DeclineSink(childOutput)
     val fusedConds = mutable.ArrayBuffer.empty[Cond]
-    val specs = splitConjuncts(condition).map { conjunct =>
+    val specs = splitConjuncts(condition).zipWithIndex.map { case (conjunct, index) =>
       val bound = BindReferences.bindReference[Expression](conjunct, childOutput)
-      val inputsMark = inputs.size
-      val literalsMark = literals.size
-      val longMark = sink.longMark
-      val boundsMark = sink.boundsMark
-      VarkaConditionCompiler.compileCond(bound, inputs, literals, sink) match {
-        // The lane rule of `compilePartial`, for conjuncts: the AND fold below would refuse a
-        // mix by construction, so it is asked here first and answered with the lane's reason.
-        case Some(cond) if fusedConds.nonEmpty && cond.laneType() != fusedConds.head.laneType() =>
-          truncate(inputs, inputsMark)
-          truncate(literals, literalsMark)
-          sink.truncateLong(longMark)
-          sink.truncateBounds(boundsMark)
-          sink.take()
-          sink.note(laneMismatch(cond.laneType(), fusedConds.head.laneType()), bound)
-          VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
-        case Some(cond) if VarkaLoopEmitter.fitsBudgets(
-            java.util.List.of(VarkaConditionCompiler.andFold(fusedConds.toSeq :+ cond)),
-            inputs.size) =>
-          sink.take()
-          fusedConds += cond
-          VarkaConjunctSpec(conjunct, fused = true, decline = None)
-        case compiled =>
-          truncate(inputs, inputsMark)
-          truncate(literals, literalsMark)
-          sink.truncateLong(longMark)
-          sink.truncateBounds(boundsMark)
-          if (compiled.isDefined) {
+      if (demoted.contains(index)) {
+        sink.note(demoted(index), bound)
+        VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+      } else {
+        val inputsMark = inputs.size
+        val literalsMark = literals.size
+        val longMark = sink.longMark
+        val boundsMark = sink.boundsMark
+        VarkaConditionCompiler.compileCond(bound, inputs, literals, sink) match {
+          // The lane rule of `compilePartial`, for conjuncts: the AND fold below would refuse a
+          // mix by construction, so it is asked here first and answered with the lane's reason.
+          case Some(cond) if fusedConds.nonEmpty && cond.laneType() != fusedConds.head.laneType() =>
+            truncate(inputs, inputsMark)
+            truncate(literals, literalsMark)
+            sink.truncateLong(longMark)
+            sink.truncateBounds(boundsMark)
             sink.take()
-            sink.note("exceeds the emitter's fused budget", bound)
-          }
-          // A declining conjunct always leaves a reason: every `None` in compileCond notes one.
-          VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+            sink.note(laneMismatch(cond.laneType(), fusedConds.head.laneType()), bound)
+            VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+          case Some(cond) if VarkaLoopEmitter.fitsBudgets(
+              java.util.List.of(VarkaConditionCompiler.andFold(fusedConds.toSeq :+ cond)),
+              inputs.size) =>
+            sink.take()
+            fusedConds += cond
+            VarkaConjunctSpec(conjunct, fused = true, decline = None)
+          case compiled =>
+            truncate(inputs, inputsMark)
+            truncate(literals, literalsMark)
+            sink.truncateLong(longMark)
+            sink.truncateBounds(boundsMark)
+            if (compiled.isDefined) {
+              sink.take()
+              sink.note("exceeds the emitter's fused budget", bound)
+            }
+            // A declining conjunct always leaves a reason: every `None` in compileCond notes one.
+            VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+        }
       }
     }
     if (fusedConds.nonEmpty && inputs.nonEmpty) {

@@ -174,6 +174,8 @@ public final class VarkaShapeCacheImpl {
   // is what makes remembering it sound - unlike the failures loadOnce deliberately does not
   // share, which belong to one caller (a cancellation, an interrupt). Bounded like the side
   // table; a shape evicted from it is declined again, correctly, at the cost of one emission.
+  // The compiler asks the same question at plan time through this cache, which is what makes
+  // that question cost one emission per shape per JVM however often the compiler runs.
   private final Cache<VarkaShapeKey, VarkaEmitDeclined> declined;
 
   public VarkaShapeCacheImpl(int maxEntries) {

@@ -115,8 +115,10 @@ private[sql] abstract class VarkaEvaluatorBase(
       } catch {
         case d: VarkaEmitDeclined =>
           // A shape over the emitter's method budget: the same reason on every task, so it is
-          // logged once per JVM, and as a reason rather than a stack trace. The compiler does not
-          // yet decline such a shape at plan time (task 169), so it reaches this path.
+          // logged once per JVM, and as a reason rather than a stack trace. The compiler asks the
+          // emitter at plan time and demotes what it declines, so this is the last resort: a
+          // shape the planning JVM's vector width admitted within the byte or so another width
+          // adds (PLAN_TASK_169.md 2.2).
           if (VarkaKernelEvaluator.loggedDeclines.add(d.getMessage)) {
             logWarning(s"The Varka emitter declined $kernelIdentity: ${d.getMessage}; " +
               "falling back to the per-row path.")
@@ -178,12 +180,11 @@ private[sql] abstract class VarkaEvaluatorBase(
    * rather than instead of them, so a suite that drives a variant and sets the level gets
    * both, and it is left alone at the default so that the hook's own level survives.
    */
-  protected def shapeKey(plan: CompiledVarkaProjection): VarkaShapeKey = {
-    val base = VarkaColumnarToRowExec.currentEmitOptions
-    val options =
-      if (emitUseAVX == VarkaEmitOptions.USE_AVX_UNKNOWN) base else base.withUseAVX(emitUseAVX)
-    new VarkaShapeKey(plan.outputs.asJava, plan.inputOrdinals.size, plan.numLiterals, options)
-  }
+  protected def shapeKey(plan: CompiledVarkaProjection): VarkaShapeKey =
+    new VarkaShapeKey(plan.outputs.asJava, plan.inputOrdinals.size, plan.numLiterals, emitOptions)
+
+  /** The options this evaluator emits with, which its compiler call must use too. */
+  protected def emitOptions: VarkaEmitOptions = VarkaColumnarToRowExec.emitOptions(emitUseAVX)
 
   /**
    * The kernel named the way its telemetry names it: the

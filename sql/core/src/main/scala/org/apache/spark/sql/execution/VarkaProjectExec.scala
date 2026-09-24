@@ -84,7 +84,8 @@ case class VarkaProjectExec(
   // One driver-side compilation serves both EXPLAIN and the residual-entry count below
   // (task-21 review: the node used to re-run the same pure compile per consumer).
   @transient private lazy val classification =
-    VarkaExpressionCompiler.compilePartial(projectList, child.output)
+    VarkaExpressionCompiler.compilePartial(projectList, child.output,
+      VarkaColumnarToRowExec.emitOptions(conf.varkaEmitUseAVX))
 
   // verbose EXPLAIN answers "why didn't my projection fuse?" - every entry's
   // classification, and for a residual entry the reason the compiler declined it.

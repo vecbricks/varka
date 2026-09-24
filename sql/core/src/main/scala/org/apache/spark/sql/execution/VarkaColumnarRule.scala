@@ -147,7 +147,8 @@ object VarkaColumnarRule extends ColumnarRule {
   // predication included - with bare columns forwarded and the rest evaluated per row.
   private def isVarkaEligible(
       projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean = {
-    VarkaExpressionCompiler.compilePartial(projectList, childOutput).isDefined
+    VarkaExpressionCompiler.compilePartial(projectList, childOutput,
+      VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)).isDefined
   }
 
   /**
@@ -207,7 +208,8 @@ object VarkaColumnarRule extends ColumnarRule {
       condition: Expression,
       child: SparkPlan,
       mkVarka: (Expression, SparkPlan) => SparkPlan): Option[SparkPlan] = {
-    VarkaExpressionCompiler.compilePredicate(condition, child.output).map { predicate =>
+    VarkaExpressionCompiler.compilePredicate(condition, child.output,
+        VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)).map { predicate =>
       val varka = mkVarka(predicate.fusedConjuncts.reduceLeft(And(_, _)), child)
       predicate.residualConjuncts.reduceLeftOption(And(_, _))
         .map(residual => FilterExec(residual, varka))

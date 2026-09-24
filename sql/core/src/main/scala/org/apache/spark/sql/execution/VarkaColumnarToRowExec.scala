@@ -113,7 +113,8 @@ case class VarkaColumnarToRowExec(
   // One driver-side compilation serves both EXPLAIN and the residual-entry count below
   // (task-21 review: the node used to re-run the same pure compile per consumer).
   @transient private lazy val classification =
-    VarkaExpressionCompiler.compilePartial(projectList, child.output)
+    VarkaExpressionCompiler.compilePartial(projectList, child.output,
+      VarkaColumnarToRowExec.emitOptions(conf.varkaEmitUseAVX))
 
   // verbose EXPLAIN answers "why didn't my projection fuse?" - every entry's
   // classification, and for a residual entry the reason the compiler declined it.
@@ -220,6 +221,19 @@ private[sql] object VarkaColumnarToRowExec {
   }
 
   private[sql] def currentEmitOptions: VarkaEmitOptions = emitOptionsForTesting
+
+  /**
+   * The emit options a kernel is emitted with, given the session's
+   * `spark.sql.codegen.varka.emit.useAVX`: the test hook's options, with the level applied over
+   * them unless it is the default. The one place they are derived, because they are asked
+   * twice for every kernel - by the compiler, which admits entries by whether the emitter
+   * serves them in bytes, and by the evaluator, which emits them - and the two must agree, or
+   * the plan and the task could classify one projection differently.
+   */
+  private[sql] def emitOptions(useAVX: Int): VarkaEmitOptions = {
+    val base = currentEmitOptions
+    if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN) base else base.withUseAVX(useAVX)
+  }
 }
 
 private[sql] class VarkaColumnarToRowEvaluatorFactory(
