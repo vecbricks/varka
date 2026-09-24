@@ -325,3 +325,25 @@ This plan says Spark does not report a method past HotSpot's 8000-byte limit. It
 INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
 cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
 has the evidence.
+
+### 9.5 The runners' files, re-measured on the Arrow cache, 24 September 2026
+
+Both runs of 9.3 again, from master `0ea8414fef5`, where the benchmark reads the Arrow cache its
+tables name (9.4). The default run drew the AMD EPYC 9V45 and the flag run an AMD EPYC 7763
+(`VarkaSizeLadderTuningBenchmark-jdk25-runner-results.txt` and
+`-dontcompilehugemethods-off-runner-results.txt`, each with its provenance). They supersede 9.3's
+files and figures.
+
+**The default run agrees with the ladder on the same machine.** Its defaults arm reads 892.1 ns a
+row at 52 entries, where task 171's runner ladder on the 9V45 read 892.8, so the tuning file and the
+ladder now measure the same vanilla. The step is 892.1 to 4708.9 between 52 and 54 entries;
+`hugeMethodLimit=8000` goes to 1122.7 and `wholeStage=false` to 1122.9.
+
+**Against Varka, on one machine and one cache.** On the 9V45 the best tuned vanilla is
+`hugeMethodLimit=8000`: 1122.7 ns a row at 54 entries against Varka's 69.6, sixteen times, and
+2155.6 at a hundred against 111.4, nineteen times. These replace 9.3's sixteen and twenty-two, which
+came from the default cache.
+
+**The flag's second cliff reproduces on a third CPU.** On the EPYC 7763 the flag's compiled defaults
+run 1747.3 ns a row at 52 entries and 1811.6 at 54, no step, and 17522.9 at a hundred. The 7763 is
+slower than the 9V45 and carries no Varka run, so this file is read only against itself.

@@ -292,6 +292,26 @@ is not what limits the claim.
 **Prediction 4 held for design B**: faster than vanilla at every rung, and by more than ten times
 past vanilla's crossing. Design A is still to build and to score.
 
+### 9.4 Design B on a runner, 24 September 2026
+
+`VarkaRangeFilterBenchmark` through `.github/workflows/benchmark.yml` from master `efe3017de8a`,
+which drew an AMD EPYC 9V74 - Zen 4, without the full-width 512-bit datapath
+(`VarkaRangeFilterBenchmark-jdk25-runner-9v74-results.txt`, with its provenance). Nanoseconds a
+row:
+
+| ranges | vanilla | Varka, range set | vanilla / Varka |
+|---:|---:|---:|---:|
+| 10 | 35.2 | 13.7 | 2.6 |
+| 48 | 52.5 | 24.3 | 2.2 |
+| 100 | 9121.0 | 40.5 | 225 |
+| 200 | 17520.9 | 70.2 | 250 |
+
+**The laptop's shape holds on the runner, and the cliff is steeper there.** Vanilla steps from
+51.4 ns a row at 49 ranges to 9121.0 at 100, about 180 times; Varka's loop grows with the ranges
+as on the laptop, about 0.3 ns a row a range (24.2 at 49 ranges, 70.2 at 200). At the query's 200 ranges Varka is 250 times
+faster. The published figure is to come from the EPYC 9V45, the pool's full-width machine, as the
+size ladder's does; two more dispatches are out for it.
+
 ### Correction, 24 September 2026: the cliff is logged
 
 This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0

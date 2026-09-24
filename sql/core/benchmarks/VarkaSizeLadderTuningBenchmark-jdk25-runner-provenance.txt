@@ -1,11 +1,11 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSizeLadderTuningBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
-run:         https://github.com/MaxGekk/spark/actions/runs/36005533625
-commit:      eafc3e0e340
+run:         https://github.com/MaxGekk/spark/actions/runs/36045946987
+commit:      0ea8414fef5 (master, with the Arrow cache the benchmark was meant to have)
 date:        2026-09-24
 inputs:      class=*VarkaSizeLadderTuningBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
              extra-java-options=--add-modules jdk.incubator.vector
 jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
-cpu:         INTEL(R) XEON(R) PLATINUM 8573C, which reads 512:256 at about 1.35 (sql/varka/HARDWARE.md); these arms are scalar, so the width does not bear on them
+cpu:         AMD EPYC 9V45 96-Core Processor, the pool's full-width 512-bit machine (sql/varka/HARDWARE.md)
 pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
