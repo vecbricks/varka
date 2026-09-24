@@ -1,5 +1,5 @@
 TPC codegen census, configuration: tpcds-defaults-stats
-commit:      e02d05e4b72 (working tree dirty)
+commit:      1917c854bae
 java:        25.0.4.1
 settings:    spark.sql.readSideCharPadding=true, statistics injected=true, spark.sql.codegen.hugeMethodLimit=65535, spark.sql.adaptive.enabled=false
 under AQE:   the same walk with spark.sql.adaptive.enabled=true finds 0 stages in these queries
@@ -82,11 +82,11 @@ tpcds-v1.4	q4	49	0	120	124	ok	Sort
 tpcds-v1.4	q5	20	6	496	255	ok	HashAggregate
 tpcds-v1.4	q5	19	6	326	280	ok	HashAggregate < Expand
 tpcds-v1.4	q5	4	2	537	280	ok	HashAggregate
-tpcds-v1.4	q5	3	2	474	464	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
+tpcds-v1.4	q5	3	2	474	465	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
 tpcds-v1.4	q5	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q5	2	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q5	8	2	537	280	ok	HashAggregate
-tpcds-v1.4	q5	7	2	474	464	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
+tpcds-v1.4	q5	7	2	474	465	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
 tpcds-v1.4	q5	6	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q5	18	2	537	280	ok	HashAggregate
 tpcds-v1.4	q5	17	2	444	351	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin
@@ -114,7 +114,7 @@ tpcds-v1.4	q6	12	1	540	218	ok	Project < BroadcastHashJoin < Filter < ColumnarToR
 tpcds-v1.4	q6	11	0	331	264	ok	Filter < HashAggregate
 tpcds-v1.4	q6	10	0	430	362	ok	HashAggregate < Project < Filter < ColumnarToRow
 tpcds-v1.4	q7	9	3	852	278	ok	HashAggregate
-tpcds-v1.4	q7	8	3	549	424	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v1.4	q7	8	3	549	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q7	4	2	120	124	ok	Sort
 tpcds-v1.4	q7	3	2	713	195	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q7	1	0	295	135	ok	Project < Filter < ColumnarToRow
@@ -217,7 +217,7 @@ tpcds-v1.4	q13	3	2	1835	201	ok	Project < BroadcastHashJoin < Project < Broadcast
 tpcds-v1.4	q13	1	0	295	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q13	2	0	384	142	ok	Filter < ColumnarToRow
 tpcds-v1.4	q13	6	0	120	124	ok	Sort
-tpcds-v1.4	q13	5	0	937	207	ok	Project < Filter < ColumnarToRow
+tpcds-v1.4	q13	5	0	937	208	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q13	10	0	120	124	ok	Sort
 tpcds-v1.4	q13	9	0	920	178	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q13	11	0	214	135	ok	Filter < ColumnarToRow
@@ -284,7 +284,7 @@ tpcds-v1.4	q15	4	0	281	135	ok	Filter < ColumnarToRow
 tpcds-v1.4	q15	7	0	120	124	ok	Sort
 tpcds-v1.4	q15	6	0	460	174	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q16	16	2	233	184	ok	HashAggregate
-tpcds-v1.4	q16	15	2	275	337	ok	HashAggregate < HashAggregate
+tpcds-v1.4	q16	15	2	275	338	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q16	14	2	376	363	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q16	11	2	120	124	ok	Sort
 tpcds-v1.4	q16	10	2	588	217	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < SortMergeJoin
@@ -299,8 +299,8 @@ tpcds-v1.4	q16	7	0	120	124	ok	Sort
 tpcds-v1.4	q16	6	0	187	142	ok	Project < ColumnarToRow
 tpcds-v1.4	q16	13	0	120	124	ok	Sort
 tpcds-v1.4	q16	12	0	327	161	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q17	18	4	1595	331	ok	HashAggregate
-tpcds-v1.4	q17	17	4	648	444	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v1.4	q17	18	4	1595	329	ok	HashAggregate
+tpcds-v1.4	q17	17	4	648	442	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q17	13	3	120	124	ok	Sort
 tpcds-v1.4	q17	12	3	544	187	ok	Project < SortMergeJoin
 tpcds-v1.4	q17	9	3	120	124	ok	Sort
@@ -317,7 +317,7 @@ tpcds-v1.4	q17	10	0	391	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q17	16	1	120	124	ok	Sort
 tpcds-v1.4	q17	15	1	435	175	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q18	20	2	1844	303	ok	HashAggregate
-tpcds-v1.4	q18	19	2	836	443	ok	HashAggregate < Expand < Project < SortMergeJoin
+tpcds-v1.4	q18	19	2	836	442	ok	HashAggregate < Expand < Project < SortMergeJoin
 tpcds-v1.4	q18	8	2	120	124	ok	Sort
 tpcds-v1.4	q18	7	2	721	221	ok	Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q18	3	1	120	124	ok	Sort
@@ -523,7 +523,7 @@ tpcds-v1.4	q24b	13	0	120	124	ok	Sort
 tpcds-v1.4	q24b	12	0	281	142	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q24b	17	0	120	124	ok	Sort
 tpcds-v1.4	q24b	16	0	550	177	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q25	18	4	442	254	ok	HashAggregate
+tpcds-v1.4	q25	18	4	442	253	ok	HashAggregate
 tpcds-v1.4	q25	17	4	582	384	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q25	13	3	120	124	ok	Sort
 tpcds-v1.4	q25	12	3	683	208	ok	Project < SortMergeJoin
@@ -541,7 +541,7 @@ tpcds-v1.4	q25	1	0	419	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q25	16	1	120	124	ok	Sort
 tpcds-v1.4	q25	15	1	441	183	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q26	9	3	852	278	ok	HashAggregate
-tpcds-v1.4	q26	8	3	552	424	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v1.4	q26	8	3	552	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q26	4	2	120	124	ok	Sort
 tpcds-v1.4	q26	3	2	713	195	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q26	1	0	295	135	ok	Project < Filter < ColumnarToRow
@@ -577,8 +577,8 @@ tpcds-v1.4	q28	12	0	910	357	ok	HashAggregate < Project < Filter < ColumnarToRow
 tpcds-v1.4	q28	17	0	292	206	ok	HashAggregate
 tpcds-v1.4	q28	16	0	281	351	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q28	15	0	910	357	ok	HashAggregate < Project < Filter < ColumnarToRow
-tpcds-v1.4	q29	18	4	316	247	ok	HashAggregate
-tpcds-v1.4	q29	17	4	573	375	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v1.4	q29	18	4	316	246	ok	HashAggregate
+tpcds-v1.4	q29	17	4	573	374	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q29	13	3	120	124	ok	Sort
 tpcds-v1.4	q29	12	3	671	199	ok	Project < SortMergeJoin
 tpcds-v1.4	q29	8	2	120	124	ok	Sort
@@ -654,7 +654,7 @@ tpcds-v1.4	q31	36	1	120	124	ok	Sort
 tpcds-v1.4	q31	35	1	414	184	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q31	38	0	120	124	ok	Sort
 tpcds-v1.4	q32	7	4	155	154	ok	HashAggregate
-tpcds-v1.4	q32	6	4	494	244	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpcds-v1.4	q32	6	4	494	245	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q32	4	2	465	287	ok	Project < BroadcastHashJoin < Filter < HashAggregate
 tpcds-v1.4	q32	1	0	295	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q32	3	1	393	367	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
@@ -681,7 +681,7 @@ tpcds-v1.4	q34	3	0	741	187	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q34	8	0	120	124	ok	Sort
 tpcds-v1.4	q34	7	0	698	186	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q35	23	3	941	305	ok	HashAggregate
-tpcds-v1.4	q35	22	3	768	445	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v1.4	q35	22	3	768	444	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q35	19	3	120	124	ok	Sort
 tpcds-v1.4	q35	18	3	342	187	ok	Project < SortMergeJoin
 tpcds-v1.4	q35	15	3	120	124	ok	Sort
@@ -703,7 +703,7 @@ tpcds-v1.4	q35	21	0	120	124	ok	Sort
 tpcds-v1.4	q35	20	0	606	177	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q36	10	2	237	128	ok	Project
 tpcds-v1.4	q36	9	2	120	124	ok	Sort
-tpcds-v1.4	q36	8	2	820	282	ok	HashAggregate
+tpcds-v1.4	q36	8	2	820	281	ok	HashAggregate
 tpcds-v1.4	q36	7	2	399	402	ok	HashAggregate < Expand < Project < SortMergeJoin
 tpcds-v1.4	q36	4	2	120	124	ok	Sort
 tpcds-v1.4	q36	3	2	540	192	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
@@ -785,7 +785,7 @@ tpcds-v1.4	q42	4	2	238	248	ok	HashAggregate
 tpcds-v1.4	q42	3	2	526	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q42	1	0	387	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q42	1	0	470	171	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q43	4	2	704	279	ok	HashAggregate
+tpcds-v1.4	q43	4	2	704	278	ok	HashAggregate
 tpcds-v1.4	q43	3	2	526	419	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q43	1	0	423	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q43	2	0	475	178	ok	Project < Filter < ColumnarToRow
@@ -857,14 +857,14 @@ tpcds-v1.4	q48	3	2	1610	199	ok	Project < BroadcastHashJoin < Project < Broadcast
 tpcds-v1.4	q48	1	0	295	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q48	1	0	214	135	ok	Filter < ColumnarToRow
 tpcds-v1.4	q48	6	0	120	124	ok	Sort
-tpcds-v1.4	q48	5	0	937	207	ok	Project < Filter < ColumnarToRow
+tpcds-v1.4	q48	5	0	937	208	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q48	10	0	120	124	ok	Sort
 tpcds-v1.4	q48	9	0	944	178	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q49	31	3	251	265	ok	HashAggregate
 tpcds-v1.4	q49	10	1	285	126	ok	Project < Filter
 tpcds-v1.4	q49	9	1	120	124	ok	Sort
 tpcds-v1.4	q49	8	1	120	124	ok	Sort
-tpcds-v1.4	q49	7	1	701	301	ok	HashAggregate
+tpcds-v1.4	q49	7	1	701	302	ok	HashAggregate
 tpcds-v1.4	q49	6	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q49	3	1	120	124	ok	Sort
 tpcds-v1.4	q49	2	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
@@ -874,7 +874,7 @@ tpcds-v1.4	q49	4	0	448	164	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q49	20	1	285	126	ok	Project < Filter
 tpcds-v1.4	q49	19	1	120	124	ok	Sort
 tpcds-v1.4	q49	18	1	120	124	ok	Sort
-tpcds-v1.4	q49	17	1	701	301	ok	HashAggregate
+tpcds-v1.4	q49	17	1	701	302	ok	HashAggregate
 tpcds-v1.4	q49	16	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q49	13	1	120	124	ok	Sort
 tpcds-v1.4	q49	12	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
@@ -883,13 +883,13 @@ tpcds-v1.4	q49	14	0	448	164	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q49	30	1	285	126	ok	Project < Filter
 tpcds-v1.4	q49	29	1	120	124	ok	Sort
 tpcds-v1.4	q49	28	1	120	124	ok	Sort
-tpcds-v1.4	q49	27	1	701	301	ok	HashAggregate
+tpcds-v1.4	q49	27	1	701	302	ok	HashAggregate
 tpcds-v1.4	q49	26	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q49	23	1	120	124	ok	Sort
 tpcds-v1.4	q49	22	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
 tpcds-v1.4	q49	25	0	120	124	ok	Sort
 tpcds-v1.4	q49	24	0	448	164	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q50	9	3	626	267	ok	HashAggregate
+tpcds-v1.4	q50	9	3	626	268	ok	HashAggregate
 tpcds-v1.4	q50	8	3	823	414	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q50	3	1	120	124	ok	Sort
 tpcds-v1.4	q50	2	1	467	175	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
@@ -922,7 +922,7 @@ tpcds-v1.4	q53	5	3	245	238	ok	HashAggregate
 tpcds-v1.4	q53	4	3	608	365	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q53	1	0	470	142	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q53	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v1.4	q53	3	0	1474	209	ok	Project < Filter < ColumnarToRow
+tpcds-v1.4	q53	3	0	1474	210	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q54	14	5	156	224	ok	HashAggregate
 tpcds-v1.4	q54	13	5	308	428	ok	HashAggregate < SortAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q54	9	4	308	384	ok	Sort < Project < BroadcastHashJoin < HashAggregate < Project < SortMergeJoin
@@ -989,12 +989,12 @@ tpcds-v1.4	q58	10	2	204	293	ok	Sort < Filter < HashAggregate
 tpcds-v1.4	q58	9	2	468	367	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q58	16	2	204	293	ok	Sort < Filter < HashAggregate
 tpcds-v1.4	q58	15	2	468	367	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
-tpcds-v1.4	q59	10	7	1798	352	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
+tpcds-v1.4	q59	10	7	1798	351	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
 tpcds-v1.4	q59	2	1	444	411	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q59	1	0	416	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q59	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q59	3	0	481	174	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q59	9	3	851	317	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
+tpcds-v1.4	q59	9	3	851	316	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
 tpcds-v1.4	q59	6	1	444	411	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q59	5	0	416	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q59	1	0	341	135	ok	Project < Filter < ColumnarToRow
@@ -1011,7 +1011,7 @@ tpcds-v1.4	q60	11	3	579	370	ok	HashAggregate < Project < BroadcastHashJoin < Pro
 tpcds-v1.4	q60	18	3	174	240	ok	HashAggregate
 tpcds-v1.4	q60	17	3	579	370	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q61	15	11	287	207	ok	Project < BroadcastNestedLoopJoin < HashAggregate
-tpcds-v1.4	q61	7	6	710	242	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpcds-v1.4	q61	7	6	710	243	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q61	1	0	375	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q61	2	0	328	161	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q61	3	0	719	177	ok	Project < Filter < ColumnarToRow
@@ -1019,8 +1019,8 @@ tpcds-v1.4	q61	4	0	298	147	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q61	6	1	324	159	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q61	5	0	298	147	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q61	14	4	155	154	ok	HashAggregate
-tpcds-v1.4	q61	13	4	599	239	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
-tpcds-v1.4	q62	6	4	353	260	ok	HashAggregate
+tpcds-v1.4	q61	13	4	599	240	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpcds-v1.4	q62	6	4	353	259	ok	HashAggregate
 tpcds-v1.4	q62	5	4	786	386	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q62	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q62	2	0	272	150	ok	Filter < ColumnarToRow
@@ -1032,11 +1032,11 @@ tpcds-v1.4	q63	5	3	245	238	ok	HashAggregate
 tpcds-v1.4	q63	4	3	608	365	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q63	1	0	470	142	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q63	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v1.4	q63	3	0	1474	209	ok	Project < Filter < ColumnarToRow
+tpcds-v1.4	q63	3	0	1474	210	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q64	88	22	120	124	ok	Sort
 tpcds-v1.4	q64	87	22	1414	219	ok	Project < SortMergeJoin
 tpcds-v1.4	q64	43	11	120	124	ok	Sort
-tpcds-v1.4	q64	42	11	868	268	ok	HashAggregate
+tpcds-v1.4	q64	42	11	868	269	ok	HashAggregate
 tpcds-v1.4	q64	41	11	1276	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q64	35	8	120	124	ok	Sort
 tpcds-v1.4	q64	34	8	1041	196	ok	Project < SortMergeJoin
@@ -1075,7 +1075,7 @@ tpcds-v1.4	q64	37	0	120	124	ok	Sort
 tpcds-v1.4	q64	38	0	214	135	ok	Filter < ColumnarToRow
 tpcds-v1.4	q64	40	0	872	188	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q64	86	11	120	124	ok	Sort
-tpcds-v1.4	q64	85	11	734	268	ok	HashAggregate
+tpcds-v1.4	q64	85	11	734	269	ok	HashAggregate
 tpcds-v1.4	q64	84	11	1276	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q64	78	8	120	124	ok	Sort
 tpcds-v1.4	q64	77	8	1041	196	ok	Project < SortMergeJoin
@@ -1107,14 +1107,14 @@ tpcds-v1.4	q65	4	1	425	353	ok	HashAggregate < Project < BroadcastHashJoin < Filt
 tpcds-v1.4	q65	7	0	272	150	ok	Filter < ColumnarToRow
 tpcds-v1.4	q65	11	0	120	124	ok	Sort
 tpcds-v1.4	q65	10	0	501	177	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q66	13	8	4962	626	ok	HashAggregate
-tpcds-v1.4	q66	6	4	3389	327	ok	HashAggregate
+tpcds-v1.4	q66	13	8	4962	622	ok	HashAggregate
+tpcds-v1.4	q66	6	4	3389	325	ok	HashAggregate
 tpcds-v1.4	q66	5	4	1964	673	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q66	1	0	365	142	ok	Filter < ColumnarToRow
 tpcds-v1.4	q66	2	0	423	165	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q66	3	0	340	136	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q66	4	0	589	171	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q66	12	4	3389	327	ok	HashAggregate
+tpcds-v1.4	q66	12	4	3389	325	ok	HashAggregate
 tpcds-v1.4	q66	11	4	1964	673	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q67	10	2	512	130	ok	Filter
 tpcds-v1.4	q67	9	2	120	124	ok	Sort
@@ -1134,7 +1134,7 @@ tpcds-v1.4	q68	1	0	528	174	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q68	4	0	120	124	ok	Sort
 tpcds-v1.4	q68	3	0	281	146	ok	Filter < ColumnarToRow
 tpcds-v1.4	q68	15	3	120	124	ok	Sort
-tpcds-v1.4	q68	14	3	467	333	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v1.4	q68	14	3	467	332	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q68	11	3	120	124	ok	Sort
 tpcds-v1.4	q68	10	3	835	198	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q68	1	0	472	135	ok	Project < Filter < ColumnarToRow
@@ -1246,7 +1246,7 @@ tpcds-v1.4	q74	28	1	394	184	ok	Project < BroadcastHashJoin < Filter < ColumnarTo
 tpcds-v1.4	q74	31	0	120	124	ok	Sort
 tpcds-v1.4	q75	51	12	1019	258	ok	Project < SortMergeJoin
 tpcds-v1.4	q75	25	6	120	124	ok	Sort
-tpcds-v1.4	q75	24	6	389	248	ok	Filter < HashAggregate
+tpcds-v1.4	q75	24	6	389	247	ok	Filter < HashAggregate
 tpcds-v1.4	q75	23	6	329	338	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q75	22	6	325	252	ok	HashAggregate
 tpcds-v1.4	q75	7	2	843	210	ok	Project < SortMergeJoin
@@ -1267,7 +1267,7 @@ tpcds-v1.4	q75	17	2	707	197	ok	Project < BroadcastHashJoin < Project < Broadcast
 tpcds-v1.4	q75	20	0	120	124	ok	Sort
 tpcds-v1.4	q75	19	0	394	160	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q75	50	6	120	124	ok	Sort
-tpcds-v1.4	q75	49	6	389	248	ok	Filter < HashAggregate
+tpcds-v1.4	q75	49	6	389	247	ok	Filter < HashAggregate
 tpcds-v1.4	q75	48	6	329	338	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q75	47	6	325	252	ok	HashAggregate
 tpcds-v1.4	q75	32	2	843	210	ok	Project < SortMergeJoin
@@ -1291,37 +1291,37 @@ tpcds-v1.4	q76	4	1	468	177	ok	Project < BroadcastHashJoin < Filter < ColumnarToR
 tpcds-v1.4	q76	3	0	384	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q77	24	13	496	263	ok	HashAggregate
 tpcds-v1.4	q77	23	13	326	291	ok	HashAggregate < Expand
-tpcds-v1.4	q77	8	5	514	288	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v1.4	q77	8	5	514	289	ok	Project < BroadcastHashJoin < HashAggregate
 tpcds-v1.4	q77	3	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q77	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q77	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v1.4	q77	7	2	247	244	ok	HashAggregate
+tpcds-v1.4	q77	7	2	247	245	ok	HashAggregate
 tpcds-v1.4	q77	6	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
-tpcds-v1.4	q77	14	3	433	279	ok	Project < BroadcastNestedLoopJoin < HashAggregate
+tpcds-v1.4	q77	14	3	433	280	ok	Project < BroadcastNestedLoopJoin < HashAggregate
 tpcds-v1.4	q77	10	1	390	362	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
 tpcds-v1.4	q77	13	1	219	170	ok	HashAggregate
-tpcds-v1.4	q77	12	1	302	233	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
-tpcds-v1.4	q77	22	5	514	288	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v1.4	q77	12	1	302	234	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
+tpcds-v1.4	q77	22	5	514	289	ok	Project < BroadcastHashJoin < HashAggregate
 tpcds-v1.4	q77	17	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q77	16	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v1.4	q77	21	2	247	244	ok	HashAggregate
+tpcds-v1.4	q77	21	2	247	245	ok	HashAggregate
 tpcds-v1.4	q77	20	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q78	23	3	1199	271	ok	Project < SortMergeJoin
 tpcds-v1.4	q78	15	2	662	208	ok	Project < SortMergeJoin
-tpcds-v1.4	q78	7	1	363	307	ok	Sort < HashAggregate
+tpcds-v1.4	q78	7	1	363	306	ok	Sort < HashAggregate
 tpcds-v1.4	q78	6	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v1.4	q78	2	0	120	124	ok	Sort
 tpcds-v1.4	q78	1	0	548	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q78	1	0	307	135	ok	Filter < ColumnarToRow
 tpcds-v1.4	q78	4	0	120	124	ok	Sort
 tpcds-v1.4	q78	3	0	281	142	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q78	14	1	420	307	ok	Sort < Filter < HashAggregate
+tpcds-v1.4	q78	14	1	420	306	ok	Sort < Filter < HashAggregate
 tpcds-v1.4	q78	13	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v1.4	q78	9	0	120	124	ok	Sort
 tpcds-v1.4	q78	8	0	548	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q78	11	0	120	124	ok	Sort
 tpcds-v1.4	q78	10	0	281	142	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q78	22	1	420	307	ok	Sort < Filter < HashAggregate
+tpcds-v1.4	q78	22	1	420	306	ok	Sort < Filter < HashAggregate
 tpcds-v1.4	q78	21	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v1.4	q78	17	0	120	124	ok	Sort
 tpcds-v1.4	q78	16	0	548	162	ok	Filter < ColumnarToRow
@@ -1339,7 +1339,7 @@ tpcds-v1.4	q79	7	0	461	174	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q80	32	12	496	255	ok	HashAggregate
 tpcds-v1.4	q80	31	12	326	280	ok	HashAggregate < Expand
 tpcds-v1.4	q80	10	4	509	285	ok	HashAggregate
-tpcds-v1.4	q80	9	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v1.4	q80	9	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q80	2	0	120	124	ok	Sort
 tpcds-v1.4	q80	1	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q80	1	0	308	147	ok	Project < Filter < ColumnarToRow
@@ -1349,14 +1349,14 @@ tpcds-v1.4	q80	4	0	120	124	ok	Sort
 tpcds-v1.4	q80	3	0	400	157	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q80	8	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q80	20	4	509	285	ok	HashAggregate
-tpcds-v1.4	q80	19	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v1.4	q80	19	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q80	12	0	120	124	ok	Sort
 tpcds-v1.4	q80	11	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q80	14	0	120	124	ok	Sort
 tpcds-v1.4	q80	13	0	400	157	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q80	18	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q80	30	4	509	285	ok	HashAggregate
-tpcds-v1.4	q80	29	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v1.4	q80	29	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v1.4	q80	22	0	120	124	ok	Sort
 tpcds-v1.4	q80	21	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v1.4	q80	24	0	120	124	ok	Sort
@@ -1427,7 +1427,7 @@ tpcds-v1.4	q85	1	0	214	135	ok	Filter < ColumnarToRow
 tpcds-v1.4	q85	5	0	120	124	ok	Sort
 tpcds-v1.4	q85	4	0	674	157	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q85	10	0	120	124	ok	Sort
-tpcds-v1.4	q85	9	0	981	207	ok	Project < Filter < ColumnarToRow
+tpcds-v1.4	q85	9	0	981	208	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q85	14	0	120	124	ok	Sort
 tpcds-v1.4	q85	13	0	639	186	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q85	18	0	120	124	ok	Sort
@@ -1511,7 +1511,7 @@ tpcds-v1.4	q90	8	3	405	217	ok	HashAggregate < Project < BroadcastHashJoin < Proj
 tpcds-v1.4	q90	7	0	339	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q91	9	6	120	124	ok	Sort
 tpcds-v1.4	q91	8	6	284	240	ok	HashAggregate
-tpcds-v1.4	q91	7	6	1039	416	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpcds-v1.4	q91	7	6	1039	417	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
 tpcds-v1.4	q91	5	4	645	189	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q91	2	1	441	183	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q91	1	0	375	135	ok	Project < Filter < ColumnarToRow
@@ -1519,7 +1519,7 @@ tpcds-v1.4	q91	3	0	328	163	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q91	4	0	298	147	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q91	6	0	440	168	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q92	7	4	155	154	ok	HashAggregate
-tpcds-v1.4	q92	6	4	494	244	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpcds-v1.4	q92	6	4	494	245	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q92	4	2	465	287	ok	Project < BroadcastHashJoin < Filter < HashAggregate
 tpcds-v1.4	q92	1	0	295	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q92	3	1	393	367	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
@@ -1532,7 +1532,7 @@ tpcds-v1.4	q93	1	0	328	161	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q93	5	0	120	124	ok	Sort
 tpcds-v1.4	q93	4	0	389	153	ok	Project < ColumnarToRow
 tpcds-v1.4	q94	16	2	233	184	ok	HashAggregate
-tpcds-v1.4	q94	15	2	275	337	ok	HashAggregate < HashAggregate
+tpcds-v1.4	q94	15	2	275	338	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q94	14	2	376	363	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q94	11	2	120	124	ok	Sort
 tpcds-v1.4	q94	10	2	588	217	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < SortMergeJoin
@@ -1548,7 +1548,7 @@ tpcds-v1.4	q94	6	0	187	142	ok	Project < ColumnarToRow
 tpcds-v1.4	q94	13	0	120	124	ok	Sort
 tpcds-v1.4	q94	12	0	327	161	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q95	25	2	233	184	ok	HashAggregate
-tpcds-v1.4	q95	24	2	275	337	ok	HashAggregate < HashAggregate
+tpcds-v1.4	q95	24	2	275	338	ok	HashAggregate < HashAggregate
 tpcds-v1.4	q95	23	2	376	363	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v1.4	q95	20	2	120	124	ok	Sort
 tpcds-v1.4	q95	19	2	586	220	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < SortMergeJoin
@@ -1591,7 +1591,7 @@ tpcds-v1.4	q98	2	1	374	183	ok	Project < BroadcastHashJoin < Filter < ColumnarToR
 tpcds-v1.4	q98	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q98	5	0	120	124	ok	Sort
 tpcds-v1.4	q98	4	0	881	199	ok	Project < Filter < ColumnarToRow
-tpcds-v1.4	q99	6	4	353	260	ok	HashAggregate
+tpcds-v1.4	q99	6	4	353	259	ok	HashAggregate
 tpcds-v1.4	q99	5	4	786	386	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v1.4	q99	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v1.4	q99	2	0	342	168	ok	Project < Filter < ColumnarToRow
@@ -1602,11 +1602,11 @@ tpcds-v2.7	q5a	63	6	424	254	ok	HashAggregate
 tpcds-v2.7	q5a	20	6	568	257	ok	HashAggregate
 tpcds-v2.7	q5a	19	6	288	248	ok	HashAggregate
 tpcds-v2.7	q5a	4	2	537	280	ok	HashAggregate
-tpcds-v2.7	q5a	3	2	474	464	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
+tpcds-v2.7	q5a	3	2	474	465	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	2	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	8	2	537	280	ok	HashAggregate
-tpcds-v2.7	q5a	7	2	474	464	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
+tpcds-v2.7	q5a	7	2	474	465	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Union < Project < Filter < ColumnarToRow < Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	6	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	18	2	537	280	ok	HashAggregate
 tpcds-v2.7	q5a	17	2	444	351	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin
@@ -1617,9 +1617,9 @@ tpcds-v2.7	q5a	10	0	395	155	ok	ColumnarToRow
 tpcds-v2.7	q5a	13	0	120	124	ok	Sort
 tpcds-v2.7	q5a	12	0	348	142	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q5a	16	0	342	168	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q5a	41	0	445	251	ok	HashAggregate
-tpcds-v2.7	q5a	40	0	383	293	ok	HashAggregate < HashAggregate
-tpcds-v2.7	q5a	62	0	427	191	ok	HashAggregate
+tpcds-v2.7	q5a	41	0	445	250	ok	HashAggregate
+tpcds-v2.7	q5a	40	0	383	292	ok	HashAggregate < HashAggregate
+tpcds-v2.7	q5a	62	0	427	192	ok	HashAggregate
 tpcds-v2.7	q5a	61	0	382	312	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q6	14	3	156	224	ok	Filter < HashAggregate
 tpcds-v2.7	q6	13	3	439	370	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
@@ -1761,8 +1761,8 @@ tpcds-v2.7	q14a	578	0	235	323	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q14a	501	0	439	277	ok	Filter < HashAggregate
 tpcds-v2.7	q14a	539	0	439	277	ok	Filter < HashAggregate
 tpcds-v2.7	q14a	577	0	439	277	ok	Filter < HashAggregate
-tpcds-v2.7	q18a	20	2	1837	300	ok	HashAggregate
-tpcds-v2.7	q18a	19	2	904	349	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q18a	20	2	1837	297	ok	HashAggregate
+tpcds-v2.7	q18a	19	2	904	348	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q18a	8	2	120	124	ok	Sort
 tpcds-v2.7	q18a	7	2	721	221	ok	Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q18a	3	1	120	124	ok	Sort
@@ -1781,31 +1781,31 @@ tpcds-v2.7	q18a	12	0	120	124	ok	Sort
 tpcds-v2.7	q18a	11	0	214	135	ok	Filter < ColumnarToRow
 tpcds-v2.7	q18a	16	0	120	124	ok	Sort
 tpcds-v2.7	q18a	15	0	731	178	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q18a	40	0	1810	301	ok	HashAggregate
-tpcds-v2.7	q18a	39	0	871	349	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q18a	40	0	1810	300	ok	HashAggregate
+tpcds-v2.7	q18a	39	0	871	348	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q18a	28	0	120	124	ok	Sort
 tpcds-v2.7	q18a	38	0	120	124	ok	Sort
 tpcds-v2.7	q18a	37	0	383	187	ok	Project < SortMergeJoin
 tpcds-v2.7	q18a	34	0	120	124	ok	Sort
 tpcds-v2.7	q18a	36	0	120	124	ok	Sort
 tpcds-v2.7	q18a	35	0	682	178	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q18a	60	0	1783	301	ok	HashAggregate
-tpcds-v2.7	q18a	59	0	838	349	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q18a	60	0	1783	299	ok	HashAggregate
+tpcds-v2.7	q18a	59	0	838	348	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q18a	48	0	120	124	ok	Sort
 tpcds-v2.7	q18a	58	0	120	124	ok	Sort
 tpcds-v2.7	q18a	57	0	342	187	ok	Project < SortMergeJoin
 tpcds-v2.7	q18a	54	0	120	124	ok	Sort
 tpcds-v2.7	q18a	56	0	120	124	ok	Sort
 tpcds-v2.7	q18a	55	0	599	172	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q18a	80	0	1756	301	ok	HashAggregate
-tpcds-v2.7	q18a	79	0	805	350	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q18a	80	0	1756	300	ok	HashAggregate
+tpcds-v2.7	q18a	79	0	805	349	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q18a	68	0	120	124	ok	Sort
 tpcds-v2.7	q18a	78	0	120	124	ok	Sort
 tpcds-v2.7	q18a	77	0	342	178	ok	Project < SortMergeJoin
 tpcds-v2.7	q18a	74	0	120	124	ok	Sort
 tpcds-v2.7	q18a	76	0	120	124	ok	Sort
 tpcds-v2.7	q18a	75	0	541	165	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q18a	100	2	1532	277	ok	HashAggregate
+tpcds-v2.7	q18a	100	2	1532	278	ok	HashAggregate
 tpcds-v2.7	q18a	99	2	913	322	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q18a	88	2	120	124	ok	Sort
 tpcds-v2.7	q18a	87	2	579	187	ok	Project < SortMergeJoin
@@ -1881,7 +1881,7 @@ tpcds-v2.7	q24	10	0	617	183	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q24	17	0	120	124	ok	Sort
 tpcds-v2.7	q24	16	0	281	142	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q27a	9	3	901	281	ok	HashAggregate
-tpcds-v2.7	q27a	8	3	681	427	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q27a	8	3	681	428	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q27a	3	1	120	124	ok	Sort
 tpcds-v2.7	q27a	2	1	677	186	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v2.7	q27a	1	0	327	161	ok	Project < Filter < ColumnarToRow
@@ -1891,7 +1891,7 @@ tpcds-v2.7	q27a	4	0	554	167	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q27a	6	0	370	167	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q27a	7	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q27a	18	3	874	282	ok	HashAggregate
-tpcds-v2.7	q27a	17	3	549	424	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q27a	17	3	549	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q27a	13	2	120	124	ok	Sort
 tpcds-v2.7	q27a	12	2	713	195	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v2.7	q27a	11	0	327	161	ok	Project < Filter < ColumnarToRow
@@ -1911,8 +1911,8 @@ tpcds-v2.7	q34	2	0	296	147	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q34	3	0	741	187	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q34	8	0	120	124	ok	Sort
 tpcds-v2.7	q34	7	0	698	186	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q35	23	3	947	310	ok	HashAggregate
-tpcds-v2.7	q35	22	3	774	445	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q35	23	3	947	311	ok	HashAggregate
+tpcds-v2.7	q35	22	3	774	444	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q35	19	3	120	124	ok	Sort
 tpcds-v2.7	q35	18	3	342	187	ok	Project < SortMergeJoin
 tpcds-v2.7	q35	15	3	120	124	ok	Sort
@@ -1932,8 +1932,8 @@ tpcds-v2.7	q35	17	0	120	124	ok	Sort
 tpcds-v2.7	q35	16	0	341	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q35	21	0	120	124	ok	Sort
 tpcds-v2.7	q35	20	0	606	177	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q35a	20	3	947	310	ok	HashAggregate
-tpcds-v2.7	q35a	19	3	774	445	ok	HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q35a	20	3	947	311	ok	HashAggregate
+tpcds-v2.7	q35a	19	3	774	444	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q35a	16	3	120	124	ok	Sort
 tpcds-v2.7	q35a	15	3	342	187	ok	Project < SortMergeJoin
 tpcds-v2.7	q35a	12	3	120	124	ok	Sort
@@ -1962,10 +1962,10 @@ tpcds-v2.7	q36a	1	0	295	135	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q36a	2	0	327	161	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q36a	6	0	120	124	ok	Sort
 tpcds-v2.7	q36a	5	0	461	174	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q36a	17	0	437	268	ok	HashAggregate
+tpcds-v2.7	q36a	17	0	437	267	ok	HashAggregate
 tpcds-v2.7	q36a	16	0	223	309	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q36a	26	0	419	203	ok	HashAggregate
-tpcds-v2.7	q36a	25	0	220	304	ok	HashAggregate < HashAggregate
+tpcds-v2.7	q36a	25	0	220	303	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q47	36	2	889	219	ok	Project < SortMergeJoin
 tpcds-v2.7	q47	24	2	889	222	ok	Project < SortMergeJoin
 tpcds-v2.7	q47	12	2	120	124	ok	Sort
@@ -1991,7 +1991,7 @@ tpcds-v2.7	q49	31	3	251	265	ok	HashAggregate
 tpcds-v2.7	q49	10	1	285	126	ok	Project < Filter
 tpcds-v2.7	q49	9	1	120	124	ok	Sort
 tpcds-v2.7	q49	8	1	120	124	ok	Sort
-tpcds-v2.7	q49	7	1	701	301	ok	HashAggregate
+tpcds-v2.7	q49	7	1	701	302	ok	HashAggregate
 tpcds-v2.7	q49	6	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q49	3	1	120	124	ok	Sort
 tpcds-v2.7	q49	2	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
@@ -2001,7 +2001,7 @@ tpcds-v2.7	q49	4	0	448	164	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q49	20	1	285	126	ok	Project < Filter
 tpcds-v2.7	q49	19	1	120	124	ok	Sort
 tpcds-v2.7	q49	18	1	120	124	ok	Sort
-tpcds-v2.7	q49	17	1	701	301	ok	HashAggregate
+tpcds-v2.7	q49	17	1	701	302	ok	HashAggregate
 tpcds-v2.7	q49	16	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q49	13	1	120	124	ok	Sort
 tpcds-v2.7	q49	12	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
@@ -2010,13 +2010,13 @@ tpcds-v2.7	q49	14	0	448	164	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q49	30	1	285	126	ok	Project < Filter
 tpcds-v2.7	q49	29	1	120	124	ok	Sort
 tpcds-v2.7	q49	28	1	120	124	ok	Sort
-tpcds-v2.7	q49	27	1	701	301	ok	HashAggregate
+tpcds-v2.7	q49	27	1	701	302	ok	HashAggregate
 tpcds-v2.7	q49	26	1	502	342	ok	HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q49	23	1	120	124	ok	Sort
 tpcds-v2.7	q49	22	1	672	183	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
 tpcds-v2.7	q49	25	0	120	124	ok	Sort
 tpcds-v2.7	q49	24	0	448	164	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q51a	62	2	532	297	ok	Filter < HashAggregate < Project < SortMergeJoin
+tpcds-v2.7	q51a	62	2	532	296	ok	Filter < HashAggregate < Project < SortMergeJoin
 tpcds-v2.7	q51a	30	2	120	124	ok	Sort
 tpcds-v2.7	q51a	29	2	818	201	ok	Project < Filter < SortMergeJoin
 tpcds-v2.7	q51a	14	1	120	124	ok	Sort
@@ -2066,7 +2066,7 @@ tpcds-v2.7	q57	33	0	120	124	ok	Sort
 tpcds-v2.7	q64	88	22	120	124	ok	Sort
 tpcds-v2.7	q64	87	22	1414	219	ok	Project < SortMergeJoin
 tpcds-v2.7	q64	43	11	120	124	ok	Sort
-tpcds-v2.7	q64	42	11	868	268	ok	HashAggregate
+tpcds-v2.7	q64	42	11	868	269	ok	HashAggregate
 tpcds-v2.7	q64	41	11	1276	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q64	35	8	120	124	ok	Sort
 tpcds-v2.7	q64	34	8	1041	196	ok	Project < SortMergeJoin
@@ -2105,7 +2105,7 @@ tpcds-v2.7	q64	37	0	120	124	ok	Sort
 tpcds-v2.7	q64	38	0	214	135	ok	Filter < ColumnarToRow
 tpcds-v2.7	q64	40	0	872	188	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q64	86	11	120	124	ok	Sort
-tpcds-v2.7	q64	85	11	734	268	ok	HashAggregate
+tpcds-v2.7	q64	85	11	734	269	ok	HashAggregate
 tpcds-v2.7	q64	84	11	1276	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q64	78	8	120	124	ok	Sort
 tpcds-v2.7	q64	77	8	1041	196	ok	Project < SortMergeJoin
@@ -2227,7 +2227,7 @@ tpcds-v2.7	q74	28	1	394	184	ok	Project < BroadcastHashJoin < Filter < ColumnarTo
 tpcds-v2.7	q74	31	0	120	124	ok	Sort
 tpcds-v2.7	q75	51	12	1019	258	ok	Project < SortMergeJoin
 tpcds-v2.7	q75	25	6	120	124	ok	Sort
-tpcds-v2.7	q75	24	6	389	248	ok	Filter < HashAggregate
+tpcds-v2.7	q75	24	6	389	247	ok	Filter < HashAggregate
 tpcds-v2.7	q75	23	6	329	338	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q75	22	6	325	252	ok	HashAggregate
 tpcds-v2.7	q75	7	2	843	210	ok	Project < SortMergeJoin
@@ -2248,7 +2248,7 @@ tpcds-v2.7	q75	17	2	707	197	ok	Project < BroadcastHashJoin < Project < Broadcast
 tpcds-v2.7	q75	20	0	120	124	ok	Sort
 tpcds-v2.7	q75	19	0	394	160	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q75	50	6	120	124	ok	Sort
-tpcds-v2.7	q75	49	6	389	248	ok	Filter < HashAggregate
+tpcds-v2.7	q75	49	6	389	247	ok	Filter < HashAggregate
 tpcds-v2.7	q75	48	6	329	338	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q75	47	6	325	252	ok	HashAggregate
 tpcds-v2.7	q75	32	2	843	210	ok	Project < SortMergeJoin
@@ -2267,48 +2267,48 @@ tpcds-v2.7	q75	45	0	120	124	ok	Sort
 tpcds-v2.7	q77a	67	18	373	262	ok	HashAggregate
 tpcds-v2.7	q77a	66	18	373	262	ok	HashAggregate
 tpcds-v2.7	q77a	21	12	568	261	ok	HashAggregate
-tpcds-v2.7	q77a	8	5	514	288	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	8	5	514	289	ok	Project < BroadcastHashJoin < HashAggregate
 tpcds-v2.7	q77a	3	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v2.7	q77a	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q77a	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v2.7	q77a	7	2	247	244	ok	HashAggregate
+tpcds-v2.7	q77a	7	2	247	245	ok	HashAggregate
 tpcds-v2.7	q77a	6	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
-tpcds-v2.7	q77a	12	2	433	279	ok	Project < BroadcastNestedLoopJoin < HashAggregate
+tpcds-v2.7	q77a	12	2	433	280	ok	Project < BroadcastNestedLoopJoin < HashAggregate
 tpcds-v2.7	q77a	10	1	390	362	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
 tpcds-v2.7	q77a	11	0	160	115	ok	Project < Scan OneRowRelation
 tpcds-v2.7	q77a	3	1	392	196	ok	Project < HashAggregate
-tpcds-v2.7	q77a	2	1	302	233	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
-tpcds-v2.7	q77a	20	5	514	288	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	2	1	302	234	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
+tpcds-v2.7	q77a	20	5	514	289	ok	Project < BroadcastHashJoin < HashAggregate
 tpcds-v2.7	q77a	15	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-v2.7	q77a	14	0	214	135	ok	Filter < ColumnarToRow
-tpcds-v2.7	q77a	19	2	247	244	ok	HashAggregate
+tpcds-v2.7	q77a	19	2	247	245	ok	HashAggregate
 tpcds-v2.7	q77a	18	2	492	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
-tpcds-v2.7	q77a	43	3	445	251	ok	HashAggregate
-tpcds-v2.7	q77a	42	3	383	296	ok	HashAggregate < HashAggregate
-tpcds-v2.7	q77a	29	1	514	288	ok	Project < BroadcastHashJoin < HashAggregate
-tpcds-v2.7	q77a	33	1	433	279	ok	Project < BroadcastNestedLoopJoin < HashAggregate
-tpcds-v2.7	q77a	41	1	514	288	ok	Project < BroadcastHashJoin < HashAggregate
-tpcds-v2.7	q77a	65	3	427	191	ok	HashAggregate
+tpcds-v2.7	q77a	43	3	445	250	ok	HashAggregate
+tpcds-v2.7	q77a	42	3	383	297	ok	HashAggregate < HashAggregate
+tpcds-v2.7	q77a	29	1	514	289	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	33	1	433	280	ok	Project < BroadcastNestedLoopJoin < HashAggregate
+tpcds-v2.7	q77a	41	1	514	289	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	65	3	427	192	ok	HashAggregate
 tpcds-v2.7	q77a	64	3	382	316	ok	HashAggregate < HashAggregate
-tpcds-v2.7	q77a	51	1	514	288	ok	Project < BroadcastHashJoin < HashAggregate
-tpcds-v2.7	q77a	55	1	433	279	ok	Project < BroadcastNestedLoopJoin < HashAggregate
-tpcds-v2.7	q77a	63	1	514	288	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	51	1	514	289	ok	Project < BroadcastHashJoin < HashAggregate
+tpcds-v2.7	q77a	55	1	433	280	ok	Project < BroadcastNestedLoopJoin < HashAggregate
+tpcds-v2.7	q77a	63	1	514	289	ok	Project < BroadcastHashJoin < HashAggregate
 tpcds-v2.7	q78	23	3	1211	274	ok	Project < SortMergeJoin
 tpcds-v2.7	q78	15	2	662	208	ok	Project < SortMergeJoin
-tpcds-v2.7	q78	7	1	363	307	ok	Sort < HashAggregate
+tpcds-v2.7	q78	7	1	363	306	ok	Sort < HashAggregate
 tpcds-v2.7	q78	6	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v2.7	q78	2	0	120	124	ok	Sort
 tpcds-v2.7	q78	1	0	548	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q78	1	0	307	135	ok	Filter < ColumnarToRow
 tpcds-v2.7	q78	4	0	120	124	ok	Sort
 tpcds-v2.7	q78	3	0	281	142	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q78	14	1	420	307	ok	Sort < Filter < HashAggregate
+tpcds-v2.7	q78	14	1	420	306	ok	Sort < Filter < HashAggregate
 tpcds-v2.7	q78	13	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v2.7	q78	9	0	120	124	ok	Sort
 tpcds-v2.7	q78	8	0	548	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q78	11	0	120	124	ok	Sort
 tpcds-v2.7	q78	10	0	281	142	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q78	22	1	420	307	ok	Sort < Filter < HashAggregate
+tpcds-v2.7	q78	22	1	420	306	ok	Sort < Filter < HashAggregate
 tpcds-v2.7	q78	21	1	622	429	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < SortMergeJoin
 tpcds-v2.7	q78	17	0	120	124	ok	Sort
 tpcds-v2.7	q78	16	0	548	162	ok	Filter < ColumnarToRow
@@ -2319,7 +2319,7 @@ tpcds-v2.7	q80a	99	24	424	254	ok	HashAggregate
 tpcds-v2.7	q80a	32	12	568	257	ok	HashAggregate
 tpcds-v2.7	q80a	31	12	288	248	ok	HashAggregate
 tpcds-v2.7	q80a	10	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	9	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	9	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	2	0	120	124	ok	Sort
 tpcds-v2.7	q80a	1	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	1	0	308	147	ok	Project < Filter < ColumnarToRow
@@ -2329,39 +2329,39 @@ tpcds-v2.7	q80a	4	0	120	124	ok	Sort
 tpcds-v2.7	q80a	3	0	400	157	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q80a	8	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q80a	20	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	19	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	19	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	12	0	120	124	ok	Sort
 tpcds-v2.7	q80a	11	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	14	0	120	124	ok	Sort
 tpcds-v2.7	q80a	13	0	400	157	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q80a	18	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q80a	30	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	29	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	29	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	22	0	120	124	ok	Sort
 tpcds-v2.7	q80a	21	0	580	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	24	0	120	124	ok	Sort
 tpcds-v2.7	q80a	23	0	400	157	ok	Project < Filter < ColumnarToRow
 tpcds-v2.7	q80a	28	0	342	168	ok	Project < Filter < ColumnarToRow
-tpcds-v2.7	q80a	65	4	445	251	ok	HashAggregate
-tpcds-v2.7	q80a	64	4	383	293	ok	HashAggregate < HashAggregate
+tpcds-v2.7	q80a	65	4	445	250	ok	HashAggregate
+tpcds-v2.7	q80a	64	4	383	292	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q80a	63	4	288	248	ok	HashAggregate
 tpcds-v2.7	q80a	42	0	509	285	ok	HashAggregate
 tpcds-v2.7	q80a	52	0	509	285	ok	HashAggregate
 tpcds-v2.7	q80a	62	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	61	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	61	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	54	0	120	124	ok	Sort
 tpcds-v2.7	q80a	53	0	566	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	56	0	120	124	ok	Sort
-tpcds-v2.7	q80a	98	8	427	191	ok	HashAggregate
+tpcds-v2.7	q80a	98	8	427	192	ok	HashAggregate
 tpcds-v2.7	q80a	97	8	382	312	ok	HashAggregate < HashAggregate
 tpcds-v2.7	q80a	96	8	288	248	ok	HashAggregate
 tpcds-v2.7	q80a	75	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	74	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	74	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	67	0	120	124	ok	Sort
 tpcds-v2.7	q80a	66	0	566	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	69	0	120	124	ok	Sort
 tpcds-v2.7	q80a	85	4	509	285	ok	HashAggregate
-tpcds-v2.7	q80a	84	4	796	433	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-v2.7	q80a	84	4	796	434	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-v2.7	q80a	77	0	120	124	ok	Sort
 tpcds-v2.7	q80a	76	0	566	162	ok	Filter < ColumnarToRow
 tpcds-v2.7	q80a	79	0	120	124	ok	Sort
@@ -2396,7 +2396,7 @@ tpcds-mod	q3	3	2	526	371	ok	HashAggregate < Project < BroadcastHashJoin < Projec
 tpcds-mod	q3	1	0	12167	542	interpreted	Project < Filter < ColumnarToRow
 tpcds-mod	q3	1	0	472	171	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q7	9	3	852	278	ok	HashAggregate
-tpcds-mod	q7	8	3	549	424	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-mod	q7	8	3	549	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-mod	q7	4	2	120	124	ok	Sort
 tpcds-mod	q7	3	2	713	195	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q7	1	0	365	137	ok	Project < Filter < ColumnarToRow
@@ -2424,7 +2424,7 @@ tpcds-mod	q19	1	0	445	137	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q19	3	0	432	174	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q19	5	0	639	177	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q27	9	3	901	281	ok	HashAggregate
-tpcds-mod	q27	8	3	681	427	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-mod	q27	8	3	681	428	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-mod	q27	3	1	120	124	ok	Sort
 tpcds-mod	q27	2	1	670	186	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q27	1	0	365	137	ok	Project < Filter < ColumnarToRow
@@ -2433,7 +2433,7 @@ tpcds-mod	q27	4	0	554	167	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q27	6	0	537	178	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q27	7	0	342	168	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q27	18	3	874	282	ok	HashAggregate
-tpcds-mod	q27	17	3	549	424	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
+tpcds-mod	q27	17	3	549	425	ok	HashAggregate < Project < BroadcastHashJoin < Project < SortMergeJoin
 tpcds-mod	q27	13	2	120	124	ok	Sort
 tpcds-mod	q27	12	2	713	195	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q27	11	0	445	165	ok	Project < Filter < ColumnarToRow
@@ -2457,7 +2457,7 @@ tpcds-mod	q42	4	2	238	248	ok	HashAggregate
 tpcds-mod	q42	3	2	526	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q42	1	0	457	137	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q42	2	0	470	171	ok	Project < Filter < ColumnarToRow
-tpcds-mod	q43	4	2	704	279	ok	HashAggregate
+tpcds-mod	q43	4	2	704	278	ok	HashAggregate
 tpcds-mod	q43	3	2	526	419	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q43	1	0	493	170	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q43	2	0	475	178	ok	Project < Filter < ColumnarToRow
@@ -2486,17 +2486,17 @@ tpcds-mod	q53	5	3	245	238	ok	HashAggregate
 tpcds-mod	q53	4	3	608	365	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q53	1	0	540	144	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q53	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-mod	q53	3	0	1474	209	ok	Project < Filter < ColumnarToRow
+tpcds-mod	q53	3	0	1474	210	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q55	4	2	201	248	ok	HashAggregate
 tpcds-mod	q55	3	2	497	371	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q55	1	0	445	137	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q55	2	0	471	171	ok	Project < Filter < ColumnarToRow
-tpcds-mod	q59	10	7	1768	352	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
+tpcds-mod	q59	10	7	1768	351	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
 tpcds-mod	q59	2	1	444	411	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q59	1	0	416	168	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q59	1	0	341	135	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q59	3	0	481	174	ok	Project < Filter < ColumnarToRow
-tpcds-mod	q59	9	3	765	311	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
+tpcds-mod	q59	9	3	765	310	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < HashAggregate
 tpcds-mod	q59	6	1	444	403	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q59	5	0	416	168	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q59	1	0	341	135	ok	Project < Filter < ColumnarToRow
@@ -2507,7 +2507,7 @@ tpcds-mod	q63	5	3	245	238	ok	HashAggregate
 tpcds-mod	q63	4	3	608	365	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q63	1	0	540	144	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q63	2	0	214	135	ok	Filter < ColumnarToRow
-tpcds-mod	q63	3	0	1474	209	ok	Project < Filter < ColumnarToRow
+tpcds-mod	q63	3	0	1474	210	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q65	9	5	628	201	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
 tpcds-mod	q65	8	4	399	185	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q65	7	3	400	286	ok	Project < BroadcastHashJoin < Filter < HashAggregate
@@ -2519,8 +2519,8 @@ tpcds-mod	q65	4	1	425	353	ok	HashAggregate < Project < BroadcastHashJoin < Filte
 tpcds-mod	q68	11	5	692	204	ok	Project < SortMergeJoin
 tpcds-mod	q68	8	5	120	124	ok	Sort
 tpcds-mod	q68	7	5	786	213	ok	Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
-tpcds-mod	q68	6	4	427	262	ok	HashAggregate
-tpcds-mod	q68	5	4	541	371	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpcds-mod	q68	6	4	427	261	ok	HashAggregate
+tpcds-mod	q68	5	4	541	370	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q68	4	3	835	198	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
 tpcds-mod	q68	1	0	1516	135	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q68	2	0	353	147	ok	Project < Filter < ColumnarToRow
@@ -2564,5 +2564,5 @@ tpcds-mod	q98	1	0	411	137	ok	Project < Filter < ColumnarToRow
 tpcds-mod	q98	5	0	120	124	ok	Sort
 tpcds-mod	q98	4	0	881	199	ok	Project < Filter < ColumnarToRow
 tpcds-mod	ss_max	3	0	475	284	ok	HashAggregate
-tpcds-mod	ss_max	2	0	447	509	ok	HashAggregate < HashAggregate
-tpcds-mod	ss_max	1	0	525	404	ok	HashAggregate < ColumnarToRow
+tpcds-mod	ss_max	2	0	447	508	ok	HashAggregate < HashAggregate
+tpcds-mod	ss_max	1	0	525	403	ok	HashAggregate < ColumnarToRow
