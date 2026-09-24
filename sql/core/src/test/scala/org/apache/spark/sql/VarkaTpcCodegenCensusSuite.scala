@@ -24,9 +24,13 @@ import java.nio.file.Files
 import scala.collection.mutable
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeFormatter, CodeGenerator}
 import org.apache.spark.sql.catalyst.util.resourceToString
-import org.apache.spark.sql.execution.{InputAdapter, SparkPlan, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.{InputAdapter, LocalTableScanExec, SparkPlan,
+  WholeStageCodegenExec}
+import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ReusedExchangeExec}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -46,6 +50,12 @@ import org.apache.spark.sql.internal.SQLConf
  * cliff), `fallback` past `hugeMethodLimit`, where Spark runs the stage without whole-stage
  * codegen, or `compile failed`. Plans are compiled over the empty tables the TPC bases create;
  * nothing is run, which is why adaptive execution is off: its stages exist only at run time.
+ *
+ * A broadcast join generates its code from the broadcast's value, and over an empty table that
+ * value is empty, for which the join emits a stub in place of itself and the rest of its stage.
+ * So each stage's code is generated from a copy in which every broadcast exchange reads one row of
+ * non-null default values instead; the join then emits the code it emits for data. The
+ * `broadcasts` column counts the exchanges replaced in the stage.
  *
  * Each concrete suite below is one configuration. The census runs only when the system property
  * `varka.tpc.census.dir` names the directory for its files; otherwise its tables are not even
@@ -82,6 +92,7 @@ trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase {
       query: String,
       id: Int,
       operators: String,
+      broadcasts: Int,
       bytes: Int,
       constantPool: Int,
       band: String)
@@ -114,12 +125,38 @@ trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase {
     found.toSeq
   }
 
+  /** One row of non-null default values, as a plan with the given output. */
+  private def oneRow(output: Seq[Attribute]): SparkPlan =
+    LocalTableScanExec(output,
+      Seq(InternalRow.fromSeq(output.map(a => Literal.default(a.dataType).value))), None)
+
+  /**
+   * The stage with every broadcast exchange in it reading one row, so that no join sees an empty
+   * build side while it generates its code; and how many exchanges were replaced.
+   */
+  private def withRowBroadcasts(stage: WholeStageCodegenExec): (WholeStageCodegenExec, Int) = {
+    var replaced = 0
+    val copy = stage.transformUp {
+      case r @ ReusedExchangeExec(_, b: BroadcastExchangeExec) =>
+        replaced += 1
+        r.copy(child = b.copy(child = oneRow(b.child.output)))
+      case b: BroadcastExchangeExec =>
+        replaced += 1
+        b.copy(child = oneRow(b.child.output))
+    }
+    (copy.asInstanceOf[WholeStageCodegenExec], replaced)
+  }
+
   private def censusOf(set: String, query: String, plan: SparkPlan): Seq[Stage] = {
     val found = stagesOf(plan)
     val limit = CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT
     val sparkLimit = spark.sessionState.conf.hugeMethodLimit
-    found.toSeq.map { stage =>
+    found.toSeq.map { original =>
+      val (stage, broadcasts) = withRowBroadcasts(original)
       val code = stage.doCodeGen()._2
+      // HashJoin's code for an empty build side says so in a comment; none may be left.
+      assert(!code.body.contains("If HashedRelation is empty"),
+        s"$set $query stage ${stage.codegenStageId} still joins an empty build side")
       val operators = operatorsOf(stage).mkString(" < ")
       try {
         val stats = CodeGenerator.compile(code)._2
@@ -135,11 +172,11 @@ trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase {
             Files.write(file.toPath, CodeFormatter.format(code).getBytes(StandardCharsets.UTF_8))
           }
         }
-        Stage(set, query, stage.codegenStageId, operators, stats.maxMethodCodeSize,
+        Stage(set, query, stage.codegenStageId, operators, broadcasts, stats.maxMethodCodeSize,
           stats.maxConstPoolSize, band)
       } catch {
         case e: Exception =>
-          Stage(set, query, stage.codegenStageId, operators, -1, -1,
+          Stage(set, query, stage.codegenStageId, operators, broadcasts, -1, -1,
             s"compile failed: ${e.getClass.getSimpleName}")
       }
     }
@@ -191,10 +228,10 @@ trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase {
         counts.map { case (b, n) => s"$b $n" }.mkString(", ") +
         (if (queriesPast.isEmpty) "" else s"; past $limit: ${queriesPast.mkString(" ")}") + "\n"
     }
-    out ++= "\nset\tquery\tstage\tbytes\tconstant pool\tband\toperators\n"
+    out ++= "\nset\tquery\tstage\tbroadcasts\tbytes\tconstant pool\tband\toperators\n"
     for (s <- stages) {
-      out ++= s"${s.set}\t${s.query}\t${s.id}\t${s.bytes}\t${s.constantPool}\t${s.band}\t" +
-        s"${s.operators}\n"
+      out ++= s"${s.set}\t${s.query}\t${s.id}\t${s.broadcasts}\t${s.bytes}\t${s.constantPool}\t" +
+        s"${s.band}\t${s.operators}\n"
     }
     outDir.foreach { dir =>
       dir.mkdirs()
