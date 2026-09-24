@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.{And, BoundReference, CaseWhen, Coalesce, EqualTo,
   Expression, GreaterThan, GreaterThanOrEqual, If, In, InSet, IsNotNull, IsNull, LessThan,
@@ -25,7 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.{And, BoundReference, CaseWhen,
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler._
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{And => IRAnd,
-  ColumnRef, Compare, CompareOp, Cond, IfElse, IsNotNull => IRIsNotNull, Not => IRNot, Or => IROr}
+  ColumnRef, Compare, CompareOp, Cond, IfElse, InRanges, IsNotNull => IRIsNotNull, Not => IRNot,
+  Or => IROr}
 import org.apache.spark.sql.types.{DateType, IntegerType, YearMonthIntervalType}
 
 /**
@@ -195,6 +197,12 @@ private[codegen] object VarkaConditionCompiler {
         right <- compileCond(r, inputs, literals, sink)
         if sameLane(expr, sink, left, right)
       } yield new IRAnd(left, right)
+    // A disjunction of ranges over one int or date column - the partition-key filter a BI tool
+    // writes for a set of date ranges - is one range set, whose code does not grow with the
+    // ranges, instead of a tree of comparisons whose code does.
+    case or: Or if rangeSet(or).isDefined =>
+      val (column, bounds) = rangeSet(or).get
+      Some(new InRanges(columnRef(column, inputs), bounds.map(Int.box).asJava))
     case Or(l, r) =>
       for {
         left <- compileCond(l, inputs, literals, sink)
@@ -313,6 +321,88 @@ private[codegen] object VarkaConditionCompiler {
         sink.note("validity predicate over a non-column operand", whole)
         None
       case None => None
+    }
+  }
+
+  /**
+   * `or` as a range set, if it is one: two or more disjuncts, each a range over the same int or
+   * date column with literal bounds - `c >= a and c <= b` in either order and either operand
+   * order, `c = a`, or a strict bound, which moves by one - as the column and the ranges'
+   * bounds, sorted by lower bound and merged where they overlap or touch. `None` for anything
+   * else, which then compiles as the comparisons it is written as. A disjunct whose range is
+   * empty (`c > a and c < a + 1`) selects nothing and is dropped; if all are, it is not a set.
+   */
+  private[codegen] def rangeSet(or: Or): Option[(BoundReference, Seq[Int])] = {
+    def disjuncts(e: Expression): Seq[Expression] = e match {
+      case Or(l, r) => disjuncts(l) ++ disjuncts(r)
+      case other => Seq(other)
+    }
+    def column(e: Expression): Option[BoundReference] = e match {
+      case br: BoundReference if br.dataType == IntegerType || br.dataType == DateType =>
+        Some(br)
+      case _ => None
+    }
+    def bound(e: Expression, of: BoundReference): Option[Long] = e match {
+      case Literal(v: Int, t) if t == of.dataType => Some(v.toLong)
+      case _ => None
+    }
+    // One side of a range: the column, and a lower or upper bound as an inclusive long. Which
+    // it is depends on the operator and on which operand is the column: `c >= a` is a lower
+    // bound, `a >= c` an upper one.
+    def side(e: Expression): Option[(BoundReference, Option[Long], Option[Long])] = {
+      // `columnIsLower`: whether the operator bounds the column from below when the column is
+      // its left operand.
+      def oriented(l: Expression, r: Expression, columnIsLower: Boolean, strict: Boolean) = {
+        val step = if (strict) 1L else 0L
+        def as(col: BoundReference, v: Long, lower: Boolean) =
+          if (lower) (col, Some(v + step), None) else (col, None, Some(v - step))
+        column(l).flatMap(col => bound(r, col).map(v => as(col, v, columnIsLower)))
+          .orElse(column(r).flatMap(col => bound(l, col).map(v => as(col, v, !columnIsLower))))
+      }
+      e match {
+        case GreaterThanOrEqual(l, r) => oriented(l, r, columnIsLower = true, strict = false)
+        case GreaterThan(l, r) => oriented(l, r, columnIsLower = true, strict = true)
+        case LessThanOrEqual(l, r) => oriented(l, r, columnIsLower = false, strict = false)
+        case LessThan(l, r) => oriented(l, r, columnIsLower = false, strict = true)
+        case _ => None
+      }
+    }
+    def range(e: Expression): Option[(BoundReference, Long, Long)] = e match {
+      case EqualTo(c, b) =>
+        column(c).flatMap(col => bound(b, col).map(v => (col, v, v)))
+          .orElse(column(b).flatMap(col => bound(c, col).map(v => (col, v, v))))
+      case And(l, r) =>
+        for {
+          (lc, llo, lhi) <- side(l)
+          (rc, rlo, rhi) <- side(r)
+          if lc.ordinal == rc.ordinal && lc.dataType == rc.dataType
+          lo <- llo.orElse(rlo)
+          hi <- lhi.orElse(rhi)
+          if llo.isDefined != rlo.isDefined
+        } yield (lc, lo, hi)
+      case _ => None
+    }
+    val parts = disjuncts(or)
+    val ranges = parts.flatMap(range)
+    if (parts.size < 2 || ranges.size != parts.size
+        || ranges.map(r => (r._1.ordinal, r._1.dataType)).distinct.size != 1) {
+      return None
+    }
+    val merged = mutable.ArrayBuffer.empty[(Long, Long)]
+    for ((lo, hi) <- ranges.map(r => (r._2, r._3)).filter(r => r._1 <= r._2).sortBy(_._1)) {
+      if (merged.nonEmpty && lo <= merged.last._2 + 1) {
+        merged(merged.size - 1) = (merged.last._1, math.max(merged.last._2, hi))
+      } else {
+        merged += ((lo, hi))
+      }
+    }
+    if (merged.isEmpty) {
+      None
+    } else {
+      // The strict bounds moved by one in longs; clamp back into the int range, which a moved
+      // bound can only have left by stepping past an int extreme that no int value is beyond.
+      def clamp(v: Long): Int = math.max(Int.MinValue, math.min(Int.MaxValue, v)).toInt
+      Some((ranges.head._1, merged.toSeq.flatMap { case (lo, hi) => Seq(clamp(lo), clamp(hi)) }))
     }
   }
 

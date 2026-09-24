@@ -49,6 +49,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
     intLit,
     new GuardedDay(intCol),
     new GuardedRange(intCol, -10, 10),
+    new InRanges(intCol, java.util.List.of(Integer.valueOf(-10), Integer.valueOf(-5),
+      Integer.valueOf(3), Integer.valueOf(8))),
     // An int by value over a long child: the one node whose own lane is not its child's.
     new NarrowLane(longCol),
     new AddDays(intCol, intLit),
@@ -173,7 +175,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
       ("truncDate", 0, () => new TruncDate(longCol, TruncLevel.MONTH)),
       ("truncDateDynamic", 0, () => new TruncDateDynamic(longCol, intCol)),
       ("truncDateDynamic", 1, () => new TruncDateDynamic(intCol, longCol)),
-      ("weekOfYear", 0, () => new WeekOfYear(longCol)))
+      ("weekOfYear", 0, () => new WeekOfYear(longCol)),
+      ("inRanges", 0,
+        () => new InRanges(longCol, java.util.List.of(Integer.valueOf(1), Integer.valueOf(2)))))
     refusals.foreach { case (what, position, build) =>
       val e = intercept[IllegalArgumentException](build())
       assert(e.getMessage.contains(what), s"$what operand $position: ${e.getMessage}")
@@ -298,6 +302,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite {
         case "LiteralSlot" => l
         case "IntArith" => new IntArith(IntOp.ADD, Overflow.WRAP, c, c1)
         case "IntNeg" => new IntNeg(Overflow.WRAP, c)
+        case "InRanges" =>
+          new InRanges(c, java.util.List.of(Integer.valueOf(-10), Integer.valueOf(10)))
         case "ConstDivide" => new ConstDivide(c, 12, ConstDivide.EXACT_DIVIDEND_BOUND)
         case "BoundedDivide" => BoundedDivide.of(c, 60, 3600)
         case "Greatest" => new Greatest(c, c1)

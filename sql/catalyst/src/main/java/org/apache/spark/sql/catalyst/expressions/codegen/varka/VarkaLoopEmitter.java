@@ -33,6 +33,7 @@ import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
+import java.lang.constant.MethodTypeDesc;
 import java.lang.reflect.AccessFlag;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -57,6 +58,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Gre
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -437,7 +439,9 @@ public final class VarkaLoopEmitter {
       List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
       List<List<Integer>> groups, boolean epiloguePerGroup) {
     boolean anyColumns = analysis.referencedColumns != 0;
+    analysis.owner = classDesc;
     return ClassFile.of().build(classDesc, (ClassBuilder b) -> {
+      emitRangeTables(b, classDesc, analysis);
       b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL)
           .withInterfaceSymbols(FUSED_KERNEL)
           .with(java.lang.classfile.attribute.SourceFileAttribute.of(source))
@@ -459,6 +463,39 @@ public final class VarkaLoopEmitter {
         emitBodies(b, false, classDesc, outputs, analysis, numLiterals, groups, epiloguePerGroup);
       }
     });
+  }
+
+  /**
+   * Declares a {@code private static final int[]} per {@link VarkaVectorIR.InRanges} range set and
+   * fills them in the class initialiser, once per class: the bounds {@code InRanges} loops over,
+   * in the node's order, lower and upper bound of each range in turn. Nothing when the kernel has
+   * no range set, so every other kernel's class is unchanged.
+   */
+  private static void emitRangeTables(ClassBuilder b, ClassDesc classDesc, Analysis analysis) {
+    if (analysis.rangeTables.isEmpty()) {
+      return;
+    }
+    ClassDesc intArray = ConstantDescs.CD_int.arrayType();
+    for (String field : analysis.rangeTables.values()) {
+      b.withField(field, intArray,
+          AccessFlag.PRIVATE.mask() | AccessFlag.STATIC.mask() | AccessFlag.FINAL.mask());
+    }
+    b.withMethodBody("<clinit>", MethodTypeDesc.of(ConstantDescs.CD_void),
+        AccessFlag.STATIC.mask(), (CodeBuilder cb) -> {
+          for (var e : analysis.rangeTables.entrySet()) {
+            List<Integer> bounds = e.getKey().bounds();
+            cb.loadConstant(bounds.size());
+            cb.newarray(java.lang.classfile.TypeKind.INT);
+            for (int i = 0; i < bounds.size(); i++) {
+              cb.dup();
+              cb.loadConstant(i);
+              cb.loadConstant(bounds.get(i));
+              cb.iastore();
+            }
+            cb.putstatic(classDesc, e.getValue(), intArray);
+          }
+          cb.return_();
+        });
   }
 
   /**
@@ -852,6 +889,7 @@ public final class VarkaLoopEmitter {
       case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Not n -> new VarkaVectorIR[] {n.child()};
       case IsNotNull n -> new VarkaVectorIR[] {n.child()};
+      case InRanges n -> new VarkaVectorIR[] {n.child()};
       case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IntNeg n -> new VarkaVectorIR[] {n.child()};
       case ConstDivide n -> new VarkaVectorIR[] {n.child()};

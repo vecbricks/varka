@@ -20,6 +20,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import java.time.LocalDate
 import java.time.temporal.IsoFields
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
@@ -290,6 +292,8 @@ object VarkaReferenceEvaluator {
       }
     case n: Not => evalCondLong(n.child(), row, lits).map(!_)
     case n: IsNotNull => Some(evalLong(n.child(), row, lits).isDefined)
+    case n: InRanges =>
+      throw new IllegalArgumentException("a range set is on the int lane only: " + n)
   }
 
   /** Kleene three-valued logic; `None` is unknown, and only known-true selects THEN. */
@@ -318,6 +322,12 @@ object VarkaReferenceEvaluator {
         case _ => None
       }
     case n: Not => evalCond(n.child(), row, lits).map(!_)
+    // Written from the node's meaning, not from its emission: some range contains the value.
+    case n: InRanges =>
+      evalValue(n.child(), row, lits).map { v =>
+        val bounds: IndexedSeq[Int] = n.bounds().asScala.map(_.intValue).toIndexedSeq
+        bounds.indices.by(2).exists(i => bounds(i) <= v && v <= bounds(i + 1))
+      }
     // The first total condition (task 20): IS NOT NULL never returns unknown - a null
     // operand is a definite false, not a missing answer.
     case n: IsNotNull => Some(evalValue(n.child(), row, lits).isDefined)

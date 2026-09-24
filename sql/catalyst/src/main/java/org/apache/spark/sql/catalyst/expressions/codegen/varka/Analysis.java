@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Gre
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -200,6 +201,16 @@ final class Analysis {
    * rejected rather than emitted with one lane's descriptors over the other's data.
    */
   final Lane lane;
+
+  /**
+   * The static table each {@link InRanges} node reads its bounds from, by the field name the
+   * class declares it under: filled by {@code analyze}, declared and initialised by the class
+   * builder, read by the emission.
+   */
+  final Map<InRanges, String> rangeTables = new LinkedHashMap<>();
+
+  /** The class being built, which the range tables are fields of; set by the class builder. */
+  java.lang.constant.ClassDesc owner;
   /**
    * How this emission divides by the calendar prefix's constants; see {@link Divider}. Derived
    * once here rather than at each of the fifteen division sites, and passed down to the prefix
@@ -797,6 +808,11 @@ final class Analysis {
       case And n -> analyzeOp(node, false, n.left(), n.right());
       case Or n -> analyzeOp(node, false, n.left(), n.right());
       case Not n -> analyzeOp(node, false, n.child());
+      case InRanges n -> {
+        // One static table per distinct range set, named in the order the sets are met.
+        rangeTables.computeIfAbsent(n, k -> "RANGES" + rangeTables.size());
+        analyzeOp(node, false, n.child());
+      }
       case IsNotNull n -> {
         // The compiler enforces this too; re-checked here because emitCond reads the
         // child's per-input validity word, which only a column has before any value walk.

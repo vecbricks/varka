@@ -226,3 +226,38 @@ the session's cache was Spark's default, not Arrow, and Varka's filter rule need
 The cause and its consequences for task 192 are in `PLAN_TASK_192.md` 9.4.
 
 What remains: designs B and A, and the predictions they carry.
+
+### 9.2 Design B, built, 24 September 2026
+
+A new condition node, `InRanges(child, bounds)`, and a compiler case before the generic `Or`:
+a disjunction of two or more ranges over one int or date column with literal bounds - written
+as `>=`/`<=` in either operand order, as strict bounds, which move by one, or as equalities - is
+one range set. The compiler sorts the ranges and merges those that overlap or touch, so one set
+of rows is one shape however the query ordered it, and drops empty ones. Anything else compiles
+as the comparisons it is written as.
+
+**Three departures from 3.2, and why.**
+
+* **A loop over the bounds, not a binary search.** The kernel holds each range set's bounds in a
+  `private static final int[]` that the class initialiser fills, and the node emits one loop that
+  ORs, range by range, the lanes with `lo <= v && v <= hi` into a mask, comparing against each
+  bound as a scalar. Its code is the same size whatever the number of ranges, which is what
+  removes the cliff; its time grows with them. A binary search needs a gather per step, and a
+  gather of an `int[]` takes its indices from another array, spilled from the vector each step;
+  the loop needs neither. The bounds are not literal slots: the literal table is keyed by value,
+  so it cannot hold a contiguous block of bounds, and each slot is copied into a local at every
+  method's entry, which at 400 bounds would have cost about 4 KB a method. The binary search stays
+  possible as a variant to measure against the loop.
+* **No emit option.** The baseline measured in 9.1 is the "off" arm, committed; design A brings
+  the option when there is a second design to compare with.
+* **Date columns too**, since a date range filter is the same shape on the same lane.
+
+**What checks it.** `VarkaRangeSetCompilerSuite` pins the matching: sorting, merging, strict
+bounds, equalities, operand order, empty ranges, the int extremes, date literals, and five shapes
+that are not a set. `VarkaRangeSetSuite` runs such filters on the row engine and on Varka over the
+same Arrow-cached rows, nulls and the int extremes included, and requires the same answer with the
+kernel having run, `modified-q3`'s 200 ranges among them. `VarkaRangeFilterFusionSuite`, which
+replaces the boundary suite of 9.1, pins that every number of ranges fuses and that the 200-range
+kernel's methods stay under 2000 bytes. The IR fuzzer draws range sets, against a reference
+evaluator written from the node's meaning, and the reach test holds it to that. The bytes oracle
+moved in exactly the twelve keys that hash every fuzz shape and no coverage key.

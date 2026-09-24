@@ -393,6 +393,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite {
       case x: Or => cond(x.left()); cond(x.right())
       case x: Not => cond(x.child())
       case x: IsNotNull => value(x.child(), Kind.DAY)
+      case x: InRanges => value(x.child(), Kind.DAY)
     }
     val rootKind = root match {
       case _: DateDiff | _: Year | _: Month | _: DayOfMonth | _: Quarter | _: DayOfYear |
@@ -480,6 +481,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite {
       case x: Or => goCond(x.left(), armed) && goCond(x.right(), armed)
       case x: Not => goCond(x.child(), armed)
       case x: IsNotNull => go(x.child(), armed)
+      case x: InRanges => go(x.child(), armed)
     }
     go(node, armed)
   }

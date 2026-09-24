@@ -131,6 +131,7 @@ object VarkaIrGrammar {
       case n: Or => (0L, g(n.left(), n.right()))
       case n: Not => (0L, g(n.child()))
       case n: IsNotNull => (0L, g(n.child()))
+      case n: InRanges => (0L, g(n.child()))
       // The mod-7 family: exact for every int32 day, so the value is small whatever it is
       // over - which is precisely why the producers underneath stay visible in the guard bound.
       case n: DayOfWeek => (7L, g(n.days()))
@@ -459,16 +460,39 @@ object VarkaIrGrammar {
       }
     }
 
+    /**
+     * A range set over a drawn value: one to six sorted, disjoint, non-adjacent ranges placed
+     * across the value's own bound, so that lanes land inside ranges, between them and outside
+     * all of them.
+     */
+    def rangeSet(depth: Int): InRanges = {
+      val v = value(depth)
+      val span = math.max(1L, math.min(v.bound, Int.MaxValue / 4L))
+      val bounds = scala.collection.mutable.ArrayBuffer.empty[Int]
+      def draw(limit: Long): Long = (rnd.nextLong() & Long.MaxValue) % (limit + 1)
+      var at = -span + draw(span)
+      for (_ <- 0 until 1 + rnd.nextInt(6) if at <= span) {
+        val lo = at
+        val hi = math.min(span, lo + draw(span / 4))
+        bounds += lo.toInt
+        bounds += hi.toInt
+        at = hi + 2 + draw(span / 4)
+      }
+      new InRanges(v.node, scala.jdk.CollectionConverters.SeqHasAsJava(
+        bounds.map(Int.box).toSeq).asJava)
+    }
+
     def cond(depth: Int): Cond = {
       budget -= 1
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
         val ops = CompareOp.values()
         new Compare(ops(rnd.nextInt(ops.length)), value(depth).node, value(depth).node)
       } else {
-        rnd.nextInt(4) match {
+        rnd.nextInt(5) match {
           case 0 => new And(cond(depth - 1), cond(depth - 1))
           case 1 => new Or(cond(depth - 1), cond(depth - 1))
           case 2 => new Not(cond(depth - 1))
+          case 3 => rangeSet(depth)
           // IsNotNull reads a column's validity word directly, so its child must be a column.
           case _ => new IsNotNull(new ColumnRef(rnd.nextInt(numInputs)))
         }

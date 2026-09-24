@@ -21,6 +21,8 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescr
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 
 import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.Label;
+import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.Set;
 
@@ -42,6 +44,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Gre
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -750,6 +753,83 @@ final class VarkaVectorWalk {
 
 
   /**
+   * Emits an {@link InRanges} node: a loop over the class's table of bounds that ORs, range by
+   * range, the lanes with {@code lo <= v && v <= hi} into one mask. The loop is emitted once
+   * whatever the number of ranges, so the method's size does not grow with them; each iteration
+   * reads two bounds from the table and compares the lanes against them as scalars. In the masked
+   * body a null lane is unknown, like a comparison's: known-true and known-false are the mask and
+   * its complement, each ANDed with the value's validity. An epilogue's padding lanes hold
+   * whatever the masked load left, which any bound compares against harmlessly.
+   */
+  private static void emitInRanges(CodeBuilder cb, InRanges n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    int[] tmp = s.rangeTmp.get(n);
+    int value = tmp[0];
+    int index = tmp[1];
+    int mask = tmp[2];
+    java.lang.constant.ClassDesc intArray = ConstantDescs.CD_int.arrayType();
+    String table = analysis.rangeTables.get(n);
+    line(cb, analysis, n);
+    cb.astore(value);
+    // An all-false mask to start from: no lane is below the int minimum.
+    cb.aload(value);
+    cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
+    analysis.lane.pushScalar(cb, Integer.MIN_VALUE);
+    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    cb.astore(mask);
+    cb.loadConstant(0);
+    cb.istore(index);
+    Label head = cb.newLabel();
+    Label done = cb.newLabel();
+    cb.labelBinding(head);
+    cb.iload(index);
+    cb.getstatic(analysis.owner, table, intArray);
+    cb.arraylength();
+    cb.if_icmpge(done);
+    // mask = mask | (v >= table[index] & v <= table[index + 1])
+    cb.aload(mask);
+    cb.aload(value);
+    cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
+    cb.getstatic(analysis.owner, table, intArray);
+    cb.iload(index);
+    cb.iaload();
+    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    cb.aload(value);
+    cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
+    cb.getstatic(analysis.owner, table, intArray);
+    cb.iload(index);
+    cb.loadConstant(1);
+    cb.iadd();
+    cb.iaload();
+    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    cb.astore(mask);
+    cb.iinc(index, 2);
+    cb.goto_(head);
+    cb.labelBinding(done);
+    cb.aload(mask);
+    if (dense) {
+      cb.astore(s.condMask.get(n));
+    } else {
+      // kT = in & valid; kF = ~in & valid.
+      cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);
+      cb.lstore(s.cmpTmp);
+      cb.lload(s.cmpTmp);
+      loadWord(cb, s, s.wordRef.get(n.child()));
+      cb.land();
+      cb.lstore(s.kt.get(n));
+      cb.lload(s.cmpTmp);
+      cb.loadConstant(-1L);
+      cb.lxor();
+      loadWord(cb, s, s.wordRef.get(n.child()));
+      cb.land();
+      cb.lstore(s.kf.get(n));
+    }
+  }
+
+  /**
    * Emits a condition node: in the dense body a single {@code VectorMask} local (every input
    * lane is valid, so known-true is the comparison itself and known-false its complement); in
    * the masked body the known-true / known-false word pair of plan 2.6.
@@ -839,6 +919,7 @@ final class VarkaVectorWalk {
         }
         // Masked: kT/kF are the child's, swapped - pure slot aliasing, planned, no code.
       }
+      case InRanges n -> emitInRanges(cb, n, dense, analysis, s, computed);
       case IsNotNull n -> {
         line(cb, analysis, node);
         if (dense) {

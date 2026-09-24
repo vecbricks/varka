@@ -406,6 +406,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       else if (t == java.lang.Integer.TYPE) Integer.valueOf(1)
       else if (t == java.lang.Boolean.TYPE) java.lang.Boolean.FALSE
       else if (t.isEnum) t.getEnumConstants.head.asInstanceOf[AnyRef]
+      else if (t == classOf[java.util.List[_]]) {
+        java.util.List.of(Integer.valueOf(1), Integer.valueOf(2))
+      }
       else fail(s"${cls.getSimpleName}.${rc.getName} has a component type this probe cannot " +
         s"build: ${t.getName}")
     }
