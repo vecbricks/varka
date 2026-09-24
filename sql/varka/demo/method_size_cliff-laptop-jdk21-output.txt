@@ -1,0 +1,13 @@
+Output of method_size_cliff.scala on the development laptop, not a runner: one run each.
+commit:  the commit that adds this file, with the script as it is there
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+java:    openjdk version "21.0.12.1" 2026-08-18
+spark:   4.2.0
+
+entries  largest method       ns per row, defaults   ns per row, hugeMethodLimit=8000
+44       7285 bytes                          687.5                              663.0
+48       7945 bytes                          708.1                              707.7
+52       8677 bytes *                       4030.1                              901.5
+56       9513 bytes *                       4343.5                              964.4
+
+* past 8000 bytes: HotSpot will not compile the method. At 52 entries it is 8677 bytes (Spark 4.2.0, Java 21.0.12.1).

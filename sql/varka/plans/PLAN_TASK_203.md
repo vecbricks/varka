@@ -155,4 +155,31 @@ for readers who want one click; the repository copy is the one that is kept.
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+### 9.1 The script and the workflow, 24 September 2026
+
+**Two departures from 3.1 and 3.2, and why.**
+
+* **Half a million rows, and the best of three runs after one warm-up**, not two
+  million rows and five runs after two. The interpreted rungs cost about four
+  microseconds a row, so the plan's figures made the demo take minutes; at
+  these it takes about 35 seconds end to end on the laptop, and the ratio is
+  the same.
+* **The workflow also runs on a push that changes the demo.** A hand dispatch
+  needs the workflow file on the repository's default branch, which a new
+  workflow is not on until it merges, so the first runner check comes from the
+  push that adds it. After the merge, the dispatch works as planned.
+
+**The laptop, stock Spark 4.2.0, one run per JDK** (the demo's own output,
+reproduced by running it; the runner's outputs are the committed files):
+
+| JDK | 48 entries, defaults | 52 entries, defaults | 48, `hugeMethodLimit=8000` | 52, `hugeMethodLimit=8000` |
+|---|---:|---:|---:|---:|
+| 17 | 836.4 | 4144.2 | 836.6 | 1080.3 |
+| 21 | 708.1 | 4030.1 | 707.7 | 901.5 |
+| 25 | 801.3 | 4100.4 | 807.8 | 1071.4 |
+
+nanoseconds per row. The bytes are 7285, 7945, 8677 and 9513 at 44, 48, 52 and
+56 entries on every JDK. Under `-XX:+PrintCompilation` on JDK 25, the compile
+log names the 7285- and 7945-byte methods and never the 8677- or 9513-byte ones.
+
+<!-- The runner's outputs and the predictions' scores follow when the workflow has run. -->

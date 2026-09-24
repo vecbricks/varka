@@ -27,7 +27,8 @@ A quote is a number with two or more integer digits and one to three decimals
 (3452.2, 481.7, 4785.665) that is not a percentage, a ratio suffixed with x, or
 part of a version. That shape is what benchmark rates and JMH scores look like
 and what section numbers, versions and op counts do not. Each one must appear
-in a results file under sql/*/benchmarks/ or sql/varka/engine/benchmarks/,
+in a results file under sql/*/benchmarks/ or sql/varka/engine/benchmarks/ (or a
+demo's committed output under sql/varka/demo/),
 either as committed now or in any committed version of those files (plans
 legitimately quote the number a change moved away from), and the report says
 which. A number found nowhere is an orphan: a scratch-log figure, a typo, or a
@@ -62,6 +63,8 @@ RESULT_GLOBS = [
     "sql/*/benchmarks/*.txt",
     "sql/varka/engine/benchmarks/*.txt",
     "sql/varka/bench/benchmarks/*.txt",
+    # The reader's demos print their own tables; their committed outputs are results files too.
+    "sql/varka/demo/*-output.txt",
 ]
 ALLOWLIST = "dev/varka_quote_allowlist.txt"
 QUOTE = re.compile(r"(?<![\w.\-])(\d{2,}\.\d{1,3})(?![\w.%]|\s*x\b|\s*x\)|\s*x,|\s*x\.)")
