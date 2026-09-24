@@ -1,0 +1,137 @@
+TPC codegen census, configuration: tpch
+commit:      1917c854bae
+java:        25.0.4.1
+settings:    spark.sql.readSideCharPadding=true, statistics injected=false, spark.sql.codegen.hugeMethodLimit=65535, spark.sql.adaptive.enabled=false
+under AQE:   the same walk with spark.sql.adaptive.enabled=true finds 0 stages in these queries
+bands:       ok <= 8000 bytes < interpreted <= 65535 bytes < fallback
+
+summary
+  tpch             22 queries   126 stages  ok 126
+
+set	query	stage	broadcasts	bytes	constant pool	band	operators
+tpch	q1	3	0	120	124	ok	Sort
+tpch	q1	2	0	1280	318	ok	HashAggregate
+tpch	q1	1	0	646	426	ok	HashAggregate < Project < Filter < ColumnarToRow
+tpch	q2	10	8	957	230	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q2	1	0	358	149	ok	Filter < ColumnarToRow
+tpch	q2	6	3	244	224	ok	Filter < HashAggregate
+tpch	q2	5	3	466	339	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q2	2	0	285	138	ok	Filter < ColumnarToRow
+tpch	q2	3	0	285	138	ok	Filter < ColumnarToRow
+tpch	q2	4	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q2	7	0	548	162	ok	Filter < ColumnarToRow
+tpch	q2	8	0	343	153	ok	Filter < ColumnarToRow
+tpch	q3	4	2	280	246	ok	HashAggregate
+tpch	q3	3	2	320	346	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q3	1	0	436	151	ok	Filter < ColumnarToRow
+tpch	q3	2	0	416	157	ok	Project < Filter < ColumnarToRow
+tpch	q4	4	1	120	124	ok	Sort
+tpch	q4	3	1	156	222	ok	HashAggregate
+tpch	q4	2	1	435	333	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q4	1	0	342	145	ok	Project < Filter < ColumnarToRow
+tpch	q5	8	5	120	124	ok	Sort
+tpch	q5	7	5	225	238	ok	HashAggregate
+tpch	q5	6	5	678	353	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q5	1	0	412	142	ok	Project < Filter < ColumnarToRow
+tpch	q5	2	0	404	153	ok	Filter < ColumnarToRow
+tpch	q5	3	0	285	138	ok	Filter < ColumnarToRow
+tpch	q5	4	0	343	153	ok	Filter < ColumnarToRow
+tpch	q5	5	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q6	2	0	195	162	ok	HashAggregate
+tpch	q6	1	0	170	174	ok	HashAggregate < LocalTableScan
+tpch	q7	8	5	120	124	ok	Sort
+tpch	q7	7	5	278	246	ok	HashAggregate
+tpch	q7	6	5	988	351	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q7	1	0	543	159	ok	Filter < ColumnarToRow
+tpch	q7	2	0	285	138	ok	Filter < ColumnarToRow
+tpch	q7	3	0	285	138	ok	Filter < ColumnarToRow
+tpch	q7	4	0	392	157	ok	Filter < ColumnarToRow
+tpch	q8	10	7	120	124	ok	Sort
+tpch	q8	9	7	394	258	ok	HashAggregate
+tpch	q8	8	7	503	368	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q8	1	0	473	153	ok	Filter < ColumnarToRow
+tpch	q8	2	0	285	138	ok	Filter < ColumnarToRow
+tpch	q8	3	0	424	144	ok	Filter < ColumnarToRow
+tpch	q8	4	0	285	138	ok	Filter < ColumnarToRow
+tpch	q8	5	0	285	138	ok	Filter < ColumnarToRow
+tpch	q8	6	0	274	153	ok	Filter < ColumnarToRow
+tpch	q8	7	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q9	8	5	120	124	ok	Sort
+tpch	q9	7	5	241	246	ok	HashAggregate
+tpch	q9	6	5	650	372	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q9	1	0	528	153	ok	Filter < ColumnarToRow
+tpch	q9	2	0	285	138	ok	Filter < ColumnarToRow
+tpch	q9	3	0	349	153	ok	Filter < ColumnarToRow
+tpch	q9	4	0	274	149	ok	Filter < ColumnarToRow
+tpch	q9	5	0	274	153	ok	Filter < ColumnarToRow
+tpch	q10	5	3	438	248	ok	HashAggregate
+tpch	q10	4	3	725	339	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q10	1	0	412	142	ok	Project < Filter < ColumnarToRow
+tpch	q10	2	0	417	163	ok	Project < Filter < ColumnarToRow
+tpch	q10	3	0	274	153	ok	Filter < ColumnarToRow
+tpch	q11	5	2	120	124	ok	Sort
+tpch	q11	4	2	295	251	ok	Filter < HashAggregate
+tpch	q11	4	2	242	171	ok	HashAggregate
+tpch	q11	3	2	359	251	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q11	3	2	432	325	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q11	1	0	285	138	ok	Filter < ColumnarToRow
+tpch	q11	2	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q12	4	1	120	124	ok	Sort
+tpch	q12	3	1	188	240	ok	HashAggregate
+tpch	q12	2	1	348	340	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q12	1	0	685	161	ok	Project < Filter < ColumnarToRow
+tpch	q13	5	1	120	124	ok	Sort
+tpch	q13	4	1	146	203	ok	HashAggregate
+tpch	q13	3	1	244	286	ok	HashAggregate < HashAggregate
+tpch	q13	2	1	245	318	ok	HashAggregate < Project < BroadcastHashJoin < ColumnarToRow
+tpch	q13	1	0	385	183	ok	Project < Filter < ColumnarToRow
+tpch	q14	3	1	413	199	ok	HashAggregate
+tpch	q14	2	1	507	278	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q14	1	0	274	153	ok	Filter < ColumnarToRow
+tpch	q15	4	1	120	124	ok	Sort
+tpch	q15	3	1	431	184	ok	Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q15	2	0	262	243	ok	Filter < HashAggregate
+tpch	q15	3	0	117	142	ok	HashAggregate
+tpch	q15	2	0	225	263	ok	HashAggregate < HashAggregate
+tpch	q15	1	0	429	300	ok	HashAggregate < Project < Filter < ColumnarToRow
+tpch	q15	1	0	448	300	ok	HashAggregate < Project < Filter < ColumnarToRow
+tpch	q16	6	2	120	124	ok	Sort
+tpch	q16	5	2	195	230	ok	HashAggregate
+tpch	q16	4	2	317	318	ok	HashAggregate < HashAggregate
+tpch	q16	3	2	404	319	ok	HashAggregate < Project < BroadcastHashJoin < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q16	1	0	301	179	ok	Project < Filter < ColumnarToRow
+tpch	q16	2	0	653	170	ok	Filter < ColumnarToRow
+tpch	q17	5	2	251	172	ok	HashAggregate
+tpch	q17	4	2	485	236	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q17	1	0	380	150	ok	Project < Filter < ColumnarToRow
+tpch	q17	3	0	376	259	ok	Filter < HashAggregate
+tpch	q17	2	0	290	333	ok	HashAggregate < Filter < ColumnarToRow
+tpch	q18	8	4	362	256	ok	HashAggregate
+tpch	q18	7	4	448	320	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q18	3	1	431	182	ok	BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q18	2	0	265	239	ok	Project < Filter < HashAggregate
+tpch	q18	1	0	241	274	ok	HashAggregate < ColumnarToRow
+tpch	q18	6	1	313	175	ok	BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q19	3	1	195	162	ok	HashAggregate
+tpch	q19	2	1	2533	262	ok	HashAggregate < Project < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q19	1	0	1340	163	ok	Filter < ColumnarToRow
+tpch	q20	8	5	120	124	ok	Sort
+tpch	q20	7	5	424	180	ok	Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q20	5	3	337	204	ok	Project < BroadcastHashJoin < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q20	1	0	289	155	ok	Project < Filter < ColumnarToRow
+tpch	q20	4	1	329	248	ok	Filter < HashAggregate
+tpch	q20	3	1	500	299	ok	HashAggregate < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q20	6	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q21	7	5	156	222	ok	HashAggregate
+tpch	q21	6	5	480	335	ok	HashAggregate < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q21	3	2	384	185	ok	BroadcastHashJoin < BroadcastHashJoin < Project < Filter < ColumnarToRow
+tpch	q21	1	0	240	137	ok	ColumnarToRow
+tpch	q21	2	0	393	145	ok	Project < Filter < ColumnarToRow
+tpch	q21	4	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q21	5	0	298	150	ok	Project < Filter < ColumnarToRow
+tpch	q22	4	1	120	124	ok	Sort
+tpch	q22	3	1	233	262	ok	HashAggregate
+tpch	q22	2	1	687	335	ok	HashAggregate < Project < BroadcastHashJoin < Filter < ColumnarToRow
+tpch	q22	2	0	260	181	ok	HashAggregate
+tpch	q22	1	0	515	214	ok	HashAggregate < Project < Filter < ColumnarToRow
+tpch	q22	1	0	189	137	ok	ColumnarToRow

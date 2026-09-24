@@ -185,4 +185,120 @@ census needs no quiet machine.
 
 ## 9. Outcome
 
-<!-- Filled in when the work lands. -->
+### 9.1 The census, 24 September 2026
+
+`VarkaTpcCodegenCensusSuite` and `dev/varka_tpc_census.sh`, run at `a821cc2e8d1`
+on JDK 25; one file per configuration under `sql/varka/census/`. The whole run
+takes about a minute.
+
+**The answer: standard benchmark queries do not reach the cliff.** Across
+all 178 queries (103 of TPC-DS v1.4, 32 of v2.7, 21 modified, 22 of TPC-H) and
+all six configurations, exactly one stage is past 8000 bytes, the same one in
+every configuration: `modified-q3`, the query Spark's suite already excludes.
+The largest stage of any unmodified query is 4962 bytes (TPC-DS q66, a hash
+aggregate); TPC-H's largest is 1340 (q19). No stage is past 65535, and every
+one compiles.
+
+**The one crossing is a filter over an integer column.** `modified-q3`
+restricts `store_sales` by about fifty
+`ss_sold_date_sk between a and b or ...` ranges, the "partition key filters"
+its comment names, which is the shape a BI tool writes for a set of date
+ranges. Its stage is 12214 bytes without statistics, where the filter shares a
+stage with two broadcast joins and an aggregate, and 12167 bytes with them,
+where the stage is `Project < Filter < ColumnarToRow`: a filter over a scan and
+nothing else. The OR chain is inlined in `processNext`, so the scan loop
+itself runs uncompiled. That is a realistic shape, and it is in Varka's
+territory: an integer comparison chain in a filter. Task 172 takes it as its
+first candidate.
+
+**Char padding does not cause crossings, whatever the suite's comment says.**
+Padding on changes the largest method of 67 TPC-DS queries, by at most 491
+bytes (q30, from 902 to 1393), and puts no stage past 8000. The comment "so
+that the generated code is less than 8000" cannot be reproduced on today's
+tree.
+
+**Spark's own check has been checking nothing.** With adaptive execution on,
+Spark's default since 3.2, `executedPlan` is an `AdaptiveSparkPlanExec` leaf,
+and its whole-stage stages exist only once the query runs. The walk
+`BenchmarkQueryTest.checkGeneratedCode` does, `plan foreach` plus subqueries,
+therefore finds no stage at all in a plan that is only compiled: the census
+records that the same walk with adaptive execution on finds 0 stages in every
+one of its 178 queries. So `TPCDSQuerySuite`, `TPCDSQueryWithStatsSuite`,
+`TPCDSQueryANSISuite` and `TPCHQuerySuite` pass their "compiles, and within
+8000 bytes" assertion without compiling anything. `modified-q3`'s exclusion and
+the padding setting are both, today, guarding an assertion that never runs.
+That is an upstream test bug, and whether to report it is the owner's call; the
+fix would be to walk the stages with adaptive execution off, as the census
+does, or through `AdaptiveSparkPlanHelper` after running.
+
+### 9.2 The predictions, scored
+
+1. **Failed.** Under the defaults no TPC-DS stage but `modified-q3`'s is past
+   8000; char padding is not what the suite's comment implies.
+2. **Held**, but the suite this restates does not check it (9.1).
+3. **Held.** No stage is past 65535.
+4. **Held.** TPC-H's largest stage is 1340 bytes.
+5. **Held, trivially.** Statistics change the stages (1058 to 1586 in v1.4)
+   but not the crossings: one with and one without.
+6. **Failed, in Varka's favour.** The one crossing is not string work or a
+   join but an integer filter over a scan.
+
+### 9.3 Departures from the design
+
+* **Adaptive execution is off in every configuration**, for the reason in 9.1;
+  the plan did not foresee it. A user's query runs with it on, where the
+  stages form at run time around the same exchanges, so the census reads as
+  the stages a query compiles, not as the exact plan AQE would settle on.
+* **One file per configuration**, not one file: each suite writes its own.
+* **One sbt run, not four parallel JVMs**: compiling every plan takes about a
+  minute, so there was nothing to parallelise.
+
+### 9.4 Correction, the same day: the joins were stubs
+
+A review of the upstream patch for the check in 9.1 (SPARK-59764, apache/spark
+#59017) pointed out that the census inherits a second blind spot from the
+same machinery. A broadcast hash join generates its code from the broadcast's
+value, which it computes while generating code, and over the empty tables the
+TPC bases create that value is `EmptyHashedRelation`. For it, `HashJoin` emits
+a one-line comment in place of an inner or semi join and everything after it
+in the stage. So 9.1 measured every stage with a broadcast join short.
+
+The census now generates each stage's code from a copy in which every
+broadcast exchange reads one row of non-null default values, counts the
+exchanges it replaced in a new `broadcasts` column, and fails if any stage's
+code still carries the empty-relation comment. Rerun at the commit its files
+name:
+
+* **The conclusion holds.** Still one stage past 8000 bytes in every
+  configuration, `modified-q3`'s.
+* **Many stages were short.** Of the default configuration's stages, 374 grew
+  once their joins were generated in full, the most by 3567 bytes: TPC-DS q13's
+  stage 6, from 1435 to 5002 bytes, which is now the largest stage of any
+  unmodified query in that configuration. TPC-H's largest is now q19's stage 2,
+  2533 bytes. The files are the corrected ones; the figures in 9.1 that differ
+  are superseded by them.
+* **One join shape is still approximate.** A one-row build side makes every
+  join key unique, so a join generates its unique-key form. For a join whose
+  real build side repeats keys, the loop over matches is missing; it is a
+  small addition to the stage, not an order of magnitude.
+
+The upstream suites share the blind spot, which #59017 names as a known
+limitation for a follow-up.
+
+**The figures are exact to within a few bytes, not to the byte.** Two runs at
+the same commit gave the same bytes for every TPC-DS stage, but TPC-H q22's
+stage 3 read 225 bytes in one and 233 in the other, and the constant pools of
+about 460 stages differed by an entry or two. Generated code depends on state
+that differs between runs, such as the order in which names are allocated. No
+conclusion here rests on a margin that small.
+
+### 9.5 Correction: two hundred ranges, not fifty
+
+9.1 describes `modified-q3`'s filter as "about fifty" ranges. That figure came
+from reading the top of the query file, not from counting: the file has 200
+`ss_sold_date_sk between a and b` clauses. The stage sizes above were measured
+on the query as it is, so they stand; only the description of it was wrong.
+
+The post can now say how often the cliff occurs in the standard benchmarks -
+once in 178 queries, and in a shape a BI tool writes - rather than implying it
+is everywhere.
