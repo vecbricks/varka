@@ -726,6 +726,17 @@ AVX-512, though it stands at 128 bits. The lesson is in `SKILLS.md`; the
 consequence for task 82 is that it is a 128-bit task, and its own scope section
 now says so.
 
+*Withdrawn as evidence on 24 September 2026, by the band item 49 of
+`SCOPE_MILESTONE_7.md` asked for.* Ten pinned runs of the arithmetic benchmark
+at 512 bits (`VarkaArithmeticBenchmark-jdk25-band.txt`) put the row that moved -
+`i + 1`, ANSI, checked, mixed nulls - in tier 3, with a spread of 26.03% between
+its fastest and slowest run of the same code. A 26.1% move on that row is the
+width of its own noise, so it says nothing about the dead local either way. The
+mechanism is not refuted, only unmeasured: re-taking it needs the two code
+states built and run as an A/B inside one pinned session, which no one has done.
+Task 82's narrowing to "a 128-bit task" rested on this figure and should be
+re-read without it.
+
 **What is registered rather than fixed.** `intBound`'s calendar constants
 (`IRYear` 40000 and its siblings) hold because task 52's guard fires, and that
 guard sits behind `VarkaEmitOptions.guardDayProducers`. With that option off -

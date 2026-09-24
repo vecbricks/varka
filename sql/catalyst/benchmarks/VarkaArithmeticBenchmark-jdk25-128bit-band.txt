@@ -1,0 +1,32 @@
+Band for 19 cases: how far apart repeated runs of an unchanged file land.
+Written by dev/varka_bench_band.py. Read by dev/varka_bench_diff.py --band, which
+uses a case's tier to decide whether its move in a regeneration means anything.
+
+tier 0 <= 3%   1 <= 10%   2 <= 25%   3 not readable from a diff at all
+
+runs:    10
+commit:  ec84698b4b2
+date:    2026-09-24T03:05:19+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+
+tier   spread occ  table | case
+1     5.73   1  one output over 1000000 rows | -i, ANSI, check off
+2    10.24   1  one output over 1000000 rows | -i, ANSI, checked
+1     8.40   1  one output over 1000000 rows | datediff(d, d2) + 1, bound proved, no check
+2    11.63   1  one output over 1000000 rows | datediff(d, d2) + 1, checked
+1     6.86   1  one output over 1000000 rows | i + 1, ANSI, check off
+3    25.95   1  one output over 1000000 rows | i + 1, ANSI, check off, mixed nulls
+0     2.50   1  one output over 1000000 rows | i + 1, ANSI, checked
+2    12.59   1  one output over 1000000 rows | i + 1, ANSI, checked (mask condemns the batch)
+1     6.18   1  one output over 1000000 rows | i + 1, ANSI, checked, mixed nulls
+1     5.45   1  one output over 1000000 rows | i + 1, LEGACY wrapping
+0     2.66   1  one output over 1000000 rows | i + 1, LEGACY wrapping (no mask)
+1     4.31   1  one output over 1000000 rows | i - 1, ANSI, check off
+0     1.51   1  one output over 1000000 rows | i - 1, ANSI, checked
+0     1.40   1  one output over 1000000 rows | try_add(i, 1) (mask clears the lane's validity)
+0     0.34   1  one output over 1000000 rows | year(d) * 100 + month(d), add checked
+0     0.24   1  one output over 1000000 rows | year(d) * 100 + month(d), bound proved, no check
+0     0.18   1  one output over 1000000 rows | year(d) * 100 + month(d), no check, mixed nulls
+0     1.17   1  one output over 1000000 rows | year(d) alone
+0     0.81   1  one output over 1000000 rows | year(d), month(d), no arithmetic

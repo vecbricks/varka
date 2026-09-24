@@ -584,6 +584,20 @@ every fork of a run of twenty, the method compiled once and no
 tier 3 in a regenerated band. Size: medium, and the investigation is the larger
 half.
 
+*Added 24 September 2026: the 128-bit band says which form the cycle lives in.*
+Task 87's benchmark now measures both epilogue forms in every fork, and ten
+pinned runs at 128 bits (`VarkaMethodSizeBenchmark-jdk25-128bit-band.txt`) put
+every null-free row of the single-epilogue form from twelve outputs up in tier
+3, with spreads of 6200% to 21400% - the cycle, in some forks and not others -
+and no row of the per-group form there by more than 26.42%, an ordinary tier-3
+spread with no cycle in it. Ten forks of one form entering the cycle against ten
+of the other never entering it is the strongest lead the task has: what the
+per-group form changed is the loop methods' prologue (each sets up only its own
+group's segments and literals) and the epilogue's calls, so the first question
+is which of those moves what the profiled loop predicate sees. It also means the
+default since task 87 already avoids the cycle on this family, which narrows the
+task to whether any shape still reaches it.
+
 ### 2.10 The closing task (task 181)
 
 The post itself, in task 118's shape: the claim of 1.1, the figure of 2.5, the
@@ -622,7 +636,7 @@ milestone 4.
 | 175 | Port `VarkaIntervalCompiler` to Java, one family | item 42 | medium |
 | 176 | A CI queue script | item 44 | small |
 | 177 | A scoped CI path for oracle-proven refactors | item 45 | small |
-| 178 | Bands on demand: the rule and the tooling | item 49, task 145's finding | small |
+| 178 | Bands on demand: the rule and the tooling. *Item 49's measurements taken 24 September 2026: the arithmetic benchmark's band at both widths, which withdraws `PLAN_TASK_63.md`'s 26.1% as evidence; the rule and the tooling remain* | item 49, task 145's finding | small |
 | 179 | The fuzzer as a standing job | 2.8, from 87's origin | small |
 | 182 | Extend Spark's own benchmarks, not only ours | item 8 | small to medium |
 | 180 | Promotion, continuously | 2.9 | continuous |
