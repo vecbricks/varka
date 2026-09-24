@@ -620,7 +620,7 @@ milestone 4.
 | 173 | A disjointness test for the compiler's family chain | item 41 | small |
 | 174 | The emitter's shared constants out of the facade | items 40, 43 | small |
 | 175 | Port `VarkaIntervalCompiler` to Java, one family | item 42 | medium |
-| 176 | A CI queue script | item 44 | small |
+| 176 | A CI queue script. **Done** (`PLAN_TASK_176.md`, 24 September 2026): `dev/varka_ci_queue.sh` holds, reruns in order, drops and reports the fork's Build runs, one at a time | item 44 | small |
 | 177 | A scoped CI path for oracle-proven refactors | item 45 | small |
 | 178 | Bands on demand: the rule and the tooling | item 49, task 145's finding | small |
 | 179 | The fuzzer as a standing job | 2.8, from 87's origin | small |
