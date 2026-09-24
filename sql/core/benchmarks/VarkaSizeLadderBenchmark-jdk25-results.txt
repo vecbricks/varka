@@ -1,0 +1,77 @@
+================================================================================================
+the size ladder: greatest(add_months(d, k), date_add(d, k), last_day(d))
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  504            514           7          4.0         252.0       1.0X
+Varka                                                 60             85          89         33.1          30.2       8.4X
+
+rung 16: vanilla's largest generated method is 2416 bytes, under HugeMethodLimit 8000; Varka fuses 16 of 16 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+32 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  955            957           1          2.1         477.7       1.0X
+Varka                                                 93            160         226         21.4          46.7      10.2X
+
+rung 32: vanilla's largest generated method is 4800 bytes, under HugeMethodLimit 8000; Varka fuses 32 of 32 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 1407           1414           7          1.4         703.5       1.0X
+Varka                                                130            455         716         15.4          64.9      10.8X
+
+rung 48: vanilla's largest generated method is 7184 bytes, under HugeMethodLimit 8000; Varka fuses 48 of 48 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+52 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 1526           1528           1          1.3         763.2       1.0X
+Varka                                                142            516         813         14.1          71.0      10.7X
+
+rung 52: vanilla's largest generated method is 7868 bytes, under HugeMethodLimit 8000; Varka fuses 52 of 52 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+54 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 8034           8148          69          0.2        4016.9       1.0X
+Varka                                                141            498         793         14.2          70.6      56.9X
+
+rung 54: vanilla's largest generated method is 8254 bytes, past HugeMethodLimit 8000; Varka fuses 54 of 54 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+56 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 8466           8490          36          0.2        4232.9       1.0X
+Varka                                                144            536         871         13.9          71.9      58.9X
+
+rung 56: vanilla's largest generated method is 8640 bytes, past HugeMethodLimit 8000; Varka fuses 56 of 56 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+64 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 9840           9998          98          0.2        4919.9       1.0X
+Varka                                                159            595         966         12.6          79.5      61.9X
+
+rung 64: vanilla's largest generated method is 10184 bytes, past HugeMethodLimit 8000; Varka fuses 64 of 64 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+80 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                12512          12602         114          0.2        6256.0       1.0X
+Varka                                                199            807        1352         10.0          99.6      62.8X
+
+rung 80: vanilla's largest generated method is 13272 bytes, past HugeMethodLimit 8000; Varka fuses 80 of 80 entries
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+100 entries over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 16021          16128         134          0.1        8010.6       1.0X
+Varka                                                 246           1183        2075          8.1         122.8      65.2X
+
+rung 100: vanilla's largest generated method is 17132 bytes, past HugeMethodLimit 8000; Varka fuses 100 of 100 entries
+

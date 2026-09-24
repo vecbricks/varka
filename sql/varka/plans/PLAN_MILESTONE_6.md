@@ -629,7 +629,7 @@ milestone 4.
 | 148 | The weight the budget counts is wrong for a division | `PLAN_MILESTONE_5.md` 2.84, item 39 | small |
 | 169 | No exception escapes the emitter. **Done** (`PLAN_TASK_169.md`, 24 September 2026): the one reachable gap was the byte budget; the compiler asks the shape cache for the kernel it admitted and demotes what the emitter declines, with the reason EXPLAIN prints, so a heavy output is residual at plan time and no task fails to emit | 2.3, the ghost-fallback contract | small |
 | 170 | Eight thousand, not sixty-five thousand: the JIT cliff. *Narrowed by task 87 to whether a limit below 8000 - C1's, about 1900 - earns its extra calls* | 2.4 | small, measured |
-| 171 | The size ladder, and the figure | 2.5, absorbing milestone 4's row 44 | medium |
+| 171 | The size ladder, and the figure. **Laptop ladder done** (`PLAN_TASK_171.md` 9.1, 24 September 2026): vanilla steps more than five times where its consume method crosses 8000 bytes, between 52 and 54 entries, and never compiles it again (`VarkaSizeLadderJitSuite`); Varka is a line through it; the runner's run and the figure remain | 2.5, absorbing milestone 4's row 44 | medium |
 | 172 | One realistic query | 2.6 | small to medium |
 | 173 | A disjointness test for the compiler's family chain | item 41 | small |
 | 174 | The emitter's shared constants out of the facade | items 40, 43 | small |
