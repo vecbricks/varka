@@ -225,3 +225,32 @@ the console from the first table on, so the notes now follow their tables.
 
 What remains is the plan's step 2 - the same class through the GitHub runner,
 for the published figure - and the figure itself.
+
+### 9.2 The runner's ladder, 24 September 2026
+
+The same class through `.github/workflows/benchmark.yml` on a GitHub-hosted
+runner, which drew the pool's full-width machine, the AMD EPYC 9V45
+(`VarkaSizeLadderBenchmark-jdk25-runner-results.txt`, and its provenance file
+beside it). The workflow needed Varka's engine jar on its `--jars` list first; a
+Varka benchmark had never been run through it.
+
+**The laptop's shape holds.** Vanilla steps between the same two rungs, from
+892.8 ns a row at 52 entries to 4766.3 at 54, where its method passes 8000
+bytes; Varka is 66.9 and 69.6 across the same pair. Varka is 9.2 to 13.3 times
+faster below the step and 68.5 to 82.1 times above it. The ratios are a little
+larger than the laptop's because the runner's vanilla is slower (304.7 ns a row
+at sixteen entries against the laptop's 252.0) while Varka's wide rungs are
+faster (111.4 at a hundred against 122.8), which is the 512-bit datapath the
+laptop does not have.
+
+**The Varka arm's average is far above its best, on both machines.** At a
+hundred entries the runner's best is 223 ms and its average 1923, with a
+standard deviation of 3787; the laptop's file has the same pattern (246 and
+1183). The per-row figures, like every ratio above, are the harness's, computed
+from the best time. The shape of the spread - one iteration of several seconds
+among fast ones - fits the kernel's widest methods still reaching C2 after the
+two-second warmup, but that is not measured. It is the first-query cost row 195
+asks about, and it belongs in the post's reproduction notes: a reader who reads
+the Avg column will see a smaller gap than the headline.
+
+What remains is the figure.
