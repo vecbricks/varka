@@ -101,7 +101,11 @@ None: no performance claim.
    line after each wait and acts only if the line still names the run it
    started with. *Added 24 September 2026: the first version did not, and
    reran #342's Build after #342 had been dropped for a fix.*
-3. **GitHub's run list is eventually consistent**: a rerun takes a few seconds
+3. **A PR's head lags its branch.** Right after a push GitHub still reports the
+   PR's old head for a few seconds, so `hold` matched the old run as current and
+   queued it. The head is read from the fork's branch instead, which the push
+   updates at once. *Added 24 September 2026, found holding #342.*
+4. **GitHub's run list is eventually consistent**: a rerun takes a few seconds
    to leave `completed`, so `run` sleeps thirty seconds after a rerun before its
    first poll. Without that it would read the old conclusion and move on.
 

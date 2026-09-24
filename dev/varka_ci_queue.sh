@@ -87,11 +87,16 @@ queued_run() { awk -v pr="$1" '$1 == pr { print $2 }' "$state"; }
 # ---- GitHub
 
 # "<fork> <branch> <head sha> <state>" for a PR of the base repository; state is open,
-# closed or merged.
+# closed or merged. The sha is the fork branch's, not the PR's: GitHub updates a PR's head a
+# few seconds after the push, and in that window the PR still names the old head, whose old
+# run would pass for current.
 pr_info() {
-  gh api "repos/$repo/pulls/$1" --jq \
-    '[.head.repo.full_name, .head.ref, .head.sha,
-      (if .merged_at then "merged" else .state end)] | join(" ")'
+  local fork branch st
+  read -r fork branch st <<<"$(gh api "repos/$repo/pulls/$1" --jq \
+    '[.head.repo.full_name, .head.ref, (if .merged_at then "merged" else .state end)]
+     | join(" ")')"
+  echo "$fork $branch $(gh api "repos/$fork/branches/$branch" --jq '.commit.sha' \
+    2>/dev/null || echo -) $st"
 }
 
 # "<id> <status> <conclusion> <head sha>" of the newest run of the workflow on a branch of a
