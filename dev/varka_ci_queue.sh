@@ -64,10 +64,12 @@ now() { date '+%H:%M %Z'; }
 # a lock, because `hold` is typically run while a `run` is working through the file.
 
 locked() { ( flock 9; "$@" ) 9>"$state.lock"; }
-queue_put() { # replaces the PR's line if it has one, else appends
+queue_put() { # replaces the PR's line in place if it has one, so it keeps its turn; else appends
   local tmp; tmp="$(mktemp)"
-  awk -v pr="$1" '$1 != pr' "$state" > "$tmp"
-  echo "$1 $2" >> "$tmp"
+  awk -v pr="$1" -v run="$2" '
+    $1 == pr { print pr " " run; found = 1; next }
+    { print }
+    END { if (!found) print pr " " run }' "$state" > "$tmp"
   mv "$tmp" "$state"
 }
 queue_del() {
