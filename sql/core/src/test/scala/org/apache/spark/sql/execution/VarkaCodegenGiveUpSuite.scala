@@ -166,6 +166,56 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
     assert(!lines.exists(_._2.contains("Found too long generated codes")))
   }
 
+  test("G12: the CASE WHEN that fails past 64KB inside a stage compiles outside one") {
+    // G24's expression again, with whole-stage codegen off: outside a stage Spark splits the
+    // branches into methods of their own, so the same 3000 branches compile and answer.
+    val branches = (1 to 3000).map(k => s"WHEN id = $k THEN id * $k").mkString(" ")
+    noAqe {
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
+        val df = spark.range(0, 10).selectExpr(s"CASE $branches ELSE 0 END AS v")
+        checkAnswer(df, (0L until 10L).map(id => org.apache.spark.sql.Row(id * id)))
+      }
+    }
+  }
+
+  test("G14: 3000 top-level output fields fail past 64KB inside a stage and compile outside") {
+    // Inside a stage the row writer's top-level fields are not split into methods. Past 100
+    // fields the projection would leave the stage by G2, so `maxFields` is raised to let it in.
+    // A DataFrame keeps the plan it was first executed with, so each arm builds its own.
+    def df: DataFrame = spark.range(0, 10).selectExpr((1 to 3000).map(k => s"id + $k AS c$k"): _*)
+    noAqe(withSQLConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> "10000") {
+      assert(staged(df).exists(_.isInstanceOf[ProjectExec]))
+      val e = intercept[Throwable](df.write.format("noop").mode("overwrite").save())
+      assert(causes(e).exists(_.contains("64 KB")), causes(e).take(3))
+    })
+    noAqe {
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
+        assert(df.collect().map(_.getLong(2999)).toSeq == (0L until 10L).map(_ + 3000))
+      }
+    }
+  }
+
+  test("G27: a class past 65535 constant-pool entries fails to compile, and nothing warns first") {
+    // Spark computes a class's constant-pool size but compares it with nothing, so the only
+    // guard is the compile failure. String literals do not reach the pool - Spark passes them
+    // through `references` - and a class past a million characters of functions spills them into
+    // nested classes with pools of their own, so this builds the class by hand: 40 methods of
+    // 900 distinct long constants, two pool entries each, about 72000 in all, while no method is
+    // near 64KB.
+    def compile(methods: Int): Unit = {
+      val body = (0 until methods).map { m =>
+        val sum = (0 until 900).map(k => s"${1000000000000L + m * 900L + k}L").mkString(" + ")
+        s"public long f$m() { return $sum; }"
+      }.mkString("\n")
+      val code = s"""public Object generate(Object[] references) { return new Probe(); }
+        |class Probe { $body }""".stripMargin
+      CodeGenerator.compile(new CodeAndComment(code, Map.empty))
+    }
+    compile(20)
+    val e = intercept[Throwable](compile(40))
+    assert(causes(e).exists(_.contains("0xFFFF")), causes(e).take(2))
+  }
+
   test("G32: outside a stage, a projection that fails to compile falls back to the interpreter") {
     // With splitting off, 3000 entries compile into one method past 64KB. The projection
     // factory catches the compile error and builds the interpreted projection instead.

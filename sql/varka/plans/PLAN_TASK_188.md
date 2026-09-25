@@ -856,3 +856,24 @@ census is complete as a reading of the source; it is not yet backed by committed
 
   Left: G3 is task 185's first step by its own plan; G27 (the constant pool), G12 to G14 in
   numbers, and the silent inlining of G16 and G19 have no reproducer yet.
+* **Three more, 25 September 2026**, in the same suite:
+  * **G12**: the 3000-branch `CASE WHEN` that fails past 64KB inside a stage (G24) compiles and
+    answers outside one, with whole-stage codegen off, because only there are its branches split
+    into methods of their own.
+  * **G14**: 3000 top-level output fields do the same. With `maxFields` raised so the projection
+    can be inside a stage at all, its row writer is not split and the stage fails past 64KB;
+    outside a stage the same projection compiles and answers.
+  * **G27**: a class past 65535 constant-pool entries fails to compile with Janino's "0xFFFF",
+    and nothing warns before it. It cannot be reached through an ordinary query: Spark passes
+    string literals through its `references` array rather than the pool, and a class past a
+    million characters of functions spills them into nested classes with pools of their own. So
+    the test builds the class by hand, as G28's does - 40 methods of 900 distinct long
+    constants fail, 20 compile - and what it shows is that the pool, when it is reached, is
+    guarded only by the compile failure.
+
+  That makes fifteen entries with a reproducer. G3 is task 185's first step. G13 and the silent
+  inlining of G16 and G19 are properties of the generated source rather than of the plan or the
+  log, so they would be read from it rather than asserted. Of the rest, G5, G6, G7 and G11 are
+  lists of operators and conditions rather than one trigger, G30 has no honest way to provoke it
+  (section 4), G22 and G23 are mitigations, and G9, G20, G21, G29, G31, G33 and G34 could be
+  provoked but were not attempted here.
