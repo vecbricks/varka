@@ -255,3 +255,29 @@ the wrapper, whose columnar path was the scan's own `executeColumnar()`, the pat
 now runs; the benchmark no longer names the wrapper. A regeneration with repeats is due in the
 next quiet window, and 8.3's conclusions wait for it.
 
+
+### 8.6 The regeneration with repeats, 26 September 2026
+
+The quiet run 8.3 asked for: `VarkaSchemaWidthBenchmark` regenerated at both
+widths on the laptop, the canary passing and the load at start below 0.5, and
+five repeats of the wide run for its band
+(`VarkaSchemaWidthBenchmark-jdk25-band.txt`).
+
+**Prediction 3 holds by minimums.** With the fix, Varka reads the 101-field
+Arrow cache as batches and fuses, as at 100 fields: 13.9 ns a row against 13.1
+on the wide run and 14.7 against 13.5 on the narrow one, and the band's best
+of five puts the two within about 5%. The kernel reads one column either way,
+as the prediction said.
+
+**But the 101-field Varka case is unstable, and why is open.** Over the five
+repeats it spread 79% - its slow runs near 25 ns a row - where the 100-field
+Varka case spread under 4%. The band therefore puts it in tier 3, not readable
+from a diff, and any later regeneration of this file should compare that case
+by minimums only. Two other cases are wide as well: vanilla at 100 fields
+(41%) and the 101-field sum with `maxFields` raised (67%).
+
+**8.3's upstream figures stay undecided.** Vanilla at 101 fields is about 3%
+slower than at 100 on the date projection, inside the 41% spread of the 100-field
+case, so the benchmark cannot say vanilla pays anything there - which agrees with
+task 210's benchmark on the runners, where a one-column read over a cached table
+cost nothing on either path.
