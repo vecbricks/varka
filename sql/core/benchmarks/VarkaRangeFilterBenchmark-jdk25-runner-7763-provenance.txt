@@ -1,0 +1,12 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.VarkaRangeFilterBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36098744044
+commit:      c1b5237740b (branch varka-task-172-design-a, with design A's split arm)
+date:        2026-09-25
+inputs:      class=*VarkaRangeFilterBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+             extra-java-options=--add-modules jdk.incubator.vector
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 64-Core Processor, Zen 3, AVX2 only
+             (sql/varka/HARDWARE.md); the published figure is to come from the EPYC 9V45
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)

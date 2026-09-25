@@ -502,3 +502,34 @@ large unsigned number.
 
 `VarkaEmitDump` compiled with the default options whatever `--options` said, so a compiler option
 such as `rangeSets` could not be probed with it; it now compiles with the options it emits with.
+
+### 9.8 Design A on runners, 25 September 2026
+
+Four runs of `VarkaRangeFilterBenchmark` from the branch at `c1b5237740b` on GitHub-hosted
+runners drew three AMD EPYC 7763s and one EPYC 9V74 - again no 9V45, which makes it 0 of 15
+tries. Two are committed as their workflows' artifacts, `-runner-9v74-3` and `-runner-7763`,
+with provenance; the other two 7763s agree with the committed one within a few percent at every
+rung. Nanoseconds a row:
+
+| ranges | 9V74: vanilla | B | A | 7763: vanilla | B | A |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 35.7 | 12.7 | 11.7 | 36.2 | 12.5 | 11.3 |
+| 49 | 50.1 | 22.7 | 22.5 | 46.7 | 21.2 | 21.2 |
+| 100 | 9288.7 | 38.4 | 37.9 | 10394.1 | 36.2 | 36.1 |
+| 200 | 17773.9 | 69.6 | 69.7 | 18345.2 | 65.4 | 66.6 |
+
+**On these machines the designs tie.** Past ten ranges A and B are within 6% of each other on
+all four runs, either way round; at ten, A is ahead by several percent on every run.
+Both are about 230 to 295 times vanilla past its crossing, so prediction 4 holds on runners too.
+
+**Why the laptop's lead does not travel, as far as the evidence goes.** Neither runner CPU exposes
+AVX-512 (`sql/varka/HARDWARE.md`), so C2 compiles both kernels to 256-bit AVX2, where a comparison
+yields a vector rather than a mask register. The laptop's assembly put B's loss on mask registers:
+the accumulator spilled through the stack between iterations of the range loop, because only
+seven are usable. With masks in sixteen vector registers that spill need not happen. This is the
+likely reading, not a read one: the runners' assembly was not captured.
+
+**The recommendation of 9.7 stands, and B's case for staying is stronger.** A is general and never
+slower than B by more than noise; B ties it on the pool's common machines with one small method
+where A has several. `splitConditions` on by default, `rangeSets` kept, rows 207 and 208 for B's
+loop.
