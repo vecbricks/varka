@@ -119,8 +119,8 @@ r.text((X0 + X1) / 2, Y0 + 56, "branches", size=18, anchor="middle")
 
 for case in (INTERP, ON, OFF):
     pts = [(px(n), py(rows[n][case])) for n in rungs]
-    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-        r.line(x1, y1, x2, y2, color=COLORS[case], width=2.4)
+    # One smooth stroke through the rungs rather than a chain of segments.
+    r.curve(pts, color=COLORS[case], width=2.4)
     for x, y in pts:
         r.ellipse(x, y, 4, 4, color=COLORS[case], width=2.0)
     last = rungs[-1]

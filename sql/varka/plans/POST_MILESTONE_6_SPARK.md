@@ -85,10 +85,13 @@ once at INFO.
 year filed. The peak is the failure that used to be loud; the 8000-byte step
 does not fail, so it has no such trail.*
 
-**See it yourself.** The script that produced the first table is in the
-repository, runs against a stock distribution, and takes a few minutes:
+**See it yourself.** The script that produced the first table is one file,
+[`method_size_cliff.scala`](https://github.com/vecbricks/varka/blob/master/sql/varka/demo/method_size_cliff.scala),
+in the repository that holds this post's measurements. It needs nothing but a
+stock Spark 4.2.0 distribution and takes a few minutes:
 
 ```
+curl -O https://raw.githubusercontent.com/vecbricks/varka/master/sql/varka/demo/method_size_cliff.scala
 bin/spark-shell --master local[1] -i method_size_cliff.scala
 ```
 

@@ -123,8 +123,8 @@ r.text(
 
 for jdk in JDKS:
     pts = [(px(n), py(data[jdk][n][2])) for n in entries]
-    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-        r.line(x1, y1, x2, y2, color=COLORS[jdk], width=2.4)
+    # One smooth stroke through the rungs rather than a chain of segments.
+    r.curve(pts, color=COLORS[jdk], width=2.4)
     for x, y in pts:
         r.ellipse(x, y, 4, 4, color=COLORS[jdk], width=2.0)
     last = entries[-1]
