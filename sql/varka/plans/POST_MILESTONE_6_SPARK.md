@@ -206,9 +206,11 @@ than the 8000-byte step costs, and section 5 has the likely reason.
 ## 4. The settings, and what each one does
 
 There are four things people try. Two work, with a price, one does not, and
-one makes it worse. Every number here is from the projection of section 1 on
-Spark master, two million cached rows, on GitHub runners; each file is read
-against its own baseline, since the runners are not one machine.
+one makes it worse. The numbers come from three places, each named where it is
+used: the projection of section 1 on a build of Spark master over two million
+cached rows, the same projection on stock 4.2.0 from the demo, and the
+`CASE WHEN` benchmark of section 5. All ran on GitHub runners, which are not
+one machine, so each number is read against its own baseline in the same run.
 
 **`spark.sql.codegen.hugeMethodLimit=8000` works.** With the limit set to the
 size HotSpot enforces, Spark measures the compiled stage, finds a method past
@@ -277,26 +279,34 @@ Two shapes where the step hides behind something else, and a plan will not
 show you why.
 
 **A wide cached table is read row by row, even for one column.** Spark reads
-a cached table in batches, in columnar form, when the table's schema is
-within `spark.sql.codegen.maxFields`, which is a hundred fields by default.
-The count is of the whole cached schema, not of what the query reads. So a
+a cached table in batches, in columnar form, when three things hold: the
+vectorized cache reader is on, which is the default; every column of the
+cached table is a number or a boolean; and the table's schema is within
+`spark.sql.codegen.maxFields`, which is a hundred fields by default. A table
+with one string, date or decimal column is read row by row at any width, and
+this section does not apply to it. For an all-numeric table the width decides,
+and the count is of the whole cached schema, not of what the query reads. So a
 table of 101 columns is read row by row by a query that touches one of them,
 while the same query over the same data in a Parquet file is read in batches,
 because the file scan counts only the columns it reads. For a one-column
-aggregate this costs nothing you can measure: on an EPYC 9V45, two million
-rows, `sum(c1)` is 19.3 ns a row over a hundred-column table and 17.5 over a
-101-column one, because Spark turns the batches back into rows before the
-aggregate anyway. For a read of every column it costs four and a half times: 100.6 ns a
-row for the hundred columns, 454.9 for the 101, and 88.0 for the 101 with the
-limit raised to 101. `df.cache()` followed by a read of the whole thing is the
+aggregate this costs nothing: in two runs, on an EPYC 9V45 and on a Xeon
+Platinum 8370C, two million rows, `sum(c1)` over the 101-column table was a
+little faster than over the hundred-column one, not slower, at 16.4 against
+17.6 ns a row and 30.6 against 33.4. Both paths decode only the column the
+query reads, so for one column the path makes no difference. For a read of
+every column it costs between two and a half and five times, depending on the
+machine: 443.3 ns a row for the 101 columns against 84.7 for the hundred on
+the 9V45, and 762.9 against 310.9 on the Xeon. Raising the limit to 101
+restores the batches and the cost, 85.6 and 316.4. `df.cache()` followed by a read of the whole thing is the
 shape a cached table is usually made for.
 
 ![A cached table at and past maxFields](figures/svg/fig14-the-cached-table-width.svg)
 
 *Figure 3. One column summed and every column read over a cached table of 100
 and of 101 int columns. The 101-column table is read row by row whatever the
-query touches; it costs nothing on the sum and four and a half times on the
-whole-table read, and raising the limit restores the batches.*
+query touches; it costs nothing on the sum and five times on the whole-table
+read on this machine, two and a half on a Xeon, and raising the limit restores
+the batches.*
 
 The remedy is the same setting, raised just past the table's width. Raise it
 with care: it is also the width past which Spark keeps an operator out of
@@ -335,7 +345,7 @@ run the query, as it should be. At a hundred the stage is six times slower
 than no stage at all, because its one method is past 8000 bytes and never
 compiled while the split methods outside a stage are. At a thousand the two
 paths are the same code, since the stage has fallen back to it, and the stage
-still costs more because the failed compile of a 23000-line class is paid on
+still costs more because the failed compile of the stage's class is paid on
 every run: about half a second, a sixth of the time at this row count. And
 look at the outside-a-stage column between 300 and 1000: fifteen times the
 cost for three and a third times the branches. That is the second cliff. The

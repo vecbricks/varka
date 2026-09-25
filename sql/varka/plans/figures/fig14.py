@@ -89,7 +89,7 @@ r.note(
     300,
     530,
     "the count is of the whole cached schema, not of what the query reads;\n"
-    "the batches are turned back into rows before an aggregate anyway",
+    "both paths decode only the columns the query reads",
     size=18,
 )
 

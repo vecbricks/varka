@@ -481,3 +481,36 @@ prediction.
 
 The post's `[[expected]]` marks are replaced by the file's numbers, quoted for
 the 9V74, and 9.1 stands as written, since a prediction is scored, not edited.
+
+### 9.3 The review of 25 September, and what it changed
+
+A review of the pull request raised ten findings; each is answered here or in
+the commit that fixed it. Four were about claims in the post and are fixed in
+its text: the one-column sum is flat because both cache paths decode only the
+requested column (`convertCachedBatchToInternalRow` and
+`convertCachedBatchToColumnarBatch` both take the selected attributes), not
+because batches are turned back into rows, which section 8 said and which is
+corrected here rather than there; the columnar cache scan needs the vectorized
+reader and primitive columns as well as a schema within `maxFields`; section
+4 of the post names the three sources its numbers come from; and the caller's
+8060 bytes outside a stage is printed by the benchmark itself now, instead of
+quoted from the stock laptop check. The size of the failed class is no longer
+quoted at all.
+
+Two findings were measurement rules. The claims under 1.3x were run again:
+the cached-table benchmark ran twice, on the 9V45
+(`CachedTableWidthBenchmark-jdk25-results.txt`, replacing the first run's
+file) and on a Xeon Platinum 8370C (`-xeon8370c-results.txt`). By minimums the
+one-column sum over the 101-column table was faster than over the 100-column
+one in both runs, so "costs nothing" stands and "nothing you can measure" is
+dropped; the whole-table read costs 5.2 times on the 9V45 and 2.5 on the Xeon,
+so the post quotes the range. The interpreted case now runs five iterations.
+
+The 30-branch rung was not left out on evidence the first time; now it has
+some. Run as the first rung, then again after the 60-branch rung in the same
+JVM, the stage case at 30 branches took about half as long the second time and
+was then faster than no stage. So the benchmark warms the JVM with the
+smallest rung, unrecorded, and the figure shows every rung. The remaining
+three findings were code: a failed compile is labelled from its own error, the
+sbt path names the whole-stage case it leaves out, and the figures derive their
+labels from their data.
