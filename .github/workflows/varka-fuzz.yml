@@ -1,0 +1,148 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# The Varka fuzzers as a standing job (task 179, PLAN_TASK_179.md). Every night this
+# runs the IR fuzzer - random IR trees emitted, run and checked against the reference
+# evaluator - in one JVM per runner core with a seed of its own, and the coverage
+# composition fuzzer - random wide projections and filters of the coverage table through
+# the compiler - once. The seeds come from the date, so each night visits new trees and
+# a failure replays with the seed and iteration the log names. The suites' own defaults
+# stay small so that a pull request pays seconds; the night pays minutes.
+name: Varka fuzz
+
+on:
+  schedule:
+    # 02:00 UTC, after the day's pull requests and before the next morning's.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'IR fuzz iterations per JVM and lane'
+        required: false
+        default: '40000'
+      compositions:
+        description: 'Coverage compositions, each a projection and a filter'
+        required: false
+        default: '400'
+      seed:
+        description: 'Base seed; the date when empty'
+        required: false
+        default: ''
+
+jobs:
+  fuzz:
+    name: Nightly fuzz
+    # Never on apache/spark, whose tree has no Varka; on this project's repositories always.
+    if: github.repository != 'apache/spark'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Cache SBT and Maven
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/apache-maven-*
+          build/*.jar
+          ~/.sbt
+        key: build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
+        restore-keys: |
+          build-
+    - name: Cache Coursier local repository
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/coursier
+        key: varka-fuzz-coursier-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
+        restore-keys: |
+          varka-fuzz-coursier-
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
+    - name: Compile the catalyst tests and export their classpath
+      run: |
+        ./build/sbt -Phive -batch "catalyst/Test/compile" "export catalyst/Test/fullClasspath" \
+          | tail -1 > target/catalyst-test-classpath.txt
+        test -s target/catalyst-test-classpath.txt
+    # One JVM per core, each with its own seed and log, waited on by process id, which exits
+    # on every path (sql/varka/skills/testing-and-debugging.md, "A fuzz campaign is sixteen
+    # JVMs, not one sbt"). The iteration count keeps each lane well under the suite's
+    # twenty-minute cap per test at a runner's rate of about a hundred trees a second.
+    - name: Run the IR fuzzer, one JVM per core
+      env:
+        ITERATIONS: ${{ inputs.iterations || '40000' }}
+        SEED: ${{ inputs.seed }}
+      run: |
+        set -uo pipefail
+        CP="$(cat target/catalyst-test-classpath.txt)"
+        base="${SEED:-$(date -u +%Y%m%d)}"
+        cores="$(nproc)"
+        mkdir -p target/fuzz
+        pids=()
+        for k in $(seq 0 $((cores - 1))); do
+          seed="${base}${k}"
+          java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+            -Dspark.testing=1 -Dvarka.fuzz.iterations="$ITERATIONS" -Dvarka.fuzz.seed="$seed" \
+            -cp "$CP" org.scalatest.tools.Runner -oW \
+            -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrFuzzSuite \
+            > "target/fuzz/ir-$seed.log" 2>&1 &
+          pids+=($!)
+          echo "seed $seed: pid ${pids[-1]}"
+        done
+        failed=0
+        for i in "${!pids[@]}"; do
+          if wait "${pids[$i]}"; then
+            echo "JVM $i: passed"
+          else
+            echo "JVM $i: FAILED"; failed=1
+          fi
+        done
+        {
+          echo "## IR fuzzer: $cores JVMs, $ITERATIONS iterations per lane, seeds ${base}0..${base}$((cores - 1))"
+          grep -h -E "Tests: succeeded|FAILED|varka.fuzz.seed=" target/fuzz/ir-*.log | sort | uniq -c
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+        exit $failed
+    - name: Run the coverage composition fuzzer
+      env:
+        COMPOSITIONS: ${{ inputs.compositions || '400' }}
+        SEED: ${{ inputs.seed }}
+      run: |
+        set -uo pipefail
+        CP="$(cat target/catalyst-test-classpath.txt)"
+        seed="${SEED:-$(date -u +%Y%m%d)}"
+        java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+          -Dspark.testing=1 -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
+          -cp "$CP" org.scalatest.tools.Runner -oW \
+          -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
+          2>&1 | tee target/fuzz/compositions-$seed.log
+        status=${PIPESTATUS[0]}
+        {
+          echo "## Coverage compositions: $COMPOSITIONS, seed $seed"
+          grep -E "Tests: succeeded|FAILED" "target/fuzz/compositions-$seed.log" || true
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+        exit "$status"
+    - name: Keep the logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-fuzz-logs
+        path: target/fuzz/
+        retention-days: 30

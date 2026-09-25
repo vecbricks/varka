@@ -1364,6 +1364,23 @@ jobs:
         java-version: ${{ inputs.java }}
     - name: Run the Varka suites of ${{ matrix.module }}
       run: ./build/sbt -Phive "${{ matrix.suites }}"
+    # The catalyst suites include the emitted-bytes oracle, VarkaEmittedBytesSuite, which has
+    # just passed: the emitter produces exactly what sql/varka/emitted_bytes.json pins. Whether
+    # this change moved that file is then the difference between a refactor the oracle proves
+    # byte-identical and a change to the emitted code, and a reviewer should not have to open
+    # the diff to know which (task 177, PLAN_TASK_179.md section 5).
+    - name: The emitted-bytes oracle's verdict
+      if: matrix.module == 'catalyst'
+      run: |
+        base="${VARKA_DIFF_BASE:-}"
+        if [ -z "$base" ]; then
+          echo "emitted bytes: the oracle passed; no diff base to compare the pinned file against"
+        elif git diff --quiet "$base" HEAD -- sql/varka/emitted_bytes.json; then
+          echo "emitted bytes: unchanged since $base, so the oracle proves this change byte-identical"
+        else
+          echo "emitted bytes: changed since $base, on these lines of sql/varka/emitted_bytes.json:"
+          git diff --stat "$base" HEAD -- sql/varka/emitted_bytes.json
+        fi | tee -a "$GITHUB_STEP_SUMMARY"
 
   varka-docs:
     needs: [precondition]
