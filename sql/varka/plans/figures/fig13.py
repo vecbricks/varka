@@ -41,13 +41,13 @@ COUNTS = [
 ]
 TOTAL = sum(c for _, c in COUNTS)
 
-r = Rough(900, 560, seed=131)
-r.text(40, 40, 'Spark tickets that quote "grows beyond 64 KB", by year filed', size=24)
+r = Rough(960, 560, seed=131)
+r.text(40, 40, 'Spark tickets that quote "grows beyond 64 KB", by year filed', size=30)
 r.text(
     40,
     72,
     "%d tickets; the tracker's own search, %s" % (TOTAL, QUERY_DATE),
-    size=17,
+    size=20,
     color="#5c5f66",
 )
 
@@ -64,24 +64,24 @@ for i, (year, c) in enumerate(COUNTS):
     x = X0 + i * (W + GAP)
     if c:
         r.rect(x, py(c), W, Y0 - py(c), fill="#ffd43b" if year < 2018 else "grey")
-        r.text(x + W / 2, py(c) - 12, str(c), size=17, anchor="middle")
-    r.text(x + W / 2, Y0 + 22, str(year), size=15, anchor="middle", color="#5c5f66")
+        r.text(x + W / 2, py(c) - 12, str(c), size=20, anchor="middle")
+    r.text(x + W / 2, Y0 + 22, str(year), size=18, anchor="middle", color="#5c5f66")
 
 # 2.3.0 shipped in February 2018 with the split machinery of the 2017 fix wave.
 xr = X0 + 3 * (W + GAP) - GAP / 2
 r.line(xr, Y0, xr, py(top) - 20, color="#868e96", dash="6 6")
-r.text(xr + 8, py(top) - 14, "Spark 2.3.0 ships:\nthe 64 KB fix wave", size=16, color="#5c5f66")
+r.text(xr + 8, py(top) - 14, "Spark 2.3.0 ships:\nthe 64 KB fix wave", size=19, color="#5c5f66")
 r.note(
     X0 + 5 * (W + GAP),
     py(top) + 60,
     "the step at 8000 bytes leaves no such trail:\nit does not fail, it answers slowly",
-    size=18,
+    size=21,
 )
 r.text(
     40,
     520,
     "four of the %d are still open, among them a CASE WHEN report from 2020" % TOTAL,
-    size=15,
+    size=18,
     color="#868e96",
 )
 

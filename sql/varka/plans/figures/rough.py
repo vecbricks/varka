@@ -103,17 +103,26 @@ class Rough:
             hy = y2 - head * math.sin(a + s * 0.5)
             self.line(x2, y2, hx, hy, color, width)
 
-    def curve(self, pts, color=STROKE, width=1.6, arrow=False):
-        """A smooth freehand curve through `pts` (Catmull-Rom), drawn twice."""
+    def curve(self, pts, color=STROKE, width=1.6, arrow=False, monotone=False):
+        """A smooth freehand curve through `pts`, drawn twice.
+
+        By default a Catmull-Rom spline, which suits shapes. For data, `monotone=True` draws a
+        monotone cubic (Fritsch-Carlson) through points ordered by x: it never rises above or
+        dips below its neighbouring points between them, so a chart's line cannot suggest a
+        value the data does not hold."""
         for k in (1.0, 0.5):
             p = [(x + self._o(k), y + self._o(k)) for x, y in pts]
-            p = [p[0]] + p + [p[-1]]
-            d = "M%.1f %.1f" % p[1]
-            for i in range(1, len(p) - 2):
-                p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
-                c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-                c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-                d += " C%.1f %.1f, %.1f %.1f, %.1f %.1f" % (c1 + c2 + p2)
+            d = "M%.1f %.1f" % p[0]
+            if monotone:
+                for c1, c2, end in self._monotone(p):
+                    d += " C%.1f %.1f, %.1f %.1f, %.1f %.1f" % (c1 + c2 + end)
+            else:
+                p = [p[0]] + p + [p[-1]]
+                for i in range(1, len(p) - 2):
+                    p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
+                    c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+                    c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+                    d += " C%.1f %.1f, %.1f %.1f, %.1f %.1f" % (c1 + c2 + p2)
             self._stroke(d, color, width)
         if arrow:
             (x1, y1), (x2, y2) = pts[-2], pts[-1]
@@ -127,6 +136,33 @@ class Rough:
                     color,
                     width,
                 )
+
+    @staticmethod
+    def _monotone(p):
+        """Bezier segments of the monotone cubic Hermite spline through `p` (x increasing)."""
+        n = len(p)
+        dx = [p[i + 1][0] - p[i][0] for i in range(n - 1)]
+        m = [(p[i + 1][1] - p[i][1]) / dx[i] for i in range(n - 1)]
+        t = (
+            [m[0]]
+            + [0.0 if m[i - 1] * m[i] <= 0 else (m[i - 1] + m[i]) / 2 for i in range(1, n - 1)]
+            + [m[-1]]
+        )
+        for i in range(n - 1):
+            if m[i] == 0:
+                t[i] = t[i + 1] = 0.0
+                continue
+            a, b = t[i] / m[i], t[i + 1] / m[i]
+            if a * a + b * b > 9:
+                tau = 3 / math.sqrt(a * a + b * b)
+                t[i], t[i + 1] = tau * a * m[i], tau * b * m[i]
+        for i in range(n - 1):
+            h = dx[i] / 3
+            yield (
+                (p[i][0] + h, p[i][1] + t[i] * h),
+                (p[i + 1][0] - h, p[i + 1][1] - t[i + 1] * h),
+                p[i + 1],
+            )
 
     # -- fills -----------------------------------------------------------------------------
     def _hachure(self, poly, fill, gap=4.2, angle=-41.0, width=1.5):

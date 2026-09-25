@@ -514,3 +514,49 @@ smallest rung, unrecorded, and the figure shows every rung. The remaining
 three findings were code: a failed compile is labelled from its own error, the
 sbt path names the whole-stage case it leaves out, and the figures derive their
 labels from their data.
+
+### 9.4 The second version: shorter, rounder, drawn, 25 September 2026
+
+The owner asked how to make the post more readable and attractive, and then
+to improve it as I saw fit. The first version was right in content and read
+like a lab report: the fix arrived after 1,931 of its 3,820 words, the prose
+carried 58 exact decimals and 14 machine names, and every picture was a chart,
+so nothing showed what happens inside Spark. The second version:
+
+* **Leads with the fix.** A three-step box under the opening says how to check
+  (`maxMethodCodeSize` in `EXPLAIN CODEGEN`), what to set
+  (`hugeMethodLimit=8000`) and which release warns. The rest is the why.
+* **Is 2,839 words with its tables, code and captions**, from 3,820. The two
+  tables that repeated figures are gone, section 4's four number-heavy
+  paragraphs became a four-row table with three short paragraphs under it, and
+  section 2's history is two sentences and two links.
+* **Rounds in the prose.** A style decision, made here and not in milestone
+  5's post: the text says "about 1,500 to about 9,200 nanoseconds", gives one
+  wall-clock translation (a hundred million rows on one core go from about two
+  and a half minutes to fifteen), and uses ratios; the exact values stay in the
+  figures, which read them from the committed files, and in the files. The
+  quote checker matches numbers with at least two integer digits and a decimal
+  part, so rounded integers and single-digit ratios pass it, and each still
+  comes from a file behind the word "about".
+* **Names the machines once**, in a closing note on how it was measured; in
+  the text a number is "on the runner of Figure 6" or "in the same run".
+* **Has nine figures, five of them new**, in milestone 5's hand-drawn style
+  and at lettering large enough for a phone: the ruler of the two limits as
+  the hero and the link card (`fig16.py`), what whole-stage codegen does with
+  a query (`fig17.py`), a step or a slope from the tuning runner file
+  (`fig18.py`), a decision chart for "is my query on the cliff?" (`fig19.py`),
+  and the second cliff of a large `CASE WHEN`, the method holding the calls at
+  300 and 1000 branches (`fig20.py`). The line charts draw a monotone spline,
+  added to `rough.py`, so a curve never rises above or dips below the points
+  it joins.
+* **Uses the reruns of the review** (9.3): the `CASE WHEN` numbers are from
+  the EPYC 7763 file with five interpreted iterations and the caller's size,
+  and the cache numbers from the 9V45 and Xeon 8370C pair.
+
+Two builder changes came with it: `dev/varka_post_page.py` styles a
+blockquote as a quiet box, and lets each table's own `--:` markers decide
+alignment instead of right-aligning every column after the first, which read
+badly for text columns; the milestone 5 post's one table gained the markers,
+so its page renders as before. The italic subtitle the draft had under the
+title was dropped: the builder removes the first italic block as the post's
+note to its editors, by design.

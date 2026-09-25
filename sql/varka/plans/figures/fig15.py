@@ -77,13 +77,13 @@ cpu = prov["cpu"].split(",")[0]
 jdk = prov["jdk"].replace("OpenJDK 64-Bit Server VM ", "JDK ")
 rungs = sorted(rows)
 
-r = Rough(900, 700, seed=139)
-r.text(40, 40, "a CASE WHEN of n branches, three ways to run it", size=24)
+r = Rough(960, 700, seed=139)
+r.text(40, 40, "A CASE WHEN of n branches, three ways to run it", size=30)
 r.text(
     40,
     72,
     "nanoseconds a row, both axes log; 200 000 rows; %s, %s" % (cpu, jdk),
-    size=17,
+    size=20,
     color="#5c5f66",
 )
 
@@ -110,50 +110,50 @@ for ns, label in [
     (1000000, "1 ms"),
 ]:
     r.line(X0 - 8, py(ns), X0, py(ns))
-    r.text(X0 - 14, py(ns), label, size=16, anchor="end", color="#5c5f66")
+    r.text(X0 - 14, py(ns), label, size=19, anchor="end", color="#5c5f66")
 for n in rungs:
     r.line(px(n), Y0, px(n), Y0 + 8)
-    r.text(px(n), Y0 + 24, str(n), size=16, anchor="middle", color="#5c5f66")
-r.text((X0 + X1) / 2, Y0 + 56, "branches", size=18, anchor="middle")
+    r.text(px(n), Y0 + 24, str(n), size=19, anchor="middle", color="#5c5f66")
+r.text((X0 + X1) / 2, Y0 + 56, "branches", size=21, anchor="middle")
 
 for case in (INTERP, ON, OFF):
     pts = [(px(n), py(rows[n][case])) for n in rungs]
     # One smooth stroke through the rungs rather than a chain of segments.
-    r.curve(pts, color=COLORS[case], width=2.4)
+    r.curve(pts, color=COLORS[case], width=3.0, monotone=True)
     for x, y in pts:
         r.ellipse(x, y, 4, 4, color=COLORS[case], width=2.0)
     last = rungs[-1]
     # The stage and the no-stage paths end within a fifth of each other at 1000 branches, so
     # their labels are pushed apart rather than drawn at the points.
     shift = {ON: -14, OFF: 16}.get(case, 0)
-    r.text(px(last) + 12, py(rows[last][case]) + shift, LABELS[case], size=19, color=COLORS[case])
+    r.text(px(last) + 12, py(rows[last][case]) + shift, LABELS[case], size=21, color=COLORS[case])
 
 first_past = min(
     n for n in rungs if method[n].endswith("bytes") and int(method[n].split()[0]) > 8000
 )
+r.arrow(300, 236, px(first_past) - 12, py(rows[first_past][ON]) + 2, color="#6741d9", width=1.8)
 r.note(
-    px(first_past) + 24,
-    py(rows[first_past][ON]) + 40,
+    150,
+    190,
     "the stage's method is %s:\nnever compiled, %.0fx slower than no stage"
     % (method[first_past], rows[first_past][ON] / rows[first_past][OFF]),
-    size=17,
+    size=20,
 )
 # The outside-a-stage path's own step: the pair of adjacent rungs where it grows the most.
 a, b = max(zip(rungs, rungs[1:]), key=lambda p: rows[p[1]][OFF] / rows[p[0]][OFF])
 r.note(
-    px(a) - 40,
-    py(rows[a][OFF]) + 60,
-    "outside a stage, %d to %d branches: %.0fx the cost\nfor %.1fx the branches - "
-    "the method that calls\nthe split methods passes 8000 bytes itself"
-    % (a, b, rows[b][OFF] / rows[a][OFF], b / float(a)),
-    size=17,
+    555,
+    488,
+    "outside a stage, %d to %d branches:\n%.0fx the time for %.1fx the branches:\n"
+    "the calling method passes 8000 bytes" % (a, b, rows[b][OFF] / rows[a][OFF], b / float(a)),
+    size=20,
 )
 r.text(
     40,
     660,
     "at 1000 branches the stage fails to compile past 64 KB and falls back to the same split"
     " code, plus the failed compile on every run",
-    size=15,
+    size=18,
     color="#868e96",
 )
 

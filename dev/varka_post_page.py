@@ -70,7 +70,13 @@ line-height:1.5}
 pre code{background:none;padding:0}
 table{border-collapse:collapse;width:100%;font-size:.92rem;margin:0 0 1.2rem}
 th,td{border-bottom:1px solid var(--rule);padding:.4rem .5rem;text-align:left}
-td+td,th+th{text-align:right;font-variant-numeric:tabular-nums}
+td,th{font-variant-numeric:tabular-nums}
+/* Alignment is the table's own: a column marked `--:` in the Markdown is right-aligned by
+   the converter, so numbers line up and text columns stay readable. */
+blockquote{margin:1.6rem 0;padding:.9rem 1.2rem;background:var(--code);border:1px solid var(--rule);
+border-radius:8px}
+blockquote p:last-child,blockquote ol:last-child{margin-bottom:0}
+blockquote ol{margin:.2rem 0 0;padding-left:1.3rem}
 .fig{margin:1.6rem 0 .6rem;background:var(--fig);border-radius:10px;padding:.6rem;
 border:1px solid var(--rule);overflow-x:auto;-webkit-overflow-scrolling:touch}
 /* A drawing authored at 900px shrinks to a third of that in a phone-width column, which

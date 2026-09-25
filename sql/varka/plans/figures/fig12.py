@@ -57,13 +57,13 @@ entries = sorted(data[JDKS[0]])
 below = max(n for n in entries if not data[JDKS[0]][n][1])
 above = min(n for n in entries if data[JDKS[0]][n][1])
 
-r = Rough(900, 660, seed=127)
-r.text(40, 40, "n date expressions in one projection, stock Spark 4.2.0", size=24)
+r = Rough(960, 660, seed=127)
+r.text(40, 40, "The step, on stock Spark 4.2.0 and three JDKs", size=30)
 r.text(
     40,
     72,
     "nanoseconds a row, log scale; GitHub-hosted runners, one core",
-    size=17,
+    size=20,
     color="#5c5f66",
 )
 
@@ -90,22 +90,22 @@ for ns, label in [
     (10000, "10 000 ns"),
 ]:
     r.line(X0 - 8, py(ns), X0, py(ns))
-    r.text(X0 - 14, py(ns), label, size=16, anchor="end", color="#5c5f66")
+    r.text(X0 - 14, py(ns), label, size=19, anchor="end", color="#5c5f66")
 for n in entries:
     r.line(px(n), Y0, px(n), Y0 + 8)
     r.text(
         px(n),
         Y0 + 24,
         "%d\n%d bytes" % (n, data[JDKS[0]][n][0]),
-        size=15,
+        size=18,
         anchor="middle",
         color="#5c5f66",
     )
 r.text(
     (X0 + X1) / 2,
     Y0 + 80,
-    "expressions in the projection, and the largest method's size",
-    size=18,
+    "columns in the projection, and the largest method's size",
+    size=21,
     anchor="middle",
 )
 
@@ -116,7 +116,7 @@ r.text(
     xs - 10,
     Y1 - 6,
     "past 8000 bytes: HotSpot\nnever compiles the method",
-    size=16,
+    size=19,
     anchor="end",
     color="#5c5f66",
 )
@@ -124,18 +124,23 @@ r.text(
 for jdk in JDKS:
     pts = [(px(n), py(data[jdk][n][2])) for n in entries]
     # One smooth stroke through the rungs rather than a chain of segments.
-    r.curve(pts, color=COLORS[jdk], width=2.4)
+    r.curve(pts, color=COLORS[jdk], width=3.0, monotone=True)
     for x, y in pts:
         r.ellipse(x, y, 4, 4, color=COLORS[jdk], width=2.0)
     last = entries[-1]
-    r.text(px(last) + 12, py(data[jdk][last][2]), "JDK %d" % jdk, size=19, color=COLORS[jdk])
+    # JDK 17 and 25 end within a percent of each other; their labels are pushed apart.
+    shift = {17: -13, 25: 13}.get(jdk, 0)
+    r.text(
+        px(last) + 12, py(data[jdk][last][2]) + shift, "JDK %d" % jdk, size=21, color=COLORS[jdk]
+    )
 
 steps = ", ".join("%.1fx on JDK %d" % (data[j][above][2] / data[j][below][2], j) for j in JDKS)
 r.note(
-    px(N0) + 20,
-    py(6000),
-    "from %d to %d expressions the time per row steps\n%s" % (below, above, steps),
-    size=18,
+    px(N0) + 380,
+    py(800),
+    "from %d to %d columns the time\nper row steps %s"
+    % (below, above, steps.replace(", 4", ",\n4")),
+    size=21,
 )
 # Which JDK ran on which machine, grouped from the outputs themselves.
 by_cpu = {}
@@ -146,7 +151,7 @@ r.text(
     40,
     640,
     machines,
-    size=15,
+    size=18,
     color="#868e96",
 )
 

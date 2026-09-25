@@ -68,20 +68,20 @@ prov = read_provenance(PROVENANCE)
 cpu = prov["cpu"].split(",")[0]
 jdk = prov["jdk"].replace("OpenJDK 64-Bit Server VM ", "JDK ")
 
-r = Rough(900, 620, seed=137)
-r.text(40, 40, "a cached table of 100 and of 101 columns, nanoseconds a row", size=24)
-r.text(40, 72, "two million rows; %s, %s" % (cpu, jdk), size=17, color="#5c5f66")
+r = Rough(960, 620, seed=137)
+r.text(40, 40, "A cached table of 100 and of 101 columns", size=30)
+r.text(40, 72, "nanoseconds a row, two million rows; %s, %s" % (cpu, jdk), size=20, color="#5c5f66")
 
 scale = 440.0 / max(ns for _, rows in groups for _, ns, _ in rows)
 y = 110
 for query, rows in groups:
-    r.text(40, y, query, size=21)
+    r.text(40, y, query, size=23)
     y += 24
     for case, ns, scan in rows:
-        r.text(40, y + 17, case, size=16)
+        r.text(40, y + 17, case, size=19)
         w = max(6.0, ns * scale)
         r.rect(300, y, w, 34, fill="#e03131" if scan == "row-based" else "green")
-        r.text(300 + w + 12, y + 17, "%.1f, %s" % (ns, scan), size=17)
+        r.text(300 + w + 12, y + 17, "%.1f, %s" % (ns, scan), size=20)
         y += 46
     y += 30
 
@@ -90,7 +90,7 @@ r.note(
     530,
     "the count is of the whole cached schema, not of what the query reads;\n"
     "both paths decode only the columns the query reads",
-    size=18,
+    size=21,
 )
 
 finish(r, "fig14-the-cached-table-width")
