@@ -16,7 +16,9 @@
 
 <!-- What is built: the files, the shape of the change, the alternatives considered and why
      this one. For a design with competing forms, build the arms and measure them rather than
-     argue; a table of arms goes here. -->
+     argue; a table of arms goes here. For a refactor or a port, the list of members it moves
+     is generated with dev/varka_members.py and the seam chosen with dev/varka_callgraph.py,
+     never written from memory. -->
 
 ## 3. Predictions, registered before the run
 

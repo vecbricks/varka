@@ -645,7 +645,7 @@ milestone 4.
 | 182 | Extend Spark's own benchmarks, not only ours | item 8 | small to medium |
 | 180 | Promotion, continuously | 2.9 | continuous |
 | 183 | Onboarding: task tables as issues, a hardware census, templates | item 38 | small |
-| 184 | The refactoring tools under `dev/` | item 46 | small |
+| 184 | The refactoring tools under `dev/`. **Done** (`PLAN_TASK_184.md`, 25 September 2026): `varka_members.py`, `varka_callgraph.py` and `varka_unused_imports.py`, documented in `docs/sql-varka.md` and pointed to from the task template; checked against the crossings and the unused imports task 174 met | item 46 | small |
 | 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. **Planned** (`PLAN_TASK_185.md`, 24 September 2026): reproducers at 100 and 101 fields, a Varka scan that reads the Arrow cache as batches whatever its width, and a recorded reason where that does not reach. **Baseline committed** (8.1, 25 September 2026): at 101 cached fields the scan produces rows and Varka has no node, silently, as the census read. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
 | 187 | The constant-pool cliff | 2.11 | small |

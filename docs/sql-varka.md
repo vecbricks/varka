@@ -1183,6 +1183,18 @@ Every one answers `--help` with its own usage; what follows is what each is
 | `varka_trap_census.py` | Splits HotSpot's `LogCompilation` output into the two different things called `uncommon_trap` and reports per-method deoptimisation and compile counts - for when a kernel is fast in isolation and slow in a query. |
 | `varka_word_census.sh` | Reports what validity word each IR value root produces, over the whole corpus - the audit behind the null-handling algebra. |
 
+### Refactoring and porting
+
+A change that moves code between files, or ports a file from Scala to Java, starts from an
+inventory and ends with imports to clean up. These three do both from the source and the
+build's own reports, so the plan names members that exist.
+
+| Tool | What it is for |
+| :--- | :--- |
+| `varka_members.py` | The member map: every member of each top-level type in the files given, with its line range, doc comment's first sentence, and, with `--callees`, which other listed members it calls. The inventory a refactor's plan lists, generated rather than written from memory. |
+| `varka_callgraph.py` | The calls that cross between named groups of members (`--group NAME=REGEX`), or between files (`--by-file`): before a split, the seam with the fewest crossings is the one to cut; after it, what still crosses. |
+| `varka_unused_imports.py` | Reads a build log's unused-import reports - scalac's, which Spark's build makes errors, and checkstyle's from `dev/lint-java` - and removes every one in a pass, down to the one selector of a brace import. A moved file inherits all its source's imports, and the build otherwise reports them one per multi-minute run. |
+
 ### Measuring, and not fooling yourself
 
 The benchmark tooling is built around one observation: the same code has
