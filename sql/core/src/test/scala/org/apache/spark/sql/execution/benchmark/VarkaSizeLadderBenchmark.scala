@@ -48,11 +48,11 @@ object VarkaSizeLadder {
   private[benchmark] def entry(k: Int): String =
     s"greatest(add_months(d, $k), date_add(d, $k), last_day(d)) AS c$k"
 
-  private[benchmark] def cacheDates(session: SparkSession): Unit = {
+  private[benchmark] def cacheDates(session: SparkSession, rows: Int = numRows): Unit = {
     session.sql(
       s"""select case when id % 31 = 0 then null
          |       else date_add(date'2020-01-01', cast(id as int) % 1460) end as d
-         |from range(0, $numRows)""".stripMargin)
+         |from range(0, $rows)""".stripMargin)
       .createOrReplaceTempView("ladder_dates")
     VarkaArrowSessions.cache(session, "ladder_dates")
   }

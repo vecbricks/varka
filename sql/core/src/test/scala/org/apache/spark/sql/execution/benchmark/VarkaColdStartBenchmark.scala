@@ -20,117 +20,69 @@ package org.apache.spark.sql.execution.benchmark
 import scala.concurrent.duration._
 
 import org.apache.spark.benchmark.Benchmark
-import org.apache.spark.internal.config.UI.UI_ENABLED
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeCache
-import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec}
-import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
-import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * Cold-query latency benchmark (Task 14): the first execution of a fresh plan shape, Janino
- * projection compile vs Varka kernel emission, at query level. `VarkaCodegenBenchmark` measures
- * the class-generation gap in isolation (hundreds of times); this benchmark asks what that gap
- * is worth for a whole query, where the scan and the framework also spend time.
+ * What the first query costs (task 195): a query's first run against its steady state, on stock
+ * Spark and on Varka, at the size ladder's rungs.
  *
- * The harness is built not to lie (`PLAN_TASK_14.md` 2.4 and section 6):
+ * Every number the ladder publishes is steady state: the harness warms each case for two seconds
+ * and reports the best of its iterations. A reader who runs a query once pays something else -
+ * planning, the compile of the generated code, and the JVM's own warmup of it - and on Varka the
+ * compile is an emission and a class definition per shape, then C2's work on the kernel's
+ * methods. This benchmark prices that once, so the post can say it beside the headline.
  *
- *  - Every iteration projects a chain over a *different* column of a cached wide table, with
- *    iteration-distinct literals, so each iteration is a fresh source shape to Janino's global
- *    compile cache. The two sides use disjoint column ranges because that Janino cache is
- *    process-wide, not per-session. Distinct columns and literals do *not* make a fresh shape
- *    for Varka - the task-18 `VarkaShapeCache` keys on the IR structure alone, and every query
- *    here is one structure - so the varka case invalidates that (process-wide) cache before
- *    each timed iteration instead: every measurement is a genuine emission plus class define,
- *    which is what a production-fresh shape pays.
- *  - There is *no warmup* (`warmupTime = 0`): warmup iterations would consume the fresh shapes
- *    and every timed iteration would measure a cache hit. `numIters` pins one execution per
- *    pre-built query.
- *  - Each side runs one untimed guard query first (again on its own reserved column). That
- *    warms the shared scan shape and the execution framework on both sides equally, and on the
- *    varka side its `numVarkaBatches` metric is asserted positive - so the timed varka numbers
- *    cannot silently measure the Janino fallback.
- *  - Query planning is forced outside the timer (`executedPlan` in the setup) and the timed
- *    action is `toRdd.count()` on that same query execution - a `noop` write would re-plan a
- *    fresh write command inside the timer. The timed region is therefore execution only:
- *    Janino compile or kernel emission, then the ~100K-row compute, which is small enough that
- *    compilation dominates the first run. `toRdd` is the row consumer, so the varka side also
- *    pays its per-row read-back (task 12's known cost); at this row count that is well under
- *    the compile-time gap being measured.
+ * Each rung is one projection of `n` entries of `greatest(add_months(d, k), date_add(d, k),
+ * last_day(d))` over an Arrow-cached date column, the ladder's own, over fewer rows than the
+ * ladder reads so that the steady state does not drown the first run. Four cases per rung:
  *
- * The table is 100K rows by 24 date columns: 10 timed shapes per side, one guard column per
- * side, and the remainder headroom. Times are per query (best and average over the 10 fresh
- * shapes); the rate column is rows per unit time and is not the point here.
+ *  - **first run**: a shape this JVM has not compiled. Every iteration takes fresh offsets, so
+ *    vanilla's generated source is new and Janino compiles it again; the Varka arm also clears
+ *    the shape cache first, because literal values are not part of a shape and the same tree
+ *    with new constants would be a hit. The timer covers planning, compiling and the run.
+ *  - **second run**: the same query again in the same session, which is what the steady state
+ *    is on the way to; the difference between the two is the first run's price.
+ *
+ * Iterations are printed one by one rather than summarised, because a first run is one event
+ * and its spread is the finding. The rungs and data are `VarkaSizeLadder`'s.
+ *
+ * `VARKA_COLDSTART_SMOKE=true` in the environment, which the forked benchmark JVM inherits
+ * where a `-D` on sbt's command line does not, runs one rung over ten thousand rows twice, to
+ * check the benchmark itself and not to measure anything.
  *
  * To run this benchmark:
  * {{{
- *   1. build/sbt
- *        "sql/test:runMain org.apache.spark.sql.execution.benchmark.VarkaColdStartBenchmark"
- *   2. generate result:
- *        SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "sql/test:runMain ..."
- *      Results will be written to "benchmarks/VarkaColdStartBenchmark-jdk<NN>-results.txt".
+ *   dev/varka_bench_regen.sh sql VarkaColdStartBenchmark
  * }}}
  */
 object VarkaColdStartBenchmark extends SqlBasedBenchmark {
+  import VarkaArrowSessions.createSession
+  import VarkaSizeLadder.{cacheDates, entry}
 
-  private val numRows = 100000
-  private val numCols = 24
-  private val shapesPerSide = 10
-  // Disjoint column ranges: baseline times c0..c9, varka times c10..c19, guards use c20/c21.
-  private val baselineCols = 0 until shapesPerSide
-  private val varkaCols = shapesPerSide until 2 * shapesPerSide
-  private val baselineGuardCol = 2 * shapesPerSide
-  private val varkaGuardCol = 2 * shapesPerSide + 1
+  private val smoke = sys.env.get("VARKA_COLDSTART_SMOKE").contains("true")
 
-  private def createSession(appName: String, varkaEnabled: Boolean): SparkSession = {
-    val builder = SparkSession.builder()
-      .master("local[1]")
-      .appName(appName)
-      .config(UI_ENABLED.key, false)
-      .config(SQLConf.SHUFFLE_PARTITIONS.key, 1)
-      .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
-      .config(StaticSQLConf.SPARK_CACHE_SERIALIZER.key,
-        classOf[ArrowCachedBatchSerializer].getName)
-      .config(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
-    if (varkaEnabled) {
-      builder
-        .config(SQLConf.VARKA_ENABLED.key, "true")
-        .withExtensions(_.injectColumnar(_ => VarkaColumnarRule))
-    }
-    builder.getOrCreate()
-  }
+  /**
+   * Rows per query: enough that a run is a query with batches and a JIT warmup rather than a
+   * plan, and a twentieth of the ladder's so the first run is not lost in the steady state.
+   */
+  private val numRows = if (smoke) 10000 else 100000
+  private val repetitions = if (smoke) 2 else 5
+  private val rungs = if (smoke) Seq(16) else VarkaSizeLadder.rungs
 
-  private def cacheWideTable(session: SparkSession): Unit = {
-    val columns = (0 until numCols).map { j =>
-      s"date_add(date'2020-01-01', cast((id + $j * 37) % 1460 as int)) as c$j"
-    }
-    session.sql(s"select ${columns.mkString(", ")} from range(0, $numRows)")
-      .createOrReplaceTempView("varka_wide")
-    session.catalog.cacheTable("varka_wide")
-    session.sql("select count(*) from varka_wide").collect()
-  }
-
-  /** The fresh plan shape for column `col`: a nested chain, literals distinct per column. */
-  private def query(col: Int): String = {
-    s"SELECT datediff(date_add(c$col, ${col + 1}), date_sub(c$col, ${col + 2})) AS x " +
-      "FROM varka_wide"
-  }
-
-  /** Pre-builds and pre-plans the query for each column, leaving only execution to the timer. */
-  private def prebuild(session: SparkSession, cols: Seq[Int]): IndexedSeq[DataFrame] = {
-    cols.toIndexedSeq.map { col =>
-      val df = session.sql(query(col))
-      df.queryExecution.executedPlan // force analysis, optimization and physical planning
-      df
-    }
+  /** The rung's query with offsets no earlier iteration used, so nothing about it is cached. */
+  private def query(n: Int, iteration: Int): String = {
+    val base = 10000 * (iteration + 1)
+    s"SELECT ${(1 to n).map(k => entry(base + k)).mkString(", ")} FROM ladder_dates"
   }
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
+    // The inherited session uses the default cache serializer; these arms own their
+    // Arrow-backed sessions, as the ladder's do.
     spark.stop()
     SparkSession.clearActiveSession()
     SparkSession.clearDefaultSession()
-
-    val baseline = createSession("VarkaColdStart-baseline", varkaEnabled = false)
+    val baseline = createSession("VarkaColdStart-vanilla", varkaEnabled = false)
     SparkSession.clearActiveSession()
     SparkSession.clearDefaultSession()
     val varka = createSession("VarkaColdStart-varka", varkaEnabled = true)
@@ -138,53 +90,43 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
     SparkSession.clearDefaultSession()
     require(baseline ne varka, "the two sessions must be distinct or there is no baseline")
     try {
-      cacheWideTable(baseline)
-      cacheWideTable(varka)
-
-      // The untimed guards: warm the shared scan shape and framework on both sides, and prove
-      // the varka side actually runs the kernels before any of its numbers are recorded.
-      baseline.sql(query(baselineGuardCol)).queryExecution.toRdd.count()
-      val guard = varka.sql(query(varkaGuardCol))
-      guard.queryExecution.toRdd.count()
-      val guardNode = guard.queryExecution.executedPlan
-        .collectFirst { case v: VarkaColumnarToRowExec => v }
-        .getOrElse(throw new IllegalStateException(
-          s"expected a fused VarkaColumnarToRowExec:\n" +
-            guard.queryExecution.executedPlan.treeString))
-      val guardBatches = guardNode.metrics("numVarkaBatches").value
-      require(guardBatches > 0,
-        s"the guard query must run the kernels, got numVarkaBatches = $guardBatches")
-
-      val baselineQueries = prebuild(baseline, baselineCols)
-      val varkaQueries = prebuild(varka, varkaCols)
-
-      runBenchmark("cold start: first execution of a fresh plan shape") {
-        // warmupTime = 0 on purpose: see the class doc. Each timer iteration executes its own
-        // pre-planned query exactly once, so every measurement is a genuinely cold shape.
-        val benchmark = new Benchmark(
-          s"first execution over $numRows Arrow-cached rows", numRows,
-          minNumIters = shapesPerSide, warmupTime = 0.seconds, minTime = 0.seconds,
-          output = output)
-        benchmark.addTimerCase("baseline (Janino compile)", numIters = shapesPerSide) { timer =>
-          if (timer.iteration >= 0) {
-            val qe = baselineQueries(timer.iteration).queryExecution
+      cacheDates(baseline, numRows)
+      cacheDates(varka, numRows)
+      runBenchmark("the first query: greatest(add_months(d, k), date_add(d, k), last_day(d))") {
+        for (n <- rungs) {
+          val benchmark = new Benchmark(s"$n entries over $numRows Arrow-cached rows", numRows,
+            minNumIters = repetitions, warmupTime = 0.seconds, minTime = 0.seconds,
+            outputPerIteration = true, output = output)
+          benchmark.addTimerCase("vanilla Spark, first run") { timer =>
+            val q = query(n, timer.iteration)
             timer.startTiming()
-            qe.toRdd.count()
+            baseline.sql(q).noop()
             timer.stopTiming()
           }
-        }
-        benchmark.addTimerCase("varka (kernel emission)", numIters = shapesPerSide) { timer =>
-          if (timer.iteration >= 0) {
-            val qe = varkaQueries(timer.iteration).queryExecution
-            // All queries here are one shape to the class cache (see the class doc): drop it
-            // so this iteration emits and defines cold, as a genuinely fresh shape would.
+          benchmark.addTimerCase("vanilla Spark, second run") { timer =>
+            val q = query(n, 100 + timer.iteration)
+            baseline.sql(q).noop()
+            timer.startTiming()
+            baseline.sql(q).noop()
+            timer.stopTiming()
+          }
+          benchmark.addTimerCase("Varka, first run") { timer =>
+            val q = query(n, timer.iteration)
             VarkaShapeCache.invalidateAll()
             timer.startTiming()
-            qe.toRdd.count()
+            varka.sql(q).noop()
             timer.stopTiming()
           }
+          benchmark.addTimerCase("Varka, second run") { timer =>
+            val q = query(n, 100 + timer.iteration)
+            VarkaShapeCache.invalidateAll()
+            varka.sql(q).noop()
+            timer.startTiming()
+            varka.sql(q).noop()
+            timer.stopTiming()
+          }
+          benchmark.run()
         }
-        benchmark.run()
       }
     } finally {
       baseline.stop()
