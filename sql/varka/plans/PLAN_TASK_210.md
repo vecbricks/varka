@@ -356,3 +356,35 @@ The cached-table run completed on the same machine
 19 ns a row on either path; reading every column is 454.9 ns a row for the
 101-column table against 100.6 for the 100-column one and 88.0 with
 `maxFields` raised, so the trap is 4.5 times on a whole-table read.
+
+## 9. The first draft, 25 September 2026
+
+`POST_MILESTONE_6_SPARK.md`, written from the outline of section 3 in the
+shape of `POST_MILESTONE_5.md`, about 3300 words against that post's 4400.
+Every number in it is from a committed results file and the quote checker
+reads it at zero orphans: the demo's three JDK outputs, the size ladder's
+runner file, the tuning files on the 9V45 and, with the JVM flag off, on the
+7763, the range filter's 9V74 file, the cached-table file of section 8, and
+the tracker count of 7.1. Every claim about Spark's behaviour names the log
+line, the setting text or the plan section that pins it; the census's entry
+numbers are not in the body. Each of the six sections ends with a command and
+what it prints, and the JVM flag's output and the `EXPLAIN CODEGEN` header
+were taken from a run rather than typed.
+
+**What the draft still owes**, marked `[[...]]` in the text:
+
+| Owed | Where | Comes from |
+| :-- | :-- | :-- |
+| The `CASE WHEN` ladder's numbers: whole-stage on and off at 100, 300 and 1000 branches, and the interpreted case at 300 and 1000 | 4, 5 | `CaseWhenCodegenBenchmark`'s runner file, dispatched 25 September after the `spark.testing` fix (section 8) |
+| The link to the second post | closing | task 181 |
+| Three figures: the step on three JDKs, the tracker's years, the cached table's six bars | 1, 5 | scripts under `figures/`, in `POST_MILESTONE_5.md`'s form |
+| The trailer | a `_SHORT` file, as milestone 5's | written last |
+| The tickets' states | 6 | reread on the day of publication |
+
+Two things the draft settled on the way. The `CASE WHEN` sizes inside a stage
+quoted in section 5 (2853 bytes at 30 branches to past 64 KB at 1000) are the
+lines the benchmark prints above each rung, from the first runner run's log;
+the results file will carry the same lines. And the second witness for the
+step, the size ladder's runner file, is this fork's vanilla arm on a master
+build; the post calls it a September 2026 build of master and names its
+crossing separately from 4.2.0's, since they differ by two entries.
