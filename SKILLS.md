@@ -91,6 +91,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A fuzz campaign is sixteen JVMs, not one sbt, and it re-finds what is already on the books](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-is-sixteen-jvms-not-one-sbt-and-it-re-finds-what-is-already-on-the-books)
 * [`VarkaIrFuzzSuite` caps each test at twenty minutes, so a big `-Dvarka.fuzz.iterations` makes every JVM report failure](sql/varka/skills/testing-and-debugging.md#varkairfuzzsuite-caps-each-test-at-twenty-minutes-so-a-big--dvarkafuzziterations-makes-every-jvm-report-failure)
 * [A forced masked batch of length 1 is all-null, and the kernel is right to say so](sql/varka/skills/testing-and-debugging.md#a-forced-masked-batch-of-length-1-is-all-null-and-the-kernel-is-right-to-say-so)
+* [Predict immunity from what the scan produces, and pin both arms of a reproducer](sql/varka/skills/testing-and-debugging.md#predict-immunity-from-what-the-scan-produces-and-pin-both-arms-of-a-reproducer)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)
@@ -127,5 +128,6 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Run `dev/scalastyle` before pushing Scala; its parser is older than the language](sql/varka/skills/working-in-this-repo.md#run-devscalastyle-before-pushing-scala-its-parser-is-older-than-the-language)
 * [A run's job list on this fork says nothing about what the pull request changed](sql/varka/skills/working-in-this-repo.md#a-runs-job-list-on-this-fork-says-nothing-about-what-the-pull-request-changed)
 * [A red Build here may be failing on code this repository does not contain](sql/varka/skills/working-in-this-repo.md#a-red-build-here-may-be-failing-on-code-this-repository-does-not-contain)
+* [A two-track milestone drifts to the measurable track; review it against the done-when list](sql/varka/skills/working-in-this-repo.md#a-two-track-milestone-drifts-to-the-measurable-track-review-it-against-the-done-when-list)
 
 <!-- END generated contents -->

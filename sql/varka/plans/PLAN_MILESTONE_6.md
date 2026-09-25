@@ -758,3 +758,79 @@ The milestone's own acceptance, beyond each task's admission check:
   nothing in this milestone needs it.
 * **Any new lane, type or expression family.** This milestone adds no coverage;
   that is what makes it a foundation milestone rather than a breadth one.
+
+## 9. Review at the halfway point, 25 September 2026
+
+*Added on 25 September 2026 at the owner's request, two days after the
+milestone opened. Section 4's ordering is not rewritten; 9.2 is the ordering
+for what remains, and where they differ 9.2 is current.*
+
+### 9.1 The state against 1.3
+
+| 1.3 | State on 25 September |
+| :-- | :-- |
+| 1. No admitted shape fails to emit | Done: 87, 168, 169 |
+| 2. The size ladder committed | Done: laptop, runner and figure (171) |
+| 3. One realistic query | Done in code (172, `splitConditions` on by default); the full-width 9V45 figure is still owed, 0 hits in 15 dispatches |
+| 4. The census complete | 34 entries read; reproducers for 15 merged or in review; G13, G16 and G19 have none; the reproducers pin vanilla's side, and only G4's pins Varka's |
+| 5. The post published | Not outlined |
+| 6. Beside the spine | The CI queue (176) landed; 173, 174, 175, 177, 178, 179, 182, 183 and 184 have not started, and 180 has no commit |
+
+The table had 23 rows when the milestone opened and has 43 today, six of them
+optional research. The spine is nearly through and the research rows around it
+are mostly done; the two tracks the owner set on 23 September are uneven, since
+promotion has not moved at all and the compiler-legibility rows have not started.
+The pattern is that the next measurable row kept winning over the row with no
+number in it, and a review against 1.3 rather than against the table is what
+made it visible.
+
+**What is missing, in the order it matters for the post.**
+
+1. The post's honest bounds: 195 (what the first query costs, since a
+   12167-byte kernel is emitted and compiled per query), 197 (whether the gap
+   survives parallelism) and 2.10's native-accelerator comparison. Risk 1 of
+   section 6 is about exactly these, and none is started.
+2. The census's Varka column is a table, not a test. `VarkaCodegenGiveUpSuite`
+   makes vanilla give up in each case; the claim the post makes is Varka's
+   answer, so every reproducer should assert it too: the fused node present, or
+   a decline with the recorded reason.
+3. Two of section 5's acceptance checks are by hand. The fuzz campaign was
+   reinterpreted in `PLAN_TASK_169.md` because `VarkaIrFuzzSuite` draws IR
+   directly and never goes through the compiler, and `emitted_bytes.json` is
+   referenced by no workflow or script.
+4. Row 170's question, whether a budget below 8000 earns its calls, is open,
+   and the post has to name the threshold Varka targets.
+5. Track A: 180's cadence and 183's onboarding, both with their material
+   already committed.
+
+### 9.2 What comes first
+
+| Order | Task | Why first | Size |
+| ---: | :-- | :-- | :-- |
+| 1 | 181, the outline only | It decides which of 195, 197 and the 9V45 figure the post needs, before more measuring | small |
+| 2 | 188, Varka's side pinned | Every reproducer asserts Varka's answer; G13, G16 and G19 get theirs | small |
+| 3 | 195 | The first-query cost is the bound the post cannot publish without, and a kernel cache across queries is the product question behind it | medium, measured |
+| 4 | 179 with 177 | A fuzzer through the compiler to the emitter as a standing job, asserting fuse-or-decline-with-reason and never throw; `emitted_bytes.json` checked in CI | small |
+| 5 | 180 and 183 | One post from committed material (the demo, the ladder), and 183's issues opened from this table | small, owner-facing |
+| 6 | 170 | The threshold answer, from the A/B task 87 left ready | small, measured |
+
+After those, in this order: 173, 174 and 184 (legibility, cheap), 175 (the
+Java port, once 184's map exists), 200 and 198 (the compiler improvements with
+measured motivation), then 197 and 202. New rows join this table only with a
+reason to do them in this milestone rather than in `SCOPE_MILESTONE_7.md`.
+
+### 9.3 Lessons, recorded in the skills files
+
+* A predicted immunity is checked at the input path before it is written
+  (`testing-and-debugging.md`): 185's cache finding, the INFO line that made
+  the cliff not silent, and 192's default-cache measurement were all the same
+  mistake.
+* A two-track milestone drifts to the measurable track, and the review that
+  catches it is against the done-when list, not the table
+  (`working-in-this-repo.md`).
+* Grep the record before choosing an algorithm; build both designs and read
+  the assembly; reread every plan paragraph against its results file before
+  committing, because the quote checker catches numbers and not adjectives.
+  These three are already in the skills files and in the task plans of 172
+  and 192, and are listed here because the review found each of them paid for
+  in this milestone.
