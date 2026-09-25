@@ -388,3 +388,38 @@ the results file will carry the same lines. And the second witness for the
 step, the size ladder's runner file, is this fork's vanilla arm on a master
 build; the post calls it a September 2026 build of master and names its
 crossing separately from 4.2.0's, since they differ by two entries.
+
+### 9.1 The `CASE WHEN` ladder, predicted before its file, 25 September 2026
+
+The owner asked for the draft to carry expected numbers rather than blanks, so
+these are registered here first and scored against the runner's file when it
+lands. They are for an AMD EPYC 9V45, the machine the first dispatch drew; a
+dispatch that lands on an EPYC 7763 reads about twice these throughout (the
+tuning files put the two machines at 1747.3 against 892.1 ns a row on the same
+rung), and the ratios are the machine-independent part of the prediction.
+
+The basis. The first dispatch's 300-branch rung completed before the run died
+at 1000 (section 8): inside a stage, a 32605-byte method that HotSpot never
+compiles, about 7000 ns a row; outside a stage, the branches split into
+methods HotSpot compiles, about 900; interpreted, about 30700. A row evaluates
+half the branches on average, since `v` is uniform over them, so those are
+about 47 ns per evaluated branch interpreted and 6 compiled. The stock 4.2.0
+check of 7.2 gave the outside-a-stage cost at 1000 branches on the laptop, and
+its sweep gave the interpreted case's growth.
+
+| Branches | Stage method | Whole-stage on | Whole-stage off | Interpreted | Why |
+| --: | --: | --: | --: | --: | :-- |
+| 30 | 2853 bytes, compiled | about 150 | about 200 | about 600 | 15 evaluated branches at 6 ns plus the row's fixed cost; off pays an operator boundary; interpreted is the square of a small number |
+| 60 | 5673 bytes, compiled | about 250 | about 300 | about 1800 | 30 evaluated branches; the interpreted case scales with the square from the laptop's 125-branch rung |
+| 100 | 9433 bytes, never compiled | about 2400 | about 400 | about 5000 | 50 evaluated branches at 47 ns interpreted against 6 compiled |
+| 300 | 32605 bytes, never compiled | about 7000 | about 900 | about 30000 | the rung the first dispatch measured |
+| 1000 | fails to compile, past 64 KB | about 10000 | about 6500 | about 300000 | outside a stage: 500 compiled branches plus about 85 calls from an 8060-byte caller that runs interpreted; inside: the same path after a failed compile of a 23000-line class, paid on every run, which at 200,000 rows is about a third of the time; interpreted: the square, from 30700 at 300 |
+
+The ratios, which are what the post's sentences rest on: inside against
+outside a stage about six at 100 branches and eight at 300, where the stage's
+method runs interpreted; about one and a half at 1000, where both run the
+same split code and the difference is the failed compile; the interpreted
+case about forty-five times the outside-a-stage cost at 1000 branches, and
+about ten times its own cost at 300 for three and a third times the branches.
+Scoring: an absolute number is right within a factor of 1.5 on the 9V45, a
+ratio within a third.
