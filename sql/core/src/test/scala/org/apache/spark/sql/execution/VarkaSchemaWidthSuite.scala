@@ -25,14 +25,14 @@ import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
  * `InMemoryTableScanExec` produces columnar batches is decided by
  * `spark.sql.codegen.maxFields` (100) counted over the whole cached relation's schema, not over
  * the columns a query reads, and Varka's rule rewrites a projection or a filter only over a
- * columnar child. So a cached table of more than a hundred columns gives Varka nothing to fuse,
- * whatever the query reads, even under Varka's own Arrow serializer, which could produce batches
- * at any width.
+ * columnar child. Without [[VarkaCacheScanExec]] a cached table of more than a hundred columns
+ * would give Varka nothing to fuse, whatever the query reads, even under Varka's own Arrow
+ * serializer, which produces batches at any width.
  *
- * These tests pin that behaviour at 100 and 101 columns: the cache scan's columnar output, and
- * whether the Varka session fuses `date_add(d, 1)` over the one date column. They are the
- * baseline of the fix `PLAN_TASK_185.md` 3.2 plans, which should turn the 101-column Varka test
- * around.
+ * The first test pins Spark's side at 100 and 101 columns. The rest check Varka's answer,
+ * [[VarkaCacheScanExec]]: where the scan is kept from columnar output by its width alone, a
+ * projection or a filter Varka fuses reads the same cached batches as columns and answers as the
+ * row engine does, and a query Varka does not fuse keeps the scan as it was.
  */
 class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
 
@@ -72,21 +72,59 @@ class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
-  test("today Varka fuses over a cache of 100 fields and has no node over 101") {
+  /** The query on both sessions: the same rows, and on Varka a kernel that ran. */
+  private def checkFused(query: String): SparkPlan = {
+    val actual = varkaSpark.sql(query)
+    val plan = actual.queryExecution.executedPlan
+    assertFused(plan)
+    checkAnswer(actual, spark.sql(query))
+    assertKernelsRan(plan)
+    plan
+  }
+
+  private def wideScans(plan: SparkPlan): Seq[VarkaCacheScanExec] =
+    collect(plan) { case w: VarkaCacheScanExec => w }
+
+  test("Varka fuses a projection over a cache of 100 fields and of 101, as it reads one column") {
     withWide(100) { name =>
-      val query = s"SELECT date_add(d, 1) AS e FROM $name"
-      val actual = varkaSpark.sql(query)
-      assertFused(actual.queryExecution.executedPlan)
-      checkAnswer(actual, spark.sql(query))
-      assertKernelsRan(actual.queryExecution.executedPlan)
+      // Columnar already: the scan is used as it is.
+      assert(wideScans(checkFused(s"SELECT date_add(d, 1) AS e FROM $name")).isEmpty)
     }
     withWide(101) { name =>
-      val query = s"SELECT date_add(d, 1) AS e FROM $name"
+      // The scan reads rows because of the other hundred columns; Varka reads the same cached
+      // batches as columns through the wide scan, which keeps the scan's pruning and metrics.
+      val plan = checkFused(s"SELECT date_add(d, 1) AS e FROM $name")
+      assert(wideScans(plan).size == 1, plan.treeString)
+    }
+  }
+
+  test("Varka fuses a filter over a cache of 101 fields, and a filter with a projection") {
+    withWide(101) { name =>
+      assert(wideScans(checkFused(
+        s"SELECT i1 FROM $name WHERE d > date'2025-01-01'")).size == 1)
+      assert(wideScans(checkFused(
+        s"SELECT date_add(d, 7) AS e, i2 FROM $name WHERE d < date'2030-01-01'")).size == 1)
+    }
+  }
+
+  test("a query Varka does not fuse keeps the cache scan as it was, over 101 fields") {
+    withWide(101) { name =>
+      val query = s"SELECT cast(i1 AS string) AS s FROM $name"
       val actual = varkaSpark.sql(query)
-      // The query reads one column of 101; the cache scan produces rows because of the other
-      // hundred, and the rule leaves the projection to Spark without a reason.
-      assertNotFused(actual.queryExecution.executedPlan)
+      val plan = actual.queryExecution.executedPlan
+      assertNotFused(plan)
+      assert(wideScans(plan).isEmpty)
       checkAnswer(actual, spark.sql(query))
+    }
+  }
+
+  test("the cache stays cached: a second query over the wide cache reads the same batches") {
+    withWide(101) { name =>
+      checkFused(s"SELECT date_add(d, 1) AS e FROM $name")
+      checkFused(s"SELECT date_add(d, 2) AS e FROM $name WHERE i3 IS NOT NULL OR d IS NULL")
+      assert(varkaSpark.table(name).queryExecution.withCachedData.collectFirst {
+        case r: org.apache.spark.sql.execution.columnar.InMemoryRelation => r
+      }.exists(_.cacheBuilder.isCachedColumnBuffersLoaded))
     }
   }
 }

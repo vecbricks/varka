@@ -128,3 +128,25 @@ Arrow serializer with the vectorized reader on, and asks for `date_add(d, 1)`:
 So the census's reading of the source was right and milestone 6's registered immunity was not:
 today Varka shares this cliff with Spark, silently. The 101-column test is the one step 2 turns
 around.
+
+### 8.2 Step 2: Varka reads the wide cache as batches, 25 September 2026
+
+`VarkaCacheScanExec`, a leaf node that holds the cache scan and asks it for its columnar output
+directly: the scan's own `executeColumnar()`, so its partition pruning, its serializer's conversion
+of the attributes it reads and its metrics are the scan's, and nothing of it is reimplemented. The
+scan's flag was the only thing in the way: `InMemoryTableScanExec.doExecuteColumnar` has no width
+check of its own, and `SparkPlan.executeColumnar` none either. `VarkaColumnarRule` places the node
+in its pre-transition stage beneath a projection or a filter it fuses, and only where the scan is
+kept from columnar output by its width alone - the cache is `ArrowCachedBatchSerializer`, the
+vectorized cache reader is on, and the serializer produces batches for the schema - so a query
+Varka does not fuse keeps its scan, and a cache under another serializer is left as it is.
+
+**What checks it.** `VarkaSchemaWidthSuite` now asserts, over the 101-field cache, that a
+projection, a filter, and a filter with a projection fuse through one `VarkaCacheScanExec`, answer
+as the row engine does and ran their kernels; that at 100 fields the plan is the one it was, with
+no wide scan; that a query Varka does not fuse (a string cast) keeps the cache scan; and that the
+cache stays materialized across queries. Every Varka suite in `sql/core` passes, 384 tests.
+
+**What is left of the plan**: 3.3's recorded reason where the fix does not reach - a wide cache
+under the default serializer, or a wide file scan - and prediction 3's timing, whether time per row
+is the same at 100 and 101 fields; then 3.4's upstream JIRA for the owner.

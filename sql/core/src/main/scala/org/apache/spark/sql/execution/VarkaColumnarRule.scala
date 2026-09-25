@@ -67,7 +67,11 @@ object VarkaColumnarRule extends ColumnarRule {
           if (child.supportsColumnar) {
             VarkaProjectExec(projectList, child)
           } else {
-            project
+            // A cache scan kept from columnar output by its width alone is read as batches
+            // beneath the projection it feeds (task 185); anything else stays as it was.
+            VarkaCacheScanExec.widens(child)
+              .map(VarkaProjectExec(projectList, _))
+              .getOrElse(project)
           }
         // A projection that only narrows a Varka filter's output. It fuses nothing, so the
         // arm above declines it, and the node that performs it decides where the plan's row
@@ -80,6 +84,16 @@ object VarkaColumnarRule extends ColumnarRule {
         case filter @ FilterExec(condition, child)
             if child.supportsColumnar && arrowFriendly(child) =>
           rewriteFilter(condition, child, VarkaFilterExec(_, _)).getOrElse(filter)
+        // A cache scan kept from columnar output by its width alone: read it as batches beneath
+        // a Varka filter, and only if the filter fuses, so a plan Varka leaves alone keeps its
+        // scan (task 185).
+        case filter @ FilterExec(condition, child) if VarkaCacheScanExec.widens(child).isDefined =>
+          val wide = VarkaCacheScanExec.widens(child).get
+          if (arrowFriendly(wide)) {
+            rewriteFilter(condition, wide, VarkaFilterExec(_, _)).getOrElse(filter)
+          } else {
+            filter
+          }
       }
     } else {
       plan
