@@ -646,10 +646,10 @@ milestone 4.
 | 180 | Promotion, continuously | 2.9 | continuous |
 | 183 | Onboarding: task tables as issues, a hardware census, templates | item 38 | small |
 | 184 | The refactoring tools under `dev/` | item 46 | small |
-| 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. **Planned** (`PLAN_TASK_185.md`, 24 September 2026): reproducers at 100 and 101 fields, a Varka scan that reads the Arrow cache as batches whatever its width, and a recorded reason where that does not reach. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
+| 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. **Planned** (`PLAN_TASK_185.md`, 24 September 2026): reproducers at 100 and 101 fields, a Varka scan that reads the Arrow cache as batches whatever its width, and a recorded reason where that does not reach. **Baseline committed** (8.1, 25 September 2026): at 101 cached fields the scan produces rows and Varka has no node, silently, as the census read. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
 | 187 | The constant-pool cliff | 2.11 | small |
-| 188 | The census: every place Spark's codegen gives up. **Census drafted** (`PLAN_TASK_188.md`, 24 September 2026): 34 entries from the source with Varka's answer to each; it found the 8000-byte cliff logged at INFO, correcting this milestone's "silent"; reproducers for G1, G2, G4, G8, G10, G17, G18, G24, G25, G26, G28 and G32 committed (`VarkaCodegenCliffLogSuite`, `VarkaCodegenGiveUpSuite`, section 6), G28 settling an open question; G3 is task 185's, and G12 to G14, G16, G19 and G27 remain | 2.11 | medium |
+| 188 | The census: every place Spark's codegen gives up. **Census drafted** (`PLAN_TASK_188.md`, 24 September 2026): 34 entries from the source with Varka's answer to each; it found the 8000-byte cliff logged at INFO, correcting this milestone's "silent"; reproducers for G1, G2, G4, G8, G10, G12, G14, G17, G18, G24, G25, G26, G27, G28 and G32 committed (`VarkaCodegenCliffLogSuite`, `VarkaCodegenGiveUpSuite`, section 6), G28 settling an open question; G3 is task 185's first step, and G13, G16 and G19 are read from the generated source rather than asserted. **Varka's side asserted in every reproducer** (section 6, 25 September 2026, item 2 of 9.2): the fused node or the decline with its reason on the same shape, which corrected G17 from immune to not reached | 2.11 | medium |
 | 189 | A dense loop enters a C2 deoptimization cycle at twelve outputs. *Lead from `PLAN_TASK_87.md` 9.5: in the fork where the single-epilogue form's null-free rows sat in the cycle at 128 bits, the per-group form's did not* | 2.12, from task 87's benchmark | medium |
 | 190 | The op cap gives way to the byte budget. **Step 1 done** (`PLAN_TASK_190.md` 9.1, 24 September 2026: a hundred four-op entries fuse in one kernel; the split driver and several kernels per projection remain): `MAX_FUSED_NODES` admits 15 entries of the ladder's family where vanilla steps at 48 to 64, and task 87's budget now bounds every method, so bytes decide; past the driver's ceiling at about 150 entries, a split driver and several kernels per projection are built and measured | task 171's admission check | medium |
 | 191 | Emission time linear in the kernel's width. `VarkaEmissionBenchmark` prices one emission at 10122976.0 ns for a hundred four-op outputs and 103358023.0 ns for four hundred: each doubling of the outputs costs 2.4 to 3.3 times as much. The likely cause, read from the code: every group's four methods plan their slots over the whole kernel's topological order (`Slots.plan`), so planning is groups times nodes; a per-group order would make it linear. Measure the cause first, then fix it, and read the benchmark's wide section again. A second route, from `READING_MILESTONE_6.md` section 4: predict each method's bytes before emitting it (row 199), so a wide kernel emits once rather than once per regroup | `PLAN_TASK_190.md` 9.1 | small to medium |
@@ -670,7 +670,7 @@ milestone 4.
 | 206 | A nondeterministic filter's decline records its reason. **Done** (`PLAN_TASK_188.md` 6, 24 September 2026): every conjunct carries the reason, and the fusion report shows each conjunct's reason when none fuses. `predicateOnce` declines a filter with a nondeterministic conjunct and returns without noting why, where every other decline records a reason the fusion report and `EXPLAIN` show (`PLAN_TASK_188.md` section 5) | task 188's census | small |
 | 207 | Several accumulators in the range set's loop. The range set's kernel ORs every range into one mask, and C2 carries that mask from one iteration of the range loop to the next through the stack (`PLAN_TASK_172.md`, the correction after 9.7), so the ranges wait on each other: every four ranges a store and the load that reads it back. Two or four masks, OR-ed at the end, break the chain without changing the code's size, and the range filter benchmark says whether that closes design B's gap to design A | `PLAN_TASK_172.md`, correction after 9.7 | small, measured |
 | 208 | One comparison per range. Both of task 172's designs test `lo <= v && v <= hi` as two comparisons and an AND; `(v - lo)` compared unsigned against `(hi - lo)` is one subtraction and one comparison, since a value below `lo` wraps to a large unsigned number. It applies to the range set's loop and to a range written as two comparisons over one column, which the compiler can recognise where it already recognises ranges for the range set. Measured on the range filter benchmark at both widths, with the int extremes in the differential | `PLAN_TASK_172.md`, correction after 9.7 | small, measured |
-| 181 | The closing task: the post | 2.10 | last by definition |
+| 181 | The closing task: the post. **Outlined** (`PLAN_TASK_181.md`, 25 September 2026): the claim and its five bounds, eight sections each naming its figure and its committed files, and what the draft still owes - task 195's first-query cost and task 188's Varka arm; the 9V45 figure, 197, 170 and 202 improve it but do not gate it | 2.10 | last by definition |
 
 ## 4. Ordering
 
@@ -758,3 +758,79 @@ The milestone's own acceptance, beyond each task's admission check:
   nothing in this milestone needs it.
 * **Any new lane, type or expression family.** This milestone adds no coverage;
   that is what makes it a foundation milestone rather than a breadth one.
+
+## 9. Review at the halfway point, 25 September 2026
+
+*Added on 25 September 2026 at the owner's request, two days after the
+milestone opened. Section 4's ordering is not rewritten; 9.2 is the ordering
+for what remains, and where they differ 9.2 is current.*
+
+### 9.1 The state against 1.3
+
+| 1.3 | State on 25 September |
+| :-- | :-- |
+| 1. No admitted shape fails to emit | Done: 87, 168, 169 |
+| 2. The size ladder committed | Done: laptop, runner and figure (171) |
+| 3. One realistic query | Done in code (172, `splitConditions` on by default); the full-width 9V45 figure is still owed, 0 hits in 15 dispatches |
+| 4. The census complete | 34 entries read; reproducers for 15 merged or in review; G13, G16 and G19 have none; the reproducers pin vanilla's side, and only G4's pins Varka's |
+| 5. The post published | Not outlined |
+| 6. Beside the spine | The CI queue (176) landed; 173, 174, 175, 177, 178, 179, 182, 183 and 184 have not started, and 180 has no commit |
+
+The table had 23 rows when the milestone opened and has 43 today, six of them
+optional research. The spine is nearly through and the research rows around it
+are mostly done; the two tracks the owner set on 23 September are uneven, since
+promotion has not moved at all and the compiler-legibility rows have not started.
+The pattern is that the next measurable row kept winning over the row with no
+number in it, and a review against 1.3 rather than against the table is what
+made it visible.
+
+**What is missing, in the order it matters for the post.**
+
+1. The post's honest bounds: 195 (what the first query costs, since a
+   12167-byte kernel is emitted and compiled per query), 197 (whether the gap
+   survives parallelism) and 2.10's native-accelerator comparison. Risk 1 of
+   section 6 is about exactly these, and none is started.
+2. The census's Varka column is a table, not a test. `VarkaCodegenGiveUpSuite`
+   makes vanilla give up in each case; the claim the post makes is Varka's
+   answer, so every reproducer should assert it too: the fused node present, or
+   a decline with the recorded reason.
+3. Two of section 5's acceptance checks are by hand. The fuzz campaign was
+   reinterpreted in `PLAN_TASK_169.md` because `VarkaIrFuzzSuite` draws IR
+   directly and never goes through the compiler, and `emitted_bytes.json` is
+   referenced by no workflow or script.
+4. Row 170's question, whether a budget below 8000 earns its calls, is open,
+   and the post has to name the threshold Varka targets.
+5. Track A: 180's cadence and 183's onboarding, both with their material
+   already committed.
+
+### 9.2 What comes first
+
+| Order | Task | Why first | Size |
+| ---: | :-- | :-- | :-- |
+| 1 | 181, the outline only | It decides which of 195, 197 and the 9V45 figure the post needs, before more measuring | small |
+| 2 | 188, Varka's side pinned | Every reproducer asserts Varka's answer; G13, G16 and G19 get theirs | small |
+| 3 | 195 | The first-query cost is the bound the post cannot publish without, and a kernel cache across queries is the product question behind it | medium, measured |
+| 4 | 179 with 177 | A fuzzer through the compiler to the emitter as a standing job, asserting fuse-or-decline-with-reason and never throw; `emitted_bytes.json` checked in CI | small |
+| 5 | 180 and 183 | One post from committed material (the demo, the ladder), and 183's issues opened from this table | small, owner-facing |
+| 6 | 170 | The threshold answer, from the A/B task 87 left ready | small, measured |
+
+After those, in this order: 173, 174 and 184 (legibility, cheap), 175 (the
+Java port, once 184's map exists), 200 and 198 (the compiler improvements with
+measured motivation), then 197 and 202. New rows join this table only with a
+reason to do them in this milestone rather than in `SCOPE_MILESTONE_7.md`.
+
+### 9.3 Lessons, recorded in the skills files
+
+* A predicted immunity is checked at the input path before it is written
+  (`testing-and-debugging.md`): 185's cache finding, the INFO line that made
+  the cliff not silent, and 192's default-cache measurement were all the same
+  mistake.
+* A two-track milestone drifts to the measurable track, and the review that
+  catches it is against the done-when list, not the table
+  (`working-in-this-repo.md`).
+* Grep the record before choosing an algorithm; build both designs and read
+  the assembly; reread every plan paragraph against its results file before
+  committing, because the quote checker catches numbers and not adjectives.
+  These three are already in the skills files and in the task plans of 172
+  and 192, and are listed here because the review found each of them paid for
+  in this milestone.

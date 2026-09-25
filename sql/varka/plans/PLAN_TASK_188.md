@@ -55,7 +55,7 @@ operator stays Spark's), ? = unsure. All Varka answers are proposals.
 | G14 | No split of the row writer's top-level fields inside WSCG | `isTopLevel && (row == null or currentVars != null)` | ProjectExec's UnsafeRow writer stays inline | No | I (Varka's merge/residual projections run outside WSCG, where this does split) |
 | G15 | The 1024-character heuristic | `spark.sql.codegen.methodSplitThreshold` (1024 characters of source) | Splits by source characters, not bytecode bytes | No | S: bytes are measured after build (`VarkaLoopEmitter.java:400-431`) |
 | G16 | Consume method per operator not split out | `splitConsumeFuncByOperator` (true); parent must use all outputs; parameter length <= 255 | Parent's consume code inlined into the child's method | No | NA/I (Varka nodes are outside WSCG) |
-| G17 | Subexpression split refused (WSCG) | code > threshold and a function's parameter length > 255 | CSE stays inline | INFO "Failed to split subexpression code..." (tests: internal error) | I (IR-level CSE, fixed seven-parameter methods) |
+| G17 | Subexpression split refused (WSCG) | code > threshold and a function's parameter length > 255 | CSE stays inline | INFO "Failed to split subexpression code..." (tests: internal error) | I (IR-level CSE, fixed seven-parameter methods). *Corrected 25 September 2026 (section 6): not reached - the shape that provokes it in Spark declines earlier at Varka's own fused-node budget* |
 | G18 | Aggregate-function split refused | `...aggregate.splitAggregateFunc.enabled` (true); a SimpleExprValue in subexprs (silent); parameter length > 255 | Aggregate update code inline | INFO "Failed to split aggregate code..." for the parameter case only | NA |
 | G19 | Expand split refused | parameter length > 255 | That switch case inline | No | NA |
 | G20 | `With` common-expression method refused | uncapturable value, CSE'd node, parameter length > 255 | Definition inline | No | I (Varka does not generate `With`)/? |
@@ -856,3 +856,53 @@ census is complete as a reading of the source; it is not yet backed by committed
 
   Left: G3 is task 185's first step by its own plan; G27 (the constant pool), G12 to G14 in
   numbers, and the silent inlining of G16 and G19 have no reproducer yet.
+* **Three more, 25 September 2026**, in the same suite:
+  * **G12**: the 3000-branch `CASE WHEN` that fails past 64KB inside a stage (G24) compiles and
+    answers outside one, with whole-stage codegen off, because only there are its branches split
+    into methods of their own.
+  * **G14**: 3000 top-level output fields do the same. With `maxFields` raised so the projection
+    can be inside a stage at all, its row writer is not split and the stage fails past 64KB;
+    outside a stage the same projection compiles and answers.
+  * **G27**: a class past 65535 constant-pool entries fails to compile with Janino's "0xFFFF",
+    and nothing warns before it. It cannot be reached through an ordinary query: Spark passes
+    string literals through its `references` array rather than the pool, and a class past a
+    million characters of functions spills them into nested classes with pools of their own. So
+    the test builds the class by hand, as G28's does - 40 methods of 900 distinct long
+    constants fail, 20 compile - and what it shows is that the pool, when it is reached, is
+    guarded only by the compile failure.
+
+  That makes fifteen entries with a reproducer. G3 is task 185's first step. G13 and the silent
+  inlining of G16 and G19 are properties of the generated source rather than of the plan or the
+  log, so they would be read from it rather than asserted. Of the rest, G5, G6, G7 and G11 are
+  lists of operators and conditions rather than one trigger, G30 has no honest way to provoke it
+  (section 4), G22 and G23 are mitigations, and G9, G20, G21, G29, G31, G33 and G34 could be
+  provoked but were not attempted here.
+* **The Varka arm in every reproducer, 25 September 2026** (`PLAN_MILESTONE_6.md` 9.2, item 2).
+  Until now the suite pinned only vanilla's side of each entry, and the Varka column of section 2
+  rested on a reading. Each test now asserts what Varka does with the same shape, on an
+  Arrow-backed cache or through the compiler's own classification of the optimized plan's
+  projection, and says "none" where the census says the entry does not apply:
+  * **G1**: with whole-stage codegen off, Varka's projection is still in the plan; its nodes are
+    not stages.
+  * **G2**: 101 outputs over a date column fuse whole and answer as vanilla does; the kernel is
+    not in a stage and its width is decided in bytes.
+  * **G25 and G26**: the ladder's 56 entries fuse and answer as vanilla does; the per-method sizes
+    under the 8000-byte budget are `VarkaHugeMethodSuite`'s.
+  * **G24 and G12**: the 3000-branch `CASE WHEN` over a bigint is declined at plan time with a
+    reason, so nothing is emitted and nothing can fail to compile.
+  * **G14**: 3000 date outputs are classified without an exception, some fused and every other
+    one declined with a reason naming the budget.
+  * **G17, corrected.** The census said immune, on the ground that Varka's methods have a fixed
+    arity. They do, but the shape that provokes the cap in Spark - a common subexpression over
+    130 nullable int columns - never reaches any parameter count in Varka: without the checked
+    multiplies, which decline on their own account, both entries are refused as "exceeds the
+    emitter's fused budget". That budget is Varka's op-count cap, the one task 190 is replacing
+    with the byte budget, so the entry's answer is "not reached" until 190 lands, and the test
+    pins where the shape stops today. The section 2 cell carries the correction.
+  * **G8, G10 and G18**: none; Varka has no generator, union or aggregate node.
+  * **G27, G28 and G32**: the checks are `VarkaEmitBudget`'s and are pinned in
+    `VarkaEmitterBudgetSuite`; the tests name them beside vanilla's failures.
+
+  A first lesson from doing it: an arm that asserts "fused or declined, never thrown" holds for
+  every shape and says nothing, and the first G17 arm was that. The arm has to assert the census's
+  claim, so that a wrong claim fails the test and gets corrected, which is what happened.
