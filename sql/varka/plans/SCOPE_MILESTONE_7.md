@@ -3373,6 +3373,31 @@ data rather than written by hand, so it cannot fall behind the lowerings.
 **Done when** the table is committed and a check fails when a lowering is
 added or removed without it. Size: small.
 
+### Item 55. Int values as the branches of `if`, `coalesce` and `greatest`
+
+*Added on 25 September 2026, found while probing task 172's kernels with
+`dev/varka_emit.sh`.*
+
+`if(c, 1, 0)` and `if(c, i, i + 1)` over an int column `i` decline, the first
+as "unsupported expression" and the second as "non-date column of type int",
+although the int literal is already a `LiteralSlot` on the same 32-bit lane and
+the int column already a kernel input. The value leaves of `compileNode` are a
+date column and a date literal; ints reach a kernel only as operands, of the
+int arithmetic arms and of a comparison (task 122). That is deliberate, and
+`PLAN_TASK_122.md` 3.2 says why: `compileNode` also compiles date operands, and
+the IR's lanes carry no type, so an int leaf there would admit
+`date_add(d, i)`'s offset as a date. So the item is not to widen that leaf but
+to give the value positions that take any type of their own a typed arm: the
+branches of `if`/`CASE WHEN`, the operands of `coalesce`/`nvl`, and those of
+`greatest`/`least`, each admitting an int column or literal when the
+expression's own type is `IntegerType`, and a date one when it is `DateType`,
+never mixing the two. One rule stays as it is: a whole output that reads no
+column, such as a bare constant, is still refused, because the all-null
+shortcut and the forwarding of bare columns assume every output reads one.
+**Done when** those shapes fuse over int columns with a differential check
+against the row engine, `date_add(d, i)` over an int `i` still declines, and
+the coverage table lists them. Size: small.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
