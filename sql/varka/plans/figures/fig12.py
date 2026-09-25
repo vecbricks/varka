@@ -57,7 +57,7 @@ entries = sorted(data[JDKS[0]])
 below = max(n for n in entries if not data[JDKS[0]][n][1])
 above = min(n for n in entries if data[JDKS[0]][n][1])
 
-r = Rough(900, 640, seed=127)
+r = Rough(900, 660, seed=127)
 r.text(40, 40, "n date expressions in one projection, stock Spark 4.2.0", size=24)
 r.text(
     40,
@@ -139,7 +139,7 @@ r.note(
 )
 r.text(
     40,
-    610,
+    640,
     "JDK 17 and 25 ran on an %s, JDK 21 on an %s" % (cpus[17], cpus[21]),
     size=15,
     color="#868e96",

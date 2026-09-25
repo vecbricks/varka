@@ -124,14 +124,17 @@ for case in (INTERP, ON, OFF):
     for x, y in pts:
         r.ellipse(x, y, 4, 4, color=COLORS[case], width=2.0)
     last = rungs[-1]
-    r.text(px(last) + 12, py(rows[last][case]), LABELS[case], size=19, color=COLORS[case])
+    # The stage and the no-stage paths end within a fifth of each other at 1000 branches, so
+    # their labels are pushed apart rather than drawn at the points.
+    shift = {ON: -14, OFF: 16}.get(case, 0)
+    r.text(px(last) + 12, py(rows[last][case]) + shift, LABELS[case], size=19, color=COLORS[case])
 
 first_past = min(
     n for n in rungs if method[n].endswith("bytes") and int(method[n].split()[0]) > 8000
 )
 r.note(
-    px(first_past) - 10,
-    py(rows[first_past][ON]) - 46,
+    px(first_past) + 24,
+    py(rows[first_past][ON]) + 40,
     "the stage's method is %s:\nnever compiled, %.0fx slower than no stage"
     % (method[first_past], rows[first_past][ON] / rows[first_past][OFF]),
     size=17,

@@ -72,7 +72,7 @@ r = Rough(900, 620, seed=137)
 r.text(40, 40, "a cached table of 100 and of 101 columns, nanoseconds a row", size=24)
 r.text(40, 72, "two million rows; %s, %s" % (cpu, jdk), size=17, color="#5c5f66")
 
-scale = 560.0 / max(ns for _, rows in groups for _, ns, _ in rows)
+scale = 440.0 / max(ns for _, rows in groups for _, ns, _ in rows)
 y = 110
 for query, rows in groups:
     r.text(40, y, query, size=21)
@@ -87,7 +87,7 @@ for query, rows in groups:
 
 r.note(
     300,
-    560,
+    530,
     "the count is of the whole cached schema, not of what the query reads;\n"
     "the batches are turned back into rows before an aggregate anyway",
     size=18,
