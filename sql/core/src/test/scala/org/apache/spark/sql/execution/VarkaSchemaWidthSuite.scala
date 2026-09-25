@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The schema-width cliff at the cache (task 185, the census's G3). Whether an
@@ -126,5 +127,75 @@ class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
         case r: org.apache.spark.sql.execution.columnar.InMemoryRelation => r
       }.exists(_.cacheBuilder.isCachedColumnBuffersLoaded))
     }
+  }
+
+  /** The INFO lines `VarkaColumnarRule` logs while `body` plans and runs. */
+  private def ruleLines(body: => Unit): Seq[String] = {
+    val appender = new LogAppender("the rule's reasons")
+    withLogAppender(appender, loggerNames = Seq("org.apache.spark.sql.execution.VarkaColumnarRule"),
+        Some(org.apache.logging.log4j.Level.INFO))(body)
+    appender.loggingEvents.toSeq.map(_.getMessage.getFormattedMessage)
+  }
+
+  private def withCacheReader[T](enabled: Boolean)(body: => T): T = {
+    val key = SQLConf.CACHE_VECTORIZED_READER_ENABLED.key
+    val saved = varkaSpark.conf.get(key)
+    varkaSpark.conf.set(key, enabled.toString)
+    try body finally varkaSpark.conf.set(key, saved)
+  }
+
+  test("where the fix does not reach, Varka says why it left a projection or a filter to Spark") {
+    withWide(101) { name =>
+      withCacheReader(enabled = false) {
+        // The vectorized cache reader is off, so the wide scan cannot be used either; the reason
+        // names both blockers.
+        val lines = ruleLines {
+          val query = s"SELECT date_add(d, 1) AS e FROM $name"
+          assertNotFused(varkaSpark.sql(query).queryExecution.executedPlan)
+          checkAnswer(varkaSpark.sql(query), spark.sql(query))
+        }
+        assert(lines.exists(l => l.contains("Varka left a projection to Spark") &&
+          l.contains("more than 100 fields") && l.contains("counted over the whole cached table") &&
+          l.contains(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key)), lines)
+        val filters = ruleLines {
+          varkaSpark.sql(s"SELECT i1 FROM $name WHERE d > date'2025-01-01'").collect()
+        }
+        assert(filters.exists(_.contains("Varka left a filter to Spark")), filters)
+      }
+    }
+    withWide(100) { name =>
+      withCacheReader(enabled = false) {
+        val lines = ruleLines(varkaSpark.sql(s"SELECT date_add(d, 1) FROM $name").collect())
+        assert(lines.exists(l => l.contains(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key) &&
+          !l.contains("fields")), lines)
+      }
+    }
+  }
+
+  test("a file scan that reads more than 100 columns says so too") {
+    withTempPath { dir =>
+      val path = dir.getCanonicalPath
+      spark.range(0, 50).selectExpr(
+        "date_add(date'2020-01-01', cast(id as int)) AS d" +:
+          (1 until 101).map(k => s"cast(id + $k as int) AS i$k"): _*)
+        .write.parquet(path)
+      val columns = (1 until 101).map(k => s"i$k").mkString(", ")
+      val query = s"SELECT date_add(d, 1) AS e, $columns FROM parquet.`$path`"
+      val lines = ruleLines {
+        checkAnswer(varkaSpark.sql(query), spark.sql(query))
+      }
+      assert(lines.exists(l => l.contains("the file scan produces rows") &&
+        l.contains("more than 100 fields")), lines)
+    }
+  }
+
+  test("an input that is columnar, or not columnar for no reason a user can act on, is silent") {
+    withWide(100) { name =>
+      val lines = ruleLines(varkaSpark.sql(s"SELECT date_add(d, 1) FROM $name").collect())
+      assert(!lines.exists(_.contains("Varka left")), lines)
+    }
+    val lines = ruleLines(varkaSpark.range(10).selectExpr("date_add(date'2020-01-01', " +
+      "cast(id as int)) AS d").selectExpr("date_add(d, 1)").collect())
+    assert(!lines.exists(_.contains("Varka left")), lines)
   }
 }

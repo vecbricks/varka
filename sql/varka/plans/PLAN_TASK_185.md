@@ -180,3 +180,28 @@ million rows so that per-query overhead does not blur the path, and runs the Arr
 session with Varka switched per arm.
 
 What is left of the task: 3.3's recorded reason where the fix does not reach.
+
+### 8.4 Step 3: the reason, where the fix does not reach, 25 September 2026
+
+`VarkaColumnarRule` now says why when a projection it would fuse, or a filter whose predicate
+compiles, is left to Spark because its input gives no batches. At INFO when the reason is one a
+user can act on - for a cache scan each of its blockers: more than `spark.sql.codegen.maxFields`
+fields counted over the whole cached table, the vectorized cache reader switched off, a serializer
+that produces no batches for the schema or that is not `ArrowCachedBatchSerializer`, the only one
+the wide scan reads through; for a file scan the field count - and at DEBUG otherwise, since most
+inputs are not columnar and that is the ordinary case. A filter's predicate is compiled for the
+message only once such a reason is found.
+
+There is no Varka node to carry the reason in EXPLAIN, since the node is exactly what is missing,
+so the rule's log is the record. The file scan differs from the cache in the one way that matters
+here: it counts the columns it reads, not the table's, so its reason appears only for a query that
+reads more than a hundred columns.
+
+**What checks it.** `VarkaSchemaWidthSuite`: with the vectorized cache reader off over the
+101-field cache, the projection and the filter are left to Spark and the line names both the
+field count and the reader; over 100 fields it names the reader alone; a file scan of 101 read
+columns names its field count; and a columnar input, or a plain range, logs nothing at INFO. Every
+Varka suite in `sql/core` passes, 387 tests.
+
+With this the plan is done: the reproducers (8.1), the wide scan (8.2), the timing and the
+upstream question, which was left unfiled for want of a cost to report (8.3), and the reason (8.4).
