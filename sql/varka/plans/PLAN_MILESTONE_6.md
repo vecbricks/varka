@@ -140,6 +140,11 @@ WARN, hide the line. See `PLAN_TASK_188.md` section 5.*
    to notice.
 5. **The post is published**, with the comparison to native accelerators
    grounded in the record this repository already holds rather than asserted.
+   *Since 25 September 2026: two posts, and the milestone closes on both.* The
+   first is about where vanilla Spark's code generation gives up and makes no
+   Varka claim (task 210); the second is this one, about how Varka solves it
+   (task 181). The owner's decision, recorded in `PLAN_TASK_210.md` 1 and
+   `PLAN_TASK_181.md` 7.
 6. Beside the spine: the compiler is more legible than it was, the CI and
    benchmark infrastructure stops costing manual work, and promotion has run
    continuously rather than once at the end.
@@ -619,7 +624,10 @@ memory.
 **Done when** the post is published, every number in it traces to a committed
 results file under `dev/varka_quote_check.py`, every claim about Spark's
 behaviour traces to task 188's census with a revision named, and the claim of
-1.3 items 1 to 3 is true.
+1.3 items 1 to 3 is true. *Since 25 September 2026 this section covers two
+posts* (1.3 item 5): task 210's, about vanilla Spark, is published first and
+is done when its own outline's verification holds (`PLAN_TASK_210.md` 5); the
+post described above is task 181's and links it.
 
 ## 3. Task breakdown
 
@@ -665,13 +673,14 @@ milestone 4.
 | 201 | Why `-XX:-DontCompileHugeMethods` fails at a hundred entries. **Done** (`PLAN_TASK_192.md` 9.2, 24 September 2026): C1 gives up on the method at every size past the limit, and at a hundred entries C2 fails as well, "out of nodes during split", so the method stays interpreted; the flag moves the cliff rather than removing it. Under the flag vanilla's consume method is compiled and costs the same per entry as below the limit up to 80 entries, then runs at its interpreted cost at a hundred (`PLAN_TASK_192.md` 9.1). A forked probe shows C1 bailing at both sizes and C2 starting at both; the benchmark's own JVM under `-XX:+PrintCompilation` and C2's failure log are to say what happens to the 17 KB method, so the post can say where the flag stops working and why | task 192 | small |
 | 202 | *Research, optional.* Varka against an interpreted vector engine. spark-vector (github.com/spark-vector/spark-vector, a Java 25 Vector API plugin for stock Spark 4.1.3, modelled on Comet and Velox) evaluates each expression node with its own kernel into a materialised column, so it has no 8000-byte cliff, the same as Comet and Velox: any vector-at-a-time engine avoids it by construction. The post's claim is then only fair if it says what fusion adds beyond having no cliff. Add a spark-vector arm to task 171's ladder and to the date chain: its release jar on a Spark 4.1.3 distribution, as the date surface runs stock Spark 4.2.0, with its commit and version in the provenance. Every rung and entry the plugin runs as its own operator rather than falling back must be checked from its recorded fallback reasons before its number is timed. The measurement shows how much each intermediate column costs, and whether the claim should be fusion rather than the cliff | the spark-vector review, 24 September 2026 | medium, measured |
 | 203 | A demo a reader can run. **Done** (`PLAN_TASK_203.md` 9.2, 24 September 2026: on runners, a 4.6 to 6.2 times step under the defaults and 1.1 to 1.3 under `hugeMethodLimit=8000`, on JDK 17, 21 and 25): one `spark-shell` script over stock Spark 4.2.0 at 44, 48, 52 and 56 entries, printing the method's bytes and the time per row under the defaults and under `hugeMethodLimit=8000`, checked by a small workflow on JDK 17, 21 and 25. The ladder's vanilla query as a script of about fifteen lines for `spark-shell` on stock Spark 4.2.0, printing the consume method's bytes and the time per row, so a reader sees the step between 48 and 52 entries on their own machine; with `-XX:+PrintCompilation` it also shows the method never compiled. Checked on a GitHub runner and published with the post, which links to it rather than asking to be believed | the post discussion, 24 September 2026 | small |
-| 204 | Upstream: the test bug, and the silent cliff made visible. SPARK-59764, filed 24 September 2026: `BenchmarkQueryTest.checkGeneratedCode` finds no stage under adaptive execution, so the TPC suites' size check has not run since 3.2 (`PLAN_TASK_193.md` 9.1); its patch, apache/spark#59017, with a follow-up after review; and SPARK-59765, the empty-broadcast stubs the same instruments and `WholeStageCodegenSizeBenchmark` measure, with its patch, apache/spark#59018. SPARK-59774 and its patch, apache/spark#59020, filed 24 September 2026: that INFO line raised to a warning that names the remedy. Then, the owner choosing which, a proposal for the cliff itself: the INFO line Spark already logs when a method passes HotSpot's `HugeMethodLimit` (`PLAN_TASK_188.md` G26) raised to a warning, `spark.sql.codegen.hugeMethodLimit` defaulting to 8000 on HotSpot, or both, argued from task 192's measurements. Each its own JIRA, and the post says where they stand | the post discussion, 24 September 2026 | small to medium |
+| 204 | Upstream: the test bug, and the silent cliff made visible. *State on 25 September 2026: SPARK-59764, SPARK-59765 and SPARK-59774 are merged, for 4.4.0 (SPARK-59765 also 5.0.0); the proposal for the cliff itself is still the owner's choice.* SPARK-59764, filed 24 September 2026: `BenchmarkQueryTest.checkGeneratedCode` finds no stage under adaptive execution, so the TPC suites' size check has not run since 3.2 (`PLAN_TASK_193.md` 9.1); its patch, apache/spark#59017, with a follow-up after review; and SPARK-59765, the empty-broadcast stubs the same instruments and `WholeStageCodegenSizeBenchmark` measure, with its patch, apache/spark#59018. SPARK-59774 and its patch, apache/spark#59020, filed 24 September 2026: that INFO line raised to a warning that names the remedy. Then, the owner choosing which, a proposal for the cliff itself: the INFO line Spark already logs when a method passes HotSpot's `HugeMethodLimit` (`PLAN_TASK_188.md` G26) raised to a warning, `spark.sql.codegen.hugeMethodLimit` defaulting to 8000 on HotSpot, or both, argued from task 192's measurements. Each its own JIRA, and the post says where they stand | the post discussion, 24 September 2026 | small to medium |
 | 205 | The history of the 64KB problem, sourced. **Done** (`PLAN_TASK_205.md`, 24 September 2026): Spark shipped `hugeMethodLimit` at 8000 for no release - SPARK-23267 raised it to 65535 before 2.3.0, and at that default only Janino's 64KB rejection can trigger the fallback; SPARK-29128, which `modified-q3`'s exclusion cites, never landed; the TPC suites' size check ran for about 14 months, 3.0 and 3.1, and after that only in `LogicalPlanTagInSparkPlanSuite`, which disables AQE itself. A timeline of how Spark has met the method limits - expression splitting, `hugeMethodLimit`, `maxFields`, SPARK-29128's `modified-q3`, the char padding guard, SPARK-59764 - every entry a JIRA id and a commit read from the tracker and `git log`, none from memory, so the post can open with what Spark already did about the hard limit before it turns to the silent one | the post discussion, 24 September 2026 | small |
 | 206 | A nondeterministic filter's decline records its reason. **Done** (`PLAN_TASK_188.md` 6, 24 September 2026): every conjunct carries the reason, and the fusion report shows each conjunct's reason when none fuses. `predicateOnce` declines a filter with a nondeterministic conjunct and returns without noting why, where every other decline records a reason the fusion report and `EXPLAIN` show (`PLAN_TASK_188.md` section 5) | task 188's census | small |
 | 207 | Several accumulators in the range set's loop. The range set's kernel ORs every range into one mask, and C2 carries that mask from one iteration of the range loop to the next through the stack (`PLAN_TASK_172.md`, the correction after 9.7), so the ranges wait on each other: every four ranges a store and the load that reads it back. Two or four masks, OR-ed at the end, break the chain without changing the code's size, and the range filter benchmark says whether that closes design B's gap to design A | `PLAN_TASK_172.md`, correction after 9.7 | small, measured |
 | 208 | One comparison per range. Both of task 172's designs test `lo <= v && v <= hi` as two comparisons and an AND; `(v - lo)` compared unsigned against `(hi - lo)` is one subtraction and one comparison, since a value below `lo` wraps to a large unsigned number. It applies to the range set's loop and to a range written as two comparisons over one column, which the compiler can recognise where it already recognises ranges for the range set. Measured on the range filter benchmark at both widths, with the int extremes in the differential | `PLAN_TASK_172.md`, correction after 9.7 | small, measured |
 | 209 | A cliff under the byte budget: too many Vector API calls in one loop method. Sixty-four `year(d) + k` outputs fuse by default into one group whose `loopDense0` is 3763 bytes, under every limit the budget checks, and C2 compiles it to 72613 instructions with no vector multiply, subtract or shift - the calendar arithmetic runs as the Vector API's scalar fallback, about sixty times slower than the same outputs in six groups in a first, unquiet run (`PLAN_TASK_198.md` 3). The fused ceiling lets a group that reuses a prefix grow past what C2 can inline. Confirm the refusal from the JVM (`PrintInlining`, the `NodeCountInliningCutoff` of `emitter-and-ir.md`), find the call-site count where it starts, and bound a group by it; JDK 27's `DelayAfterInliningCutoff` (scope item 56) is the other lever. In this milestone because the post claims no cliff, and this is one Varka has by default | `PLAN_TASK_198.md` 3 | small to medium, measured |
-| 181 | The closing task: the post. **Outlined** (`PLAN_TASK_181.md`, 25 September 2026): the claim and its five bounds, eight sections each naming its figure and its committed files, and what the draft still owes - task 195's first-query cost and task 188's Varka arm; the 9V45 figure, 197, 170 and 202 improve it but do not gate it | 2.10 | last by definition |
+| 210 | The first post: where Spark's code generation gives up. **Outlined** (`PLAN_TASK_210.md`, 25 September 2026): the owner split the closing post in two, and this one is about vanilla Spark only - the JVM's four limits, how Spark guesses at them, the census, the timings, the fallbacks to interpretation and the upstream fixes in flight. Why in this milestone: it is the promotion track, which the halfway review (9.1) found untouched, and it needs none of the Varka measurements task 181 still owes; what it owes is one committed vanilla benchmark of the split-call case (`PLAN_TASK_210.md` 4) | 2.10, split from 181 | small to medium |
+| 181 | The closing task: the post. **Outlined** (`PLAN_TASK_181.md`, 25 September 2026): the claim and its five bounds, eight sections each naming its figure and its committed files, and what the draft still owes - task 195's first-query cost and task 188's Varka arm; the 9V45 figure, 197, 170 and 202 improve it but do not gate it. *Split 25 September 2026*: sections 3.2 and 3.3 moved to task 210's post (`PLAN_TASK_181.md` 7) | 2.10 | last by definition |
 
 ## 4. Ordering
 
@@ -759,3 +768,80 @@ The milestone's own acceptance, beyond each task's admission check:
   nothing in this milestone needs it.
 * **Any new lane, type or expression family.** This milestone adds no coverage;
   that is what makes it a foundation milestone rather than a breadth one.
+
+## 9. Review at the halfway point, 25 September 2026
+
+*Added on 25 September 2026 at the owner's request, two days after the
+milestone opened. Section 4's ordering is not rewritten; 9.2 is the ordering
+for what remains, and where they differ 9.2 is current.*
+
+### 9.1 The state against 1.3
+
+| 1.3 | State on 25 September |
+| :-- | :-- |
+| 1. No admitted shape fails to emit | Done: 87, 168, 169 |
+| 2. The size ladder committed | Done: laptop, runner and figure (171) |
+| 3. One realistic query | Done in code (172, `splitConditions` on by default); the full-width 9V45 figure is still owed, 0 hits in 15 dispatches |
+| 4. The census complete | 34 entries read; reproducers for 15 merged or in review; G13, G16 and G19 have none; the reproducers pin vanilla's side, and only G4's pins Varka's |
+| 5. The post published | Not outlined |
+| 6. Beside the spine | The CI queue (176) landed; 173, 174, 175, 177, 178, 179, 182, 183 and 184 have not started, and 180 has no commit |
+
+The table had 23 rows when the milestone opened and has 43 today, six of them
+optional research. The spine is nearly through and the research rows around it
+are mostly done; the two tracks the owner set on 23 September are uneven, since
+promotion has not moved at all and the compiler-legibility rows have not started.
+The pattern is that the next measurable row kept winning over the row with no
+number in it, and a review against 1.3 rather than against the table is what
+made it visible.
+
+**What is missing, in the order it matters for the post.**
+
+1. The post's honest bounds: 195 (what the first query costs, since a
+   12167-byte kernel is emitted and compiled per query), 197 (whether the gap
+   survives parallelism) and 2.10's native-accelerator comparison. Risk 1 of
+   section 6 is about exactly these, and none is started.
+2. The census's Varka column is a table, not a test. `VarkaCodegenGiveUpSuite`
+   makes vanilla give up in each case; the claim the post makes is Varka's
+   answer, so every reproducer should assert it too: the fused node present, or
+   a decline with the recorded reason.
+3. Two of section 5's acceptance checks are by hand. The fuzz campaign was
+   reinterpreted in `PLAN_TASK_169.md` because `VarkaIrFuzzSuite` draws IR
+   directly and never goes through the compiler, and `emitted_bytes.json` is
+   referenced by no workflow or script.
+4. Row 170's question, whether a budget below 8000 earns its calls, is open,
+   and the post has to name the threshold Varka targets.
+5. Track A: 180's cadence and 183's onboarding, both with their material
+   already committed.
+
+### 9.2 What comes first
+
+| Order | Task | Why first | Size |
+| ---: | :-- | :-- | :-- |
+| 1 | 181, the outline only | It decides which of 195, 197 and the 9V45 figure the post needs, before more measuring | small |
+| 2 | 188, Varka's side pinned | Every reproducer asserts Varka's answer; G13, G16 and G19 get theirs | small |
+| 3 | 195 | The first-query cost is the bound the post cannot publish without, and a kernel cache across queries is the product question behind it | medium, measured |
+| 4 | 179 with 177 | A fuzzer through the compiler to the emitter as a standing job, asserting fuse-or-decline-with-reason and never throw; `emitted_bytes.json` checked in CI | small |
+| 5 | 180 and 183 | One post from committed material (the demo, the ladder), and 183's issues opened from this table | small, owner-facing |
+| 5a | 210, the vanilla Spark post | *Added 25 September 2026.* The first of the milestone's two posts, and the promotion track's largest item; it needs none of 195, 197 or the 9V45 figure, only one Spark-style benchmark of the split-call case, its inlining evidence and three cheap reproducers (`PLAN_TASK_210.md` 4), so it is drafted while 195 is measured | medium |
+| 6 | 170 | The threshold answer, from the A/B task 87 left ready | small, measured |
+
+After those, in this order: 173, 174 and 184 (legibility, cheap), 175 (the
+Java port, once 184's map exists), 200 and 198 (the compiler improvements with
+measured motivation), then 197 and 202. New rows join this table only with a
+reason to do them in this milestone rather than in `SCOPE_MILESTONE_7.md`.
+
+### 9.3 Lessons, recorded in the skills files
+
+* A predicted immunity is checked at the input path before it is written
+  (`testing-and-debugging.md`): 185's cache finding, the INFO line that made
+  the cliff not silent, and 192's default-cache measurement were all the same
+  mistake.
+* A two-track milestone drifts to the measurable track, and the review that
+  catches it is against the done-when list, not the table
+  (`working-in-this-repo.md`).
+* Grep the record before choosing an algorithm; build both designs and read
+  the assembly; reread every plan paragraph against its results file before
+  committing, because the quote checker catches numbers and not adjectives.
+  These three are already in the skills files and in the task plans of 172
+  and 192, and are listed here because the review found each of them paid for
+  in this milestone.

@@ -195,3 +195,20 @@ fact than the grep gives in one command, and it invites the conclusion that a
 widespread failure is *this project's* problem to schedule. It is not. A failure in
 code this repository does not contain is not Varka work and does not become a
 milestone task row; at most it becomes a line here, which is what this is.
+
+## A two-track milestone drifts to the measurable track; review it against the done-when list
+
+Milestone 6 has two tracks the owner set on the day it opened: the compiler's foundation and
+continuous promotion. Two days in, the foundation spine was nearly through, the research rows
+around it were mostly done, the task table had grown from 23 rows to 43, and the promotion
+track had no commit at all (`PLAN_MILESTONE_6.md` 9). Nothing in the day-to-day chose that: each
+next step was the row with the clearest measurement, and a row with no number in it never won
+that comparison.
+
+Two habits follow. The first is to review the milestone against its own done-when list
+(section 1.3 of each milestone plan) rather than against the task table, every few days and
+whenever a row closes: the table rewards adding and closing rows, the list says what the
+milestone is for. The second is that a new row needs a reason to be done in this milestone,
+written in the row, or it goes to the furthest-out scope catalogue instead; twenty rows in two
+days is more than a milestone closes, and each one added is a choice not to do the track that
+has none.

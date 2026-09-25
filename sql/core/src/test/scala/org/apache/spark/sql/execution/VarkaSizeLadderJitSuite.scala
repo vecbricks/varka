@@ -35,9 +35,10 @@ import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
  * .splitConsumeFuncByOperator` (on by default) splits out of `processNext`, leaving that a small
  * loop that calls it - and past HotSpot's `HugeMethodLimit` - 8000 bytes, which no product build
  * can raise - `DontCompileHugeMethods` refuses to compile that method at any tier: the
- * projection runs in the interpreter inside a compiled loop, and neither Spark nor the JVM says
- * so. Spark logs a generated method only past 65535 bytes, when it disables
- * whole-stage codegen, which the ladder's range never reaches (`PLAN_TASK_171.md` 2.2).
+ * projection runs in the interpreter inside a compiled loop. Spark notices, logs one INFO line
+ * naming the method and its size (`VarkaCodegenCliffLogSuite` pins it), and runs the method
+ * anyway; the `hugeMethodLimit` fallback that could act on it defaults to 65535 bytes, which the
+ * ladder's range never reaches (`PLAN_TASK_171.md` 2.2, `PLAN_TASK_188.md` 5).
  *
  * Each test forks a JVM ([[VarkaSizeLadderJitProbe]]) under `-Xbatch -XX:+PrintCompilation`,
  * runs one ladder rung on stock Spark, and reads the tier HotSpot printed for the projection's
