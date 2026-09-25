@@ -1,0 +1,27 @@
+================================================================================================
+A cached table of 2000000 rows, at and past maxFields
+================================================================================================
+
+100 columns: the scan is columnar
+101 columns: the scan is row-based
+101 columns, maxFields raised to 101: the scan is columnar
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+sum(c1) over the cached table:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+100 columns                                          39             40           1         51.8          19.3       1.0X
+101 columns                                          35             43           9         57.1          17.5       1.1X
+101 columns, maxFields raised to 101                 34             37           4         58.6          17.1       1.1X
+
+100 columns: the scan is columnar
+101 columns: the scan is row-based
+101 columns, maxFields raised to 101: the scan is columnar
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+all columns of the cached table:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+100 columns                                         201            228          21          9.9         100.6       1.0X
+101 columns                                         910            935          17          2.2         454.9       0.2X
+101 columns, maxFields raised to 101                176            205          20         11.4          88.0       1.1X
+
+
