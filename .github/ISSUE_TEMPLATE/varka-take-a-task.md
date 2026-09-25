@@ -4,8 +4,10 @@ about: Pick a row from the current milestone's task table and say how you will d
 title: "[Task <n>] <the row's title>"
 ---
 
-<!-- The current milestone's task table is sql/varka/plans/PLAN_MILESTONE_5.md, section 3.
-     Rows marked Scoped or Planned are open. CONTRIBUTING.md has the rest. -->
+<!-- The current milestone's task table is section 3 of the highest-numbered
+     sql/varka/plans/PLAN_MILESTONE_<n>.md. Every open row is also an issue labelled "task";
+     if the row you want has one, say so there instead of opening this. CONTRIBUTING.md has
+     the rest. -->
 
 ### The row
 

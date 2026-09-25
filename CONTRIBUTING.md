@@ -26,11 +26,18 @@ applies to anything that touches Spark itself.
 
 Development runs in milestones, and each milestone is one file under
 [`sql/varka/plans/`](sql/varka/plans/) with a numbered task table. The
-milestone in flight is [`PLAN_MILESTONE_5.md`](sql/varka/plans/PLAN_MILESTONE_5.md);
-rows marked **Scoped** or **Planned** are open, rows marked **Done** carry a
-pointer to their outcome, and each row names what has to be true before the
-task starts and what counts as done. Every task has, or gets, its own
-`PLAN_TASK_<n>.md`. The next milestone's scope catalogue is
+milestone in flight is the highest-numbered `PLAN_MILESTONE_<n>.md` there,
+[`PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md) as this is
+written; a row whose first bold marker begins with **Done** is finished and
+carries a pointer to its outcome, **Withdrawn** rows are closed, and every
+other row is open, whether marked **Scoped**, **Planned** or not yet marked.
+Each row names what has to be true before the task starts and what counts as
+done, and every task has, or gets, its own `PLAN_TASK_<n>.md`. The same rows
+are mirrored as [issues labelled `task`](https://github.com/vecbricks/varka/issues?q=label%3Atask),
+one per open row, by `dev/varka_issues.py` on every change to the plan; the
+ones a newcomer can finish in a day carry `good first issue`. The table is the
+source of truth and the issues follow it, so a row is edited in the plan and
+never in the issue. The next milestone's scope catalogue is
 [`SCOPE_MILESTONE_7.md`](sql/varka/plans/SCOPE_MILESTONE_7.md), and design
 input there is as welcome as code.
 

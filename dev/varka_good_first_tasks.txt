@@ -1,0 +1,8 @@
+# Rows of the current milestone's task table a newcomer can finish in a day, at most five:
+# <task number><TAB><why it is a good first task>. Read by dev/varka_issues.py, which puts
+# the "good first issue" label on their mirrored issues. Kept by hand, on purpose.
+173	one test file: assert the compiler's family chain is disjoint, from the existing suite's shape
+174	a move, not a design: the emitter's shared constants out of the facade, with the bytes oracle proving nothing changed
+186	one reproducer and a paragraph in the census plan, on the pattern of the existing ones
+187	the same for the constant-pool cliff
+194	a measurement with the ladder as it is, changing the stock arm's input path and reading the result

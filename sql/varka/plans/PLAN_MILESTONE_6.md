@@ -644,7 +644,7 @@ milestone 4.
 | 179 | The fuzzer as a standing job | 2.8, from 87's origin | small |
 | 182 | Extend Spark's own benchmarks, not only ours | item 8 | small to medium |
 | 180 | Promotion, continuously | 2.9 | continuous |
-| 183 | Onboarding: task tables as issues, a hardware census, templates | item 38 | small |
+| 183 | Onboarding: task tables as issues, a hardware census, templates. **Built** (`PLAN_TASK_183.md`, 25 September 2026): the census page and both templates had landed on 21 September, before this milestone, with the walkthrough (`8d02d3ae033`); the last third is `dev/varka_issues.py`, one issue per open row of the milestone in flight, closed with the row's outcome when it turns done, run by `varka-issues.yml` on every change to a plan; done when the workflow's first run has opened them (section 4) | item 38 | small |
 | 184 | The refactoring tools under `dev/` | item 46 | small |
 | 185 | The schema-width cliff: `spark.sql.codegen.maxFields`. **Planned** (`PLAN_TASK_185.md`, 24 September 2026): reproducers at 100 and 101 fields, a Varka scan that reads the Arrow cache as batches whatever its width, and a recorded reason where that does not reach. *Task 188 found that a cached table of more than a hundred columns stops producing columnar batches whatever a query reads (`InMemoryTableScanExec.supportsColumnar`), so Varka gets nothing to fuse: the immunity this row predicts does not hold for the cache* | 2.11 | small |
 | 186 | The method-size cliff, and the split that is switched off | 2.11 | small |
