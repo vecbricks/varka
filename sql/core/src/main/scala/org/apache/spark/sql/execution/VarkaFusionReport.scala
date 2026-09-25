@@ -82,20 +82,29 @@ private[sql] object VarkaFusionReport {
    * fused into the mask kernel, or residual with the compiler's reason. On a Varka filter
    * node every line reads "fused" by construction (the rule keeps residual conjuncts in a row
    * `FilterExec` above); the mixed rendering exists for logs and for reporting the original,
-   * unsplit condition.
+   * unsplit condition. A predicate too large for one method that the compiler split across
+   * several selection outputs (`splitConditions`) gets one more line saying so.
    */
   def predicateLines(
       condition: Expression,
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Seq[String] = {
-    VarkaExpressionCompiler.explainPredicate(condition, childOutput, options).map { spec =>
-      if (spec.fused) {
-        s"${render(spec.conjunct)}: fused"
-      } else {
-        val why = spec.decline.map(_.toString).getOrElse("no reason recorded")
-        s"${render(spec.conjunct)}: residual ($why)"
+    val conjuncts =
+      VarkaExpressionCompiler.explainPredicate(condition, childOutput, options).map { spec =>
+        if (spec.fused) {
+          s"${render(spec.conjunct)}: fused"
+        } else {
+          val why = spec.decline.map(_.toString).getOrElse("no reason recorded")
+          s"${render(spec.conjunct)}: residual ($why)"
+        }
       }
-    }
+    val split = VarkaExpressionCompiler.compilePredicate(condition, childOutput, options)
+      .filter(_.fused.outputs.size > 1)
+      .map { p =>
+        s"split across ${p.fused.outputs.size} selection outputs in ${p.clauses.size} " +
+          "clauses, each within the method budget"
+      }
+    conjuncts ++ split
   }
 
   /** A conjunct in the query's own words, capped like `DeclineSink`'s renderings. */

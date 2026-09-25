@@ -340,3 +340,87 @@ Ten runs of `VarkaRangeFilterBenchmark` on an unchanged file, on the quiet lapto
   at one to three hundred thousand rows a second, which the Rate column prints as the same single
   digit every run; the band cannot see its spread, as 9.6 of `PLAN_TASK_192.md` says of the same
   column.
+
+### 9.6 Design A, built, 25 September 2026
+
+A filter predicate that one method cannot hold is split across several selection outputs of one
+kernel, under a new option, `splitConditions`, off by default until measured. Beside it,
+`rangeSets` switches design B off, on by default as it shipped, so that a disjunction of ranges
+reaches design A as the comparisons it is written as. Both are compiler options: they live in
+`VarkaEmitOptions` because that is what the compiler is handed, and they render into the shape
+key only when set away from their defaults, so no existing key moves.
+
+**How the split works.** The compiler folds the fused conjuncts into one condition root, as
+before, and asks the emitter whether it fits. Only when it does not does the split start, and
+it looks for the fewest outputs, since every extra one is another pass over its columns and
+another bitmap. First the fewest equal contiguous conjunction roots the emitter accepts, where
+the only root it may still name is a single conjunct that is a disjunction; then, for each such
+root, the fewest equal partial disjunctions the emitter accepts beside everything else. Each
+count is found by doubling until one is accepted and a binary search below it, and the emitter
+judges the whole kernel every time. A root that cannot split - a conjunct that is not a
+disjunction, or a disjunct too large alone - ends the split, and the compiler demotes a
+conjunct as it does without the option. Each output
+is a selection bitmap, and the predicate records its shape as clauses: a row is selected when
+every clause has an output that selects it. The filter evaluator gives each output its own
+bitmap, runs the kernel, ORs each clause's bitmaps into its first and ANDs the clauses into
+output 0's. Kleene logic allows both at the mask: a row is known true for `a AND b` exactly when
+it is known true for both, and for `a OR b` exactly when it is known true for either.
+
+**Two departures from 3.1, and why.**
+
+* **The partial masks are bitmaps the filter combines, not scratch vectors inside the kernel.**
+  The emitter already splits a kernel's outputs across methods under the byte budget (task 87),
+  and a condition output is already a bitmap, so a partial root as an output of its own needs
+  no emitter change at all. What it costs is one bit a row per output, written by the kernel and
+  read once by the combine, eight bytes at a time. Sharing one bitmap between the outputs, which
+  would have saved the combine, does not work: under `validityByWord` a loop stores each
+  validity word whole, without reading it, so two outputs writing one bitmap overwrite each
+  other.
+* **The emitter decides the split, not an estimate, and the split searches for the fewest
+  outputs.** Two versions came first. The first packed conjuncts greedily into roots that each
+  fitted in a kernel of their own. On 300 conjuncts every root fitted alone and the kernel of all
+  four still failed: root 1's loop method was 8216 bytes beside the others, because a method in a
+  kernel of several outputs is not byte for byte what it is alone, and it asked the emitter once
+  per conjunct. That is the failure `READING_MILESTONE_6.md` records from TENSAT's section 5.1 -
+  a greedy pass that costs each piece alone misjudges the whole - which the read had already
+  drawn for `groupOutputs` (task 200) and which should have been read before this was written.
+  The second halved whatever the emitter named, which fits by construction but only makes
+  pieces of halving sizes. Measured on the same shapes, 25 September 2026, outputs of the split
+  kernel, every conjunct fused in both:
+
+  | predicate | halving | search on counts |
+  |---|---:|---:|
+  | `s >= 0` and 49 of the ranges | 1 + 2 | 1 + 2 |
+  | and 100 | 1 + 4 | 1 + 3 |
+  | and 150 | 1 + 4 | 1 + 4 |
+  | and 200 | 1 + 8 | 1 + 5 |
+  | a disjunction of 150 over two columns | 4 | 4 |
+  | a conjunction of 300 comparisons | 4 | 4 |
+
+  The search asks the emitter a few times more and compiles in the same tenth of a second. It
+  is exact among splits into equal pieces, not over every partition; the exact partition is
+  task 200's dynamic program, which needs a cost cheaper to ask than an emission (task 199), and
+  design A's split is a second place it would serve. A first search went straight to its upper
+  count and read the refusal there as "nothing fits": past some number of outputs the driver
+  method itself is over the budget, so acceptance is monotone in the count only up to a point,
+  and the search now doubles up to the answer instead.
+
+**What checks it.** `VarkaSplitConditionFusionSuite` pins, with range sets off, that without the
+split the comparisons still fuse up to 48 ranges and decline from 49; that a predicate one
+method holds compiles exactly as it does without the option; that `modified-q3`'s ranges at 49,
+100 and 200 split into the clause of `s >= 0` and a clause of partial disjunctions, with every
+method of the kernel within 8000 bytes; that a disjunction over two columns and a conjunction of
+300 comparisons split the same way; that a conjunct too large alone which is not a disjunction
+still declines with the method-budget reason; and that the fusion report says when the predicate
+is split and only then. `VarkaSplitConditionSuite` runs the same shapes, and one with conjunction
+roots beside a split disjunction at the int extremes, on the row engine and on Varka over the same
+Arrow-cached rows with nulls, and requires the same rows with the kernel having run.
+
+The IR fuzzer does not draw the split: it lives in the compiler and the evaluator, above the IR,
+and the fuzzer draws IR. The end-to-end suite is its differential check.
+
+**The benchmark** gains the arm "Varka, split conditions" beside "Varka", whose name stays so that
+its committed rows and its band keep their key.
+
+What remains: the measurement, on the quiet laptop and on a runner, and the scoring of
+predictions 2 and 4 for design A, with the recommendation 8 asks for.

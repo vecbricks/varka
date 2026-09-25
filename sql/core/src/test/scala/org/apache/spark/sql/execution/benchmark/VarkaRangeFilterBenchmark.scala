@@ -24,7 +24,9 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
-import org.apache.spark.sql.execution.{VarkaFilterExecBase, VarkaQ3Ranges}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
+import org.apache.spark.sql.execution.{VarkaColumnarToRowExec, VarkaFilterExecBase,
+  VarkaQ3Ranges}
 
 /**
  * TPC-DS `modified-q3`'s filter on vanilla Spark and on Varka: an Arrow-cached int column of date
@@ -38,6 +40,11 @@ import org.apache.spark.sql.execution.{VarkaFilterExecBase, VarkaQ3Ranges}
  * ranges. Written as the tree of comparisons the query spells, the chain fit Varka's byte budget
  * only up to 48 ranges, which is why the rungs straddle 48 and 49; they reach the query's 200,
  * past vanilla's own crossing, which the notes locate (`PLAN_TASK_172.md`).
+ *
+ * A third arm times the general answer to the same limit, `splitConditions`: range sets off, so
+ * the ranges reach Varka as the comparisons the query writes, and the filter split across
+ * several selection outputs, each within the budget, instead of declined (`PLAN_TASK_172.md`
+ * 3.1). It is what any disjunction too large for one method gets, not only one of ranges.
  *
  * Each rung writes, after its table, vanilla's largest generated method, whether it is past
  * `HugeMethodLimit`, whether Varka ran the filter as a kernel, and how many rows pass. A rung whose
@@ -53,6 +60,16 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
   import VarkaArrowSessions.{createSession, vanillaMethodBytes}
 
   private val numRows = 2000000
+
+  /** The split arm's options: see the class doc. */
+  private val splitOptions =
+    VarkaEmitOptions.DEFAULTS.withRangeSets(false).withSplitConditions(true)
+
+  /** Runs `body` with the Varka session planning and emitting under `options`. */
+  private def withOptions[T](options: VarkaEmitOptions)(body: => T): T = {
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(options)
+    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaEmitOptions.DEFAULTS)
+  }
 
   /** Straddling Varka's boundary (48 and 49) and vanilla's crossing. */
   private val rungs = Seq(10, 48, 49, 100, 150, 200)
@@ -115,6 +132,8 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
           val bytes = vanillaMethodBytes(baseline, query)
           val (fused, plan) = varkaFilters(varka, query)
           require(fused, s"at $n ranges the Varka arm declined the filter:\n$plan")
+          val (split, splitPlan) = withOptions(splitOptions)(varkaFilters(varka, query))
+          require(split, s"at $n ranges the split arm declined the filter:\n$splitPlan")
           val selected = baseline.sql(query).count()
           val benchmark = new Benchmark(s"$n ranges over $numRows Arrow-cached rows", numRows,
             minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
@@ -124,10 +143,13 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
           benchmark.addCase("Varka") { _ =>
             varka.sql(query).noop()
           }
+          benchmark.addCase("Varka, split conditions") { _ =>
+            withOptions(splitOptions)(varka.sql(query).noop())
+          }
           benchmark.run()
           note(s"rung $n: vanilla's largest generated method is $bytes bytes, " +
-            (if (bytes > limit) "past" else "under") + s" HugeMethodLimit $limit; Varka " +
-            s"runs the filter as a kernel; $selected of $numRows rows pass")
+            (if (bytes > limit) "past" else "under") + s" HugeMethodLimit $limit; both Varka " +
+            s"arms run the filter as a kernel; $selected of $numRows rows pass")
         }
       }
     } finally {
