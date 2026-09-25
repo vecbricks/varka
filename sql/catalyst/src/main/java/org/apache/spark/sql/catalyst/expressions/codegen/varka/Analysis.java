@@ -17,8 +17,11 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.childrenOf;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.chronoChild;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Lane.emitLanes;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.isDayOffsetShape;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,7 +32,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.Divider;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.ArmStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -338,18 +340,6 @@ final class Analysis {
   }
 
   /**
-   * See {@link #guardedProducers}: a walk under each calendar node for a column-offset day
-   * producer. A column-count {@link AddMonths} joins {@link #selfGuarding} instead, not
-   * {@link #guardedProducers}: its check is on its own month count, which its own magic
-   * multiply is exact only over, so it is the node's correctness rather than a consumer's
-   * insurance - the {@link MakeDate} criterion exactly. It also has to be unconditional
-   * because the compiler reads the guard as established fact: {@code dayRange} answers
-   * {@code Bounded} for a column count, and composes that interval with whatever shifts it,
-   * without being able to see {@link VarkaEmitOptions#guardDayProducers}. Behind the option
-   * the guard would vanish while the compile-time bound stayed, which is a wrong answer
-   * rather than a slower one.
-   */
-  /**
    * The context walk: assigns every node the arm chain its uses agree on, by the rule in
    * {@code PLAN_TASK_79.md} 3.3 - narrow only where every use sits under one and the same
    * innermost arm chain, and keep the unqualified guard for anything else.
@@ -415,6 +405,18 @@ final class Analysis {
     return chain == null ? List.of() : chain;
   }
 
+  /**
+   * See {@link #guardedProducers}: a walk under each calendar node for a column-offset day
+   * producer. A column-count {@link AddMonths} joins {@link #selfGuarding} instead, not
+   * {@link #guardedProducers}: its check is on its own month count, which its own magic
+   * multiply is exact only over, so it is the node's correctness rather than a consumer's
+   * insurance - the {@link MakeDate} criterion exactly. It also has to be unconditional
+   * because the compiler reads the guard as established fact: {@code dayRange} answers
+   * {@code Bounded} for a column count, and composes that interval with whatever shifts it,
+   * without being able to see {@link VarkaEmitOptions#guardDayProducers}. Behind the option
+   * the guard would vanish while the compile-time bound stayed, which is a wrong answer
+   * rather than a slower one.
+   */
   void collectGuardedProducers() {
     for (VarkaVectorIR node : topoOrder) {
       if (isChrono(node)) {
@@ -946,5 +948,17 @@ final class Analysis {
           "WeekOfYear's child must be a ThursdayOf, got " + days);
     }
   }
-}
 
+  /**
+   * one step of an arm chain - an {@code IfElse} and which of its two arms. The condition it names
+   * is what the guard is qualified by, taken as-is for the then arm and complemented for the else
+   * arm; see {@code emitArmContext} for why the complement and not the known-false word.
+   */
+  record ArmStep(IfElse node, boolean thenBranch) { }
+
+  /** Whether the kernel reads input column {@code ordinal}, from the analysis's bitset. */
+
+  static boolean referenced(Analysis analysis, int ordinal) {
+    return (analysis.referencedColumns >>> ordinal & 1L) != 0;
+  }
+}

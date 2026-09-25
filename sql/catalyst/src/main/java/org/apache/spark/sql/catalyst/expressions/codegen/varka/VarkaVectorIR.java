@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -1137,5 +1138,74 @@ public sealed interface VarkaVectorIR
       case BoundedDivide n ->
           "(divb:" + n.divisor() + "/" + n.bound() + " " + lineOf.applyAsInt(n.child()) + ")";
     };
+  }
+
+  /** Whether {@code root}'s subtree contains a member of {@code nodes} (structural equality). */
+  static boolean reaches(VarkaVectorIR root, Set<VarkaVectorIR> nodes) {
+    if (nodes.contains(root)) {
+      return true;
+    }
+    for (VarkaVectorIR child : childrenOf(root)) {
+      if (reaches(child, nodes)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** {@code node}'s children, in the order its record declares them; a leaf has none. */
+
+  static VarkaVectorIR[] childrenOf(VarkaVectorIR node) {
+    return switch (node) {
+      case ColumnRef c -> new VarkaVectorIR[0];
+      case LiteralSlot l -> new VarkaVectorIR[0];
+      case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case GuardedDay n -> new VarkaVectorIR[] {n.days()};
+      case GuardedRange n -> new VarkaVectorIR[] {n.child()};
+      case NarrowLane n -> new VarkaVectorIR[] {n.child()};
+      case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
+      case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
+      case WeekDay n -> new VarkaVectorIR[] {n.days()};
+      case DayOfWeekIso n -> new VarkaVectorIR[] {n.days()};
+      case NextDay n -> new VarkaVectorIR[] {n.days(), n.offset()};
+      case ThursdayOf n -> new VarkaVectorIR[] {n.days()};
+      case Year n -> new VarkaVectorIR[] {n.days()};
+      case Month n -> new VarkaVectorIR[] {n.days()};
+      case DayOfMonth n -> new VarkaVectorIR[] {n.days()};
+      case Quarter n -> new VarkaVectorIR[] {n.days()};
+      case DayOfYear n -> new VarkaVectorIR[] {n.days()};
+      case LastDay n -> new VarkaVectorIR[] {n.days()};
+      case TruncDate n -> new VarkaVectorIR[] {n.days()};
+      case TruncDateDynamic n -> new VarkaVectorIR[] {n.days(), n.level()};
+      case WeekOfYear n -> new VarkaVectorIR[] {n.days()};
+      case AddMonths n -> new VarkaVectorIR[] {n.days(), n.months()};
+      case MakeDate n -> new VarkaVectorIR[] {n.year(), n.month(), n.day()};
+      case Greatest n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
+      case Compare n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case And n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case Not n -> new VarkaVectorIR[] {n.child()};
+      case IsNotNull n -> new VarkaVectorIR[] {n.child()};
+      case InRanges n -> new VarkaVectorIR[] {n.child()};
+      case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case IntNeg n -> new VarkaVectorIR[] {n.child()};
+      case ConstDivide n -> new VarkaVectorIR[] {n.child()};
+      case BoundedDivide n -> new VarkaVectorIR[] {n.child()};
+    };
+  }
+
+  /**
+   * The node kinds a {@code date_add}/{@code date_sub} day offset may be. Public because
+   * `VarkaExpressionCompiler` gates its offset arm on exactly this: the compiler deciding what
+   * to build and the emitter deciding what to accept are one rule, and stating it twice is how
+   * `date_add(d, weekday(d2) + 1)` came to be fused in EXPLAIN and refused at emit time, which
+   * the evaluator turns into a silent per-batch fallback. Widen this and both move together.
+   */
+  static boolean isDayOffsetShape(VarkaVectorIR offset) {
+    return offset instanceof LiteralSlot || offset instanceof ColumnRef
+        || offset instanceof IntArith || offset instanceof IntNeg;
   }
 }

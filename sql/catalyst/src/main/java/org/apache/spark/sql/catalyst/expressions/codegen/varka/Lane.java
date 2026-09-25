@@ -278,4 +278,39 @@ enum Lane {
   String speciesField(int lanes) {
     return lanes == 0 ? "SPECIES_PREFERRED" : "SPECIES_" + lanes * bits;
   }
+
+  /**
+   * The lane count to bake into the emitted class, or 0 for "do not bake one" - which is what
+   * {@link VarkaEmitOptions#validityByWidth} off means, and what a width the class cannot both
+   * name and serve means.
+   *
+   * <p>A baked width needs two things that a lane count alone does not guarantee. It needs a
+   * named species constant, which is a question about the width in bits: {@code SPECIES_64}
+   * through {@code SPECIES_512} exist, and the shapes SVE reaches above 512 bits have no name.
+   * And it needs the width-specialised validity helpers in {@link VarkaVectorSupport}, which
+   * exist per lane *count*: 2, 4, 8 and 16. At the int lane the two sets coincide; at the long
+   * lane they do not, because a single 64-bit lane is a species that exists and a helper that
+   * does not. Anything the pair of checks rejects runs on {@code SPECIES_PREFERRED} and the
+   * general helpers, which is correct at every width and no slower than before task 92.
+   */
+  static int emitLanes(VarkaEmitOptions options, Lane lane) {
+    if (!options.validityByWidth()) {
+      return 0;
+    }
+    int lanes = options.lanesOverride() != 0 ? options.lanesOverride() : lane.preferredLanes;
+    // Both checks, not either: a width the class can name but not serve emits a call to a
+    // validity helper that does not exist, which verifies and throws NoSuchMethodError on the
+    // first masked batch. One long lane is that width, reachable with no override at all on a
+    // JVM whose widest vector is 64 bits.
+    return lane.hasSpecies(lanes) && hasValidityHelpers(lanes) ? lanes : 0;
+  }
+
+  /**
+   * Whether {@link VarkaVectorSupport} carries a width-specialised validity pair for this many
+   * lanes. A width without one is emitted against {@code SPECIES_PREFERRED} and the general
+   * helpers, which is correct at any width and no slower than before task 92 existed.
+   */
+  private static boolean hasValidityHelpers(int lanes) {
+    return lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16;
+  }
 }

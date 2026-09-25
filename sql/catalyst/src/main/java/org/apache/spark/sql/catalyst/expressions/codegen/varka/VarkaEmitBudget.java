@@ -169,6 +169,33 @@ final class VarkaEmitBudget {
   }
 
   /**
+   * The deepest op path (root to leaf, per output) the emitter accepts, fixed by measurement
+   * (VarkaEmitterParityBenchmark; details in PLAN_TASK_9.md): fused throughput declines only
+   * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
+   * method size and register pressure by policy, well past any depth a real projection
+   * produces, rather than marking a measured performance edge. Condition nodes count.
+   */
+  public static final int MAX_CHAIN_DEPTH = 16;
+
+  /**
+   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE, in the
+   * form without a byte budget ({@code methodByteBudget} 0). Depth alone does not bound method
+   * size once outputs multiply, and that form has nothing else that does, so this is its
+   * total-size bound. Under the byte budget - the default - it does not apply: every method is
+   * measured in bytes and regrouped until it fits, and a kernel no regroup can fit (a driver past
+   * the budget, which grows with the outputs) is declined with a reason, at plan time. The cap had
+   * been a proxy for that size, and it admitted a quarter of the entries a real wide projection
+   * has ({@code PLAN_TASK_190.md} 1).
+   */
+  public static final int MAX_FUSED_NODES = 64;
+
+  /**
+   * The most input columns one emitted loop may read. A node's referenced-column set is a long
+   * bitset, which fixes the representation limit at 64; real projections reference a handful.
+   */
+  public static final int MAX_INPUTS = 64;
+
+  /**
    * The most op nodes one emitted <i>loop method</i> carries. Outputs are partitioned into
    * sibling loop methods within this budget.
    *

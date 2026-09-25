@@ -17,8 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.ArmStep;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
@@ -26,7 +26,6 @@ import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.Set;
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.ArmStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -100,6 +99,17 @@ final class VarkaVectorWalk {
       cb.lineNumber(number);
     }
   }
+
+  /** The word-reference value meaning "constant all-true": a literal-only subtree has no nulls. */
+  static final int WORD_ALL_TRUE = -1;
+
+  /**
+   * The word-reference value meaning "this word is dead in this body": no consumer
+   * left in the method reads it, so it is neither allocated nor computed. Only an own word
+   * takes this value - an input's word keeps its slot for parity with the dense body's layout
+   * and is marked dead in {@link Slots#deadRefs} instead. {@code loadWord} refuses both.
+   */
+  static final int WORD_DEAD = -2;
 
   /**
    * Pushes a validity word: a long local, or the all-true constant. The one call every consumer

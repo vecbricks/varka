@@ -43,8 +43,8 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       val e = intercept[IllegalArgumentException](body)
       assert(e.getMessage.contains(fragment), s"message was: ${e.getMessage}")
     }
-    rejects(emit(chain(VarkaLoopEmitter.MAX_CHAIN_DEPTH + 1),
-      VarkaLoopEmitter.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
+    rejects(emit(chain(VarkaEmitBudget.MAX_CHAIN_DEPTH + 1),
+      VarkaEmitBudget.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
     rejects(emit(new AddDays(new ColumnRef(1), new LiteralSlot(0)), 1), "column ordinal")
     rejects(emit(new AddDays(new ColumnRef(0), new LiteralSlot(1)), 1), "literal slot")
     // A column offset (task 38) is legal IR now - AddDays(ColumnRef, ColumnRef) no longer
@@ -54,7 +54,7 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       "no output chains")
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)), 0, 1), "numInputs")
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of(addDays(0)),
-      VarkaLoopEmitter.MAX_INPUTS + 1, 1), "numInputs")
+      VarkaEmitBudget.MAX_INPUTS + 1, 1), "numInputs")
     // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap of the form
     // without a byte budget. The cap counts nodes after CSE: the same 4 chains repeated as 8
     // outputs stay within it. Under the byte budget, the default, bytes decide instead and the

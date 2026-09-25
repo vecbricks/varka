@@ -17,8 +17,16 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.ArrayList;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.WORD_ALL_TRUE;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.WORD_DEAD;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.childrenOf;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.chronoChild;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.reaches;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.referenced;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.tailReadsMarchMonth;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaBodyEmitter.BodyMode;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -29,8 +37,6 @@ import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordExpr;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordOwner;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.BodyMode;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.FragmentKey;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -188,14 +194,6 @@ final class Slots {
    */
   Integer guardAcc;
   /**
-   * Per guarded node: the local the guarded vector is parked in while the guard compares it,
-   * since that vector has to stay on the operand stack for the parent. What is guarded differs
-   * by node. For {@code AddDays}/{@code SubDays} it is the node's own result, checked
-   * against the range the calendar lowering is exact over. For {@code AddMonths} it
-   * is the month count operand, checked against the range the magic multiply is exact over,
-   * and so parked before the node's own value exists at all.
-   */
-  /**
    * one {@code long} accumulator per output whose validity this body writes a word at a time, or
    * {@code -1} for an output that keeps the per-lane-group read-modify-write. Null in every body
    * that does not word-write at all, which is what keeps such a body's slot numbering - and so
@@ -203,6 +201,14 @@ final class Slots {
    */
   int[] validityAcc;
 
+  /**
+   * Per guarded node: the local the guarded vector is parked in while the guard compares it,
+   * since that vector has to stay on the operand stack for the parent. What is guarded differs
+   * by node. For {@code AddDays}/{@code SubDays} it is the node's own result, checked
+   * against the range the calendar lowering is exact over. For {@code AddMonths} it
+   * is the month count operand, checked against the range the magic multiply is exact over,
+   * and so parked before the node's own value exists at all.
+   */
   final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
 
   /**
@@ -914,5 +920,75 @@ final class Slots {
       return inverted;
     }
     return live;
+  }
+
+  /**
+   * A run of emitted lane ops that several nodes need, that depends on one shared child, and that
+   * leaves its results in scratch locals rather than on the operand stack. It is the sub-node
+   * counterpart of the CSE {@code emitValue} already does between whole nodes: what is worth
+   * sharing between {@code year(d)} and {@code month(d)} is not a node - the IR has none for it -
+   * but the forty-odd ops in the middle of both their emissions.
+   *
+   * <p>One kind so far. The key carries it so that a second one is additive rather than a
+   * rewrite of everything keyed on it.
+   */
+  enum FragmentKind { CHRONO_PREFIX }
+
+  /**
+   * What makes two emissions of a fragment interchangeable: the kind, the child they decompose,
+   * and the reference the node's validity word resolves to.
+   *
+   * <p>The word's presence in the key is now conservative rather than load-bearing, and the reason
+   * recorded here no longer applies: {@code emitChronoPrefix} once carried the narrow-range guard,
+   * which read the node's validity word, so two nodes with different words could not share a
+   * prefix. The prefix reads no word at all today, so keying on the word cannot make a shared
+   * fragment wrong - it can only miss a share that would have been sound.
+   *
+   * <p>It costs one, and that starts to show where {@code planWordRef} aliases every {@link Chrono}
+   * extraction's word to its child's, so {@code year(d)} and {@code month(d)} agree and share, but
+   * {@link AddMonths} 's word is the AND of the date's and the month count's, so a column-count
+   * {@code add_months(d, m)} is the first chrono node whose word is its own - and it no longer
+   * shares the forty-odd-op decomposition of {@code d} with {@code month(d)}. Only a masked body
+   * pays: in a dense body no word is planned at all and the child alone decides. Dropping
+   * {@code word} from the key would recover the share, and is safe as far as this analysis goes,
+   * but it changes emitted bytes and so wants its own measurement.
+   *
+   * @param word the node's validity-word reference, or null in a dense body.
+   */
+  record FragmentKey(FragmentKind kind, VarkaVectorIR child, Integer word) {}
+
+  /**
+   * Which of this lane group's prefix fragments a tail in it reads the March-based month out
+   * of, over the union of the group's outputs' subtrees. The walk is the group's own
+   * because {@link Slots#fragmentsReadingMonth} is the group's own - see its doc for why the
+   * body's whole output list would be too wide - and it precedes every emission in the group,
+   * so no sibling's order can change what it decides.
+   */
+  static void planFragmentsReadingMonth(List<VarkaVectorIR> outputs,
+      List<Integer> outputIdx, boolean dense, Slots s) {
+    s.fragmentsReadingMonth.clear();
+    Set<VarkaVectorIR> seen = new HashSet<>();
+    List<VarkaVectorIR> pending = new ArrayList<>();
+    for (int o : outputIdx) {
+      pending.add(outputs.get(o));
+    }
+    while (!pending.isEmpty()) {
+      VarkaVectorIR node = pending.remove(pending.size() - 1);
+      if (!seen.add(node)) {
+        continue;
+      }
+      if (isChrono(node) && tailReadsMarchMonth(node)) {
+        s.fragmentsReadingMonth.add(fragmentKey(node, dense, s));
+      }
+      for (VarkaVectorIR child : childrenOf(node)) {
+        pending.add(child);
+      }
+    }
+  }
+
+  /** {@link FragmentKey} for {@code node}'s civil-from-days prefix; see that record's doc. */
+  static FragmentKey fragmentKey(VarkaVectorIR node, boolean dense, Slots s) {
+    return new FragmentKey(FragmentKind.CHRONO_PREFIX, chronoChild(node),
+        dense ? null : s.wordRef.get(node));
   }
 }

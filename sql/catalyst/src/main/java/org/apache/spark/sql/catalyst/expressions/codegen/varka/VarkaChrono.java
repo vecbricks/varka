@@ -677,22 +677,6 @@ public final class VarkaChrono {
   public static final int MARCH_DAY_OF_YEAR = 60;
 
   /**
-   * Hinnant's {@code days_from_civil}, the exact inverse of {@link #narrowed}, over a
-   * biased (non-negative) March-based year. {@code / 4} is a shift and {@code / 5} (inside
-   * {@code dayOfYear}) is an exact magic multiply over its small dividend, the same one
-   * {@link #narrowed}'s day tail uses; {@code / 400} and {@code / 100} are round-down magics
-   * with one correction each, {@link #YEAR_CENTURY_M}'s javadoc records why an exact one does
-   * not reach far enough here even though the dividend (up to about 50381) is smaller than the
-   * forward-direction ones.
-   *
-   * <p>{@code month} must be 1-12 and {@code dayOfMonth} the already-clamped day; this method
-   * does no clamping itself; {@link VarkaLoopEmitter}'s {@code emitAddMonths} does the clamp
-   * before calling the equivalent lane-wise sequence. Round-trips with {@link #narrowed} over
-   * every day from year 1 to year 9999, and over the wider year range {@code emitAddMonths}'s
-   * month arithmetic can reach - see {@code verify_days_from_civil.py} and
-   * {@code PLAN_TASK_40.md}.
-   */
-  /**
    * Spark's {@code make_date} as the emitter computes it, the scalar twin of the
    * kernel's arm: the month clamped into 1..12 for the length test, the length as the closed
    * form {@code 30 | (m ^ (m >>> 3))} except February's {@code 28 + leap}, validity as
@@ -714,6 +698,22 @@ public final class VarkaChrono {
     return valid ? daysFromCivil(year, month, dayOfMonth) : MAKE_DATE_INVALID;
   }
 
+  /**
+   * Hinnant's {@code days_from_civil}, the exact inverse of {@link #narrowed}, over a
+   * biased (non-negative) March-based year. {@code / 4} is a shift and {@code / 5} (inside
+   * {@code dayOfYear}) is an exact magic multiply over its small dividend, the same one
+   * {@link #narrowed}'s day tail uses; {@code / 400} and {@code / 100} are round-down magics
+   * with one correction each, {@link #YEAR_CENTURY_M}'s javadoc records why an exact one does
+   * not reach far enough here even though the dividend (up to about 50381) is smaller than the
+   * forward-direction ones.
+   *
+   * <p>{@code month} must be 1-12 and {@code dayOfMonth} the already-clamped day; this method
+   * does no clamping itself; {@link VarkaLoopEmitter}'s {@code emitAddMonths} does the clamp
+   * before calling the equivalent lane-wise sequence. Round-trips with {@link #narrowed} over
+   * every day from year 1 to year 9999, and over the wider year range {@code emitAddMonths}'s
+   * month arithmetic can reach - see {@code verify_days_from_civil.py} and
+   * {@code PLAN_TASK_40.md}.
+   */
   public static int daysFromCivil(int year, int month, int dayOfMonth) {
     int marchYear = year - (month <= 2 ? 1 : 0);
     int biased = marchYear + YEAR_BIAS;

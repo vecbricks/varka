@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, BoundReference
   YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler._
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind,
-  VarkaLoopEmitter, VarkaRangeAnalysis, VarkaValueRange, VarkaVectorIR}
+  VarkaRangeAnalysis, VarkaValueRange, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis.{GuardPolicy,
   Kind}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays,
@@ -319,7 +319,7 @@ private[codegen] object VarkaChronoCompiler {
             // test is the emitter's own predicate rather than a copy of its list, so the two cannot
             // drift apart again.
             compileNode(arith, inputs, literals, sink).flatMap { n =>
-              if (VarkaLoopEmitter.isDayOffsetShape(n)) {
+              if (VarkaVectorIR.isDayOffsetShape(n)) {
                 Some(n)
               } else {
                 sink.note("day offset arithmetic that lowers to a node the offset " +

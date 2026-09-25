@@ -153,11 +153,6 @@ public final class VarkaEmitterTestSupport {
     return count;
   }
 
-  /**
-   * The line numbers the named method's {@code LineNumberTable} attributes its instructions to,
-   * in ascending order and without duplicates - the task 16 mapping, read the way a debugger or
-   * a stack trace reads it. Empty when the method carries no table (or does not exist).
-   */
   /** Every method the class declares, in declaration order - for tools that report per method
    *  and cannot name the Class-File API's types from Scala. */
   public static List<String> methodNames(byte[] bytes) {
@@ -212,6 +207,11 @@ public final class VarkaEmitterTestSupport {
     return new java.util.ArrayList<>(names);
   }
 
+  /**
+   * The line numbers the named method's {@code LineNumberTable} attributes its instructions to,
+   * in ascending order and without duplicates - the task 16 mapping, read the way a debugger or
+   * a stack trace reads it. Empty when the method carries no table (or does not exist).
+   */
   public static List<Integer> lineNumbers(byte[] bytes, String methodName) {
     java.util.TreeSet<Integer> lines = new java.util.TreeSet<>();
     for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
@@ -225,16 +225,6 @@ public final class VarkaEmitterTestSupport {
     return new java.util.ArrayList<>(lines);
   }
 
-  /**
-   * Every method's body as a canonical text, keyed by name and descriptor, for the emitted-bytes
-   * oracle (task 85). One line per instruction: the opcode and its operands rendered
-   * symbolically - a callee by owner, name and descriptor, a constant by its value, a branch by
-   * a label numbered in order of first appearance - never by constant-pool index. So two
-   * classes whose constant pools are laid out differently but whose methods do the same thing
-   * render the same, and a difference in the rendering is a difference in what the method does.
-   * Line-number and local-variable tables are left out: they are the emitter's IR map, not
-   * behaviour. Exception ranges are kept, with their labels.
-   */
   /**
    * Everything about an emitted class that is not a method body: its flags, what it extends and
    * implements, the names of its attributes, and each method's flags beside its name. The method
@@ -272,6 +262,16 @@ public final class VarkaEmitterTestSupport {
     };
   }
 
+  /**
+   * Every method's body as a canonical text, keyed by name and descriptor, for the emitted-bytes
+   * oracle (task 85). One line per instruction: the opcode and its operands rendered
+   * symbolically - a callee by owner, name and descriptor, a constant by its value, a branch by
+   * a label numbered in order of first appearance - never by constant-pool index. So two
+   * classes whose constant pools are laid out differently but whose methods do the same thing
+   * render the same, and a difference in the rendering is a difference in what the method does.
+   * Line-number and local-variable tables are left out: they are the emitter's IR map, not
+   * behaviour. Exception ranges are kept, with their labels.
+   */
   public static LinkedHashMap<String, String> methodBodies(byte[] bytes) {
     LinkedHashMap<String, String> out = new LinkedHashMap<>();
     for (MethodModel method : ClassFile.of().parse(bytes).methods()) {

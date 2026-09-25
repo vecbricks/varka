@@ -22,6 +22,12 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 // fail with an "illegal cyclic reference" while completing the API's sealed hierarchy. Task-13
 // additions use fully-qualified names inside method bodies instead, which scalac's Java parser
 // never reads; see VarkaDebugInfo's class doc.
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaBodyEmitter.BodyMode;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.childrenOf;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.chronoChild;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Lane.emitLanes;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaBodyEmitter.invokeCall;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.referenced;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 
@@ -42,46 +48,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Chrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.SubDays;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ThursdayOf;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
  * Emits a fused vector loop for a {@link VarkaVectorIR} DAG using the Class-File API: a class
@@ -186,55 +155,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  */
 public final class VarkaLoopEmitter {
 
-  /**
-   * The deepest op path (root to leaf, per output) the emitter accepts, fixed by measurement
-   * (VarkaEmitterParityBenchmark; details in PLAN_TASK_9.md): fused throughput declines only
-   * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
-   * method size and register pressure by policy, well past any depth a real projection
-   * produces, rather than marking a measured performance edge. Condition nodes count.
-   */
-  public static final int MAX_CHAIN_DEPTH = 16;
-
-  /**
-   * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE, in the
-   * form without a byte budget ({@code methodByteBudget} 0). Depth alone does not bound method
-   * size once outputs multiply, and that form has nothing else that does, so this is its
-   * total-size bound. Under the byte budget - the default - it does not apply: every method is
-   * measured in bytes and regrouped until it fits, and a kernel no regroup can fit (a driver past
-   * the budget, which grows with the outputs) is declined with a reason, at plan time. The cap had
-   * been a proxy for that size, and it admitted a quarter of the entries a real wide projection
-   * has ({@code PLAN_TASK_190.md} 1).
-   */
-  public static final int MAX_FUSED_NODES = 64;
-
-
-  /**
-   * The most input columns one emitted loop may read. A node's referenced-column set is a long
-   * bitset, which fixes the representation limit at 64; real projections reference a handful.
-   */
-  public static final int MAX_INPUTS = 64;
-
-  /**
-   * one step of an arm chain - an {@code IfElse} and which of its two arms. The condition it names
-   * is what the guard is qualified by, taken as-is for the then arm and complemented for the else
-   * arm; see {@code emitArmContext} for why the complement and not the known-false word.
-   */
-  record ArmStep(IfElse node, boolean thenBranch) { }
-
-
   private VarkaLoopEmitter() {
   }
-
-  // The word-reference value meaning "constant all-true" (a literal-only subtree).
-  static final int WORD_ALL_TRUE = -1;
-  /**
-   * The word-reference value meaning "this word is dead in this body": no consumer
-   * left in the method reads it, so it is neither allocated nor computed. Only an own word
-   * takes this value - an input's word keeps its slot for parity with the dense body's layout
-   * and is marked dead in {@link Slots#deadRefs} instead. {@code loadWord} refuses both.
-   */
-  static final int WORD_DEAD = -2;
-
 
   /**
    * The lane every output root agrees on. The roots are the emission's outputs, and a class
@@ -262,42 +184,6 @@ public final class VarkaLoopEmitter {
   static int emitLanesForTest(VarkaEmitOptions options, Lane lane) {
     return emitLanes(options, lane);
   }
-
-  /**
-   * The lane count to bake into the emitted class, or 0 for "do not bake one" - which is what
-   * {@link VarkaEmitOptions#validityByWidth} off means, and what a width the class cannot both
-   * name and serve means.
-   *
-   * <p>A baked width needs two things that a lane count alone does not guarantee. It needs a
-   * named species constant, which is a question about the width in bits: {@code SPECIES_64}
-   * through {@code SPECIES_512} exist, and the shapes SVE reaches above 512 bits have no name.
-   * And it needs the width-specialised validity helpers in {@link VarkaVectorSupport}, which
-   * exist per lane *count*: 2, 4, 8 and 16. At the int lane the two sets coincide; at the long
-   * lane they do not, because a single 64-bit lane is a species that exists and a helper that
-   * does not. Anything the pair of checks rejects runs on {@code SPECIES_PREFERRED} and the
-   * general helpers, which is correct at every width and no slower than before task 92.
-   */
-  static int emitLanes(VarkaEmitOptions options, Lane lane) {
-    if (!options.validityByWidth()) {
-      return 0;
-    }
-    int lanes = options.lanesOverride() != 0 ? options.lanesOverride() : lane.preferredLanes;
-    // Both checks, not either: a width the class can name but not serve emits a call to a
-    // validity helper that does not exist, which verifies and throws NoSuchMethodError on the
-    // first masked batch. One long lane is that width, reachable with no override at all on a
-    // JVM whose widest vector is 64 bits.
-    return lane.hasSpecies(lanes) && hasValidityHelpers(lanes) ? lanes : 0;
-  }
-
-  /**
-   * Whether {@link VarkaVectorSupport} carries a width-specialised validity pair for this many
-   * lanes. A width without one is emitted against {@code SPECIES_PREFERRED} and the general
-   * helpers, which is correct at any width and no slower than before task 92 existed.
-   */
-  private static boolean hasValidityHelpers(int lanes) {
-    return lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16;
-  }
-
 
   /**
    * The telemetry-defaulted form of
@@ -579,9 +465,6 @@ public final class VarkaLoopEmitter {
     return new Attr(new WriteMapper());
   }
 
-  /** The three body-method roles; see the method-layout note in {@link #emit}. */
-  enum BodyMode { DRIVER, LOOP, EPILOGUE }
-
   /**
    * Partitions the outputs into loop-method groups, greedily in output order, counting only
    * ops new to the group so shared subtrees keep their outputs together (and their
@@ -722,181 +605,6 @@ public final class VarkaLoopEmitter {
     }
   }
 
-  /** Whether {@code root}'s subtree contains a member of {@code nodes} (structural equality). */
-  static boolean reaches(VarkaVectorIR root, Set<VarkaVectorIR> nodes) {
-    if (nodes.contains(root)) {
-      return true;
-    }
-    for (VarkaVectorIR child : childrenOf(root)) {
-      if (reaches(child, nodes)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** The date a calendar node decomposes - the one child its shared prefix depends on. */
-  static VarkaVectorIR chronoChild(VarkaVectorIR node) {
-    return switch (node) {
-      case Year n -> n.days();
-      case Month n -> n.days();
-      case DayOfMonth n -> n.days();
-      case Quarter n -> n.days();
-      case DayOfYear n -> n.days();
-      case AddMonths n -> n.days();
-      case LastDay n -> n.days();
-      case TruncDate n -> n.days();
-      case TruncDateDynamic n -> n.days();
-      case WeekOfYear n -> n.days();
-      default -> throw new IllegalStateException("not a calendar node: " + node);
-    };
-  }
-
-  /**
-   * Whether {@code node}'s tail reads the March-based month the prefix would otherwise leave in
-   * {@code t[5]} - an exhaustive switch over the same family {@link #chronoChild} covers, so a
-   * new calendar node is a compile error here rather than a silent "yes" that quietly costs
-   * five ops, or a silent "no" that reads an uninitialised local.
-   *
-   * <p>Only {@link Year} answers no today: it takes the January turn off the day of year, which
-   * is the same test one step earlier in the chain ({@link VarkaChrono#MARCH_TO_JANUARY_DAYS}).
-   * {@link Month} and {@link Quarter} go through {@code emitChronoMonth}, {@link DayOfMonth}
-   * through {@code emitMonthStart}, and {@link AddMonths} needs both.
-   */
-  static boolean tailReadsMarchMonth(VarkaVectorIR node) {
-    return switch (node) {
-      case Year n -> false;
-      case Month n -> true;
-      case DayOfMonth n -> true;
-      case Quarter n -> true;
-      case DayOfYear n -> false;
-      case AddMonths n -> true;
-      case LastDay n -> true;
-      // MONTH reads the numerator for the zero-based day of month, QUARTER goes through
-      // emitChronoMonth for the quarter; YEAR takes the January turn off the day of year like
-      // Year and DayOfYear do, under either lowering (the recompose form's January month is a
-      // constant).
-      case TruncDate n -> n.level() != TruncLevel.YEAR;
-      // Its MONTH and QUARTER results are the literal tails', so it always reads the month.
-      case TruncDateDynamic n -> true;
-      // The week tail is the day-of-year tail plus a division: no month.
-      case WeekOfYear n -> false;
-      default -> throw new IllegalStateException("not a calendar node: " + node);
-    };
-  }
-
-  /**
-   * A run of emitted lane ops that several nodes need, that depends on one shared child, and that
-   * leaves its results in scratch locals rather than on the operand stack. It is the sub-node
-   * counterpart of the CSE {@code emitValue} already does between whole nodes: what is worth
-   * sharing between {@code year(d)} and {@code month(d)} is not a node - the IR has none for it -
-   * but the forty-odd ops in the middle of both their emissions.
-   *
-   * <p>One kind so far. The key carries it so that a second one is additive rather than a
-   * rewrite of everything keyed on it.
-   */
-  enum FragmentKind { CHRONO_PREFIX }
-
-  /**
-   * What makes two emissions of a fragment interchangeable: the kind, the child they decompose,
-   * and the reference the node's validity word resolves to.
-   *
-   * <p>The word's presence in the key is now conservative rather than load-bearing, and the reason
-   * recorded here no longer applies: {@code emitChronoPrefix} once carried the narrow-range guard,
-   * which read the node's validity word, so two nodes with different words could not share a
-   * prefix. The prefix reads no word at all today, so keying on the word cannot make a shared
-   * fragment wrong - it can only miss a share that would have been sound.
-   *
-   * <p>It costs one, and that starts to show where {@code planWordRef} aliases every {@link Chrono}
-   * extraction's word to its child's, so {@code year(d)} and {@code month(d)} agree and share, but
-   * {@link AddMonths} 's word is the AND of the date's and the month count's, so a column-count
-   * {@code add_months(d, m)} is the first chrono node whose word is its own - and it no longer
-   * shares the forty-odd-op decomposition of {@code d} with {@code month(d)}. Only a masked body
-   * pays: in a dense body no word is planned at all and the child alone decides. Dropping
-   * {@code word} from the key would recover the share, and is safe as far as this analysis goes,
-   * but it changes emitted bytes and so wants its own measurement.
-   *
-   * @param word the node's validity-word reference, or null in a dense body.
-   */
-  record FragmentKey(FragmentKind kind, VarkaVectorIR child, Integer word) {}
-
-  /**
-   * Which of this lane group's prefix fragments a tail in it reads the March-based month out
-   * of, over the union of the group's outputs' subtrees. The walk is the group's own
-   * because {@link Slots#fragmentsReadingMonth} is the group's own - see its doc for why the
-   * body's whole output list would be too wide - and it precedes every emission in the group,
-   * so no sibling's order can change what it decides.
-   */
-  static void planFragmentsReadingMonth(List<VarkaVectorIR> outputs,
-      List<Integer> outputIdx, boolean dense, Slots s) {
-    s.fragmentsReadingMonth.clear();
-    Set<VarkaVectorIR> seen = new HashSet<>();
-    List<VarkaVectorIR> pending = new ArrayList<>();
-    for (int o : outputIdx) {
-      pending.add(outputs.get(o));
-    }
-    while (!pending.isEmpty()) {
-      VarkaVectorIR node = pending.remove(pending.size() - 1);
-      if (!seen.add(node)) {
-        continue;
-      }
-      if (isChrono(node) && tailReadsMarchMonth(node)) {
-        s.fragmentsReadingMonth.add(fragmentKey(node, dense, s));
-      }
-      for (VarkaVectorIR child : childrenOf(node)) {
-        pending.add(child);
-      }
-    }
-  }
-
-  /** {@link FragmentKey} for {@code node}'s civil-from-days prefix; see that record's doc. */
-  static FragmentKey fragmentKey(VarkaVectorIR node, boolean dense, Slots s) {
-    return new FragmentKey(FragmentKind.CHRONO_PREFIX, chronoChild(node),
-        dense ? null : s.wordRef.get(node));
-  }
-
-  static VarkaVectorIR[] childrenOf(VarkaVectorIR node) {
-    return switch (node) {
-      case ColumnRef c -> new VarkaVectorIR[0];
-      case LiteralSlot l -> new VarkaVectorIR[0];
-      case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
-      case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
-      case GuardedDay n -> new VarkaVectorIR[] {n.days()};
-      case GuardedRange n -> new VarkaVectorIR[] {n.child()};
-      case NarrowLane n -> new VarkaVectorIR[] {n.child()};
-      case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
-      case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
-      case WeekDay n -> new VarkaVectorIR[] {n.days()};
-      case DayOfWeekIso n -> new VarkaVectorIR[] {n.days()};
-      case NextDay n -> new VarkaVectorIR[] {n.days(), n.offset()};
-      case ThursdayOf n -> new VarkaVectorIR[] {n.days()};
-      case Year n -> new VarkaVectorIR[] {n.days()};
-      case Month n -> new VarkaVectorIR[] {n.days()};
-      case DayOfMonth n -> new VarkaVectorIR[] {n.days()};
-      case Quarter n -> new VarkaVectorIR[] {n.days()};
-      case DayOfYear n -> new VarkaVectorIR[] {n.days()};
-      case LastDay n -> new VarkaVectorIR[] {n.days()};
-      case TruncDate n -> new VarkaVectorIR[] {n.days()};
-      case TruncDateDynamic n -> new VarkaVectorIR[] {n.days(), n.level()};
-      case WeekOfYear n -> new VarkaVectorIR[] {n.days()};
-      case AddMonths n -> new VarkaVectorIR[] {n.days(), n.months()};
-      case MakeDate n -> new VarkaVectorIR[] {n.year(), n.month(), n.day()};
-      case Greatest n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
-      case Compare n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case And n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case Not n -> new VarkaVectorIR[] {n.child()};
-      case IsNotNull n -> new VarkaVectorIR[] {n.child()};
-      case InRanges n -> new VarkaVectorIR[] {n.child()};
-      case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
-      case IntNeg n -> new VarkaVectorIR[] {n.child()};
-      case ConstDivide n -> new VarkaVectorIR[] {n.child()};
-      case BoundedDivide n -> new VarkaVectorIR[] {n.child()};
-    };
-  }
-
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
    * structural budgets ({@link #MAX_CHAIN_DEPTH} height per output, {@link #MAX_INPUTS} columns,
@@ -1022,41 +730,13 @@ public final class VarkaLoopEmitter {
     // unreachable code has no stack frame to compute.
   }
 
-  /** {@code this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
-  static void invokeCall(CodeBuilder cb, ClassDesc classDesc, String name, Lane lane) {
-    cb.aload(0);
-    cb.aload(P_SRC_DATA);
-    cb.aload(P_SRC_VALIDITY);
-    cb.aload(P_NULL_COUNT);
-    cb.aload(P_DST_DATA);
-    cb.aload(P_DST_VALIDITY);
-    cb.aload(P_SCALAR_ARGS);
-    if (lane.pLongArgs >= 0) {
-      cb.aload(lane.pLongArgs);
-    }
-    cb.iload(lane.pLength);
-    cb.invokespecial(classDesc, name, lane.runDesc);
-  }
-
-  /** {@link #invokeCall} whose status becomes this method's own - a tail call in effect. */
+  /**
+   * {@link VarkaBodyEmitter#invokeCall} whose status becomes this method's own - a tail call in
+   * effect.
+   */
   private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name, Lane lane) {
     invokeCall(cb, classDesc, name, lane);
     cb.ireturn();
   }
 
-  static boolean referenced(Analysis analysis, int ordinal) {
-    return (analysis.referencedColumns >>> ordinal & 1L) != 0;
-  }
-
-  /**
-   * The node kinds a {@code date_add}/{@code date_sub} day offset may be. Public because
-   * `VarkaExpressionCompiler` gates its offset arm on exactly this: the compiler deciding what
-   * to build and the emitter deciding what to accept are one rule, and stating it twice is how
-   * `date_add(d, weekday(d2) + 1)` came to be fused in EXPLAIN and refused at emit time, which
-   * the evaluator turns into a silent per-batch fallback. Widen this and both move together.
-   */
-  public static boolean isDayOffsetShape(VarkaVectorIR offset) {
-    return offset instanceof LiteralSlot || offset instanceof ColumnRef
-        || offset instanceof IntArith || offset instanceof IntNeg;
-  }
 }

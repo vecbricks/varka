@@ -17,9 +17,10 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Slots.planFragmentsReadingMonth;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.referenced;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.*;
 
 import java.lang.classfile.CodeBuilder;
@@ -30,7 +31,6 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.BitmapPass;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.BodyMode;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 
@@ -539,11 +539,6 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * One lane group: this group's validity words, then each output's vector walk and store.
-   * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
-   * with {@code s.epilogueMask} set - the only difference between them inside here.
-   */
-  /**
    * The store of a {@link NarrowLane} root: {@code [long vector] -> []}, four bytes a row.
    *
    * <p>The 64-bit value narrows with {@code L2I} into the int species of the <i>same width</i>
@@ -619,6 +614,11 @@ final class VarkaBodyEmitter {
     cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentMasked);
   }
 
+  /**
+   * One lane group: this group's validity words, then each output's vector walk and store.
+   * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
+   * with {@code s.epilogueMask} set - the only difference between them inside here.
+   */
   private static void emitLaneGroup(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
     int numInputs = analysis.numInputs;
@@ -1001,5 +1001,24 @@ final class VarkaBodyEmitter {
             + mode + " body: a consumer the liveness inventory missed");
       }
     }
+  }
+
+  /** The three body-method roles; see the method-layout note in {@link VarkaLoopEmitter#emit}. */
+  enum BodyMode { DRIVER, LOOP, EPILOGUE }
+
+  /** {@code this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
+  static void invokeCall(CodeBuilder cb, ClassDesc classDesc, String name, Lane lane) {
+    cb.aload(0);
+    cb.aload(P_SRC_DATA);
+    cb.aload(P_SRC_VALIDITY);
+    cb.aload(P_NULL_COUNT);
+    cb.aload(P_DST_DATA);
+    cb.aload(P_DST_VALIDITY);
+    cb.aload(P_SCALAR_ARGS);
+    if (lane.pLongArgs >= 0) {
+      cb.aload(lane.pLongArgs);
+    }
+    cb.iload(lane.pLength);
+    cb.invokespecial(classDesc, name, lane.runDesc);
   }
 }

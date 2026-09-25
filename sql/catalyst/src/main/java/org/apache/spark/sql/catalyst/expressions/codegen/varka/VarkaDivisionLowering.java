@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.*;
 
 import java.lang.classfile.CodeBuilder;

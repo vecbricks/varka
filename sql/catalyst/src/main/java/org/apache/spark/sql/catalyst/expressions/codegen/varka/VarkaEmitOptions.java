@@ -91,7 +91,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *                          semantics change, and it is pinned the same way; unlike CSE it shares
  *                          <i>inside</i> a node's emitted run rather than between whole nodes,
  *                          which is why the emitter needs a separate notion of a fragment for
- *                          it. See {@code VarkaLoopEmitter.FragmentKey}.
+ *                          it. See {@code Slots.FragmentKey}.
  * @param denseValidityOnce whether a dense batch's value outputs have their validity bits set
  *        once by the driver rather than OR-ed in per lane group by the loop. On a
  * dense batch the dispatcher has proven every referenced input null-free and the dense invariant

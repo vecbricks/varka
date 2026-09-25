@@ -17,16 +17,17 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.Slots.FragmentKey;
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Slots.fragmentKey;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.*;
 
 import java.lang.classfile.CodeBuilder;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.Divider;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter.FragmentKey;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Chrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
@@ -1063,6 +1064,30 @@ final class VarkaChronoLowering {
   }
 
   /**
+   * The ISO week tail: the {@code DayOfYear} tail over the prefix - which here ran
+   * over a {@link ThursdayOf}, the analysis's rule - then {@code (doy - 1) / 7 + 1} by
+   * {@link VarkaChrono#WEEK_M}, four ops. Same slots as {@code DayOfYear}: {@code t[6]} and
+   * {@code t[7]} are the prefix's dead carry scratch, {@code t[8]} the node's own year.
+   * Leaves the week, 1 to 53, on the stack.
+   */
+  private static void emitChronoWeekOfYear(CodeBuilder cb, int[] t, int era, int century,
+      int yearOfCentury, int rem, boolean julian, Divider divider) {
+    int mask = t[6];
+    int leap = t[7];
+    int year = t[8];
+    emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
+    cb.astore(year);
+    emitLeapFlag(cb, year);
+    cb.astore(leap);
+    emitJanuaryDayOfYear(cb, rem, leap, mask);                 // [doy]
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VI);          // [doy - 1]
+    emitDivide(cb, divider, ChronoDivide.WEEK);     // [(doy - 1) / 7]
+    cb.loadConstant(1);
+    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);          // [week]
+  }
+
+  /**
    * {@code trunc(date, level)}: the first day of the year, month or quarter, under
    * one of two lowerings selected by {@link VarkaEmitOptions#truncDate()}.
    *
@@ -1089,30 +1114,6 @@ final class VarkaChronoLowering {
    * ({@code TRUNC_DATE_TMP_COUNT}); the two prefix carry masks {@code t[6..7]} are dead by here
    * and are reused, as {@code DayOfYear} reuses them.
    */
-  /**
-   * The ISO week tail: the {@code DayOfYear} tail over the prefix - which here ran
-   * over a {@link ThursdayOf}, the analysis's rule - then {@code (doy - 1) / 7 + 1} by
-   * {@link VarkaChrono#WEEK_M}, four ops. Same slots as {@code DayOfYear}: {@code t[6]} and
-   * {@code t[7]} are the prefix's dead carry scratch, {@code t[8]} the node's own year.
-   * Leaves the week, 1 to 53, on the stack.
-   */
-  private static void emitChronoWeekOfYear(CodeBuilder cb, int[] t, int era, int century,
-      int yearOfCentury, int rem, boolean julian, Divider divider) {
-    int mask = t[6];
-    int leap = t[7];
-    int year = t[8];
-    emitChronoYear(cb, era, century, yearOfCentury, rem, julian);
-    cb.astore(year);
-    emitLeapFlag(cb, year);
-    cb.astore(leap);
-    emitJanuaryDayOfYear(cb, rem, leap, mask);                 // [doy]
-    cb.loadConstant(1);
-    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VI);          // [doy - 1]
-    emitDivide(cb, divider, ChronoDivide.WEEK);     // [(doy - 1) / 7]
-    cb.loadConstant(1);
-    cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);          // [week]
-  }
-
   private static void emitChronoTrunc(CodeBuilder cb, TruncDate node, Slots s, int[] t,
       boolean neri, boolean julian, VarkaEmitOptions.TruncDateForm form, Divider divider) {
     int days = t[0];
@@ -1624,5 +1625,55 @@ final class VarkaChronoLowering {
       emitJanuaryMask(cb, monthSlot, false);
       cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VI_MASKED);
     }
+  }
+
+  /** The date a calendar node decomposes - the one child its shared prefix depends on. */
+  static VarkaVectorIR chronoChild(VarkaVectorIR node) {
+    return switch (node) {
+      case Year n -> n.days();
+      case Month n -> n.days();
+      case DayOfMonth n -> n.days();
+      case Quarter n -> n.days();
+      case DayOfYear n -> n.days();
+      case AddMonths n -> n.days();
+      case LastDay n -> n.days();
+      case TruncDate n -> n.days();
+      case TruncDateDynamic n -> n.days();
+      case WeekOfYear n -> n.days();
+      default -> throw new IllegalStateException("not a calendar node: " + node);
+    };
+  }
+
+  /**
+   * Whether {@code node}'s tail reads the March-based month the prefix would otherwise leave in
+   * {@code t[5]} - an exhaustive switch over the same family {@link #chronoChild} covers, so a
+   * new calendar node is a compile error here rather than a silent "yes" that quietly costs
+   * five ops, or a silent "no" that reads an uninitialised local.
+   *
+   * <p>Only {@link Year} answers no today: it takes the January turn off the day of year, which
+   * is the same test one step earlier in the chain ({@link VarkaChrono#MARCH_TO_JANUARY_DAYS}).
+   * {@link Month} and {@link Quarter} go through {@code emitChronoMonth}, {@link DayOfMonth}
+   * through {@code emitMonthStart}, and {@link AddMonths} needs both.
+   */
+  static boolean tailReadsMarchMonth(VarkaVectorIR node) {
+    return switch (node) {
+      case Year n -> false;
+      case Month n -> true;
+      case DayOfMonth n -> true;
+      case Quarter n -> true;
+      case DayOfYear n -> false;
+      case AddMonths n -> true;
+      case LastDay n -> true;
+      // MONTH reads the numerator for the zero-based day of month, QUARTER goes through
+      // emitChronoMonth for the quarter; YEAR takes the January turn off the day of year like
+      // Year and DayOfYear do, under either lowering (the recompose form's January month is a
+      // constant).
+      case TruncDate n -> n.level() != TruncLevel.YEAR;
+      // Its MONTH and QUARTER results are the literal tails', so it always reads the month.
+      case TruncDateDynamic n -> true;
+      // The week tail is the day-of-year tail plus a division: no month.
+      case WeekOfYear n -> false;
+      default -> throw new IllegalStateException("not a calendar node: " + node);
+    };
   }
 }
