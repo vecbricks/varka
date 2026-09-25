@@ -639,9 +639,9 @@ milestone 4.
 | 174 | The emitter's shared constants out of the facade | items 40, 43 | small |
 | 175 | Port `VarkaIntervalCompiler` to Java, one family | item 42 | medium |
 | 176 | A CI queue script. **Done** (`PLAN_TASK_176.md`, 24 September 2026): `dev/varka_ci_queue.sh` holds, reruns in order, drops and reports the fork's Build runs, one at a time | item 44 | small |
-| 177 | A scoped CI path for oracle-proven refactors | item 45 | small |
+| 177 | A scoped CI path for oracle-proven refactors. **Done** (`PLAN_TASK_179.md` 5, 25 September 2026): item 45's precondition is checked and unmet - nothing runs on this project's master after a merge, since `build_main.yml` skips master on forks and Spark's scheduled builds are apache/spark-only - so `varka-weekly-matrix.yml` runs the full matrix on master every Sunday; the skip path is withdrawn, because the scoped job already runs the oracle beside the sql/core suites in parallel and skipping them would save job-minutes and no wall time; the oracle's verdict is printed in the scoped catalyst job's summary | item 45 | small |
 | 178 | Bands on demand: the rule and the tooling. *Item 49's measurements taken 24 September 2026: the arithmetic benchmark's band at both widths, which withdraws `PLAN_TASK_63.md`'s 26.1% as evidence; the rule and the tooling remain* | item 49, task 145's finding | small |
-| 179 | The fuzzer as a standing job | 2.8, from 87's origin | small |
+| 179 | The fuzzer as a standing job. **Built** (`PLAN_TASK_179.md`, 25 September 2026): `varka-fuzz.yml` runs the IR fuzzer nightly as one JVM per core with date-derived seeds, and `VarkaCoverageCompositionFuzzSuite` draws random wide projections and filters of the coverage table through the compiler, asserting fused or declined in bytes and never thrown; done when the first scheduled run has reported (section 6) | 2.8, from 87's origin | small |
 | 182 | Extend Spark's own benchmarks, not only ours | item 8 | small to medium |
 | 180 | Promotion, continuously | 2.9 | continuous |
 | 183 | Onboarding: task tables as issues, a hardware census, templates | item 38 | small |
