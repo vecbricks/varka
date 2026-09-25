@@ -823,3 +823,36 @@ census is complete as a reading of the source; it is not yet backed by committed
 * **The Varka gap of section 5, closed the same day (row 206).** A filter with a nondeterministic
   conjunct now declines every conjunct with the reason, and the fusion report shows each conjunct's
   reason even when none fuses, where it used to print one line saying none was eligible.
+* **Eleven more, 25 September 2026.** `VarkaCodegenGiveUpSuite`, one test per entry, on this
+  fork's Spark at the branch's base:
+  * **G1**: with `spark.sql.codegen.wholeStage` off, the plan has no stage at all.
+  * **G2**: a projection of 100 columns stays in its stage and one of 101 leaves it, and a single
+    struct column of 101 leaves leaves it too: the count is of nested leaf fields.
+  * **G4**: a filter over a deterministic non-leaf `CodegenFallback` expression - one the test
+    defines, an identity with no generated code - leaves the stage and answers as the plain
+    filter does; Varka declines the same conjunct with an "unsupported" reason.
+  * **G8**: `stack` of 50 rows stays in the stage, of 51 leaves it.
+  * **G10**: a union of 64 children stays in the stage, of 65 leaves it. Spark's DEBUG line
+    naming the reason did not reach the suite's appender, so the plan is what is asserted.
+  * **G17 and G18**: a common subexpression, and a `sum`, over 130 nullable int columns read from
+    a shuffle, whose split functions would need 260 parameter slots. Under `spark.testing` both
+    refusals are internal errors ("Failed to split subexpression code", "Failed to split aggregate
+    code"), which is what is asserted; in production they are the INFO lines of section 2. The
+    reproducer needs `maxFields` raised, since past 100 input fields the operator leaves the stage
+    by G2 before any split is tried.
+  * **G24**: a stage with one `CASE WHEN` of 3000 branches, which a stage does not split (G12),
+    fails to compile past 64KB; under test the failure is thrown, and "Found too long generated
+    codes" is not logged.
+  * **G25**: the size ladder at 56 entries, a method past 8000 bytes, logs "Found too long
+    generated codes" and falls back only with `hugeMethodLimit` set to 8000; at its default it
+    says nothing.
+  * **G28**, settling item 4 of section 4: Janino refuses a method past 255 parameter slots at
+    compile time - 254 int parameters compile, 255 fail with "Method "f" has too many parameters
+    (256)", the slots counting `this`. It is an ordinary `CompileException`, so inside a stage it
+    takes G24's path and is covered by its `NonFatal` catch.
+  * **G32**: outside a stage, with splitting off, a projection of 3000 entries fails to compile
+    and the projection factory logs WARN "Expr codegen error and falling back to interpreter
+    mode" and answers from the interpreted projection.
+
+  Left: G3 is task 185's first step by its own plan; G27 (the constant pool), G12 to G14 in
+  numbers, and the silent inlining of G16 and G19 have no reproducer yet.
