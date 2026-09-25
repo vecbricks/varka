@@ -34,6 +34,13 @@
 # skipped, and a PR pushed again meanwhile has its newest run used. After a merge,
 # `drop` the merged PR: its run is worth nothing and still holds slots.
 #
+# A PR whose head has moved since a run of it passed keeps that verdict when everything
+# changed since is outside what the workflow tests - the plans, skills and papers under
+# sql/varka, any Markdown, and committed benchmark results (VARKA_CI_DOCS_ONLY, a regex over
+# paths) - and the passed head is an ancestor of the new one. `hold` then cancels the push's
+# run without queuing the PR, and `run` and `status` report it ready. A merge-in of master
+# counts as what master brought: a test file among master's new commits means a rerun.
+#
 # The queue is a file in the clone's git directory, shared by every worktree of
 # the clone. Every wait keys on a run's completed status, never on `gh run watch`
 # (which returns at once without a terminal), and has a deadline
@@ -100,9 +107,9 @@ pr_info() {
 }
 
 # "<id> <status> <conclusion> <head sha>" of the newest run of the workflow on a branch of a
-# fork, or nothing when there is none.
+# fork, or nothing when there is none; with a third argument, that many newest runs, one a line.
 newest_run() {
-  gh run list --repo "$1" --branch "$2" --workflow "$workflow" --limit 1 \
+  gh run list --repo "$1" --branch "$2" --workflow "$workflow" --limit "${3:-1}" \
     --json databaseId,status,conclusion,headSha \
     --jq '.[] | [.databaseId, .status, (if .conclusion == "" then "-" else .conclusion end),
                  .headSha] | map(tostring) | join(" ")'
@@ -110,6 +117,37 @@ newest_run() {
 
 run_state() { # "<status> <conclusion>" of one run
   gh api "repos/$1/actions/runs/$2" --jq '"\(.status) \(.conclusion // "-")"'
+}
+
+# Paths whose change does not alter what the workflow tests: the plans, skills and papers,
+# any Markdown, and committed benchmark results.
+docs_only_re="${VARKA_CI_DOCS_ONLY:-}"
+[ -n "$docs_only_re" ] ||
+  docs_only_re='^(sql/varka/(plans|skills|papers)/|.*\.md$|.*/benchmarks/[^/]+\.txt$)'
+
+# "<id> <sha> exact" when the newest run at the head passed, "<id> <sha> docs-only" when a
+# passed run on the branch is behind the head by docs-only changes, nothing otherwise. Reads
+# the ten newest runs and GitHub's compare of each passed one against the head. A compare that
+# is not "ahead" (a force push, or a head that is not a descendant) does not qualify, and
+# neither does one the API cut at its 300-file limit.
+passed_run_covering() {
+  local fork="$1" branch="$2" sha="$3" id rstatus rconcl rsha files
+  while read -r id rstatus rconcl rsha; do
+    [ "$rstatus" = "completed" ] && [ "$rconcl" = "success" ] || continue
+    if [ "$rsha" = "$sha" ]; then
+      echo "$id $rsha exact"
+      return 0
+    fi
+    files="$(gh api "repos/$fork/compare/$rsha...$sha" --jq \
+      'select(.status == "ahead" and (.files | length) < 300) | .files[].filename' \
+      2>/dev/null)" || continue
+    [ -n "$files" ] || continue
+    if ! grep -qvE "$docs_only_re" <<<"$files"; then
+      echo "$id $rsha docs-only"
+      return 0
+    fi
+  done < <(newest_run "$fork" "$branch" 10)
+  return 1
 }
 
 # Waits until the run is completed; prints its conclusion. Keyed on the run's own status, so
@@ -161,7 +199,7 @@ failed_steps() {
 
 cmd_hold() {
   [ "$#" -gt 0 ] || usage
-  local pr fork branch sha st run id rstatus rconcl rsha end
+  local pr fork branch sha st run id rstatus rconcl rsha end covering cid csha
   for pr in "$@"; do
     read -r fork branch sha st <<<"$(pr_info "$pr")"
     if [ "$st" != "open" ]; then
@@ -187,6 +225,14 @@ cmd_hold() {
       echo "#$pr: run $id already passed at ${sha:0:11}; nothing to hold"
       continue
     fi
+    if covering="$(passed_run_covering "$fork" "$branch" "$sha")" &&
+        [ "${covering##* }" = "docs-only" ]; then
+      read -r cid csha _ <<<"$covering"
+      [ "$rstatus" = "completed" ] || gh run cancel "$id" --repo "$fork" >/dev/null
+      echo "#$pr: run $cid passed at ${csha:0:11} and the change since is docs only;" \
+        "cancelled run $id, nothing to hold"
+      continue
+    fi
     if [ "$rstatus" != "completed" ]; then
       gh run cancel "$id" --repo "$fork" >/dev/null
       echo "#$pr: cancelled run $id and queued it"
@@ -208,6 +254,7 @@ cmd_run() {
     return 1
   fi
   local pr qid fork branch sha st run id rstatus rconcl rsha verdict failures=0
+  local covering cid csha kind
   while read -r pr qid < <(head -1 "$state") && [ -n "${pr:-}" ]; do
     read -r fork branch sha st <<<"$(pr_info "$pr")"
     if [ "$st" != "open" ]; then
@@ -217,13 +264,21 @@ cmd_run() {
     fi
     run="$(newest_run "$fork" "$branch")"
     read -r id rstatus rconcl rsha <<<"${run:-- - - -}"
-    if [ "$id" = "-" ] || [ "$rsha" != "$sha" ]; then
-      echo "#$pr: no $workflow run at its head ${sha:0:11}; push it again, then hold it again"
+    if covering="$(passed_run_covering "$fork" "$branch" "$sha")"; then
+      read -r cid csha kind <<<"$covering"
+      if [ "$kind" = "exact" ]; then
+        echo "#$pr: run $cid already passed; ready to merge"
+      else
+        # The push's own run, if it is still waiting for its turn, is not needed.
+        [ "$rstatus" = "completed" ] || gh run cancel "$id" --repo "$fork" >/dev/null
+        echo "#$pr: run $cid passed at ${csha:0:11} and the change since is docs only;" \
+          "ready to merge"
+      fi
       locked queue_del "$pr"
       continue
     fi
-    if [ "$rstatus" = "completed" ] && [ "$rconcl" = "success" ]; then
-      echo "#$pr: run $id already passed; ready to merge"
+    if [ "$id" = "-" ] || [ "$rsha" != "$sha" ]; then
+      echo "#$pr: no $workflow run at its head ${sha:0:11}; push it again, then hold it again"
       locked queue_del "$pr"
       continue
     fi
@@ -246,7 +301,15 @@ cmd_run() {
     verdict="$(wait_completed "$fork" "$id")" || { echo "#$pr: run $id: $verdict"; return 1; }
     echo "#$pr: $(now): run $id finished: $verdict"
     if [ "$(queued_run "$pr")" != "$qid" ]; then
-      # Held again or dropped while its run went: that run's verdict is not the PR's.
+      # Held again or dropped while its run went: that run's verdict is not the PR's, unless
+      # the head moved by docs only, in which case it is, and the new hold is not needed.
+      read -r fork branch sha st <<<"$(pr_info "$pr")"
+      if [ "$verdict" = "success" ] && [ "$st" = "open" ] && [ -n "$(queued_run "$pr")" ] &&
+          covering="$(passed_run_covering "$fork" "$branch" "$sha")"; then
+        echo "#$pr: its head moved to ${sha:0:11} while the run went, by docs only; ready to merge"
+        locked queue_del "$pr"
+        continue
+      fi
       echo "#$pr: changed on the queue while its run went; the verdict above is for an old head"
       continue
     fi
@@ -294,7 +357,7 @@ cmd_list() {
 }
 
 cmd_status() {
-  local pr fork branch sha st run id rstatus rconcl rsha where note pos
+  local pr fork branch sha st run id rstatus rconcl rsha where note pos covering cid csha
   printf '%-6s %-34s %-12s %-24s %s\n' "PR" "branch" "run" "state" "note"
   for pr in $(gh pr list --repo "$repo" --state open --json number --jq '.[].number' | sort -n); do
     read -r fork branch sha st <<<"$(pr_info "$pr")"
@@ -305,6 +368,10 @@ cmd_status() {
     note=""
     if [ "$id" = "-" ]; then
       note="no run"
+    elif [ "$where" != "success" ] && covering="$(passed_run_covering "$fork" "$branch" "$sha")" &&
+        [ "${covering##* }" = "docs-only" ]; then
+      read -r cid csha _ <<<"$covering"
+      note="run $cid passed at ${csha:0:11}, docs only since; ready to merge"
     elif [ "$rsha" != "$sha" ]; then
       note="run is for ${rsha:0:11}, the PR is at ${sha:0:11}"
     elif [ "$where" = "success" ]; then
