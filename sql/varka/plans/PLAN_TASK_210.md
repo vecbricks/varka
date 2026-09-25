@@ -334,3 +334,25 @@ keeps the physical plan it was first given; the query is now a fresh
 Both classes print their verdict lines through the benchmark's own output
 stream, so they are in the results file and a reader of the file sees which
 path each timing measured without opening the plan.
+
+**The first runner dispatch of `CaseWhenCodegenBenchmark` failed, and the
+reason is a finding.** `BenchmarkBase.main` sets `spark.testing` "so the
+behavior between running benchmark via spark-submit or SBT will be
+consistent", and under that flag `WholeStageCodegenExec` rethrows a compile
+failure instead of falling back to its row-by-row operators. So Spark's own
+benchmarks never measure the fallback past 64 KB; at 1000 branches the stage
+case threw and the run ended with no results file. The class now clears the
+property at the start of its suite, since the fallback is what it measures,
+and the run is dispatched again. The 300-branch rung, which did complete on
+the EPYC 9V45, already shows the shape in the run's log: the stage's method is
+past 8000 bytes and never compiled, and the same branches with whole-stage
+codegen off, split into methods HotSpot compiles, run about eight times faster
+per row; the interpreted case is about four times slower again than the stage.
+The numbers themselves wait for the committed file, which the quote checker
+holds this plan to.
+
+The cached-table run completed on the same machine
+(`CachedTableWidthBenchmark-jdk25-results.txt`): the one-column sum is 17 to
+19 ns a row on either path; reading every column is 454.9 ns a row for the
+101-column table against 100.6 for the 100-column one and 88.0 with
+`maxFields` raised, so the trap is 4.5 times on a whole-table read.

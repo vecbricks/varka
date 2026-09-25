@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.benchmark
 import scala.util.control.NonFatal
 
 import org.apache.spark.benchmark.Benchmark
+import org.apache.spark.internal.config.Tests.IS_TESTING
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
 import org.apache.spark.sql.execution.WholeStageCodegenExec
@@ -49,8 +50,12 @@ import org.apache.spark.sql.internal.SQLConf
  *      Results will be written to "benchmarks/CaseWhenCodegenBenchmark-results.txt".
  * }}}
  *
- * Under sbt the JVM carries `spark.testing`, which turns the fallback past 64 KB into an error,
- * so a full ladder is run the first way; the rungs and the row count can be given as arguments.
+ * `BenchmarkBase.main` sets `spark.testing`, and under that flag a stage that fails to compile
+ * is an error rather than a fallback to the row-by-row operators. The fallback is what this
+ * benchmark measures at 1000 branches, so it clears the flag. Under sbt the flag is also the
+ * environment variable `SPARK_TESTING`, which cannot be cleared from inside the JVM, so the
+ * 1000-branch rung throws there; a full ladder is run the first way. The rungs and the row
+ * count can be given as arguments.
  */
 object CaseWhenCodegenBenchmark extends SqlBasedBenchmark {
 
@@ -102,6 +107,8 @@ object CaseWhenCodegenBenchmark extends SqlBasedBenchmark {
   }
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
+    // Production behaviour past 64 KB is the fallback, not the error `spark.testing` makes of it.
+    System.clearProperty(IS_TESTING.key)
     val rungs = if (mainArgs.length > 0) mainArgs(0).split(",").map(_.trim.toInt).toSeq
       else Seq(30, 60, 100, 300, 1000)
     val rows = if (mainArgs.length > 1) mainArgs(1).toLong else 200000L
