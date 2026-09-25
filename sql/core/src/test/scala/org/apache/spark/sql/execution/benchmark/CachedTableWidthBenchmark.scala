@@ -56,6 +56,13 @@ object CachedTableWidthBenchmark extends SqlBasedBenchmark with AdaptiveSparkPla
 
   private def sumOfFirstColumn(table: DataFrame): DataFrame = table.agg(sum(col("c1")))
 
+  /**
+   * Every column, read through the noop sink: the deserialization of the whole table. A new
+   * Dataset, since one Dataset keeps the physical plan it was first given and the cases differ
+   * in the configuration it is planned under; the optimizer removes the projection.
+   */
+  private def allColumns(table: DataFrame): DataFrame = table.select(col("*"))
+
   private def scanIsColumnar(df: DataFrame): Boolean =
     collect(df.queryExecution.executedPlan) { case s: InMemoryTableScanExec => s }
       .exists(_.supportsColumnar)
@@ -63,7 +70,7 @@ object CachedTableWidthBenchmark extends SqlBasedBenchmark with AdaptiveSparkPla
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     val rows = if (mainArgs.length > 0) mainArgs(0).toLong else 2000000L
     val maxFields = SQLConf.get.getConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS)
-    runBenchmark(s"SUM of one column over a cached table of $rows rows") {
+    runBenchmark(s"A cached table of $rows rows, at and past maxFields") {
       val tables = Map(maxFields -> cachedTable(maxFields, rows),
         maxFields + 1 -> cachedTable(maxFields + 1, rows))
       // (case name, columns of the cached table, maxFields while the query runs)
@@ -72,22 +79,27 @@ object CachedTableWidthBenchmark extends SqlBasedBenchmark with AdaptiveSparkPla
         (s"${maxFields + 1} columns", maxFields + 1, maxFields),
         (s"${maxFields + 1} columns, maxFields raised to ${maxFields + 1}",
           maxFields + 1, maxFields + 1))
-      val benchmark = new Benchmark("sum(c1) over a cached table", rows, output = output)
-      cases.foreach { case (name, columns, limit) =>
-        withSQLConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> limit.toString) {
-          val columnar = scanIsColumnar(sumOfFirstColumn(tables(columns)))
-          val scan = if (columnar) "columnar" else "row-based"
-          // scalastyle:off println
-          benchmark.out.println(s"$name: the scan is $scan")
-          // scalastyle:on println
-        }
-        benchmark.addCase(name, numIters = 5) { _ =>
+      val queries = Seq(
+        ("sum(c1) over the cached table", sumOfFirstColumn _),
+        ("all columns of the cached table", allColumns _))
+      queries.foreach { case (queryName, query) =>
+        val benchmark = new Benchmark(queryName, rows, output = output)
+        cases.foreach { case (name, columns, limit) =>
           withSQLConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> limit.toString) {
-            sumOfFirstColumn(tables(columns)).noop()
+            val columnar = scanIsColumnar(query(tables(columns)))
+            val scan = if (columnar) "columnar" else "row-based"
+            // scalastyle:off println
+            benchmark.out.println(s"$name: the scan is $scan")
+            // scalastyle:on println
+          }
+          benchmark.addCase(name, numIters = 5) { _ =>
+            withSQLConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> limit.toString) {
+              query(tables(columns)).noop()
+            }
           }
         }
+        benchmark.run()
       }
-      benchmark.run()
       tables.values.foreach(_.unpersist(blocking = true))
     }
   }

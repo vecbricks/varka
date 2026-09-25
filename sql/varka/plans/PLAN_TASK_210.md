@@ -286,3 +286,51 @@ and its point sharpens. The one setting that avoids generated code altogether
 makes the wide `CASE WHEN` fifty times slower still, for a reason no user
 would guess, so the knob is not a way out of the cliff. The runner benchmark of
 section 4 carries the `NO_CODEGEN` arm at a row count it can finish.
+
+## 8. The benchmarks, as built, 25 September 2026
+
+Two Spark-style classes under `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/`,
+each with a results file under `sql/core/benchmarks/` written by the runners
+through `.github/workflows/benchmark.yml` (`jdk=25`, `create-commit=false`, the
+artifact committed by hand beside a `-runner-provenance.txt`, as
+`VarkaSizeLadderBenchmark`'s was). Neither mentions Varka, so either can go
+upstream as it is.
+
+**`CaseWhenCodegenBenchmark`.** The `CASE WHEN` of section 7.2 at 30, 60, 100,
+300 and 1000 branches over 200,000 rows, three cases per rung - whole-stage
+codegen on, off, and `factoryMode=NO_CODEGEN` - and, above each rung's table,
+the stage's largest method from Spark's own compile of it, or "fails to
+compile, past 64 KB". The row count is what the interpreted case at 1000
+branches can finish: about a minute per iteration on the laptop (7.2). The
+first laptop run, at 20,000 rows and so not a timing, placed the rungs: 30
+branches is a 2853-byte stage method and 100 branches is already 9433 bytes,
+past the JIT limit, which is why 60 is a rung. The fourth case, the calls
+grouped, arrives with SPARK-59783 when the fork carries it.
+
+**`CachedTableWidthBenchmark`.** A cached table of 100 and of 101 int columns
+over two million rows, and two queries over each: `sum(c1)`, and every column
+through the noop sink. Three cases per query - 100 columns, 101 columns, and
+101 columns with `maxFields` raised to 101 - with a line above the table
+saying whether the scan was columnar. The laptop's run, two million rows,
+JDK 25, before the runner's:
+
+| Query | 100 columns (columnar) | 101 columns (row-based) | 101, limit raised (columnar) |
+| :-- | --: | --: | --: |
+| `sum(c1)` | 18.9 ns/row | 18.1 | 17.0 |
+| all columns | 115.5 ns/row | 423.1 | 111.9 |
+
+So the outline's section 3.5 was half right. For a one-column aggregate the
+row path costs nothing extra: vanilla turns the batches back into rows before
+the aggregate anyway (`ColumnarToRowExec`), and Spark's own
+`InMemoryColumnarBenchmark` already shows the two deserializers within 1.2 of
+each other. Reading the whole table is where the trap is, at 3.7 times, and
+the post's example is that one - `df.cache()` followed by a read of every
+column, the shape a cached table is usually made for. The one-column case
+stays in the benchmark as the bound on the claim. A first version of the
+probe reported the plan of the first case for the third, because a Dataset
+keeps the physical plan it was first given; the query is now a fresh
+`select("*")`.
+
+Both classes print their verdict lines through the benchmark's own output
+stream, so they are in the results file and a reader of the file sees which
+path each timing measured without opening the plan.
