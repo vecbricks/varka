@@ -22,7 +22,7 @@ the interpreted path grows with the square of the branches.
 
 Every value is read from the committed results file when the script runs
 (sql/core/benchmarks/CaseWhenCodegenBenchmark-jdk25-results.txt), so the figure cannot drift
-from it (PLAN_TASK_210.md 9.2). The 30-branch rung is the JVM's warm-up and is left out."""
+from it (PLAN_TASK_210.md 9.2)."""
 
 import math
 import os
@@ -40,7 +40,6 @@ OFF = "whole-stage codegen off"
 INTERP = "interpreted, factoryMode=NO_CODEGEN"
 LABELS = {ON: "inside a stage", OFF: "outside a stage", INTERP: "interpreted"}
 COLORS = {ON: "#e03131", OFF: "#1971c2", INTERP: "#868e96"}
-SKIP = {30}
 
 
 def read_ladder(path):
@@ -76,7 +75,7 @@ rows, method = read_ladder(RESULTS)
 prov = read_provenance(PROVENANCE)
 cpu = prov["cpu"].split(",")[0]
 jdk = prov["jdk"].replace("OpenJDK 64-Bit Server VM ", "JDK ")
-rungs = [n for n in sorted(rows) if n not in SKIP]
+rungs = sorted(rows)
 
 r = Rough(900, 700, seed=139)
 r.text(40, 40, "a CASE WHEN of n branches, three ways to run it", size=24)
@@ -89,8 +88,8 @@ r.text(
 )
 
 X0, X1, Y0, Y1 = 130, 780, 560, 120
-LO, HI = 100.0, 1000000.0
-NLO, NHI = 50.0, 1400.0
+LO, HI = 50.0, 1000000.0
+NLO, NHI = 25.0, 1400.0
 
 
 def px(n):
@@ -139,12 +138,14 @@ r.note(
     % (method[first_past], rows[first_past][ON] / rows[first_past][OFF]),
     size=17,
 )
-jump = rows[1000][OFF] / rows[300][OFF]
+# The outside-a-stage path's own step: the pair of adjacent rungs where it grows the most.
+a, b = max(zip(rungs, rungs[1:]), key=lambda p: rows[p[1]][OFF] / rows[p[0]][OFF])
 r.note(
-    px(300) - 40,
-    py(rows[300][OFF]) + 60,
-    "outside a stage, 300 to 1000 branches: %.0fx the cost\nfor 3.3x the branches - "
-    "the method that calls\nthe split methods passes 8000 bytes itself" % jump,
+    px(a) - 40,
+    py(rows[a][OFF]) + 60,
+    "outside a stage, %d to %d branches: %.0fx the cost\nfor %.1fx the branches - "
+    "the method that calls\nthe split methods passes 8000 bytes itself"
+    % (a, b, rows[b][OFF] / rows[a][OFF], b / float(a)),
     size=17,
 )
 r.text(

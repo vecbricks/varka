@@ -137,10 +137,15 @@ r.note(
     "from %d to %d expressions the time per row steps\n%s" % (below, above, steps),
     size=18,
 )
+# Which JDK ran on which machine, grouped from the outputs themselves.
+by_cpu = {}
+for jdk in JDKS:
+    by_cpu.setdefault(cpus[jdk], []).append("JDK %d" % jdk)
+machines = "; ".join("%s on an %s" % (" and ".join(js), cpu) for cpu, js in by_cpu.items())
 r.text(
     40,
     640,
-    "JDK 17 and 25 ran on an %s, JDK 21 on an %s" % (cpus[17], cpus[21]),
+    machines,
     size=15,
     color="#868e96",
 )

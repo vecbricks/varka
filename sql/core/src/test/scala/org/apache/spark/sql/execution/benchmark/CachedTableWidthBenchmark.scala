@@ -27,10 +27,13 @@ import org.apache.spark.sql.internal.SQLConf
 /**
  * One column summed over a cached table, at 100 and at 101 columns.
  *
- * `InMemoryTableScanExec` produces columnar batches only when the whole cached schema is within
- * `spark.sql.codegen.maxFields` (100 by default), whatever the query reads. So a query that sums
- * one column of a 101-column cached table is served row by row, while the same query over a
- * 100-column table, or over the 101-column table with the limit raised, is served in batches.
+ * `InMemoryTableScanExec` produces columnar batches only when the vectorized cache reader is on
+ * (`spark.sql.inMemoryColumnarStorage.enableVectorizedReader`, the default), every column of the
+ * cached table is of a primitive type, and the whole cached schema is within
+ * `spark.sql.codegen.maxFields` (100 by default), whatever the query reads. The tables here are
+ * all int columns, so the width is the only condition that changes: a query over a 101-column
+ * cached table is served row by row, while the same query over a 100-column table, or over the
+ * 101-column table with the limit raised, is served in batches.
  * Each rung prints whether the scan is columnar beside the timings.
  *
  * To run this benchmark:
