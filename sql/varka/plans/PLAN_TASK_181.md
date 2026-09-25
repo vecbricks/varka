@@ -187,3 +187,18 @@ the outline and the draft. Everything else the post needs is committed.
 * Any new measurement beyond 195. The 9V45 dispatches continue as they are and
   the outline does not wait on them.
 * A comparison figure with an accelerator. Row 202 decides whether one exists.
+
+## 7. The outline split in two, 25 September 2026
+
+This corrects the scope of sections 1 and 3, not their content. The owner
+decided the milestone ends in two posts. The first, about where vanilla Spark's
+code generation gives up, is task 210 (`PLAN_TASK_210.md`); this task keeps the
+second, about how Varka solves the problem.
+
+Two sections move to task 210 whole: 3.2, why a source generator cannot know,
+and 3.3, the census. In this post each becomes one paragraph that states the
+result and links the first post. The census's Varka column stays with this
+post, since it is Varka's answer to each entry, so task 188's Varka arm is
+still owed here (section 4). Everything else in sections 2 to 6 stands. The bounds of section 2
+appear in both posts, because each has to stand on its own for a reader who
+never sees the other.
