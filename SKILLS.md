@@ -32,6 +32,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A kernel ratio is not an end-to-end ratio, in either direction](sql/varka/skills/benchmarking.md#a-kernel-ratio-is-not-an-end-to-end-ratio-in-either-direction)
 * [Before pricing a shape, look for the benchmark that already priced it](sql/varka/skills/benchmarking.md#before-pricing-a-shape-look-for-the-benchmark-that-already-priced-it)
 * [A harness that checks how a row was produced, and never what it produced](sql/varka/skills/benchmarking.md#a-harness-that-checks-how-a-row-was-produced-and-never-what-it-produced)
+* [Spark's benchmarks run with `spark.testing` set; a benchmark of a fallback clears it](sql/varka/skills/benchmarking.md#sparks-benchmarks-run-with-sparktesting-set-a-benchmark-of-a-fallback-clears-it)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)

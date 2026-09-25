@@ -2,11 +2,9 @@
 
 *The first of the two posts that close milestone 6, drafted 25 September 2026
 from `PLAN_TASK_210.md`. This is the first version: every number in it is from
-a committed results file, except the `CASE WHEN` ladder's, which are
-predictions registered in the plan's section 9.1 and marked `[[expected]]`
-until the runner's file replaces them. Other owed items are marked `[[...]]`
-and listed in the plan's section 9. Figures are described where they will go
-and are not drawn yet.*
+a committed results file. The items still owed are marked `[[...]]` and listed
+in the plan's section 9. Figures are described where they will go and are not
+drawn yet.*
 
 ---
 
@@ -232,11 +230,12 @@ all, being interpreted, so why not use Spark's own interpreter, which is
 compiled Scala? Because Spark's interpreter of a `CASE WHEN` indexes its
 branches by position in a list, and a list is walked from the head on every
 lookup, so one row costs time that grows with the square of the branch count.
-On a thousand-branch `CASE WHEN` it is about forty-five times slower than the
-uncompiled method it was meant to replace `[[expected]]`, and from 300
-branches to 1000, three and a third times the branches, the cost per row
-grows about tenfold `[[expected]]`. The configuration's documentation says it
-is "NOT supposed to be set by end users", and it means it.
+On a thousand-branch `CASE WHEN` it is fifty times slower than the uncompiled
+method it was meant to replace, 717953.5 ns a row against 13655.9 on an EPYC
+9V74, and from 300 branches to 1000, three and a third times the branches, the
+cost per row grows fourteenfold, from 50734.4. The configuration's
+documentation says it is "NOT supposed to be set by end users", and it means
+it.
 
 **`-XX:-DontCompileHugeMethods` moves the step, it does not remove it.** The
 JVM flag that turns off the 8000-byte refusal is the first thing anyone who
@@ -304,23 +303,28 @@ remembered: the next run of the query attempts it again. Outside a stage,
 which is where the fallback lands, the branches are split into methods, but
 the calls to those methods are left in one method, and at a thousand branches
 that one is 8060 bytes and interpreted. What that costs per row, on an EPYC
-9V45 over 200,000 rows, with the numbers still expected rather than measured
-`[[expected]]`:
+9V74 over 200,000 rows:
 
 | branches | inside a stage | outside a stage | interpreted |
 |--:|--:|--:|--:|
-| 30 | about 150 ns | about 200 ns | about 600 ns |
-| 100 | about 2400 ns | about 400 ns | about 5000 ns |
-| 300 | about 7000 ns | about 900 ns | about 30000 ns |
-| 1000 | about 10000 ns | about 6500 ns | about 300000 ns |
+| 60 | 193.2 ns | 257.3 ns | 2350.6 ns |
+| 100 | 2154.7 ns | 334.3 ns | 5678.6 ns |
+| 300 | 7439.8 ns | 893.7 ns | 50734.4 ns |
+| 1000 | 16439.8 ns | 13655.9 ns | 717953.5 ns |
 
-At a hundred branches the stage is six times slower than no stage at all,
-because its one method is past 8000 bytes and never compiled while the split
-methods outside a stage are compiled. At a thousand the two paths are the same
-code, since the stage has fallen back to it, and the stage still costs more
-because the failed compile of a 23000-line class is paid on every run: at this
-row count, about a third of the time. Two upstream changes address the two
-halves, and section 6 says where they are.
+At sixty branches everything is compiled and the stage is the fastest way to
+run the query, as it should be. At a hundred the stage is six times slower
+than no stage at all, because its one method is past 8000 bytes and never
+compiled while the split methods outside a stage are. At a thousand the two
+paths are the same code, since the stage has fallen back to it, and the stage
+still costs more because the failed compile of a 23000-line class is paid on
+every run: about half a second, a sixth of the time at this row count. And
+look at the outside-a-stage column between 300 and 1000: fifteen times the
+cost for three and a third times the branches. That is the second cliff. The
+branches are split into compiled methods, but the method that calls them
+crossed 8000 bytes on the way, and every call now comes from the interpreter.
+Two upstream changes address the two halves, and section 6 says where they
+are.
 
 **See which one you have.** For the cache, `EXPLAIN FORMATTED` shows a
 `ColumnarToRow` above an `InMemoryTableScan` that produces batches, and none

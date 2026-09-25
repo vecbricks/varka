@@ -166,8 +166,8 @@ Varka.
 
 | Owed | For | State on 25 September | Needed? |
 | :-- | :-- | :-- | :-- |
-| A committed vanilla benchmark of the large `CASE WHEN`: inside a stage, outside one, and outside one with the calls grouped | 3.5 | not started | **Yes.** The trap is a claim without it |
-| `factoryMode=NO_CODEGEN` against the default on the same shape | 3.4 | **laptop check done, section 7.2**: the interpreter loses by more than fifty times, and quadratically in the branch count; the runner benchmark carries the arm | **Yes**, as an arm of the benchmark |
+| A committed vanilla benchmark of the large `CASE WHEN`: inside a stage, outside one, and outside one with the calls grouped | 3.5 | **done for the first two arms, section 9.2**: `CaseWhenCodegenBenchmark-jdk25-results.txt` on the 9V74; the grouped arm waits for SPARK-59783 | The grouped arm, when the fork carries it |
+| `factoryMode=NO_CODEGEN` against the default on the same shape | 3.4 | **done, sections 7.2 and 9.2**: the runner's file carries the arm; 52.6 times the outside-a-stage cost at 1000 branches | No longer owed |
 | The field count: JIRAs carrying "grows beyond 64 KB", by year | 3.1 | **done, section 7.1**: 44 tickets, peaking in 2016 and 2017, four open | No longer owed |
 | The wide-cache trap measured on vanilla: a one-column query over a 101-column cached table, rows against batches; and the upstream ticket if none exists | 3.5 | not started; the mechanism is pinned on Varka's side (`VarkaSchemaWidthSuite`) | **Yes.** A trap without a number is an anecdote |
 | The upstream tickets' state | 3.6 | read on the day of publication | **Yes**, and only then |
@@ -423,3 +423,61 @@ case about forty-five times the outside-a-stage cost at 1000 branches, and
 about ten times its own cost at 300 for three and a third times the branches.
 Scoring: an absolute number is right within a factor of 1.5 on the 9V45, a
 ratio within a third.
+
+### 9.2 The ladder's file, and the predictions scored, 25 September 2026
+
+The rerun after the `spark.testing` fix completed
+(`CaseWhenCodegenBenchmark-jdk25-results.txt`, with its provenance file), on an
+AMD EPYC 9V74, not the 9V45 the predictions were written for. The one rung both
+machines measured, 300 branches, says how the two compare: inside and outside
+a stage they agree within a tenth (7439.8 and 893.7 ns a row on the 9V74
+against about 7000 and 900 in the 9V45's log), and the interpreted case is
+about 1.65 times slower on the 9V74 (50734.4 against about 30700), the
+pointer-chasing path being the one that feels the older core. Measured, in ns
+a row:
+
+| Branches | Stage method | Whole-stage on | Whole-stage off | Interpreted |
+| --: | --: | --: | --: | --: |
+| 30 | 2853 bytes | 350.4 | 262.1 | 861.6 |
+| 60 | 5673 bytes | 193.2 | 257.3 | 2350.6 |
+| 100 | 9433 bytes | 2154.7 | 334.3 | 5678.6 |
+| 300 | 32605 bytes | 7439.8 | 893.7 | 50734.4 |
+| 1000 | past 64 KB | 16439.8 | 13655.9 | 717953.5 |
+
+**The scoring**, against 9.1's rule of a factor of 1.5 for an absolute number
+on the 9V45 and a third for a ratio.
+
+* The ratios held where they were the point. Inside against outside a stage:
+  6.4 at 100 branches (predicted about six), 8.3 at 300 (eight), 1.2 at 1000
+  (one and a half). The interpreted case against the outside-a-stage cost at
+  1000: 52.6 (forty-five). All four within a third.
+* The absolutes at 60, 100 and 300 held on all three paths, before any
+  machine adjustment: the largest miss is the interpreted case at 300, 1.69
+  times the prediction, which the 9V74's 1.65 accounts for.
+* **Two misses.** The 1000-branch absolutes on every path: 16439.8 against
+  10000 predicted, 13655.9 against 6500, 717953.5 against 300000, misses of
+  1.6, 2.1 and 2.4, of which the machine explains 1.65 of the interpreted one
+  and none of the other two. And the interpreted case's growth from 300 to
+  1000 branches, 14.2 times against the tenfold predicted.
+* **The 30-branch rung carries warm-up**, not a measurement: the stage case
+  at 30 branches (350.4) is slower than at 60 (193.2), and it is the first
+  case the JVM runs. The post does not quote it.
+
+**What the misses say.** The prediction for 1000 branches outside a stage was
+built on the stock 4.2.0 laptop check (7.2): 500 compiled branch evaluations
+plus about 85 calls from the 8060-byte caller that runs interpreted, at about
+40 ns a call. The runner puts the calls at about 125 ns each: an invocation
+from an interpreted frame into compiled code, with the fold's state tests in
+interpreted bytecode between them, costs three times what was assumed. That
+makes the finding of section 5 sharper than the outline had it: outside a
+stage the cost per row goes from 893.7 at 300 branches to 13655.9 at 1000,
+fifteen times for three and a third times the branches, because between the
+two the method holding the calls crosses 8000 bytes itself. That is the second
+cliff, and it is exactly what SPARK-59783 removes. The failed compile inside a
+stage at 1000 branches costs the difference of the two best times, about
+560 ms a run, or 2800 ns a row at this row count: a sixth of the time rather
+than the third predicted, because the per-row cost under it was twice the
+prediction.
+
+The post's `[[expected]]` marks are replaced by the file's numbers, quoted for
+the 9V74, and 9.1 stands as written, since a prediction is scored, not edited.
