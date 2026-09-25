@@ -31,7 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDerivedKind
   VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{ColumnRef, Cond,
   Greatest => IRGreatest, IntArith, IntNeg, IntOp, LaneType, Least => IRLeast, LiteralSlot,
-  Overflow}
+  Or => IROr, Overflow}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.types.{BooleanType, DataType, DateType, DayTimeIntervalType,
   IntegerType, LongType, TimeType, YearMonthIntervalType}
@@ -175,8 +175,11 @@ private[sql] case class VarkaDecline(reason: String, expr: String) {
  * The recursion works on bound expressions, whose `BoundReference`s render as
  * `input[1, int, true]`; the child's attributes go back in before the text is kept, so a
  * reason reads in the query's own column names.
+ *
+ * It also carries the one compile option the condition arms read, `rangeSets`, for the same
+ * reason as the long table: every arm already has the sink in hand.
  */
-private final class DeclineSink(childOutput: Seq[Attribute]) {
+private final class DeclineSink(childOutput: Seq[Attribute], val rangeSets: Boolean) {
   private var first: Option[VarkaDecline] = None
   private val bounds = mutable.ArrayBuffer.empty[(Int, Int, Int)]
 
@@ -259,15 +262,25 @@ private[sql] case class VarkaConjunctSpec(
 /**
  * A filter predicate compiled conjunct by conjunct: `specs` classifies every
  * conjunct of the condition's `AND` spine in query order, and `fused` describes the mask
- * kernel - its single output is the fused conjuncts recombined into one condition root, and
- * its `outputTypes` entry is `BooleanType` as a description only, since a selection bitmap
- * never allocates an output vector. The split mirrors [[PartialVarkaProjection]]'s per-entry
- * eligibility: a mixed `WHERE` fuses what it can, and the rule keeps the residual conjuncts
- * in a row `FilterExec` above the Varka node.
+ * kernel. Its outputs are condition roots, each a selection bitmap, and each `outputTypes`
+ * entry is `BooleanType` as a description only, since a selection bitmap never allocates an
+ * output vector. The split mirrors [[PartialVarkaProjection]]'s per-entry eligibility: a mixed
+ * `WHERE` fuses what it can, and the rule keeps the residual conjuncts in a row `FilterExec`
+ * above the Varka node.
+ *
+ * `clauses` says how the outputs make the selection: a row is selected when, in every clause,
+ * at least one of the clause's outputs selects it. Usually there is one output, the fused
+ * conjuncts recombined into one root, and one clause holding it. A predicate that one method
+ * cannot hold is split under `splitConditions` (see [[VarkaExpressionCompiler.compilePredicate]])
+ * into several conjunction roots, each its own clause, and a disjunction too large alone into
+ * several partial roots in one clause. Kleene logic allows both at the mask: a row is known
+ * true for `a AND b` exactly when it is known true for both, and for `a OR b` exactly when it
+ * is known true for either.
  */
 private[sql] case class CompiledVarkaPredicate(
     specs: Seq[VarkaConjunctSpec],
-    fused: CompiledVarkaProjection) {
+    fused: CompiledVarkaProjection,
+    clauses: Seq[Seq[Int]] = Seq(Seq(0))) {
 
   /** The conjuncts the mask kernel serves, in query order, unbound. */
   def fusedConjuncts: Seq[Expression] = specs.filter(_.fused).map(_.conjunct)
@@ -402,7 +415,7 @@ private[sql] object VarkaExpressionCompiler {
     val literals = mutable.LinkedHashMap.empty[Int, Int]
     val outputs = mutable.ArrayBuffer.empty[VarkaVectorIR]
     val outputTypes = Seq.newBuilder[DataType]
-    val sink = new DeclineSink(childOutput)
+    val sink = new DeclineSink(childOutput, options.rangeSets)
     val declines = Map.newBuilder[Int, VarkaDecline]
     var fusedCount = 0
     val specs = projectList.zipWithIndex.map { case (named, position) =>
@@ -581,39 +594,58 @@ private[sql] object VarkaExpressionCompiler {
     if (!condition.deterministic) {
       val why = "the condition is nondeterministic: a fused conjunct would run ahead of a " +
         "nondeterministic one and change the rows it sees"
-      val sink = new DeclineSink(childOutput)
+      val sink = new DeclineSink(childOutput, options.rangeSets)
       return (splitConjuncts(condition).map { conjunct =>
         sink.note(why, BindReferences.bindReference[Expression](conjunct, childOutput))
         VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
       }, None)
     }
     // The size admission of [[classify]], for conjuncts. The fused conjuncts fold into one
-    // condition root, which the emitter cannot split by name, so a decline demotes the
-    // last-admitted conjunct and the rest are asked again.
+    // condition root, which the emitter cannot split by name. Under `splitConditions` the
+    // compiler splits it instead (see [[splitPredicate]]); otherwise, or when no split fits, a
+    // decline demotes the last-admitted conjunct and the rest are asked again.
     var demoted = Map.empty[Int, String]
     while (true) {
-      val (specs, compiled) = predicateOnce(condition, childOutput, demoted, options)
-      val more = compiled.flatMap { predicate =>
+      val once = predicateOnce(condition, childOutput, demoted, options)
+      val more = once.compiled.flatMap { predicate =>
         admitBySize(predicate.fused, options).map { case (_, reason) =>
           predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
         }
       }
       if (more.isEmpty) {
-        return (specs, compiled)
+        return (once.specs, once.compiled)
+      }
+      if (options.splitConditions) {
+        val split = splitPredicate(once, options)
+        if (split.isDefined) {
+          return (once.specs, split)
+        }
       }
       demoted += more.get
     }
     throw new IllegalStateException("unreachable")
   }
 
+  /**
+   * One pass of [[predicateOnce]]: the conjunct specs, the predicate with the fused conjuncts
+   * folded into one root, and what a split needs to lay them out differently - the fused
+   * conditions in query order, and `build`, which makes the predicate of a layout (clauses
+   * joined by AND, each clause's roots joined by OR) over the same input and literal tables.
+   */
+  private case class PredicatePass(
+      specs: Seq[VarkaConjunctSpec],
+      compiled: Option[CompiledVarkaPredicate],
+      conds: Seq[Cond],
+      build: Seq[Seq[Cond]] => CompiledVarkaPredicate)
+
   private def predicateOnce(
       condition: Expression,
       childOutput: Seq[Attribute],
       demoted: Map[Int, String],
-      options: VarkaEmitOptions): (Seq[VarkaConjunctSpec], Option[CompiledVarkaPredicate]) = {
+      options: VarkaEmitOptions): PredicatePass = {
     val inputs = mutable.LinkedHashMap.empty[Int, Int]
     val literals = mutable.LinkedHashMap.empty[Int, Int]
-    val sink = new DeclineSink(childOutput)
+    val sink = new DeclineSink(childOutput, options.rangeSets)
     val fusedConds = mutable.ArrayBuffer.empty[Cond]
     val specs = splitConjuncts(condition).zipWithIndex.map { case (conjunct, index) =>
       val bound = BindReferences.bindReference[Expression](conjunct, childOutput)
@@ -658,15 +690,110 @@ private[sql] object VarkaExpressionCompiler {
     }
     if (fusedConds.nonEmpty && inputs.nonEmpty) {
       val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
-      (specs, Some(CompiledVarkaPredicate(specs,
-        CompiledVarkaProjection(Seq(VarkaConditionCompiler.andFold(fusedConds.toSeq)),
-          Seq(BooleanType), ordinals, literals.keys.toSeq, sink.inputBounds(inputs), derived,
-          sink.longLiteralValues))))
+      val bounds = sink.inputBounds(inputs)
+      val longs = sink.longLiteralValues
+      val build = (layout: Seq[Seq[Cond]]) => {
+        val roots = layout.flatten
+        val starts = layout.scanLeft(0)(_ + _.size)
+        val clauses = layout.indices.map(c => starts(c) until starts(c + 1))
+        CompiledVarkaPredicate(specs, CompiledVarkaProjection(roots, roots.map(_ => BooleanType),
+          ordinals, literals.keys.toSeq, bounds, derived, longs), clauses)
+      }
+      val conds = fusedConds.toSeq
+      PredicatePass(specs, Some(build(Seq(Seq(VarkaConditionCompiler.andFold(conds))))), conds,
+        build)
     } else {
-      (specs, None)
+      PredicatePass(specs, None, Seq.empty, _ => throw new IllegalStateException("nothing fused"))
     }
   }
 
+  /**
+   * Splits a fused predicate that one method cannot hold across several selection outputs
+   * (`PLAN_TASK_172.md` 3.1), or `None` when no split fits and the caller demotes a conjunct as
+   * it would without the option.
+   *
+   * Every extra output costs a pass over its columns and a bitmap, so the split looks for the
+   * fewest outputs, in two steps, each a search over a count of equal contiguous pieces in
+   * query order. First the fewest conjunction roots, each its own clause, that the emitter
+   * accepts, except that it may still name a root holding a single conjunct that is a
+   * disjunction. Then, for each root so named, the fewest partial disjunctions of it that the
+   * emitter accepts beside everything else, as one clause. A root the second step cannot
+   * split - a conjunct that is not a disjunction, or a disjunct too large alone - ends the
+   * split with `None`, as does a kernel whose driver the extra outputs take past the budget.
+   *
+   * The emitter judges the whole kernel at every step, not each piece alone: a method in a kernel
+   * of several outputs is not byte for byte what it is by itself, so a piece that fits alone can
+   * still be named beside the others. Each question goes through [[admitBySize]] and so through
+   * the shape cache, and the split runs only after the single root has been refused, so a
+   * predicate that fits is compiled exactly as it is without the option. The search is exact
+   * for splits into equal pieces, not over every partition: the exact partition is task 200's
+   * dynamic program, which needs a cost cheaper to ask than an emission (task 199).
+   */
+  private def splitPredicate(
+      pass: PredicatePass,
+      options: VarkaEmitOptions): Option[CompiledVarkaPredicate] = {
+    def disjuncts(c: Cond): Seq[Cond] = c match {
+      case or: IROr => disjuncts(or.left()) ++ disjuncts(or.right())
+      case other => Seq(other)
+    }
+    /** `items` in `k` contiguous pieces whose sizes differ by at most one. */
+    def pieces(items: Seq[Cond], k: Int): Seq[Seq[Cond]] =
+      (0 until k).map(i => items.slice(i * items.size / k, (i + 1) * items.size / k))
+    /** The outputs of `layout` the emitter names as over the budget; empty when it fits. */
+    def over(layout: Seq[Seq[Cond]]): Set[Int] =
+      admitBySize(pass.build(layout).fused, options).map(_._1.toSet).getOrElse(Set.empty)
+    /**
+     * The smallest count from `lo` up to `cap` that `ok` accepts: doubling until one is
+     * accepted, then a binary search below it. It never asks about a count far past the
+     * answer, which matters because acceptance is monotone only up to a point - past it, the
+     * extra outputs take the kernel's driver over the budget and every count is refused.
+     */
+    def smallest(lo: Int, cap: Int)(ok: Int => Boolean): Option[Int] = {
+      var miss = lo - 1
+      var hit = lo
+      while (!ok(hit)) {
+        if (hit >= cap) {
+          return None
+        }
+        miss = hit
+        hit = math.min(hit * 2, cap)
+      }
+      var (low, high) = (miss + 1, hit)
+      while (low < high) {
+        val mid = (low + high) / 2
+        if (ok(mid)) high = mid else low = mid + 1
+      }
+      Some(low)
+    }
+    def splittable(root: Seq[Cond]): Boolean = root.size == 1 && disjuncts(root.head).size > 1
+
+    val conds = pass.conds
+    val k = smallest(1, conds.size) { k =>
+      val roots = pieces(conds, k)
+      over(roots.map(r => Seq(VarkaConditionCompiler.andFold(r)))).forall(o => splittable(roots(o)))
+    }
+    if (k.isEmpty) {
+      return None
+    }
+    val roots = pieces(conds, k.get)
+    var layout: Seq[Seq[Cond]] = roots.map(r => Seq(VarkaConditionCompiler.andFold(r)))
+    // Each clause is still one output here, so the named outputs are the clauses to split.
+    for (c <- over(layout).toSeq.sorted) {
+      val ds = disjuncts(roots(c).head)
+      def split(m: Int): Seq[Seq[Cond]] =
+        layout.updated(c, pieces(ds, m).map(VarkaConditionCompiler.orFold))
+      val m = smallest(2, ds.size) { m =>
+        val start = layout.take(c).map(_.size).sum
+        val named = over(split(m))
+        !(start until start + m).exists(named)
+      }
+      if (m.isEmpty) {
+        return None
+      }
+      layout = split(m.get)
+    }
+    if (over(layout).isEmpty) Some(pass.build(layout)) else None
+  }
   /**
    * The lane a Spark type's values occupy in a kernel, or `None` for a type no kernel reads.
    * The int side is what the leaf arms below already admit - a date, an int and a year-month

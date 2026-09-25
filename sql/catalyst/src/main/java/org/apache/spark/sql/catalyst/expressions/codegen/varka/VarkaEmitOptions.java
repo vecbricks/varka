@@ -288,6 +288,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        measure against: weight groups the loop, one epilogue holds every output, nothing is
  *        measured. A small value is how a test sees a regroup or a decline on a shape of a few
  *        outputs. Fuzzed at 0 and at the default.
+ * @param rangeSets whether the compiler lowers a disjunction of ranges over one int or date
+ *        column to one {@link VarkaVectorIR.InRanges} node ({@code PLAN_TASK_172.md} 9.2), on by
+ *        default. Off, such a disjunction compiles as the comparisons it is written as, which
+ *        is the arm the split below is measured on. Read by the compiler, not by the emitter.
+ * @param splitConditions whether a filter predicate that no single method can hold is split
+ *        across several selection outputs rather than declined ({@code PLAN_TASK_172.md} 3.1):
+ *        its conjuncts are split into several conjunction roots, a conjunct too large alone into
+ *        partial disjunctions when it is an {@code OR}, and the filter combines the outputs'
+ *        bitmaps. On by default, since measured ({@code PLAN_TASK_172.md} 9.7 and 9.8); off is
+ *        the form before it, where such a predicate declines. Read by the compiler, not by the
+ *        emitter.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -315,7 +326,9 @@ public record VarkaEmitOptions(
     boolean validityByWord,
     boolean mulHiDivide,
     boolean narrowHalfSpecies,
-    int methodByteBudget) {
+    int methodByteBudget,
+    boolean rangeSets,
+    boolean splitConditions) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -420,7 +433,8 @@ public record VarkaEmitOptions(
           0,
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
-          VarkaEmitBudget.HUGE_METHOD_LIMIT);
+          VarkaEmitBudget.HUGE_METHOD_LIMIT,
+          true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -485,6 +499,8 @@ public record VarkaEmitOptions(
       b.mulHiDivide = mulHiDivide;
       b.narrowHalfSpecies = narrowHalfSpecies;
       b.methodByteBudget = methodByteBudget;
+      b.rangeSets = rangeSets;
+      b.splitConditions = splitConditions;
     return b;
   }
 
@@ -516,6 +532,8 @@ public record VarkaEmitOptions(
     private boolean mulHiDivide;
     private boolean narrowHalfSpecies;
     private int methodByteBudget;
+    private boolean rangeSets;
+    private boolean splitConditions;
 
     private Builder() {
     }
@@ -650,6 +668,16 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder rangeSets(boolean rangeSets) {
+      this.rangeSets = rangeSets;
+      return this;
+    }
+
+    public Builder splitConditions(boolean splitConditions) {
+      this.splitConditions = splitConditions;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -657,7 +685,7 @@ public record VarkaEmitOptions(
           validityByWidth, validityOrFirst, validityByBitmap, checkIntOverflow,
           lanesOverride, truncDate, floorMod7, division, useAVX, misdescribeAdd,
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
-          mulHiDivide, narrowHalfSpecies, methodByteBudget);
+          mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions);
     }
   }
 
@@ -672,6 +700,14 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withMethodByteBudget(int bytes) {
     return toBuilder().methodByteBudget(bytes).build();
+  }
+
+  public VarkaEmitOptions withRangeSets(boolean enabled) {
+    return toBuilder().rangeSets(enabled).build();
+  }
+
+  public VarkaEmitOptions withSplitConditions(boolean enabled) {
+    return toBuilder().splitConditions(enabled).build();
   }
 
   public VarkaEmitOptions withShareWholeNodes(boolean enabled) {
@@ -804,6 +840,10 @@ public record VarkaEmitOptions(
    * hazard this class doc describes. {@code VarkaShapeCacheSuite} now walks the record's
    * components and fails if one of them cannot change the rendering, so the next field cannot
    * be forgotten the same way.
+   *
+   * <p>The two compiler options, {@code rangeSets} and {@code splitConditions}, render only when
+   * they differ from their defaults, so every variant's rendering from before they existed is
+   * unchanged.
    */
   public String canonical() {
     if (isDefault()) {
@@ -816,6 +856,7 @@ public record VarkaEmitOptions(
         + truncDate + '|' + floorMod7 + '|' + division + '|' + useAVX + '|'
         + misdescribeAdd + '|' + misdescribeWordLiveness + '|' + guardUnderArm + '|'
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
-        + '|' + narrowHalfSpecies + '|' + methodByteBudget + ')';
+        + '|' + narrowHalfSpecies + '|' + methodByteBudget
+        + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions") + ')';
   }
 }

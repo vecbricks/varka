@@ -28,9 +28,10 @@ import java.lang.foreign.ValueLayout;
  * {@code orValidityBitsAt} helpers that write output validity, so the two bitmaps cannot
  * drift apart in format.
  *
- * <p>These helpers read byte-wise so they hold for any segment of at least
- * {@code (length + 7) / 8} bytes, the size the kernel zeroes; bits at and above {@code length}
- * are never read, so a reused buffer's stale tail cannot leak into a count.
+ * <p>These helpers hold for any segment of at least {@code (length + 7) / 8} bytes, the size the
+ * kernel zeroes; bits at and above {@code length} are never read, so a reused buffer's stale
+ * tail cannot leak into a count. The two combining helpers write the bytes they read, and a
+ * bit past {@code length} they compute is as stale as its operands and never read either.
  */
 public final class VarkaSelectionBitmap {
 
@@ -41,6 +42,43 @@ public final class VarkaSelectionBitmap {
   public static boolean isSet(MemorySegment mask, int row) {
     byte b = mask.get(ValueLayout.JAVA_BYTE, row >>> 3);
     return (b >>> (row & 7) & 1) != 0;
+  }
+
+  /**
+   * ORs {@code src} into {@code dst} over the first {@code length} rows: the selection of a
+   * disjunction split into partial roots, one bitmap per root. Eight bytes at a time over the
+   * whole words, then a byte at a time.
+   */
+  public static void orInto(MemorySegment dst, MemorySegment src, int length) {
+    long bytes = (length + 7L) >>> 3;
+    long words = bytes >>> 3;
+    for (long w = 0; w < words; w++) {
+      long off = w << 3;
+      dst.set(ValueLayout.JAVA_LONG_UNALIGNED, off,
+          dst.get(ValueLayout.JAVA_LONG_UNALIGNED, off)
+              | src.get(ValueLayout.JAVA_LONG_UNALIGNED, off));
+    }
+    for (long b = words << 3; b < bytes; b++) {
+      dst.set(ValueLayout.JAVA_BYTE, b,
+          (byte) (dst.get(ValueLayout.JAVA_BYTE, b) | src.get(ValueLayout.JAVA_BYTE, b)));
+    }
+  }
+
+  /** ANDs {@code src} into {@code dst} over the first {@code length} rows, as {@link #orInto}
+   * ORs: the selection of a conjunction split into several roots. */
+  public static void andInto(MemorySegment dst, MemorySegment src, int length) {
+    long bytes = (length + 7L) >>> 3;
+    long words = bytes >>> 3;
+    for (long w = 0; w < words; w++) {
+      long off = w << 3;
+      dst.set(ValueLayout.JAVA_LONG_UNALIGNED, off,
+          dst.get(ValueLayout.JAVA_LONG_UNALIGNED, off)
+              & src.get(ValueLayout.JAVA_LONG_UNALIGNED, off));
+    }
+    for (long b = words << 3; b < bytes; b++) {
+      dst.set(ValueLayout.JAVA_BYTE, b,
+          (byte) (dst.get(ValueLayout.JAVA_BYTE, b) & src.get(ValueLayout.JAVA_BYTE, b)));
+    }
   }
 
   /** The number of set bits among the first {@code length} rows - the selected-row count. */

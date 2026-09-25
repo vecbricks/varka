@@ -2390,8 +2390,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
 
   test("a filter whose folded condition is over the budget demotes its last-admitted " +
       "conjunct (task 169)") {
-    // The fused conjuncts fold into one condition root, which the emitter cannot split by name,
-    // so the compiler drops the last conjunct it admitted and asks again. The budget is set
+    // The fused conjuncts fold into one condition root, which the emitter cannot split by name.
+    // Without `splitConditions` the compiler drops the last conjunct it admitted and asks again;
+    // with it, the default since task 172, it splits the conjunction instead. The budget is set
     // between what two of these conjuncts and all three emit, measured rather than assumed.
     val conjuncts = (1 to 3).map(k => GreaterThan(heavy(k * 10, k * 10 + 3), d2))
     val condition = conjuncts.reduceLeft[Expression](And(_, _))
@@ -2403,9 +2404,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     val limit = largestMethod(two.fused, 60000)
     assert(largestMethod(three.fused, 60000) > limit, "the third conjunct has to add bytes")
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(limit)).get
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(limit).withSplitConditions(false)).get
     assert(predicate.specs.map(_.fused) === Seq(true, true, false))
     assert(predicate.specs(2).decline.get.reason.startsWith("over the emitter's method budget"))
+    val split = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(limit)).get
+    // Every conjunct fuses, in several conjunction roots. How many is the emitter's answer, not
+    // this test's: a root at exactly this budget alone can be over it beside another.
+    assert(split.specs.forall(_.fused))
+    assert(split.clauses.size >= 2 && split.clauses.forall(_.size == 1), split.clauses)
   }
 
   test("asking the emitter at plan time costs one emission per shape: a second compile of " +

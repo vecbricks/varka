@@ -43,10 +43,11 @@ private[sql] case class VarkaSelection(mask: MemorySegment, count: Int)
 
 /**
  * The kernel half of the Varka filter, for one partition: it runs the mask kernel -
- * a fused loop whose single output root is the predicate's condition - over an Arrow-backed
- * batch and hands back the selection bitmap, leaving what to do with it (compact a fresh
- * batch, or skip rows at the row boundary) to the exec node. Shares every task-lifetime
- * mechanism with the projection evaluator through [[VarkaEvaluatorBase]].
+ * a fused loop whose output roots are the predicate's condition, usually one root and several
+ * when the predicate was split - over an Arrow-backed batch and hands back the selection
+ * bitmap, leaving what to do with it (compact a fresh batch, or skip rows at the row boundary)
+ * to the exec node. Shares every task-lifetime mechanism with the projection evaluator through
+ * [[VarkaEvaluatorBase]].
  *
  * The condition must be fully fused: [[VarkaColumnarRule]] splits a mixed predicate and keeps
  * the residual conjuncts in a row `FilterExec` above, so a condition with residual conjuncts
@@ -82,13 +83,13 @@ private[sql] class VarkaFilterEvaluator(
 
   override protected def identityEntries: Iterator[String] = Iterator(condition.toString)
 
-  // The selection buffer, reused across batches and grown on demand; released by the
-  // task-completion listener before the allocator closes. The kernel writes the leading
-  // (len + 7) / 8 bytes itself, so a stale tail from a longer earlier batch is never read -
-  // the bitmap readers stop at `len` bits. Two facts keep that true which
-  // stopped the driver from zeroing the validity of an output its bitmap pass serves: a
-  // filter's root is a `Cond`, which the pass never serves, so this buffer is still zeroed
-  // by the driver; and every pass arm writes exactly (len + 7) / 8 bytes anyway.
+  // The selection buffer, one whole-word bitmap per kernel output, reused across batches and
+  // grown on demand; released by the task-completion listener before the allocator closes.
+  // The kernel writes the leading (len + 7) / 8 bytes of each bitmap itself, so a stale tail
+  // from a longer earlier batch is never read - the bitmap readers stop at `len` bits. Two facts
+  // keep that true which stopped the driver from zeroing the validity of an output its bitmap
+  // pass serves: a filter's roots are `Cond`s, which the pass never serves, so this buffer is
+  // still zeroed by the driver; and every pass arm writes exactly (len + 7) / 8 bytes anyway.
   private var maskBuf: ArrowBuf = null
 
   override protected def onTaskCleanup(): Unit = {
@@ -101,8 +102,7 @@ private[sql] class VarkaFilterEvaluator(
     }
   }
 
-  private def maskBuffer(len: Int): ArrowBuf = {
-    val needed = ((len + 63) / 64) * 8L
+  private def maskBuffer(needed: Long): ArrowBuf = {
     if (maskBuf == null || maskBuf.capacity() < needed) {
       // Allocate before closing, the same order and for the same reason as `grown`. This used
       // to null the field first and then close - safe, because a throwing allocation left no
@@ -133,13 +133,32 @@ private[sql] class VarkaFilterEvaluator(
     val len = input.numRows()
     val runner = fusedRunner.get
     fillSources(runner, input, len)
-    val buf = maskBuffer(len)
-    // The mask output's data slot is unused by contract (the emitted body never touches it);
-    // its validity slot receives the selection bitmap.
-    runner.dstData(0) = 0L
-    runner.dstValidity(0) = buf.memoryAddress()
+    // One bitmap per output, whole words each, output 0's first. A mask output's data slot is
+    // unused by contract (the emitted body never touches it); its validity slot receives its
+    // selection bitmap.
+    val predicate = compiled.get
+    val outputs = predicate.fused.outputs.size
+    val stride = ((len + 63) / 64) * 8L
+    val buf = maskBuffer(stride * outputs)
+    for (o <- 0 until outputs) {
+      runner.dstData(o) = 0L
+      runner.dstValidity(o) = buf.memoryAddress() + o * stride
+    }
     invokeFused(runner, len)
-    val mask = MemorySegment.ofAddress(buf.memoryAddress()).reinterpret((len + 7) / 8)
+    val base = MemorySegment.ofAddress(buf.memoryAddress()).reinterpret(stride * outputs)
+    if (outputs > 1) {
+      // A split predicate (see `CompiledVarkaPredicate.clauses`): each clause's partial roots
+      // OR into its first bitmap, and the clauses AND into output 0's, which the first clause
+      // starts with.
+      def bitmap(o: Int): MemorySegment = base.asSlice(o * stride, stride)
+      predicate.clauses.foreach { clause =>
+        clause.tail.foreach(o => VarkaSelectionBitmap.orInto(bitmap(clause.head), bitmap(o), len))
+      }
+      predicate.clauses.tail.foreach { clause =>
+        VarkaSelectionBitmap.andInto(bitmap(0), bitmap(clause.head), len)
+      }
+    }
+    val mask = base.asSlice(0, (len + 7) / 8)
     VarkaSelection(mask, VarkaSelectionBitmap.countSet(mask, len))
   }
 

@@ -120,6 +120,10 @@ private[codegen] object VarkaConditionCompiler {
    */
   private[codegen] def andFold(conds: Seq[Cond]): Cond = balancedFold(conds, new IRAnd(_, _))
 
+  /** The disjunction of `conds` as a balanced tree, as [[andFold]] is of a conjunction; the
+   * partial roots of a split predicate are folded with it. */
+  private[codegen] def orFold(conds: Seq[Cond]): Cond = balancedOr(conds)
+
   /**
    * The Coalesce right-fold. Every operand except the last compiles and must be a bare date column:
    * `IsNotNull` reads the per-input validity word, which only a column has before value emission
@@ -200,7 +204,7 @@ private[codegen] object VarkaConditionCompiler {
     // A disjunction of ranges over one int or date column - the partition-key filter a BI tool
     // writes for a set of date ranges - is one range set, whose code does not grow with the
     // ranges, instead of a tree of comparisons whose code does.
-    case or: Or if rangeSet(or).isDefined =>
+    case or: Or if sink.rangeSets && rangeSet(or).isDefined =>
       val (column, bounds) = rangeSet(or).get
       Some(new InRanges(columnRef(column, inputs), bounds.map(Int.box).asJava))
     case Or(l, r) =>

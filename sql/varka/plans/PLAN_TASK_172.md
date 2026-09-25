@@ -340,3 +340,209 @@ Ten runs of `VarkaRangeFilterBenchmark` on an unchanged file, on the quiet lapto
   at one to three hundred thousand rows a second, which the Rate column prints as the same single
   digit every run; the band cannot see its spread, as 9.6 of `PLAN_TASK_192.md` says of the same
   column.
+
+### 9.6 Design A, built, 25 September 2026
+
+A filter predicate that one method cannot hold is split across several selection outputs of one
+kernel, under a new option, `splitConditions`, off by default until measured. Beside it,
+`rangeSets` switches design B off, on by default as it shipped, so that a disjunction of ranges
+reaches design A as the comparisons it is written as. Both are compiler options: they live in
+`VarkaEmitOptions` because that is what the compiler is handed, and they render into the shape
+key only when set away from their defaults, so no existing key moves.
+
+**How the split works.** The compiler folds the fused conjuncts into one condition root, as
+before, and asks the emitter whether it fits. Only when it does not does the split start, and
+it looks for the fewest outputs, since every extra one is another pass over its columns and
+another bitmap. First the fewest equal contiguous conjunction roots the emitter accepts, where
+the only root it may still name is a single conjunct that is a disjunction; then, for each such
+root, the fewest equal partial disjunctions the emitter accepts beside everything else. Each
+count is found by doubling until one is accepted and a binary search below it, and the emitter
+judges the whole kernel every time. A root that cannot split - a conjunct that is not a
+disjunction, or a disjunct too large alone - ends the split, and the compiler demotes a
+conjunct as it does without the option. Each output
+is a selection bitmap, and the predicate records its shape as clauses: a row is selected when
+every clause has an output that selects it. The filter evaluator gives each output its own
+bitmap, runs the kernel, ORs each clause's bitmaps into its first and ANDs the clauses into
+output 0's. Kleene logic allows both at the mask: a row is known true for `a AND b` exactly when
+it is known true for both, and for `a OR b` exactly when it is known true for either.
+
+**Two departures from 3.1, and why.**
+
+* **The partial masks are bitmaps the filter combines, not scratch vectors inside the kernel.**
+  The emitter already splits a kernel's outputs across methods under the byte budget (task 87),
+  and a condition output is already a bitmap, so a partial root as an output of its own needs
+  no emitter change at all. What it costs is one bit a row per output, written by the kernel and
+  read once by the combine, eight bytes at a time. Sharing one bitmap between the outputs, which
+  would have saved the combine, does not work: under `validityByWord` a loop stores each
+  validity word whole, without reading it, so two outputs writing one bitmap overwrite each
+  other.
+* **The emitter decides the split, not an estimate, and the split searches for the fewest
+  outputs.** Two versions came first. The first packed conjuncts greedily into roots that each
+  fitted in a kernel of their own. On 300 conjuncts every root fitted alone and the kernel of all
+  four still failed: root 1's loop method was 8216 bytes beside the others, because a method in a
+  kernel of several outputs is not byte for byte what it is alone, and it asked the emitter once
+  per conjunct. That is the failure `READING_MILESTONE_6.md` records from TENSAT's section 5.1 -
+  a greedy pass that costs each piece alone misjudges the whole - which the read had already
+  drawn for `groupOutputs` (task 200) and which should have been read before this was written.
+  The second halved whatever the emitter named, which fits by construction but only makes
+  pieces of halving sizes. Measured on the same shapes, 25 September 2026, outputs of the split
+  kernel, every conjunct fused in both:
+
+  | predicate | halving | search on counts |
+  |---|---:|---:|
+  | `s >= 0` and 49 of the ranges | 1 + 2 | 1 + 2 |
+  | and 100 | 1 + 4 | 1 + 3 |
+  | and 150 | 1 + 4 | 1 + 4 |
+  | and 200 | 1 + 8 | 1 + 5 |
+  | a disjunction of 150 over two columns | 4 | 4 |
+  | a conjunction of 300 comparisons | 4 | 4 |
+
+  The search asks the emitter a few times more and compiles in the same tenth of a second. It
+  is exact among splits into equal pieces, not over every partition; the exact partition is
+  task 200's dynamic program, which needs a cost cheaper to ask than an emission (task 199), and
+  design A's split is a second place it would serve. A first search went straight to its upper
+  count and read the refusal there as "nothing fits": past some number of outputs the driver
+  method itself is over the budget, so acceptance is monotone in the count only up to a point,
+  and the search now doubles up to the answer instead.
+
+**What checks it.** `VarkaSplitConditionFusionSuite` pins, with range sets off, that without the
+split the comparisons still fuse up to 48 ranges and decline from 49; that a predicate one
+method holds compiles exactly as it does without the option; that `modified-q3`'s ranges at 49,
+100 and 200 split into the clause of `s >= 0` and a clause of partial disjunctions, with every
+method of the kernel within 8000 bytes; that a disjunction over two columns and a conjunction of
+300 comparisons split the same way; that a conjunct too large alone which is not a disjunction
+still declines with the method-budget reason; and that the fusion report says when the predicate
+is split and only then. `VarkaSplitConditionSuite` runs the same shapes, and one with conjunction
+roots beside a split disjunction at the int extremes, on the row engine and on Varka over the same
+Arrow-cached rows with nulls, and requires the same rows with the kernel having run.
+
+The IR fuzzer does not draw the split: it lives in the compiler and the evaluator, above the IR,
+and the fuzzer draws IR. The end-to-end suite is its differential check.
+
+**The benchmark** gains the arm "Varka, split conditions" beside "Varka", whose name stays so that
+its committed rows and its band keep their key.
+
+What remains: the measurement, on the quiet laptop and on a runner, and the scoring of
+predictions 2 and 4 for design A, with the recommendation 8 asks for.
+
+### 9.7 Design A, measured, 25 September 2026
+
+`VarkaRangeFilterBenchmark` regenerated on the quiet laptop at both widths with the arm
+"Varka, split conditions", then three more wide runs, committed together in
+`VarkaRangeFilterBenchmark-jdk25-repeats-results.txt`, so that the two designs, whose ratios are
+all under 1.3, are compared by minimums as the house rule asks. Nanoseconds a row at the wide
+width, each case's minimum over the four runs:
+
+| ranges | vanilla | Varka, range set (B) | Varka, split conditions (A) |
+|---:|---:|---:|---:|
+| 10 | 19.0 | 8.7 | 7.7 |
+| 48 | 26.9 | 12.3 | 12.0 |
+| 49 | 26.5 | 12.2 | 11.8 |
+| 100 | 3619.9 | 19.0 | 17.7 |
+| 150 | 5485.6 | 27.1 | 24.4 |
+| 200 | 6748.2 | 34.1 | 31.0 |
+
+**Prediction 2 held.** Design A fuses all 200 ranges with every method within 8000 bytes (9.6's
+test reads them from the built class), and its time grows about linearly with the ranges, since
+every lane still evaluates every comparison.
+
+**Prediction 4 held for design A**: faster than vanilla at every rung, about twice as fast below
+vanilla's crossing and more than two hundred times past it at the wide width.
+
+**A is faster than B, by a little.** By minimums A is 2 to 11% faster at every rung, and at most
+rungs all four of its runs are below B's best. At 128 bits the regenerated file puts A ahead by
+more, 53.0 against 63.2 at 200 ranges, from one run only. That B's loop over a table of bounds
+loses to A's unrolled comparisons is no surprise in hindsight: A compares against constants in
+registers and B broadcasts each bound from memory, and both do one comparison pair per range per
+lane.
+
+**One thing the best times hide.** The split arm's average is far above its best at some rungs of
+the regenerated file (73 ms best against 943 average at 200 ranges): one slow iteration, most
+likely C2 still compiling the split kernel, whose five partial disjunctions of 40 ranges each
+are about the size section 2's table gives for 40 ranges, while the benchmark had started
+timing. B's kernel is one method under 2000 bytes. So A's steady state is the faster and
+its first queries may be the slower; that is task 195's question, what Varka costs on the first
+query, and it is not measured here.
+
+**The recommendation 8 asks for.** Turn `splitConditions` on by default: it changes only
+predicates that are declined today, it is general, and it is the fastest arm measured. Keep
+`rangeSets` on for now: on performance A would replace it, but B is one small method where A is
+several of several thousand bytes, and whether that costs A on the first query is unmeasured. Retiring B is
+a decision for after task 195. The runner figures for both designs follow.
+
+### Correction, 25 September 2026: why A is faster, read from the assembly
+
+9.7 explains A's lead as constants in registers against bounds broadcast from memory. The
+assembly says that is half of it, and that the other half is a dependency chain. Both kernels
+were compiled from the same 40 of the query's ranges - the size of each of A's partial
+disjunctions at 200 ranges - as `if(<ranges>, d, date_add(d, 1))` over a date column, the one
+value position `dev/varka_emit.sh` can take a condition in, and read with `--asm` from C2's
+standard compilation of `loopDense0` (`--options rangeSets=true`, then `false`):
+
+* **B** loops over its table of bounds, and C2 unrolls that loop four times, eight bounds an
+  iteration. Every bound is loaded from the table and broadcast afresh for every group of lanes,
+  two instructions a bound, because a bound read inside a loop cannot be hoisted out of the lane
+  loop around it. The mask that accumulates the ranges is carried from one iteration of the range
+  loop to the next through the stack - `kmovq %k7, 8(%rsp)` at its end, `kmovq 8(%rsp), %k4` at
+  the start of the next - so every four ranges the chain waits on a store and the load that
+  reads it back.
+* **A** is straight-line code: 80 `vpcmpnltd`/`vpcmpled`, two a range, and no loop over ranges.
+  C2 keeps many of the 80 broadcast bounds in vector registers across the lane loop and
+  broadcasts the rest from the stack. Every comparison's mask is spilled, since only seven mask
+  registers are usable, but the disjunction is a balanced tree, so no mask waits on the one
+  before it.
+
+So both spill masks and both broadcast some bounds every group of lanes; what separates them is
+that B broadcasts every bound every time and serialises its ranges through one accumulator, and
+A does neither. Two things follow for B, neither done here. It could keep several accumulators
+and OR them at the end, which breaks the chain without changing its code size. And both designs
+spend two comparisons and an AND on `lo <= v && v <= hi`, where `(v - lo)` compared unsigned
+against `(hi - lo)` is one subtraction and one comparison, since a value below `lo` wraps to a
+large unsigned number.
+
+`VarkaEmitDump` compiled with the default options whatever `--options` said, so a compiler option
+such as `rangeSets` could not be probed with it; it now compiles with the options it emits with.
+
+### 9.8 Design A on runners, 25 September 2026
+
+Four runs of `VarkaRangeFilterBenchmark` from the branch at `c1b5237740b` on GitHub-hosted
+runners drew three AMD EPYC 7763s and one EPYC 9V74 - again no 9V45, which makes it 0 of 15
+tries. Two are committed as their workflows' artifacts, `-runner-9v74-3` and `-runner-7763`,
+with provenance; the other two 7763s agree with the committed one within a few percent at every
+rung. Nanoseconds a row:
+
+| ranges | 9V74: vanilla | B | A | 7763: vanilla | B | A |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 35.7 | 12.7 | 11.7 | 36.2 | 12.5 | 11.3 |
+| 49 | 50.1 | 22.7 | 22.5 | 46.7 | 21.2 | 21.2 |
+| 100 | 9288.7 | 38.4 | 37.9 | 10394.1 | 36.2 | 36.1 |
+| 200 | 17773.9 | 69.6 | 69.7 | 18345.2 | 65.4 | 66.6 |
+
+**On these machines the designs tie.** Past ten ranges A and B are within 6% of each other on
+all four runs, either way round; at ten, A is ahead by several percent on every run.
+Both are about 230 to 295 times vanilla past its crossing, so prediction 4 holds on runners too.
+
+**Why the laptop's lead does not travel, as far as the evidence goes.** Neither runner CPU exposes
+AVX-512 (`sql/varka/HARDWARE.md`), so C2 compiles both kernels to 256-bit AVX2, where a comparison
+yields a vector rather than a mask register. The laptop's assembly put B's loss on mask registers:
+the accumulator spilled through the stack between iterations of the range loop, because only
+seven are usable. With masks in sixteen vector registers that spill need not happen. This is the
+likely reading, not a read one: the runners' assembly was not captured.
+
+**The recommendation of 9.7 stands, and B's case for staying is stronger.** A is general and never
+slower than B by more than noise; B ties it on the pool's common machines with one small method
+where A has several. `splitConditions` on by default, `rangeSets` kept, rows 207 and 208 for B's
+loop.
+
+### 9.9 The recommendation applied, 25 September 2026
+
+The owner agreed to 9.7's recommendation as 9.8 left it. `splitConditions` is on by default: a
+filter predicate that one method cannot hold is now split across several selection outputs
+rather than declined, wherever it can be. `rangeSets` stays on, so `modified-q3`'s ranges still
+compile to one range set, and design A serves every other predicate too large for one method.
+The shape key renders `splitConditions` only when it is off, so default keys and every earlier
+variant's keep their rendering. Rows 207 and 208 of `PLAN_MILESTONE_6.md` carry the two
+improvements to B's loop that the assembly suggested.
+
+What is left of this task is the 9V45 figure for the post, and task 195's first-query cost,
+which decides whether B stays.
