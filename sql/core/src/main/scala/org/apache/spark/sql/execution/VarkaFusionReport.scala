@@ -88,17 +88,13 @@ private[sql] object VarkaFusionReport {
       condition: Expression,
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Seq[String] = {
-    VarkaExpressionCompiler.compilePredicate(condition, childOutput, options) match {
-      case Some(predicate) =>
-        predicate.specs.map { spec =>
-          if (spec.fused) {
-            s"${render(spec.conjunct)}: fused"
-          } else {
-            val why = spec.decline.map(_.toString).getOrElse("no reason recorded")
-            s"${render(spec.conjunct)}: residual ($why)"
-          }
-        }
-      case None => Seq("no conjunct is Varka-eligible")
+    VarkaExpressionCompiler.explainPredicate(condition, childOutput, options).map { spec =>
+      if (spec.fused) {
+        s"${render(spec.conjunct)}: fused"
+      } else {
+        val why = spec.decline.map(_.toString).getOrElse("no reason recorded")
+        s"${render(spec.conjunct)}: residual ($why)"
+      }
     }
   }
 

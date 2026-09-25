@@ -19,7 +19,8 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, GreaterThan, IsNotNull, LessThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, GreaterThan, IsNotNull, LessThan, Literal, Rand}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
@@ -412,8 +413,18 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession {
       And(dLess10, shortResidual), withShort)
     assert(mixed.head === "(d < DATE '1970-01-11'): fused")
     assert(mixed(1).startsWith("(sh > 5S): residual (non-date column of type smallint"))
-    assert(VarkaFusionReport.predicateLines(shortResidual,
-      withShort) === Seq("no conjunct is Varka-eligible"))
+    // A filter no conjunct of which fuses still says why, conjunct by conjunct.
+    val none = VarkaFusionReport.predicateLines(shortResidual, withShort)
+    assert(none.size == 1 && none.head.startsWith("(sh > 5S): residual (non-date column"), none)
+  }
+
+  test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {
+    val lines = VarkaFusionReport.predicateLines(
+      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withShort)
+    assert(lines.size == 2, lines)
+    assert(lines.forall(_.contains("residual (the condition is nondeterministic")), lines)
+    assert(VarkaExpressionCompiler.compilePredicate(
+      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withShort).isEmpty)
   }
 
   test("VarkaColumnarRule: the pre stage rewrites an eligible filter, splitting conjuncts") {

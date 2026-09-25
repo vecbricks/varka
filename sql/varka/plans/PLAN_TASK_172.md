@@ -292,6 +292,32 @@ is not what limits the claim.
 **Prediction 4 held for design B**: faster than vanilla at every rung, and by more than ten times
 past vanilla's crossing. Design A is still to build and to score.
 
+### 9.4 Design B on a runner, 24 September 2026
+
+`VarkaRangeFilterBenchmark` through `.github/workflows/benchmark.yml` from master `efe3017de8a`,
+which drew an AMD EPYC 9V74 - Zen 4, without the full-width 512-bit datapath
+(`VarkaRangeFilterBenchmark-jdk25-runner-9v74-results.txt`, with its provenance). Nanoseconds a
+row:
+
+| ranges | vanilla | Varka, range set | vanilla / Varka |
+|---:|---:|---:|---:|
+| 10 | 35.2 | 13.7 | 2.6 |
+| 48 | 52.5 | 24.3 | 2.2 |
+| 100 | 9121.0 | 40.5 | 225 |
+| 200 | 17520.9 | 70.2 | 250 |
+
+**The laptop's shape holds on the runner, and the cliff is steeper there.** Vanilla steps from
+51.4 ns a row at 49 ranges to 9121.0 at 100, about 180 times; Varka's loop grows with the ranges
+as on the laptop, about 0.3 ns a row a range (24.2 at 49 ranges, 70.2 at 200). At the query's 200 ranges Varka is 250 times
+faster. The published figure is to come from the EPYC 9V45, the pool's full-width machine, as the
+size ladder's does.
+
+Two more dispatches drew a second EPYC 9V74 and an Intel Xeon Platinum 8573C
+(`-runner-9v74-2-results.txt`, `-runner-xeon8573c-results.txt`). At 200 ranges they read 14084.8
+against 49.1 ns a row, 287 times, and 10269.4 against 50.7, 203 times: the ratio moves with the
+machine's interpreter speed, and the shape does not move at all. More dispatches are out for the
+9V45.
+
 ### Correction, 24 September 2026: the cliff is logged
 
 This plan says Spark does not report a method past HotSpot's 8000-byte limit. It does: since 2.4.0
@@ -303,7 +329,7 @@ has the evidence.
 ### 9.5 The band, 25 September 2026
 
 Ten runs of `VarkaRangeFilterBenchmark` on an unchanged file, on the quiet laptop, written to
-`VarkaRangeFilterBenchmark-jdk25-band.txt`. This section is numbered after `#369`'s 9.4.
+`VarkaRangeFilterBenchmark-jdk25-band.txt`.
 
 * **Design B's claim stands.** The Varka arm spreads by at most 12% (tier 2 at 100 ranges, tier 1
   at 150 and 200), which cannot touch a ratio of 185.

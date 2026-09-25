@@ -554,20 +554,52 @@ private[sql] object VarkaExpressionCompiler {
   def compilePredicate(
       condition: Expression,
       childOutput: Seq[Attribute],
-      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[CompiledVarkaPredicate] = {
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[CompiledVarkaPredicate] =
+    predicateAndSpecs(condition, childOutput, options)._2
+
+  /**
+   * Every conjunct of `condition` with what the compiler did with it - fused, or declined with
+   * its reason - including when none fuses and [[compilePredicate]] returns `None`, so that a
+   * filter left wholly to Spark still says why.
+   */
+  private[sql] def explainPredicate(
+      condition: Expression,
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Seq[VarkaConjunctSpec] =
+    predicateAndSpecs(condition, childOutput, options)._1
+
+  private def predicateAndSpecs(
+      condition: Expression,
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions): (Seq[VarkaConjunctSpec], Option[CompiledVarkaPredicate]) = {
+    // The split hoists fused conjuncts below the residual ones, which reorders evaluation.
+    // That is sound only when every conjunct is deterministic - Spark's own predicate
+    // pushdown stops at the first nondeterministic conjunct (span(_.deterministic)) for the
+    // same reason: a seeded rand() must see every row, not the survivors of a hoisted
+    // predicate. One nondeterministic conjunct therefore declines the whole predicate
+    // (task-21 review); the rewrite must never change what the query computes.
+    if (!condition.deterministic) {
+      val why = "the condition is nondeterministic: a fused conjunct would run ahead of a " +
+        "nondeterministic one and change the rows it sees"
+      val sink = new DeclineSink(childOutput)
+      return (splitConjuncts(condition).map { conjunct =>
+        sink.note(why, BindReferences.bindReference[Expression](conjunct, childOutput))
+        VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+      }, None)
+    }
     // The size admission of [[classify]], for conjuncts. The fused conjuncts fold into one
     // condition root, which the emitter cannot split by name, so a decline demotes the
     // last-admitted conjunct and the rest are asked again.
     var demoted = Map.empty[Int, String]
     while (true) {
-      val compiled = predicateOnce(condition, childOutput, demoted, options)
+      val (specs, compiled) = predicateOnce(condition, childOutput, demoted, options)
       val more = compiled.flatMap { predicate =>
         admitBySize(predicate.fused, options).map { case (_, reason) =>
           predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
         }
       }
       if (more.isEmpty) {
-        return compiled
+        return (specs, compiled)
       }
       demoted += more.get
     }
@@ -578,14 +610,7 @@ private[sql] object VarkaExpressionCompiler {
       condition: Expression,
       childOutput: Seq[Attribute],
       demoted: Map[Int, String],
-      options: VarkaEmitOptions): Option[CompiledVarkaPredicate] = {
-    // The split hoists fused conjuncts below the residual ones, which reorders evaluation.
-    // That is sound only when every conjunct is deterministic - Spark's own predicate
-    // pushdown stops at the first nondeterministic conjunct (span(_.deterministic)) for the
-    // same reason: a seeded rand() must see every row, not the survivors of a hoisted
-    // predicate. One nondeterministic conjunct therefore declines the whole predicate
-    // (task-21 review); the rewrite must never change what the query computes.
-    if (!condition.deterministic) return None
+      options: VarkaEmitOptions): (Seq[VarkaConjunctSpec], Option[CompiledVarkaPredicate]) = {
     val inputs = mutable.LinkedHashMap.empty[Int, Int]
     val literals = mutable.LinkedHashMap.empty[Int, Int]
     val sink = new DeclineSink(childOutput)
@@ -633,12 +658,12 @@ private[sql] object VarkaExpressionCompiler {
     }
     if (fusedConds.nonEmpty && inputs.nonEmpty) {
       val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
-      Some(CompiledVarkaPredicate(specs,
+      (specs, Some(CompiledVarkaPredicate(specs,
         CompiledVarkaProjection(Seq(VarkaConditionCompiler.andFold(fusedConds.toSeq)),
           Seq(BooleanType), ordinals, literals.keys.toSeq, sink.inputBounds(inputs), derived,
-          sink.longLiteralValues)))
+          sink.longLiteralValues))))
     } else {
-      None
+      (specs, None)
     }
   }
 
