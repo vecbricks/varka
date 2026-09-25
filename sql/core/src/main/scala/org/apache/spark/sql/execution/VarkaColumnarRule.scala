@@ -21,9 +21,9 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.adaptive.TableCacheQueryStageExec
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ArrowColumnVector
 
 /**
@@ -70,11 +70,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
           if (child.supportsColumnar) {
             VarkaProjectExec(projectList, child)
           } else {
-            // A cache scan kept from columnar output by its width alone is read as batches
-            // beneath the projection it feeds (task 185); anything else stays as it was.
-            VarkaCacheScanExec.widens(child)
-              .map(VarkaProjectExec(projectList, _))
-              .getOrElse { leftToSpark("projection", child); project }
+            leftToSpark("projection", child)
+            project
           }
         // A projection that only narrows a Varka filter's output. It fuses nothing, so the
         // arm above declines it, and the node that performs it decides where the plan's row
@@ -87,24 +84,6 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
         case filter @ FilterExec(condition, child)
             if child.supportsColumnar && arrowFriendly(child) =>
           rewriteFilter(condition, child, VarkaFilterExec(_, _)).getOrElse(filter)
-        // A cache scan kept from columnar output by its width alone: read it as batches beneath
-        // a Varka filter, and only if the filter fuses, so a plan Varka leaves alone keeps its
-        // scan (task 185).
-        case filter @ FilterExec(condition, child) if VarkaCacheScanExec.widens(child).isDefined =>
-          val wide = VarkaCacheScanExec.widens(child).get
-          if (arrowFriendly(wide)) {
-            rewriteFilter(condition, wide, VarkaFilterExec(_, _)).getOrElse(filter)
-          } else {
-            filter
-          }
-        // A filter that would fuse over an input kept from producing batches for a reason a user
-        // can act on: say so. The predicate is compiled only once such a reason is found.
-        case filter @ FilterExec(condition, child)
-            if !child.supportsColumnar && notColumnarReason(child).isDefined &&
-              VarkaExpressionCompiler.compilePredicate(condition, child.output,
-                VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)).isDefined =>
-          leftToSpark("filter", child)
-          filter
       }
     } else {
       plan
@@ -168,9 +147,10 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
   }
 
   /**
-   * Logs why a projection or a filter Varka would fuse is left to Spark because its input gives
-   * no batches: at INFO when [[notColumnarReason]] names a reason a user can act on, and at DEBUG
-   * otherwise, since most inputs are not columnar and that is the ordinary case.
+   * Logs why a projection Varka would fuse is left to Spark because its input gives no batches:
+   * at INFO when [[notColumnarReason]] names a cause a user can act on, and at DEBUG otherwise,
+   * since most inputs are not columnar and that is the ordinary case. A filter is not logged:
+   * whether it would fuse is known only by compiling it, which a log line does not justify.
    */
   private def leftToSpark(what: String, child: SparkPlan): Unit = notColumnarReason(child) match {
     case Some(reason) => logInfo(s"Varka left a $what to Spark: $reason")
@@ -179,40 +159,30 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
   }
 
   /**
-   * Why `child` gives a Varka node no batches, when the reason is one a user can act on (task 185,
-   * `PLAN_TASK_185.md` 3.3), or `None` for any other input. A cache scan names each of its
-   * blockers: the field count, which `spark.sql.codegen.maxFields` sets and which is counted over
-   * the whole cached table rather than the columns a query reads; the vectorized cache reader
-   * switched off; and a serializer that produces no batches for the schema, or that is not Varka's
-   * Arrow serializer, the only one [[VarkaCacheScanExec]] can read a wide cache through. A file
-   * scan names the field count, which gates its vectorized reader the same way.
+   * Why a cache scan gives a Varka node no batches, when the cause is one a user can act on, or
+   * `None` for any other input. Under adaptive execution the scan is inside its query stage. The
+   * causes are the vectorized cache reader switched off; a serializer that is not Varka's Arrow
+   * serializer, whose batches are the only ones the kernels read; and, under that serializer, more
+   * columns read than `spark.sql.codegen.maxFields`, which it counts over the columns the scan
+   * reads (`InMemoryTableScanExec.fieldCountedSchema`).
    */
-  private[execution] def notColumnarReason(child: SparkPlan): Option[String] = {
-    val conf = child.conf
-    def tooWide(schema: StructType): Option[String] =
-      if (WholeStageCodegenExec.isTooManyFields(conf, schema)) {
-        Some(s"its schema has more than ${conf.wholeStageMaxNumFields} fields " +
-          s"(${SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key})")
-      } else {
-        None
-      }
-    child match {
-      case scan: InMemoryTableScanExec if !scan.supportsColumnar =>
-        val schema = scan.relation.schema
-        val serializer = scan.relation.cacheBuilder.serializer
-        val causes = Seq(
-          tooWide(schema).map(_ + ", counted over the whole cached table"),
-          Option.when(!conf.cacheVectorizedReaderEnabled)(
-            s"${SQLConf.CACHE_VECTORIZED_READER_ENABLED.key} is off"),
-          Option.when(!serializer.supportsColumnarOutput(schema))(
-            s"its serializer ${serializer.getClass.getSimpleName} produces no batches for it"),
-          Option.when(!serializer.isInstanceOf[ArrowCachedBatchSerializer])(
-            s"its serializer is not ${classOf[ArrowCachedBatchSerializer].getSimpleName}")).flatten
-        Option.when(causes.nonEmpty)(s"the cache scan produces rows: ${causes.mkString("; ")}")
-      case scan: FileSourceScanExec if !scan.supportsColumnar =>
-        tooWide(scan.schema).map(w => s"the file scan produces rows: $w")
-      case _ => None
-    }
+  private[execution] def notColumnarReason(child: SparkPlan): Option[String] = child match {
+    case stage: TableCacheQueryStageExec => notColumnarReason(stage.plan)
+    case scan: InMemoryTableScanExec if !scan.supportsColumnar =>
+      val conf = scan.conf
+      val serializer = scan.relation.cacheBuilder.serializer
+      val arrow = serializer.isInstanceOf[ArrowCachedBatchSerializer]
+      val causes = Seq(
+        Option.when(!conf.cacheVectorizedReaderEnabled)(
+          s"${SQLConf.CACHE_VECTORIZED_READER_ENABLED.key} is off"),
+        Option.when(!arrow)(
+          s"its serializer is ${serializer.getClass.getSimpleName}, not " +
+            classOf[ArrowCachedBatchSerializer].getSimpleName),
+        Option.when(arrow && WholeStageCodegenExec.isTooManyFields(conf, scan.fieldCountedSchema))(
+          s"it reads more than ${conf.wholeStageMaxNumFields} columns " +
+            s"(${SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key})")).flatten
+      Option.when(causes.nonEmpty)(s"the cache scan produces rows: ${causes.mkString("; ")}")
+    case _ => None
   }
 
   // The compiler is the single eligibility oracle: a projection is fused exactly when

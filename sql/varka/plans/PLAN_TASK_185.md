@@ -205,3 +205,53 @@ Varka suite in `sql/core` passes, 387 tests.
 
 With this the plan is done: the reproducers (8.1), the wide scan (8.2), the timing and the
 upstream question, which was left unfiled for want of a cost to report (8.3), and the reason (8.4).
+
+### 8.5 Reworked after review: the scan counts the columns it reads, 25 September 2026
+
+*A correction to 8.2 to 8.4, which stand as written.* A review of #378 (ten finders, a
+verifier for each candidate) found the wide scan of 8.2 broken in Spark's default configuration
+and in several places beside it:
+
+* **It did nothing under adaptive execution**, which is on by default. For a query with a sort,
+  an aggregate, a join, a window or a subquery, or over a cache whose own plan had a shuffle, the
+  cache scan is inside a `TableCacheQueryStageExec` by the time the columnar rules run, and
+  `VarkaCacheScanExec.widens` matched only a bare scan. Every test and the benchmark ran with
+  adaptive execution off, as the shared Varka sessions do, so none saw it.
+* **The wrapper hid the scan from code that looks for it.** It held the scan as a field, not a
+  child, so `Dataset.observe` metrics on a wide cached DataFrame came back empty, the pipelined
+  shuffle's eligibility check missed the cache and could fail the job, scalar subqueries in the
+  scan's pushed predicates ran twice, and EXPLAIN and the SQL UI lost the cached plan.
+* **Two of 8.4's reasons pointed at the wrong setting**: a file scan's field count, which no
+  setting turns into Arrow batches Varka can read, and the whole table's field count under the
+  Arrow serializer with the reader off, where only the reader matters. And the log-only filter arm
+  compiled a kernel, and cached it, for a filter that stays in Spark.
+
+The review's altitude finding named the cause: `InMemoryTableScanExec.supportsColumnar` counts
+`spark.sql.codegen.maxFields` over the whole relation. So the scan now counts it over the columns
+it reads when Varka is on and the cache is the Arrow serializer
+(`InMemoryTableScanExec.fieldCountedSchema`), and counts as before otherwise, so vanilla Spark is
+unchanged. The limit protects the generated code that consumes the batches, `ColumnarToRowExec`'s,
+which only reads the scan's columns; Varka's kernels read the vectors directly. The real scan then
+produces batches, stays in the plan, is passed through by its query stage, and Varka's ordinary
+arms fuse over it. `VarkaCacheScanExec` and both filter arms are deleted. The reason is logged for
+projections only, and names only causes a user can act on: the reader off, a serializer that is
+not the Arrow one, or under it a query reading more columns than `maxFields`.
+
+**What checks it.** `VarkaSchemaWidthSuite`, nine tests: vanilla's scan at 100 and 101 fields;
+under Varka the 101-field scan is columnar; a projection, a filter and both fuse at 100 and 101
+fields; with adaptive execution on, an `ORDER BY` and a filtered `count(*)` fuse over the scan in
+its query stage; an unfused query answers as vanilla; observed metrics of a wide cached DataFrame
+reach the query; a projection reading 101 columns is left to Spark with the columns as its reason;
+with the reader off the reason names the reader and not the width; and a range, which produces no
+batches for a reason no user can act on, gives no reason. The trade-off the review named: with
+Varka on, a query Varka does not fuse gets `ColumnarToRowExec` over the scan, the plan Spark uses
+at 100 fields.
+
+**Prediction 3 is not decidable from 8.3's run**, not held. Its 13.6 against 13.7 ns is a single
+run and a ratio well under 1.3x, which `sql/varka/AGENTS.md` requires re-run and compared by
+minimums, and the 128-bit companion reads 13.5 against 14.2, about 5% apart. The same holds for
+the 2 to 4% vanilla figures behind 8.3's upstream decision. Both files were also measured through
+the wrapper, whose columnar path was the scan's own `executeColumnar()`, the path the real scan
+now runs; the benchmark no longer names the wrapper. A regeneration with repeats is due in the
+next quiet window, and 8.3's conclusions wait for it.
+

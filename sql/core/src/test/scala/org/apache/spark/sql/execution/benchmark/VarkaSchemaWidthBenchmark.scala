@@ -24,8 +24,8 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.execution.{VarkaCacheScanExec, VarkaColumnarToRowExec,
-  VarkaFilterExecBase, VarkaProjectExec}
+import org.apache.spark.sql.execution.{VarkaColumnarToRowExec, VarkaFilterExecBase,
+  VarkaProjectExec}
 import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -41,10 +41,10 @@ import org.apache.spark.sql.internal.SQLConf
  *    tables of int columns alone, the only kind that serializer produces batches for: a sum of
  *    one int column over 100 fields (columnar), over 101 (rows), and over 101 with `maxFields`
  *    raised past the width (columnar again), which is what counting the scan's own output instead
- *    of the whole schema would give. This is the evidence an upstream JIRA would need.
- *  - Whether Varka now costs the same at both widths (task 185's prediction 3), over the Arrow
- *    cache, where the 101-field table is read through `VarkaCacheScanExec`: `date_add` of the one
- *    date column, on vanilla Spark and on Varka.
+ *    of the whole schema would give.
+ *  - Whether Varka costs the same at both widths, over the Arrow cache, where with Varka on the
+ *    scan counts the limit over the columns it reads and so reads the 101-field table as batches
+ *    too: `date_add` of the one date column, on vanilla Spark and on Varka.
  *
  * Each table writes, after it, how every arm's plan read the cache.
  *
@@ -88,16 +88,11 @@ object VarkaSchemaWidthBenchmark extends SqlBasedBenchmark {
   private def reads(session: SparkSession, query: String): String = {
     val plan = session.sql(query).queryExecution.executedPlan
     val scan = plan.collectFirst { case s: InMemoryTableScanExec => s }
-    val wide = plan.collectFirst { case w: VarkaCacheScanExec => w }.isDefined
     val varka = plan.collectFirst {
       case v @ (_: VarkaProjectExec | _: VarkaColumnarToRowExec | _: VarkaFilterExecBase) => v
     }.isDefined
-    if (wide) {
-      "Varka, through VarkaCacheScan"
-    } else {
-      val columnar = if (scan.exists(_.supportsColumnar)) "columnar" else "rows"
-      s"${if (varka) "Varka" else "Spark"}, cache scan $columnar"
-    }
+    val columnar = if (scan.exists(_.supportsColumnar)) "columnar" else "rows"
+    s"${if (varka) "Varka" else "Spark"}, cache scan $columnar"
   }
 
   private def session(name: String, varka: Boolean, arrow: Boolean): SparkSession = {

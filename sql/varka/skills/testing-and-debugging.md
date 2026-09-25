@@ -476,3 +476,23 @@ the kernel agree on what is null. The general form of the lesson: a harness
 trick that fakes a count must be checked against every length the matrix
 runs, because a count that is a small fraction of one batch is the whole of
 another.
+
+## A plan change tested only with adaptive execution off is untested in Spark's default
+
+The shared Varka sessions turn adaptive execution off for deterministic plans, and task 185's wide
+cache scan passed every test that way while doing nothing in Spark's default configuration: with
+adaptive execution on, a query with a sort, an aggregate, a join, a window or a subquery has its
+cache scan wrapped in a `TableCacheQueryStageExec` before the columnar rules run, and a rule that
+matches a bare `InMemoryTableScanExec` never sees one (`PLAN_TASK_185.md` 8.5). So a change to
+what the rule matches, or to the plan below a Varka node, gets at least one test with adaptive
+execution on and a query that makes a stage - `ORDER BY`, `GROUP BY` - as `VarkaDifferentialSuite`'s
+"under AQE" tests do.
+
+The same review found the second way a plan-shape change goes wrong: a leaf that wraps another
+node as a field hides it from every piece of Spark that walks `children` to find it - observed
+metrics, the pipelined-shuffle eligibility check, subquery reuse, EXPLAIN and the SQL UI. Changing
+the wrapped node's own decision, where one line does it, beats wrapping it. And a fact that cost a
+run: Spark's default cache serializer produces batches only for primitive numeric columns, so a
+benchmark of the cache's columnar path over a table with a date column measures rows on that
+serializer.
+

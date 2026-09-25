@@ -17,23 +17,26 @@
 
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.logging.log4j.Level
+
+import org.apache.spark.sql.{Observation, QueryTest, SparkSession}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
+import org.apache.spark.sql.functions.{count, lit}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The schema-width cliff at the cache (task 185, the census's G3). Whether an
- * `InMemoryTableScanExec` produces columnar batches is decided by
- * `spark.sql.codegen.maxFields` (100) counted over the whole cached relation's schema, not over
- * the columns a query reads, and Varka's rule rewrites a projection or a filter only over a
- * columnar child. Without [[VarkaCacheScanExec]] a cached table of more than a hundred columns
- * would give Varka nothing to fuse, whatever the query reads, even under Varka's own Arrow
- * serializer, which produces batches at any width.
+ * `InMemoryTableScanExec` produces columnar batches is decided by `spark.sql.codegen.maxFields`
+ * (100), which vanilla Spark counts over the whole cached relation's schema, not over the columns
+ * a query reads; Varka's rule rewrites a projection or a filter only over a columnar child, so a
+ * cached table of more than a hundred columns gave Varka nothing to fuse, whatever the query read.
  *
- * The first test pins Spark's side at 100 and 101 columns. The rest check Varka's answer,
- * [[VarkaCacheScanExec]]: where the scan is kept from columnar output by its width alone, a
- * projection or a filter Varka fuses reads the same cached batches as columns and answers as the
- * row engine does, and a query Varka does not fuse keeps the scan as it was.
+ * With Varka on and the cache in Varka's Arrow serializer, the scan counts the limit over the
+ * columns it reads instead (`InMemoryTableScanExec.fieldCountedSchema`), so the real scan produces
+ * batches, stays in the plan - inside its query stage under adaptive execution - and Varka's
+ * ordinary arms fuse over it. The first test pins vanilla's side at 100 and 101 columns; the rest
+ * check Varka's, and the reason it logs where a cause a user can act on still keeps the batches
+ * away.
  */
 class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
 
@@ -64,7 +67,24 @@ class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
     collectFirst(plan) { case s: InMemoryTableScanExec => s }
       .getOrElse(fail(s"no cache scan in the plan:\n${plan.treeString}"))
 
-  test("G3: the cache scan is columnar over 100 fields and produces rows over 101") {
+  /** The query on both sessions: the same rows, and on Varka a kernel that ran. */
+  private def checkFused(query: String): SparkPlan = {
+    val actual = varkaSpark.sql(query)
+    checkAnswer(actual, spark.sql(query))
+    val plan = actual.queryExecution.executedPlan
+    assertFused(plan)
+    assertKernelsRan(plan)
+    assert(cacheScan(plan).supportsColumnar, plan.treeString)
+    plan
+  }
+
+  private def withVarkaConf[T](key: String, value: String)(body: => T): T = {
+    val saved = varkaSpark.conf.getOption(key)
+    varkaSpark.conf.set(key, value)
+    try body finally saved.fold(varkaSpark.conf.unset(key))(varkaSpark.conf.set(key, _))
+  }
+
+  test("G3: vanilla's cache scan is columnar over 100 fields and produces rows over 101") {
     for ((n, columnar) <- Seq(100 -> true, 101 -> false)) {
       withWide(n) { name =>
         val plan = spark.sql(s"SELECT date_add(d, 1) FROM $name").queryExecution.executedPlan
@@ -73,129 +93,105 @@ class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
-  /** The query on both sessions: the same rows, and on Varka a kernel that ran. */
-  private def checkFused(query: String): SparkPlan = {
-    val actual = varkaSpark.sql(query)
-    val plan = actual.queryExecution.executedPlan
-    assertFused(plan)
-    checkAnswer(actual, spark.sql(query))
-    assertKernelsRan(plan)
-    plan
-  }
-
-  private def wideScans(plan: SparkPlan): Seq[VarkaCacheScanExec] =
-    collect(plan) { case w: VarkaCacheScanExec => w }
-
-  test("Varka fuses a projection over a cache of 100 fields and of 101, as it reads one column") {
-    withWide(100) { name =>
-      // Columnar already: the scan is used as it is.
-      assert(wideScans(checkFused(s"SELECT date_add(d, 1) AS e FROM $name")).isEmpty)
-    }
+  test("under Varka the cache scan counts the columns it reads, so it is columnar over 101") {
     withWide(101) { name =>
-      // The scan reads rows because of the other hundred columns; Varka reads the same cached
-      // batches as columns through the wide scan, which keeps the scan's pruning and metrics.
-      val plan = checkFused(s"SELECT date_add(d, 1) AS e FROM $name")
-      assert(wideScans(plan).size == 1, plan.treeString)
+      val plan = varkaSpark.sql(s"SELECT date_add(d, 1) FROM $name").queryExecution.executedPlan
+      assert(cacheScan(plan).supportsColumnar)
     }
   }
 
-  test("Varka fuses a filter over a cache of 101 fields, and a filter with a projection") {
+  test("Varka fuses a projection, a filter, and both, over caches of 100 and 101 fields") {
+    for (n <- Seq(100, 101)) {
+      withWide(n) { name =>
+        checkFused(s"SELECT date_add(d, 1) AS e FROM $name")
+        checkFused(s"SELECT i1 FROM $name WHERE d > date'2025-01-01'")
+        checkFused(s"SELECT date_add(d, 7) AS e, i2 FROM $name WHERE d < date'2030-01-01'")
+      }
+    }
+  }
+
+  test("under adaptive execution the scan is in its query stage, and Varka fuses over it") {
+    // Spark's default: the scan is wrapped in a query stage before the columnar rules run, and
+    // the stage passes the scan's `supportsColumnar` through.
     withWide(101) { name =>
-      assert(wideScans(checkFused(
-        s"SELECT i1 FROM $name WHERE d > date'2025-01-01'")).size == 1)
-      assert(wideScans(checkFused(
-        s"SELECT date_add(d, 7) AS e, i2 FROM $name WHERE d < date'2030-01-01'")).size == 1)
+      withVarkaConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true") {
+        checkFused(s"SELECT date_add(d, 1) AS e FROM $name ORDER BY e")
+        checkFused(s"SELECT count(*) FROM $name WHERE d > date'2025-01-01'")
+      }
     }
   }
 
-  test("a query Varka does not fuse keeps the cache scan as it was, over 101 fields") {
+  test("a query Varka does not fuse answers as vanilla does over a cache of 101 fields") {
     withWide(101) { name =>
       val query = s"SELECT cast(i1 AS string) AS s FROM $name"
       val actual = varkaSpark.sql(query)
-      val plan = actual.queryExecution.executedPlan
-      assertNotFused(plan)
-      assert(wideScans(plan).isEmpty)
+      assertNotFused(actual.queryExecution.executedPlan)
       checkAnswer(actual, spark.sql(query))
     }
   }
 
-  test("the cache stays cached: a second query over the wide cache reads the same batches") {
-    withWide(101) { name =>
-      checkFused(s"SELECT date_add(d, 1) AS e FROM $name")
-      checkFused(s"SELECT date_add(d, 2) AS e FROM $name WHERE i3 IS NOT NULL OR d IS NULL")
-      assert(varkaSpark.table(name).queryExecution.withCachedData.collectFirst {
-        case r: org.apache.spark.sql.execution.columnar.InMemoryRelation => r
-      }.exists(_.cacheBuilder.isCachedColumnBuffersLoaded))
+  test("observed metrics of a wide cached DataFrame reach the query that reads it") {
+    // The scan stays in the plan, where the metrics' collection finds the cached plan.
+    val observation = Observation("wide")
+    val ints = (1 until 101).map(k => s"cast(id + $k as int) AS i$k")
+    val df = varkaSpark.range(0, 200)
+      .selectExpr("date_add(date'2020-01-01', cast(id as int)) AS d" +: ints: _*)
+      .observe(observation, count(lit(1)).as("n"))
+    df.cache()
+    try {
+      val result = df.selectExpr("date_add(d, 1) AS e")
+      assert(result.collect().length == 200)
+      assertFused(result.queryExecution.executedPlan)
+      assert(observation.get == Map("n" -> 200L))
+    } finally {
+      df.unpersist()
     }
   }
 
-  /** The INFO lines `VarkaColumnarRule` logs while `body` plans and runs. */
-  private def ruleLines(body: => Unit): Seq[String] = {
+  /** The lines `VarkaColumnarRule` logs at `level` and above while `body` plans and runs. */
+  private def ruleLines(level: Level)(body: => Unit): Seq[(Level, String)] = {
     val appender = new LogAppender("the rule's reasons")
     withLogAppender(appender, loggerNames = Seq("org.apache.spark.sql.execution.VarkaColumnarRule"),
-        Some(org.apache.logging.log4j.Level.INFO))(body)
-    appender.loggingEvents.toSeq.map(_.getMessage.getFormattedMessage)
+        Some(level))(body)
+    appender.loggingEvents.toSeq.map(e => (e.getLevel, e.getMessage.getFormattedMessage))
   }
 
-  private def withCacheReader[T](enabled: Boolean)(body: => T): T = {
-    val key = SQLConf.CACHE_VECTORIZED_READER_ENABLED.key
-    val saved = varkaSpark.conf.get(key)
-    varkaSpark.conf.set(key, enabled.toString)
-    try body finally varkaSpark.conf.set(key, saved)
-  }
-
-  test("where the fix does not reach, Varka says why it left a projection or a filter to Spark") {
+  test("a projection that reads more columns than maxFields is left to Spark, and says so") {
     withWide(101) { name =>
-      withCacheReader(enabled = false) {
-        // The vectorized cache reader is off, so the wide scan cannot be used either; the reason
-        // names both blockers.
-        val lines = ruleLines {
-          val query = s"SELECT date_add(d, 1) AS e FROM $name"
+      val columns = (1 until 101).map(k => s"i$k").mkString(", ")
+      val query = s"SELECT date_add(d, 1) AS e, $columns FROM $name"
+      val lines = ruleLines(Level.INFO) {
+        checkAnswer(varkaSpark.sql(query), spark.sql(query))
+      }
+      assert(lines.exists { case (level, l) => level == Level.INFO &&
+        l.contains("Varka left a projection to Spark") && l.contains("reads more than 100 columns")
+      }, lines)
+    }
+  }
+
+  test("with the vectorized cache reader off, the reason names the reader and not the width") {
+    withWide(101) { name =>
+      withVarkaConf(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "false") {
+        val query = s"SELECT date_add(d, 1) AS e FROM $name"
+        val lines = ruleLines(Level.INFO) {
           assertNotFused(varkaSpark.sql(query).queryExecution.executedPlan)
           checkAnswer(varkaSpark.sql(query), spark.sql(query))
         }
-        assert(lines.exists(l => l.contains("Varka left a projection to Spark") &&
-          l.contains("more than 100 fields") && l.contains("counted over the whole cached table") &&
-          l.contains(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key)), lines)
-        val filters = ruleLines {
-          varkaSpark.sql(s"SELECT i1 FROM $name WHERE d > date'2025-01-01'").collect()
-        }
-        assert(filters.exists(_.contains("Varka left a filter to Spark")), filters)
-      }
-    }
-    withWide(100) { name =>
-      withCacheReader(enabled = false) {
-        val lines = ruleLines(varkaSpark.sql(s"SELECT date_add(d, 1) FROM $name").collect())
-        assert(lines.exists(l => l.contains(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key) &&
-          !l.contains("fields")), lines)
+        assert(lines.exists { case (_, l) => l.contains("Varka left a projection to Spark") &&
+          l.contains(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key) && !l.contains("columns")
+        }, lines)
       }
     }
   }
 
-  test("a file scan that reads more than 100 columns says so too") {
-    withTempPath { dir =>
-      val path = dir.getCanonicalPath
-      spark.range(0, 50).selectExpr(
-        "date_add(date'2020-01-01', cast(id as int)) AS d" +:
-          (1 until 101).map(k => s"cast(id + $k as int) AS i$k"): _*)
-        .write.parquet(path)
-      val columns = (1 until 101).map(k => s"i$k").mkString(", ")
-      val query = s"SELECT date_add(d, 1) AS e, $columns FROM parquet.`$path`"
-      val lines = ruleLines {
-        checkAnswer(varkaSpark.sql(query), spark.sql(query))
-      }
-      assert(lines.exists(l => l.contains("the file scan produces rows") &&
-        l.contains("more than 100 fields")), lines)
-    }
-  }
-
-  test("an input that is columnar, or not columnar for no reason a user can act on, is silent") {
-    withWide(100) { name =>
-      val lines = ruleLines(varkaSpark.sql(s"SELECT date_add(d, 1) FROM $name").collect())
-      assert(!lines.exists(_.contains("Varka left")), lines)
-    }
-    val lines = ruleLines(varkaSpark.range(10).selectExpr("date_add(date'2020-01-01', " +
-      "cast(id as int)) AS d").selectExpr("date_add(d, 1)").collect())
-    assert(!lines.exists(_.contains("Varka left")), lines)
+  test("an input that is not columnar for a reason no user can act on logs nothing at INFO") {
+    // A projection Varka fuses, over a range, which never produces batches: there is no reason to
+    // give, so the rule writes at most a DEBUG line, which this suite's appender does not receive.
+    val df = varkaSpark.range(10).selectExpr("id >= 5000000000 AS big")
+    val lines = ruleLines(Level.INFO)(df.collect())
+    assert(!lines.exists(_._2.contains("Varka left")), lines)
+    val range = collectFirst(df.queryExecution.executedPlan) { case r: RangeExec => r }
+      .getOrElse(fail(s"no range in the plan:\n${df.queryExecution.executedPlan.treeString}"))
+    assert(VarkaColumnarRule.notColumnarReason(range).isEmpty)
   }
 }
