@@ -874,14 +874,29 @@ private[sql] object VarkaExpressionCompiler {
       inputs: mutable.LinkedHashMap[Int, Int],
       literals: mutable.LinkedHashMap[Int, Int],
       sink: DeclineSink): Option[VarkaVectorIR] = {
-    val arms = leafArms(inputs, literals, sink)
-      .orElse(VarkaChronoCompiler.arms(inputs, literals, sink))
-      .orElse(VarkaIntervalCompiler.arms(inputs, literals, sink))
-      .orElse(VarkaTimeCompiler.arms(inputs, literals, sink))
-      .orElse(VarkaConditionCompiler.arms(inputs, literals, sink))
-      .orElse(arithmeticArms(inputs, literals, sink))
+    val arms = familyChain(inputs, literals, sink).map(_._2).reduceLeft(_ orElse _)
     arms.applyOrElse(expr, fallback(inputs, literals, sink))
   }
+
+  /**
+   * The chain [[compileNode]] dispatches through, in order, each group named: the date leaves,
+   * the four families, then the int arithmetic and the picks. The order is not what decides a
+   * node's compiler - no expression matches arms of two groups, every arm being gated by the
+   * expression class or its data type - and `VarkaFamilyChainSuite` holds that as a fact over
+   * the coverage table, so a fifth family or a widened guard that broke it would fail there
+   * rather than win silently by coming first. The list is what that suite reads, so a group
+   * added here is checked the day it is added.
+   */
+  private[codegen] def familyChain(
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): Seq[(String, PartialFunction[Expression, Option[VarkaVectorIR]])] = Seq(
+    "date leaves" -> leafArms(inputs, literals, sink),
+    "calendar" -> VarkaChronoCompiler.arms(inputs, literals, sink),
+    "interval" -> VarkaIntervalCompiler.arms(inputs, literals, sink),
+    "time" -> VarkaTimeCompiler.arms(inputs, literals, sink),
+    "condition" -> VarkaConditionCompiler.arms(inputs, literals, sink),
+    "int arithmetic" -> arithmeticArms(inputs, literals, sink))
 
   /**
    * The date leaves: a date column, a date literal and the identity date cast. First in the chain,
