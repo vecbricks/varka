@@ -366,3 +366,26 @@ Ten runs of `VarkaSizeLadderTuningBenchmark` on an unchanged file, on the quiet 
   second can only move in steps of 0.1, so the tuned arms past 52 entries land in tiers 2 and 3 on
   a single step, and the defaults arm, at a few hundred thousand rows a second, reads tier 0
   because every run prints the same digit. Neither says how stable the case is.
+
+### 9.7 The quarter below the cliff, compared by minimums, 25 September 2026
+
+9.6 left 9.4's "`wholeStage=false` costs about a quarter below the cliff" unsettled: the ratio is
+under 1.3 and that arm is tier 2 in the band. Five more runs on the quiet laptop, at master
+`31de6ce6cb0`, are committed together in `VarkaSizeLadderTuningBenchmark-jdk25-repeats-results.txt`.
+Taking each case's minimum over the five, nanoseconds a row:
+
+| entries | defaults | `wholeStage=false` | extra cost |
+|---:|---:|---:|---:|
+| 16 | 252.6 | 299.8 | 19% |
+| 32 | 477.2 | 606.1 | 27% |
+| 48 | 718.2 | 897.8 | 25% |
+| 52 | 769.6 | 976.9 | 27% |
+
+**The quarter stands.** Turning whole-stage codegen off costs a quarter or a little more from 32
+entries up to the cliff, and a fifth at 16. The single file 9.4 read gave the same answer at 52
+entries, so its figure needed confirming but not correcting.
+
+The same runs agree with 9.4 past the cliff: at a hundred entries the defaults' minimum is 7929.3 ns
+a row against 1913.2 with `wholeStage=false` and 1917.0 with `hugeMethodLimit=8000`, so either
+setting runs about four times faster than the defaults there, and the two settings stay within a
+percent of each other at every rung past the cliff.
