@@ -35,14 +35,22 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeCache
  *
  * Each rung is one projection of `n` entries of `greatest(add_months(d, k), date_add(d, k),
  * last_day(d))` over an Arrow-cached date column, the ladder's own, over fewer rows than the
- * ladder reads so that the steady state does not drown the first run. Four cases per rung:
+ * ladder reads so that the steady state does not drown the first run. Three cases per arm:
  *
- *  - **first run**: a shape this JVM has not compiled. Every iteration takes fresh offsets, so
- *    vanilla's generated source is new and Janino compiles it again; the Varka arm also clears
- *    the shape cache first, because literal values are not part of a shape and the same tree
- *    with new constants would be a hit. The timer covers planning, compiling and the run.
+ *  - **plan only**: analysis, optimization and physical planning of a shape this JVM has not
+ *    seen, up to the executed plan and without running it. On the Varka arm the planner asks
+ *    the compiler, which classifies the projection and emits the kernel, so this case holds
+ *    the emission; on the vanilla arm code generation happens at execution and is not here.
+ *  - **first run**: the same fresh shape, planned and run. Every iteration takes fresh offsets,
+ *    so vanilla's generated source is new and Janino compiles it again; the Varka arm also
+ *    clears the shape cache first, because literal values are not part of a shape and the same
+ *    tree with new constants would be a hit.
  *  - **second run**: the same query again in the same session, which is what the steady state
- *    is on the way to; the difference between the two is the first run's price.
+ *    is on the way to; the difference from the first run is the first run's price, and the
+ *    difference from the plan-only case is what running costs.
+ *
+ * A rung whose Varka arm does not fuse every entry fails the run rather than timing a partly
+ * per-row Varka arm, as the ladder does.
  *
  * Iterations are printed one by one rather than summarised, because a first run is one event
  * and its spread is the finding. The rungs and data are `VarkaSizeLadder`'s.
@@ -58,7 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeCache
  */
 object VarkaColdStartBenchmark extends SqlBasedBenchmark {
   import VarkaArrowSessions.createSession
-  import VarkaSizeLadder.{cacheDates, entry}
+  import VarkaSizeLadder.{cacheDates, entry, varkaFused}
 
   private val smoke = sys.env.get("VARKA_COLDSTART_SMOKE").contains("true")
 
@@ -94,9 +102,17 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
       cacheDates(varka, numRows)
       runBenchmark("the first query: greatest(add_months(d, k), date_add(d, k), last_day(d))") {
         for (n <- rungs) {
+          val fused = varkaFused(varka, query(n, 0))
+          require(fused == n, s"the Varka arm fused $fused of $n entries")
           val benchmark = new Benchmark(s"$n entries over $numRows Arrow-cached rows", numRows,
             minNumIters = repetitions, warmupTime = 0.seconds, minTime = 0.seconds,
             outputPerIteration = true, output = output)
+          benchmark.addTimerCase("vanilla Spark, plan only") { timer =>
+            val q = query(n, 200 + timer.iteration)
+            timer.startTiming()
+            baseline.sql(q).queryExecution.executedPlan
+            timer.stopTiming()
+          }
           benchmark.addTimerCase("vanilla Spark, first run") { timer =>
             val q = query(n, timer.iteration)
             timer.startTiming()
@@ -108,6 +124,13 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
             baseline.sql(q).noop()
             timer.startTiming()
             baseline.sql(q).noop()
+            timer.stopTiming()
+          }
+          benchmark.addTimerCase("Varka, plan only") { timer =>
+            val q = query(n, 200 + timer.iteration)
+            VarkaShapeCache.invalidateAll()
+            timer.startTiming()
+            varka.sql(q).queryExecution.executedPlan
             timer.stopTiming()
           }
           benchmark.addTimerCase("Varka, first run") { timer =>

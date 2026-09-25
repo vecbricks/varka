@@ -23,10 +23,15 @@ state?**
 
 `VarkaColdStartBenchmark`, beside the ladder and on its rungs and data, over a
 hundred thousand rows rather than two million so the steady state does not
-drown the first run. Four cases per rung, five iterations each, every
+drown the first run. Three cases per arm, five iterations each, every
 iteration printed rather than summarised because a first run is one event and
 its spread is the finding:
 
+* **plan only** on each arm: analysis, optimization and physical planning of
+  a fresh shape up to the executed plan, without running it. On the Varka arm
+  the planner asks the compiler, which classifies and emits, so the emission
+  is in this case; vanilla generates its code at execution, so its case holds
+  Catalyst alone. *Added after the smoke run; see the note below.*
 * **first run** on each arm: a shape the JVM has not compiled. Each iteration
   uses fresh offsets, so vanilla's generated source is new and Janino compiles
   it again. The Varka arm also clears the shape cache first
@@ -37,6 +42,19 @@ its spread is the finding:
   difference between the two cases is the first run's price, and the second
   run's distance from the ladder's steady state is what the JIT still owes
   after one query.
+
+*Note, 25 September 2026, from the smoke run.* The first build of the
+benchmark ran every rung at the reduced row count on the laptop, beside
+another build, so its numbers are not a measurement and are not committed.
+They showed one thing worth acting on before the measurement: the two arms'
+second runs were within ten percent of each other at every rung, where the
+ladder has Varka an order of magnitude ahead at the wide rungs. Either the
+Varka arm was not fusing, which the first build did not check, or planning a
+hundred-entry projection costs most of a second on both arms and a hundred
+thousand rows do not outweigh it. So the benchmark now refuses an arm that did
+not fuse, as the ladder does, and splits planning from running with the
+plan-only case, so the measurement says which it is rather than leaving it to
+be guessed from totals.
 
 **A second phase, decided by the first.** The benchmark above measures a new
 shape in a warm JVM, which is what a long-lived session pays per new query. A
@@ -68,6 +86,11 @@ constant and is not measured; if they differ by more, the cold-JVM run is one
 5. **Below the cliff, at 16 entries, the two first runs are within a factor of
    two of each other**, either way. That rung is where the post has to say
    that the first query is not Varka's advantage.
+6. *Registered after the smoke run, before the measurement.* **Planning a
+   hundred-entry projection costs more than running it over a hundred thousand
+   rows, on both arms**, and the plan-only case grows faster than linearly
+   with the rung. If this holds, the first query's cost at the wide rungs is
+   Catalyst's before it is either engine's, and the post says so.
 
 ## 4. Verification
 
