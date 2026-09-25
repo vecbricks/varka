@@ -314,17 +314,20 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
   }
 
   test("G32: outside a stage, a projection that fails to compile falls back to the interpreter") {
-    // With splitting off, 3000 entries compile into one method past 64KB. The projection
-    // factory catches the compile error and builds the interpreted projection instead.
+    // With splitting off, 1000 entries compile into one method past 64KB. The projection
+    // factory catches the compile error and builds the interpreted projection instead. The count
+    // is kept near the smallest that crosses 64KB (600 does not) because Janino's heap grows
+    // much faster than the method: about 0.5GB at 1000 entries and 3GB at 3000, which is most
+    // of the 4GB a test JVM shares with every other suite in its module.
     val input = AttributeReference("x", org.apache.spark.sql.types.LongType)()
-    val exprs = (1 to 3000).map(k =>
+    val exprs = (1 to 1000).map(k =>
       org.apache.spark.sql.catalyst.expressions.Add(input, Literal(k.toLong)))
     val lines = logged(Nil, Level.WARN) {
       withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "FALLBACK",
           SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> Int.MaxValue.toString) {
         val projection = UnsafeProjection.create(exprs, Seq(input))
         val row = projection(org.apache.spark.sql.catalyst.InternalRow(5L))
-        assert(row.getLong(0) == 6L && row.getLong(2999) == 3005L)
+        assert(row.getLong(0) == 6L && row.getLong(999) == 1005L)
       }
     }
     assert(lines.exists { case (level, m) =>
