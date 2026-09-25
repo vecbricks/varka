@@ -111,4 +111,20 @@ upstream items of row 204.
 
 ## 8. Outcome
 
-<!-- Filled in when the work lands. -->
+### 8.1 Step 1: the baseline, 25 September 2026
+
+`VarkaSchemaWidthSuite` caches a table of a date and `n - 1` int columns, nulls in both, under the
+Arrow serializer with the vectorized reader on, and asks for `date_add(d, 1)`:
+
+* **Prediction 1 held for the cache.** `InMemoryTableScanExec.supportsColumnar` is true at 100
+  fields and false at 101. The projection half of prediction 1, G2, is already pinned by
+  `VarkaCodegenGiveUpSuite` (task 188): a projection of 100 columns stays in its stage and one of
+  101 leaves it.
+* **Prediction 2 held.** At 100 fields the Varka session fuses the projection and its kernel runs
+  over the cached Arrow batches; at 101 it has no Varka node, for a query that reads one column
+  of the 101, and the rule leaves it to Spark without a reason. Both answer as the row engine
+  does.
+
+So the census's reading of the source was right and milestone 6's registered immunity was not:
+today Varka shares this cliff with Spark, silently. The 101-column test is the one step 2 turns
+around.
