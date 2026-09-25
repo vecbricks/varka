@@ -424,3 +424,48 @@ its committed rows and its band keep their key.
 
 What remains: the measurement, on the quiet laptop and on a runner, and the scoring of
 predictions 2 and 4 for design A, with the recommendation 8 asks for.
+
+### 9.7 Design A, measured, 25 September 2026
+
+`VarkaRangeFilterBenchmark` regenerated on the quiet laptop at both widths with the arm
+"Varka, split conditions", then three more wide runs, committed together in
+`VarkaRangeFilterBenchmark-jdk25-repeats-results.txt`, so that the two designs, whose ratios are
+all under 1.3, are compared by minimums as the house rule asks. Nanoseconds a row at the wide
+width, each case's minimum over the four runs:
+
+| ranges | vanilla | Varka, range set (B) | Varka, split conditions (A) |
+|---:|---:|---:|---:|
+| 10 | 19.0 | 8.7 | 7.7 |
+| 48 | 26.9 | 12.3 | 12.0 |
+| 49 | 26.5 | 12.2 | 11.8 |
+| 100 | 3619.9 | 19.0 | 17.7 |
+| 150 | 5485.6 | 27.1 | 24.4 |
+| 200 | 6748.2 | 34.1 | 31.0 |
+
+**Prediction 2 held.** Design A fuses all 200 ranges with every method within 8000 bytes (9.6's
+test reads them from the built class), and its time grows about linearly with the ranges, since
+every lane still evaluates every comparison.
+
+**Prediction 4 held for design A**: faster than vanilla at every rung, about twice as fast below
+vanilla's crossing and more than two hundred times past it at the wide width.
+
+**A is faster than B, by a little.** By minimums A is 2 to 11% faster at every rung, and at most
+rungs all four of its runs are below B's best. At 128 bits the regenerated file puts A ahead by
+more, 53.0 against 63.2 at 200 ranges, from one run only. That B's loop over a table of bounds
+loses to A's unrolled comparisons is no surprise in hindsight: A compares against constants in
+registers and B broadcasts each bound from memory, and both do one comparison pair per range per
+lane.
+
+**One thing the best times hide.** The split arm's average is far above its best at some rungs of
+the regenerated file (73 ms best against 943 average at 200 ranges): one slow iteration, most
+likely C2 still compiling the split kernel, whose five partial disjunctions of 40 ranges each
+are about the size section 2's table gives for 40 ranges, while the benchmark had started
+timing. B's kernel is one method under 2000 bytes. So A's steady state is the faster and
+its first queries may be the slower; that is task 195's question, what Varka costs on the first
+query, and it is not measured here.
+
+**The recommendation 8 asks for.** Turn `splitConditions` on by default: it changes only
+predicates that are declined today, it is general, and it is the fastest arm measured. Keep
+`rangeSets` on for now: on performance A would replace it, but B is one small method where A is
+several of several thousand bytes, and whether that costs A on the first query is unmeasured. Retiring B is
+a decision for after task 195. The runner figures for both designs follow.

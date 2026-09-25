@@ -1,0 +1,177 @@
+Three runs of VarkaRangeFilterBenchmark at the wide width on an unchanged file, one after another
+on the quiet laptop right after the regeneration, pinned to the fast cores as
+dev/varka_bench_repeat.sh pins them, for a comparison of the two Varka designs by minimums
+(PLAN_TASK_172.md 9.7). Each run is reproduced as the benchmark printed it.
+
+commit:  c1b5237740b
+date:    2026-09-25, runs from 07:42 to 07:59 CEST
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+kernel:  7.0.0-31-generic
+
+== run 1
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+10 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  39             47           9         51.9          19.3       1.0X
+Varka                                                18             21           2        111.5           9.0       2.2X
+Varka, split conditions                              16             18           2        128.7           7.8       2.5X
+rung 10: vanilla's largest generated method is 1510 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 8214 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  54             56           2         37.1          27.0       1.0X
+Varka                                                25             27           2         81.4          12.3       2.2X
+Varka, split conditions                              24             50         153         82.7          12.1       2.2X
+rung 48: vanilla's largest generated method is 6906 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 39425 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+49 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  53             55           2         37.7          26.5       1.0X
+Varka                                                24             26           2         82.1          12.2       2.2X
+Varka, split conditions                              24             26           4         84.1          11.9       2.2X
+rung 49: vanilla's largest generated method is 7048 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 40247 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+100 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 7240           7525         159          0.3        3619.9       1.0X
+Varka                                                 38             40           1         52.7          19.0     190.7X
+Varka, split conditions                               36             38           3         56.3          17.8     203.8X
+rung 100: vanilla's largest generated method is 14299 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 82140 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+150 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                11327          11452         102          0.2        5663.3       1.0X
+Varka                                                 55             57           2         36.6          27.3     207.4X
+Varka, split conditions                               50            746         982         39.7          25.2     224.9X
+rung 150: vanilla's largest generated method is 21499 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 123205 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+200 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                13936          14057         159          0.1        6968.0       1.0X
+Varka                                                 68             72           2         29.3          34.1     204.2X
+Varka, split conditions                               62           1163        1810         32.3          31.0     225.1X
+rung 200: vanilla's largest generated method is 28699 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 164276 of 2000000 rows pass
+
+== run 2
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+10 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  38             47           8         52.7          19.0       1.0X
+Varka                                                17             20           3        114.5           8.7       2.2X
+Varka, split conditions                              16             18           3        127.6           7.8       2.4X
+rung 10: vanilla's largest generated method is 1510 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 8214 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  54             63           6         37.0          27.0       1.0X
+Varka                                                25             27           3         80.9          12.4       2.2X
+Varka, split conditions                              26            423         541         76.5          13.1       2.1X
+rung 48: vanilla's largest generated method is 6906 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 39425 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+49 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  53             58           4         37.6          26.6       1.0X
+Varka                                                25             28           2         81.1          12.3       2.2X
+Varka, split conditions                              24             27           3         84.8          11.8       2.3X
+rung 49: vanilla's largest generated method is 7048 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 40247 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+100 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 7323           7549         159          0.3        3661.4       1.0X
+Varka                                                 38             42           3         52.3          19.1     191.4X
+Varka, split conditions                               36             40           2         55.9          17.9     204.8X
+rung 100: vanilla's largest generated method is 14299 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 82140 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+150 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                10971          11231         149          0.2        5485.6       1.0X
+Varka                                                 55             59           3         36.7          27.3     201.2X
+Varka, split conditions                               49            960        1341         40.6          24.7     222.5X
+rung 150: vanilla's largest generated method is 21499 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 123205 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+200 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                13505          13779         190          0.1        6752.6       1.0X
+Varka                                                 72             75           2         27.8          35.9     187.8X
+Varka, split conditions                               67           1154        1797         29.8          33.6     201.1X
+rung 200: vanilla's largest generated method is 28699 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 164276 of 2000000 rows pass
+
+== run 3
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+10 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  43             55          10         46.7          21.4       1.0X
+Varka                                                18             21           3        111.8           8.9       2.4X
+Varka, split conditions                              16             18           2        128.0           7.8       2.7X
+rung 10: vanilla's largest generated method is 1510 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 8214 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  54             58           4         37.0          27.1       1.0X
+Varka                                                25             27           2         79.7          12.5       2.2X
+Varka, split conditions                              24             51         154         83.4          12.0       2.3X
+rung 48: vanilla's largest generated method is 6906 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 39425 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+49 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                  53             55           1         37.5          26.7       1.0X
+Varka                                                24             27           4         81.7          12.2       2.2X
+Varka, split conditions                              24             26           3         83.5          12.0       2.2X
+rung 49: vanilla's largest generated method is 7048 bytes, under HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 40247 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+100 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                 7357           7553         172          0.3        3678.3       1.0X
+Varka                                                 38             40           2         52.5          19.0     193.1X
+Varka, split conditions                               35             38           2         56.6          17.7     208.4X
+rung 100: vanilla's largest generated method is 14299 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 82140 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+150 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                11189          11393         120          0.2        5594.5       1.0X
+Varka                                                 54             57           2         36.9          27.1     206.4X
+Varka, split conditions                               49            951        1341         40.9          24.4     229.1X
+rung 150: vanilla's largest generated method is 21499 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 123205 of 2000000 rows pass
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+200 ranges over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark (whole-stage codegen)                13496          13660         110          0.1        6748.2       1.0X
+Varka                                                 69             71           2         29.0          34.4     195.9X
+Varka, split conditions                               68           1180        1812         29.4          34.1     198.1X
+rung 200: vanilla's largest generated method is 28699 bytes, past HugeMethodLimit 8000; both Varka arms run the filter as a kernel; 164276 of 2000000 rows pass
