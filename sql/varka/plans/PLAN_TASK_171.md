@@ -262,3 +262,23 @@ This plan says Spark does not report a method past HotSpot's 8000-byte limit. It
 INFO, which a `spark-submit` job's log shows and `spark-shell`, at WARN, hides. Spark notices the
 cliff, says so once at INFO, and runs the method uncompiled anyway. `PLAN_TASK_188.md` section 5
 has the evidence.
+
+### 9.3 The figure, 25 September 2026
+
+`sql/varka/plans/figures/svg/fig11-the-size-ladder.svg`, drawn by `figures/fig11.py` in the style
+of the milestone 5 post's figures. It plots time per row against the number of expressions in the
+projection, on a log scale, for stock Spark and for Varka, from the runner's ladder of 9.2 - the
+EPYC 9V45 on JDK 25, both named on the figure from the provenance file. The script reads every
+value from `VarkaSizeLadderBenchmark-jdk25-runner-results.txt` when it runs, rungs, times per row,
+ratios and the generated method's bytes alike, so the figure cannot drift from the committed file.
+
+It keeps apart the two things 9.1 says the post must not blur. The step is stock Spark's alone: a
+dashed line where its generated method passes 8000 bytes, 7868 bytes at 52 entries and 8254 at 54,
+and the jump from 892.8 to 4766.3 ns a row across it, after which the method is never compiled
+again. The gap is Varka's at every width: its line runs through the same rungs, 66.9 and 69.6 ns
+either side of the step, and it is 13.3 times faster than stock Spark at 52 entries and 82.1 times
+at a hundred.
+
+To regenerate, from `sql/varka/plans/figures/`, with `fonttools` and `brotli` installed:
+`python3 fig11.py`. The axis ticks, 10 to 10 000 ns, are the scale, not measurements; every other
+number on the figure is in the results file.
