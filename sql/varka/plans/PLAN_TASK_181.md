@@ -168,6 +168,9 @@ ladder, so the reader sees both. The trailer follows.
 | Varka's side in every census reproducer (188) | 3.3 | in progress, `VarkaCodegenGiveUpSuite` | **Yes.** Otherwise 3.3 cites a reading for the Varka column |
 | The threshold below 8000 (170) | 3.4 | open | No. The post says 8000, the limit HotSpot enforces; 170 is a footnote if it lands |
 | spark-vector's arm (202) | 3.7 | not started | No. Without it 3.7 quotes no number, and says so |
+| The JVM's inlining evidence for the split-call case, from a forked JVM under `-XX:+PrintInlining`, asserted the way `VarkaSizeLadderJitSuite` asserts the compile log (*added 25 September 2026, section 7*) | 3.4 | not started; the laptop's log was not kept | **Yes**, or the sentence on inlining goes |
+| Reproducers for G15, G33 and G34 in `VarkaCodegenGiveUpSuite` (*added 25 September 2026*) | 3.3 | not started; `PLAN_TASK_188.md` 6 lists them as provokable | **Yes.** Otherwise 3.3 cites readings for two fallbacks; G13 and G30 stay readings and the post says so |
+| The distribution of generated method sizes over a real workload, from the histogram `CodegenMetrics` has kept since 2.x, exported over the SQL golden-file suites and the TPC suites (*added 25 September 2026*) | 3.3 | not started | No. A figure of thousands of methods against the two limits would open 3.3 well; without it 3.3 opens with the census table |
 
 So one measurement, task 195, and one test task, 188's Varka arm, stand between
 the outline and the draft. Everything else the post needs is committed.
@@ -209,3 +212,18 @@ arm is still owed here (section 4). Everything else in sections 2 to 6 stands.
 The bounds of section 2 appear in both posts, because each has to stand on its
 own for a reader who never sees the other. The milestone closes on both posts
 (`PLAN_MILESTONE_6.md` 1.3).
+
+**The reader, fixed later the same day.** This post is for experienced Spark
+developers; the first is for experienced Spark users (`PLAN_TASK_210.md` 1).
+The test for where a finding goes is who can act on it, and a developer acts
+on a mechanism. So the developer-facing material of task 210's first outline
+(git 6638c9076b8) comes here: the four limits the JVM sets and how Spark
+guesses at each (its 3.1 and 3.2, into 3.2 above); the census in full, with
+its Varka column (3.3); and four findings that surprise a reader of
+`CodeGenerator.scala`, each with the test that pins it - the `hugeMethodLimit`
+check that cannot fire at its default (G25), the TPC suites' size check that
+found no stage under adaptive execution from 3.2 until 4.4.0 (SPARK-59764), the
+split that moves the problem into the method holding the calls (SPARK-59783),
+and code that compiles but is no longer inlined once its caller passes C2's
+budget. The last two go in 3.4, as the contrast with measuring bytes after the
+build. Section 4 gains their evidence.
