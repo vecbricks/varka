@@ -469,3 +469,36 @@ predicates that are declined today, it is general, and it is the fastest arm mea
 `rangeSets` on for now: on performance A would replace it, but B is one small method where A is
 several of several thousand bytes, and whether that costs A on the first query is unmeasured. Retiring B is
 a decision for after task 195. The runner figures for both designs follow.
+
+### Correction, 25 September 2026: why A is faster, read from the assembly
+
+9.7 explains A's lead as constants in registers against bounds broadcast from memory. The
+assembly says that is half of it, and that the other half is a dependency chain. Both kernels
+were compiled from the same 40 of the query's ranges - the size of each of A's partial
+disjunctions at 200 ranges - as `if(<ranges>, d, date_add(d, 1))` over a date column, the one
+value position `dev/varka_emit.sh` can take a condition in, and read with `--asm` from C2's
+standard compilation of `loopDense0` (`--options rangeSets=true`, then `false`):
+
+* **B** loops over its table of bounds, and C2 unrolls that loop four times, eight bounds an
+  iteration. Every bound is loaded from the table and broadcast afresh for every group of lanes,
+  two instructions a bound, because a bound read inside a loop cannot be hoisted out of the lane
+  loop around it. The mask that accumulates the ranges is carried from one iteration of the range
+  loop to the next through the stack - `kmovq %k7, 8(%rsp)` at its end, `kmovq 8(%rsp), %k4` at
+  the start of the next - so every four ranges the chain waits on a store and the load that
+  reads it back.
+* **A** is straight-line code: 80 `vpcmpnltd`/`vpcmpled`, two a range, and no loop over ranges.
+  C2 keeps many of the 80 broadcast bounds in vector registers across the lane loop and
+  broadcasts the rest from the stack. Every comparison's mask is spilled, since only seven mask
+  registers are usable, but the disjunction is a balanced tree, so no mask waits on the one
+  before it.
+
+So both spill masks and both broadcast some bounds every group of lanes; what separates them is
+that B broadcasts every bound every time and serialises its ranges through one accumulator, and
+A does neither. Two things follow for B, neither done here. It could keep several accumulators
+and OR them at the end, which breaks the chain without changing its code size. And both designs
+spend two comparisons and an AND on `lo <= v && v <= hi`, where `(v - lo)` compared unsigned
+against `(hi - lo)` is one subtraction and one comparison, since a value below `lo` wraps to a
+large unsigned number.
+
+`VarkaEmitDump` compiled with the default options whatever `--options` said, so a compiler option
+such as `rangeSets` could not be probed with it; it now compiles with the options it emits with.
