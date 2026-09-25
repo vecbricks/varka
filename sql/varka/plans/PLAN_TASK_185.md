@@ -150,3 +150,33 @@ cache stays materialized across queries. Every Varka suite in `sql/core` passes,
 **What is left of the plan**: 3.3's recorded reason where the fix does not reach - a wide cache
 under the default serializer, or a wide file scan - and prediction 3's timing, whether time per row
 is the same at 100 and 101 fields; then 3.4's upstream JIRA for the owner.
+
+### 8.3 Measured: prediction 3, and the upstream question, 25 September 2026
+
+`VarkaSchemaWidthBenchmark`, regenerated on the quiet laptop at both widths: a query reading one
+column of a cached table of 100 and of 101 fields, a million rows. Nanoseconds a row at the wide
+width, from `VarkaSchemaWidthBenchmark-jdk25-results.txt`:
+
+| arm | 100 fields | 101 fields | 101 fields, `maxFields=1000` |
+|---|---:|---:|---:|
+| vanilla, default serializer, `sum(i1)` | 25.8 (columnar) | 26.4 (rows) | 25.4 (columnar) |
+| vanilla, Arrow cache, `date_add(d, 1)` | 30.6 (columnar) | 31.4 (rows) | |
+| Varka, Arrow cache, `date_add(d, 1)` | 13.6 (columnar) | 13.7 (`VarkaCacheScan`) | |
+
+**Prediction 3 held.** Varka's time per row is the same at both widths, since the kernel reads one
+column either way, and the 101-field table is read through the wide scan.
+
+**The upstream question of 3.4 has no cost to report.** For vanilla Spark the whole-schema count
+moves a one-column query from the columnar path to rows and costs about 2 to 4%, within what these
+millisecond best times resolve, on both serializers; counting the scan's own output instead, which
+`maxFields=1000` stands in for, gives it back and no more. That is not the evidence a JIRA needs,
+so none is filed. What is not measured is a query that reads many columns of a wide cache, where
+the row path's per-column conversion could cost more.
+
+**The first run measured nothing on the default serializer**: its table had a date column, and
+Spark's default cache serializer produces batches only for primitive numeric types, so every arm
+read rows at every width. The benchmark now caches int columns alone for that phase, reads a
+million rows so that per-query overhead does not blur the path, and runs the Arrow phase in one
+session with Varka switched per arm.
+
+What is left of the task: 3.3's recorded reason where the fix does not reach.
