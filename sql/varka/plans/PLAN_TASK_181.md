@@ -36,14 +36,19 @@ construction, which is the structural claim of `PLAN_MILESTONE_6.md` 6 risk 2.
    query Spark's own suite excludes (`PLAN_TASK_193.md` 9.1). The post says
    this in its second paragraph, not its last.
 2. **It is not rare in the shapes people write.** A wide projection of date
-   arithmetic crosses at about 52 entries (`PLAN_TASK_171.md` 9.1), and a
-   filter of date ranges, the shape a BI tool writes for a set of periods,
-   crosses at about 50 ranges (`PLAN_TASK_172.md` 9.1). Both are ordinary.
+   arithmetic crosses between 52 and 54 entries (`PLAN_TASK_171.md` 9.1), and a
+   filter of date ranges, the shape a BI tool writes for a set of periods, is
+   at 7048 bytes with 49 ranges and 14299 with 100, so it crosses between the
+   two rungs the ladder has (`PLAN_TASK_172.md` 9.1; *corrected 25 September
+   2026 from "about 50 ranges", which no committed rung says*). Both are
+   ordinary.
 3. **Vanilla can tune its way most of the way off the cliff**, and the post
-   shows it: `hugeMethodLimit=8000` or `wholeStage=false` turns the step into
-   about 1.1 to 1.3 times the pre-cliff cost per entry (`PLAN_TASK_192.md`
-   9.1, 9.4). What no tuning does is make Spark's default configuration say
-   so at a level anyone sees, or bound the method in bytes.
+   shows it: `hugeMethodLimit=8000` turns the step into 1.12 to 1.29 times the
+   pre-cliff cost per entry on the runners (`PLAN_TASK_203.md` 9.2), and
+   `wholeStage=false` into about 1.2 to 1.3 (`PLAN_TASK_192.md` 9.3, 9.4;
+   *citation corrected 25 September 2026: 9.1 is the laptop*). What no tuning
+   does is make Spark's default configuration say so at a level anyone sees,
+   or bound the method in bytes.
 4. **Varka's first query costs more than Spark's.** Every ladder number is
    steady state; a kernel is emitted and compiled once per shape (task 195).
    The post cannot go out without this number; see section 4.
@@ -195,10 +200,12 @@ decided the milestone ends in two posts. The first, about where vanilla Spark's
 code generation gives up, is task 210 (`PLAN_TASK_210.md`); this task keeps the
 second, about how Varka solves the problem.
 
-Two sections move to task 210 whole: 3.2, why a source generator cannot know,
-and 3.3, the census. In this post each becomes one paragraph that states the
-result and links the first post. The census's Varka column stays with this
-post, since it is Varka's answer to each entry, so task 188's Varka arm is
-still owed here (section 4). Everything else in sections 2 to 6 stands. The bounds of section 2
-appear in both posts, because each has to stand on its own for a reader who
-never sees the other.
+Section 3.2, why a source generator cannot know, moves to task 210 whole and
+becomes one paragraph here that states the result and links the first post.
+Section 3.3 splits: the census itself - the 34 entries, the four groups, the
+reproducers of vanilla's side - moves, and 3.3 keeps the Varka column, which is
+Varka's answer to each entry and the table 3.4 draws on, so task 188's Varka
+arm is still owed here (section 4). Everything else in sections 2 to 6 stands.
+The bounds of section 2 appear in both posts, because each has to stand on its
+own for a reader who never sees the other. The milestone closes on both posts
+(`PLAN_MILESTONE_6.md` 1.3).

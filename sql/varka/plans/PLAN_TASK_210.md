@@ -3,8 +3,10 @@
 *Opened 25 September 2026 by splitting task 181's outline in two. This plan
 carries the outline of the first post only. The draft is written when the
 outline's owed items are in, and it will live beside this file as
-`POST_SPARK_CODEGEN.md`, in the shape of `POST_MILESTONE_5.md`: every figure a
-script under `figures/`, every number from a committed results file.*
+`POST_MILESTONE_6_SPARK.md`, in the shape of `POST_MILESTONE_5.md`: every
+figure a script under `figures/`, every number from a committed results file.
+The milestone closes on both posts (`PLAN_MILESTONE_6.md` 1.3, the note of
+25 September 2026).*
 
 ## 1. The question
 
@@ -32,8 +34,12 @@ heuristic and a set of fallbacks. The census counts 34 places where its code
 generation gives up or degrades, 30 of them give-ups in the strict sense
 (`PLAN_TASK_188.md` 2). Most are silent. The two that decide speed are the
 method HotSpot refuses to compile past 8000 bytes (G26) and the interpreted
-fallback outside a stage (G32, G34), and Spark reports them at INFO and WARN,
-below what a default shell shows.
+fallback outside a stage (G32, G34). Spark reports the first at INFO, which
+`spark-shell` hides at its WARN level and `spark-submit` prints at the default
+template's level (`PLAN_TASK_188.md` 5); from 4.4.0 it is a warning, once
+(SPARK-59774). It reports the second at WARN, which every default shows. What
+no setting reports is the cost: neither line says the method runs interpreted
+from then on.
 
 **The bounds, each from the record, each in the post.**
 
@@ -41,14 +47,20 @@ below what a default shell shows.
    under six configurations, one stage crosses 8000 bytes, `modified-q3`
    (`PLAN_TASK_193.md` 9.1). The post says this in its second paragraph.
 2. **It is not rare in the shapes people write.** A wide projection of date
-   arithmetic crosses at about 52 entries (`PLAN_TASK_171.md` 9.1), a filter of
-   date ranges at about 50 (`PLAN_TASK_172.md` 9.1).
+   arithmetic crosses between 52 and 54 entries (`PLAN_TASK_171.md` 9.1). A
+   filter of date ranges, the shape a BI tool writes for a set of periods, is
+   at 7048 bytes with 49 ranges and at 14299 with 100, so it crosses between
+   the two rungs the ladder has (`PLAN_TASK_172.md` 9.1); the post quotes the
+   rungs, not an interpolated count.
 3. **Much of it can be tuned away**, and the post says how:
-   `hugeMethodLimit=8000` or `wholeStage=false` turns the step into about 1.1
-   to 1.3 times the pre-cliff cost per entry (`PLAN_TASK_192.md` 9.1, 9.4).
+   `hugeMethodLimit=8000` turns the step into 1.12 to 1.29 times the pre-cliff
+   cost per entry on the runners' three JDKs (`PLAN_TASK_203.md` 9.2), and
+   `wholeStage=false` into about 1.2 to 1.3 (`PLAN_TASK_192.md` 9.3, 9.4).
 4. **It describes one revision.** Every behaviour is pinned by a test at a
-   revision the post names, and upstream fixes in flight are listed with their
-   state on the day of publication. None is called merged unless it is.
+   revision the post names, or is marked as read from the source where no test
+   pins it (section 3.5). The upstream fixes are listed with their state on the
+   day of publication; three of the five are merged already (3.6), so the post
+   says which release has them, and none is called merged unless it is.
 
 ## 3. The outline
 
@@ -61,9 +73,11 @@ The 64KB method (G24), the 8000 bytes HotSpot compiles (G26), the 65535
 constant-pool entries (G27) and the 255 parameter slots (G28), each with what
 Spark does when a generated class meets it. Evidence: the reproducers in
 `VarkaCodegenGiveUpSuite` and the INFO line pinned by
-`VarkaCodegenCliffLogSuite`. G28's outcome is marked unsettled in the census;
-the post states only what a test pins, so it names the limit and where Spark
-guards it (G9, G16 to G20) and does not claim what an unguarded overflow does.
+`VarkaCodegenCliffLogSuite`. G28 is settled by its reproducer
+(`PLAN_TASK_188.md` 6): 254 int parameters compile and 255 fail at compile
+time, an ordinary compile exception, so inside a stage it takes G24's path;
+the post says where Spark guards the limit (G9, G16 to G20) and what happens
+where it does not.
 
 ### 3.2 How Spark guesses
 
@@ -73,7 +87,9 @@ length as metric" (`hugeMethodLimit`'s documentation). The 1024-character split
 heuristic (G15); `hugeMethodLimit`, which cannot fire at its default (G25); the
 three places a stage does not split at all (G12 to G14); and the history of the
 limits (`PLAN_TASK_205.md`: 8000 for no release, 65535 since 2.3.0, the suite
-check that has not run under adaptive execution since 3.2, SPARK-59764).
+check that did not run under adaptive execution from 3.2 until SPARK-59764's
+fix in 4.4.0). G12, G14 and G25 have reproducers, G15 gets one before the
+draft (section 4), and G13 is read from the source and the post says so.
 Figure: the timeline from task 205.
 
 ### 3.3 The census
@@ -93,9 +109,11 @@ work found on 25 September 2026: an expression split into hundreds of
 functions leaves one call per function in the method holding them, the calls
 alone take that method past 8000 bytes, and every row runs it interpreted
 (SPARK-59783). The same work found that splitting is not free even below the
-limit, because C2 stops inlining once a compilation unit passes its budget.
-Those numbers were laptop runs and are not quotable yet; section 4 owes their
-committed benchmark.
+limit: C2 stops inlining the split functions once their caller passes its
+inlining budget, which `-XX:+PrintInlining` shows and a timing only suggests.
+Those numbers were laptop runs and the inlining log was not kept; section 4
+owes the committed benchmark and the JVM's own evidence, in the form
+`VarkaSizeLadderJitSuite` uses for the compile log.
 
 ### 3.5 When it falls back to interpretation
 
@@ -103,21 +121,33 @@ The fallbacks in one place: the method that is never compiled (G26), the
 interpreted projection a failed compile degrades to (G32), the callers that do
 not degrade and fail instead (G33), the absence of any size check outside a
 stage (G34), and the executor compile that has no fallback (G30). What each
-logs, and at which level, from the census's "Logged?" column.
+logs, and at which level, from the census's "Logged?" column. G26 and G32 are
+pinned; G33 and G34 get reproducers before the draft (section 4); G30 cannot
+be provoked honestly (`PLAN_TASK_188.md` 4, item 8) and the post presents it
+as a reading of the source.
 
-### 3.6 What is being fixed upstream
+### 3.6 What is fixed upstream, and what is not yet
 
-Each ticket with its state on the day of publication, read from the tracker:
-SPARK-59764 (the TPC suites' size check under adaptive execution), SPARK-59765
-(the benchmark that measures stage sizes), SPARK-59774 (the INFO line of G26
-raised to a warning), SPARK-59783 (the calls to split functions grouped), and
-SPARK-33301 (a large CASE WHEN split inside a stage, open since 2020).
+Each ticket with its state read from the tracker on the day of publication.
+On 25 September 2026:
+
+| Ticket | What | State |
+| :-- | :-- | :-- |
+| SPARK-59764 | the TPC suites' size check checked nothing under adaptive execution | fixed, 4.4.0 |
+| SPARK-59765 | the same check and `WholeStageCodegenSizeBenchmark` measured empty-broadcast stubs | fixed, 4.4.0 and 5.0.0 |
+| SPARK-59774 | G26's INFO line raised to a warning, once, naming the remedy | fixed, 4.4.0 |
+| SPARK-59783 | the calls to split functions grouped so their caller compiles | open, apache/spark#59042 |
+| SPARK-33301 | a large `CASE WHEN` split inside a stage | open since 30 October 2020 |
+
+The post names the release a fix ships in and calls nothing merged that is
+not.
 
 ### 3.7 What a user can do today
 
-The tuning from bound 3, the log level at which G26's line becomes visible, and
-how to read `EXPLAIN CODEGEN` for a stage's largest method. From
-`PLAN_TASK_192.md` and `PLAN_TASK_203.md`.
+The tuning from bound 3; where G26's line goes by version (INFO up to 4.3,
+hidden in the shell and printed by `spark-submit`; a warning once from 4.4.0);
+and how to read `EXPLAIN CODEGEN`, whose header prints each stage's largest
+method in bytes. From `PLAN_TASK_192.md` and `PLAN_TASK_203.md`.
 
 **Closing.** One paragraph: a JVM engine that emits bytecode can measure the
 method in the unit the JVM enforces, and the second post shows one. The link to
@@ -127,17 +157,28 @@ it, and nothing else about Varka.
 
 | Owed | For | State on 25 September | Needed? |
 | :-- | :-- | :-- | :-- |
-| A committed vanilla benchmark of the split-call case: the caller's size, its compile, and the time per row with and without grouping | 3.4 | not started; row 182 is the natural home, as a case in Spark's own benchmarks | **Yes.** 3.4 quotes no timing of it otherwise |
+| A committed vanilla benchmark of the split-call case: the caller's size, whether it compiles, and the time per row with and without grouping | 3.4 | not started | **Yes.** 3.4 quotes no timing of it otherwise |
+| The JVM's inlining evidence for the same case, from a forked JVM under `-XX:+PrintInlining`, asserted the way `VarkaSizeLadderJitSuite` asserts the compile log | 3.4 | not started; the laptop's log was not kept | **Yes**, or the inlining sentence goes |
+| Reproducers for G15, G33 and G34 in `VarkaCodegenGiveUpSuite` | 3.2, 3.5 | not started; `PLAN_TASK_188.md` 6 lists them as provokable | **Yes.** Otherwise 3.5 cites readings for two fallbacks |
 | The upstream tickets' state | 3.6 | read on the day of publication | **Yes**, and only then |
-| G28's outcome settled by a reproducer | 3.1 | unsettled in the census | No. The post names the limit without claiming the outcome |
 | Task 188's Varka arm, task 195's first-query cost | - | owed by task 181 | No. This post makes no Varka claim |
+
+The benchmark is a Spark benchmark, not a Varka one: a class in the style of
+`WholeStageCodegenSizeBenchmark` with its results file under
+`sql/core/benchmarks/`, which `dev/varka_quote_check.py` already searches, run
+through Spark's benchmark workflow on GitHub runners, where every headline
+number of this project comes from. Row 182 covers it. By the baseline rule the
+results file without grouping is committed first, and the grouped one after.
+Whether the class goes to apache/spark with SPARK-59783 or into the fork only is
+decided with the upstream reviewers; either way the fork carries the file.
 
 ## 5. Verification
 
 * Every number in the draft traces under `dev/varka_quote_check.py`, at zero
   orphans.
 * Every claim about Spark's behaviour names a census entry and the test that
-  pins it, at a revision named in the post.
+  pins it, at a revision named in the post; the two that no test can pin, G13
+  and G30, are named as readings of the source.
 * The draft mentions Varka only in its closing paragraph.
 * Bounds 1 to 4 of section 2 appear in the draft, each before the claim it
   bounds.
