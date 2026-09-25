@@ -3398,6 +3398,74 @@ shortcut and the forwarding of bare columns assume every output reads one.
 against the row engine, `date_add(d, i)` over an int `i` still declines, and
 the coverage table lists them. Size: small.
 
+### Item 56. JDK 27, tried at run time
+
+*Added on 25 September 2026, from a reading of JEP 537 against the record.*
+
+JEP 537 (Vector API, twelfth incubator) re-incubates the API in JDK 27
+"without API change"; its one change is the bundled SLEEF, 3.6.1 to 3.9.0,
+which serves the math intrinsics on AArch64 and RISC-V only. Every machine
+this project measures on is x86, where those intrinsics are SVML's, and
+`vector-api-and-width.md` already read SLEEF 3.9. So the JEP brings Varka
+nothing, and the incubator flag stays. What JDK 27 carries beside it, read
+from the JDK bug tracker with fix version 27, is three things:
+
+* **Inlining deferred at the node-count cutoff** (JDK-8382700). The mechanism
+  in `emitter-and-ir.md` under "a refused call is refused by the caller's
+  budget": a kernel whose Vector API intrinsics parse to about
+  `NodeCountInliningCutoff` nodes has its last call in program order refused,
+  which is why the emitter writes the validity OR first (`validityOrFirst`,
+  item 48). JDK 27 can defer such a call and inline it later instead of
+  refusing it. It shipped switched off: `DelayAfterInliningCutoff` is a
+  diagnostic flag, false by default, disabled again in JDK-8384948 after C2
+  ran out of memory and footprint regressed on ordinary workloads. A lever
+  for an experiment, then, not for a release.
+* **Mask-cast chains folded** (JDK-8370863): chains of `VectorLoadMask`,
+  `VectorMaskCast` and `VectorStoreMask`, the nodes `VectorMask.fromLong` and
+  `toLong` lower to, which every validity word in Varka's kernels goes
+  through. Whether any instruction leaves Varka's loops is a measurement.
+* **A correctness fix JDK 25 lacks** (JDK-8388492): since JDK 20, C2 could
+  drop a scalar store that a masked vector store follows, and the fix reached
+  no release below 27. Varka's masked `intoMemorySegment` stores and its
+  scalar validity writes address different segments, so the shape is not
+  expected in its kernels; it is named here so that a wrong lane on JDK 25
+  is checked against it before anything else.
+
+Nothing in 27 touches the limits the record names most: C2 still does not
+unroll a Vector API loop, mask registers are allocated as before, and the
+8000-byte method limit stands. JDK-8380195, the bimodal-performance report,
+stays closed as alignment, which `PLAN_TASK_32.md` 11 already tested and
+refuted for this project's buffers.
+
+The item is a run-time trial, not a build change: Spark's CI builds on 17, 21
+and 25, Scala 2.13.18's compatibility table stops at JDK 26, and class files
+compiled for release 25 run on 27, which is all the trial needs. JDK 27 GA
+builds are on jdk.java.net, and Adoptium lists 27, so `setup-java` has it.
+
+1. **A fourth rung of the demo's JDK ladder.** `varka-demo.yml` runs the
+   method-size cliff on stock Spark 4.2.0 under 17, 21 and 25; add 27 and
+   commit `method_size_cliff-jdk27-output.txt` beside the others. If the
+   stock distribution does not start on 27, that is the finding.
+2. **The engine's JMH benchmarks and the emitter parity file on JDK 27**, in
+   a quiet window, twice: as shipped, and with
+   `-XX:+UnlockDiagnosticVMOptions -XX:+DelayAfterInliningCutoff`. The
+   results files already carry a `-jdk25` suffix, so the `-jdk27` ones sit
+   beside them; `dev/varka_bench_regen.sh` reads the JDK for its provenance
+   line but writes the suffix as a constant, so it takes the suffix from the
+   running JDK first. The flagged run is the point of the item: it says
+   whether the refused-call effect the emitter's ordering works around
+   disappears when C2 defers instead of refusing, in the parity file's masked
+   rows, which are where task 46 saw it.
+3. The generated-code comparison with `dev/varka_emit.sh --asm`, only if step
+   2 moves a row, because that script runs through sbt and so needs the build
+   itself on 27, which step 2 does not.
+
+The expectation, written before the run: no headline change, since the x86
+intrinsics are the same, and a measured answer on the deferred inlining
+either way. **Done when** the three results files are committed with the JDK
+in their provenance and this section records what the flagged run did to the
+parity file's refused-call rows. Size: small, measured.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

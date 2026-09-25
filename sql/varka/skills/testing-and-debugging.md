@@ -496,3 +496,26 @@ run: Spark's default cache serializer produces batches only for primitive numeri
 benchmark of the cache's columnar path over a table with a date column measures rows on that
 serializer.
 
+## Predict immunity from what the scan produces, and pin both arms of a reproducer
+
+Three findings in milestone 6 were one mistake. `PLAN_MILESTONE_6.md` 2.11 predicted Varka
+immune to `spark.sql.codegen.maxFields`, because Varka reads batches and the limit is about
+generated code; but `InMemoryTableScanExec.supportsColumnar` counts the whole cached schema, so a
+cached table of more than a hundred columns produces no batches whatever the query reads, and
+Varka had nothing to fuse (`PLAN_TASK_185.md`). The same plan called the 8000-byte cliff silent;
+Spark logs it at INFO (`PLAN_TASK_188.md` 5). And task 192's first benchmark measured Spark's
+default cache serializer, not Arrow's, so its "vanilla" arm was never columnar
+(`PLAN_TASK_192.md` 9.4). In each case the claim was written from the operator Varka replaces,
+and the answer lived one node below it, in what the scan hands up.
+
+So a prediction about a cliff, a fallback or an immunity is checked at the input path first:
+which node produces the batches, under which config, for which serializer, and what it counts.
+`EXPLAIN` shows the node; the fusion report and the INFO line say why a projection or filter was
+left to Spark (`PLAN_TASK_185.md` 8.4); and a benchmark's provenance names the serializer, since
+"the cache" is two different inputs.
+
+The reproducer that pins such a finding has two arms, and both are asserted. A test that makes
+vanilla give up (`VarkaCodegenGiveUpSuite`) proves the cliff; the claim the project makes is
+what Varka does at that cliff, which is a second assertion on the same query: the Varka node
+present in the plan, or a decline with the recorded reason. A reproducer with only the vanilla
+arm pins the half of the claim nobody disputes.
