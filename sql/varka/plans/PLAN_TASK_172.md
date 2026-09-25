@@ -533,3 +533,16 @@ likely reading, not a read one: the runners' assembly was not captured.
 slower than B by more than noise; B ties it on the pool's common machines with one small method
 where A has several. `splitConditions` on by default, `rangeSets` kept, rows 207 and 208 for B's
 loop.
+
+### 9.9 The recommendation applied, 25 September 2026
+
+The owner agreed to 9.7's recommendation as 9.8 left it. `splitConditions` is on by default: a
+filter predicate that one method cannot hold is now split across several selection outputs
+rather than declined, wherever it can be. `rangeSets` stays on, so `modified-q3`'s ranges still
+compile to one range set, and design A serves every other predicate too large for one method.
+The shape key renders `splitConditions` only when it is off, so default keys and every earlier
+variant's keep their rendering. Rows 207 and 208 of `PLAN_MILESTONE_6.md` carry the two
+improvements to B's loop that the assembly suggested.
+
+What is left of this task is the 9V45 figure for the post, and task 195's first-query cost,
+which decides whether B stays.

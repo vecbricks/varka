@@ -55,8 +55,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite {
   private def q3(n: Int): Expression =
     And(GreaterThanOrEqual(s, Literal(0)), parse(VarkaQ3Ranges.comparisons(n, "ss_sold_date_sk")))
 
-  private val comparisons =
-    VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX).withRangeSets(false)
+  private val comparisons = VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)
+    .withRangeSets(false).withSplitConditions(false)
   private val split = comparisons.withSplitConditions(true)
 
   private def predicate(condition: Expression, splitOn: Boolean): Option[CompiledVarkaPredicate] =

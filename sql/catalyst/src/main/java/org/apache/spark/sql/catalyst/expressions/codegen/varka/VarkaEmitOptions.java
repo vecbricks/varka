@@ -294,9 +294,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        is the arm the split below is measured on. Read by the compiler, not by the emitter.
  * @param splitConditions whether a filter predicate that no single method can hold is split
  *        across several selection outputs rather than declined ({@code PLAN_TASK_172.md} 3.1):
- *        its conjuncts are packed into several conjunction roots, a conjunct too large alone is
- *        split into partial disjunctions when it is an {@code OR}, and the filter combines the
- *        outputs' bitmaps. Off by default until measured. Read by the compiler, not by the
+ *        its conjuncts are split into several conjunction roots, a conjunct too large alone into
+ *        partial disjunctions when it is an {@code OR}, and the filter combines the outputs'
+ *        bitmaps. On by default, since measured ({@code PLAN_TASK_172.md} 9.7 and 9.8); off is
+ *        the form before it, where such a predicate declines. Read by the compiler, not by the
  *        emitter.
  */
 public record VarkaEmitOptions(
@@ -433,7 +434,7 @@ public record VarkaEmitOptions(
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
-          true, false);
+          true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -856,6 +857,6 @@ public record VarkaEmitOptions(
         + misdescribeAdd + '|' + misdescribeWordLiveness + '|' + guardUnderArm + '|'
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
         + '|' + narrowHalfSpecies + '|' + methodByteBudget
-        + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "|splitConditions" : "") + ')';
+        + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions") + ')';
   }
 }
