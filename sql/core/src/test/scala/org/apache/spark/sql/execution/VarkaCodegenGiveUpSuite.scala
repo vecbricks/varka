@@ -19,15 +19,15 @@ package org.apache.spark.sql.execution
 
 import org.apache.logging.log4j.Level
 
-import org.apache.spark.sql.{DataFrame, QueryTest}
+import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression,
-  GreaterThan, Literal, UnaryExpression, UnsafeProjection}
+  GreaterThan, Literal, NamedExpression, UnaryExpression, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeGenerator,
-  CodegenFallback, VarkaExpressionCompiler}
+  CodegenFallback, FusedOutput, VarkaDecline, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.classic.ExpressionUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{DataType, DateType}
 
 /**
@@ -36,11 +36,19 @@ import org.apache.spark.sql.types.{DataType, DateType}
  * log at the revision under test. The census was read from the source; these hold its claims to
  * what Spark actually does, so the milestone's post can cite a test rather than a reading.
  *
+ * Each test has two arms. The vanilla arm makes Spark give up. The Varka arm asserts the census's
+ * answer for the same shape: the fused node in the plan where the census says Varka is immune or
+ * has solved it, or a decline with a reason where it says Varka declines, and never an exception.
+ * Where the census says the entry does not apply to Varka - an operator Varka has no node for -
+ * the test says so instead of asserting nothing under a Varka heading. The Varka arms run on
+ * `varkaSpark`, whose cache is Arrow-backed, or ask the compiler directly through the optimized
+ * plan's projection.
+ *
  * `spark.testing` changes two of Spark's reactions: a whole-stage compile failure is thrown
  * instead of falling back, and a refused split is an error instead of an INFO line. The tests
  * below assert what Spark does under test and say so where it differs from production.
  */
-class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
+class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
 
   /** Every operator inside a whole-stage codegen stage of `df`'s executed plan. */
   private def staged(df: DataFrame): Seq[SparkPlan] = {
@@ -62,11 +70,62 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
   private def noAqe[T](body: => T): T =
     withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false")(body)
 
+  /** `body` with `pairs` set on `session`'s own conf, restored after; for the Varka sessions. */
+  private def withSessionConf[T](session: SparkSession, pairs: (String, String)*)(body: => T): T = {
+    val before = pairs.map { case (k, _) => k -> session.conf.getOption(k) }
+    pairs.foreach { case (k, v) => session.conf.set(k, v) }
+    try body finally before.foreach { case (k, v) =>
+      v.fold(session.conf.unset(k))(session.conf.set(k, _))
+    }
+  }
+
+  /**
+   * The Varka projections in `df`'s executed plan: a columnar-out `VarkaProjectExec`, or the
+   * `VarkaColumnarToRowExec` that carries the projection when rows are what the parent reads.
+   */
+  private def varkaProjections(df: DataFrame): Seq[SparkPlan] =
+    df.queryExecution.executedPlan.collect {
+      case p: VarkaProjectExec => p
+      case p: VarkaColumnarToRowExec => p
+    }
+
+  /**
+   * What the compiler does with `df`'s projection, asked of its optimized plan the way the
+   * planner asks: the fused entries by position and the declined ones with their reasons. Every
+   * position is in exactly one of the two, or the compiler threw, which is the property the Varka
+   * arms below hold.
+   */
+  private def classified(df: DataFrame): (Set[Int], Map[Int, VarkaDecline]) = {
+    val project = df.queryExecution.optimizedPlan.collectFirst { case p: Project => p }.get
+    val list: Seq[NamedExpression] = project.projectList
+    val output: Seq[Attribute] = project.child.output
+    val fused = VarkaExpressionCompiler.compilePartial(list, output)
+      .map(_.specs.zipWithIndex.collect { case (_: FusedOutput, i) => i }.toSet)
+      .getOrElse(Set.empty)
+    val declined = VarkaExpressionCompiler.declines(list, output)
+    assert(fused.size + declined.size == list.size && (fused & declined.keySet).isEmpty,
+      s"fused $fused, declined ${declined.keySet}")
+    assert(declined.values.forall(_.reason.nonEmpty), declined)
+    (fused, declined)
+  }
+
+  /** The `varka_dates` view, cached with the Arrow serializer, in the Varka session. */
+  private def varkaDates(): DataFrame = {
+    cacheDates(varkaSpark)
+    varkaSpark.table("varka_dates")
+  }
+
   test("G1: with whole-stage codegen switched off there is no stage at all") {
     noAqe {
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
         assert(staged(spark.range(10).selectExpr("id + 1 AS v").filter("v > 3")).isEmpty)
       }
+    }
+    // Varka's answer: its nodes are not whole-stage codegen, so with it off they are still there.
+    withSessionConf(varkaSpark, SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
+      val df = varkaDates().selectExpr("date_add(d, 1) AS e")
+      assert(staged(df).isEmpty)
+      assert(varkaProjections(df).nonEmpty, df.queryExecution.executedPlan)
     }
   }
 
@@ -81,6 +140,16 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
         s"named_struct(${(1 to 101).map(k => s"'f$k', id + $k").mkString(", ")}) AS s")
       assert(!staged(struct).exists(_.isInstanceOf[ProjectExec]))
     }
+    // Varka's answer: the kernel is not in a stage and its width is decided in bytes, so a
+    // projection of 101 outputs fuses whole. (The same limit counted over a cached table's
+    // schema is G3, task 185's, and is not immune.)
+    def wide(session: SparkSession): DataFrame = session.table("varka_dates")
+      .selectExpr((1 to 101).map(k => s"date_add(d, $k) AS c$k"): _*)
+    val fused = wide(varkaDates().sparkSession)
+    assert(varkaProjections(fused).exists(_.output.size == 101), fused.queryExecution.executedPlan)
+    assert(classified(fused)._1.size == 101)
+    cacheDates(disabledSpark)
+    checkAnswer(fused, wide(disabledSpark).collect())
   }
 
   test("G4: a non-leaf CodegenFallback expression takes its whole operator out of the stage") {
@@ -108,6 +177,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       assert(staged(stack(50)).exists(_.isInstanceOf[GenerateExec]))
       assert(!staged(stack(51)).exists(_.isInstanceOf[GenerateExec]))
     }
+    // Varka's answer: none. Varka has no generator node, so this give-up is not one it meets.
   }
 
   test("G10: a union of more children than wholeStage.union.maxChildren leaves the stage") {
@@ -121,6 +191,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       assert(staged(union(max)).exists(_.isInstanceOf[UnionExec]))
       assert(!staged(union(max + 1)).exists(_.isInstanceOf[UnionExec]))
     }
+    // Varka's answer: none. Varka has no union node, so this give-up is not one it meets.
   }
 
   /**
@@ -147,6 +218,18 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       }
       assert(at8000.exists { case (level, m) => level == Level.INFO && m.contains(found) })
     }
+    // Varka's answer, for G25 and G26 alike: the same 56 entries fuse, and every emitted method
+    // is measured against the 8000-byte budget after the class is built, so none is left to
+    // HotSpot's HugeMethodLimit. `VarkaHugeMethodSuite` pins the per-method sizes; this pins the
+    // plan and the answer.
+    def rungs(session: SparkSession): DataFrame = session.table("varka_dates").selectExpr(
+      (1 to 56).map(k => s"greatest(add_months(d, ${k + 8000}), date_add(d, ${k + 8000}), " +
+        s"last_day(d)) AS c$k"): _*)
+    val fused = rungs(varkaDates().sparkSession)
+    assert(varkaProjections(fused).nonEmpty, fused.queryExecution.executedPlan)
+    assert(classified(fused)._1.size == 56)
+    cacheDates(disabledSpark)
+    checkAnswer(fused, rungs(disabledSpark).collect())
   }
 
   test("G24: a stage past 64KB fails to compile; under test the failure is thrown") {
@@ -164,6 +247,10 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       }
     }
     assert(!lines.exists(_._2.contains("Found too long generated codes")))
+    // Varka's answer: the compiler declines the entry with a reason at plan time and the query
+    // is Spark's; nothing is emitted, so nothing can fail to compile.
+    val (fused, declined) = classified(df)
+    assert(fused.isEmpty && declined.contains(0), declined)
   }
 
   test("G12: the CASE WHEN that fails past 64KB inside a stage compiles outside one") {
@@ -193,6 +280,13 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
         assert(df.collect().map(_.getLong(2999)).toSeq == (0L until 10L).map(_ + 3000))
       }
     }
+    // Varka's answer: 3000 outputs over a date column are classified without an exception,
+    // each one fused or declined with a reason; the bytes of every emitted method stay under
+    // the budget by construction, whatever the count.
+    val wide = varkaDates().selectExpr((1 to 3000).map(k => s"date_add(d, $k) AS c$k"): _*)
+    val (fused, declined) = classified(wide)
+    val reasons = declined.values.map(_.reason).toSet
+    assert(fused.nonEmpty && reasons.forall(_.contains("budget")), s"fused ${fused.size}: $reasons")
   }
 
   test("G27: a class past 65535 constant-pool entries fails to compile, and nothing warns first") {
@@ -214,6 +308,9 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
     compile(20)
     val e = intercept[Throwable](compile(40))
     assert(causes(e).exists(_.contains("0xFFFF")), causes(e).take(2))
+    // Varka's answer: `VarkaEmitBudget` counts the emitted class's constant pool against the same
+    // cap and declines the shape with a reason before anything is loaded; the cap is out of reach
+    // of any admitted shape, so `VarkaEmitterBudgetSuite` pins the check on a hand-built class.
   }
 
   test("G32: outside a stage, a projection that fails to compile falls back to the interpreter") {
@@ -233,6 +330,9 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
     assert(lines.exists { case (level, m) =>
       level == Level.WARN && m.contains("Expr codegen error and falling back to interpreter mode")
     }, lines.map(_._2).take(3))
+    // Varka's answer: a shape the emitter cannot serve in bytes is declined at plan time with a
+    // reason and left to Spark, so no compile failure is caught after the fact
+    // (`VarkaEmitterBudgetSuite`, "a shape still over the byte budget when no split is left").
   }
 
   /**
@@ -264,6 +364,16 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       val e = intercept[Throwable](df.write.format("noop").mode("overwrite").save())
       assert(causes(e).exists(_.contains("Failed to split subexpression code")), causes(e).take(3))
     }
+    // Varka's answer: its methods take a fixed few parameters however many columns an entry
+    // reads, so the 255-slot cap is not one it meets. It does not get that far: the same
+    // 130-column expression, in two entries and without the checked multiplies so that nothing
+    // else can decline it, is refused at Varka's own budget of fused nodes, with that reason. The
+    // census's "immune" for this entry is therefore "not reached" until that budget gives way
+    // to the byte budget (task 190), and this arm pins where the shape stops today.
+    val (fused, declined) =
+      classified(nullableInts(130).selectExpr(s"($sum) AS a", s"($sum) + 1 AS b"))
+    assert(fused.isEmpty && declined.keySet == Set(0, 1), declined)
+    assert(declined.values.forall(_.reason == "exceeds the emitter's fused budget"), declined)
   }
 
   test("G18: an aggregate function over more than 255 parameter slots is not split out") {
@@ -275,6 +385,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
       val e = intercept[Throwable](df.collect())
       assert(causes(e).exists(_.contains("Failed to split aggregate code")), causes(e).take(3))
     }
+    // Varka's answer: none. Varka has no aggregate node, so this give-up is not one it meets.
   }
 
   test("G28: a generated method past 255 parameter slots is a compile failure, not a load error") {
@@ -290,6 +401,8 @@ class VarkaCodegenGiveUpSuite extends QueryTest with SharedSparkSession {
     compile(254)
     val e = intercept[Throwable](compile(255))
     assert(causes(e).exists(_.contains("has too many parameters (256)")), causes(e).take(2))
+    // Varka's answer: its methods have a fixed arity, and `VarkaEmitBudget` counts every emitted
+    // method's parameter slots against the cap all the same (`VarkaEmitterBudgetSuite`).
   }
 }
 
