@@ -167,8 +167,8 @@ Varka.
 | Owed | For | State on 25 September | Needed? |
 | :-- | :-- | :-- | :-- |
 | A committed vanilla benchmark of the large `CASE WHEN`: inside a stage, outside one, and outside one with the calls grouped | 3.5 | not started | **Yes.** The trap is a claim without it |
-| `factoryMode=NO_CODEGEN` against the default on the same shape | 3.4 | not started; one laptop run says whether it is worth a runner benchmark | **Yes.** If the interpreter wins, it is the post's opening |
-| The field count: JIRAs carrying "grows beyond 64 KB", by year | 3.1 | not started | **Yes.** Bound 2 rests on our ladders alone otherwise |
+| `factoryMode=NO_CODEGEN` against the default on the same shape | 3.4 | **laptop check done, section 7.2**: the interpreter loses by more than fifty times, and quadratically in the branch count; the runner benchmark carries the arm | **Yes**, as an arm of the benchmark |
+| The field count: JIRAs carrying "grows beyond 64 KB", by year | 3.1 | **done, section 7.1**: 44 tickets, peaking in 2016 and 2017, four open | No longer owed |
 | The wide-cache trap measured on vanilla: a one-column query over a 101-column cached table, rows against batches; and the upstream ticket if none exists | 3.5 | not started; the mechanism is pinned on Varka's side (`VarkaSchemaWidthSuite`) | **Yes.** A trap without a number is an anecdote |
 | The upstream tickets' state | 3.6 | read on the day of publication | **Yes**, and only then |
 | Reproducers for G15, G33 and G34; the inlining evidence; the size distribution | - | moved to the second post (`PLAN_TASK_181.md` 7) | No. Developer material |
@@ -207,3 +207,82 @@ produces every number in this post.
 * New measurements beyond the one benchmark in section 4.
 * New upstream tickets. The post reports the ones filed; filing more is its own
   decision.
+
+## 7. The cheap explorations, 25 September 2026
+
+Two of section 4's owed items needed no quiet machine and were done the day
+the outline was written.
+
+### 7.1 The field count
+
+SPARK tickets whose text carries Janino's message "grows beyond 64 KB", read
+from the tracker's search API on 25 September 2026 (`project = SPARK AND text
+~ "grows beyond 64 KB"`):
+
+| Year | 2015 | 2016 | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
+| Tickets | 1 | 18 | 10 | 6 | 3 | 2 | 1 | 1 | 0 | 0 | 1 | 1 |
+
+44 in all. About 35 are user reports; the rest are sub-tasks of the 2017 fix
+wave and a few false positives (a UI ticket, a parser stack overflow). Four
+are open: SPARK-33301 (2020, a large `CASE WHEN`), SPARK-34485 (2021, a
+streaming stage), SPARK-40701 (2022, `LIKE ANY` with many patterns) and
+SPARK-51582 (2025, `ExpandExec` with many projections). The wider search for
+"64 KB" or "64KB" anywhere finds 92, 35 of them in 2017, the year of the fix
+wave (`PLAN_TASK_205.md` (a)); its 2026 entries are almost all sub-tasks of
+SPARK-56908, the upstream umbrella task 205 records, which shrinks generated
+code and does not bound the method. "too long to be JIT compiled" appears in
+three tickets, all from 2025 and 2026, two of them this project's.
+
+What it gives the post: the reports peak in 2016 and 2017, when Spark failed
+loudly at 64 KB, and fall away after the split machinery of 2.3.0. The
+8000-byte cliff leaves no such trail because it does not fail; it answers,
+slowly, at INFO. Section 3.1 opens on that contrast. The counts are integers
+and outside `dev/varka_quote_check.py`'s scope; the search and its date are the
+record, and a reader can repeat it.
+
+### 7.2 `factoryMode=NO_CODEGEN` against the default
+
+The question was whether Spark's interpreted projection, which is compiled
+Scala, beats the generated method HotSpot refuses to compile. It does not, by
+more than fifty times, and the reason is not the interpreter.
+
+The check: the thousand-branch `CASE WHEN` of section 3.5, `SELECT CASE WHEN
+v = 1 THEN v * 1 ... WHEN v = 1000 THEN v * 1000 ELSE 0 END FROM (SELECT id %
+1000 AS v FROM range(N))`, written to the `noop` sink, on the stock
+`spark-4.2.0-bin-hadoop3` distribution with `spark-submit --driver-memory 4g`,
+`local[1]`, JDK 25, one configuration per JVM, on the laptop with nothing else
+running. Laptop figures: they decide what the runner benchmark measures and
+are not quoted by the post.
+
+| Configuration | Rows | Time per run, after warm-up | Per row | What the log says |
+| :-- | --: | :-- | --: | :-- |
+| default (`wholeStage=true`, `factoryMode=FALLBACK`) | 2,000,000 | 11.4 to 12.1 s | 5.7 us | stage disabled past 64 KB, then `CaseWhen_0$` is 8060 bytes, too long to be JIT compiled |
+| `wholeStage=false` | 2,000,000 | 10.9 to 11.2 s | 5.5 us | the same 8060-byte method |
+| `factoryMode=NO_CODEGEN`, either `wholeStage` | 20,000 | 5.1 to 6.1 s | 255 to 306 us | nothing: no stage, no generated code |
+
+The first `NO_CODEGEN` attempt, at two million rows, had not finished one pass
+after nine minutes. A thread dump of the task thread put it in
+`scala.collection.immutable.List.apply`, called from `CaseWhen.eval`
+(`conditionalExpressions.scala`, the `while (i < size)` loop that reads
+`branches(i)` twice per iteration). The branches of a parsed `CASE WHEN` are a
+`List`, so each index walks from the head, and one row costs time quadratic in
+the branch count. A sweep of the interpreted `CASE WHEN` at 20,000 rows, min
+of three runs:
+
+| Branches | 125 | 250 | 500 | 1000 |
+| :-- | --: | --: | --: | --: |
+| ms per run | 143 | 373 | 1238 | 6115 |
+
+About fourfold per doubling, which is the square. Upstream master has the same
+loop, and the interpreted `eval` of `Murmur3Hash`, `XxHash64` and `HiveHash`
+indexes `children(i)` the same way (`hash.scala`); `InterpretedUnsafeProjection`
+and `CreateMap` do not, since they index an array and an `IndexedSeq`. The fix
+is to index an array built once per expression; whether to file it is the
+owner's decision, and the post reports whichever state the tracker shows.
+
+What it gives the post: section 3.4's knob paragraph gets its measurement,
+and its point sharpens. The one setting that avoids generated code altogether
+makes the wide `CASE WHEN` fifty times slower still, for a reason no user
+would guess, so the knob is not a way out of the cliff. The runner benchmark of
+section 4 carries the `NO_CODEGEN` arm at a row count it can finish.
