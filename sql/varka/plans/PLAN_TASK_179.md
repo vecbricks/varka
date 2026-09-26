@@ -187,3 +187,25 @@ the workspace, and sbt sets that property for its tests where a plain JVM does
 not; a local run reproduces the failure without it and passes with it. Both
 fuzzer launches now pass `-Dspark.test.home`. The task closes when a
 scheduled run reports a verdict for both fuzzers.
+
+**The verdict, 26 September 2026.** Run 36267105100, dispatched by hand after
+the three setup fixes, as this section's first paragraph provides, reported for
+both fuzzers, and both passed: the whole job in about seven minutes on a warm
+cache.
+
+1. **Held, for its first night.** The IR fuzzer's four lanes each drew 40000
+   trees in each of its two tests, 80000 a lane, and every one matched the
+   reference evaluator; the generator reached every node type.
+2. **Held, in the laptop run above.** The composition fuzzer drew its 400
+   compositions in both tests and every one fused or declined with a budget
+   reason or the one the suite admits - the LONG lane in an INT kernel, the
+   non-budget decline this prediction asked for, which its first run found.
+3. **Refuted, in the fast direction.** A lane ran its 80000 trees in 107 to
+   109 seconds, about 730 a second, seven times the hundred predicted, so the
+   IR fuzzer's step took under two minutes rather than ten to fifteen. The
+   iteration count could rise about sevenfold before a test nears the suite's
+   twenty-minute cap; that is a sizing choice for the owner, not part of this
+   task.
+
+The nightly at 02:00 UTC is the first scheduled run; its verdict is on the
+workflow's page. Task 179 is done.
