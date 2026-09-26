@@ -150,8 +150,8 @@ On 25 September 2026:
 | Ticket | What the reader sees | State |
 | :-- | :-- | :-- |
 | SPARK-59774 | a warning, once, naming the remedy, instead of the INFO line | fixed, 4.4.0 |
-| SPARK-59783 | a wide `CASE WHEN`, `COALESCE` or `IN` outside a stage stays compiled | open, apache/spark#59042 |
-| SPARK-33301 | a large `CASE WHEN` inside a stage split into methods | open since 30 October 2020 |
+| SPARK-59783 | a wide `CASE WHEN`, `COALESCE` or `IN` outside a stage stays compiled | open, apache/spark#59042; *fixed in 4.4.0, 26 September 2026 (9.6)* |
+| SPARK-33301 | a large `CASE WHEN` inside a stage split into methods | open since 30 October 2020; *in review as apache/spark#59069, 26 September 2026* |
 | SPARK-59764, SPARK-59765 | Spark's own size check over the TPC suites runs again | fixed, 4.4.0 (59765 also 5.0.0) |
 
 The post names the release a fix ships in and calls nothing merged that is
@@ -166,7 +166,7 @@ Varka.
 
 | Owed | For | State on 25 September | Needed? |
 | :-- | :-- | :-- | :-- |
-| A committed vanilla benchmark of the large `CASE WHEN`: inside a stage, outside one, and outside one with the calls grouped | 3.5 | **done for the first two arms, section 9.2**: `CaseWhenCodegenBenchmark-jdk25-results.txt` on the 9V74; the grouped arm waits for SPARK-59783 | The grouped arm, when the fork carries it |
+| A committed vanilla benchmark of the large `CASE WHEN`: inside a stage, outside one, and outside one with the calls grouped | 3.5 | **done for the first two arms, section 9.2**: `CaseWhenCodegenBenchmark-jdk25-results.txt` on the 9V74; the grouped arm waits for SPARK-59783; *done 26 September 2026, 9.6* | The grouped arm, when the fork carries it |
 | `factoryMode=NO_CODEGEN` against the default on the same shape | 3.4 | **done, sections 7.2 and 9.2**: the runner's file carries the arm; 52.6 times the outside-a-stage cost at 1000 branches | No longer owed |
 | The field count: JIRAs carrying "grows beyond 64 KB", by year | 3.1 | **done, section 7.1**: 44 tickets, peaking in 2016 and 2017, four open | No longer owed |
 | The wide-cache trap measured on vanilla: a one-column query over a 101-column cached table, rows against batches; and the upstream ticket if none exists | 3.5 | not started; the mechanism is pinned on Varka's side (`VarkaSchemaWidthSuite`) | **Yes.** A trap without a number is an anecdote |
@@ -560,3 +560,55 @@ badly for text columns; the milestone 5 post's one table gained the markers,
 so its page renders as before. The italic subtitle the draft had under the
 title was dropped: the builder removes the first italic block as the post's
 note to its editors, by design.
+
+### 9.5 The grouped case, predicted before its file, 26 September 2026
+
+SPARK-59783 merged on 26 September 2026 (apache/spark#59042, master and
+branch-4.x, fixed in 4.4.0), and the fork now carries it. It has no switch:
+past the JIT limit it groups the calls to the split functions, and below it
+leaves the code as it was. So the fourth case of section 4 is the same
+benchmark rerun on the fork with the fix, compared with its committed file
+without it (`CaseWhenCodegenBenchmark-jdk25-results.txt`, the EPYC 7763), and
+the grouped file is committed under its own name beside it. Predictions for a
+runner run, in ns a row, against the 7763's file, a factor of 1.5 on a runner
+of another CPU:
+
+1. **Outside a stage at 1000 branches the second cliff is gone.** The
+   projection's largest method falls from 8060 bytes to under 8000, and the
+   cost falls from 12935.8 to about the 300-branch rate scaled by the
+   branches, 971.6 times 1000/300, about 3200; at most 4500.
+2. **The stage at 1000 branches falls with it.** Its compile fails past
+   64 KB and it runs the row-by-row operators, whose projection is the one of
+   prediction 1; the cost falls from 15409.3 to about that projection's plus
+   the failed compile, about 2500 a row from 9.2, so about 6000; at most 8000.
+3. **Nothing below the limit moves.** At 30 to 300 branches, where the
+   projection's largest method is 2141 bytes or less, every case is within 15%
+   of the 7763's file, and so is the interpreted case at every rung, which the
+   fix does not touch.
+
+### 9.6 The grouped case, scored, 26 September 2026
+
+The runner run landed on an EPYC 7763, the CPU of the file without the fix,
+so the two compare directly (`CaseWhenCodegenBenchmark-jdk25-grouped-results.txt`
+against `CaseWhenCodegenBenchmark-jdk25-results.txt`), in ns a row:
+
+| Branches | Whole-stage on | with the fix | Whole-stage off | with the fix |
+| --: | --: | --: | --: | --: |
+| 300 | 6448.2 | 6551.1 | 971.6 | 872.1 |
+| 1000 | 15409.3 | 4680.4 | 12935.8 | 2309.9 |
+
+1. **Held, past the estimate.** Outside a stage at 1000 branches the
+   projection's largest method is 1213 bytes where it was 8060, and the cost
+   is 2309.9, 5.6 times lower: the 300-branch rate scaled by the branches
+   would be about 2900, so the grouped calls cost less per branch than the
+   ungrouped calls at 300.
+2. **Held.** The stage at 1000 branches, whose compile still fails, falls to
+   4680.4 from 15409.3, 3.3 times lower, since its fallback runs the grouped
+   projection.
+3. **Held.** Every case at 30 to 300 branches and the interpreted case at
+   every rung are within 11% of the file without the fix.
+
+So the second cliff of section 5 is gone in 4.4.0; the first, inside a stage,
+is SPARK-33301's, in review as apache/spark#59069. Section 4's owed grouped
+arm is done, and the benchmark class stays in the fork: it went upstream with
+neither change.

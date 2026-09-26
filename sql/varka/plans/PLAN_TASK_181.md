@@ -223,7 +223,9 @@ its Varka column (3.3); and four findings that surprise a reader of
 `CodeGenerator.scala`, each with the test that pins it - the `hugeMethodLimit`
 check that cannot fire at its default (G25), the TPC suites' size check that
 found no stage under adaptive execution from 3.2 until 4.4.0 (SPARK-59764), the
-split that moves the problem into the method holding the calls (SPARK-59783),
+split that moves the problem into the method holding the calls (SPARK-59783,
+*fixed in 4.4.0 on 26 September 2026, so the section tells it as found and
+fixed*),
 and code that compiles but is no longer inlined once its caller passes C2's
 budget. The last two go in 3.4, as the contrast with measuring bytes after the
 build. Section 4 gains their evidence.

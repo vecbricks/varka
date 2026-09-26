@@ -1,0 +1,10 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CaseWhenCodegenBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36228003558
+commit:      dc58b275491 (the varka-spark-59783 branch: Varka master with SPARK-59783 cherry-picked)
+date:        2026-09-26
+inputs:      class=*CaseWhenCodegenBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+cpu:         AMD EPYC 7763 64-Core Processor, the CPU of CaseWhenCodegenBenchmark-jdk25-results.txt
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
+what:        the same benchmark after SPARK-59783, which groups the calls to split functions
+             past the JIT limit; compared with the file without it, PLAN_TASK_210.md 9.6

@@ -258,7 +258,10 @@ split code, and it pays for the failed compile again on every run, about half
 a second. And between 300 and 1000 branches the split code itself costs
 thirteen times more per row for three and a third times the branches, because
 the method holding the calls crossed 8000 bytes on the way. Two upstream
-changes address the two halves; section 6 says where they are.
+changes address the two halves; section 6 says where they are. The second is
+in 4.4.0: with it the same 1000 branches outside a stage cost 2309.9 ns a
+row instead of 12935.8, and the stage that fails to compile, which falls back
+to that code, 4680.4 instead of 15409.3.
 
 **A wide cached table is read row by row, even for one column.** Spark reads
 a cached table in batches when three things hold: the vectorized cache reader
@@ -292,14 +295,14 @@ header, as in section 3.
 
 ## 6. Which release fixes what
 
-Read from the tracker on 25 September 2026.
+Read from the tracker on 26 September 2026.
 
 | ticket | what changes for you | state |
 |--|--|--|
 | SPARK-59774 | the 8000-byte line becomes a warning, once, naming the remedy | fixed in 4.4.0 |
 | SPARK-59764, SPARK-59765 | Spark's own size check over the TPC-DS queries runs again | fixed in 4.4.0 |
-| SPARK-59783 | a wide `CASE WHEN`, `COALESCE` or `IN` outside a stage stays compiled | in review, [apache/spark#59042](https://github.com/apache/spark/pull/59042) |
-| SPARK-33301 | a large `CASE WHEN` inside a stage is split into methods | open since October 2020 |
+| SPARK-59783 | a wide `CASE WHEN`, `COALESCE` or `IN` outside a stage stays compiled | fixed in 4.4.0 |
+| SPARK-33301 | a large `CASE WHEN` inside a stage is split into methods | in review, [apache/spark#59069](https://github.com/apache/spark/pull/59069) |
 | SPARK-56908 | generated code shrinks across operators | umbrella, 57 of 58 sub-tasks done |
 
 The umbrella has made the largest method of any unmodified TPC-DS query about
