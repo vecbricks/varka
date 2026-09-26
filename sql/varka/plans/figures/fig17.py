@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 """Figure 17: what whole-stage codegen does with a query - the query becomes Java source, one
-class per stage whose one method runs the row loop, Janino compiles it to bytecode, and the
+class per stage whose one method does each row's work, Janino compiles it to bytecode, and the
 JIT compiles that to machine code only while the method is at most 8000 bytes. Below, the
 demo's projection at the two sizes either side of the limit, as bars against it.
 
@@ -54,7 +54,7 @@ r.text(40, 44, "What whole-stage codegen does with your query", size=32)
 # The pipeline: four stations, left to right.
 BOXES = [
     (30, "your query", "a projection of\n%d date columns" % above),
-    (265, "Java source", "one class per stage;\none method runs\nthe row loop"),
+    (265, "Java source", "one class per stage;\none method does\neach row's work"),
     (500, "bytecode", "Janino compiles\nthe source in\nmemory"),
     (735, "machine code", "the JIT compiles\nmethods of at most\n8000 bytes"),
 ]
@@ -66,10 +66,10 @@ for i, (x, head, body) in enumerate(BOXES):
     if i:
         r.arrow(x - 36, TOP + H / 2, x - 6, TOP + H / 2, width=2.0)
 
-# The size of the row loop's method, against the limit.
+# The size of the method each row runs through, against the limit.
 GX, GW, SCALE = 265, 430, 10000.0
 xl = GX + GW * LIMIT / SCALE
-r.text(GX, 330, "the size of the row loop's method", size=21)
+r.text(GX, 330, "the size of the method each row runs through", size=21)
 for i, n in enumerate((below, above)):
     y = 360 + i * 56
     w = GW * sizes[n] / SCALE

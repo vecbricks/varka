@@ -20,7 +20,8 @@ interpreter between 8000 and 65535, and no compile at all past 65535. The demo's
 marked on it at the two sizes either side of the first limit.
 
 The two sizes are read from the demo's committed JDK 25 output when the script runs
-(sql/varka/demo/method_size_cliff-jdk25-output.txt), so the figure cannot drift from it."""
+(sql/varka/demo/method_size_cliff-jdk25-output.txt), and the size of the step from its outputs on
+all three JDKs, so the figure cannot drift from them."""
 
 import os
 import re
@@ -28,7 +29,8 @@ import re
 from rough import Rough, finish
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEMO = os.path.join(HERE, "..", "..", "demo", "method_size_cliff-jdk25-output.txt")
+DEMO_DIR = os.path.join(HERE, "..", "..", "demo")
+DEMO = os.path.join(DEMO_DIR, "method_size_cliff-jdk25-output.txt")
 GREY = "#5c5f66"
 LIMIT = 8000
 
@@ -44,9 +46,23 @@ def read_sizes(path):
     return sizes
 
 
+def step(path):
+    """The defaults' time per row just past the limit over the time just below it."""
+    times = {}
+    row = re.compile(r"^(\d+)\s+(\d+) bytes( \*)?\s+([\d.]+)\s+([\d.]+)\s*$")
+    with open(path) as f:
+        for line in f:
+            if m := row.match(line):
+                times[int(m.group(2))] = float(m.group(4))
+    return times[min(b for b in times if b > LIMIT)] / times[max(b for b in times if b <= LIMIT)]
+
+
 sizes = read_sizes(DEMO)
 below = max(n for n in sizes if sizes[n] <= LIMIT)
 above = min(n for n in sizes if sizes[n] > LIMIT)
+steps = [
+    step(os.path.join(DEMO_DIR, "method_size_cliff-jdk%d-output.txt" % jdk)) for jdk in (17, 21, 25)
+]
 
 r = Rough(960, 600, seed=161)
 r.text(40, 44, "One method per stage, and two limits on its size", size=32)
@@ -68,7 +84,8 @@ r.text((X0 + X8K) / 2, (TOP + BOT) / 2, "compiled by the JIT:\nfast", size=26, a
 r.text(
     (X8K + X64K) / 2,
     (TOP + BOT) / 2,
-    "never compiled: runs in\nthe bytecode interpreter,\ncorrect but 5 to 6x slower",
+    "never compiled: runs in\nthe bytecode interpreter,\ncorrect but %.1f to %.1fx slower"
+    % (min(steps), max(steps)),
     size=23,
     anchor="middle",
 )

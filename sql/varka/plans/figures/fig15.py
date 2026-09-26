@@ -18,7 +18,8 @@
 whole-stage codegen stage, outside one, and interpreted - time per row against n on log axes.
 The stage steps where its one method passes 8000 bytes; the outside-a-stage path steps between
 300 and 1000 branches, where the method holding the calls to the split methods passes it too;
-the interpreted path grows with the square of the branches.
+the interpreted path grows about with the square of the branches, and faster past a few
+hundred.
 
 Every value is read from the committed results file when the script runs
 (sql/core/benchmarks/CaseWhenCodegenBenchmark-jdk25-results.txt), so the figure cannot drift
