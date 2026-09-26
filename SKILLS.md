@@ -92,6 +92,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A fuzz campaign is sixteen JVMs, not one sbt, and it re-finds what is already on the books](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-is-sixteen-jvms-not-one-sbt-and-it-re-finds-what-is-already-on-the-books)
 * [`VarkaIrFuzzSuite` caps each test at twenty minutes, so a big `-Dvarka.fuzz.iterations` makes every JVM report failure](sql/varka/skills/testing-and-debugging.md#varkairfuzzsuite-caps-each-test-at-twenty-minutes-so-a-big--dvarkafuzziterations-makes-every-jvm-report-failure)
 * [A forced masked batch of length 1 is all-null, and the kernel is right to say so](sql/varka/skills/testing-and-debugging.md#a-forced-masked-batch-of-length-1-is-all-null-and-the-kernel-is-right-to-say-so)
+* [A plan change tested only with adaptive execution off is untested in Spark's default](sql/varka/skills/testing-and-debugging.md#a-plan-change-tested-only-with-adaptive-execution-off-is-untested-in-sparks-default)
 * [Predict immunity from what the scan produces, and pin both arms of a reproducer](sql/varka/skills/testing-and-debugging.md#predict-immunity-from-what-the-scan-produces-and-pin-both-arms-of-a-reproducer)
 * [A reproducer past 64KB is sized near the smallest count that crosses it](sql/varka/skills/testing-and-debugging.md#a-reproducer-past-64kb-is-sized-near-the-smallest-count-that-crosses-it)
 

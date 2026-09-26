@@ -23,10 +23,12 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.Statistics
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.columnar.CachedBatch
 import org.apache.spark.sql.execution.{LeafExecNode, SparkPlan, WholeStageCodegenExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
@@ -95,9 +97,26 @@ case class InMemoryTableScanExec(
    */
   override val supportsColumnar: Boolean = {
     conf.cacheVectorizedReaderEnabled  &&
-        !WholeStageCodegenExec.isTooManyFields(conf, relation.schema) &&
+        !WholeStageCodegenExec.isTooManyFields(conf, fieldCountedSchema) &&
         relation.cacheBuilder.serializer.supportsColumnarOutput(relation.schema)
   }
+
+  /**
+   * The schema `spark.sql.codegen.maxFields` is counted over to decide `supportsColumnar`: the
+   * whole cached relation's, except where Varka reads the batches - Varka is on and the cache is
+   * its Arrow serializer - where it is the columns this scan reads. The limit protects the
+   * generated code that consumes the batches, and that code, `ColumnarToRowExec`'s, only ever
+   * reads this scan's columns; Varka's kernels read the Arrow vectors directly. Counting the whole
+   * relation made a cache of more than that many columns produce rows for every query, whatever
+   * it read (`PLAN_TASK_185.md`).
+   */
+  private[sql] def fieldCountedSchema: StructType =
+    if (conf.varkaEnabled &&
+        relation.cacheBuilder.serializer.isInstanceOf[ArrowCachedBatchSerializer]) {
+      DataTypeUtils.fromAttributes(attributes)
+    } else {
+      relation.schema
+    }
 
   override def output: Seq[Attribute] = attributes
 

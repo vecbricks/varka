@@ -128,3 +128,156 @@ Arrow serializer with the vectorized reader on, and asks for `date_add(d, 1)`:
 So the census's reading of the source was right and milestone 6's registered immunity was not:
 today Varka shares this cliff with Spark, silently. The 101-column test is the one step 2 turns
 around.
+
+### 8.2 Step 2: Varka reads the wide cache as batches, 25 September 2026
+
+`VarkaCacheScanExec`, a leaf node that holds the cache scan and asks it for its columnar output
+directly: the scan's own `executeColumnar()`, so its partition pruning, its serializer's conversion
+of the attributes it reads and its metrics are the scan's, and nothing of it is reimplemented. The
+scan's flag was the only thing in the way: `InMemoryTableScanExec.doExecuteColumnar` has no width
+check of its own, and `SparkPlan.executeColumnar` none either. `VarkaColumnarRule` places the node
+in its pre-transition stage beneath a projection or a filter it fuses, and only where the scan is
+kept from columnar output by its width alone - the cache is `ArrowCachedBatchSerializer`, the
+vectorized cache reader is on, and the serializer produces batches for the schema - so a query
+Varka does not fuse keeps its scan, and a cache under another serializer is left as it is.
+
+**What checks it.** `VarkaSchemaWidthSuite` now asserts, over the 101-field cache, that a
+projection, a filter, and a filter with a projection fuse through one `VarkaCacheScanExec`, answer
+as the row engine does and ran their kernels; that at 100 fields the plan is the one it was, with
+no wide scan; that a query Varka does not fuse (a string cast) keeps the cache scan; and that the
+cache stays materialized across queries. Every Varka suite in `sql/core` passes, 384 tests.
+
+**What is left of the plan**: 3.3's recorded reason where the fix does not reach - a wide cache
+under the default serializer, or a wide file scan - and prediction 3's timing, whether time per row
+is the same at 100 and 101 fields; then 3.4's upstream JIRA for the owner.
+
+### 8.3 Measured: prediction 3, and the upstream question, 25 September 2026
+
+`VarkaSchemaWidthBenchmark`, regenerated on the quiet laptop at both widths: a query reading one
+column of a cached table of 100 and of 101 fields, a million rows. Nanoseconds a row at the wide
+width, from `VarkaSchemaWidthBenchmark-jdk25-results.txt`:
+
+| arm | 100 fields | 101 fields | 101 fields, `maxFields=1000` |
+|---|---:|---:|---:|
+| vanilla, default serializer, `sum(i1)` | 25.8 (columnar) | 26.4 (rows) | 25.4 (columnar) |
+| vanilla, Arrow cache, `date_add(d, 1)` | 30.6 (columnar) | 31.4 (rows) | |
+| Varka, Arrow cache, `date_add(d, 1)` | 13.6 (columnar) | 13.7 (`VarkaCacheScan`) | |
+
+**Prediction 3 held.** Varka's time per row is the same at both widths, since the kernel reads one
+column either way, and the 101-field table is read through the wide scan.
+
+**The upstream question of 3.4 has no cost to report.** For vanilla Spark the whole-schema count
+moves a one-column query from the columnar path to rows and costs about 2 to 4%, within what these
+millisecond best times resolve, on both serializers; counting the scan's own output instead, which
+`maxFields=1000` stands in for, gives it back and no more. That is not the evidence a JIRA needs,
+so none is filed. What is not measured is a query that reads many columns of a wide cache, where
+the row path's per-column conversion could cost more.
+
+**The first run measured nothing on the default serializer**: its table had a date column, and
+Spark's default cache serializer produces batches only for primitive numeric types, so every arm
+read rows at every width. The benchmark now caches int columns alone for that phase, reads a
+million rows so that per-query overhead does not blur the path, and runs the Arrow phase in one
+session with Varka switched per arm.
+
+What is left of the task: 3.3's recorded reason where the fix does not reach.
+
+### 8.4 Step 3: the reason, where the fix does not reach, 25 September 2026
+
+`VarkaColumnarRule` now says why when a projection it would fuse, or a filter whose predicate
+compiles, is left to Spark because its input gives no batches. At INFO when the reason is one a
+user can act on - for a cache scan each of its blockers: more than `spark.sql.codegen.maxFields`
+fields counted over the whole cached table, the vectorized cache reader switched off, a serializer
+that produces no batches for the schema or that is not `ArrowCachedBatchSerializer`, the only one
+the wide scan reads through; for a file scan the field count - and at DEBUG otherwise, since most
+inputs are not columnar and that is the ordinary case. A filter's predicate is compiled for the
+message only once such a reason is found.
+
+There is no Varka node to carry the reason in EXPLAIN, since the node is exactly what is missing,
+so the rule's log is the record. The file scan differs from the cache in the one way that matters
+here: it counts the columns it reads, not the table's, so its reason appears only for a query that
+reads more than a hundred columns.
+
+**What checks it.** `VarkaSchemaWidthSuite`: with the vectorized cache reader off over the
+101-field cache, the projection and the filter are left to Spark and the line names both the
+field count and the reader; over 100 fields it names the reader alone; a file scan of 101 read
+columns names its field count; and a columnar input, or a plain range, logs nothing at INFO. Every
+Varka suite in `sql/core` passes, 387 tests.
+
+With this the plan is done: the reproducers (8.1), the wide scan (8.2), the timing and the
+upstream question, which was left unfiled for want of a cost to report (8.3), and the reason (8.4).
+
+### 8.5 Reworked after review: the scan counts the columns it reads, 25 September 2026
+
+*A correction to 8.2 to 8.4, which stand as written.* A review of #378 (ten finders, a
+verifier for each candidate) found the wide scan of 8.2 broken in Spark's default configuration
+and in several places beside it:
+
+* **It did nothing under adaptive execution**, which is on by default. For a query with a sort,
+  an aggregate, a join, a window or a subquery, or over a cache whose own plan had a shuffle, the
+  cache scan is inside a `TableCacheQueryStageExec` by the time the columnar rules run, and
+  `VarkaCacheScanExec.widens` matched only a bare scan. Every test and the benchmark ran with
+  adaptive execution off, as the shared Varka sessions do, so none saw it.
+* **The wrapper hid the scan from code that looks for it.** It held the scan as a field, not a
+  child, so `Dataset.observe` metrics on a wide cached DataFrame came back empty, the pipelined
+  shuffle's eligibility check missed the cache and could fail the job, scalar subqueries in the
+  scan's pushed predicates ran twice, and EXPLAIN and the SQL UI lost the cached plan.
+* **Two of 8.4's reasons pointed at the wrong setting**: a file scan's field count, which no
+  setting turns into Arrow batches Varka can read, and the whole table's field count under the
+  Arrow serializer with the reader off, where only the reader matters. And the log-only filter arm
+  compiled a kernel, and cached it, for a filter that stays in Spark.
+
+The review's altitude finding named the cause: `InMemoryTableScanExec.supportsColumnar` counts
+`spark.sql.codegen.maxFields` over the whole relation. So the scan now counts it over the columns
+it reads when Varka is on and the cache is the Arrow serializer
+(`InMemoryTableScanExec.fieldCountedSchema`), and counts as before otherwise, so vanilla Spark is
+unchanged. The limit protects the generated code that consumes the batches, `ColumnarToRowExec`'s,
+which only reads the scan's columns; Varka's kernels read the vectors directly. The real scan then
+produces batches, stays in the plan, is passed through by its query stage, and Varka's ordinary
+arms fuse over it. `VarkaCacheScanExec` and both filter arms are deleted. The reason is logged for
+projections only, and names only causes a user can act on: the reader off, a serializer that is
+not the Arrow one, or under it a query reading more columns than `maxFields`.
+
+**What checks it.** `VarkaSchemaWidthSuite`, nine tests: vanilla's scan at 100 and 101 fields;
+under Varka the 101-field scan is columnar; a projection, a filter and both fuse at 100 and 101
+fields; with adaptive execution on, an `ORDER BY` and a filtered `count(*)` fuse over the scan in
+its query stage; an unfused query answers as vanilla; observed metrics of a wide cached DataFrame
+reach the query; a projection reading 101 columns is left to Spark with the columns as its reason;
+with the reader off the reason names the reader and not the width; and a range, which produces no
+batches for a reason no user can act on, gives no reason. The trade-off the review named: with
+Varka on, a query Varka does not fuse gets `ColumnarToRowExec` over the scan, the plan Spark uses
+at 100 fields.
+
+**Prediction 3 is not decidable from 8.3's run**, not held. Its 13.6 against 13.7 ns is a single
+run and a ratio well under 1.3x, which `sql/varka/AGENTS.md` requires re-run and compared by
+minimums, and the 128-bit companion reads 13.5 against 14.2, about 5% apart. The same holds for
+the 2 to 4% vanilla figures behind 8.3's upstream decision. Both files were also measured through
+the wrapper, whose columnar path was the scan's own `executeColumnar()`, the path the real scan
+now runs; the benchmark no longer names the wrapper. A regeneration with repeats is due in the
+next quiet window, and 8.3's conclusions wait for it.
+
+
+### 8.6 The regeneration with repeats, 26 September 2026
+
+The quiet run 8.3 asked for: `VarkaSchemaWidthBenchmark` regenerated at both
+widths on the laptop, the canary passing and the load at start below 0.5, and
+five repeats of the wide run for its band
+(`VarkaSchemaWidthBenchmark-jdk25-band.txt`).
+
+**Prediction 3 holds by minimums.** With the fix, Varka reads the 101-field
+Arrow cache as batches and fuses, as at 100 fields: 13.9 ns a row against 13.1
+on the wide run and 14.7 against 13.5 on the narrow one, and the band's best
+of five puts the two within about 5%. The kernel reads one column either way,
+as the prediction said.
+
+**But the 101-field Varka case is unstable, and why is open.** Over the five
+repeats it spread 79% - its slow runs near 25 ns a row - where the 100-field
+Varka case spread under 4%. The band therefore puts it in tier 3, not readable
+from a diff, and any later regeneration of this file should compare that case
+by minimums only. Two other cases are wide as well: vanilla at 100 fields
+(41%) and the 101-field sum with `maxFields` raised (67%).
+
+**8.3's upstream figures stay undecided.** Vanilla at 101 fields is about 3%
+slower than at 100 on the date projection, inside the 41% spread of the 100-field
+case, so the benchmark cannot say vanilla pays anything there - which agrees with
+task 210's benchmark on the runners, where a one-column read over a cached table
+cost nothing on either path.

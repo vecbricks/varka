@@ -1,0 +1,94 @@
+VarkaColdStartBenchmark under -XX:CompileThresholdScaling=0.05, the admission check of PLAN_TASK_212.md 2.
+Run with build/sbt Test/runMain on the fixed benchmark of #429 (commit e50cf2b1b85), pinned to cpus
+0,12,13,14,15,1,2,3, on the quiet laptop (canary ok), JDK 25: the benchmark's tables, the sbt prefixes removed.
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             20             26           6          5.1         195.7       1.0X
+vanilla Spark, first run                             93            156          70          1.1         931.9       0.2X
+vanilla Spark, second run                            66             73           5          1.5         658.4       0.3X
+Varka, plan only                                     20             26           9          4.9         202.2       1.0X
+Varka, first run                                    256            333         107          0.4        2562.1       0.1X
+Varka, second run                                   230            275          36          0.4        2304.2       0.1X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+32 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                              8             10           3         12.3          81.3       1.0X
+vanilla Spark, first run                            140            159          24          0.7        1402.4       0.1X
+vanilla Spark, second run                            91            105          17          1.1         906.8       0.1X
+Varka, plan only                                     17             19           1          5.8         173.3       0.5X
+Varka, first run                                    464            528          99          0.2        4640.9       0.0X
+Varka, second run                                   379            428          35          0.3        3787.9       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             10             12           3         10.2          97.8       1.0X
+vanilla Spark, first run                            193            227          47          0.5        1933.5       0.1X
+vanilla Spark, second run                           108            134          36          0.9        1084.5       0.1X
+Varka, plan only                                     41             58          31          2.5         406.7       0.2X
+Varka, first run                                    706            816         180          0.1        7058.1       0.0X
+Varka, second run                                   585            636          44          0.2        5846.0       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+52 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                              8             10           3         12.1          82.4       1.0X
+vanilla Spark, first run                            210            249          55          0.5        2103.6       0.0X
+vanilla Spark, second run                           124            127           3          0.8        1235.4       0.1X
+Varka, plan only                                     16             18           2          6.3         159.4       0.5X
+Varka, first run                                    717            756          53          0.1        7165.3       0.0X
+Varka, second run                                   638            672          35          0.2        6377.9       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+54 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             12             14           2          8.6         116.9       1.0X
+vanilla Spark, first run                            474            488          22          0.2        4737.7       0.0X
+vanilla Spark, second run                           432            437           5          0.2        4318.0       0.0X
+Varka, plan only                                     15             17           2          6.5         153.0       0.8X
+Varka, first run                                    755            789          51          0.1        7550.6       0.0X
+Varka, second run                                   670            710          31          0.1        6704.3       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+56 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             12             14           2          8.0         124.6       1.0X
+vanilla Spark, first run                            467            493          33          0.2        4671.6       0.0X
+vanilla Spark, second run                           447            458          12          0.2        4468.9       0.0X
+Varka, plan only                                     15             16           2          6.7         148.5       0.8X
+Varka, first run                                    752            810          45          0.1        7521.2       0.0X
+Varka, second run                                   688            712          22          0.1        6875.2       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+64 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             13             14           3          7.9         126.2       1.0X
+vanilla Spark, first run                            542            582          63          0.2        5419.4       0.0X
+vanilla Spark, second run                           507            519           8          0.2        5065.1       0.0X
+Varka, plan only                                     17             19           3          6.0         167.4       0.8X
+Varka, first run                                    875            915          46          0.1        8749.5       0.0X
+Varka, second run                                   804            822          21          0.1        8040.0       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+80 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             10             11           3         10.5          95.6       1.0X
+vanilla Spark, first run                            694            721          43          0.1        6938.5       0.0X
+vanilla Spark, second run                           646            670          37          0.2        6457.6       0.0X
+Varka, plan only                                     22             23           2          4.6         216.1       0.4X
+Varka, first run                                   1144           1197          49          0.1       11436.7       0.0X
+Varka, second run                                   979           1006          30          0.1        9795.0       0.0X
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+100 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                              17             18           2          5.9         170.1       1.0X
+vanilla Spark, first run                             870            905          50          0.1        8699.0       0.0X
+vanilla Spark, second run                            801            814           9          0.1        8013.0       0.0X
+Varka, plan only                                      25             26           2          4.0         250.7       0.7X
+Varka, first run                                    1372           1393          18          0.1       13715.6       0.0X
+Varka, second run                                   1251           1274          25          0.1       12508.2       0.0X

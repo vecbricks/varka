@@ -142,7 +142,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
     }
     // Varka's answer: the kernel is not in a stage and its width is decided in bytes, so a
     // projection of 101 outputs fuses whole. (The same limit counted over a cached table's
-    // schema is G3, task 185's, and is not immune.)
+    // schema is G3, which `VarkaSchemaWidthSuite` checks.)
     def wide(session: SparkSession): DataFrame = session.table("varka_dates")
       .selectExpr((1 to 101).map(k => s"date_add(d, $k) AS c$k"): _*)
     val fused = wide(varkaDates().sparkSession)

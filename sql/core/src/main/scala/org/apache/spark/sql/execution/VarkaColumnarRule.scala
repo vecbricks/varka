@@ -17,9 +17,12 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.adaptive.TableCacheQueryStageExec
+import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.vectorized.ArrowColumnVector
 
@@ -57,7 +60,7 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector
  * the pre stage did not see - another columnar rule may have introduced it, and post rules run in
  * reverse rule order, so this rule sees the plan before rules listed after it in that stage.
  */
-object VarkaColumnarRule extends ColumnarRule {
+object VarkaColumnarRule extends ColumnarRule with Logging {
 
   override def preColumnarTransitions: Rule[SparkPlan] = { plan =>
     if (SQLConf.get.varkaEnabled) {
@@ -67,6 +70,7 @@ object VarkaColumnarRule extends ColumnarRule {
           if (child.supportsColumnar) {
             VarkaProjectExec(projectList, child)
           } else {
+            leftToSpark("projection", child)
             project
           }
         // A projection that only narrows a Varka filter's output. It fuses nothing, so the
@@ -140,6 +144,45 @@ object VarkaColumnarRule extends ColumnarRule {
     } else {
       plan
     }
+  }
+
+  /**
+   * Logs why a projection Varka would fuse is left to Spark because its input gives no batches:
+   * at INFO when [[notColumnarReason]] names a cause a user can act on, and at DEBUG otherwise,
+   * since most inputs are not columnar and that is the ordinary case. A filter is not logged:
+   * whether it would fuse is known only by compiling it, which a log line does not justify.
+   */
+  private def leftToSpark(what: String, child: SparkPlan): Unit = notColumnarReason(child) match {
+    case Some(reason) => logInfo(s"Varka left a $what to Spark: $reason")
+    case None => logDebug(s"Varka left a $what to Spark: its input ${child.nodeName} does not " +
+      "produce columnar batches")
+  }
+
+  /**
+   * Why a cache scan gives a Varka node no batches, when the cause is one a user can act on, or
+   * `None` for any other input. Under adaptive execution the scan is inside its query stage. The
+   * causes are the vectorized cache reader switched off; a serializer that is not Varka's Arrow
+   * serializer, whose batches are the only ones the kernels read; and, under that serializer, more
+   * columns read than `spark.sql.codegen.maxFields`, which it counts over the columns the scan
+   * reads (`InMemoryTableScanExec.fieldCountedSchema`).
+   */
+  private[execution] def notColumnarReason(child: SparkPlan): Option[String] = child match {
+    case stage: TableCacheQueryStageExec => notColumnarReason(stage.plan)
+    case scan: InMemoryTableScanExec if !scan.supportsColumnar =>
+      val conf = scan.conf
+      val serializer = scan.relation.cacheBuilder.serializer
+      val arrow = serializer.isInstanceOf[ArrowCachedBatchSerializer]
+      val causes = Seq(
+        Option.when(!conf.cacheVectorizedReaderEnabled)(
+          s"${SQLConf.CACHE_VECTORIZED_READER_ENABLED.key} is off"),
+        Option.when(!arrow)(
+          s"its serializer is ${serializer.getClass.getSimpleName}, not " +
+            classOf[ArrowCachedBatchSerializer].getSimpleName),
+        Option.when(arrow && WholeStageCodegenExec.isTooManyFields(conf, scan.fieldCountedSchema))(
+          s"it reads more than ${conf.wholeStageMaxNumFields} columns " +
+            s"(${SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key})")).flatten
+      Option.when(causes.nonEmpty)(s"the cache scan produces rows: ${causes.mkString("; ")}")
+    case _ => None
   }
 
   // The compiler is the single eligibility oracle: a projection is fused exactly when

@@ -1,0 +1,55 @@
+Narrow-width companion of VarkaSchemaWidthBenchmark-jdk25-results.txt: the same benchmark under
+-XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
+  benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSchemaWidthBenchmark
+  commit:      762f0312a96
+  date:        2026-09-25T22:31:51Z
+  jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  kernel:      7.0.0-31-generic
+  cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+  power:       governor=performance epp=performance profile=performance
+  pinned to:   taskset -c 0,12,13,14,15,1,2,3
+  load at start: 0.47
+  canary:      ok (compute +0.2% cache +3.3% memory -0.3% )
+  wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaSchemaWidthBenchmark
+  narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project sql" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaSchemaWidthBenchmark"
+
+Running benchmark: sum(i1) over 1000000 cached rows
+  Running case: 100 fields
+  Stopped after 69 iterations, 2000 ms
+  Running case: 101 fields
+  Stopped after 71 iterations, 2011 ms
+  Running case: 101 fields, maxFields=1000
+  Stopped after 74 iterations, 2011 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+sum(i1) over 1000000 cached rows:         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+100 fields                                           26             29           3         38.5          26.0       1.0X
+101 fields                                           26             28           2         37.8          26.5       1.0X
+101 fields, maxFields=1000                           25             27           2         39.9          25.1       1.0X
+100 fields: Spark, cache scan columnar
+101 fields: Spark, cache scan rows
+101 fields, maxFields=1000: Spark, cache scan columnar
+00:34:09.190 WARN org.apache.spark.sql.catalyst.analysis.SimpleFunctionRegistry: The function system.builtin.parse_sql replaced a previously registered function.
+00:34:09.190 WARN org.apache.spark.sql.catalyst.analysis.FunctionRegistry$$anon$1: The function system.builtin.parse_sql replaced a previously registered function.
+Running benchmark: date_add(d, 1) over 1000000 cached rows
+  Running case: vanilla Spark, 100 fields
+  Stopped after 62 iterations, 2001 ms
+  Running case: vanilla Spark, 101 fields
+  Stopped after 60 iterations, 2044 ms
+  Running case: Varka, 100 fields
+  Stopped after 133 iterations, 2009 ms
+  Running case: Varka, 101 fields
+  Stopped after 125 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+date_add(d, 1) over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, 100 fields                            30             32           2         33.1          30.2       1.0X
+vanilla Spark, 101 fields                            32             34           5         31.4          31.8       1.0X
+Varka, 100 fields                                    14             15           2         73.9          13.5       2.2X
+Varka, 101 fields                                    15             16           2         67.9          14.7       2.1X
+vanilla Spark, 100 fields: Spark, cache scan columnar
+vanilla Spark, 101 fields: Spark, cache scan rows
+Varka, 100 fields: Varka, cache scan columnar
+Varka, 101 fields: Varka, cache scan columnar

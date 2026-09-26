@@ -980,7 +980,11 @@ The Arrow fast path reads cached batches through the in-memory columnar
 vectorized reader (`spark.sql.inMemoryColumnarStorage.enableVectorizedReader`,
 `true` by default), so caching with the Arrow serializer produces
 `ArrowColumnVector` `DateDayVector` batches. Without an Arrow-backed source
-Varka silently uses the row engine for every batch and results stay correct.
+Varka uses the row engine for every batch and results stay correct; where a
+setting would give it batches - the vectorized reader off, another cache
+serializer, or a query reading more than `spark.sql.codegen.maxFields` columns -
+it logs the reason at INFO. With Varka on, an Arrow cache counts that limit over
+the columns a query reads rather than the whole table.
 
 The VISION draft also describes `spark.sql.codegen.varka.patch.threshold` and
 `spark.sql.codegen.varka.fallback.ghost.enabled`. They are design intentions,
