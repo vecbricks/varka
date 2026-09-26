@@ -125,7 +125,8 @@ case class VarkaProjectExec(
       longMetric("numOutputRows"),
       longMetric("numInputBatches"),
       varkaMetrics,
-      emitUseAVX = conf.varkaEmitUseAVX)
+      emitUseAVX = conf.varkaEmitUseAVX,
+      warmupEnabled = conf.varkaWarmupEnabled)
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -145,7 +146,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
     numOutputRows: SQLMetric,
     numInputBatches: SQLMetric,
     varkaMetrics: VarkaExecMetrics,
-    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN)
+    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN,
+    warmupEnabled: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, ColumnarBatch] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, ColumnarBatch] = {
@@ -156,7 +158,7 @@ private[sql] class VarkaProjectEvaluatorFactory(
 
     private val kernels = new VarkaKernelEvaluator(
       projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "Project",
-      classDumpDirectory, varkaMetrics, emitUseAVX)
+      classDumpDirectory, varkaMetrics, emitUseAVX, warmupEnabled)
 
     /**
      * The input ordinals this projection is, when it only forwards columns and computes

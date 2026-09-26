@@ -107,6 +107,8 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A kernel clean at 512 bits can be a per-lane loop at 128, and only the narrow companion shows it](sql/varka/skills/the-jit.md#a-kernel-clean-at-512-bits-can-be-a-per-lane-loop-at-128-and-only-the-narrow-companion-shows-it)
 * [Ask C2 which vector calls it refused, per shape, and know which of its three answers is a verdict](sql/varka/skills/the-jit.md#ask-c2-which-vector-calls-it-refused-per-shape-and-know-which-of-its-three-answers-is-a-verdict)
 * [A new kernel class runs interpreted until enough batches have gone through it](sql/varka/skills/the-jit.md#a-new-kernel-class-runs-interpreted-until-enough-batches-have-gone-through-it)
+* [A method C1 compiles at tier 2 but not at tier 3 is stranded on C1 code](sql/varka/skills/the-jit.md#a-method-c1-compiles-at-tier-2-but-not-at-tier-3-is-stranded-on-c1-code)
+* [Warming a kernel off the critical path](sql/varka/skills/the-jit.md#warming-a-kernel-off-the-critical-path)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)

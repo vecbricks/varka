@@ -46,6 +46,12 @@ import java.util.List;
  * its own class. {@link #VarkaShapeKey(List, int, int)} supplies the defaults, which is every
  * production caller.
  *
+ * <p>{@code warmed} is the one component that changes the class's name and not its bytes: a
+ * kernel its session warms before it serves batches ({@link VarkaKernelWarmup}) is emitted under
+ * a name of its own, because the compiler directive that keeps C1 off warmed kernels matches
+ * classes by name ({@link VarkaKernelCompileDirective}). A kernel no warm-up will run must not
+ * match it, so the two are different classes even where the bytes agree.
+ *
  * <p>A wrong hit returns wrong results and the ghost fallback cannot catch it, so the compact
  * constructor takes an immutable copy of {@code outputs}: a caller holding the list it passed in
  * must not be able to mutate a key that is already sitting in the map (see which ported this
@@ -55,7 +61,8 @@ public record VarkaShapeKey(
     List<VarkaVectorIR> outputs,
     int numInputs,
     int numLiterals,
-    VarkaEmitOptions options) {
+    VarkaEmitOptions options,
+    boolean warmed) {
 
   public VarkaShapeKey {
     outputs = List.copyOf(outputs);
@@ -64,7 +71,13 @@ public record VarkaShapeKey(
     }
   }
 
-  /** The production shape: {@link VarkaEmitOptions#DEFAULTS}. */
+  /** A kernel that is not warmed, emitted with {@code options}. */
+  public VarkaShapeKey(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
+      VarkaEmitOptions options) {
+    this(outputs, numInputs, numLiterals, options, false);
+  }
+
+  /** The production shape: {@link VarkaEmitOptions#DEFAULTS}, not warmed. */
   public VarkaShapeKey(List<VarkaVectorIR> outputs, int numInputs, int numLiterals) {
     this(outputs, numInputs, numLiterals, VarkaEmitOptions.DEFAULTS);
   }

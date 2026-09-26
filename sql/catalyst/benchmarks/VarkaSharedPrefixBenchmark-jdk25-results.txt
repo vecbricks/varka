@@ -1,0 +1,23 @@
+================================================================================================
+the civil-from-days prefix, recomputed per group
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+64 cheap tails over one date: year(d) + k over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+fused ceiling 400: 1 group                                             257            260           4          3.9         256.5       1.0X
+fused ceiling 200: 1 group                                             242            244           2          4.1         241.6       1.1X
+fused ceiling 100: 2 groups                                            288            292           5          3.5         288.4       0.9X
+fused ceiling 50: 6 groups                                             412            416           4          2.4         411.7       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+60 make_date(year(d), month(d), k) outputs over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------
+fused ceiling 400: 12 groups                                             27             31          23         37.3          26.8       1.0X
+fused ceiling 200: 30 groups                                             42             45           5         23.9          41.9       0.6X
+fused ceiling 100: 60 groups                                             73             73           0         13.7          73.1       0.4X
+fused ceiling 50: 60 groups                                              73             78           8         13.7          73.2       0.4X
+
+

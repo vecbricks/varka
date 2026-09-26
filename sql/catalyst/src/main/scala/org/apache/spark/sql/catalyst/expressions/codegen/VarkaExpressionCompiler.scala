@@ -27,12 +27,13 @@ import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Attribute, Bi
   BoundReference, Cast, EvalMode, Expression, Greatest, Least, Literal, Multiply, NamedExpression,
   RuntimeReplaceable, Subtract, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDerivedKind, VarkaEmitDeclined,
-  VarkaEmitOptions, VarkaLoopEmitter, VarkaRangeAnalysis, VarkaShapeCache, VarkaShapeKey,
-  VarkaVectorIR}
+  VarkaEmitOptions, VarkaKernelWarmup, VarkaLoopEmitter, VarkaRangeAnalysis, VarkaShapeCache,
+  VarkaShapeKey, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{ColumnRef, Cond,
   Greatest => IRGreatest, IntArith, IntNeg, IntOp, LaneType, Least => IRLeast, LiteralSlot,
   Or => IROr, Overflow}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, DataType, DateType, DayTimeIntervalType,
   IntegerType, LongType, TimeType, YearMonthIntervalType}
 
@@ -528,7 +529,8 @@ private[sql] object VarkaExpressionCompiler {
       return None
     }
     val key = new VarkaShapeKey(
-      fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options)
+      fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options,
+      VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
     try {
       VarkaShapeCache.getOrEmit(key, "plan-time admission")
       None

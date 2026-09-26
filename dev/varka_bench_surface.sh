@@ -278,7 +278,11 @@ for spec in "${dists[@]}"; do
     case "$c" in
       "") ;;
       varka)
+        # The warm-up off: the surface times kernels at steady state, and a new shape's
+        # batches would otherwise run on the row path, uncounted as fallbacks, until its
+        # kernel compiles.
         submit+=(--conf spark.sql.codegen.varka.enabled=true
+          --conf spark.sql.codegen.varka.warmup.enabled=false
           --conf "spark.sql.cache.serializer=$arrow_serializer"
           --driver-class-path "$(engine_jar)")
         driver+=(--expect-fused --max-fixed-share "$share") ;;

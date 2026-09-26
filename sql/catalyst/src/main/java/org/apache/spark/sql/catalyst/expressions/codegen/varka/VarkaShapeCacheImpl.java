@@ -186,8 +186,14 @@ public final class VarkaShapeCacheImpl {
     Cache<LoaderShapeKey, VarkaShapeEntry> classes = CacheBuilder.newBuilder()
         .maximumSize(maxEntries)
         // Guava swallows a throwing listener; release() cannot throw, and must not be more
-        // than "stop retaining": running tasks still hold the class until they complete.
-        .<LoaderShapeKey, VarkaShapeEntry>removalListener(n -> n.getValue().loader().release())
+        // than "stop retaining": running tasks still hold the class until they complete. A
+        // warm-up of a shape that left stops too - new tasks emit the shape into a new class,
+        // so compiling this one would serve only the tasks already running it, which take
+        // the kernel as soon as the warmth is released.
+        .<LoaderShapeKey, VarkaShapeEntry>removalListener(n -> {
+          n.getValue().loader().release();
+          n.getValue().warmth().release();
+        })
         .build();
     this.cache = classes;
     this.executions = CacheBuilder.newBuilder()
@@ -368,6 +374,13 @@ public final class VarkaShapeCacheImpl {
   public static final String CLASS_NAME_PREFIX =
       "org.apache.spark.sql.varka.execution.VarkaFusedProjection_";
 
+  /**
+   * What a warmed kernel's shape hash starts with, and so its class name after
+   * {@link #CLASS_NAME_PREFIX}: a letter no hex digit is, which lets the compiler directive match
+   * warmed kernels and nothing else ({@link VarkaKernelCompileDirective}).
+   */
+  public static final String WARMED_MARK = "w";
+
   /** The one rendering of the shape-named class name; every caller derives it here. */
   public static String classNameFor(String shapeHash) {
     return CLASS_NAME_PREFIX + shapeHash;
@@ -391,6 +404,9 @@ public final class VarkaShapeCacheImpl {
    * A non-default variant renders, and so gets its own name: the execution side table is keyed on
    * the hash alone while the map is keyed on the full key, so options that reached one but not
    * the other would merge two variants' execution identities.
+   *
+   * <p>A warmed kernel's hash is the same sixteen characters after {@link #WARMED_MARK}: the same
+   * bytes under a name the C1-exclusion directive matches.
    */
   public static String shapeHash(VarkaShapeKey key) {
     StringBuilder canonical = new StringBuilder();
@@ -399,7 +415,8 @@ public final class VarkaShapeCacheImpl {
     }
     canonical.append(key.numInputs()).append('|').append(key.numLiterals());
     canonical.append(key.options().canonical());
-    return JavaUtils.sha256Hex(canonical.toString()).substring(0, 16);
+    String hex = JavaUtils.sha256Hex(canonical.toString()).substring(0, 16);
+    return key.warmed() ? WARMED_MARK + hex : hex;
   }
 
   private VarkaShapeEntry emit(LoaderShapeKey loaderKey) {
@@ -433,7 +450,7 @@ public final class VarkaShapeCacheImpl {
     } catch (NoSuchMethodException e) {
       throw sneakyThrow(e);
     }
-    return new VarkaShapeEntry(loader, klass, bytes, hash, constructor);
+    return new VarkaShapeEntry(loader, klass, bytes, hash, constructor, new VarkaKernelWarmth());
   }
 
   /**

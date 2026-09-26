@@ -83,6 +83,9 @@ object VarkaInExpressionBenchmark extends SqlBasedBenchmark {
     if (varkaEnabled) {
       builder
         .config(SQLConf.VARKA_ENABLED.key, "true")
+        // Steady state, checked to have run on the kernel before timing: a new shape's
+        // first query must not wait on the row path for its kernel to compile.
+        .config(SQLConf.VARKA_WARMUP_ENABLED.key, "false")
         .withExtensions(_.injectColumnar(_ => VarkaColumnarRule))
     }
     builder.getOrCreate()

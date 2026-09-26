@@ -36,6 +36,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoad
  * both are pure functions of the hash, and two fields that must agree with a third are two fields
  * that can disagree with it.
  *
+ * <p>{@code warmth} is the one mutable component: whether the shape's kernel is compiled yet,
+ * shared by every task that runs the shape so that one warm-up serves them all
+ * ({@link VarkaKernelWarmth}). It lives here because it describes the loaded class - a shape
+ * emitted again into a new class starts cold again, whatever its predecessor reached.
+ *
  * <p>This is a record for its constructor and accessors, not for its equality. Two of its
  * components - {@code classBytes} and {@code klass} - have identity equality, so the generated
  * {@code equals} is identity-ish rather than structural. That is harmless because entries are only
@@ -48,7 +53,8 @@ public record VarkaShapeEntry(
     Class<?> klass,
     byte[] classBytes,
     String shapeHash,
-    Constructor<?> constructor) {
+    Constructor<?> constructor,
+    VarkaKernelWarmth warmth) {
 
   /** The shape-named class name, derived from the hash; see {@link VarkaShapeCacheImpl}. */
   public String className() {

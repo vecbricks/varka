@@ -1,0 +1,17 @@
+================================================================================================
+the warm-up's verdict with and without C1 kept off the kernel classes
+================================================================================================
+
+without the directive, JVM 1: 16 entries: RELEASED after 59996 ms and 159472 calls; the first probe allocated 9983024 bytes, the last 4502848
+without the directive, JVM 1: 54 entries: RELEASED after 60004 ms and 153872 calls; the first probe allocated 27989184 bytes, the last 3082432
+without the directive, JVM 2: 16 entries: RELEASED after 60001 ms and 148176 calls; the first probe allocated 11327808 bytes, the last 9117440
+without the directive, JVM 2: 54 entries: RELEASED after 60003 ms and 155216 calls; the first probe allocated 27989184 bytes, the last 3082432
+without the directive, JVM 3: 16 entries: RELEASED after 60000 ms and 159616 calls; the first probe allocated 9372160 bytes, the last 4502848
+without the directive, JVM 3: 54 entries: RELEASED after 60001 ms and 154112 calls; the first probe allocated 27989184 bytes, the last 3082432
+with the directive, JVM 1: 16 entries: COMPILED after 1880 ms and 16480 calls; the first probe allocated 9924000 bytes, the last 22720
+with the directive, JVM 1: 54 entries: COMPILED after 5832 ms and 18288 calls; the first probe allocated 27989184 bytes, the last 156800
+with the directive, JVM 2: 16 entries: COMPILED after 2026 ms and 16576 calls; the first probe allocated 10117744 bytes, the last 22720
+with the directive, JVM 2: 54 entries: COMPILED after 6141 ms and 18576 calls; the first probe allocated 27989184 bytes, the last 159360
+with the directive, JVM 3: 16 entries: COMPILED after 2024 ms and 16560 calls; the first probe allocated 11074224 bytes, the last 22720
+with the directive, JVM 3: 54 entries: COMPILED after 6241 ms and 18704 calls; the first probe allocated 27989184 bytes, the last 151680
+
