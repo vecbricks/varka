@@ -79,6 +79,9 @@ jobs:
       uses: ./.github/actions/install-varka-engine
     - name: Compile the catalyst tests and export their classpath
       run: |
+        # The shell opens the redirect's file before sbt runs, and a fresh checkout has no
+        # target/ yet.
+        mkdir -p target
         ./build/sbt -Phive -batch "catalyst/Test/compile" "export catalyst/Test/fullClasspath" \
           | tail -1 > target/catalyst-test-classpath.txt
         test -s target/catalyst-test-classpath.txt
