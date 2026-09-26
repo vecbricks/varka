@@ -1,0 +1,21 @@
+Band for 8 cases: how far apart repeated runs of an unchanged file land.
+Written by dev/varka_bench_band.py. Read by dev/varka_bench_diff.py --band, which
+uses a case's tier to decide whether its move in a regeneration means anything.
+
+tier 0 <= 3%   1 <= 10%   2 <= 25%   3 not readable from a diff at all
+
+runs:    5
+commit:  35bea33f068
+date:    2026-09-25T22:29:40+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+
+tier   spread occ  table | case
+0     0.74   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 100: 60 groups
+0     0.42   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 200: 30 groups
+1     9.14   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 400: 12 groups
+0     0.00   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 50: 60 groups
+1     7.50   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 100: 2 groups
+1     5.00   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 200: 1 group
+2    16.67   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 400: 1 group
+3 10056.00   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 50: 6 groups

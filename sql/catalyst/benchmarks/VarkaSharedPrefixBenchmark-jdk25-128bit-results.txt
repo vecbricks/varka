@@ -1,0 +1,49 @@
+Narrow-width companion of VarkaSharedPrefixBenchmark-jdk25-results.txt: the same benchmark under
+-XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
+  benchmark:   org.apache.spark.sql.VarkaSharedPrefixBenchmark
+  commit:      35bea33f068
+  date:        2026-09-25T22:18:26Z
+  jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  kernel:      7.0.0-31-generic
+  cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+  power:       governor=performance epp=performance profile=performance
+  pinned to:   taskset -c 0,12,13,14,15,1,2,3
+  load at start: 0.47
+  canary:      ok (compute +0.2% cache +2.1% memory -0.6% )
+  wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaSharedPrefixBenchmark
+  narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaSharedPrefixBenchmark"
+
+Running benchmark: 64 cheap tails over one date: year(d) + k over 1000000 rows
+  Running case: fused ceiling 400: 1 group
+  Stopped after 5 iterations, 4893 ms
+  Running case: fused ceiling 200: 1 group
+  Stopped after 5 iterations, 4950 ms
+  Running case: fused ceiling 100: 2 groups
+  Stopped after 5 iterations, 4588 ms
+  Running case: fused ceiling 50: 6 groups
+  Stopped after 200 iterations, 2004 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+64 cheap tails over one date: year(d) + k over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+fused ceiling 400: 1 group                                             977            979           2          1.0         976.6       1.0X
+fused ceiling 200: 1 group                                             960            990          21          1.0         960.2       1.0X
+fused ceiling 100: 2 groups                                            900            918          17          1.1         900.0       1.1X
+fused ceiling 50: 6 groups                                              10             10           0        100.3          10.0      97.9X
+Running benchmark: 60 make_date(year(d), month(d), k) outputs over 1000000 rows
+  Running case: fused ceiling 400: 12 groups
+  Stopped after 24 iterations, 2068 ms
+  Running case: fused ceiling 200: 30 groups
+  Stopped after 17 iterations, 2112 ms
+  Running case: fused ceiling 100: 60 groups
+  Stopped after 10 iterations, 2126 ms
+  Running case: fused ceiling 50: 60 groups
+  Stopped after 9 iterations, 2037 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+60 make_date(year(d), month(d), k) outputs over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------
+fused ceiling 400: 12 groups                                             86             86           1         11.6          86.0       1.0X
+fused ceiling 200: 30 groups                                            124            124           0          8.1         123.9       0.7X
+fused ceiling 100: 60 groups                                            212            213           2          4.7         211.7       0.4X
+fused ceiling 50: 60 groups                                             216            226          10          4.6         215.8       0.4X

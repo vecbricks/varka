@@ -93,8 +93,45 @@ is row 209 rather than part of this task.
 
 ## 6. Outcome
 
-*Written from the quiet run: each prediction scored, and the decision on
-building the computed-once prefix and on row 200.*
+The quiet run, 26 September 2026, on the laptop at both widths
+(`VarkaSharedPrefixBenchmark-jdk25-results.txt` and its 128-bit companion),
+and five repeats of the wide run for the band
+(`VarkaSharedPrefixBenchmark-jdk25-band.txt`). The canary passed before the
+run and the load at start was below 0.5.
+
+**The `make_date` family is stable** - the band puts its four cases in tiers 0
+and 1 - so the first two predictions are scored from it.
+
+1. **Held.** Sixty groups cost 73.1 ns a row against the default twelve
+   groups' 26.8 on the wide run, 2.7 times, and 211.7 against 86.0 on the
+   narrow one, 2.5 times. Recomputation on this shape is priced far above the
+   band.
+2. **Held, as a ceiling.** Each group past the default's twelve costs about
+   1 ns a row on the wide run and 2.6 on the narrow one. Charging all of it to
+   the recomputed prefix, the default's eleven repeated prefixes are at most
+   about 40% of its time on the wide run and 33% on the narrow one, above the
+   20% the admission asked for. It stays a ceiling rather than a measured
+   share: each extra group also reloads the column and runs its own loop,
+   which section 3 said an arm that splits without recomputing would separate.
+   **The computed-once prefix is admitted**, and row 200 with it.
+3. **Refuted as worded.** The cheap-tail family is not slow in one shape and
+   fast in the others: its speed is decided per JVM run. In the five band
+   runs the one-group kernel was fast every time, about 4 ns a row, while the
+   six-group kernel ran fast in some runs and at up to about 250 in others,
+   the widest spread any band in this project has recorded (tier 3). In the
+   regeneration's single wide run all four cheap-tail kernels were slow,
+   241.6 to 411.7 ns a row; in its narrow run the one-group kernel was slow,
+   976.6, and the six-group kernel fast, 10.0. So the catastrophe of section 3
+   is a compile outcome that varies between runs of the same class, not a
+   property of grouping, and the committed cheap-tail rows of the wide file
+   are a slow-mode run, not the family's typical speed.
+
+What it means for row 209: the cliff under the byte budget is worse than a
+shape the budget misses, because the same kernel can land on either side of
+it. Timing cannot say which side a run landed on; the evidence has to come
+from the JVM - `-XX:+PrintCompilation` and the intrinsic diagnostics per run,
+as `PLAN_TASK_165.md` did for the failed-intrinsic shape - and row 209 should
+start there.
 
 ## 7. Explicitly out of this task
 
