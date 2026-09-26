@@ -165,10 +165,71 @@ identical kernels.
 
 ## 5. Outcome
 
-*To be written.* It scores the predictions, lists the friction with its cost
-in lines and in reading time, and says what the port means for the three other
-families and for the facade: whether they follow, in what order, and whether
-`sql/varka/CLAUDE.md`'s sentence about expression matching narrows.
+*Written 26 September 2026, when the port was built and verified.*
+
+`VarkaIntervalCompiler` is a Java class, the Scala file is deleted, and every
+Varka suite in `sql/catalyst` passes: 423 tests, and every one of the 27
+cancelled is an opt-in test, cancelled unless asked for (`-Dvarka.sweep`,
+`VARKA_OPTION_AUDIT`, `-Dvarka.jfr`). `build/sbt catalyst/doc`, a Maven
+compile of `sql/catalyst`, `dev/scalastyle` and `dev/lint-java` pass.
+
+1. **Held.** The compiler, family-chain, coverage and emitted-bytes suites
+   pass, with the same tests as before: the port adds and removes none.
+   `coverage.json` and `emitted_bytes.json` are unchanged; both suites fail
+   when their render differs from the committed file.
+2. **Held.** The four decline reasons and seven operand positions are in the
+   Java file verbatim, the two interpolated ones as concatenations.
+3. **Held.** Outside the new file the Scala side changed in three places: the
+   `familyChain` entry, one expression; the coverage suite's scan; the deleted
+   file. `VarkaChronoCompiler` did not change.
+4. **Held, with a code workaround rather than a build change** (see 6). Both
+   builds compile the cycle - the Java class calls the Scala facade and the
+   facade calls the Java class - and the doc build passes.
+5. **Refuted by nine lines.** The Java file is 409 lines against the Scala 250,
+   past the 400 predicted: the arm bodies moved into named private methods,
+   each with its comment as javadoc.
+6. **Refuted.** The friction was the six predicted kinds and three more, all
+   at the boundary with the Scala facade:
+   * **No static forwarders.** The facade is a `private[sql] object`, and
+     scalac emitted its module class alone, so `VarkaExpressionCompiler.
+     compileNode(...)` does not compile in Java. The class holds the module
+     once, `VarkaExpressionCompiler$.MODULE$`, as a named field.
+   * **Default arguments.** `columnRef`'s lane defaults in Scala and has to be
+     written out in Java.
+   * **The tables cost more than a type argument.** 2.4 said so; in fact
+     Scala will not pass its `LinkedHashMap[Int, Int]` where Java declares
+     `LinkedHashMap<Object, Object>`, so the methods Scala calls take
+     `LinkedHashMap<?, ?>` and one unchecked cast restores the type for the
+     facade's own methods.
+   * **`Option.map` over a record** needs a cast to the IR interface -
+     `(VarkaVectorIR) new IntNeg(...)` - where Scala inferred it.
+
+   The predicted kinds cost what 2.4 said: the arms are type patterns with
+   `when` guards and accessor calls, one helper (`endsIn`) stands in for the
+   nested `YearMonthIntervalType(_, MONTH)` pattern, and the `for`
+   comprehensions became early returns.
+
+**What it means.** The matching itself reads as well in Java as in Scala.
+Each arm is still one case with its guard, in the same order, and the bodies
+read better as named methods than they did inline. Every cost the port paid
+is at the boundary with a Scala facade - the missing forwarders, the default
+argument, the tables' erased types, `scala.Option` - and every one of them
+goes away when the facade is Java. So:
+
+* The other three families can follow by the same recipe, smallest first:
+  time (409 lines), condition (443), then calendar (678). Each pays the same
+  boundary costs, now known, and none needs a new decision.
+* The facade goes last - item 42 keeps the dispatch in Scala until the last
+  family moves - and with it `DeclineSink`, the tables and
+  `Optional`-returning signatures, which is when the workarounds above are
+  deleted.
+* `sql/varka/CLAUDE.md`'s sentence can narrow: a compiler family's matching
+  over Catalyst expressions is not a surface that forces Scala. Catalyst rules
+  and `SparkPlan` nodes still are. The edit is the owner's to make, so it is
+  proposed here rather than made.
+
+The ports of the other families and of the facade are new rows, proposed with
+this outcome.
 
 ## 6. Explicitly out of this task
 
@@ -178,3 +239,27 @@ families and for the facade: whether they follow, in what order, and whether
   Java: they belong to the facade's port.
 * Item 47, one place per node: its own text reopens it only when a real
   second case arrives.
+* The edit to `sql/varka/AGENTS.md` that section 5 proposes, and the rows for
+  the other ports: both are in their own pull request, #445.
+
+## 7. After review
+
+*Written 26 September 2026, after a code review of the pull request.*
+
+The review found two copies of interval logic that the port had left in
+`VarkaChronoCompiler`: the YEAR-to-months cast arm and the negation mode of a
+negated month count repeated what the interval family computes. Both now
+call the Java class, whose `yearsToMonths` and `negationMode` became
+package-private for it. So prediction 3's "`VarkaChronoCompiler` did not
+change" held for the port and no longer holds for the pull request: it
+changed in those two call sites and its imports.
+
+Two further changes came from the review. The `familyChain` entry goes
+through a `javaFamily` helper in the facade, which is the adapter the next
+Java family reuses. The coverage suite now asserts that each Java file yields
+at least one name on its own, so a Java family the patterns stop recognising
+fails the scan rather than hiding behind the Scala files' total. The Java file
+is 418 lines. `coverage.json` and `emitted_bytes.json` are still unchanged.
+
+Section 5 said the new rows were "proposed with this outcome"; they went up
+as #445, together with the `AGENTS.md` edit.
