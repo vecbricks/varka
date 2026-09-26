@@ -1227,7 +1227,7 @@ Every one answers `--help` with its own usage; what follows is what each is
 | `varka_trap_census.py` | Splits HotSpot's `LogCompilation` output into the two different things called `uncommon_trap` and reports per-method deoptimisation and compile counts - for when a kernel is fast in isolation and slow in a query. |
 | `varka_word_census.sh` | Reports what validity word each IR value root produces, over the whole corpus - the audit behind the null-handling algebra. |
 | `varka_deopt_cycle.sh` | Does a kernel's dense loop compile once, or enter the C2 deoptimization cycle (task 189)? Forks fresh JVMs of the `make_date` ladder's kernel at a width and in an epilogue form under `-XX:+PrintCompilation` and `-Xlog:deoptimization=debug`, since the cycle is decided at a method's first C2 compile and then stable for the JVM's life, so forks are the sample. |
-| `varka_deopt_cycle.py` | Reads those logs and gives the verdict per fork from the JVM's own words - a loop method compiled at tier 4 three or more times as a standard compilation, with `profile_predicate` traps - never from a rate. |
+| `varka_deopt_cycle.py` | Reads those logs and gives the verdict per fork from the JVM's own words - a loop method made not entrant three or more times and trapped at `profile_predicate` more than four times - never from a rate. With `--fail-on-cycle` it exits non-zero when any fork cycles, fails to finish, or no fork is read; `VarkaDeoptCycleSuite` holds the rule against recorded logs. |
 
 ### Refactoring and porting
 
@@ -1258,7 +1258,7 @@ remembered.
 | `varka_bench_band.py` | How far apart do repeated runs of one benchmark land, per case? `--split-half` asks whether that spread itself reproduces. Use it before believing a small win. |
 | `varka_bench_repeat.sh` | Runs one benchmark N times so `varka_bench_band.py` has something to read. |
 | `varka_bench_ids.sh` | Which benchmark case ids are taken and which is the next free one - the ids must be unique per file and picking one by eye gets it wrong. |
-| `varka_nightly.sh` | The checks that need volume or an idle machine, into a dated log: the canary, the IR fuzzer at ten thousand iterations, the exhaustive sweeps, optionally the full gate. |
+| `varka_nightly.sh` | The checks that need volume or an idle machine, into a dated log: the canary, the IR fuzzer at ten thousand iterations, the exhaustive sweeps, the deoptimization-cycle guard (ten forks per width of the default twelve-output kernel), optionally the full gate. |
 
 ### The cross-distribution surface benchmark
 

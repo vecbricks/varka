@@ -116,8 +116,9 @@ A regeneration ends with the requote: `dev/varka_bench_diff.py --git HEAD <file>
 number, and the regeneration is done when that list is empty or every line left
 says on purpose that it quotes the number a change moved away from. The checks
 that need volume run from `dev/varka_nightly.sh` - the canary, the fuzzer at ten
-thousand iterations with the day's seed, the exhaustive sweeps, optionally the
-gate - into a dated log under `target/varka-nightly/`.
+thousand iterations with the day's seed, the exhaustive sweeps, the guard against
+the C2 deoptimization cycle, optionally the gate - into a dated log under
+`target/varka-nightly/`.
 
 A task starts with `dev/varka_task_new.sh <n> "<title>"`: the worktree and
 branch off master, the plan file from `plans/TEMPLATE_TASK.md` (the sections

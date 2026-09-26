@@ -169,6 +169,20 @@ The general rule for any harness that forks a JVM and reads what C2 did: either 
 synchronously, or wait for evidence of the compile (a `PrintCompilation` line for the
 method, a WhiteBox query), and never infer it from an iteration count, however generous.
 
+## A forked JVM keeps printing after its last marker line
+
+A harness that runs several forks in one log and splits them at a marker the child prints last
+(`VARKA_DEOPT_DONE=` in `VarkaDeoptCycleProbe`) gives each fork's shutdown to the next one. A
+JVM exiting with compiles still queued prints their `PrintCompilation` lines - tier-4 tasks
+marked `blocked` - after its last line of its own, and every fork of a case emits a class of the
+same name, so nothing in those lines says which JVM printed them. In the deoptimization-cycle
+census at sixty outputs it moved a fourth tier-4 compile of a loop method from the fork that made
+it to the fork after (`PLAN_TASK_189.md` 10).
+
+Split at the marker the child prints first instead: a fork runs from its own start line to the
+next fork's, and the last marker only says whether it finished. `dev/varka_deopt_cycle.py` does
+this, and `VarkaDeoptCycleSuite` pins it with two recorded consecutive forks.
+
 ## Watching what C2 compiled, at runtime, with no flags
 
 JFR's `jdk.Compilation` event carries `method`, `compileLevel`, `isOsr` and `codeSize`, and

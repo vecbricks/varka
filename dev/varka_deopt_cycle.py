@@ -20,9 +20,14 @@
 # methods compiled once or entered the C2 deoptimization cycle (PLAN_MILESTONE_6.md 2.12).
 #
 #   dev/varka_deopt_cycle.py target/varka-deopt-cycle/<date>/width-16.log ...
+#   dev/varka_deopt_cycle.py --fail-on-cycle <log>...    # the nightly guard's form
+#
+# With --fail-on-cycle the exit status is 1 when any fork is in the cycle, when a fork did not
+# finish, or when the logs hold no fork at all: a guard that read nothing must not pass.
 #
 # A fork is one VarkaDeoptCycleProbe child; its lines run from its VARKA_DEOPT_METHODS line to
-# its VARKA_DEOPT_DONE line, and the class name in them carries the case. Per fork it counts,
+# the next fork's, so the compiles its JVM prints after VARKA_DEOPT_DONE while shutting down are
+# its own, and the class name in them carries the case. Per fork it counts,
 # for the class's loopDense methods, the tier-4 compiles (standard and OSR), the "made not
 # entrant" lines and the profile_predicate deoptimizations, and reads the last per-second rate
 # the child printed. The verdict is from the JVM's words, never from the rate: a fork is in the
@@ -56,18 +61,28 @@ def canon(name):
 
 
 def forks(lines):
-    """Yields (class, lines) per fork, split at the child's DONE line."""
-    current = []
+    """Yields (class, lines) per fork: from its METHODS line to the next fork's.
+
+    A fork's JVM keeps printing after its DONE line - compiles still queued when it shuts down -
+    and every fork of a case prints the same class name, so the boundary is the next fork's first
+    line, not this fork's last. A fork without a DONE line is reported as unfinished.
+    """
+    found = []
     for line in lines:
         line = re.sub(r"^\[info\] ", "", line.rstrip("\n"))
-        current.append(line)
+        if "VARKA_DEOPT_METHODS=" in line:
+            found.append({"lines": [], "done": None})
+        if not found:
+            continue
+        found[-1]["lines"].append(line)
         if "VARKA_DEOPT_DONE=" in line:
-            m = CLASS.search(line)
-            yield (canon(m.group(1)) if m else "?"), current
-            current = []
-    if any("VARKA_DEOPT_METHODS=" in l for l in current):
-        m = next((CLASS.search(l) for l in current if CLASS.search(l)), None)
-        yield ((canon(m.group(1)) if m else "?") + " (unfinished)"), current
+            found[-1]["done"] = CLASS.search(line)
+    for fork in found:
+        if fork["done"]:
+            yield canon(fork["done"].group(1)), fork["lines"]
+        else:
+            m = next((CLASS.search(l) for l in fork["lines"] if CLASS.search(l)), None)
+            yield ((canon(m.group(1)) if m else "?") + " (unfinished)"), fork["lines"]
 
 
 def judge(name, lines):
@@ -113,7 +128,7 @@ def judge(name, lines):
     }
 
 
-def main(paths):
+def main(paths, fail_on_cycle=False):
     summary = defaultdict(lambda: [0, 0])
     print(
         "case                        fork  verdict  loopDense tier-4 compiles (osr) / "
@@ -144,9 +159,22 @@ def main(paths):
     for case in sorted(summary):
         total, cyc = summary[case]
         print(f"  {case:27} {cyc:3} / {total}")
+    forks_read = sum(total for total, _ in summary.values())
+    cycling = sum(cyc for _, cyc in summary.values())
+    unfinished = sum(total for case, (total, _) in summary.items() if "(unfinished)" in case)
+    print(
+        f"verdict: {cycling} of {forks_read} forks in the cycle"
+        + (f", {unfinished} unfinished" if unfinished else "")
+    )
+    if fail_on_cycle and (cycling or unfinished or forks_read == 0):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit("usage: dev/varka_deopt_cycle.py <log>...")
-    main(sys.argv[1:])
+    args = sys.argv[1:]
+    fail = "--fail-on-cycle" in args
+    logs = [a for a in args if a != "--fail-on-cycle"]
+    if not logs:
+        sys.exit("usage: dev/varka_deopt_cycle.py [--fail-on-cycle] <log>...")
+    sys.exit(main(logs, fail))

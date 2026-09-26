@@ -99,6 +99,7 @@ the pre-commit hook also checks. Groups below are in file order.
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)
 * [A forked probe's warm-up count buys a compile request, not a compile](sql/varka/skills/the-jit.md#a-forked-probes-warm-up-count-buys-a-compile-request-not-a-compile)
+* [A forked JVM keeps printing after its last marker line](sql/varka/skills/the-jit.md#a-forked-jvm-keeps-printing-after-its-last-marker-line)
 * [Watching what C2 compiled, at runtime, with no flags](sql/varka/skills/the-jit.md#watching-what-c2-compiled-at-runtime-with-no-flags)
 * [A bimodal kernel is usually the register allocator, and here is how to prove it](sql/varka/skills/the-jit.md#a-bimodal-kernel-is-usually-the-register-allocator-and-here-is-how-to-prove-it)
 * [Two things share the name `uncommon_trap`, and only one of them happened](sql/varka/skills/the-jit.md#two-things-share-the-name-uncommon_trap-and-only-one-of-them-happened)
