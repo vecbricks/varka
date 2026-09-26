@@ -16,8 +16,8 @@
 #
 """Figure 14: a cached table at and past spark.sql.codegen.maxFields - one column summed, and
 every column read, over a table of 100 and of 101 int columns. The 101-column table is read row
-by row whatever the query touches, which costs nothing on the one-column sum and four and a
-half times on the whole-table read.
+by row whatever the query touches, which costs nothing on the one-column sum and about five
+times on the whole-table read.
 
 Every value is read from the committed results file when the script runs
 (sql/core/benchmarks/CachedTableWidthBenchmark-jdk25-results.txt), so the figure cannot drift

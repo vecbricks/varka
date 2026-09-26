@@ -612,3 +612,52 @@ So the second cliff of section 5 is gone in 4.4.0; the first, inside a stage,
 is SPARK-33301's, in review as apache/spark#59069. Section 4's owed grouped
 arm is done, and the benchmark class stays in the fork: it went upstream with
 neither change.
+
+### 9.7 Publication order, 26 September 2026
+
+The owner's decision: this post is published first, before task 181's. Its
+introduction now says the second post is to follow, and its closing sentence,
+which held a placeholder for that post's link, says the second post is still
+to come and points to the public repository instead. When task 181's post is
+published, the closing gets its link. Section 6's table is still read from the
+tracker on the day this post is published, as section 4 owes: SPARK-33301 is
+in review as apache/spark#59069 today, and if it merges first, the table's row
+and the `CASE WHEN` paragraph of section 5 change with it.
+
+### 9.8 The review for consistency and correctness, 26 September 2026
+
+The owner asked for one before publication. Its claims about Spark were read
+against the source at v4.2.0 and master, and its numbers against the files
+they come from and those files' provenance. What changed, and why:
+
+* **The first diagnostic did not work on most queries.** Adaptive execution,
+  on by default, plans a query with a shuffle as it runs, so `EXPLAIN CODEGEN`
+  before the run prints "Found 0 WholeStageCodegen subtrees." - Spark's own
+  `ExplainSuite` asserts it - and `EXPLAIN FORMATTED` shows no `ColumnarToRow`.
+  The demo has no shuffle, which is why it never showed. The box, section 3
+  and section 5 now say to run the query and explain the same DataFrame, and
+  how to get close in SQL.
+* **Two sources were misdescribed.** The JDK 21 demo ran on an Intel Xeon
+  6973P-C, which the closing note did not list, so section 1 no longer reads
+  the three JDKs' step sizes as a JDK effect. The 4.4.0 `CASE WHEN` numbers
+  pair two runs on the same CPU, and the note now says so.
+* **One claim had no source.** "About a quarter smaller since Spark 4.2" is
+  replaced by the committed size benchmark's own history, 5843 bytes to 4962
+  since it was added in July 2026.
+* **Wrong or loose in detail:** the stage is 13% slower than no stage at 30
+  branches, not as fast; `NO_CODEGEN`'s price is 34 times the defaults, not
+  the forty times of whole-stage off; the interpreter grows about with the
+  square, faster only past a few hundred branches; `wholeStage=false` costs an
+  eighth to a fifth; the 64 KB failure logs an error before its warning;
+  the INFO line's logger is `CodeCompiler` from 4.3.0; the 4.4.0 warning is
+  quoted whole; the cache reads primitive numbers and booleans in batches.
+* **Consistency:** section 4 now says the step comes two columns later in
+  Figure 6's runs, whose method at 52 columns is 7868 bytes, and Figure 6 is
+  the same expression, not the same query; the method each row runs through
+  is no longer called the row loop; "stage" is defined once, against the
+  Stages tab; section 4 no longer says nothing tells you before 4.4.0, which
+  section 3 contradicted; Figures 1, 3 and 5 match the text, and Figure 1's
+  step size is read from the three demo outputs rather than written in.
+
+The post is 3239 words after it, against 2862 before, most of it the
+adaptive-execution catch; the milestone 5 post, the ceiling, is 4392.

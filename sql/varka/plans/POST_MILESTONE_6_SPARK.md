@@ -11,7 +11,7 @@ shell does not show.
 
 This post is about that step: where it is, how to see it on your own cluster,
 what to set, and which Spark release fixes which part. It is written for
-people who run Spark. A second post covers the internals.
+people who run Spark. A second post, to follow, covers the internals.
 
 ![One method per stage, and the two limits on its size](figures/svg/fig16-one-method-two-limits.svg)
 
@@ -22,8 +22,8 @@ projection of section 1 crosses the first line between 48 and 52 columns.*
 
 > **If a query got several times slower when it grew**
 >
-> 1. Run `EXPLAIN CODEGEN` on it. A stage whose header says
->    `maxMethodCodeSize` above 8000 is on the cliff.
+> 1. Run it, then `df.explain("codegen")` on the same DataFrame. A stage
+>    whose header says `maxMethodCodeSize` above 8000 is on the cliff.
 > 2. Set `spark.sql.codegen.hugeMethodLimit=8000` for that query or job. The
 >    step becomes a gentle slope.
 > 3. From Spark 4.4.0 the log warns you the first time, and names that
@@ -52,8 +52,9 @@ the size of the stage's method under each point. The step is where that size
 passes 8000 bytes, and it is in the same place on every JDK.*
 
 From 48 to 52 columns the time per row goes from about 1,500 to about 9,200
-nanoseconds on JDK 25, 6.2 times. JDK 17 steps 5.5 times and JDK 21 4.6 times,
-at the same place, because Spark writes the bytecode, not the JDK. On one
+nanoseconds on JDK 25, 6.2 times. JDK 17 steps 5.5 times on the same kind of
+machine, and JDK 21, on an Intel runner, 4.6 times. The step is at the same
+place on all three, because Spark writes the bytecode, not the JDK. On one
 core, a hundred million rows would go from about two and a half minutes to
 fifteen.
 
@@ -75,16 +76,19 @@ bin/spark-shell --master local[1] -i method_size_cliff.scala
 
 ## 2. What Spark generates, and the two limits
 
-Spark does not interpret your query row by row. For each stage of the plan it
-writes Java source, compiles it in memory with Janino, and runs the result,
-and the loop over the stage's rows sits in one method. That is whole-stage
-code generation, and it is much of why Spark is fast.
+Spark does not interpret your query row by row. It fuses chains of operators
+into units that `explain()` marks `*(1)`, `*(2)` and so on, and the SQL UI
+draws as `WholeStageCodegen` boxes; this post calls each one a stage, which is
+not the same thing as a stage in the Stages tab. For each stage it writes Java
+source, compiles it in memory with Janino, and runs the result, and the work
+each row does sits in one method that the loop over the stage's rows calls.
+That is whole-stage code generation, and it is much of why Spark is fast.
 
 ![What whole-stage codegen does with your query](figures/svg/fig17-what-spark-writes.svg)
 
 *Figure 3. From your query to machine code, and the method that does not make
-the last step: at 52 columns the row loop's method is 8677 bytes, and the JIT
-never compiles it.*
+the last step: at 52 columns the method each row runs through is 8677 bytes,
+and the JIT never compiles it.*
 
 The step comes from two limits on that method, and both are the JVM's.
 
@@ -130,19 +134,26 @@ java -XX:+PrintFlagsFinal -version | grep DontCompileHugeMethods
 
 ![Is my query on the cliff?](figures/svg/fig19-is-my-query-on-the-cliff.svg)
 
-*Figure 5. From the symptom to the three checks below, and what each answer
-means.*
+*Figure 5. From the symptom to three checks, and what each answer means. The
+first two are commands in this section, the third is in section 5.*
 
-**The method's size, from the plan.** `EXPLAIN CODEGEN` prints the generated
-code of every stage, and the header above each carries the number that
-matters. This one is the demo at 52 columns:
+**The method's size, from the plan.** `df.explain("codegen")`, or `EXPLAIN
+CODEGEN` in SQL, prints the generated code of every stage, and the header
+above each carries the number that matters. This one is the demo at 52
+columns:
 
 ```
 == Subtree 1 / 1 (maxMethodCodeSize:8677; maxConstantPoolSize:387(0.59% used); numInnerClasses:0) ==
 ```
 
 `maxMethodCodeSize` above 8000 is the cliff. It needs no log level and no
-restart.
+restart, with one catch. Adaptive query execution, on by default, plans a
+query with a shuffle - an aggregate, a join, a sort - one piece at a time as
+it runs, so before the query has run there are no stages to show, and the
+output says `Found 0 WholeStageCodegen subtrees.` Run the query first and
+explain the same DataFrame. In SQL, `SET spark.sql.adaptive.enabled=false`
+before the `EXPLAIN CODEGEN` shows the plan without adaptive execution's
+changes: close to the one that runs, not always the same.
 
 **The log.** When Spark compiles a stage it measures every method, and for one
 past the limit it writes:
@@ -154,19 +165,24 @@ INFO CodeGenerator: Generated method too long to be JIT compiled:
 
 `spark-submit` prints it, because the default logging level is INFO.
 `spark-shell` does not: the shell sets its level to WARN on startup, in the
-line everyone scrolls past. From Spark 4.4.0 the first such method is a
-warning that names the remedy:
+line everyone scrolls past. From Spark 4.3.0 the line comes from
+`CodeCompiler` rather than `CodeGenerator`, so search for the message, not the
+logger. From Spark 4.4.0 the first such method in a driver is a warning that
+names the remedy:
 
 ```
-WARN CodeCompiler: Generated method too long to be JIT compiled: ... is 8677 bytes,
+WARN CodeCompiler: Generated method too long to be JIT compiled: ... is 8254 bytes,
   so it runs interpreted on every row. Setting spark.sql.codegen.hugeMethodLimit
-  to 8000 runs such stages without whole-stage codegen instead.
+  to 8000 runs such stages without whole-stage codegen instead. Further methods
+  over the limit are logged at INFO.
 ```
 
-The larger limit logs `WARN WholeStageCodegenExec: Whole-stage codegen
-disabled for plan`, or, outside a stage, `WARN UnsafeProjection: Expr codegen
-error and falling back to interpreter mode`. Both are warnings, so the shell
-shows them; section 5 has their likely cause.
+The larger limit logs an error first, `ERROR CodeGenerator: Failed to compile
+the generated Java code.`, with the compiler's "Code grows beyond 64 KB" in
+its stack trace, and then `WARN WholeStageCodegenExec: Whole-stage codegen
+disabled for plan` or, outside a stage, `WARN UnsafeProjection: Expr codegen
+error and falling back to interpreter mode`. The shell shows all of them;
+section 5 has the most common cause inside a stage.
 
 **The JVM's own word.** Start the driver with `-XX:+PrintCompilation`. The
 compile log names each generated method the JIT compiles, with its size, and
@@ -181,36 +197,38 @@ bin/spark-shell --master local[1] --driver-java-options "-XX:+PrintCompilation" 
 
 ![A step or a slope](figures/svg/fig18-a-step-or-a-slope.svg)
 
-*Figure 6. The projection of section 1 on a build of Spark master, under the
-defaults and under the two settings that work. The defaults step and stay up;
-either setting turns the step into a slope.*
+*Figure 6. The expression of section 1 on a build of Spark master, over two
+million cached dates, under the defaults and under the two settings that work.
+The defaults step and stay up; either setting turns the step into a slope.*
 
 | setting | the step | the price | use it? |
 |--|--|--|--|
 | `spark.sql.codegen.hugeMethodLimit=8000` | becomes a slope | about a quarter more per column past the limit, nothing below it | yes, for the query or job |
-| `spark.sql.codegen.wholeStage=false` | becomes a slope | slower even below the limit: a sixth to a fifth on this query | only for the query that needs it |
-| `spark.sql.codegen.factoryMode=NO_CODEGEN` | much worse | forty times slower on a thousand-branch `CASE WHEN` | no |
+| `spark.sql.codegen.wholeStage=false` | becomes a slope | slower even below the limit: an eighth to a fifth on this query | only for the query that needs it |
+| `spark.sql.codegen.factoryMode=NO_CODEGEN` | much worse | over thirty times slower on a thousand-branch `CASE WHEN` | no |
 | `-XX:-DontCompileHugeMethods` | moves further out | the JIT gives up on a bigger method instead | no |
 
 **`hugeMethodLimit=8000` is the one to use.** With the limit at the size
 HotSpot enforces, Spark measures the compiled stage, finds the long method,
 and runs the stage's operators one by one, each with small methods of its own.
-On the runner of Figure 6 the defaults go from about 900 to 4,700 nanoseconds
-a row between 52 and 54 columns; with the setting, from 900 to 1,100. At a
-hundred columns the setting is four times faster than the defaults, and below
-the limit it changes nothing. The setting is marked internal, but its own
-documentation suggests exactly this value for HotSpot. On stock 4.2.0 the step
-of section 1 shrinks to between 1.1 and 1.3 times.
+In Figure 6's runs the method at 52 columns is 7868 bytes, under the line, so
+there the step comes two columns later: the defaults go from about 900 to
+4,700 nanoseconds a row between 52 and 54 columns; with the setting, from 900
+to 1,100. At a hundred columns the setting is four times faster than the
+defaults, and below the limit it changes nothing. The setting is marked
+internal, but its own documentation suggests exactly this value for HotSpot.
+On stock 4.2.0 the step of section 1 shrinks to between 1.1 and 1.3 times.
 
 **`factoryMode=NO_CODEGEN` looks tempting and is not.** It turns code
 generation off for projections and filters, and Spark's interpreter is
 compiled Scala, so it sounds like a way around an uncompiled method. But the
 interpreter of a `CASE WHEN` looks up its branches by position in a linked
-list, walking from the head each time, so one row costs time that grows faster
-than the square of the branch count. On a thousand branches it is forty times
-slower than the uncompiled generated code it would replace, and going from 300
-branches to 1000 multiplies its cost by twenty. The documentation says the
-setting is "NOT supposed to be set by end users", and it means it.
+list, walking from the head each time, so one row costs time that grows about
+with the square of the branch count, and faster still past a few hundred
+branches: going from 300 branches to 1000 multiplies its cost by twenty. On a
+thousand branches it is 34 times slower than the defaults it would replace.
+The documentation says the setting is "NOT supposed to be set by end users",
+and it means it.
 
 **`-XX:-DontCompileHugeMethods` moves the cliff.** It is the first flag anyone
 who knows the JIT reaches for, and at the crossing it does what it says: no
@@ -220,9 +238,9 @@ if you ask it to, and the defaults are five and a half times slower than
 `hugeMethodLimit=8000` in the same run. The size where that happens depends
 on what the code does, on every executor. Leave the flag on.
 
-Before 4.4.0 nothing in the default configuration tells you, and nothing keeps
-the stage compiled past the limit. The choice is between a step and a slope,
-and the slope is the better deal. Try it on the demo:
+Before 4.4.0 the only sign is an INFO line that the shell hides, and nothing
+keeps the stage compiled past the limit. The choice is between a step and a
+slope, and the slope is the better deal. Try it on the demo:
 
 ```
 bin/spark-shell --master local[1] --conf spark.sql.codegen.hugeMethodLimit=8000 -i method_size_cliff.scala
@@ -251,27 +269,29 @@ method holding the calls grows with them: 2141 bytes at 300 branches, 8060 at
 on log axes.*
 
 Read Figure 8 from left to right. At 30 and 60 branches everything is
-compiled, and the stage is as fast as no stage or faster. At 100 the stage's
-method is past 8000 bytes and the stage is six times slower than the same
-query without it. At 1000 the stage fails to compile and falls back to the
-split code, and it pays for the failed compile again on every run, about half
-a second. And between 300 and 1000 branches the split code itself costs
-thirteen times more per row for three and a third times the branches, because
-the method holding the calls crossed 8000 bytes on the way. Two upstream
-changes address the two halves; section 6 says where they are. The second is
-in 4.4.0: with it the same 1000 branches outside a stage cost 2309.9 ns a
-row instead of 12935.8, and the stage that fails to compile, which falls back
-to that code, 4680.4 instead of 15409.3.
+compiled, and the two are close: the stage is 13% slower at 30 and faster at
+60. At 100 the stage's method is past 8000 bytes and the stage is six times
+slower than the same query without it. At 1000 the stage fails to compile and
+falls back to the split code, and it pays for the failed compile again on
+every run, about half a second. And between 300 and 1000 branches the split
+code itself costs thirteen times more per row for three and a third times the
+branches, because the method holding the calls crossed 8000 bytes on the way.
+Two upstream changes address the two halves; section 6 says where they are.
+The second is in 4.4.0: in a run with it, on the same CPU, the same 1000
+branches outside a stage cost 2309.9 ns a row against 12935.8 without it, and
+the stage that fails to compile, which falls back to that code, 4680.4 against
+15409.3.
 
-**A wide cached table is read row by row, even for one column.** Spark reads
-a cached table in batches when three things hold: the vectorized cache reader
-is on, which is the default; every column is a number or a boolean; and the
-table's schema is within `spark.sql.codegen.maxFields`, a hundred fields by
-default. A table with one string, date or decimal column is read row by row
-at any width, and this trap does not apply to it. For an all-numeric table
-the width decides, and the count is of the whole cached table, not of what
-the query reads. The same data in a Parquet file is read in batches, because a
-file scan counts only the columns it reads.
+**A wide cached table is read row by row, even for one column.** Spark reads a
+cached table in batches when three things hold: the vectorized cache reader is
+on, which is the default; every column is a boolean or a primitive number,
+from byte to double; and the table's schema is within
+`spark.sql.codegen.maxFields`, a hundred fields by default. A table with one
+string, date or decimal column is read row by row at any width, and this trap
+does not apply to it. For an all-numeric table the width decides, and the
+count is of the whole cached table, not of what the query reads. The same
+one-column query over a Parquet file is read in batches, because a file scan
+counts only the columns it reads.
 
 ![A cached table at and past maxFields](figures/svg/fig14-the-cached-table-width.svg)
 
@@ -288,10 +308,10 @@ of whole-stage codegen, so a projection of 150 columns that ran as separate
 operators will run as one method with the limit at 200, and that method may be
 past 8000 bytes. Check `maxMethodCodeSize` after.
 
-**See which one you have.** For the cache, `EXPLAIN FORMATTED` shows a
-`ColumnarToRow` above an `InMemoryTableScan` that produces batches, and none
-above one that does not. For the `CASE WHEN`, `EXPLAIN CODEGEN` and its
-header, as in section 3.
+**See which one you have.** For the cache, `df.explain("formatted")` after the
+query has run, for the reason section 3 gives, shows a `ColumnarToRow` above
+an `InMemoryTableScan` that produces batches, and none above one that does
+not. For the `CASE WHEN`, `EXPLAIN CODEGEN` and its header, as in section 3.
 
 ## 6. Which release fixes what
 
@@ -305,11 +325,12 @@ Read from the tracker on 26 September 2026.
 | SPARK-33301 | a large `CASE WHEN` inside a stage is split into methods | in review, [apache/spark#59069](https://github.com/apache/spark/pull/59069) |
 | SPARK-56908 | generated code shrinks across operators | umbrella, 57 of 58 sub-tasks done |
 
-The umbrella has made the largest method of any unmodified TPC-DS query about
-a quarter smaller since Spark 4.2, which widens the margin for the queries
-that were already under the line. It does not bound the method: a projection
-of 54 date columns still crosses, because nothing in the pipeline counts bytes
-before the compile.
+In Spark's own size benchmark, added in July 2026 while the umbrella was under
+way, the largest method of any unmodified TPC-DS query has since gone from
+5843 bytes to 4962, which widens the margin for the queries that were already
+under the line. It does not bound the method: a projection of 54 date columns
+still crosses, because nothing in the pipeline counts bytes before the
+compile.
 
 ---
 
@@ -318,14 +339,20 @@ writes source cannot know how many bytes a method will be until the compiler
 tells it, and by then the method exists. An engine that emits bytecode
 directly can measure the method in the unit the JVM enforces before anything
 runs, and split or refuse on the number rather than on a guess. The second
-post in this pair is about one that does: `[[link to the second post]]`.
+post in this pair, still to come, is about one that does; its code is already
+public, in [vecbricks/varka](https://github.com/vecbricks/varka).
 
-*How this was measured.* Every number here is from a results file committed
+*How this was measured.* Every timing here is from a results file committed
 beside the post: the demo's outputs on stock Spark 4.2.0 with JDK 17, 21 and
-25, and four Spark-style benchmarks on a September 2026 build of Spark master
-with JDK 25. All ran on GitHub-hosted runners, which are not one machine: the
-files name an AMD EPYC 9V45, 9V74 and 7763 and an Intel Xeon Platinum 8370C,
-and every comparison in the text is between numbers from the same run. The
-prose rounds; the figures and the
-[results files](https://github.com/vecbricks/varka/tree/master/sql/core/benchmarks)
+25, and four Spark-style benchmarks on builds of Spark master from September
+2026 with JDK 25. All of them ran on GitHub-hosted runners, which are not one
+machine: the files name an AMD EPYC 9V45, 9V74 and 7763 and two Intel Xeons, a
+Platinum 8370C and a 6973P-C. Every comparison in the text is between numbers
+from the same run, except the 4.4.0 numbers of section 5, which come from a
+second run on the same CPU; there the cases the fix does not touch moved by
+11% at most. The count of TPC queries that cross the line is of bytecode
+sizes, which do not depend on the machine, and the ticket counts are from the
+tracker, read on 25 and 26 September 2026. The prose rounds; the figures and
+the [results
+files](https://github.com/vecbricks/varka/tree/master/sql/core/benchmarks)
 carry the exact values.

@@ -50,7 +50,7 @@ r.rect(QX + 60, 90, QW - 120, 76, fill="yellow")
 r.text(QX + QW / 2, 128, "a query got several times\nslower when it grew", size=22, anchor="middle")
 r.arrow(QX + QW / 2, 166, QX + QW / 2, 204, width=2.0)
 
-question(210, "EXPLAIN CODEGEN: is maxMethodCodeSize\nabove 8000 in any stage?")
+question(210, 'after a run, explain("codegen"): is\nmaxMethodCodeSize above 8000?')
 answer(210, "the 8000-byte cliff:\nset hugeMethodLimit\nto 8000 (section 4)", "green")
 down(306, 366)
 question(370, 'does the log say "Whole-stage codegen\ndisabled" or "Expr codegen error"?')
@@ -65,7 +65,7 @@ r.text(QX + QW / 2, 728, "not the cliff: something\nelse made it slower", size=2
 r.text(
     40,
     818,
-    "each check is a command in section 3; the settings' full names are in sections 4 and 5",
+    "each check is a command in section 3 or 5; the settings' full names are in sections 4 and 5",
     size=18,
     color=GREY,
 )
