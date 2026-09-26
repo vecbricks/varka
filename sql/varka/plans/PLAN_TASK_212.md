@@ -123,4 +123,58 @@ the next one if the check admits the task.
 
 ## 9. Outcome
 
-*The admission check's result is added below, scored against section 2.*
+### 9.1 The admission check, 26 September 2026
+
+Both scaled runs on the quiet laptop, pinned as the committed run was
+(`VarkaColdStartBenchmark-jdk25-threshold-0.05-results.txt` and
+`-threshold-0.01-results.txt`). Varka's first run, best of five, in
+milliseconds for a hundred thousand rows, against the unscaled run of #429:
+
+| Entries | default | scaling 0.05 | scaling 0.01 |
+| --: | --: | --: | --: |
+| 16 | 239 | 256 | 281 |
+| 54 | 694 | 755 | 900 |
+| 100 | 1260 | 1372 | 1492 |
+
+1. **Refuted.** At 0.05 Varka's first run does not fall; it is a few percent
+   slower at every rung.
+2. **Refuted.** At 0.01 Varka's first run is slower still, 900 against
+   vanilla's 495 at 54 entries.
+3. **Held.** At 16 entries the two first runs stay within a factor of two.
+
+So the threshold is not the whole cause, and section 2's rejection clause
+applies to the task as designed. What the cause is instead, the JVM says:
+
+* **The time is in the kernel, interpreted.** A Java Flight Recorder run at the
+  default thresholds puts 69% of the executor threads' samples on an
+  interpreted top frame; on the Varka arm those are the kernel's
+  `loopMasked0` to `loopMasked13` and, under them, the Vector API's library
+  code - `lanewiseTemplate`, and `allocateInstance` for the boxes each
+  interpreted operation makes. The masked loops run because the ladder's date
+  column has nulls.
+* **Compiling the kernel costs more than the query.** Recorded at scaling 0.01
+  (`VarkaColdStartBenchmark-jdk25-threshold-0.01-compiles-results.txt`), the
+  kernels' loop and epilogue methods do compile, 1018 times over the run: the
+  first tier in about a tenth of a second each, and C2, the only tier whose
+  code runs the Vector API as vectors, in 433.4 ms median and 902.3 ms at worst
+  per method. A kernel at 54 entries has fourteen loop methods, several
+  seconds of C2 time against a query of under one, so the query ends before
+  its kernel is compiled whatever the trigger, and at 0.01 the extra
+  compilation competes for the same cores - which is why that run is slowest.
+
+### 9.2 What it does to the design, proposed and not yet decided
+
+* **Variant A (one call per partition) cannot pay**: an on-stack compile costs
+  C2 the same time, so the first query would still end first.
+* **Variant B survives, reshaped**: a new shape runs its first batches on
+  Spark's row path while C2 compiles the kernel in the background, driven by
+  the warm-up of 3.2; the first query then costs about what vanilla's does,
+  and every later query of the shape has the compiled kernel.
+* **A new lever, not in section 3**: C2's time per kernel. The masked loops
+  are the obvious first target - a batch with nulls runs a masked method per
+  group - and the emitter's grouping decides how many methods there are. A
+  kernel that C2 compiles in a tenth of the time moves the break-even query
+  from seconds to hundreds of milliseconds.
+
+The owner decides whether the task continues as B plus the compile-time lever,
+before any of it is built.
