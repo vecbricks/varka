@@ -74,6 +74,14 @@ final class VarkaIntervalCompiler {
    */
   private static final VarkaExpressionCompiler$ FACADE = VarkaExpressionCompiler$.MODULE$;
 
+  /** {@code INTERVAL YEAR}, which the YEAR casts compare against. */
+  private static final YearMonthIntervalType YEAR_INTERVAL = new YearMonthIntervalType(
+      YearMonthIntervalType.YEAR(), YearMonthIntervalType.YEAR());
+
+  /** {@code INTERVAL MONTH}, the interval whose value is the month count unchanged. */
+  private static final YearMonthIntervalType MONTH_INTERVAL = new YearMonthIntervalType(
+      YearMonthIntervalType.MONTH(), YearMonthIntervalType.MONTH());
+
   private VarkaIntervalCompiler() {
   }
 
@@ -137,12 +145,9 @@ final class VarkaIntervalCompiler {
       // `CAST(i AS INTERVAL YEAR)` in a value position, which is `12 * i` with an interval
       // output. `IntervalUtils.intToYearMonthInterval` computes it with `Math.multiplyExact`
       // whatever the session's ANSI mode, so the multiply is checked and the bound is the only
-      // thing that removes it. This is the same expression `compileMonths` admits in
-      // `add_months`' month-count position; the difference is that there the emitter has a shape
-      // check to satisfy and here it has none, which is why `PLAN_TASK_67.md` 2.1 - written about
-      // `compileMonths` - reads as if the whole cast were blocked when only that position was.
-      case Cast c when c.dataType().equals(new YearMonthIntervalType(
-              YearMonthIntervalType.YEAR(), YearMonthIntervalType.YEAR()))
+      // thing that removes it. The calendar family lowers the same cast the same way in
+      // `add_months`' month-count position, through `yearsToMonths`.
+      case Cast c when c.dataType().equals(YEAR_INTERVAL)
           && c.child().dataType().equals(DataTypes.IntegerType) ->
           () -> yearsToMonths(c, inputs, literals, sink);
       // The truncating half of the pair above, named rather than left to the generic decline:
@@ -156,8 +161,7 @@ final class VarkaIntervalCompiler {
               "year-month interval narrowed to a YEAR-ended unit, which divides by twelve", c,
               sink);
       case Cast c when c.dataType().equals(DataTypes.IntegerType)
-          && c.child().dataType().equals(new YearMonthIntervalType(
-              YearMonthIntervalType.MONTH(), YearMonthIntervalType.MONTH())) ->
+          && c.child().dataType().equals(MONTH_INTERVAL) ->
           () -> FACADE.compileNode(c.child(), inputs, literals, sink);
       // Group A: the year-month interval algebra, on the int32 arithmetic nodes with an
       // interval-typed output. The int arms keep their `IntegerType` gate and these are siblings
@@ -178,9 +182,9 @@ final class VarkaIntervalCompiler {
       case MakeYMInterval m -> () -> makeInterval(m, inputs, literals, sink);
       // `IntervalUtils.getYears(months)` is `months / 12` - Java's `/`, truncating toward zero -
       // over a stored month count that nothing bounds. The int-lane magic multiply the calendar
-      // uses is exact over 0..49,151, about one forty-thousandth of the type, so this is the
-      // first division Varka emits through the double lane instead: exact for every int32, and
-      // truncating already, so it needs neither a range guard nor a correction step.
+      // uses is exact over 0..49,151, about one forty-thousandth of the type, so this division
+      // goes through the double lane instead: exact for every int32, and truncating already, so
+      // it needs neither a range guard nor a correction step.
       // `sql/varka/plans/verify_ym_division.py` checks both claims over all 2^32 month counts.
       case ExtractANSIIntervalYears x ->
           () -> intervalOperand(x.child(), "the interval", inputs, literals, sink)
@@ -224,15 +228,19 @@ final class VarkaIntervalCompiler {
     return FACADE.intSlot(12, table(literals));
   }
 
-  /** {@code 12 * i}, checked, for {@code CAST(i AS INTERVAL YEAR)}; see its arm. */
-  private static Option<VarkaVectorIR> yearsToMonths(
+  /**
+   * {@code 12 * i}, checked, for {@code CAST(i AS INTERVAL YEAR)}: this family's arm, and the
+   * calendar family's in {@code add_months}' month-count position.
+   */
+  static Option<VarkaVectorIR> yearsToMonths(
       Cast c,
-      LinkedHashMap<Object, Object> inputs,
-      LinkedHashMap<Object, Object> literals,
+      LinkedHashMap<?, ?> inputTable,
+      LinkedHashMap<?, ?> literalTable,
       DeclineSink sink) {
+    LinkedHashMap<Object, Object> inputs = table(inputTable);
+    LinkedHashMap<Object, Object> literals = table(literalTable);
     int mark = literals.size();
-    Option<VarkaVectorIR> built =
-        FACADE.intOperand(c.child(), inputs, literals, sink);
+    Option<VarkaVectorIR> built = FACADE.intOperand(c.child(), inputs, literals, sink);
     if (built.isDefined()) {
       built = FACADE.arithOver(
           IntOp.MUL, Overflow.FAIL, built.get(), twelve(literals), c, literals, mark, sink);
@@ -275,10 +283,11 @@ final class VarkaIntervalCompiler {
 
   /**
    * Whether negating {@code x} needs its check: unless its magnitude is known to be at most
-   * {@code Int.MaxValue}, the one value whose negation overflows may be there.
+   * {@code Int.MaxValue}, the one value whose negation overflows may be there. This family's
+   * negate and {@code abs}, and the calendar family's negated month count.
    */
-  private static Overflow negationMode(VarkaVectorIR x, LinkedHashMap<Object, Object> literals) {
-    Option<Object> magnitude = FACADE.magnitude(x, literals);
+  static Overflow negationMode(VarkaVectorIR x, LinkedHashMap<?, ?> literals) {
+    Option<Object> magnitude = FACADE.magnitude(x, table(literals));
     boolean checked = magnitude.isEmpty() || (Long) magnitude.get() > Integer.MAX_VALUE;
     return checked ? Overflow.FAIL : Overflow.WRAP;
   }
@@ -367,15 +376,15 @@ final class VarkaIntervalCompiler {
     Option<VarkaVectorIR> x =
         intervalOperand(l, "the left interval operand", inputs, literals, sink);
     if (x.isEmpty()) {
-      return x;
+      return rolledBack(x, literals, mark);
     }
     Option<VarkaVectorIR> y =
         intervalOperand(r, "the right interval operand", inputs, literals, sink);
     if (y.isEmpty()) {
-      return y;
+      return rolledBack(y, literals, mark);
     }
-    return FACADE.arithOver(
-        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink);
+    return rolledBack(FACADE.arithOver(
+        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark);
   }
 
   /** Whether {@code c} casts to a year-month interval whose end field is {@code endField}. */

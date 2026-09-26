@@ -34,8 +34,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysi
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays,
   AddMonths => IRAddMonths, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth,
   DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest,
-  GuardedDay, IfElse, IntNeg, IntOp, LastDay => IRLastDay, Least => IRLeast, LiteralSlot,
-  MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Overflow, Quarter => IRQuarter,
+  GuardedDay, IfElse, IntNeg, LastDay => IRLastDay, Least => IRLeast, LiteralSlot,
+  MakeDate => IRMakeDate, Month => IRMonth, NextDay => IRNextDay, Quarter => IRQuarter,
   SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel,
   WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
@@ -418,14 +418,7 @@ private[codegen] object VarkaChronoCompiler {
           // to 60 before the match.
           case c @ Cast(operand, YearMonthIntervalType(YearMonthIntervalType.YEAR,
               YearMonthIntervalType.YEAR), _, _) if operand.dataType == IntegerType =>
-            val mark = literals.size
-            val built = for {
-              x <- intOperand(operand, inputs, literals, sink)
-              r <- arithOver(IntOp.MUL, Overflow.FAIL, x, VarkaIntervalCompiler.twelve(literals), c,
-                literals, mark, sink)
-            } yield r
-            if (built.isEmpty) truncate(literals, mark)
-            built
+            VarkaIntervalCompiler.yearsToMonths(c, inputs, literals, sink)
           // `d - ym_col`, which the analyzer spells `DateAddYMInterval(d, UnaryMinus(ym))`, so the
           // count is a negation of an interval column. Its check comes off wherever a negation's
           // does, which is any bound at all - and a bare interval column has none, so this keeps
@@ -435,8 +428,7 @@ private[codegen] object VarkaChronoCompiler {
               if operand.dataType.isInstanceOf[YearMonthIntervalType] =>
             VarkaIntervalCompiler.intervalOperand(operand, "the negated month count", inputs,
                 literals, sink).map { x =>
-              val checked = !magnitude(x, literals).exists(_ <= Int.MaxValue.toLong)
-              new IntNeg(if (checked) Overflow.FAIL else Overflow.WRAP, x)
+              new IntNeg(VarkaIntervalCompiler.negationMode(x, literals), x)
             }
           // `d + ym_col`. The stored value is the month count in every unit, so this is the
           // column-count `AddMonths` exactly, with the same runtime guard on the count's lanes -

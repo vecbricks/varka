@@ -170,8 +170,8 @@ identical kernels.
 `VarkaIntervalCompiler` is a Java class, the Scala file is deleted, and every
 Varka suite in `sql/catalyst` passes: 423 tests, and every one of the 27
 cancelled is an opt-in test, cancelled unless asked for (`-Dvarka.sweep`,
-`VARKA_OPTION_AUDIT`, `-Dvarka.jfr`). `build/sbt catalyst/doc`, a Maven compile of `sql/catalyst`,
-`dev/scalastyle` and `dev/lint-java` pass.
+`VARKA_OPTION_AUDIT`, `-Dvarka.jfr`). `build/sbt catalyst/doc`, a Maven
+compile of `sql/catalyst`, `dev/scalastyle` and `dev/lint-java` pass.
 
 1. **Held.** The compiler, family-chain, coverage and emitted-bytes suites
    pass, with the same tests as before: the port adds and removes none.
@@ -220,8 +220,9 @@ goes away when the facade is Java. So:
   time (409 lines), condition (443), then calendar (678). Each pays the same
   boundary costs, now known, and none needs a new decision.
 * The facade goes last - item 42 keeps the dispatch in Scala until the last
-  family moves - and with it `DeclineSink`, the tables and `Optional`-returning signatures, which
-  is when the workarounds above are deleted.
+  family moves - and with it `DeclineSink`, the tables and
+  `Optional`-returning signatures, which is when the workarounds above are
+  deleted.
 * `sql/varka/CLAUDE.md`'s sentence can narrow: a compiler family's matching
   over Catalyst expressions is not a surface that forces Scala. Catalyst rules
   and `SparkPlan` nodes still are. The edit is the owner's to make, so it is
@@ -238,3 +239,27 @@ this outcome.
   Java: they belong to the facade's port.
 * Item 47, one place per node: its own text reopens it only when a real
   second case arrives.
+* The edit to `sql/varka/AGENTS.md` that section 5 proposes, and the rows for
+  the other ports: both are in their own pull request, #445.
+
+## 7. After review
+
+*Written 26 September 2026, after a code review of the pull request.*
+
+The review found two copies of interval logic that the port had left in
+`VarkaChronoCompiler`: the YEAR-to-months cast arm and the negation mode of a
+negated month count repeated what the interval family computes. Both now
+call the Java class, whose `yearsToMonths` and `negationMode` became
+package-private for it. So prediction 3's "`VarkaChronoCompiler` did not
+change" held for the port and no longer holds for the pull request: it
+changed in those two call sites and its imports.
+
+Two further changes came from the review. The `familyChain` entry goes
+through a `javaFamily` helper in the facade, which is the adapter the next
+Java family reuses. The coverage suite now asserts that each Java file yields
+at least one name on its own, so a Java family the patterns stop recognising
+fails the scan rather than hiding behind the Scala files' total. The Java file
+is 418 lines. `coverage.json` and `emitted_bytes.json` are still unchanged.
+
+Section 5 said the new rows were "proposed with this outcome"; they went up
+as #445, together with the `AGENTS.md` edit.

@@ -403,8 +403,15 @@ class VarkaCoverageSuite extends SparkFunSuite {
       """instanceof\s+([A-Z]\w*)""".r)
     def scan(sources: Seq[String], patterns: Seq[scala.util.matching.Regex]): Seq[String] =
       patterns.flatMap(p => sources.flatMap(p.findAllMatchIn(_).map(_.group(1))))
-    val names = (scan(scalaFiles.map(read("scala", _)), scalaPatterns) ++
-      scan(javaFiles.map(read("java", _)), javaPatterns)).toSet
+    // A Java file the Java patterns do not recognise would drop its family from the scan while
+    // the Scala files kept the total above the floor below, so each is checked on its own.
+    val javaNames = javaFiles.map { f =>
+      val found = scan(Seq(read("java", f)), javaPatterns)
+      assert(found.nonEmpty, s"the Java pattern scan found no names in $f.java; do the " +
+        "patterns still match how that file switches on expression classes?")
+      found
+    }
+    val names = (scan(scalaFiles.map(read("scala", _)), scalaPatterns) ++ javaNames.flatten).toSet
     assert(names.size > 40, s"the pattern scan found only ${names.size} names; has the " +
       "compiler been restructured? This check is worthless if it silently matches nothing.")
     names.filter { n =>
@@ -414,9 +421,9 @@ class VarkaCoverageSuite extends SparkFunSuite {
   }
 
   /**
-   * Scala source with its block and line comments removed, so that a pattern scan reads code
-   * and not prose about code. Newlines are kept, so nothing on a later line joins an earlier
-   * one and forms a pattern neither of them wrote.
+   * Scala or Java source with its block and line comments removed, so that a pattern scan reads
+   * code and not prose about code. Newlines are kept, so nothing on a later line joins an
+   * earlier one and forms a pattern neither of them wrote.
    */
   private def withoutComments(source: String): String =
     source

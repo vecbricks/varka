@@ -895,11 +895,20 @@ private[sql] object VarkaExpressionCompiler {
       sink: DeclineSink): Seq[(String, PartialFunction[Expression, Option[VarkaVectorIR]])] = Seq(
     "date leaves" -> leafArms(inputs, literals, sink),
     "calendar" -> VarkaChronoCompiler.arms(inputs, literals, sink),
-    "interval" -> Function.unlift((e: Expression) =>
-      Option(VarkaIntervalCompiler.arm(e, inputs, literals, sink))).andThen(_.compile()),
+    "interval" -> javaFamily(VarkaIntervalCompiler.arm(_, inputs, literals, sink)),
     "time" -> VarkaTimeCompiler.arms(inputs, literals, sink),
     "condition" -> VarkaConditionCompiler.arms(inputs, literals, sink),
     "int arithmetic" -> arithmeticArms(inputs, literals, sink))
+
+  /**
+   * A family written in Java as a chain entry. A Java family cannot return a Scala partial
+   * function, so it exposes `claim`, which returns the arm that matches a node or `null` when
+   * none does; the arm's `compile()` runs only once the chain has chosen it, which keeps the
+   * matching side-effect free the way a partial function's `isDefinedAt` is.
+   */
+  private def javaFamily(claim: Expression => VarkaIntervalCompiler.Arm)
+      : PartialFunction[Expression, Option[VarkaVectorIR]] =
+    Function.unlift((e: Expression) => Option(claim(e))).andThen(_.compile())
 
   /**
    * The date leaves: a date column, a date literal and the identity date cast. First in the chain,
