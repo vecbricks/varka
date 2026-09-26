@@ -108,7 +108,8 @@ jobs:
         for k in $(seq 0 $((cores - 1))); do
           seed="${base}${k}"
           java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
-            -Dspark.testing=1 -Dvarka.fuzz.iterations="$ITERATIONS" -Dvarka.fuzz.seed="$seed" \
+            -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" \
+            -Dvarka.fuzz.iterations="$ITERATIONS" -Dvarka.fuzz.seed="$seed" \
             -cp "$CP" org.scalatest.tools.Runner -oW \
             -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrFuzzSuite \
             > "target/fuzz/ir-$seed.log" 2>&1 &
@@ -136,8 +137,11 @@ jobs:
         set -uo pipefail
         CP="$(cat target/catalyst-test-classpath.txt)"
         seed="${SEED:-$(date -u +%Y%m%d)}"
+        # sbt sets spark.test.home for its tests; a plain JVM needs it passed, or every test
+        # that reads a workspace file - the coverage table here - fails before it starts.
         java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
-          -Dspark.testing=1 -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
+          -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" \
+          -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
           -cp "$CP" org.scalatest.tools.Runner -oW \
           -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
           2>&1 | tee target/fuzz/compositions-$seed.log

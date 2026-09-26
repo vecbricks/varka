@@ -177,3 +177,13 @@ the file was not empty. The step now strips escape sequences, keeps the one
 line that is a path list, and checks that it holds the test runner. Neither
 failure was the fuzzer's, and the task stays open until a scheduled run
 reports a verdict.
+
+**The third run, 26 September 2026.** Run 36266300670, dispatched by hand
+after both fixes, gave the IR fuzzer's first verdict: four JVMs, 40000
+iterations per lane in each of its two tests, every lane passed. The
+composition fuzzer then failed both its tests before drawing one composition:
+`spark.test.home or SPARK_HOME is not set`. It reads the coverage table from
+the workspace, and sbt sets that property for its tests where a plain JVM does
+not; a local run reproduces the failure without it and passes with it. Both
+fuzzer launches now pass `-Dspark.test.home`. The task closes when a
+scheduled run reports a verdict for both fuzzers.
