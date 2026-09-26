@@ -427,7 +427,7 @@ ratio within a third.
 ### 9.2 The ladder's file, and the predictions scored, 25 September 2026
 
 The rerun after the `spark.testing` fix completed
-(`CaseWhenCodegenBenchmark-jdk25-results.txt`, with its provenance file), on an
+(`CaseWhenCodegenBenchmark-jdk25-9v74-results.txt`, with its provenance file), on an
 AMD EPYC 9V74, not the 9V45 the predictions were written for. The one rung both
 machines measured, 300 branches, says how the two compare: inside and outside
 a stage they agree within a tenth (7439.8 and 893.7 ns a row on the 9V74
