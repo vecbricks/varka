@@ -165,3 +165,15 @@ classpath", before any fuzzer JVM started: the step redirects sbt's output to
 that file before sbt has created `target/`. It is the workflow's own bug, not a
 finding of the fuzzer; the fix is to create the directory first. The task
 stays open until a scheduled run reports a verdict.
+
+**The run after the fix, 26 September 2026.** With `target/` created, run
+36265121459, dispatched by hand, compiled and exported the classpath, and all
+four fuzzer JVMs then failed at once: `Could not find or load main class
+org.scalatest.tools.Runner`. The exported line was not the classpath. Under
+CI - `CI=true`, which a local run reproduces - sbt colours its output and ends
+it with an ANSI clear-line sequence on a line of its own, after the
+classpath, so `tail -1` kept the escape sequence, and `test -s` passed because
+the file was not empty. The step now strips escape sequences, keeps the one
+line that is a path list, and checks that it holds the test runner. Neither
+failure was the fuzzer's, and the task stays open until a scheduled run
+reports a verdict.
