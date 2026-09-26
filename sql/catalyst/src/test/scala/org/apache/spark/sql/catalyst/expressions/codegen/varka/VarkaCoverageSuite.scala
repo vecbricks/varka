@@ -371,11 +371,13 @@ class VarkaCoverageSuite extends SparkFunSuite {
   /**
    * The Catalyst expression classes the compiler matches on, read from its source because there
    * is no runtime list to ask: the arms are a `match`, not a registry. The arms live in
-   * `VarkaExpressionCompiler` and the four family objects it chains, so all five files are read.
+   * `VarkaExpressionCompiler` and the four families it chains, so all five files are read, each
+   * in its own language: a family ported to Java matches in a `switch`, whose type patterns
+   * (`case Add a`) and `instanceof` tests are what name its classes there.
    *
-   * Every `case` pattern naming a capitalised type is collected, then kept only if it names a
-   * real class in `org.apache.spark.sql.catalyst.expressions`. That filter is what removes the
-   * IR nodes, the data types and the local extractors without a hand-maintained exclusion list.
+   * Every pattern naming a capitalised type is collected, then kept only if it names a real
+   * class in `org.apache.spark.sql.catalyst.expressions`. That filter is what removes the IR
+   * nodes, the data types and the local extractors without a hand-maintained exclusion list.
    *
    * Comments are stripped first. A comment that quotes a pattern - "an arm matching
    * `case HoursOfTime(child)` would never fire" - is prose about an arm the compiler does not
@@ -383,20 +385,26 @@ class VarkaCoverageSuite extends SparkFunSuite {
    * as one Varka admits.
    */
   private lazy val admittedByCompiler: Set[String] = {
-    val compilerFiles = Seq("VarkaExpressionCompiler", "VarkaChronoCompiler",
-      "VarkaIntervalCompiler", "VarkaTimeCompiler", "VarkaConditionCompiler")
-    val source = compilerFiles.map { name =>
+    val scalaFiles = Seq("VarkaExpressionCompiler", "VarkaChronoCompiler",
+      "VarkaTimeCompiler", "VarkaConditionCompiler")
+    val javaFiles = Seq("VarkaIntervalCompiler")
+    def read(language: String, name: String): String =
       withoutComments(Files.readString(
-        getWorkspaceFilePath("sql", "catalyst", "src", "main", "scala",
+        getWorkspaceFilePath("sql", "catalyst", "src", "main", language,
           "org", "apache", "spark", "sql", "catalyst", "expressions", "codegen",
-          s"$name.scala")))
-    }.mkString("\n")
-    val patterns = Seq(
+          s"$name.$language")))
+    val scalaPatterns = Seq(
       """case\s+([A-Z]\w*)\s*\(""".r,
       """case\s+\w+\s*@\s*([A-Z]\w*)\s*\(""".r,
       """case\s+\w+\s*:\s*([A-Z]\w*)""".r,
       """_\s*:\s*([A-Z]\w*)""".r)
-    val names = patterns.flatMap(_.findAllMatchIn(source).map(_.group(1))).toSet
+    val javaPatterns = Seq(
+      """case\s+([A-Z]\w*)\s+\w+\s*(?:when\b|->)""".r,
+      """instanceof\s+([A-Z]\w*)""".r)
+    def scan(sources: Seq[String], patterns: Seq[scala.util.matching.Regex]): Seq[String] =
+      patterns.flatMap(p => sources.flatMap(p.findAllMatchIn(_).map(_.group(1))))
+    val names = (scan(scalaFiles.map(read("scala", _)), scalaPatterns) ++
+      scan(javaFiles.map(read("java", _)), javaPatterns)).toSet
     assert(names.size > 40, s"the pattern scan found only ${names.size} names; has the " +
       "compiler been restructured? This check is worthless if it silently matches nothing.")
     names.filter { n =>

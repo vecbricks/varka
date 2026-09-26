@@ -895,7 +895,8 @@ private[sql] object VarkaExpressionCompiler {
       sink: DeclineSink): Seq[(String, PartialFunction[Expression, Option[VarkaVectorIR]])] = Seq(
     "date leaves" -> leafArms(inputs, literals, sink),
     "calendar" -> VarkaChronoCompiler.arms(inputs, literals, sink),
-    "interval" -> VarkaIntervalCompiler.arms(inputs, literals, sink),
+    "interval" -> Function.unlift((e: Expression) =>
+      Option(VarkaIntervalCompiler.arm(e, inputs, literals, sink))).andThen(_.compile()),
     "time" -> VarkaTimeCompiler.arms(inputs, literals, sink),
     "condition" -> VarkaConditionCompiler.arms(inputs, literals, sink),
     "int arithmetic" -> arithmeticArms(inputs, literals, sink))
