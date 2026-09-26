@@ -1,0 +1,75 @@
+================================================================================================
+CASE WHEN of 30 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 2853 bytes
+largest method of the projection outside a stage: 315 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN of 30 branches:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                               42             46           3          4.8         209.0       1.0X
+whole-stage codegen off                              49             56           9          4.1         246.9       0.8X
+interpreted, factoryMode=NO_CODEGEN                 132            135           2          1.5         660.8       0.3X
+
+
+================================================================================================
+CASE WHEN of 60 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 5673 bytes
+largest method of the projection outside a stage: 461 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN of 60 branches:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                               36             38           2          5.6         179.3       1.0X
+whole-stage codegen off                              49             51           2          4.1         246.6       0.7X
+interpreted, factoryMode=NO_CODEGEN                 312            315           2          0.6        1560.0       0.1X
+
+
+================================================================================================
+CASE WHEN of 100 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 9433 bytes
+largest method of the projection outside a stage: 741 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN of 100 branches:                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                              452            469          15          0.4        2260.1       1.0X
+whole-stage codegen off                              71             77           7          2.8         356.0       6.3X
+interpreted, factoryMode=NO_CODEGEN                 711            717           5          0.3        3555.3       0.6X
+
+
+================================================================================================
+CASE WHEN of 300 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 32605 bytes
+largest method of the projection outside a stage: 2141 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN of 300 branches:                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                             1234           1301          41          0.2        6168.4       1.0X
+whole-stage codegen off                             176            180           5          1.1         880.1       7.0X
+interpreted, factoryMode=NO_CODEGEN                5392           5495          67          0.0       26961.7       0.2X
+
+
+================================================================================================
+CASE WHEN of 1000 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: fails to compile, past 64 KB
+largest method of the projection outside a stage: 8060 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN of 1000 branches:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                             3140           3283         107          0.1       15700.6       1.0X
+whole-stage codegen off                            2592           2672          49          0.1       12962.2       1.2X
+interpreted, factoryMode=NO_CODEGEN              103044         104436        1503          0.0      515220.2       0.0X
+
+

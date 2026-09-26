@@ -48,14 +48,34 @@ object VarkaSizeLadder {
   private[benchmark] def entry(k: Int): String =
     s"greatest(add_months(d, $k), date_add(d, $k), last_day(d)) AS c$k"
 
-  private[benchmark] def cacheDates(session: SparkSession): Unit = {
+  private[benchmark] def cacheDates(session: SparkSession, rows: Int = numRows): Unit = {
     session.sql(
       s"""select case when id % 31 = 0 then null
          |       else date_add(date'2020-01-01', cast(id as int) % 1460) end as d
-         |from range(0, $numRows)""".stripMargin)
+         |from range(0, $rows)""".stripMargin)
       .createOrReplaceTempView("ladder_dates")
     VarkaArrowSessions.cache(session, "ladder_dates")
   }
+
+  /** How many entries the Varka arm fused, after checking that it ran as a kernel. */
+  private[benchmark] def varkaFused(varka: SparkSession, query: String): Int = {
+    val df = varka.sql(query)
+    df.queryExecution.toRdd.count()
+    val plan = df.queryExecution.executedPlan
+    val options = VarkaColumnarToRowExec.emitOptions(varka.sessionState.conf.varkaEmitUseAVX)
+    val (fused, batches) = plan.collectFirst {
+      case v: VarkaProjectExec =>
+        (VarkaExpressionCompiler.compilePartial(v.projectList, v.child.output, options),
+          v.metrics("numVarkaBatches").value)
+      case v: VarkaColumnarToRowExec =>
+        (VarkaExpressionCompiler.compilePartial(v.projectList, v.child.output, options),
+          v.metrics("numVarkaBatches").value)
+    }.getOrElse(throw new IllegalStateException(
+      s"the Varka arm did not fuse:\n${plan.treeString}"))
+    require(batches > 0, s"the Varka arm fused but fell back at run time: $query")
+    fused.map(_.specs.count(_.isInstanceOf[FusedOutput])).getOrElse(0)
+  }
+
 }
 
 /**
@@ -93,26 +113,7 @@ object VarkaSizeLadder {
  */
 object VarkaSizeLadderBenchmark extends SqlBasedBenchmark {
   import VarkaArrowSessions.{createSession, vanillaMethodBytes}
-  import VarkaSizeLadder.{cacheDates, entry, numRows, rungs}
-
-  /** How many entries the Varka arm fused, after checking that it ran as a kernel. */
-  private def varkaFused(varka: SparkSession, query: String): Int = {
-    val df = varka.sql(query)
-    df.queryExecution.toRdd.count()
-    val plan = df.queryExecution.executedPlan
-    val options = VarkaColumnarToRowExec.emitOptions(varka.sessionState.conf.varkaEmitUseAVX)
-    val (fused, batches) = plan.collectFirst {
-      case v: VarkaProjectExec =>
-        (VarkaExpressionCompiler.compilePartial(v.projectList, v.child.output, options),
-          v.metrics("numVarkaBatches").value)
-      case v: VarkaColumnarToRowExec =>
-        (VarkaExpressionCompiler.compilePartial(v.projectList, v.child.output, options),
-          v.metrics("numVarkaBatches").value)
-    }.getOrElse(throw new IllegalStateException(
-      s"the Varka arm did not fuse:\n${plan.treeString}"))
-    require(batches > 0, s"the Varka arm fused but fell back at run time: $query")
-    fused.map(_.specs.count(_.isInstanceOf[FusedOutput])).getOrElse(0)
-  }
+  import VarkaSizeLadder.{cacheDates, entry, numRows, rungs, varkaFused}
 
   private def note(line: String): Unit = {
     // scalastyle:off println

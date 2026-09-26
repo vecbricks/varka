@@ -340,7 +340,7 @@ without AVX-512. The scale differs between the panels; the machines are 1.8x
 apart and Varka is 14.6x.*
 
 | | against stock 4.2.0 (JDK 25) | against the fork, engine off |
-|---|---|---|
+|---|--:|--:|
 | twelve `TIME` chains, wall time | 19.6x - 46.9x, median **31.8x** | 17.5x - 36.4x, median 25.9x |
 | the same, executor time | 21.0x - 53.2x, median **34.9x** | - |
 

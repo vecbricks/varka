@@ -1,0 +1,15 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CaseWhenCodegenBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36188804870
+commit:      1ec3892a171 (the varka-task-210 branch)
+date:        2026-09-25T20:57:23Z
+inputs:      class=*CaseWhenCodegenBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
+what:        a CASE WHEN of 30, 60, 100, 300 and 1000 branches over 200,000 rows, inside a
+             whole-stage codegen stage, outside one, and interpreted (factoryMode=NO_CODEGEN),
+             five iterations each after a warm-up pass of the smallest rung; each rung prints
+             the stage's largest method and the largest method of the projection outside a
+             stage; the second of two runs dispatched together, kept to compare the claims under 1.3x by minimums (PLAN_TASK_210.md 9.3)

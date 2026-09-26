@@ -195,3 +195,44 @@ fact than the grep gives in one command, and it invites the conclusion that a
 widespread failure is *this project's* problem to schedule. It is not. A failure in
 code this repository does not contain is not Varka work and does not become a
 milestone task row; at most it becomes a line here, which is what this is.
+
+## A two-track milestone drifts to the measurable track; review it against the done-when list
+
+Milestone 6 has two tracks the owner set on the day it opened: the compiler's foundation and
+continuous promotion. Two days in, the foundation spine was nearly through, the research rows
+around it were mostly done, the task table had grown from 23 rows to 43, and the promotion
+track had no commit at all (`PLAN_MILESTONE_6.md` 9). Nothing in the day-to-day chose that: each
+next step was the row with the clearest measurement, and a row with no number in it never won
+that comparison.
+
+Two habits follow. The first is to review the milestone against its own done-when list
+(section 1.3 of each milestone plan) rather than against the task table, every few days and
+whenever a row closes: the table rewards adding and closing rows, the list says what the
+milestone is for. The second is that a new row needs a reason to be done in this milestone,
+written in the row, or it goes to the furthest-out scope catalogue instead; twenty rows in two
+days is more than a milestone closes, and each one added is a choice not to do the track that
+has none.
+
+## A day of merges is a day of Builds; the queue now keeps a verdict across docs-only pushes
+
+On 25 September 2026 the owner asked why the Varka pull requests were taking so long to pass
+CI, and the fork's run list for the day answered with four causes, in the order they cost.
+The queue runner (`dev/varka_ci_queue.sh`, task 176) waits until no Build runs anywhere on the
+fork, because the twenty job slots are shared, and two upstream Builds on the same fork that
+day took 125 and 132 minutes of them, pausing the Varka queue for 2 h 18 min at one stretch.
+One Build failed in a way that hung a job until its timeout (the G32 heap case in
+`testing-and-debugging.md`) and cost 4 h 29 min before its fix could be built and rerun. A PR
+that touches the build workflow runs every module, 39 jobs with the longest over an hour,
+where a plan-only PR runs a handful in about 33 minutes. And seven merges each sent a merge of
+master into every other open PR, and each such push cancelled that PR's Build and needed a
+new one: the day's list held more than twenty cancelled runs.
+
+The last cause is the one the tooling can remove, and task 211 did: a PR whose head moved
+since a Build passed keeps that verdict when everything changed since is outside what the
+Build tests - the plans, skills and papers, any Markdown, and committed benchmark results - and
+the passed head is an ancestor of the new one. The check is GitHub's compare API from the
+tested head to the current one, which for a merge of master lists master's new commits, so a
+merge that brought a test file still reruns. The other three are choices rather than tooling:
+upstream Builds on the same fork pause the queue for their two hours; a workflow change runs
+the full matrix; and merging green PRs in one sitting, then merging master into the rest once,
+replaces several requeue rounds with one.

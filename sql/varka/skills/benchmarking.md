@@ -544,3 +544,19 @@ And a rule about the check's own silence: when it has nothing to compare - an
 old results file predating the line, say - it must say so. A check that silently
 compares nothing is worse than no check, because the run looks the same either
 way.
+
+## Spark's benchmarks run with `spark.testing` set; a benchmark of a fallback clears it
+
+`BenchmarkBase.main` sets the `spark.testing` system property "so the behavior between
+running benchmark via spark-submit or SBT will be consistent". Under that flag several of
+Spark's fallbacks are errors instead: a whole-stage codegen stage that fails to compile is
+rethrown rather than run through its row-by-row operators (`WholeStageCodegenExec` guards the
+fallback with `!Utils.isTesting`), and a refused subexpression or aggregate split is an
+internal error rather than an INFO line. So Spark's own benchmarks never measure the
+production fallback past 64 KB, and a benchmark written to measure it dies at the first
+rung that crosses: `CaseWhenCodegenBenchmark`'s first runner dispatch did (`PLAN_TASK_210.md`
+8). The class now clears the property at the start of its suite, since the fallback is what it
+measures. Under sbt the same flag is also the `SPARK_TESTING` environment variable, which a
+JVM cannot clear, so such a rung still throws there; the runners' `spark-submit` path is where
+the full ladder runs. The quickest local check that a benchmark's fallback arm behaves as in
+production is `bin/spark-submit` from a stock distribution, not `build/sbt Test/runMain`.
