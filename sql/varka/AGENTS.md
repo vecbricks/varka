@@ -193,8 +193,11 @@ opens with what its conversion lost. See `papers/README.md` before adding one.
 * **The project is migrating from Scala to modern Java (25+): prefer Java for new
   Varka code wherever possible.** Records, sealed interfaces and pattern-matching
   switches are already the house style in the IR and emitter; match it. Reach for
-  Scala only at surfaces that force it - `SparkPlan` subclasses, the Catalyst rule
-  and expression matching, ScalaTest suites. Existing Scala is not rewritten as a
+  Scala only at surfaces that force it - `SparkPlan` subclasses, Catalyst rules,
+  ScalaTest suites. Matching over Catalyst expressions is not one of them: a
+  compiler family matches in a Java `switch` over type patterns with `when`
+  guards, as well as in a Scala `match`, and what a port costs is at its boundary
+  with Scala code (`PLAN_TASK_175.md` 5). Existing Scala is not rewritten as a
   side effect of another task; the migration is its own work (milestone 3,
   task 23).
 * Every hot loop method stays small by construction (`GROUP_BUDGET`): C2's compile
