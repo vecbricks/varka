@@ -82,9 +82,14 @@ jobs:
         # The shell opens the redirect's file before sbt runs, and a fresh checkout has no
         # target/ yet.
         mkdir -p target
+        # Under CI, sbt colours its output and ends it with an ANSI clear-line sequence on a
+        # line of its own, after the classpath, so the classpath is taken as the one line that
+        # is a path list once the escape sequences are stripped, and checked for the test runner
+        # rather than for being non-empty.
         ./build/sbt -Phive -batch "catalyst/Test/compile" "export catalyst/Test/fullClasspath" \
-          | tail -1 > target/catalyst-test-classpath.txt
-        test -s target/catalyst-test-classpath.txt
+          | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -E '^/[^ ]+$' | tail -1 \
+          > target/catalyst-test-classpath.txt
+        grep -q scalatest target/catalyst-test-classpath.txt
     # One JVM per core, each with its own seed and log, waited on by process id, which exits
     # on every path (sql/varka/skills/testing-and-debugging.md, "A fuzz campaign is sixteen
     # JVMs, not one sbt"). The iteration count keeps each lane well under the suite's
