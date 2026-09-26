@@ -36,14 +36,19 @@ construction, which is the structural claim of `PLAN_MILESTONE_6.md` 6 risk 2.
    query Spark's own suite excludes (`PLAN_TASK_193.md` 9.1). The post says
    this in its second paragraph, not its last.
 2. **It is not rare in the shapes people write.** A wide projection of date
-   arithmetic crosses at about 52 entries (`PLAN_TASK_171.md` 9.1), and a
-   filter of date ranges, the shape a BI tool writes for a set of periods,
-   crosses at about 50 ranges (`PLAN_TASK_172.md` 9.1). Both are ordinary.
+   arithmetic crosses between 52 and 54 entries (`PLAN_TASK_171.md` 9.1), and a
+   filter of date ranges, the shape a BI tool writes for a set of periods, is
+   at 7048 bytes with 49 ranges and 14299 with 100, so it crosses between the
+   two rungs the ladder has (`PLAN_TASK_172.md` 9.1; *corrected 25 September
+   2026 from "about 50 ranges", which no committed rung says*). Both are
+   ordinary.
 3. **Vanilla can tune its way most of the way off the cliff**, and the post
-   shows it: `hugeMethodLimit=8000` or `wholeStage=false` turns the step into
-   about 1.1 to 1.3 times the pre-cliff cost per entry (`PLAN_TASK_192.md`
-   9.1, 9.4). What no tuning does is make Spark's default configuration say
-   so at a level anyone sees, or bound the method in bytes.
+   shows it: `hugeMethodLimit=8000` turns the step into 1.12 to 1.29 times the
+   pre-cliff cost per entry on the runners (`PLAN_TASK_203.md` 9.2), and
+   `wholeStage=false` into about 1.2 to 1.3 (`PLAN_TASK_192.md` 9.3, 9.4;
+   *citation corrected 25 September 2026: 9.1 is the laptop*). What no tuning
+   does is make Spark's default configuration say so at a level anyone sees,
+   or bound the method in bytes.
 4. **Varka's first query costs more than Spark's.** Every ladder number is
    steady state; a kernel is emitted and compiled once per shape (task 195).
    The post cannot go out without this number; see section 4.
@@ -163,6 +168,9 @@ ladder, so the reader sees both. The trailer follows.
 | Varka's side in every census reproducer (188) | 3.3 | in progress, `VarkaCodegenGiveUpSuite` | **Yes.** Otherwise 3.3 cites a reading for the Varka column |
 | The threshold below 8000 (170) | 3.4 | open | No. The post says 8000, the limit HotSpot enforces; 170 is a footnote if it lands |
 | spark-vector's arm (202) | 3.7 | not started | No. Without it 3.7 quotes no number, and says so |
+| The JVM's inlining evidence for the split-call case, from a forked JVM under `-XX:+PrintInlining`, asserted the way `VarkaSizeLadderJitSuite` asserts the compile log (*added 25 September 2026, section 7*) | 3.4 | not started; the laptop's log was not kept | **Yes**, or the sentence on inlining goes |
+| Reproducers for G15, G33 and G34 in `VarkaCodegenGiveUpSuite` (*added 25 September 2026*) | 3.3 | not started; `PLAN_TASK_188.md` 6 lists them as provokable | **Yes.** Otherwise 3.3 cites readings for two fallbacks; G13 and G30 stay readings and the post says so |
+| The distribution of generated method sizes over a real workload, from the histogram `CodegenMetrics` has kept since 2.x, exported over the SQL golden-file suites and the TPC suites (*added 25 September 2026*) | 3.3 | not started | No. A figure of thousands of methods against the two limits would open 3.3 well; without it 3.3 opens with the census table |
 
 So one measurement, task 195, and one test task, 188's Varka arm, stand between
 the outline and the draft. Everything else the post needs is committed.
@@ -187,3 +195,35 @@ the outline and the draft. Everything else the post needs is committed.
 * Any new measurement beyond 195. The 9V45 dispatches continue as they are and
   the outline does not wait on them.
 * A comparison figure with an accelerator. Row 202 decides whether one exists.
+
+## 7. The outline split in two, 25 September 2026
+
+This corrects the scope of sections 1 and 3, not their content. The owner
+decided the milestone ends in two posts. The first, about where vanilla Spark's
+code generation gives up, is task 210 (`PLAN_TASK_210.md`); this task keeps the
+second, about how Varka solves the problem.
+
+Section 3.2, why a source generator cannot know, moves to task 210 whole and
+becomes one paragraph here that states the result and links the first post.
+Section 3.3 splits: the census itself - the 34 entries, the four groups, the
+reproducers of vanilla's side - moves, and 3.3 keeps the Varka column, which is
+Varka's answer to each entry and the table 3.4 draws on, so task 188's Varka
+arm is still owed here (section 4). Everything else in sections 2 to 6 stands.
+The bounds of section 2 appear in both posts, because each has to stand on its
+own for a reader who never sees the other. The milestone closes on both posts
+(`PLAN_MILESTONE_6.md` 1.3).
+
+**The reader, fixed later the same day.** This post is for experienced Spark
+developers; the first is for experienced Spark users (`PLAN_TASK_210.md` 1).
+The test for where a finding goes is who can act on it, and a developer acts
+on a mechanism. So the developer-facing material of task 210's first outline
+(git 6638c9076b8) comes here: the four limits the JVM sets and how Spark
+guesses at each (its 3.1 and 3.2, into 3.2 above); the census in full, with
+its Varka column (3.3); and four findings that surprise a reader of
+`CodeGenerator.scala`, each with the test that pins it - the `hugeMethodLimit`
+check that cannot fire at its default (G25), the TPC suites' size check that
+found no stage under adaptive execution from 3.2 until 4.4.0 (SPARK-59764), the
+split that moves the problem into the method holding the calls (SPARK-59783),
+and code that compiles but is no longer inlined once its caller passes C2's
+budget. The last two go in 3.4, as the contrast with measuring bytes after the
+build. Section 4 gains their evidence.
