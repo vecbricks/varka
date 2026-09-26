@@ -157,3 +157,11 @@ recorded here against section 3.*
   composition suite classifies and emits, and `VarkaCoverageDifferentialSuite`
   runs the rows one at a time.
 * Any change to the IR fuzzer's grammar or caps.
+
+**The first scheduled run, 26 September 2026.** Run 36225159589 of
+`varka-fuzz.yml` failed at "Compile the catalyst tests and export their
+classpath", before any fuzzer JVM started: the step redirects sbt's output to
+`target/catalyst-test-classpath.txt`, and on a fresh checkout the shell opens
+that file before sbt has created `target/`. It is the workflow's own bug, not a
+finding of the fuzzer; the fix is to create the directory first. The task
+stays open until a scheduled run reports a verdict.
