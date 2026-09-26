@@ -1,0 +1,14 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CachedTableWidthBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36188797733
+commit:      1ec3892a171 (the varka-task-210 branch)
+date:        2026-09-25T20:57:18Z
+inputs:      class=*CachedTableWidthBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 9V45 96-Core Processor
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
+what:        one column summed, and every column read, over a cached table of 100 and of 101
+             int columns, two million rows; one of two runs dispatched together on 25 September
+             2026 so that the two claims resting on ratios under 1.3x could be compared by
+             minimums across runs (PLAN_TASK_210.md 9.3)

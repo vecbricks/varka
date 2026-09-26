@@ -1,0 +1,50 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# The task table, mirrored as issues (task 183): whenever a milestone plan changes on
+# master, dev/varka_issues.py opens an issue for each row that is open, brings an existing
+# one to its row, and closes the issues of rows that turned done or withdrawn, quoting the
+# outcome. The table is the source of truth; this keeps the view GitHub shows in step.
+name: Varka issues
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'sql/varka/plans/PLAN_MILESTONE_*.md'
+      - 'dev/varka_issues.py'
+      - 'dev/varka_good_first_tasks.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    name: Mirror the task table
+    if: github.repository == 'vecbricks/varka'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Open, update and close the issues
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: ./dev/varka_issues.py --apply --repo "${{ github.repository }}"
