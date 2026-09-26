@@ -1,0 +1,14 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CaseWhenCodegenBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36182429624
+commit:      e8783f3211d (the varka-task-210 branch, before the review fixes of PLAN_TASK_210.md 9.3)
+date:        2026-09-25T19:53:36Z
+inputs:      class=*CaseWhenCodegenBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 9V74 80-Core Processor
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
+what:        the first runner run of the benchmark, which PLAN_TASK_210.md 9.2 scores its
+             predictions against: two interpreted iterations and no warm-up pass, so its
+             30-branch rung carries the JVM's warm-up (9.3); kept under its own name because
+             the plan quotes it, and the benchmark's current file is the EPYC 7763 rerun

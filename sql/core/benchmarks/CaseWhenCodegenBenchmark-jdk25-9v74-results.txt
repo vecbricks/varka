@@ -1,0 +1,70 @@
+================================================================================================
+CASE WHEN of 30 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 2853 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+CASE WHEN of 30 branches:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                               70             72           2          2.9         350.4       1.0X
+whole-stage codegen off                              52             57           5          3.8         262.1       1.3X
+interpreted, factoryMode=NO_CODEGEN                 172            177           7          1.2         861.6       0.4X
+
+
+================================================================================================
+CASE WHEN of 60 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 5673 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+CASE WHEN of 60 branches:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                               39             46           5          5.2         193.2       1.0X
+whole-stage codegen off                              51             54           3          3.9         257.3       0.8X
+interpreted, factoryMode=NO_CODEGEN                 470            473           4          0.4        2350.6       0.1X
+
+
+================================================================================================
+CASE WHEN of 100 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 9433 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+CASE WHEN of 100 branches:                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                              431            506          47          0.5        2154.7       1.0X
+whole-stage codegen off                              67             69           3          3.0         334.3       6.4X
+interpreted, factoryMode=NO_CODEGEN                1136           1137           2          0.2        5678.6       0.4X
+
+
+================================================================================================
+CASE WHEN of 300 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: 32605 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+CASE WHEN of 300 branches:                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                             1488           1498           6          0.1        7439.8       1.0X
+whole-stage codegen off                             179            183           6          1.1         893.7       8.3X
+interpreted, factoryMode=NO_CODEGEN               10147          10155          12          0.0       50734.4       0.1X
+
+
+================================================================================================
+CASE WHEN of 1000 branches over 200000 rows
+================================================================================================
+
+largest method of the stage: fails to compile, past 64 KB
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+CASE WHEN of 1000 branches:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+whole-stage codegen on                             3288           3397         100          0.1       16439.8       1.0X
+whole-stage codegen off                            2731           2788          44          0.1       13655.9       1.2X
+interpreted, factoryMode=NO_CODEGEN              143591         146242        3749          0.0      717953.5       0.0X
+
+
