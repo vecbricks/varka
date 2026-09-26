@@ -411,7 +411,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite {
     // must fail the task. The entry unwraps for exactly this case.
     def entryFor(klass: Class[_]): VarkaShapeEntry =
       new VarkaShapeEntry(new VarkaGeneratedClassLoader(getClass.getClassLoader), klass,
-        Array.emptyByteArray, "0123456789abcdef", klass.getConstructor())
+        Array.emptyByteArray, "0123456789abcdef", klass.getConstructor(), new VarkaKernelWarmth)
     val fatal = intercept[OutOfMemoryError](entryFor(classOf[FatalKernel]).newKernel())
     assert(fatal.getMessage === "injected")
     val ordinary = intercept[IllegalStateException](entryFor(classOf[FailingKernel]).newKernel())

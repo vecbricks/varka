@@ -147,7 +147,8 @@ case class VarkaColumnarToRowExec(
       longMetric("numOutputRows"),
       longMetric("numInputBatches"),
       varkaMetrics,
-      emitUseAVX = conf.varkaEmitUseAVX)
+      emitUseAVX = conf.varkaEmitUseAVX,
+      warmupEnabled = conf.varkaWarmupEnabled)
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -244,7 +245,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     numOutputRows: SQLMetric,
     numInputBatches: SQLMetric,
     varkaMetrics: VarkaExecMetrics,
-    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN)
+    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN,
+    warmupEnabled: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
@@ -275,7 +277,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
 
     private val kernels = new VarkaKernelEvaluator(
       projectList, childOutput, offHeapColumnVectorEnabled, operatorName = "ProjectToRow",
-      classDumpDirectory, varkaMetrics, emitUseAVX)
+      classDumpDirectory, varkaMetrics, emitUseAVX, warmupEnabled)
 
     // Merge-at-row (see 2.3): for a projection with forwarded or residual entries the
     // kernels produce only the fused columns, and this projection - over the input row joined

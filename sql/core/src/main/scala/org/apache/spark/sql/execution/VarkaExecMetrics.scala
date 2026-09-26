@@ -26,7 +26,7 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
  * options; this one would have made it five). Every field is optional: suites and diagnostics
  * construct evaluators with none. Deliberately Scala rather than a Java record (the task-21
  * review's call, recorded): every construction site is forced-Scala code leaning on named
- * arguments and defaults over seven same-typed fields, where a record's positional constructor
+ * arguments and defaults over a list of same-typed fields, where a record's positional constructor
  * would be a silent-swap hazard.
  */
 private[sql] case class VarkaExecMetrics(
@@ -38,7 +38,8 @@ private[sql] case class VarkaExecMetrics(
     fallbackBatchesRowPath: Option[SQLMetric] = None,
     fallbackBatchesDeclined: Option[SQLMetric] = None,
     emissionFailures: Option[SQLMetric] = None,
-    suspectAllocationSamples: Option[SQLMetric] = None)
+    suspectAllocationSamples: Option[SQLMetric] = None,
+    warmupBatches: Option[SQLMetric] = None)
 
 private[sql] object VarkaExecMetrics {
 
@@ -68,7 +69,9 @@ private[sql] object VarkaExecMetrics {
     "numEmissionFailures" -> SQLMetrics.createMetric(
       sparkContext, "tasks that could not emit or define the kernel class"),
     "numSuspectAllocationSamples" -> SQLMetrics.createMetric(
-      sparkContext, "sampled kernel batches that allocated like a boxing Vector API loop"))
+      sparkContext, "sampled kernel batches that allocated like a boxing Vector API loop"),
+    "numWarmupBatches" -> SQLMetrics.createMetric(
+      sparkContext, "batches on the per-row path while a new kernel was compiled"))
 
   /** [[nodeMetrics]] plus the projection nodes' static residual-entry count; a filter's
    * residual is a visible row `FilterExec` above it rather than a number. */
@@ -86,5 +89,6 @@ private[sql] object VarkaExecMetrics {
     fallbackBatchesRowPath = Some(metric("numFallbackBatchesRowPath")),
     fallbackBatchesDeclined = Some(metric("numFallbackBatchesDeclined")),
     emissionFailures = Some(metric("numEmissionFailures")),
-    suspectAllocationSamples = Some(metric("numSuspectAllocationSamples")))
+    suspectAllocationSamples = Some(metric("numSuspectAllocationSamples")),
+    warmupBatches = Some(metric("numWarmupBatches")))
 }

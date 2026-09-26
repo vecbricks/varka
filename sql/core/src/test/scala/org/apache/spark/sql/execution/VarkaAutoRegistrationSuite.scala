@@ -54,6 +54,9 @@ class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession {
       .config(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
       .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
       .config(SQLConf.SHUFFLE_PARTITIONS.key, "1")
+      // The test checks that the kernels served the query; with the warm-up on, a new shape's
+      // first batches would take the row path until its kernel is compiled.
+      .config(SQLConf.VARKA_WARMUP_ENABLED.key, "false")
       .getOrCreate()
     SparkSession.clearActiveSession()
     SparkSession.clearDefaultSession()

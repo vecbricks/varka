@@ -62,9 +62,10 @@ private[sql] class VarkaFilterEvaluator(
     operatorName: String,
     classDumpDirectory: Option[String] = None,
     metrics: VarkaExecMetrics = VarkaExecMetrics(),
-    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN)
+    emitUseAVX: Int = VarkaEmitOptions.USE_AVX_UNKNOWN,
+    warmupEnabled: Boolean = false)
     extends VarkaEvaluatorBase(childOutput, operatorName, classDumpDirectory, metrics,
-      emitUseAVX) {
+      emitUseAVX, warmupEnabled) {
 
   private lazy val compiled = {
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput, emitOptions)

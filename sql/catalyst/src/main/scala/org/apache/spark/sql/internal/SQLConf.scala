@@ -3014,6 +3014,21 @@ object SQLConf {
     .checkValue(_ >= -1, "the level is -1 for the emitter's default or a -XX:UseAVX value")
     .createWithDefault(-1)
 
+  val VARKA_WARMUP_ENABLED = buildConf("spark.sql.codegen.varka.warmup.enabled")
+    .internal()
+    .doc("When true, a Varka kernel class this JVM has just emitted serves no batch until HotSpot" +
+      " has compiled it: the shape's batches take Spark's per-row path while a background" +
+      " thread runs the kernel on a copy of the first batch, and every task of the shape" +
+      " switches to the kernel once it runs without allocating, which it does only as C2's" +
+      " code. When false, a new kernel serves batches from the start and runs interpreted -" +
+      " slower than the per-row path - until enough batches have gone through it to be" +
+      " compiled.")
+    .version("5.0.0")
+    // Chooses which of two equal-answer paths serves a batch; nothing a view body resolves to.
+    .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
+    .booleanConf
+    .createWithDefault(true)
+
   val CODEGEN_FACTORY_MODE = buildConf("spark.sql.codegen.factoryMode")
     .internal()
     .doc("This config determines the fallback behavior of several codegen generators " +
@@ -9193,6 +9208,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def varkaClassDumpDirectory: Option[String] = getConf(VARKA_CLASS_DUMP_DIRECTORY)
 
   def varkaEmitUseAVX: Int = getConf(VARKA_EMIT_USE_AVX)
+
+  def varkaWarmupEnabled: Boolean = getConf(VARKA_WARMUP_ENABLED)
 
   def codegenFallback: Boolean = getConf(CODEGEN_FALLBACK)
 

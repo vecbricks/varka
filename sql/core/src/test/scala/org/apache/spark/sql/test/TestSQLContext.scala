@@ -106,7 +106,10 @@ private[sql] object TestSQLContext {
       // the underlying matching mechanism should behave exactly like name matching
       // which is the existing behavior. Therefore, turning this on ensures that we didn't
       // introduce any regression for such mixed matching mode.
-      SQLConf.PARQUET_FIELD_ID_READ_ENABLED.key -> "true")
+      SQLConf.PARQUET_FIELD_ID_READ_ENABLED.key -> "true",
+      // A suite that turns Varka on expects its kernel to serve a shape's first batch; the
+      // warm-up would put that batch on the row path until the kernel is compiled.
+      SQLConf.VARKA_WARMUP_ENABLED.key -> "false")
 }
 
 private[sql] class TestSQLSessionStateBuilder(

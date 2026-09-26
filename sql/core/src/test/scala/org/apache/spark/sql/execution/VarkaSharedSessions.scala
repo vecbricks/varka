@@ -82,6 +82,10 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     .config(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
     .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
     .config(SQLConf.VARKA_ENABLED.key, varkaEnabled.toString)
+    // The suites compare the kernel's answers with the row engine's, so the kernel must serve
+    // a shape's first batch: with the warm-up on, a new shape's first query takes the row path
+    // and such a comparison would compare the row engine with itself.
+    .config(SQLConf.VARKA_WARMUP_ENABLED.key, "false")
     .getOrCreate()
 
   protected def date(value: String): java.sql.Date = java.sql.Date.valueOf(value)

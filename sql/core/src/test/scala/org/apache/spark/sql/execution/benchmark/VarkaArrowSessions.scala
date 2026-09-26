@@ -36,8 +36,17 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  */
 object VarkaArrowSessions {
 
-  /** A local, one-core session whose cache is Arrow, with the Varka rule when asked for. */
-  def createSession(appName: String, varkaEnabled: Boolean): SparkSession = {
+  /**
+   * A local, one-core session whose cache is Arrow, with the Varka rule when asked for.
+   *
+   * The kernel warm-up is off unless asked for: every Varka benchmark but the cold-start one
+   * times steady state and checks that the kernel served its batches (`VarkaSizeLadder.
+   * varkaFused`), which a new shape's first query on the row path would fail.
+   */
+  def createSession(
+      appName: String,
+      varkaEnabled: Boolean,
+      warmupEnabled: Boolean = false): SparkSession = {
     val builder = SparkSession.builder()
       .master("local[1]")
       .appName(appName)
@@ -50,6 +59,7 @@ object VarkaArrowSessions {
     if (varkaEnabled) {
       builder
         .config(SQLConf.VARKA_ENABLED.key, "true")
+        .config(SQLConf.VARKA_WARMUP_ENABLED.key, warmupEnabled.toString)
         .withExtensions(_.injectColumnar(_ => VarkaColumnarRule))
     }
     builder.getOrCreate()

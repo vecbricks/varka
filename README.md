@@ -436,14 +436,20 @@ spark.sql("select date_add(date'2020-01-01', cast(id as int) % 1000) as d from r
   .createOrReplaceTempView("t")
 spark.catalog.cacheTable("t")
 val q = spark.sql("select datediff(date_add(d, 1), d) from t")
-q.collect()
-// The fused node and its metric:
+q.collect()   // a new kernel: this run's batches take the row path while it compiles
+Thread.sleep(5000)
+q.collect()   // compiled: this run's batches run the kernel
+// The fused node and its metrics:
 println(q.queryExecution.executedPlan.treeString)   // VarkaColumnarToRowExec (varka: ...)
 ```
 
 A fused plan shows a `Varka*Exec` node whose `numVarkaBatches` metric counts
-the batches the kernels actually served; anything else fell back to stock
-Spark and stayed correct.
+the batches the kernels actually served. A newly emitted kernel serves none
+until HotSpot has compiled it: a background thread warms it on a copy of the
+first batch, within a few seconds for a narrow kernel and longer for a wide
+one, and the batches that took Spark's row path meanwhile are counted in
+`numWarmupBatches` (`spark.sql.codegen.varka.warmup.enabled`). Anything else
+fell back to stock Spark and stayed correct.
 
 ## Reading the source
 
