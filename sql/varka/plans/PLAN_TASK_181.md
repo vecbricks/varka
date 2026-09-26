@@ -229,3 +229,9 @@ fixed*),
 and code that compiles but is no longer inlined once its caller passes C2's
 budget. The last two go in 3.4, as the contrast with measuring bytes after the
 build. Section 4 gains their evidence.
+
+## 8. What this post owes the first one, 26 September 2026
+
+Task 210's post is published first (`PLAN_TASK_210.md` 9.7), and its closing
+sentence says this post is still to come. When this post is published, that
+sentence gets this post's link.

@@ -612,3 +612,14 @@ So the second cliff of section 5 is gone in 4.4.0; the first, inside a stage,
 is SPARK-33301's, in review as apache/spark#59069. Section 4's owed grouped
 arm is done, and the benchmark class stays in the fork: it went upstream with
 neither change.
+
+### 9.7 Publication order, 26 September 2026
+
+The owner's decision: this post is published first, before task 181's. Its
+introduction now says the second post is to follow, and its closing sentence,
+which held a placeholder for that post's link, says the second post is still
+to come and points to the public repository instead. When task 181's post is
+published, the closing gets its link. Section 6's table is still read from the
+tracker on the day this post is published, as section 4 owes: SPARK-33301 is
+in review as apache/spark#59069 today, and if it merges first, the table's row
+and the `CASE WHEN` paragraph of section 5 change with it.
