@@ -1,0 +1,257 @@
+The C2 deoptimization cycle census (PLAN_TASK_189.md 2.1): fresh JVMs of VarkaDeoptCycleProbe,
+the make_date ladder's twelve-output kernel in each epilogue form, driven over null-free
+1024-row batches for eight seconds under -XX:+PrintCompilation -Xlog:deoptimization=debug,
+twenty forks per case. Written by dev/varka_deopt_cycle.sh; the verdict per fork is
+dev/varka_deopt_cycle.py's, from the JVM's compile and trap log: CYCLE when a loopDense method
+was made not entrant three or more times and trapped at profile_predicate more than four
+times (the rule as tightened on 26 September 2026, PLAN_TASK_189.md 2.3; it changes none of the
+verdicts of the first two sections below). Per method the columns read: tier-4 compiles (of them OSR) / made not
+entrant / profile_predicate traps [trap bcis]. The rate is the probe's last second, M rows/s,
+a reading beside the verdict and not a benchmark.
+
+Reproduce: dev/varka_deopt_cycle.sh    (12 outputs, both forms, widths 64 and 16, 20 forks)
+
+commit:  ea0a7ef4237
+date:    2026-09-26T10:04:13+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    1.22 2.27 1.38 at start
+args:    outputs=12 forms=single,group widths=64,16 forks=20 seconds=8 rows=1024
+
+case                        fork  verdict  loopDense tier-4 compiles (osr) / not entrant / profile_predicate traps [bcis]   last rate M/s
+VarkaDeoptProbe_12_single_batches @64    1  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64    2  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 15(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64    3  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(0)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64    4  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64    5  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64    6  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64    7  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 15(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64    8  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64    9  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   10  once    loopDense0 3(1)/1/4[427]; loopDense1 1(0)/0/0; loopDense2 1(0)/1/0   163.6
+VarkaDeoptProbe_12_single_batches @64   11  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64   12  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 15(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   13  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64   14  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64   15  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 15(1)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_single_batches @64   16  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 16(1)/14/18[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   17  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 15(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   18  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   19  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/13/17[427, 3167]; loopDense2 3(1)/2/4[427]   2.5
+VarkaDeoptProbe_12_single_batches @64   20  CYCLE   loopDense0 3(1)/1/4[427]; loopDense1 14(1)/12/16[427, 3167]; loopDense2 3(1)/2/4[427]   2.4
+VarkaDeoptProbe_12_group_batches @64    1  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   175.2
+VarkaDeoptProbe_12_group_batches @64    2  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.5
+VarkaDeoptProbe_12_group_batches @64    3  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.4
+VarkaDeoptProbe_12_group_batches @64    4  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.5
+VarkaDeoptProbe_12_group_batches @64    5  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   185.5
+VarkaDeoptProbe_12_group_batches @64    6  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   172.5
+VarkaDeoptProbe_12_group_batches @64    7  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.1
+VarkaDeoptProbe_12_group_batches @64    8  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.6
+VarkaDeoptProbe_12_group_batches @64    9  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.9
+VarkaDeoptProbe_12_group_batches @64   10  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   173.3
+VarkaDeoptProbe_12_group_batches @64   11  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   173.1
+VarkaDeoptProbe_12_group_batches @64   12  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   173.2
+VarkaDeoptProbe_12_group_batches @64   13  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   172.4
+VarkaDeoptProbe_12_group_batches @64   14  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.7
+VarkaDeoptProbe_12_group_batches @64   15  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.2
+VarkaDeoptProbe_12_group_batches @64   16  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   174.8
+VarkaDeoptProbe_12_group_batches @64   17  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   172.5
+VarkaDeoptProbe_12_group_batches @64   18  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 1(0)/1/0   173.0
+VarkaDeoptProbe_12_group_batches @64   19  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   173.3
+VarkaDeoptProbe_12_group_batches @64   20  once    loopDense0 3(1)/1/4[213]; loopDense1 3(1)/1/4[225]; loopDense2 2(1)/1/0   172.4
+VarkaDeoptProbe_12_single_batches @16    1  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/14/18[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    2  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/14/18[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    3  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/14/18[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    4  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    5  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    6  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/14/18[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    7  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    8  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16    9  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 16(1)/14/18[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   10  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   11  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   12  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   13  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/12/16[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   14  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 16(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   15  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   16  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/12/16[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   17  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   18  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/13/17[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   19  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 14(1)/12/16[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_single_batches @16   20  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 15(1)/12/16[426, 3166]; loopDense2 3(1)/2/4[426]   0.7
+VarkaDeoptProbe_12_group_batches @16    1  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.3
+VarkaDeoptProbe_12_group_batches @16    2  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.6
+VarkaDeoptProbe_12_group_batches @16    3  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.1
+VarkaDeoptProbe_12_group_batches @16    4  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.3
+VarkaDeoptProbe_12_group_batches @16    5  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.4
+VarkaDeoptProbe_12_group_batches @16    6  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.6
+VarkaDeoptProbe_12_group_batches @16    7  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.3
+VarkaDeoptProbe_12_group_batches @16    8  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.6
+VarkaDeoptProbe_12_group_batches @16    9  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.2
+VarkaDeoptProbe_12_group_batches @16   10  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.6
+VarkaDeoptProbe_12_group_batches @16   11  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.5
+VarkaDeoptProbe_12_group_batches @16   12  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.2
+VarkaDeoptProbe_12_group_batches @16   13  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.5
+VarkaDeoptProbe_12_group_batches @16   14  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.4
+VarkaDeoptProbe_12_group_batches @16   15  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.4
+VarkaDeoptProbe_12_group_batches @16   16  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.7
+VarkaDeoptProbe_12_group_batches @16   17  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   53.3
+VarkaDeoptProbe_12_group_batches @16   18  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   56.1
+VarkaDeoptProbe_12_group_batches @16   19  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.4
+VarkaDeoptProbe_12_group_batches @16   20  once    loopDense0 3(1)/1/4[212]; loopDense1 3(1)/1/4[224]; loopDense2 2(1)/1/0   55.6
+
+summary: forks in the cycle / forks
+  VarkaDeoptProbe_12_group_batches @16   0 / 20
+  VarkaDeoptProbe_12_group_batches @64   0 / 20
+  VarkaDeoptProbe_12_single_batches @16  20 / 20
+  VarkaDeoptProbe_12_single_batches @64  19 / 20
+
+== task 212's path: dev/varka_deopt_cycle.sh --paths warmup (PLAN_TASK_189.md 2.2) ==
+
+commit:  ea0a7ef4237
+date:    2026-09-26T10:19:07+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    2.47 2.84 2.37 at start
+args:    outputs=12 forms=single,group paths=warmup widths=64,16 forks=20 seconds=8 rows=1024
+
+case                        fork  verdict  loopDense tier-4 compiles (osr) / not entrant / profile_predicate traps [bcis]   last rate M/s
+VarkaDeoptProbe_12_single_warmup @64    1  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.3
+VarkaDeoptProbe_12_single_warmup @64    2  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   150.6
+VarkaDeoptProbe_12_single_warmup @64    3  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.9
+VarkaDeoptProbe_12_single_warmup @64    4  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   162.8
+VarkaDeoptProbe_12_single_warmup @64    5  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   165.6
+VarkaDeoptProbe_12_single_warmup @64    6  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   164.6
+VarkaDeoptProbe_12_single_warmup @64    7  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   155.8
+VarkaDeoptProbe_12_single_warmup @64    8  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   163.9
+VarkaDeoptProbe_12_single_warmup @64    9  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   161.8
+VarkaDeoptProbe_12_single_warmup @64   10  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   161.4
+VarkaDeoptProbe_12_single_warmup @64   11  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   159.8
+VarkaDeoptProbe_12_single_warmup @64   12  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   163.3
+VarkaDeoptProbe_12_single_warmup @64   13  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.3
+VarkaDeoptProbe_12_single_warmup @64   14  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   165.6
+VarkaDeoptProbe_12_single_warmup @64   15  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   160.8
+VarkaDeoptProbe_12_single_warmup @64   16  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   158.9
+VarkaDeoptProbe_12_single_warmup @64   17  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   164.9
+VarkaDeoptProbe_12_single_warmup @64   18  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.2
+VarkaDeoptProbe_12_single_warmup @64   19  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   162.6
+VarkaDeoptProbe_12_single_warmup @64   20  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   163.1
+VarkaDeoptProbe_12_group_warmup @64    1  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   173.7
+VarkaDeoptProbe_12_group_warmup @64    2  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.3
+VarkaDeoptProbe_12_group_warmup @64    3  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.3
+VarkaDeoptProbe_12_group_warmup @64    4  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   167.8
+VarkaDeoptProbe_12_group_warmup @64    5  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   173.4
+VarkaDeoptProbe_12_group_warmup @64    6  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.5
+VarkaDeoptProbe_12_group_warmup @64    7  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.6
+VarkaDeoptProbe_12_group_warmup @64    8  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   173.3
+VarkaDeoptProbe_12_group_warmup @64    9  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.1
+VarkaDeoptProbe_12_group_warmup @64   10  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   170.0
+VarkaDeoptProbe_12_group_warmup @64   11  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   174.5
+VarkaDeoptProbe_12_group_warmup @64   12  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   174.7
+VarkaDeoptProbe_12_group_warmup @64   13  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   168.1
+VarkaDeoptProbe_12_group_warmup @64   14  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   168.0
+VarkaDeoptProbe_12_group_warmup @64   15  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   174.6
+VarkaDeoptProbe_12_group_warmup @64   16  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   174.5
+VarkaDeoptProbe_12_group_warmup @64   17  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   174.6
+VarkaDeoptProbe_12_group_warmup @64   18  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.7
+VarkaDeoptProbe_12_group_warmup @64   19  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   172.4
+VarkaDeoptProbe_12_group_warmup @64   20  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   173.8
+VarkaDeoptProbe_12_single_warmup @16    1  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.3
+VarkaDeoptProbe_12_single_warmup @16    2  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.2
+VarkaDeoptProbe_12_single_warmup @16    3  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.1
+VarkaDeoptProbe_12_single_warmup @16    4  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   50.2
+VarkaDeoptProbe_12_single_warmup @16    5  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.6
+VarkaDeoptProbe_12_single_warmup @16    6  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.1
+VarkaDeoptProbe_12_single_warmup @16    7  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.4
+VarkaDeoptProbe_12_single_warmup @16    8  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   51.4
+VarkaDeoptProbe_12_single_warmup @16    9  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   53.5
+VarkaDeoptProbe_12_single_warmup @16   10  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   59.4
+VarkaDeoptProbe_12_single_warmup @16   11  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.5
+VarkaDeoptProbe_12_single_warmup @16   12  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   56.1
+VarkaDeoptProbe_12_single_warmup @16   13  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   54.1
+VarkaDeoptProbe_12_single_warmup @16   14  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   53.5
+VarkaDeoptProbe_12_single_warmup @16   15  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.8
+VarkaDeoptProbe_12_single_warmup @16   16  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.8
+VarkaDeoptProbe_12_single_warmup @16   17  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.1
+VarkaDeoptProbe_12_single_warmup @16   18  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.5
+VarkaDeoptProbe_12_single_warmup @16   19  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.6
+VarkaDeoptProbe_12_single_warmup @16   20  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   52.4
+VarkaDeoptProbe_12_group_warmup @16    1  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16    2  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+VarkaDeoptProbe_12_group_warmup @16    3  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+VarkaDeoptProbe_12_group_warmup @16    4  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16    5  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   53.7
+VarkaDeoptProbe_12_group_warmup @16    6  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   54.3
+VarkaDeoptProbe_12_group_warmup @16    7  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.3
+VarkaDeoptProbe_12_group_warmup @16    8  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+VarkaDeoptProbe_12_group_warmup @16    9  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+VarkaDeoptProbe_12_group_warmup @16   10  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   11  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   12  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.5
+VarkaDeoptProbe_12_group_warmup @16   13  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   14  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   15  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+VarkaDeoptProbe_12_group_warmup @16   16  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   17  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.0
+VarkaDeoptProbe_12_group_warmup @16   18  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.2
+VarkaDeoptProbe_12_group_warmup @16   19  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.0
+VarkaDeoptProbe_12_group_warmup @16   20  once    loopDense0 1(0)/0/0; loopDense1 1(0)/0/0; loopDense2 1(0)/0/0   55.1
+
+summary: forks in the cycle / forks
+  VarkaDeoptProbe_12_group_warmup @16   0 / 20
+  VarkaDeoptProbe_12_group_warmup @64   0 / 20
+  VarkaDeoptProbe_12_single_warmup @16   0 / 20
+  VarkaDeoptProbe_12_single_warmup @64   0 / 20
+
+== the default form's other rungs: dev/varka_deopt_cycle.sh --outputs 13,14,16,32,60 --forms group --forks 10 (PLAN_TASK_189.md 2.3) ==
+
+commit:  84a1ac73196
+date:    2026-09-26T10:35:04+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    1.77 2.20 2.37 at start
+args:    outputs=13,14,16,32,60 forms=group paths=batches widths=64,16 forks=10 seconds=8 rows=1024
+
+summary: forks in the cycle / forks
+  VarkaDeoptProbe_13_group_batches @16   0 / 10
+  VarkaDeoptProbe_13_group_batches @64   0 / 10
+  VarkaDeoptProbe_14_group_batches @16   0 / 10
+  VarkaDeoptProbe_14_group_batches @64   0 / 10
+  VarkaDeoptProbe_16_group_batches @16   0 / 10
+  VarkaDeoptProbe_16_group_batches @64   0 / 10
+  VarkaDeoptProbe_32_group_batches @16   0 / 10
+  VarkaDeoptProbe_32_group_batches @64   0 / 10
+  VarkaDeoptProbe_60_group_batches @16   0 / 10
+  VarkaDeoptProbe_60_group_batches @64   0 / 10
+
+== the lifetime: dev/varka_deopt_cycle.sh --outputs 12 --forms single --widths 16 --forks 3 --seconds 90 (PLAN_TASK_189.md 2.4) ==
+
+commit:  86ace2e6528
+date:    2026-09-26T10:53:59+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    2.66 2.90 2.79 at start
+args:    outputs=12 forms=single paths=batches widths=16 forks=3 seconds=90 rows=1024
+
+case                        fork  verdict  loopDense tier-4 compiles (osr) / not entrant / profile_predicate traps [bcis]   last rate M/s
+VarkaDeoptProbe_12_single_batches @16    1  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 98(1)/96/100[426, 3166]; loopDense2 3(1)/2/4[426]   53.5
+VarkaDeoptProbe_12_single_batches @16    2  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 98(1)/96/100[426, 3166]; loopDense2 3(1)/2/4[426]   53.0
+VarkaDeoptProbe_12_single_batches @16    3  CYCLE   loopDense0 3(1)/1/4[426]; loopDense1 98(1)/96/100[426, 3166]; loopDense2 3(1)/2/4[426]   52.7
+
+summary: forks in the cycle / forks
+  VarkaDeoptProbe_12_single_batches @16   3 / 3
+
+== the two halves of task 212's path: dev/varka_deopt_cycle.sh --paths c1off,shortcalls --forms single (PLAN_TASK_189.md 2.5) ==
+
+commit:  92274132c25 (dirty)
+date:    2026-09-26T11:00:47+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    9.62 4.95 3.53 at start
+args:    outputs=12 forms=single paths=c1off,shortcalls widths=64,16 forks=20 seconds=8 rows=1024
+
+summary: forks in the cycle / forks
+  VarkaDeoptProbe_12_single_c1off @16  20 / 20
+  VarkaDeoptProbe_12_single_c1off @64  20 / 20
+  VarkaDeoptProbe_12_single_shortcalls @16   0 / 20
+  VarkaDeoptProbe_12_single_shortcalls @64   0 / 20
