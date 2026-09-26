@@ -17,11 +17,16 @@
 #
 # The checks that need volume or an idle machine, in one command that leaves a
 # dated log: the machine canary, the IR fuzzer at ten thousand iterations with
-# a fresh seed, and the exhaustive calendar sweeps. Optionally the whole gate.
+# a fresh seed, the exhaustive calendar sweeps, and the deoptimization-cycle
+# guard. Optionally the whole gate.
 #
-#   dev/varka_nightly.sh                  # canary, fuzzer (10000, seed = today), sweeps
-#   dev/varka_nightly.sh --iterations 500 --seed 42 --skip-sweep   # a quick trial
+#   dev/varka_nightly.sh                  # canary, fuzzer (10000, seed = today), sweeps, deopt
+#   dev/varka_nightly.sh --iterations 500 --seed 42 --skip-sweep --skip-deopt   # a quick trial
 #   dev/varka_nightly.sh --gate           # the standing gate as well
+#
+# The deopt step forks ten fresh JVMs per vector width of the default emission's twelve-output
+# make_date kernel and fails if any of them enters the C2 deoptimization cycle, reading the
+# JVM's own compile and trap log (dev/varka_deopt_cycle.sh, PLAN_TASK_189.md 3.3).
 #
 # Logs go under target/varka-nightly/<date>/; the summary names the fuzzer's
 # seed so a failure replays with -Dvarka.fuzz.seed=<seed> -Dvarka.fuzz.only=<n>.
@@ -33,13 +38,14 @@ set -uo pipefail
 usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 
 root="$(git rev-parse --show-toplevel)"; cd "$root"
-iterations=10000; seed="$(date +%Y%m%d)"; sweep=1; gate=0
+iterations=10000; seed="$(date +%Y%m%d)"; sweep=1; deopt=1; gate=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
     --iterations) iterations="$2"; shift 2 ;;
     --seed) seed="$2"; shift 2 ;;
     --skip-sweep) sweep=0; shift ;;
+    --skip-deopt) deopt=0; shift ;;
     --gate) gate=1; shift ;;
     *) usage ;;
   esac
@@ -65,13 +71,16 @@ if [ "$sweep" -eq 1 ]; then
     'set Test/javaOptions += "-Dvarka.sweep=true"' \
     'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in'
 fi
+if [ "$deopt" -eq 1 ]; then
+  run_step deopt dev/varka_deopt_cycle.sh --forms group --forks 10 --fail-on-cycle
+fi
 [ "$gate" -eq 1 ] && run_step gate dev/varka_gate.sh
 
 echo
 echo "fuzzer seed $seed, $iterations iterations"
 printf '%-8s %-7s %6s  %s\n' step status secs log
 bad=0
-for s in canary fuzz sweep gate; do
+for s in canary fuzz sweep deopt gate; do
   [ -n "${status[$s]:-}" ] || continue
   printf '%-8s %-7s %6d  %s\n' "$s" "${status[$s]}" "${secs[$s]}" "$logdir/$s.log"
   [ "${status[$s]}" = ok ] || bad=$((bad + 1))

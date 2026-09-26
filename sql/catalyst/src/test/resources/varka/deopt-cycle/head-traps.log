@@ -1,0 +1,268 @@
+[info] VARKA_DEOPT_METHODS=run:38,runDense:2577,loopDense0:2955,epilogueDense0:3005,loopDense1:2967,epilogueDense1:3017,loopDense2:3488,epilogueDense2:3546,loopDense3:3640,epilogueDense3:3690,loopDense4:3640,epilogueDense4:3690,loopDense5:3655,epilogueDense5:3705,loopDense6:3665,epilogueDense6:3715,loopDense7:3669,epilogueDense7:3719,loopDense8:3669,epilogueDense8:3719,loopDense9:3669,epilogueDense9:3719,loopDense10:3669,epilogueDense10:3719,loopDense11:3672,epilogueDense11:3722,runMasked:2695,loopMasked0:3194,epilogueMasked0:3256,loopMasked1:3206,epilogueMasked1:3268,loopMasked2:3769,epilogueMasked2:3843,loopMasked3:3909,epilogueMasked3:3971,loopMasked4:3909,epilogueMasked4:3971,loopMasked5:3924,epilogueMasked5:3986,loopMasked6:3934,epilogueMasked6:3996,loopMasked7:3938,epilogueMasked7:4000,loopMasked8:3938,epilogueMasked8:4000,loopMasked9:3938,epilogueMasked9:4000,loopMasked10:3938,epilogueMasked10:4000,loopMasked11:3941,epilogueMasked11:4003
+[info] VARKA_DEOPT_RATE=1 0.0
+[info] 4124 6637       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 4140 6637       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4140 6638       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 4155 6638       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4155 6639       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)
+[info] VARKA_DEOPT_RATE=2 0.1
+[info] 4179 6639       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4200 6640       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] 4216 6640       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4216 6641       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] 4233 6641       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4276 6642       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] 4294 6642       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4294 6644       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)
+[info] 4313 6644       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4314 6643       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)
+[info] 4332 6643       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4354 6645       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 (3669 bytes)
+[info] 4376 6645       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4376 6648       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)
+[info] 4399 6648       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4399 6646       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)
+[info] 4420 6646       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4420 6647       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)
+[info] 4444 6647       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] VARKA_DEOPT_RATE=3 0.1
+[info] VARKA_DEOPT_RATE=4 0.1
+[info] 6981 6654       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::run (38 bytes)
+[info] 6982 6655       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::runDense (2577 bytes)
+[info] 7057 6656 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 @ 208 (2955 bytes)
+[info] 7200 6657 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 @ 220 (2967 bytes)
+[info] VARKA_DEOPT_RATE=5 0.1
+[info] 7341 6658 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 @ 219 (3672 bytes)
+[info] 7590 6661       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 7590 6663 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 @ 223 (3488 bytes)
+[info] 7753 6662       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 7876 6664 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 @ 223 (3640 bytes)
+[info] 7876 6667 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 @ 223 (3640 bytes)
+[info] [7.902s][debug][deoptimization] cid=6661     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x00007d8327a61820 relative_pc=0x0000000000001220
+[info] [7.922s][debug][deoptimization] cid=6661     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x00007d8327a61820 relative_pc=0x0000000000001220
+[info] [7.945s][debug][deoptimization] cid=6661     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x00007d8327a61820 relative_pc=0x0000000000001220
+[info] [7.966s][debug][deoptimization] cid=6661     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x00007d8327a61820 relative_pc=0x0000000000001220
+[info] 7965 6661       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)   made not entrant: uncommon trap
+[info] 8061 6672       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 8089 6666 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 @ 229 (3669 bytes)
+[info] 8093 6665       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)
+[info] [8.136s][debug][deoptimization] cid=6662     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x00007d8327a5b4c0 relative_pc=0x0000000000001240
+[info] [8.157s][debug][deoptimization] cid=6662     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x00007d8327a5b4c0 relative_pc=0x0000000000001240
+[info] [8.178s][debug][deoptimization] cid=6662     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x00007d8327a5b4c0 relative_pc=0x0000000000001240
+[info] [8.198s][debug][deoptimization] cid=6662     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x00007d8327a5b4c0 relative_pc=0x0000000000001240
+[info] 8198 6662       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)   made not entrant: uncommon trap
+[info] VARKA_DEOPT_RATE=6 0.1
+[info] 8361 6677       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 8361 6668 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 @ 221 (3655 bytes)
+[info] 8432 6678       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)
+[info] 8622 6669       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] 8653 6670 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 @ 229 (3669 bytes)
+[info] [8.674s][debug][deoptimization] cid=6665     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense11([J[J[I[J[J[II)I trap_bci=223 profile_predicate maybe_recompile pc=0x00007d8327a636ec relative_pc=0x00000000000014ec
+[info] [8.694s][debug][deoptimization] cid=6665     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense11([J[J[I[J[J[II)I trap_bci=223 profile_predicate maybe_recompile pc=0x00007d8327a636ec relative_pc=0x00000000000014ec
+[info] [8.714s][debug][deoptimization] cid=6665     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense11([J[J[I[J[J[II)I trap_bci=223 profile_predicate maybe_recompile pc=0x00007d8327a636ec relative_pc=0x00000000000014ec
+[info] [8.735s][debug][deoptimization] cid=6665     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense11([J[J[I[J[J[II)I trap_bci=223 profile_predicate maybe_recompile pc=0x00007d8327a636ec relative_pc=0x00000000000014ec
+[info] 8734 6665       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)   made not entrant: uncommon trap
+[info] 8765 6680       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)
+[info] 8879 6671 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 @ 225 (3665 bytes)
+[info] 8983 6673 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 @ 229 (3669 bytes)
+[info] [9.016s][debug][deoptimization] cid=6678     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense10([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x00007d8327a4585c relative_pc=0x00000000000012dc
+[info] [9.036s][debug][deoptimization] cid=6678     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense10([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x00007d8327a4585c relative_pc=0x00000000000012dc
+[info] [9.054s][debug][deoptimization] cid=6678     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense10([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x00007d8327a4585c relative_pc=0x00000000000012dc
+[info] 9066 6675       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] [9.073s][debug][deoptimization] cid=6678     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense10([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x00007d8327a4585c relative_pc=0x00000000000012dc
+[info] 9072 6678       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)   made not entrant: uncommon trap
+[info] [9.095s][debug][deoptimization] cid=6669     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a441fc relative_pc=0x00000000000012fc
+[info] 9104 6676       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] [9.114s][debug][deoptimization] cid=6669     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a441fc relative_pc=0x00000000000012fc
+[info] [9.133s][debug][deoptimization] cid=6669     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a441fc relative_pc=0x00000000000012fc
+[info] [9.151s][debug][deoptimization] cid=6669     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a441fc relative_pc=0x00000000000012fc
+[info] 9150 6669       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)   made not entrant: uncommon trap
+[info] 9208 6682       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)
+[info] VARKA_DEOPT_RATE=7 0.1
+[info] 9351 6683       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] 9454 6686       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense0 (3005 bytes)
+[info] 9494 6686       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense0 (3005 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9494 6687       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense1 (3017 bytes)
+[info] 9494 6688       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense2 (3546 bytes)
+[info] 9516 6679       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)
+[info] 9537 6687       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense1 (3017 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9537 6689       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense3 (3690 bytes)
+[info] [9.545s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a42b8c relative_pc=0x000000000000130c
+[info] 9555 6688       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense2 (3546 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9555 6690       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense4 (3690 bytes)
+[info] [9.563s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a42b8c relative_pc=0x000000000000130c
+[info] 9565 6674 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 @ 229 (3669 bytes)
+[info] [9.582s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a42b8c relative_pc=0x000000000000130c
+[info] 9582 6689       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense3 (3690 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9582 6691       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense5 (3705 bytes)
+[info] [9.585s][debug][deoptimization] cid=6676     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a59f24 relative_pc=0x0000000000001224
+[info] [9.601s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a42b8c relative_pc=0x000000000000130c
+[info] 9600 6675       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)   made not entrant: uncommon trap
+[info] [9.603s][debug][deoptimization] cid=6676     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a59f24 relative_pc=0x0000000000001224
+[info] 9619 6690       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense4 (3690 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9619 6692       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense6 (3715 bytes)
+[info] [9.620s][debug][deoptimization] cid=6676     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a59f24 relative_pc=0x0000000000001224
+[info] 9635 6691       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense5 (3705 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9635 6693       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense7 (3719 bytes)
+[info] [9.637s][debug][deoptimization] cid=6676     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x00007d8327a59f24 relative_pc=0x0000000000001224
+[info] 9637 6676       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)   made not entrant: uncommon trap
+[info] 9686 6692       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense6 (3715 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9686 6694       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense8 (3719 bytes)
+[info] 9689 6693       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense7 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9689 6695       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense9 (3719 bytes)
+[info] 9748 6695       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense9 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9748 6696       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense10 (3719 bytes)
+[info] 9759 6694       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense8 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9759 6697       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense11 (3722 bytes)
+[info] 9765 6699       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] 9807 6700       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] 9818 6696       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense10 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9838 6697       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense11 (3722 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9869 6681       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)
+[info] 10071 6684       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)
+[info] [10.094s][debug][deoptimization] cid=6679     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x00007d8327a58774 relative_pc=0x00000000000014f4
+[info] [10.107s][debug][deoptimization] cid=6679     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x00007d8327a58774 relative_pc=0x00000000000014f4
+[info] [10.120s][debug][deoptimization] cid=6679     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x00007d8327a58774 relative_pc=0x00000000000014f4
+[info] [10.133s][debug][deoptimization] cid=6679     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x00007d8327a58774 relative_pc=0x00000000000014f4
+[info] 10133 6679       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)   made not entrant: uncommon trap
+[info] VARKA_DEOPT_DONE=org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches status=0
+[info] 10160 6699       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)   blocked
+[info] 10162 6684       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)   blocked
+[info] VARKA_DEOPT_METHODS=run:38,runDense:2577,loopDense0:2955,epilogueDense0:3005,loopDense1:2967,epilogueDense1:3017,loopDense2:3488,epilogueDense2:3546,loopDense3:3640,epilogueDense3:3690,loopDense4:3640,epilogueDense4:3690,loopDense5:3655,epilogueDense5:3705,loopDense6:3665,epilogueDense6:3715,loopDense7:3669,epilogueDense7:3719,loopDense8:3669,epilogueDense8:3719,loopDense9:3669,epilogueDense9:3719,loopDense10:3669,epilogueDense10:3719,loopDense11:3672,epilogueDense11:3722,runMasked:2695,loopMasked0:3194,epilogueMasked0:3256,loopMasked1:3206,epilogueMasked1:3268,loopMasked2:3769,epilogueMasked2:3843,loopMasked3:3909,epilogueMasked3:3971,loopMasked4:3909,epilogueMasked4:3971,loopMasked5:3924,epilogueMasked5:3986,loopMasked6:3934,epilogueMasked6:3996,loopMasked7:3938,epilogueMasked7:4000,loopMasked8:3938,epilogueMasked8:4000,loopMasked9:3938,epilogueMasked9:4000,loopMasked10:3938,epilogueMasked10:4000,loopMasked11:3941,epilogueMasked11:4003
+[info] VARKA_DEOPT_RATE=1 0.0
+[info] 4098 6630       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 4114 6630       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4114 6631       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 4131 6631       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] VARKA_DEOPT_RATE=2 0.1
+[info] 4171 6632       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] 4190 6632       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4190 6633       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] 4209 6633       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4246 6634       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] 4266 6634       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4266 6635       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)
+[info] 4286 6635       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4286 6636       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)
+[info] 4308 6636       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4321 6637       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 (3669 bytes)
+[info] 4344 6637       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4344 6640       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)
+[info] 4370 6640       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4370 6638       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)
+[info] 4394 6638       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4394 6639       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)
+[info] 4418 6639       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 4418 6641       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)
+[info] 4443 6641       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 (3672 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 5175 6644       4      VARKA_DEOPT_RATE=3 0.1
+[info] VARKA_DEOPT_RATE=4 0.1
+[info] 6900 6647       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::run (38 bytes)
+[info] 6901 6648       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::runDense (2577 bytes)
+[info] 6975 6649 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 @ 208 (2955 bytes)
+[info] 7115 6650 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 @ 220 (2967 bytes)
+[info] VARKA_DEOPT_RATE=5 0.1
+[info] 7261 6655       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 7530 6658 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 @ 223 (3488 bytes)
+[info] 7530 6659 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 @ 223 (3640 bytes)
+[info] [7.561s][debug][deoptimization] cid=6655     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x000074aa4379f784 relative_pc=0x0000000000001204
+[info] [7.579s][debug][deoptimization] cid=6655     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x000074aa4379f784 relative_pc=0x0000000000001204
+[info] [7.598s][debug][deoptimization] cid=6655     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x000074aa4379f784 relative_pc=0x0000000000001204
+[info] [7.616s][debug][deoptimization] cid=6655     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense0([J[J[I[J[J[II)I trap_bci=212 profile_predicate maybe_recompile pc=0x000074aa4379f784 relative_pc=0x0000000000001204
+[info] 7616 6655       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)   made not entrant: uncommon trap
+[info] 7707 6663       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense0 (2955 bytes)
+[info] 7708 6656 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 @ 229 (3669 bytes)
+[info] 7709 6657       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 7930 6660 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 @ 225 (3665 bytes)
+[info] 8062 6662 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 @ 223 (3640 bytes)
+[info] 8062 6667 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 @ 221 (3655 bytes)
+[info] [8.094s][debug][deoptimization] cid=6657     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x000074aa437a1638 relative_pc=0x00000000000012b8
+[info] [8.113s][debug][deoptimization] cid=6657     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x000074aa437a1638 relative_pc=0x00000000000012b8
+[info] [8.132s][debug][deoptimization] cid=6657     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x000074aa437a1638 relative_pc=0x00000000000012b8
+[info] 8139 6664       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] [8.152s][debug][deoptimization] cid=6657     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense1([J[J[I[J[J[II)I trap_bci=224 profile_predicate maybe_recompile pc=0x000074aa437a1638 relative_pc=0x00000000000012b8
+[info] 8152 6657       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)   made not entrant: uncommon trap
+[info] VARKA_DEOPT_RATE=6 0.1
+[info] 8262 6672       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense1 (2967 bytes)
+[info] 8262 6661 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 @ 229 (3669 bytes)
+[info] 8276 6666       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] 8524 6668       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)
+[info] 8530 6670 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense11 @ 219 (3672 bytes)
+[info] [8.569s][debug][deoptimization] cid=6664     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4377bdb4 relative_pc=0x00000000000012b4
+[info] [8.589s][debug][deoptimization] cid=6664     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4377bdb4 relative_pc=0x00000000000012b4
+[info] [8.610s][debug][deoptimization] cid=6664     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4377bdb4 relative_pc=0x00000000000012b4
+[info] [8.629s][debug][deoptimization] cid=6664     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense2([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4377bdb4 relative_pc=0x00000000000012b4
+[info] 8629 6664       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)   made not entrant: uncommon trap
+[info] 8647 6665 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense7 @ 229 (3669 bytes)
+[info] 8675 6676       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense2 (3488 bytes)
+[info] [8.706s][debug][deoptimization] cid=6666     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa43773cd0 relative_pc=0x0000000000001250
+[info] [8.725s][debug][deoptimization] cid=6666     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa43773cd0 relative_pc=0x0000000000001250
+[info] [8.744s][debug][deoptimization] cid=6666     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa43773cd0 relative_pc=0x0000000000001250
+[info] [8.762s][debug][deoptimization] cid=6666     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense3([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa43773cd0 relative_pc=0x0000000000001250
+[info] 8762 6666       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)   made not entrant: uncommon trap
+[info] 8865 6677       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense3 (3640 bytes)
+[info] 8867 6675       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)
+[info] 9000 6669 %     4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 @ 229 (3669 bytes)
+[info] [9.030s][debug][deoptimization] cid=6668     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense9([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa437726ec relative_pc=0x00000000000012ec
+[info] [9.048s][debug][deoptimization] cid=6668     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense9([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa437726ec relative_pc=0x00000000000012ec
+[info] [9.066s][debug][deoptimization] cid=6668     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense9([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa437726ec relative_pc=0x00000000000012ec
+[info] [9.084s][debug][deoptimization] cid=6668     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense9([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa437726ec relative_pc=0x00000000000012ec
+[info] 9084 6668       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)   made not entrant: uncommon trap
+[info] 9089 6671       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)
+[info] VARKA_DEOPT_RATE=7 0.1
+[info] 9263 6680       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense9 (3669 bytes)
+[info] 9280 6673       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] 9359 6674       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)
+[info] 9366 6682       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense0 (3005 bytes)
+[info] [9.396s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense8([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa43763ce8 relative_pc=0x00000000000012e8
+[info] [9.415s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense8([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa43763ce8 relative_pc=0x00000000000012e8
+[info] 9417 6682       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense0 (3005 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9418 6683       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense1 (3017 bytes)
+[info] 9418 6684       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense2 (3546 bytes)
+[info] [9.435s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense8([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa43763ce8 relative_pc=0x00000000000012e8
+[info] [9.454s][debug][deoptimization] cid=6675     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense8([J[J[I[J[J[II)I trap_bci=233 profile_predicate maybe_recompile pc=0x000074aa43763ce8 relative_pc=0x00000000000012e8
+[info] 9454 6675       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)   made not entrant: uncommon trap
+[info] 9473 6683       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense1 (3017 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9473 6685       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense3 (3690 bytes)
+[info] 9476 6684       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense2 (3546 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9476 6686       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense4 (3690 bytes)
+[info] 9538 6685       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense3 (3690 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9538 6687       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense5 (3705 bytes)
+[info] 9540 6686       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense4 (3690 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9540 6688       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense6 (3715 bytes)
+[info] 9565 6695       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense8 (3669 bytes)
+[info] [9.590s][debug][deoptimization] cid=6671     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense6([J[J[I[J[J[II)I trap_bci=229 profile_predicate maybe_recompile pc=0x000074aa4375d5fc relative_pc=0x00000000000011fc
+[info] 9603 6687       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense5 (3705 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9603 6689       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense7 (3719 bytes)
+[info] 9605 6688       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense6 (3715 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9605 6690       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense8 (3719 bytes)
+[info] [9.609s][debug][deoptimization] cid=6671     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense6([J[J[I[J[J[II)I trap_bci=229 profile_predicate maybe_recompile pc=0x000074aa4375d5fc relative_pc=0x00000000000011fc
+[info] [9.629s][debug][deoptimization] cid=6671     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense6([J[J[I[J[J[II)I trap_bci=229 profile_predicate maybe_recompile pc=0x000074aa4375d5fc relative_pc=0x00000000000011fc
+[info] [9.649s][debug][deoptimization] cid=6671     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense6([J[J[I[J[J[II)I trap_bci=229 profile_predicate maybe_recompile pc=0x000074aa4375d5fc relative_pc=0x00000000000011fc
+[info] 9649 6671       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)   made not entrant: uncommon trap
+[info] 9670 6689       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense7 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9670 6691       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense9 (3719 bytes)
+[info] 9675 6690       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense8 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9675 6692       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense10 (3719 bytes)
+[info] 9740 6691       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense9 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9740 6693       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense11 (3722 bytes)
+[info] 9746 6692       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense10 (3719 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] 9750 6696       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)
+[info] 9776 6681       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense10 (3669 bytes)
+[info] [9.781s][debug][deoptimization] cid=6673     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4375c054 relative_pc=0x0000000000001354
+[info] [9.800s][debug][deoptimization] cid=6673     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4375c054 relative_pc=0x0000000000001354
+[info] 9808 6693       3       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::epilogueDense11 (3722 bytes)   COMPILE SKIPPED: out of virtual registers in LIR generator (retry at different tier)
+[info] [9.818s][debug][deoptimization] cid=6673     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4375c054 relative_pc=0x0000000000001354
+[info] [9.834s][debug][deoptimization] cid=6673     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense4([J[J[I[J[J[II)I trap_bci=227 profile_predicate maybe_recompile pc=0x000074aa4375c054 relative_pc=0x0000000000001354
+[info] 9834 6673       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)   made not entrant: uncommon trap
+[info] 9846 6697       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)
+[info] [9.870s][debug][deoptimization] cid=6674     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x000074aa43753760 relative_pc=0x00000000000015e0
+[info] [9.887s][debug][deoptimization] cid=6674     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x000074aa43753760 relative_pc=0x00000000000015e0
+[info] [9.903s][debug][deoptimization] cid=6674     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x000074aa43753760 relative_pc=0x00000000000015e0
+[info] [9.920s][debug][deoptimization] cid=6674     level=4 org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches.loopDense5([J[J[I[J[J[II)I trap_bci=225 profile_predicate maybe_recompile pc=0x000074aa43753760 relative_pc=0x00000000000015e0
+[info] 9920 6674       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)   made not entrant: uncommon trap
+[info] 10060 6698       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)
+[info] VARKA_DEOPT_DONE=org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches status=0
+[info] 10169 6698       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense5 (3655 bytes)   blocked
+[info] 10169 6696       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense6 (3665 bytes)   blocked
+[info] 10170 6697       4       org.apache.spark.sql.varka.execution.VarkaDeoptProbe_60_group_batches::loopDense4 (3640 bytes)   blocked

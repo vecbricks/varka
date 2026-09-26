@@ -466,4 +466,81 @@ measurement are one run.
 
 ## 9. Outcome
 
-To be written as the steps land.
+*Written 26 September 2026, when the guard, the parser test and the parser's
+fix landed (section 10).*
+
+The C2 deoptimization cycle is real, reproducible and understood in its
+lifetime, and no kernel a query runs reaches it. The census of section 2 put
+the legacy single-epilogue form in the cycle in 39 of 40 forks and the
+default per-group form in none of 180, across six output counts, both
+widths and both paths to C2; task 212's short-call warm-up keeps even the
+legacy form out of it (2.2, 2.5), and a fork in the cycle leaves it by itself
+after exactly a hundred traps (2.4). So section 3.2's fixes had nothing to
+fix, and none was built, as section 2 said would follow.
+
+What the task leaves behind is the guard. `dev/varka_nightly.sh` runs the
+census over the default form at twelve outputs, ten forks per width, and
+fails on any fork in the cycle, on any fork that did not finish, and on a
+log with no fork in it; `VarkaDeoptCycleSuite` holds the parser's rule
+against three recorded logs, so a change to the rule or to HotSpot's log
+format fails a pull request before it can make the guard read nothing.
+Writing that suite found a bug in the parser, recorded in 10.3.
+
+Step 3.1, the mechanism hunt - which check the profiled loop predicate hoists
+and why short calls cure it - is not done. The cycle reaches only a form no
+query runs, so it is research, and it goes to a new row rather than keeping
+this one open.
+
+## 10. The guard, the parser test and the close, 26 September 2026
+
+### 10.1 The guard
+
+`dev/varka_deopt_cycle.py --fail-on-cycle` exits 1 when any fork is in the
+cycle, when a fork has no DONE line, or when the logs hold no fork at all,
+and prints a `verdict:` line that `dev/varka_nightly.sh` already surfaces in
+its summary. `dev/varka_deopt_cycle.sh` passes the flag through and keeps the
+parser's status past the `tee`. The nightly's new `deopt` step is 3.3's:
+`--forms group --forks 10 --fail-on-cycle`, twelve outputs, widths 64 and 16;
+`--skip-deopt` leaves it out.
+
+Run once as the nightly runs it, on the laptop at a load of about 0.3
+(`target/varka-deopt-cycle/20260926-230958`): 0 of 20 forks in the cycle,
+exit 0, 243 seconds with the build warm. The positive control, the same
+guard over the legacy form at two forks per width
+(`target/varka-deopt-cycle/20260926-231405`): 4 of 4 in the cycle, exit 1.
+
+### 10.2 The parser test
+
+`VarkaDeoptCycleSuite`, seven tests over three logs recorded today at 128
+bits and trimmed to the probe's and the kernel class's lines, under
+`sql/catalyst/src/test/resources/varka/deopt-cycle/`: `cycle.log`, one fork of
+the legacy form (`loopDense1` 14 tier-4 compiles, 13 made not entrant, 17
+traps at bcis 426 and 3166); `once.log`, one fork of the default form; and
+`head-traps.log`, two consecutive forks of the default form at sixty outputs.
+The tests assert the verdict of each, the exit status with and without
+`--fail-on-cycle`, the count across two logs, the failure on an empty log and
+on a fork cut before its DONE line, and the fork boundary of 10.3.
+
+Two mutations of the parser were run against the fixtures to confirm the
+suite would notice them. The first rule of 2.3 (three standard tier-4
+compiles and any trap) reads `head-traps.log` as 2 of 2 in the cycle, where
+the test expects 0 of 2; the old fork boundary moves a compile between the
+two forks of the same file, where the boundary test expects it to stay.
+
+### 10.3 A finding: the fork boundary
+
+The parser split forks at each child's last line, `VARKA_DEOPT_DONE=`. A
+JVM that exits with compiles still queued prints them after that line -
+tier-4 task lines marked `blocked` - and every fork of a case emits a class
+of the same name, so those lines were counted in the next fork. At sixty
+outputs it moved a fourth tier-4 compile of `loopDense3` from the first fork
+to the second. The parser now splits at each child's first line,
+`VARKA_DEOPT_METHODS=`, and the DONE line only says whether a fork finished.
+
+What it could have changed: the verdict reads only "made not entrant" and
+`profile_predicate` trap counts, and of the ten shutdown lines in every log
+recorded today all ten are queued compiles, none of either kind. The raw logs
+of sections 2.1 to 2.5 were not kept, so their per-fork compile counts cannot
+be reread; their verdicts rest on the counts the boundary does not move in
+any log that could be checked. The lesson is in `sql/varka/skills/the-jit.md`,
+"A forked JVM keeps printing after its last marker line".

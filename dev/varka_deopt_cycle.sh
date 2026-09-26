@@ -25,6 +25,7 @@
 #   dev/varka_deopt_cycle.sh --outputs 13,16,60 --forms group --forks 10
 #   dev/varka_deopt_cycle.sh --widths 16 --seconds 12
 #   dev/varka_deopt_cycle.sh --paths warmup                   # task 212's path to C2
+#   dev/varka_deopt_cycle.sh --forms group --forks 10 --fail-on-cycle   # the nightly guard
 #
 # --widths is in bytes, as the JVM's MaxVectorSize counts them: 64 is 512 bits, 16 is 128.
 # --forms: single (one epilogue over every output, the emission before task 87) and group
@@ -35,13 +36,15 @@
 # target/varka-deopt-cycle/<date-time>/. Fresh JVMs because the cycle is decided at or
 # near a method's first C2 compile and is then stable for the JVM's life, so forks, not
 # iterations, are the sample. Not a benchmark: the rate the summary shows is a probe's
-# reading, and the verdict is the JVM's own compile and trap log.
+# reading, and the verdict is the JVM's own compile and trap log. --fail-on-cycle makes the exit
+# status 1 when any fork cycles, fails to finish, or no fork is read at all.
 # Usage text is found rather than numbered: a hard-coded range silently truncates as the
 # comment above it grows, which had already happened to four of these scripts. Ends at the
 # first line that is not a comment.
 usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 set -euo pipefail
 outputs=12; forms=single,group; widths=64,16; forks=20; seconds=8; rows=1024; paths=batches
+fail_on_cycle=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --outputs) outputs="$2"; shift 2 ;;
@@ -51,6 +54,7 @@ while [ $# -gt 0 ]; do
     --seconds) seconds="$2"; shift 2 ;;
     --rows) rows="$2"; shift 2 ;;
     --paths) paths="$2"; shift 2 ;;
+    --fail-on-cycle) fail_on_cycle=(--fail-on-cycle); shift ;;
     -h|--help) usage 0 ;;
     *) usage ;;
   esac
@@ -92,5 +96,7 @@ for w in "${width_list[@]}"; do
   # `|| true`: a fork that dies is a finding the parser reports as unfinished, not an abort.
   build/sbt -batch "project catalyst" "$flags" "${cmds[@]}" > "$log" 2>&1 || true
 done
-dev/varka_deopt_cycle.py "${logs[@]}" | tee "$out/summary.txt"
+status=0
+dev/varka_deopt_cycle.py "${fail_on_cycle[@]}" "${logs[@]}" | tee "$out/summary.txt" || status=$?
 echo "logs and summary under $out"
+exit "$status"
