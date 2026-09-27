@@ -1,0 +1,38 @@
+Task 230's admission check (PLAN_TASK_230.md 2): where the columnar node's row path spends its
+time, against the to-row node's and vanilla's row-at-a-time path.
+
+Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
+one run per arm, twenty seconds each, at master f2c91af77a7, with VarkaColdPathProbe under JFR:
+
+  build/sbt "project sql" \
+    'set Test/javaOptions += "-XX:StartFlightRecording=filename=<arm>.jfr,settings=profile"' \
+    "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaColdPathProbe <sink> <arm> <n> 20"
+
+The shares are of the executor thread's execution samples (jfr print --events
+jdk.ExecutionSample --stack-depth 96), each sample counted once, under the first of these that any
+frame of its stack matches:
+
+  the vectors' allocation       allocateColumns, reserveInternal
+  the conversion into vectors   RowToColumnConverter
+  the copy                      VarkaInputRows
+  the projection                SpecificUnsafeProjection.apply
+  the scan's batches            ArrowCachedBatch, ArrowColumnVector, CachedBatch
+
+and, within the projection, the samples whose top three frames include UnsafeRowWriter: its writes
+into the UnsafeRow that the conversion then reads back.
+
+1. The probe's own line (queries in twenty seconds, mean per query, under JFR)
+
+  columnar-16          queries=334 mean=59.9 ms
+  columnar-54          queries=111 mean=180.7 ms
+  rows-54              queries=132 mean=151.7 ms
+  vanilla-rowwise-54   queries=132 mean=152.6 ms
+
+2. The executor thread's samples
+
+  columnar-16          1306 samples: allocation 0.5%, conversion 10.9%, copy 2.6%, projection 72.0% (UnsafeRow writes 7.3%), scan 2.2%, other 11.8%
+                       within the conversion, at the top of the stack: RowToColumnConverter.convert 10.1%, OnHeapColumnVector.putNull 0.5%, RowToColumnConverter$BasicNullableTypeConverter.append 0.2%
+  columnar-54          1540 samples: allocation 0.4%, conversion 13.3%, copy 0.8%, projection 74.5% (UnsafeRow writes 6.3%), scan 1.4%, other  9.5%
+                       within the conversion, at the top of the stack: OnHeapColumnVector.putInt 9.5%, RowToColumnConverter.convert 3.3%, OnHeapColumnVector.putNull 0.5%
+  rows-54              1570 samples: allocation 0.0%, conversion  0.0%, copy 1.1%, projection 88.7% (UnsafeRow writes 9.6%), scan 1.0%, other  9.2%
+  vanilla-rowwise-54   1561 samples: allocation 0.0%, conversion  0.0%, copy 0.0%, projection 89.0% (UnsafeRow writes 8.5%), scan 2.8%, other  8.2%
