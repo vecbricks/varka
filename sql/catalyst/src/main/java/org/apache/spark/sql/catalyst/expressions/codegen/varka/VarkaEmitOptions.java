@@ -307,8 +307,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        method's frame holds its own nodes' slots: a one-group kernel emits the same bytes
  *        either way, a several-group one the same operations with smaller frames. Like
  *        {@link #cse} it changes no result. Only a group's methods under the byte budget have
- *        frames of their own to plan, so with {@link #methodByteBudget} 0 it changes nothing. Off
- *        until the measurement chooses it.
+ *        frames of their own to plan, so with {@link #methodByteBudget} 0 it changes nothing. On
+ *        by default since measured: a four-hundred-output emission in 30.5 ms where it took 107
+ *        ({@code PLAN_TASK_191.md} 9); off is the form before it, kept as the reference variant.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -445,7 +446,7 @@ public record VarkaEmitOptions(
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
-          true, true, false);
+          true, true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -881,6 +882,6 @@ public record VarkaEmitOptions(
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
         + '|' + narrowHalfSpecies + '|' + methodByteBudget
         + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions")
-        + (groupLocalSlots ? "|groupLocalSlots" : "") + ')';
+        + (groupLocalSlots ? "" : "|kernelWideSlots") + ')';
   }
 }

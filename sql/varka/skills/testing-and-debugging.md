@@ -535,3 +535,17 @@ So a test that has to cross a code-size limit uses a count near the smallest one
 it, checked with `-Xlog:gc:file=<path>` on `Test/javaOptions` and a `-z` run of the one test.
 The other reproducers in that suite peak between 112MB and 638MB each, and the suite as a whole
 at 731MB.
+
+## A Scala `List` handed to Java through `asJava` is not random access
+
+`fused.outputs` is a Scala `List` - `ArrayBuffer.toSeq` builds one - and `asJava` wraps it without
+copying, so `get(i)` walks from the head. Java code that indexes such a list in a loop turns linear
+work quadratic, and nothing in the types says so. Task 191's admission check profiled the emitter
+through `VarkaEmitDump`, which passed exactly that list, while production passed the shape cache's
+copy: the probe read an emission three times slower than the benchmark and charged the difference
+to the slot planner, and the planner's loop headers held samples a loop over arrays could not have
+earned (`PLAN_TASK_191.md` 9). The emitter now copies its outputs on entry. The general rule: a
+Java method that indexes a list it was given copies it first (`List.copyOf`, free for a list that
+is already immutable), and a probe that disagrees with its benchmark about the same code is
+measuring its own harness until shown otherwise.
+
