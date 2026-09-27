@@ -661,3 +661,20 @@ they come from and those files' provenance. What changed, and why:
 
 The post is 3239 words after it, against 2862 before, most of it the
 adaptive-execution catch; the milestone 5 post, the ceiling, is 4392.
+
+### 9.9 Published, 27 September 2026
+
+The post is live at https://vecbricks.github.io/the-8000-byte-cliff/, beside
+the milestone 5 post, and the site's index lists it first. It was rendered by
+`dev/varka_post_page.py` from `POST_MILESTONE_6_SPARK.md` at `c6834da51cb`, the
+site's commit is `e1e70d0` in `vecbricks/vecbricks.github.io`, and its link
+card is Figure 1 rendered to a 1200 by 630 PNG.
+
+Section 3.6's table was read from the tracker on the day, as section 4
+requires, and needed no change: SPARK-59774, SPARK-59783, SPARK-59764 and
+SPARK-59765 merged (apache/spark#59020, #59042, #59017 and #59018), and
+SPARK-33301 still in review as apache/spark#59069. When that merges, the
+table's row and the `CASE WHEN` paragraph of section 5 change with it, and the
+page is rendered again. The closing still points to the repository; it gets
+the second post's link when task 181's post is published.
+
