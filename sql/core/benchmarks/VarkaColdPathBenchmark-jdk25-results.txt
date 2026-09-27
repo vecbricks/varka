@@ -6,245 +6,245 @@ OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      106            124          25          0.9        1062.5       1.0X
-vanilla Spark, whole-stage codegen off                               111            119           9          0.9        1110.1       1.0X
-Varka to rows, no kernel                                             129            136          12          0.8        1287.5       0.8X
+vanilla Spark, whole-stage code                                      104            126          25          1.0        1044.2       1.0X
+vanilla Spark, whole-stage codegen off                               112            124          10          0.9        1118.0       0.9X
+Varka to rows, no kernel                                             106            124          15          0.9        1061.1       1.0X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                          39             43           2          2.5         393.8       1.0X
-vanilla Spark, whole-stage codegen off                                   42             46           2          2.4         424.6       0.9X
-Varka to rows, no kernel                                                 70             73           5          1.4         697.0       0.6X
-Varka to rows, the kernel once compiled                                  28             34           7          3.6         276.1       1.4X
+vanilla Spark, whole-stage code                                          39             42           2          2.6         390.5       1.0X
+vanilla Spark, whole-stage codegen off                                   54             56           3          1.9         536.6       0.7X
+Varka to rows, no kernel                                                 56             59           3          1.8         561.5       0.7X
+Varka to rows, the kernel once compiled                                  25             28           3          3.9         254.7       1.5X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                     37             40           2          2.7         374.9       1.0X
-vanilla Spark, whole-stage codegen off                                              42             45           3          2.4         417.6       0.9X
-Varka columnar, no kernel                                                           67             71           5          1.5         674.8       0.6X
-Varka columnar, the kernel once compiled                                            13             15           3          7.6         131.5       2.8X
+vanilla Spark, whole-stage code                                                     37             40           2          2.7         366.4       1.0X
+vanilla Spark, whole-stage codegen off                                              43             47           5          2.3         430.6       0.9X
+Varka columnar, no kernel                                                           45             50           5          2.2         452.4       0.8X
+Varka columnar, the kernel once compiled                                            13             15           2          7.7         130.6       2.8X
 
-rung 16: the kernel's warm-up verdict: COMPILED after 1755 ms and 16624 calls
+rung 16: the kernel's warm-up verdict: COMPILED after 2481 ms and 17616 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      153            175          17          0.7        1530.2       1.0X
-vanilla Spark, whole-stage codegen off                               152            169          11          0.7        1522.0       1.0X
-Varka to rows, no kernel                                             192            203          19          0.5        1921.2       0.8X
+vanilla Spark, whole-stage code                                      119            161          28          0.8        1185.7       1.0X
+vanilla Spark, whole-stage codegen off                               145            156           8          0.7        1447.7       0.8X
+Varka to rows, no kernel                                             145            149           5          0.7        1446.3       0.8X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                          63             65           1          1.6         630.4       1.0X
-vanilla Spark, whole-stage codegen off                                   77             78           1          1.3         773.8       0.8X
-Varka to rows, no kernel                                                115            119           1          0.9        1152.1       0.5X
-Varka to rows, the kernel once compiled                                  43             46           1          2.3         429.0       1.5X
+vanilla Spark, whole-stage code                                          58             62           2          1.7         580.2       1.0X
+vanilla Spark, whole-stage codegen off                                   70             75           2          1.4         703.2       0.8X
+Varka to rows, no kernel                                                 77             81           2          1.3         774.5       0.7X
+Varka to rows, the kernel once compiled                                  37             42           4          2.7         366.3       1.6X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                     62             66           1          1.6         623.5       1.0X
-vanilla Spark, whole-stage codegen off                                              76             81           5          1.3         758.8       0.8X
-Varka columnar, no kernel                                                          122            128           6          0.8        1223.7       0.5X
-Varka columnar, the kernel once compiled                                            17             19           3          6.0         167.1       3.7X
+vanilla Spark, whole-stage code                                                     60             63           2          1.7         595.8       1.0X
+vanilla Spark, whole-stage codegen off                                              73             77           4          1.4         731.0       0.8X
+Varka columnar, no kernel                                                           82             86           2          1.2         824.6       0.7X
+Varka columnar, the kernel once compiled                                            15             17           1          6.5         153.8       3.9X
 
-rung 32: the kernel's warm-up verdict: COMPILED after 2897 ms and 16816 calls
+rung 32: the kernel's warm-up verdict: COMPILED after 3159 ms and 17136 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      212            223          11          0.5        2124.9       1.0X
-vanilla Spark, whole-stage codegen off                               199            204           9          0.5        1987.8       1.1X
-Varka to rows, no kernel                                             255            269          11          0.4        2547.7       0.8X
+vanilla Spark, whole-stage code                                      213            221           9          0.5        2129.2       1.0X
+vanilla Spark, whole-stage codegen off                               191            200          11          0.5        1909.2       1.1X
+Varka to rows, no kernel                                             193            209          16          0.5        1933.4       1.1X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                          83             86           2          1.2         828.0       1.0X
-vanilla Spark, whole-stage codegen off                                  103            108           2          1.0        1032.8       0.8X
-Varka to rows, no kernel                                                171            176           8          0.6        1710.9       0.5X
-Varka to rows, the kernel once compiled                                  56             59           2          1.8         560.0       1.5X
+vanilla Spark, whole-stage code                                          81             84           2          1.2         807.2       1.0X
+vanilla Spark, whole-stage codegen off                                  102            105           2          1.0        1023.5       0.8X
+Varka to rows, no kernel                                                110            114           5          0.9        1100.4       0.7X
+Varka to rows, the kernel once compiled                                  58             61           2          1.7         578.0       1.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                     84             87           2          1.2         836.8       1.0X
-vanilla Spark, whole-stage codegen off                                             106            111           6          0.9        1059.5       0.8X
-Varka columnar, no kernel                                                          183            186           2          0.5        1828.5       0.5X
-Varka columnar, the kernel once compiled                                            19             21           2          5.3         189.9       4.4X
+vanilla Spark, whole-stage code                                                     85             89           3          1.2         845.8       1.0X
+vanilla Spark, whole-stage codegen off                                             105            111           6          1.0        1046.7       0.8X
+Varka columnar, no kernel                                                          123            126           2          0.8        1229.1       0.7X
+Varka columnar, the kernel once compiled                                            19             21           3          5.3         188.5       4.5X
 
-rung 48: the kernel's warm-up verdict: COMPILED after 4277 ms and 17072 calls
+rung 48: the kernel's warm-up verdict: COMPILED after 4563 ms and 17168 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 52 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      232            247          14          0.4        2322.8       1.0X
-vanilla Spark, whole-stage codegen off                               208            213           4          0.5        2081.6       1.1X
-Varka to rows, no kernel                                             274            280           9          0.4        2740.2       0.8X
+vanilla Spark, whole-stage code                                      235            250          13          0.4        2348.2       1.0X
+vanilla Spark, whole-stage codegen off                               207            216          13          0.5        2065.5       1.1X
+Varka to rows, no kernel                                             201            219          24          0.5        2007.2       1.2X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 52 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                          90             94           6          1.1         896.0       1.0X
-vanilla Spark, whole-stage codegen off                                  118            121           2          0.8        1179.1       0.8X
-Varka to rows, no kernel                                                176            180           2          0.6        1764.8       0.5X
-Varka to rows, the kernel once compiled                                  60             65           2          1.7         600.9       1.5X
+vanilla Spark, whole-stage code                                          87             89           1          1.1         870.3       1.0X
+vanilla Spark, whole-stage codegen off                                  113            115           2          0.9        1127.3       0.8X
+Varka to rows, no kernel                                                113            117           4          0.9        1133.2       0.8X
+Varka to rows, the kernel once compiled                                  61             64           3          1.7         605.5       1.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 52 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                     89             93           2          1.1         893.7       1.0X
-vanilla Spark, whole-stage codegen off                                             120            124           2          0.8        1196.9       0.7X
-Varka columnar, no kernel                                                          189            194           3          0.5        1892.4       0.5X
-Varka columnar, the kernel once compiled                                            20             22           2          4.9         202.6       4.4X
+vanilla Spark, whole-stage code                                                     89             93           2          1.1         891.1       1.0X
+vanilla Spark, whole-stage codegen off                                             114            118           2          0.9        1137.8       0.8X
+Varka columnar, no kernel                                                          126            130           3          0.8        1257.2       0.7X
+Varka columnar, the kernel once compiled                                            20             23           3          5.1         197.0       4.5X
 
-rung 52: the kernel's warm-up verdict: COMPILED after 4593 ms and 17264 calls
+rung 52: the kernel's warm-up verdict: COMPILED after 4957 ms and 17360 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      447            462          17          0.2        4468.7       1.0X
-vanilla Spark, whole-stage codegen off                               209            224          15          0.5        2091.5       2.1X
-Varka to rows, no kernel                                             286            298          14          0.3        2859.4       1.6X
+vanilla Spark, whole-stage code                                      448            460          15          0.2        4478.9       1.0X
+vanilla Spark, whole-stage codegen off                               210            218          11          0.5        2097.0       2.1X
+Varka to rows, no kernel                                             210            219          15          0.5        2096.6       2.1X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                         412            418           5          0.2        4124.3       1.0X
-vanilla Spark, whole-stage codegen off                                  114            119           6          0.9        1135.9       3.6X
-Varka to rows, no kernel                                                187            190           4          0.5        1868.9       2.2X
-Varka to rows, the kernel once compiled                                  64             67           2          1.6         641.9       6.4X
+vanilla Spark, whole-stage code                                         411            416           4          0.2        4110.7       1.0X
+vanilla Spark, whole-stage codegen off                                  119            120           0          0.8        1192.6       3.4X
+Varka to rows, no kernel                                                126            129           7          0.8        1256.4       3.3X
+Varka to rows, the kernel once compiled                                  64             67           2          1.6         640.2       6.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                    404            417           8          0.2        4042.0       1.0X
-vanilla Spark, whole-stage codegen off                                             114            119           2          0.9        1142.5       3.5X
-Varka columnar, no kernel                                                          201            207           7          0.5        2010.6       2.0X
-Varka columnar, the kernel once compiled                                            20             22           3          5.0         201.2      20.1X
+vanilla Spark, whole-stage code                                                    414            418           5          0.2        4135.0       1.0X
+vanilla Spark, whole-stage codegen off                                             117            121           2          0.9        1173.4       3.5X
+Varka columnar, no kernel                                                          139            144           7          0.7        1392.5       3.0X
+Varka columnar, the kernel once compiled                                            20             22           2          5.1         196.9      21.0X
 
-rung 54: the kernel's warm-up verdict: COMPILED after 4905 ms and 17408 calls
+rung 54: the kernel's warm-up verdict: COMPILED after 4809 ms and 17232 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 56 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      462            476          14          0.2        4622.1       1.0X
-vanilla Spark, whole-stage codegen off                               214            224          12          0.5        2142.5       2.2X
-Varka to rows, no kernel                                             286            302           9          0.4        2856.5       1.6X
+vanilla Spark, whole-stage code                                      458            474          15          0.2        4578.6       1.0X
+vanilla Spark, whole-stage codegen off                               216            221           5          0.5        2161.0       2.1X
+Varka to rows, no kernel                                             223            238          14          0.4        2228.6       2.1X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 56 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                         426            433           7          0.2        4257.4       1.0X
-vanilla Spark, whole-stage codegen off                                  123            126           6          0.8        1228.5       3.5X
-Varka to rows, no kernel                                                194            197           7          0.5        1943.6       2.2X
-Varka to rows, the kernel once compiled                                  63             66           2          1.6         630.4       6.8X
+vanilla Spark, whole-stage code                                         425            432           5          0.2        4253.8       1.0X
+vanilla Spark, whole-stage codegen off                                  117            120           1          0.9        1168.1       3.6X
+Varka to rows, no kernel                                                119            123           2          0.8        1188.7       3.6X
+Varka to rows, the kernel once compiled                                  66             69           2          1.5         659.6       6.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 56 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                    431            434           3          0.2        4307.6       1.0X
-vanilla Spark, whole-stage codegen off                                             122            126           5          0.8        1220.2       3.5X
-Varka columnar, no kernel                                                          205            210           2          0.5        2049.8       2.1X
-Varka columnar, the kernel once compiled                                            20             23           3          4.9         203.2      21.2X
+vanilla Spark, whole-stage code                                                    432            435           2          0.2        4323.8       1.0X
+vanilla Spark, whole-stage codegen off                                             118            121           2          0.9        1175.5       3.7X
+Varka columnar, no kernel                                                          135            140           7          0.7        1352.2       3.2X
+Varka columnar, the kernel once compiled                                            20             22           3          5.0         200.7      21.5X
 
-rung 56: the kernel's warm-up verdict: COMPILED after 5117 ms and 17328 calls
+rung 56: the kernel's warm-up verdict: COMPILED after 5214 ms and 17376 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      529            555          26          0.2        5292.6       1.0X
-vanilla Spark, whole-stage codegen off                               243            250           8          0.4        2427.6       2.2X
-Varka to rows, no kernel                                             330            343           8          0.3        3300.3       1.6X
+vanilla Spark, whole-stage code                                      539            557          17          0.2        5393.6       1.0X
+vanilla Spark, whole-stage codegen off                               243            252          13          0.4        2428.6       2.2X
+Varka to rows, no kernel                                             246            253           9          0.4        2459.3       2.2X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                         493            499           4          0.2        4925.3       1.0X
-vanilla Spark, whole-stage codegen off                                  135            135           0          0.7        1346.7       3.7X
-Varka to rows, no kernel                                                220            222           1          0.5        2202.3       2.2X
-Varka to rows, the kernel once compiled                                  74             77           2          1.3         744.3       6.6X
+vanilla Spark, whole-stage code                                         495            505          12          0.2        4947.2       1.0X
+vanilla Spark, whole-stage codegen off                                  130            135           7          0.8        1301.7       3.8X
+Varka to rows, no kernel                                                140            143           5          0.7        1400.1       3.5X
+Varka to rows, the kernel once compiled                                  74             78           2          1.4         737.6       6.7X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                    502            503           2          0.2        5015.0       1.0X
-vanilla Spark, whole-stage codegen off                                             133            136           2          0.8        1330.6       3.8X
-Varka columnar, no kernel                                                          238            245           8          0.4        2380.7       2.1X
-Varka columnar, the kernel once compiled                                            23             26           3          4.4         228.5      21.9X
+vanilla Spark, whole-stage code                                                    503            509           4          0.2        5033.2       1.0X
+vanilla Spark, whole-stage codegen off                                             131            137           7          0.8        1305.7       3.9X
+Varka columnar, no kernel                                                          156            159           2          0.6        1562.4       3.2X
+Varka columnar, the kernel once compiled                                            22             25           2          4.5         221.3      22.7X
 
-rung 64: the kernel's warm-up verdict: COMPILED after 5731 ms and 17600 calls
+rung 64: the kernel's warm-up verdict: COMPILED after 5353 ms and 17200 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 80 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                      679            698          27          0.1        6794.9       1.0X
-vanilla Spark, whole-stage codegen off                               293            298           4          0.3        2930.6       2.3X
-Varka to rows, no kernel                                             412            424          12          0.2        4123.9       1.6X
+vanilla Spark, whole-stage code                                      677            697          18          0.1        6773.0       1.0X
+vanilla Spark, whole-stage codegen off                               292            312          23          0.3        2921.9       2.3X
+Varka to rows, no kernel                                             298            311          12          0.3        2981.3       2.3X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 80 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                         637            648          16          0.2        6373.4       1.0X
-vanilla Spark, whole-stage codegen off                                  163            166           4          0.6        1626.3       3.9X
-Varka to rows, no kernel                                                278            285          10          0.4        2778.5       2.3X
-Varka to rows, the kernel once compiled                                  95             98           4          1.0         953.4       6.7X
+vanilla Spark, whole-stage code                                         631            645          14          0.2        6313.6       1.0X
+vanilla Spark, whole-stage codegen off                                  161            163           2          0.6        1610.1       3.9X
+Varka to rows, no kernel                                                190            195           8          0.5        1896.4       3.3X
+Varka to rows, the kernel once compiled                                  99            104           3          1.0         987.4       6.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 80 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                    637            647          14          0.2        6371.5       1.0X
-vanilla Spark, whole-stage codegen off                                             164            167           2          0.6        1642.0       3.9X
-Varka columnar, no kernel                                                          303            306           4          0.3        3033.2       2.1X
-Varka columnar, the kernel once compiled                                            27             31           2          3.7         272.7      23.4X
+vanilla Spark, whole-stage code                                                    639            652          12          0.2        6392.3       1.0X
+vanilla Spark, whole-stage codegen off                                             162            167           8          0.6        1619.4       3.9X
+Varka columnar, no kernel                                                          213            216           2          0.5        2131.1       3.0X
+Varka columnar, the kernel once compiled                                            27             29           3          3.8         265.8      24.1X
 
-rung 80: the kernel's warm-up verdict: COMPILED after 7577 ms and 18064 calls
+rung 80: the kernel's warm-up verdict: COMPILED after 7491 ms and 17872 calls
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 100000 Arrow-cached rows, rows, first run:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                       866            876          17          0.1        8662.9       1.0X
-vanilla Spark, whole-stage codegen off                                356            374          16          0.3        3561.6       2.4X
-Varka to rows, no kernel                                              506            511          10          0.2        5057.8       1.7X
+vanilla Spark, whole-stage code                                       858            877          17          0.1        8584.8       1.0X
+vanilla Spark, whole-stage codegen off                                359            365           6          0.3        3591.9       2.4X
+Varka to rows, no kernel                                              361            366           4          0.3        3612.5       2.4X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 100000 Arrow-cached rows, rows, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                          808            816          11          0.1        8076.0       1.0X
-vanilla Spark, whole-stage codegen off                                   209            213           2          0.5        2088.7       3.9X
-Varka to rows, no kernel                                                 341            344           3          0.3        3407.7       2.4X
-Varka to rows, the kernel once compiled                                  120            131           6          0.8        1204.9       6.7X
+vanilla Spark, whole-stage code                                          810            813           3          0.1        8096.7       1.0X
+vanilla Spark, whole-stage codegen off                                   207            209           1          0.5        2073.7       3.9X
+Varka to rows, no kernel                                                 218            220           1          0.5        2181.8       3.7X
+Varka to rows, the kernel once compiled                                  134            145           8          0.7        1335.2       6.1X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 100000 Arrow-cached rows, a columnar sink, steady state:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, whole-stage code                                                     816            823           9          0.1        8159.8       1.0X
-vanilla Spark, whole-stage codegen off                                              211            215           3          0.5        2113.1       3.9X
-Varka columnar, no kernel                                                           372            376           3          0.3        3717.7       2.2X
-Varka columnar, the kernel once compiled                                             33             36           2          3.0         334.4      24.4X
+vanilla Spark, whole-stage code                                                     804            815           8          0.1        8036.2       1.0X
+vanilla Spark, whole-stage codegen off                                              207            213           8          0.5        2072.9       3.9X
+Varka columnar, no kernel                                                           248            257          12          0.4        2484.5       3.2X
+Varka columnar, the kernel once compiled                                             47             51           3          2.1         469.3      17.1X
 
-rung 100: the kernel's warm-up verdict: COMPILED after 9578 ms and 18400 calls
+rung 100: the kernel's warm-up verdict: COMPILED after 9438 ms and 18336 calls
 
 ================================================================================================
 the whole-stage class's compile: Janino, from new source every iteration
@@ -254,63 +254,63 @@ OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                 3              3           0          0.0     2886973.0       1.0X
+Janino compile of the generated class                 3              3           1          0.0     2832521.0       1.0X
 
 rung 16: the whole-stage class's largest method is 2426 bytes, under HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                 5              6           1          0.0     5230909.0       1.0X
+Janino compile of the generated class                 5              6           1          0.0     5110516.0       1.0X
 
 rung 32: the whole-stage class's largest method is 4810 bytes, under HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                 8              8           1          0.0     7640067.0       1.0X
+Janino compile of the generated class                 7              9           1          0.0     7485882.0       1.0X
 
 rung 48: the whole-stage class's largest method is 7194 bytes, under HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 52 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                 8              9           1          0.0     8434404.0       1.0X
+Janino compile of the generated class                 8              9           1          0.0     7865002.0       1.0X
 
 rung 52: the whole-stage class's largest method is 7882 bytes, under HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                 9             10           1          0.0     8639809.0       1.0X
+Janino compile of the generated class                 8             10           1          0.0     8298112.0       1.0X
 
 rung 54: the whole-stage class's largest method is 8272 bytes, past HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 56 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                10             10           1          0.0     9700123.0       1.0X
+Janino compile of the generated class                 9             10           1          0.0     8787848.0       1.0X
 
 rung 56: the whole-stage class's largest method is 8662 bytes, past HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                11             12           1          0.0    10737724.0       1.0X
+Janino compile of the generated class                11             12           1          0.0    10556749.0       1.0X
 
 rung 64: the whole-stage class's largest method is 10222 bytes, past HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 80 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                15             16           1          0.0    14631662.0       1.0X
+Janino compile of the generated class                14             15           1          0.0    14269929.0       1.0X
 
 rung 80: the whole-stage class's largest method is 13342 bytes, past HugeMethodLimit 8000
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries: vanilla's whole-stage class:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-Janino compile of the generated class                20             21           1          0.0    19691870.0       1.0X
+Janino compile of the generated class                20             20           0          0.0    19773150.0       1.0X
 
 rung 100: the whole-stage class's largest method is 17242 bytes, past HugeMethodLimit 8000
 

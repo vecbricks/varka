@@ -1,11 +1,11 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaColdPathBenchmark
-commit:      d91e2fd966b
-date:        2026-09-27T11:43:20Z
+commit:      b7d95f933fd
+date:        2026-09-27T12:04:57Z
 jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
 kernel:      7.0.0-31-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 power:       governor=performance epp=performance profile=performance
 pinned to:   taskset -c 0,12,13,14,15,1,2,3
-load at start: 0.71
-canary:      ok (compute +0.2% cache +3.0% memory -0.2% )
+load at start: 0.65
+canary:      ok (compute +0.1% cache +5.5% memory -0.6% )
 wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaColdPathBenchmark
