@@ -36,7 +36,7 @@ import org.apache.spark.sql.internal.SQLConf
 
 /**
  * What a new shape's batches cost on each path they could take before its kernel is compiled,
- * the admission check of task 228 (see `PLAN_TASK_228.md`).
+ * the admission check of task 228 (see row 228 of `PLAN_MILESTONE_6.md`).
  *
  * While a shape's kernel warms, the Varka node serves its batches on Spark's row path: an
  * `UnsafeProjection` applied row by row over each batch's `ColumnarBatchRow`, so every reference
