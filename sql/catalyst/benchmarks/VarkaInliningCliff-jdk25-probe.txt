@@ -1,0 +1,146 @@
+Task 209's admission check (PLAN_TASK_209.md 2 and 9): does the loop method of a wide kernel keep
+its vector intrinsics, and does the same class land on either side from one JVM to the next?
+
+Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
+with dev/varka_inlining_cliff.sh: fresh JVMs of VarkaInliningCliffProbe, task 198's cheap-tail
+shape `year(d) + k` in one loop method (fused ceiling 400) or split into groups (100, 50), each
+fork run for six seconds over 1024-row batches, under -XX:+LogCompilation and PrintInlining and
+PrintIntrinsics scoped to the emitted class; six seconds a fork in the first census, and
+twenty-four in the second run of the boundary cases, whose reader also says the first second
+from which a fork stayed fast. A fork's verdict is the median rate of its last three seconds,
+slow above 40 nanoseconds a row; the two sides are about 1 to 7 and 115 to 290.
+The compile logs were read with dev/varka_inlining_cliff.py and dev/varka_c2_report.py. Every
+arm's directory under target/varka-inlining-cliff/ holds its session log, the per-fork compile
+logs and its summary; this file is the summaries.
+
+1. The arms, each 20 forks per case: slow / fast / unfinished, and what held in each verdict
+
+-- outputs=16,24,32,40,48,56,64 ceilings=400 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=on jvm=
+  16 outputs, ceiling 400, c1 on, xbatch off     0 /  20 /   0
+      fast  0.8 to 1.0 ns/row, settled at seconds [1] | callee is too large x7115, not inlineable x2560, DesiredMethodLimit x1480, failed to inline (intrinsic) x192, inlining too deep x20, too big x20 | ** missing constant x384
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [38], calls left [1319]
+  24 outputs, ceiling 400, c1 on, xbatch off     6 /  14 /   0
+      slow  114.6 to 116.7 ns/row, settled at seconds - | callee is too large x3048, DesiredMethodLimit x2520, not inlineable x1104, failed to inline (intrinsic) x144, inlining too deep x6, too big x6 | ** missing constant x288
+            loopDense0: C1 failed x6, C2 recompiled x6, trapped x6; C2's vector ops [46], calls left [1616]; traps profile_predicate x78
+      fast  1.2 to 1.4 ns/row, settled at seconds [2] | callee is too large x7104, not inlineable x2576, DesiredMethodLimit x1848, inlining too deep x14, too big x14 | no answer
+            loopDense0: C1 failed x14, C2 compiled once x14; C2's vector ops [46], calls left [1616]
+  32 outputs, ceiling 400, c1 on, xbatch off     7 /  13 /   0
+      slow  140.6 to 146.7 ns/row, settled at seconds - | callee is too large x4617, DesiredMethodLimit x3017, not inlineable x1680, failed to inline (intrinsic) x224, inlining too deep x7, too big x7 | ** missing constant x448
+            loopDense0: C1 failed x7, C2 recompiled x7, trapped x7; C2's vector ops [54], calls left [1890]; traps profile_predicate x63
+      fast  1.6 to 1.9 ns/row, settled at seconds [3] | callee is too large x8572, not inlineable x3120, DesiredMethodLimit x2847, inlining too deep x13, too big x13 | no answer
+            loopDense0: C1 failed x13, C2 compiled once x13; C2's vector ops [54], calls left [1891]
+  40 outputs, ceiling 400, c1 on, xbatch off     5 /  15 /   0
+      slow  166.8 to 167.7 ns/row, settled at seconds - | callee is too large x4055, DesiredMethodLimit x2895, not inlineable x1480, failed to inline (intrinsic) x200, inlining too deep x5, too big x5 | ** missing constant x400
+            loopDense0: C1 failed x5, C2 recompiled x5, trapped x5; C2's vector ops [62], calls left [2170]; traps profile_predicate x35
+      fast  4.6 to 7.1 ns/row, settled at seconds [4] | callee is too large x12177, DesiredMethodLimit x6585, not inlineable x4440, inlining too deep x15, too big x15 | no answer
+            loopDense0: C1 failed x15, C2 compiled once x15; C2's vector ops [62], calls left [2170]
+  48 outputs, ceiling 400, c1 on, xbatch off    20 /   0 /   0
+      slow  189.3 to 199.4 ns/row, settled at seconds - | callee is too large x19266, DesiredMethodLimit x13334, not inlineable x7040, failed to inline (intrinsic) x336, inlining too deep x20, too big x20 | ** missing constant x864
+            loopDense0: C1 failed x20, C2 compiled once x18, C2 recompiled x2, trapped x9; C2's vector ops [70], calls left [2441]; traps profile_predicate x40
+  56 outputs, ceiling 400, c1 on, xbatch off    20 /   0 /   0
+      slow  213.6 to 222.1 ns/row, settled at seconds - | callee is too large x20986, DesiredMethodLimit x15235, not inlineable x7220, inlining too deep x20, too big x19 | ** missing constant x784
+            loopDense0: C1 failed x20, C2 compiled once x7, C2 failed x12, C2 none x1, trapped x7; C2's vector ops [78], calls left [2721]; traps profile_predicate x28
+  64 outputs, ceiling 400, c1 on, xbatch off    20 /   0 /   0
+      slow  237.9 to 261.3 ns/row, settled at seconds - | callee is too large x22197, DesiredMethodLimit x15994, not inlineable x7080, inlining too deep x20, too big x18 | ** missing constant x1920
+            loopDense0: C1 failed x20, C2 compiled once x15, C2 none x5, trapped x15; C2's vector ops [86], calls left [3007]; traps profile_predicate x60
+
+-- outputs=64 ceilings=100,50 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=on jvm=
+  64 outputs, ceiling 100, c1 on, xbatch off    20 /   0 /   0
+      slow  236.0 to 267.5 ns/row, settled at seconds - | callee is too large x23574, DesiredMethodLimit x15916, not inlineable x7680, inlining too deep x40, failed to inline (intrinsic) x40, too big x20 | ** missing constant x80
+            loopDense0: C1 failed x20, C2 failed x11, C2 none x9
+  64 outputs, ceiling 50, c1 on, xbatch off      0 /  20 /   0
+      fast  4.1 to 4.4 ns/row, settled at seconds [2] | callee is too large x30028, not inlineable x10842, DesiredMethodLimit x6039, failed to inline (intrinsic) x284, inlining too deep x120, too big x20 | ** missing constant x543
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [34], calls left [1188]
+
+-- outputs=64 ceilings=400 widths=host forks=20 seconds=6 rows=1024 xbatch=on c1=on jvm=
+  64 outputs, ceiling 400, c1 on, xbatch on     20 /   0 /   0
+      slow  174950.3 to 190885.9 ns/row, settled at seconds - | callee is too large x22220, DesiredMethodLimit x13540, not inlineable x7080, inlining too deep x20 | no answer
+            loopDense0: C1 failed x20, C2 recompiled x20, trapped x20; C2's vector ops [86], calls left [3007]; traps profile_predicate x80
+
+-- outputs=64 ceilings=400 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=off jvm=
+  64 outputs, ceiling 400, c1 off, xbatch off   20 /   0 /   0
+      slow  241.0 to 290.0 ns/row, settled at seconds - | DesiredMethodLimit x6780, too big x20 | ** missing constant x640
+            loopDense0: C1 none x20, C2 compiled once x5, C2 failed x1, C2 none x14, trapped x5; C2's vector ops [86], calls left [3007]; traps profile_predicate x20
+
+-- outputs=64 ceilings=400 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=on jvm=-XX:LiveNodeCountInliningCutoff=400000 -XX:MaxNodeLimit=800000: no fork - the JVM refused to start: NodeLimitFudgeFactor must be between 2% and 40% of MaxNodeLimit (800000)
+
+-- outputs=64 ceilings=400 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=on jvm=-XX:-ClipInlining
+  64 outputs, ceiling 400, c1 on, xbatch off    20 /   0 /   0
+      slow  243.4 to 286.9 ns/row, settled at seconds - | callee is too large x22194, DesiredMethodLimit x8740, not inlineable x7080, NodeCountInliningCutoff x6388, too big x60, inlining too deep x20 | ** missing constant x1024
+            loopDense0: C1 failed x20, C2 compiled once x8, C2 none x12, trapped x8; C2's vector ops [86], calls left [3179]; traps profile_predicate x32
+
+-- outputs=64 ceilings=400,100 widths=host forks=20 seconds=6 rows=1024 xbatch=off c1=on jvm=-XX:LiveNodeCountInliningCutoff=400000 -XX:MaxNodeLimit=800000 -XX:NodeLimitFudgeFactor=20000
+  64 outputs, ceiling 100, c1 on, xbatch off    20 /   0 /   0
+      slow  233.9 to 282.7 ns/row, settled at seconds - | callee is too large x23579, DesiredMethodLimit x14640, not inlineable x7680, inlining too deep x40, failed to inline (intrinsic) x40, too big x20 | ** missing constant x80
+            loopDense0: C1 failed x20, C2 none x20
+  64 outputs, ceiling 400, c1 on, xbatch off    20 /   0 /   0
+      slow  238.1 to 250.2 ns/row, settled at seconds - | callee is too large x22196, DesiredMethodLimit x15760, not inlineable x7080, inlining too deep x20, too big x20 | ** missing constant x1024
+            loopDense0: C1 failed x20, C2 compiled once x8, C2 none x12, trapped x8; C2's vector ops [86], calls left [3009]; traps profile_predicate x32
+
+-- outputs=24,40,48,64 ceilings=400 widths=host forks=10 seconds=24 rows=1024 xbatch=off c1=on jvm=
+  24 outputs, ceiling 400, c1 on, xbatch off     3 /   7 /   0
+      slow  119.8 to 126.5 ns/row, settled at seconds - | DesiredMethodLimit x3960, callee is too large x1524, not inlineable x552, failed to inline (intrinsic) x72, inlining too deep x3, too big x3 | ** missing constant x144
+            loopDense0: C1 failed x3, C2 recompiled x3, trapped x3; C2's vector ops [46], calls left [1616]; traps profile_predicate x114
+      fast  1.3 to 1.4 ns/row, settled at seconds [2] | callee is too large x3553, not inlineable x1288, DesiredMethodLimit x924, inlining too deep x7, too big x7 | no answer
+            loopDense0: C1 failed x7, C2 compiled once x7; C2's vector ops [46], calls left [1616]
+  40 outputs, ceiling 400, c1 on, xbatch off     3 /   7 /   0
+      slow  169.9 to 179.9 ns/row, settled at seconds - | DesiredMethodLimit x3417, callee is too large x2430, not inlineable x888, failed to inline (intrinsic) x120, inlining too deep x3, too big x3 | ** missing constant x240
+            loopDense0: C1 failed x3, C2 recompiled x3, trapped x3; C2's vector ops [62], calls left [2170]; traps profile_predicate x45
+      fast  2.2 to 2.3 ns/row, settled at seconds [4] | callee is too large x5683, DesiredMethodLimit x3073, not inlineable x2072, inlining too deep x7, too big x7 | no answer
+            loopDense0: C1 failed x7, C2 compiled once x7; C2's vector ops [62], calls left [2170]
+  48 outputs, ceiling 400, c1 on, xbatch off     4 /   6 /   0
+      slow  191.6 to 196.4 ns/row, settled at seconds - | DesiredMethodLimit x4720, callee is too large x3854, not inlineable x1408, failed to inline (intrinsic) x192, inlining too deep x4, too big x4 | ** missing constant x384
+            loopDense0: C1 failed x4, C2 recompiled x4, trapped x4; C2's vector ops [70], calls left [2441]; traps profile_predicate x44
+      fast  2.5 to 2.9 ns/row, settled at seconds [6] | callee is too large x5783, DesiredMethodLimit x3948, not inlineable x2112, inlining too deep x6, too big x6 | no answer
+            loopDense0: C1 failed x6, C2 compiled once x6; C2's vector ops [70], calls left [2441]
+  64 outputs, ceiling 400, c1 on, xbatch off    10 /   0 /   0
+      slow  236.0 to 245.2 ns/row, settled at seconds - | callee is too large x11104, DesiredMethodLimit x9200, not inlineable x3540, failed to inline (intrinsic) x320, inlining too deep x10, too big x10 | ** missing constant x640
+            loopDense0: C1 failed x10, C2 failed x5, C2 recompiled x5, trapped x5; C2's vector ops [86], calls left [3007]; traps profile_predicate x30
+
+-- outputs=64 ceilings=100 widths=host forks=10 seconds=24 rows=1024 xbatch=off c1=on jvm=
+  64 outputs, ceiling 100, c1 on, xbatch off    10 /   0 /   0
+      slow  230.4 to 236.1 ns/row, settled at seconds - | callee is too large x11779, DesiredMethodLimit x8480, not inlineable x3840, inlining too deep x20, failed to inline (intrinsic) x20, too big x10 | ** missing constant x40
+            loopDense0: C1 failed x10, C2 failed x10
+
+2. The loop method's last standard C2 compile, by case and verdict (median over the forks):
+   the allocations escape analysis eliminated, the bytes inlined, the calls left in the graph,
+   the broadcast, store and load intrinsics applied, and how many times C2 compiled the method
+
+  outputs ceiling c1  xbatch verdict forks  eliminated  inlined  calls-left  broadcasts  stores  loads  C2-compiles
+    16    400  on    off fast      20         26     12654        1319          37      16      1  [1]
+    24    400  on    off fast      21         26     14119        1616          45      24      1  [1]
+    24    400  on    off slow       9         26     14119        1616          45      24      1  [9, 33, 34, 35]
+    32    400  on    off fast      13         24     15058        1891          53      32      1  [1]
+    32    400  on    off slow       7         24     15059        1890          53      32      1  [5]
+    40    400  on    off fast      22         22     16002        2170          61      40      1  [1]
+    40    400  on    off slow       8         22     16002        2170          61      40      1  [3, 11]
+    48    400  on    off fast       6         20     16941        2441          69      48      1  [1]
+    48    400  on    off slow      24         20     16941        2441          69      48      1  [1, 2, 7]
+    56    400  on    off slow       7         18     17885        2721          77      56      1  [1]
+    64     50  on    off fast      20         28     12446        1188          33      12      1  [1]
+    64    400 off    off slow       5         18     19358        3007          85      64      1  [1]
+    64    400  on    off slow      36         18     19358        3007          85      64      1  [1, 2]
+    64    400  on     on slow      20         18     19358        3007          85      64      1  [2]
+
+3. Allocation on the probe's thread, from JFR (jdk.ObjectAllocationSample, one fork per case of
+   eight seconds, settings=profile): the classes allocated and the top frames, as the share of
+   the sampled weight
+
+-- 48 outputs, one group:  2.68 ns a row, 10480 bytes a call
+   classes: int[] 60%, NativeMemorySegmentImpl 28%, Int512Vector 11%, byte[] 0%, boolean[] 0%
+    44.4%  lanewiseTemplate <- lanewiseTemplate
+    27.6%  makeNativeSegmentUnchecked <- ofAddress
+    15.8%  rvOp <- rvOp
+     4.4%  vectorFactory <- vectorFactory
+-- 40 outputs, one group:  2.42 ns a row, 8440 bytes a call
+   classes: NativeMemorySegmentImpl 50%, int[] 48%, byte[] 1%, boolean[] 0%, Int512Vector 0%
+    50.0%  makeNativeSegmentUnchecked <- ofAddress
+    28.6%  lanewiseTemplate <- lanewiseTemplate
+    13.7%  rvOp <- rvOp
+     5.0%  broadcastBits <- broadcastBits
+-- 16 outputs, one group:  0.83 ns a row, 2480 bytes a call
+   classes: NativeMemorySegmentImpl 88%, int[] 10%, byte[] 1%, Int512Vector 0%, Int512Vector$Int512Mask 0%
+    88.4%  makeNativeSegmentUnchecked <- ofAddress
+     4.0%  rvOp <- rvOp
+     3.0%  broadcastBits <- broadcastBits
+     2.8%  bOpTemplate <- bOpTemplate

@@ -114,6 +114,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Warming a kernel off the critical path](sql/varka/skills/the-jit.md#warming-a-kernel-off-the-critical-path)
 * [A kernel's methods compile one at a time, so a verdict on the whole kernel must see every loop](sql/varka/skills/the-jit.md#a-kernels-methods-compile-one-at-a-time-so-a-verdict-on-the-whole-kernel-must-see-every-loop)
 * [A row projection over a batch's rows can cost escape analysis its allocations](sql/varka/skills/the-jit.md#a-row-projection-over-a-batchs-rows-can-cost-escape-analysis-its-allocations)
+* [A wide loop method's cliff is the time before C2, and a six-second verdict cannot see past it](sql/varka/skills/the-jit.md#a-wide-loop-methods-cliff-is-the-time-before-c2-and-a-six-second-verdict-cannot-see-past-it)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)

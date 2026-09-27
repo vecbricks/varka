@@ -702,3 +702,40 @@ row path ran at about 1.6 times vanilla's row-at-a-time path.
   eliminated allocations per compile, and that is where the paths differed. See
   `PLAN_TASK_228.md` 7.
 
+## A wide loop method's cliff is the time before C2, and a six-second verdict cannot see past it
+
+Task 209 forked the cheap-tail kernel (`year(d) + k` in one loop method) twenty times per output
+count under `-XX:+LogCompilation`, and the same class landed fast or slow from one JVM to the
+next. Reading each fork's compile log beside its rate settled what the timing could not:
+
+* **C1 refuses the loop past about a hundred vector call sites**, "out of virtual registers in
+  LIR generator", at under 1500 bytes for this shape - below the ~1900 the `make_date` shape
+  measured, because the limit is C1's registers after inlining the Vector API's bodies, not the
+  method's bytes. From there the loop runs interpreted, boxing every vector, until C2's compile
+  lands, and that lands a second later for every eight outputs: second 1 at 16 outputs, 4 at
+  40, 7 at 48.
+* **Read when a fork settled, not only how it ended.** A verdict taken from the last seconds of
+  a six-second fork called every wide shape slow; an eight-second fork of the same 48-output
+  kernel was fast from its seventh second. The reader now prints the first second from which
+  every later rate is fast, and a census of a shape whose compile comes late needs a window
+  past it, or it measures the window.
+* **The deoptimization cycle is not confined to the legacy form.** A quarter to a third of the
+  forks at 24 to 40 outputs recompiled the loop three to nine times with `profile_predicate`
+  traps between, the default options and the default epilogue form, where row 218 had it
+  never cycling. The compiled code is identical in the forks that cycle and the forks that do
+  not, to the intrinsic; only the count of compiles and traps differs. Under `-Xbatch` every
+  fork cycles, at 175 to 191 microseconds a row, because each recompile of the method stops the
+  calling thread for the second it takes: the flag that fixes compile order is also the flag
+  that makes a cycle unmissable.
+* **C2's refusal reasons do not discriminate.** `size > DesiredMethodLimit`, `callee is too
+  large` and the rest appear in every fork alike; with `-XX:-ClipInlining` they become
+  `NodeCountInliningCutoff` and no verdict moves. What C2 does refuse past 56 outputs in one
+  method, or 112 sites in each of two, is the whole compile: "out of nodes during split", and
+  with `MaxNodeLimit` raised ten-fold a compile that does not finish. `NodeCountInliningCutoff`
+  and `DesiredMethodLimit` are develop flags, unsettable on a product JDK; `ClipInlining`,
+  `LiveNodeCountInliningCutoff`, `MaxNodeLimit` and `NodeLimitFudgeFactor` are the levers, and
+  the last must stay within 2% to 40% of the limit or the JVM refuses to start.
+* **Six groups of the same outputs are fast in every fork**, C1 compiling every method, at 4.1
+  to 4.4 ns a row, where the one group that lands well runs at 1.2 to 1.4 and the one that
+  cycles at 115. See `PLAN_TASK_209.md` 9.
+
