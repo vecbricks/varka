@@ -398,6 +398,20 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+    // A nondeterministic entry declines the whole projection, as a nondeterministic conjunct
+    // declines a predicate. A Varka node evaluates its residual entries row by row, on its row
+    // path and beside its kernel, through projections of its own; vanilla's `Project` draws a
+    // seeded `rand()` from one generator per partition, initialized with the partition's index,
+    // and two paths would each need one. Declined, the projection runs as vanilla's.
+    if (!projectList.forall(_.deterministic)) {
+      val why = "the projection has a nondeterministic entry, whose values would depend on the " +
+        "path each batch took"
+      val sink = new DeclineSink(childOutput, options.rangeSets)
+      return (None, projectList.zipWithIndex.flatMap { case (named, position) =>
+        sink.note(why, BindReferences.bindReference[Expression](named, childOutput))
+        sink.take().map(position -> _)
+      }.toMap)
+    }
     // The projection positions of a partial's fused entries, in the order the kernel numbers
     // them; a decline's named outputs index this.
     def positions(partial: PartialVarkaProjection): Seq[Int] =
