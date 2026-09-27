@@ -235,3 +235,66 @@ build. Section 4 gains their evidence.
 Task 210's post is published first (`PLAN_TASK_210.md` 9.7), and its closing
 sentence says this post is still to come. When this post is published, that
 sentence gets this post's link.
+
+## 9. The first-query cost, written in, 27 September 2026
+
+Section 4's first owed item. Task 195 measured it on 26 September, before task
+212's warm-up existed, and found bound 4 sharper than written: a new shape's
+kernel was never compiled over a hundred thousand rows, so Varka's first query
+was slower than stock Spark's at every rung. Task 212 then compiled a new
+kernel in the background while the shape's batches take Spark's own path, on by
+default (`spark.sql.codegen.varka.warmup.enabled`, since 5.0.0), and
+`VarkaColdStartBenchmark` gained the warm-up's arms. The numbers below are that
+file's, `VarkaColdStartBenchmark-jdk25-results.txt` as task 212 committed it:
+the laptop, a hundred thousand Arrow-cached rows per query, best of five, in
+milliseconds.
+
+| entries | stock Spark, first run | Varka with warm-up, first run | stock Spark, second run | Varka, once compiled |
+| --: | --: | --: | --: | --: |
+| 16 | 115 | 169 | 52 | 26 |
+| 32 | 159 | 222 | 69 | 26 |
+| 48 | 222 | 316 | 120 | 28 |
+| 52 | 185 | 337 | 143 | 28 |
+| 54 | 448 | 342 | 427 | 27 |
+| 100 | 867 | 619 | 812 | 37 |
+
+**Bound 4, restated.** Below the cliff Varka's first query costs more than
+stock Spark's, by about half again; past it, it already costs less. What stands
+between a new shape and Varka's steady state is the warm-up's verdict: about two
+seconds at 16 entries and twelve to thirteen at a hundred (the file's verdict
+lines: COMPILED after 1550 to 1775 ms at 16 entries, 12179 to 12965 at 100).
+Fifteen queries of one shape back to back show the shape of it: at 54 entries
+Varka with the warm-up runs 225 to 253 ms a query from the third on, stock
+Spark 424 to 468. The bound the post states is therefore not "Varka's first
+query is slower" but "below the cliff, Varka's first queries of a new shape
+are slower; the cost is paid once per shape, because the shape cache keys a
+kernel by its tree and not its literals".
+
+**For section 3.8, in the post's voice** (the numbers are the table's; the
+runner's numbers replace them, see below):
+
+> **The first query.** Every number above is steady state. A new shape pays for
+> its kernel once: Varka plans it, emits a class, and the JVM has to compile
+> that class before it is fast. By default a background thread warms the
+> kernel while the shape's first batches run on Spark's own path, and the
+> kernel takes over when the JIT has compiled it. Past the cliff the first
+> query is already faster than stock Spark's - 342 ms against 448 at 54
+> columns, 619 against 867 at a hundred, on a hundred thousand cached rows.
+> Below the cliff it is slower: 169 against 115 at 16 columns, 316 against 222
+> at 48, since a compiled stage is hard to beat on one short query while Varka
+> is still warming. Once the kernel is compiled, 16 columns take 26 ms against
+> stock Spark's 52 on a second run, and 54 columns 27 against 427. A dashboard
+> that reruns one shape with new values pays the first cost once: the kernel
+> is keyed by the expression's tree, not its literals.
+
+**What this leaves before the post can quote it.** These are laptop numbers,
+and the laptop's datapath is 256 bits: every headline number in the post comes
+from a GitHub-hosted runner, so `VarkaColdStartBenchmark` runs there before
+publication, and the paragraph takes the runner's numbers. Task 195's own
+outcome already said so ("the number the post quotes still comes from a
+runner"). The figure section 3.8 plans - the first-query cost beside the
+steady-state ladder - is drawn from the runner's file. The warm-up's verdict
+may also come a compile later once task 221's fix lands (#467), which the
+runner's run will include. Section 4's row for 195 is now "written; the
+runner's run owed".
+
