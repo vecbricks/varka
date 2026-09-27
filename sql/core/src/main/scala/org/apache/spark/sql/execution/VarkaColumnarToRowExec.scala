@@ -257,8 +257,9 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
       extends PartitionEvaluator[ColumnarBatch, InternalRow] {
 
     // The two projections that turn batch rows into rows: the standard per-row (Janino)
-    // projection over the input batch, used as the fallback, and the copy projection that
-    // converts the result batch to rows, mirroring `ColumnarToRowEvaluatorFactory`.
+    // projection, used as the fallback over the input columns it references, read once per row
+    // (`VarkaInputRows`), and the copy projection that converts the result batch to rows,
+    // mirroring `ColumnarToRowEvaluatorFactory`.
     //
     // Both hand back their own `UnsafeRow`, rewritten on every call, and the rows are emitted as
     // they come - uncopied, exactly as `ColumnarToRowExec` emits them. A `.copy()` per row would
@@ -269,7 +270,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // All three projections are lazy: a task compiles only the ones its
     // batches actually take - `toRow` on the all-fused kernel path, `mergeProjection` on the
     // mixed kernel path, `fallbackProjection` on the fallback path.
-    private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
+    private lazy val inputRows = new VarkaInputRows(projectList, childOutput)
+    private lazy val fallbackProjection = UnsafeProjection.create(projectList, inputRows.attributes)
     private lazy val toRow = {
       val outputAttrs = projectList.map(_.toAttribute)
       UnsafeProjection.create(outputAttrs, outputAttrs)
@@ -328,7 +330,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private def fallback(input: ColumnarBatch): Iterator[InternalRow] = {
-      input.rowIterator().asScala.map(fallbackProjection)
+      input.rowIterator().asScala.map(row => fallbackProjection(inputRows(row)))
     }
 
     private def runKernels(input: ColumnarBatch): Iterator[InternalRow] = {
