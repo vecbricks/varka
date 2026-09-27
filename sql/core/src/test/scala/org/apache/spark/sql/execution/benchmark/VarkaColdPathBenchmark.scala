@@ -31,8 +31,8 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.{ByteCodeStats, CodeGenerator}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaKernelWarmup,
   VarkaShapeCache}
-import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan,
-  VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution,
+  SQLExecution, SparkPlan, VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -51,10 +51,10 @@ import org.apache.spark.sql.util.QueryExecutionListener
  *
  * At the size ladder's rungs, over the cold-start benchmark's hundred thousand Arrow-cached rows:
  *
- *  - **rows** (`toRdd`, every row consumed as a row, the control the other Varka benchmarks use
- *    to force the to-row node): first run and steady state of vanilla's whole-stage code, of
- *    vanilla with whole-stage codegen off, and of `VarkaColumnarToRowExec` with no kernel; the
- *    steady state also times the node with its compiled kernel.
+ *  - **rows** (`toRdd` in an SQL execution, every row consumed as a row, the control the other
+ *    Varka benchmarks use to force the to-row node): first run and steady state of vanilla's
+ *    whole-stage code, of vanilla with whole-stage codegen off, and of `VarkaColumnarToRowExec`
+ *    with no kernel; the steady state also times the node with its compiled kernel.
  *  - **a columnar sink** (`noop`, which takes batches, the sink the other Varka benchmarks write
  *    to, the cold-start one included): the steady state of the same vanilla arms, and of
  *    `VarkaProjectExec` with no kernel and with its compiled kernel.
@@ -127,9 +127,13 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
     output.foreach(_.write((line + "\n").getBytes(StandardCharsets.UTF_8)))
   }
 
-  /** Every row consumed as a row: Varka plans `VarkaColumnarToRowExec`. */
-  private def toRows(session: SparkSession, q: String): Unit =
-    session.sql(q).queryExecution.toRdd.count()
+  /**
+   * Every row consumed as a row: Varka plans `VarkaColumnarToRowExec`. Inside an SQL execution
+   * of its own, as a Dataset action runs and as the noop write runs: a query run outside one
+   * gets another class loader, and the loader is part of the shape cache's key, so the two
+   * sinks would warm two kernels for one shape.
+   */
+  private def toRows(session: SparkSession, q: String): Unit = rowsPlan(session, q)
 
   /** Into the noop sink, which takes batches: Varka plans `VarkaProjectExec`. */
   private def toNoop(session: SparkSession, q: String): Unit = session.sql(q).noop()
@@ -155,7 +159,7 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
   /** Runs `q` as [[toRows]] does and returns the executed plan, its metrics filled in. */
   private def rowsPlan(session: SparkSession, q: String): SparkPlan = {
     val qe = session.sql(q).queryExecution
-    qe.toRdd.count()
+    SQLExecution.withNewExecutionId(qe, Some("rows"))(qe.toRdd.count())
     qe.executedPlan
   }
 
