@@ -91,8 +91,11 @@ record VarkaEmittedClass(
    * emitter reads it here and hands the result to the same regroup that acts on a measured
    * method over a limit ({@code PLAN_TASK_219.md} 2.1 and 3.1). Empty when {@code e} is not that
    * refusal: the text is the JDK's and not an API, so an exception that does not match it, or
-   * that names a length within the cap, is left to its caller as it was before, and
-   * {@code VarkaIrFuzzSuite} is what reports a JDK that changed the words.
+   * that names a length within the cap, is left to its caller as it was before. The words are
+   * pinned by {@code VarkaEmitterBudgetSuite}'s test "the refusals the emitter reads are the
+   * JDK's own", which produces them through the API
+   * ({@code VarkaEmitterTestSupport.refusalOfMethod}) and reads them back, so a JDK that changes
+   * them fails that test first.
    */
   static Optional<VarkaEmittedClass> refused(IllegalArgumentException e) {
     String message = e.getMessage();
@@ -113,13 +116,15 @@ record VarkaEmittedClass(
   }
 
   /**
-   * The refusal the Class-File API throws when a class needs more constant pool entries than
-   * {@link VarkaEmitBudget#CONSTANT_POOL_CAP}, as the JDK's {@code BufWriterImpl} words it when
-   * the first entry past the cap is written: {@code "65536 is not a valid index. Entry: <entry>"}.
-   * The text is the JDK's and not an API; see {@link #refusedConstantPool}.
+   * The two refusals the Class-File API throws when a class needs more constant pool entries
+   * than {@link VarkaEmitBudget#CONSTANT_POOL_CAP}, in the JDK's words: {@code BufWriterImpl}'s
+   * {@code "65536 is not a valid index. Entry: <entry>"} when an entry past the cap is written
+   * into a method, and {@code SplitConstantPool}'s {@code "Constant pool is too large 70000"}
+   * when the pool itself is written with entries nothing referenced. Neither is an API; see
+   * {@link #refusedConstantPool}.
    */
-  private static final Pattern POOL_REFUSAL =
-      Pattern.compile("(\\d+) is not a valid index\\. Entry: ");
+  private static final Pattern POOL_REFUSAL = Pattern.compile(
+      "(?:(\\d+) is not a valid index\\. Entry: |Constant pool is too large (\\d+))");
 
   /**
    * Whether {@code e} is the Class-File API refusing a class whose constant pool is over
@@ -136,7 +141,11 @@ record VarkaEmittedClass(
       return false;
     }
     Matcher m = POOL_REFUSAL.matcher(message);
-    return m.lookingAt() && Long.parseLong(m.group(1)) > VarkaEmitBudget.CONSTANT_POOL_CAP;
+    if (!m.lookingAt()) {
+      return false;
+    }
+    String count = m.group(1) != null ? m.group(1) : m.group(2);
+    return Long.parseLong(count) > VarkaEmitBudget.CONSTANT_POOL_CAP;
   }
 
   /** The largest code length in the class, and the method that has it. */

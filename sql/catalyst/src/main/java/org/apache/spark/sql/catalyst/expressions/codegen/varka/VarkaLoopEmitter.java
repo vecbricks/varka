@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 
@@ -312,7 +313,7 @@ public final class VarkaLoopEmitter {
         // (PLAN_TASK_219.md 3.1). The constant pool's cap is enforced the same way and read
         // here too, but no regroup shrinks a pool, so it declines class-wide at once. Any other
         // refusal of the build is not a size and is rethrown.
-        java.util.Optional<VarkaEmittedClass> refusal = VarkaEmittedClass.refused(e);
+        Optional<VarkaEmittedClass> refusal = VarkaEmittedClass.refused(e);
         if (refusal.isEmpty()) {
           if (VarkaEmittedClass.refusedConstantPool(e)) {
             throw new VarkaEmitDeclined("the constant pool is over the cap of " + CONSTANT_POOL_CAP

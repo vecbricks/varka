@@ -780,6 +780,12 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     assert(pool != null, "a class of 70000 names built")
     assert(VarkaEmittedClass.refusedConstantPool(pool), pool.getMessage)
     assert(VarkaEmittedClass.refused(pool).isEmpty, pool.getMessage)
+    // The pool's other refusal, thrown when the pool is written with entries no method
+    // referenced, which no class built here can produce: pinned on the JDK's words.
+    val tooLarge = new IllegalArgumentException("Constant pool is too large 70000")
+    assert(VarkaEmittedClass.refusedConstantPool(tooLarge))
+    assert(!VarkaEmittedClass.refusedConstantPool(
+      new IllegalArgumentException("Constant pool is too large 300")))
     val within =
       new IllegalArgumentException("Code length 100 is outside the allowed range in m()void")
     assert(VarkaEmittedClass.refused(within).isEmpty &&

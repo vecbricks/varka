@@ -384,24 +384,59 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * are asked of the emitter as the one kernel they make, and an entry the emitter declines in
    * bytes is classified again as residual, with the emitter's reason, until the kernel it leaves
    * is one the emitter serves. Each round demotes at least one entry, so it ends.
+   *
+   * A decline that names outputs demotes those. A class-wide one - a driver over a limit, a
+   * class over the class-file caps - names none, and what shrinks such a class is fewer
+   * outputs; the driver grows with their number. Demoting one output per round would ask for
+   * a class of nearly the same size once per output, which on a projection of thousands of
+   * entries is thousands of builds of a class of thousands of methods. So a class-wide decline
+   * bisects instead: the fused entries are a prefix in projection order, the largest prefix
+   * the emitter admits is found by halving, and the rest are demoted with the class-wide
+   * reason - a logarithmic number of asks, each one emission through the shape cache.
    */
   private def classify(
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+    // The projection positions of a partial's fused entries, in the order the kernel numbers
+    // them; a decline's named outputs index this.
+    def positions(partial: PartialVarkaProjection): Seq[Int] =
+      partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
+        .sortBy(_._1).map(_._2)
+    def ask(demoted: Map[Int, String]): Option[(PartialVarkaProjection, Seq[Int], String)] = {
+      classifyOnce(projectList, childOutput, demoted, options)._1.flatMap { partial =>
+        admitBySize(partial.fused, options).map { case (named, reason) =>
+          (partial, named, reason)
+        }
+      }
+    }
     var demoted = Map.empty[Int, String]
     while (true) {
-      val classified = classifyOnce(projectList, childOutput, demoted, options)
-      val more = classified._1.map { partial =>
-        val fusedAt = partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
-        admitBySize(partial.fused, options).map { case (outputs, reason) =>
-          outputs.map(fusedAt.toMap).map(_ -> reason).toMap
-        }.getOrElse(Map.empty[Int, String])
-      }.getOrElse(Map.empty[Int, String])
-      if (more.isEmpty) {
-        return classified
+      ask(demoted) match {
+        case None =>
+          return classifyOnce(projectList, childOutput, demoted, options)
+        case Some((partial, named, reason)) if named.nonEmpty =>
+          val at = positions(partial)
+          demoted ++= named.map(at).map(_ -> reason)
+        case Some((partial, _, reason)) =>
+          val at = positions(partial)
+          // `hi` entries are known not to fit as a class; `lo` entries are known to fit, or to
+          // decline naming outputs, which the next round handles. Nothing fused fits trivially.
+          var lo = 0
+          var hi = at.size
+          var reasonAtHi = reason
+          while (hi - lo > 1) {
+            val mid = (lo + hi) / 2
+            ask(demoted ++ at.drop(mid).map(_ -> reasonAtHi)) match {
+              case Some((_, named, r)) if named.isEmpty =>
+                hi = mid
+                reasonAtHi = r
+              case _ =>
+                lo = mid
+            }
+          }
+          demoted ++= at.drop(lo).map(_ -> reasonAtHi)
       }
-      demoted ++= more
     }
     throw new IllegalStateException("unreachable")
   }
@@ -520,17 +555,17 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * shape is emitted once per JVM whoever asks first: the compiler runs at planning, for
    * EXPLAIN and once per task on the executor, and a direct emission here would put a class
    * build on every one of those. A decline names the outputs whose own group cannot fit; a
-   * class-wide one names none, and the last-admitted output is demoted, since the driver it
-   * leaves over the budget grows with the number of outputs. Any other failure admits the
-   * shape as before, and is logged once per JVM: the executor meets it where it always has,
-   * behind the ghost fallback.
+   * class-wide one names none, and the caller demotes outputs from the end, since the driver
+   * it leaves over the budget grows with their number ([[classify]] bisects). Any other
+   * failure admits the shape as before, and is logged once per JVM: the executor meets it
+   * where it always has, behind the ghost fallback.
    */
   private def admitBySize(
       fused: CompiledVarkaProjection,
       options: VarkaEmitOptions): Option[(Seq[Int], String)] = {
-    if (options.methodByteBudget() == 0) {
-      return None
-    }
+    // Asked with the budget off as well: the legacy form is built once and never measured, so
+    // the only decline it can give is the class-file cap's, and that one is worth a residual
+    // at plan time rather than a per-task fallback on the executor (PLAN_TASK_219.md 10).
     val key = new VarkaShapeKey(
       fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options,
       VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
@@ -541,21 +576,26 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       case d: VarkaEmitDeclined =>
         val named = d.outputs().asScala.map(_.intValue).toSeq
         val reason = s"over the emitter's method budget (${d.getMessage.split("; ").head})"
-        Some((if (named.nonEmpty) named else Seq(fused.outputs.size - 1), reason))
+        Some((named, reason))
       case NonFatal(e) =>
         // Not a decline, so not a shape the emitter refuses by design: an emitter bug, or a
         // failure of the JVM's, which the executor meets behind the ghost fallback as before.
         // Said once per JVM here as well, so that a plan admitting a shape the emitter cannot
         // build shows on the driver and not only in a task's log (PLAN_TASK_219.md 3.1).
-        if (loggedEmitterFailures.add(String.valueOf(e.getMessage))) {
+        val where = e.getStackTrace.headOption.map(_.toString).getOrElse("")
+        if (loggedEmitterFailures.add(s"${e.getClass.getName}@$where")) {
           logWarning("The Varka emitter failed at plan time on a shape the compiler admitted, " +
-            s"which the executor will meet behind the fallback: ${e.getMessage}")
+            s"which the executor will meet behind the fallback: ${e.getMessage}", e)
         }
         None
     }
   }
 
-  /** The plan-time emitter failures already logged in this JVM, by message. */
+  /**
+   * The plan-time emitter failures already logged in this JVM, by exception class and the
+   * frame that threw: bounded by the emitter's code, where a key by message would grow with
+   * every distinct shape a long-lived driver plans.
+   */
   private val loggedEmitterFailures = ConcurrentHashMap.newKeySet[String]()
 
   /** Drops the entries a failed compile appended after `mark` (insertion order). */

@@ -391,3 +391,60 @@ What the task leaves for later:
 * **The fuzzer's skipped count** is a signal: a night whose `info` lines count
   many skipped shapes has found either a heavier family or a new way to the
   cap, and is worth reading.
+
+## 10. After review, 27 September 2026
+
+*Written after a code review of the pull request and the fork CI's first run.*
+
+**The CI run found a regression the fix uncovered.** `VarkaCodegenGiveUpSuite`'s
+G14 - Spark's 3000-field projection, with a Varka arm of 3000 `date_add`
+outputs - ran for over twenty-five minutes where the job takes eighteen. The
+arm had passed before this task only because the refusal escaped: a driver of
+3000 outputs is past the class-file cap, the JDK's exception was read as a fit,
+and the projection was "admitted" in one build with nothing checked - the
+test's own comment, that every method stays under the budget by construction,
+had never been true. With the refusal a class-wide decline, task 169's rule for
+class-wide declines applied: demote the last-admitted output and ask again,
+once per output, each ask a build of a class of thousands of methods.
+
+`classify` now bisects on a class-wide decline. The fused entries are a
+prefix in projection order, so the largest prefix the emitter admits is found
+by halving - about twelve asks for 3000 outputs, each one emission through the
+shape cache - and the rest are demoted with the class-wide reason. Named
+declines are handled as before. G14 runs in nine seconds on the laptop; the
+sixty-`make_date` test of task 169 still fuses a prefix and demotes a suffix.
+This is very likely row 220's mechanism as well: a class-wide decline on a
+wide composition, paid once per output. Row 220 keeps its measurement.
+
+**The review's findings, and what was done with each.**
+
+1. The fuzzer's retry without the budget caught only declines, so any other
+   exception there escaped with no seed or iteration - the tenth reproducer's
+   shape of failure. It now fails with the context, like the first attempt.
+2. The constant pool has a second refusal the probe of 2.5 did not reach:
+   `SplitConstantPool` writes "Constant pool is too large N" when the pool
+   itself is written with entries nothing referenced, where `BufWriterImpl`'s
+   wording fires when a method writes an index past the cap. Read from the
+   installed JDK's bytecode; both are matched, and the sentinel pins the
+   second on its words.
+3. On the refusal path each build reveals one method over the cap, so k
+   over-cap groups cost k rebuilds before the measured path acts on the rest.
+   Recorded, not changed: the proposed pre-split by weight is not sound,
+   because weight is not bytes - this family is exactly the case where copies
+   inflate bytes and not weight - and the shape is pathological and paid once
+   per shape per JVM. Row 199 is the fix that would remove the builds.
+4. The admission's once-per-JVM log keyed on the message, unbounded on a
+   long-lived driver, and dropped the throwable. It keys on the exception's
+   class and the frame that threw, and logs with the stack.
+5. The admission returned early with the budget off, so under the legacy form
+   a cap decline was never seen at plan time. It asks with the budget off too:
+   the legacy form is built once and never measured, so the only decline it
+   can give is the cap's.
+6. Skipped shapes were counted into `info` with no ceiling. The fuzzer now
+   fails past two plus one per thousand iterations, against the night's rate of
+   one in three hundred thousand.
+7. The javadoc of `refused` sent a reader to the fuzz suite for a JDK that
+   changed its words; the sentinel test is the pin, and the doc names it.
+8. `java.util.Optional` was written fully qualified in a file whose
+   fully-qualified regime is for Class-File API types only. Imported.
+

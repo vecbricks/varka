@@ -160,6 +160,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           Some(emitWith(options.withMethodByteBudget(0)))
         } catch {
           case again: VarkaEmitDeclined => pastTheCap(again)
+          case e: IllegalArgumentException =>
+            fail(s"$context: the emitter rejected the shape without the budget: " +
+              e.getMessage, e)
         }
       case d: VarkaEmitDeclined => pastTheCap(d)
       case e: IllegalArgumentException =>
@@ -517,11 +520,19 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     reportSkipped()
   }
 
+  /**
+   * The shapes skipped as past the class-file cap, reported and bounded: the night that found
+   * them saw one in three hundred thousand trees per lane, so a run that skips more than a few
+   * per thousand has either a heavier grammar or an emitter that declines where it should
+   * build, and neither may pass quietly.
+   */
   private def reportSkipped(): Unit = {
     val skipped = skippedPastTheCap.getAndSet(0)
     if (skipped > 0) {
       info(s"$skipped shape(s) past the class-file cap on a method in every form the emitter " +
         "has: declined, and skipped (task 219)")
     }
+    assert(skipped <= 2 + iterations / 1000,
+      s"$skipped shapes skipped as past the class-file cap in $iterations iterations")
   }
 }
