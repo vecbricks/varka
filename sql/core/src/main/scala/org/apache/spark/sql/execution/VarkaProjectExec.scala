@@ -185,10 +185,12 @@ private[sql] class VarkaProjectEvaluatorFactory(
       }
     }
 
-    // The per-row projection behind the fallback, and the schema its rows are written back into.
+    // The per-row projection behind the fallback, over the input columns it references, read
+    // once per row (`VarkaInputRows`), and the schema its rows are written back into.
     // Lazy: a task the kernels serve end to end never compiles it, so the Janino
     // compile is paid only by tasks that actually fall back.
-    private lazy val fallbackProjection = UnsafeProjection.create(projectList, childOutput)
+    private lazy val inputRows = new VarkaInputRows(projectList, childOutput)
+    private lazy val fallbackProjection = UnsafeProjection.create(projectList, inputRows.attributes)
     private val outputSchema: StructType =
       DataTypeUtils.fromAttributes(projectList.map(_.toAttribute))
     private val converter = new RowToColumnConverter(outputSchema)
@@ -270,7 +272,7 @@ private[sql] class VarkaProjectEvaluatorFactory(
         val rows = input.rowIterator()
         var rowCount = 0
         while (rows.hasNext) {
-          converter.convert(fallbackProjection(rows.next()), writable)
+          converter.convert(fallbackProjection(inputRows(rows.next())), writable)
           rowCount += 1
         }
         batch.setNumRows(rowCount)
