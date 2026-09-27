@@ -308,3 +308,45 @@ coverage oracles unchanged, the default being off; the full Varka suites of
 **Next.** Section 6's measurement on an idle machine, both widths, the probe
 of 2.2 rerun, and the default flipped on the numbers, with the oracles
 regenerated where 3.3 allows.
+
+## 11. After review, 27 September 2026
+
+*Written after a code review of the pull request, before the measurement.*
+
+The review found the planner still doing kernel-sized work under the switch,
+in three places, and the frames suite weaker than it read. What changed:
+
+* **The body's nodes are its own list.** Filtering `analysis.topoOrder` still
+  visited every node of the kernel per method, a membership test each: the
+  groups-times-nodes term, cheaper per step. The body's node set is now
+  sorted by the nodes' line numbers - their positions in the kernel's
+  topological order - and walked alone, so the order the word aliasing needs
+  is kept and a one-group kernel's slots are numbered as before.
+* **The inputs are the group's.** Every method still set up every column the
+  kernel read: a segment, null state and word, six locals a column, and the
+  prologue's loads. `Slots.inputs` is now the columns the body's outputs read
+  - the kernel's referenced columns without the switch - and the prologue and
+  `wordKnownBeforeCompute` read it. For the benchmark's one-column shape this
+  changes nothing; on a kernel whose groups read different columns it is the
+  larger part of a frame.
+* **The guard scans are passes over the node set** rather than walks of the
+  group's trees, which revisited a shared subtree once per path.
+* **The switch does nothing with the byte budget off**, where no group's
+  method has a frame of its own; the option's javadoc says so.
+* **The frames suite** compares operations only where both forms group a
+  kernel the same way - grouping is decided by measuring bytes, and smaller
+  methods can split differently near the budget, as prediction 5 says - and
+  otherwise only that both build; a shape the group-local form declines that
+  the kernel-wide form builds fails it, the other way round is allowed. It
+  parses each class once (`VarkaEmitterTestSupport.methodProfile`), where it
+  had parsed a two-megabyte class more than a thousand times.
+
+Left as they were: CSE's shared slots by kernel-wide use counts, which is row
+223; and the emission benchmark's committed results still carry the wide
+section's old labels until step 3 regenerates them with both arms.
+
+The frames are as section 10 read them - 174 locals in every group's method
+at 25 to 400 outputs - and the IR fuzzer at twenty thousand trees per lane,
+three seeds, with the switch drawn both ways, agrees with the reference
+evaluator.
+

@@ -306,7 +306,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        planning walks the kernel, and the class-file stack maps grow with the frames. On, a
  *        method's frame holds its own nodes' slots: a one-group kernel emits the same bytes
  *        either way, a several-group one the same operations with smaller frames. Like
- *        {@link #cse} it changes no result. Off until the measurement chooses it.
+ *        {@link #cse} it changes no result. Only a group's methods under the byte budget have
+ *        frames of their own to plan, so with {@link #methodByteBudget} 0 it changes nothing. Off
+ *        until the measurement chooses it.
  */
 public record VarkaEmitOptions(
     int groupBudget,

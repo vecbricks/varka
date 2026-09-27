@@ -39,51 +39,57 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
       new AddDays(col, new LiteralSlot(k))), new LastDay(col))
   }
 
-  private val laneOwners =
+  private val valueOwners =
     Seq("IntVector", "LongVector", "DoubleVector", "Vector").map("jdk.incubator.vector." + _)
   private val maskOwner = "jdk.incubator.vector.VectorMask"
 
-  /** The lane arithmetic of one method: its invocations on the Vector API's value types. */
-  private def valueOps(bytes: Array[Byte], method: String): Int =
-    laneOwners.map(VarkaEmitterTestSupport.invocationCount(bytes, method, _)).sum
+  /**
+   * One emitted class, parsed once: per method with code, its code length, its frame, its lane
+   * arithmetic - invocations on the Vector API's value types - and its mask operations. A
+   * four-hundred-output class is nearly two megabytes, so the suite reads it once rather than
+   * once per question per method.
+   */
+  private case class Method(codeLength: Int, maxLocals: Int, valueOps: Int, maskOps: Int)
 
-  private def maskOps(bytes: Array[Byte], method: String): Int =
-    VarkaEmitterTestSupport.invocationCount(bytes, method, maskOwner)
+  private def profile(bytes: Array[Byte]): Map[String, Method] =
+    VarkaEmitterTestSupport.methodProfile(bytes, (valueOwners :+ maskOwner).asJava).asScala
+      .map { case (name, row) =>
+        name -> Method(row(0), row(1), row.slice(2, 2 + valueOwners.size).sum,
+          row(2 + valueOwners.size))
+      }.toMap
 
-  private def bodies(bytes: Array[Byte]): Seq[String] =
-    VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq
-      .filter(m => m.startsWith("loop") || m.startsWith("epilogue"))
+  private def bodies(methods: Map[String, Method]): Seq[String] =
+    methods.keys.toSeq.filter(m => m.startsWith("loop") || m.startsWith("epilogue")).sorted
 
-  private def severalGroups(bytes: Array[Byte]): Boolean =
-    bodies(bytes).exists(m => m == "loopDense1" || m == "loopMasked1")
+  private def severalGroups(methods: Map[String, Method]): Boolean =
+    methods.contains("loopDense1") || methods.contains("loopMasked1")
 
-  /** Both forms of one shape, emitted under one class name so the bytes are comparable. */
-  private def bothForms(name: String, roots: Seq[VarkaVectorIR], numInputs: Int,
-      numLiterals: Int, options: VarkaEmitOptions): (Array[Byte], Array[Byte]) = {
-    def emit(o: VarkaEmitOptions): Array[Byte] =
-      VarkaLoopEmitter.emit(name, roots.asJava, numInputs, numLiterals, null, null, o)
-    (emit(options.withGroupLocalSlots(false)), emit(options.withGroupLocalSlots(true)))
-  }
+  private def emit(name: String, roots: Seq[VarkaVectorIR], numInputs: Int,
+      numLiterals: Int, options: VarkaEmitOptions): Either[VarkaEmitDeclined, Array[Byte]] =
+    try {
+      Right(VarkaLoopEmitter.emit(name, roots.asJava, numInputs, numLiterals, null, null,
+        options))
+    } catch {
+      case d: VarkaEmitDeclined => Left(d)
+    }
 
   /**
-   * What the switch keeps for a several-group kernel: every method's lane arithmetic, node for
-   * node, and no method larger. One thing it may drop, found by this suite's second test on the
-   * shared grammar: with the frames planned over the kernel, a body allocated the guard
-   * accumulator whenever any output of the kernel guarded, and a body that guards nothing
-   * still initialised it and tested it on exit - two mask operations that could never fire.
-   * Planned over the group, such a body has no accumulator, so its mask operations may fall by
-   * exactly those two.
+   * What the switch keeps for a several-group kernel grouped the same way by both forms: every
+   * method's lane arithmetic, node for node, and no method larger. One thing it may drop, found
+   * by this suite's second test on the shared grammar: with the frames planned over the kernel,
+   * a body allocated the guard accumulator whenever any output of the kernel guarded, and a
+   * body that guards nothing still initialised it and tested it on exit - two mask operations
+   * that could never fire. Planned over the group, such a body has no accumulator, so its mask
+   * operations may fall by exactly those two.
    */
-  private def sameOperations(kernelWide: Array[Byte], groupLocal: Array[Byte],
+  private def sameOperations(kernelWide: Map[String, Method], groupLocal: Map[String, Method],
       where: String): Unit = {
-    assert(VarkaEmitterTestSupport.methodNames(groupLocal).asScala.toSet ===
-      VarkaEmitterTestSupport.methodNames(kernelWide).asScala.toSet, where)
     bodies(kernelWide).foreach { m =>
-      assert(valueOps(groupLocal, m) === valueOps(kernelWide, m), s"$where: $m")
-      val dropped = maskOps(kernelWide, m) - maskOps(groupLocal, m)
+      val (before, after) = (kernelWide(m), groupLocal(m))
+      assert(after.valueOps === before.valueOps, s"$where: $m")
+      val dropped = before.maskOps - after.maskOps
       assert(dropped == 0 || dropped == 2, s"$where: $m dropped $dropped mask operations")
-      assert(VarkaEmitterTestSupport.codeSize(groupLocal, m) <=
-        VarkaEmitterTestSupport.codeSize(kernelWide, m), s"$where: $m")
+      assert(after.codeLength <= before.codeLength, s"$where: $m")
     }
   }
 
@@ -92,20 +98,24 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     // sets it: with the frames planned over the kernel a loop or epilogue method carries ten
     // thousand locals (PLAN_TASK_191.md 2.3), with them planned over the group a few hundred,
     // while the drivers - the kernel's by construction - keep theirs. The test that catches a
-    // planner walking the kernel again. The operations are the same, node for node, and no
+    // planner walking the kernel again. The lane arithmetic is the same, node for node, and no
     // method grew: locals past 255 lost their wide forms.
     val n = 400
-    val (kernelWide, groupLocal) = bothForms("org.apache.spark.sql.varka.execution.VarkaFrames",
-      wide(n), 1, n, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(1 << 20))
+    val options = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(1 << 20)
+    val name = "org.apache.spark.sql.varka.execution.VarkaFrames"
+    val kernelWide = profile(emit(name, wide(n), 1, n, options.withGroupLocalSlots(false))
+      .fold(d => fail(d.getMessage), identity))
+    val groupLocal = profile(emit(name, wide(n), 1, n, options.withGroupLocalSlots(true))
+      .fold(d => fail(d.getMessage), identity))
+    assert(groupLocal.keySet === kernelWide.keySet)
     val methods = bodies(kernelWide)
     assert(methods.size > 100, methods.size)
-    val widestBefore = methods.map(VarkaEmitterTestSupport.maxLocals(kernelWide, _)).max
-    val widestAfter = methods.map(VarkaEmitterTestSupport.maxLocals(groupLocal, _)).max
+    val widestBefore = methods.map(kernelWide(_).maxLocals).max
+    val widestAfter = methods.map(groupLocal(_).maxLocals).max
     assert(widestBefore > 5000, s"kernel-wide frames: $widestBefore locals at the widest")
     assert(widestAfter < 400, s"group-local frames: $widestAfter locals at the widest")
     Seq("runDense", "runMasked").foreach { driver =>
-      assert(VarkaEmitterTestSupport.maxLocals(groupLocal, driver) ===
-        VarkaEmitterTestSupport.maxLocals(kernelWide, driver), driver)
+      assert(groupLocal(driver).maxLocals === kernelWide(driver).maxLocals, driver)
     }
     sameOperations(kernelWide, groupLocal, "400 outputs")
   }
@@ -115,34 +125,41 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     // The first three hundred shapes of the shared fuzz grammar at its seed, under the default
     // budget - one to three roots, so both kinds of kernel occur - and the benchmark's shape at
     // 25 and 100 outputs. A one-group kernel's body set is the whole kernel, so its slots are
-    // numbered as before and its bytes are identical; a several-group one renumbers and keeps
-    // every lane operation, less the dead accumulator `sameOperations` describes. A shape the
-    // budget declines declines both ways.
+    // numbered as before and its bytes are identical. A several-group one renumbers and keeps
+    // every lane operation, less the dead accumulator `sameOperations` describes - where both
+    // forms group it the same way: grouping is decided by measuring bytes, and group-local
+    // methods are smaller, so near the budget the two forms may split differently
+    // (PLAN_TASK_191.md 6.1, prediction 5), and then only building is compared. A shape one
+    // form declines, the other declines too, or the group-local form is the one that builds.
     var oneGroup = 0
     var several = 0
+    var regrouped = 0
     def check(where: String, roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int)
         : Unit = {
       val name =
         s"org.apache.spark.sql.varka.execution.VarkaFramesShape${classCounter.addAndGet(1)}"
-      val forms =
-        try {
-          Some(bothForms(name, roots, numInputs, numLiterals, VarkaEmitOptions.DEFAULTS))
-        } catch {
-          case d: VarkaEmitDeclined =>
-            intercept[VarkaEmitDeclined] {
-              VarkaLoopEmitter.emit(name, roots.asJava, numInputs, numLiterals, null, null,
-                VarkaEmitOptions.DEFAULTS.withGroupLocalSlots(true))
-            }
-            None
-        }
-      forms.foreach { case (kernelWide, groupLocal) =>
-        if (severalGroups(kernelWide)) {
-          several += 1
-          sameOperations(kernelWide, groupLocal, where)
-        } else {
-          oneGroup += 1
-          assert(java.util.Arrays.equals(kernelWide, groupLocal), s"$where: the bytes moved")
-        }
+      val options = VarkaEmitOptions.DEFAULTS
+      (emit(name, roots, numInputs, numLiterals, options.withGroupLocalSlots(false)),
+        emit(name, roots, numInputs, numLiterals, options.withGroupLocalSlots(true))) match {
+        case (Right(kernelWideBytes), Right(groupLocalBytes)) =>
+          val (kernelWide, groupLocal) = (profile(kernelWideBytes), profile(groupLocalBytes))
+          if (!severalGroups(kernelWide) && !severalGroups(groupLocal)) {
+            oneGroup += 1
+            assert(java.util.Arrays.equals(kernelWideBytes, groupLocalBytes),
+              s"$where: the bytes moved")
+          } else if (kernelWide.keySet == groupLocal.keySet) {
+            several += 1
+            sameOperations(kernelWide, groupLocal, where)
+          } else {
+            regrouped += 1
+          }
+        case (Left(_), Left(_)) =>
+        case (Left(_), Right(_)) =>
+          // Smaller methods can fit a budget the kernel-wide form missed; never the reverse.
+          regrouped += 1
+        case (Right(_), Left(d)) =>
+          fail(s"$where: group-local frames declined a shape kernel-wide frames build: " +
+            d.getMessage)
       }
     }
     (0 until 300).foreach { k =>
@@ -150,6 +167,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
       check(s"fuzz shape $k", drawn.roots, drawn.numInputs, drawn.numLiterals)
     }
     Seq(25, 100).foreach(n => check(s"$n outputs", wide(n), 1, n))
-    assert(oneGroup > 100 && several > 5, s"$oneGroup one-group and $several several-group shapes")
+    assert(oneGroup > 100 && several > 5,
+      s"$oneGroup one-group, $several several-group and $regrouped regrouped shapes")
   }
 }
