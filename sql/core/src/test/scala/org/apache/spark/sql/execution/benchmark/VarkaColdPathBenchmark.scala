@@ -31,8 +31,8 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.{ByteCodeStats, CodeGenerator}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaKernelWarmup,
   VarkaShapeCache}
-import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution,
-  SQLExecution, SparkPlan, VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan,
+  SQLExecution, VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.QueryExecutionListener
 
