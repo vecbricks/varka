@@ -131,7 +131,10 @@ object VarkaEmissionBenchmark extends BenchmarkBase {
     // One emission per iteration - a four-hundred-output emission is not microseconds - and the
     // byte budget set out of reach at 200 and 400 outputs, where the default would decline the
     // driver: the rungs price emission itself, which the designs past the driver's ceiling
-    // (PLAN_TASK_190.md 3.2) both pay, and prediction 2 there reads them.
+    // (PLAN_TASK_190.md 3.2) both pay, and prediction 2 there reads them. Task 191 adds the
+    // second arm at every rung: the frames planned over the whole kernel, the form before it,
+    // against frames planned over each group's own nodes; both named, so the labels survive
+    // the default changing.
     runBenchmark("emitting a wide kernel: four-op outputs (task 190)") {
       val benchmark = new Benchmark("one emission", 1,
         minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
@@ -141,10 +144,14 @@ object VarkaEmissionBenchmark extends BenchmarkBase {
       for (n <- Seq(25, 50, 100, 200, 400)) {
         val roots = java.util.List.of((0 until n).map(entry): _*)
         val wide = if (n <= 100) options else options.withMethodByteBudget(1 << 20)
-        val label = if (n <= 100) s"$n outputs" else s"$n outputs, budget out of reach"
-        benchmark.addCase(label) { _ =>
-          sink += VarkaLoopEmitter.emit("VarkaEmissionBenchmarkWide", roots, 1, n, null, null,
-            wide).length
+        val budget = if (n <= 100) "" else ", budget out of reach"
+        Seq("kernel-wide frames" -> false, "group-local frames" -> true).foreach {
+          case (frames, groupLocal) =>
+            val arm = wide.withGroupLocalSlots(groupLocal)
+            benchmark.addCase(s"$n outputs, $frames$budget") { _ =>
+              sink += VarkaLoopEmitter.emit("VarkaEmissionBenchmarkWide", roots, 1, n, null,
+                null, arm).length
+            }
         }
       }
       benchmark.run()

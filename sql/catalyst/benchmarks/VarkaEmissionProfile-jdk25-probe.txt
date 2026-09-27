@@ -102,3 +102,111 @@ The same shape emitted once per width and parsed back (java.lang.classfile, Code
 100 outputs: 104 methods, class 480275 bytes, largest method 5828 bytes, max_locals up to 2766 (epilogueMasked24), mean 1315 per method
 200 outputs: 204 methods, class 969790 bytes, largest method 12412 bytes, max_locals up to 5466 (epilogueMasked49), mean 2566 per method
 400 outputs: 404 methods, class 1947790 bytes, largest method 25812 bytes, max_locals up to 10866 (epilogueMasked99), mean 5066 per method
+
+## 4. The profile again, after the fix, with the probe corrected (PLAN_TASK_191.md 9)
+
+Sections 1 to 3 above were read through VarkaEmitDump, which handed the emitter its outputs as a
+Scala List seen through asJava - a list whose get(i) walks from the head. The planner indexes the
+outputs per method, so every emission above also paid a walk per lookup, which inflated the times
+(12.4, 43.2 and 205.8 ms) and planning's share (35.1%, 56.5%, 71.8%). Production was never
+affected: the shape cache copies the outputs into a random-access list. VarkaLoopEmitter.emit now
+copies its outputs on entry, so every caller gets the same, and the probe below is rerun with that
+fix, in both forms. Its times now agree with VarkaEmissionBenchmark's to within the probe's JFR
+overhead; the benchmark's files are the numbers.
+
+commit:  the task 191 branch after 4a50dc39a1e, with the copy on entry
+date:    2026-09-27T07:40:00+00:00
+load:    1.24 1.09 1.13 at start
+
+### kernel-wide frames (groupLocalSlots=false)
+
+100 outputs: median 10.7 ms per emission
+280 samples
+
+by phase (the first phase whose frame the stack holds):
+   30.7%      86  slot planning (Slots.plan)
+   26.8%      75  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   26.4%      74  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+    8.6%      24  elsewhere in Varka
+    2.9%       8  the compiler (VarkaExpressionCompiler and families)
+    1.8%       5  outside Varka (JVM, harness)
+    1.1%       3  analysis (Analysis.*)
+    0.7%       2  measuring the class (VarkaEmittedClass.measure)
+    0.7%       2  grouping (groupOutputs)
+    0.4%       1  debug info (renderLineMap, renderOutputs, debugElement)
+
+200 outputs: median 32.2 ms per emission
+405 samples
+
+by phase (the first phase whose frame the stack holds):
+   44.2%     179  slot planning (Slots.plan)
+   21.0%      85  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   15.8%      64  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+   11.6%      47  elsewhere in Varka
+    3.2%      13  outside Varka (JVM, harness)
+    1.2%       5  the compiler (VarkaExpressionCompiler and families)
+    1.0%       4  analysis (Analysis.*)
+    1.0%       4  debug info (renderLineMap, renderOutputs, debugElement)
+    0.7%       3  grouping (groupOutputs)
+    0.2%       1  measuring the class (VarkaEmittedClass.measure)
+
+400 outputs: median 113.3 ms per emission
+679 samples
+
+by phase (the first phase whose frame the stack holds):
+   56.3%     382  slot planning (Slots.plan)
+   13.8%      94  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+   13.4%      91  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   10.3%      70  elsewhere in Varka
+    2.4%      16  outside Varka (JVM, harness)
+    1.3%       9  the compiler (VarkaExpressionCompiler and families)
+    0.9%       6  analysis (Analysis.*)
+    0.9%       6  grouping (groupOutputs)
+    0.6%       4  debug info (renderLineMap, renderOutputs, debugElement)
+    0.1%       1  measuring the class (VarkaEmittedClass.measure)
+
+### group-local frames (groupLocalSlots=true)
+
+100 outputs: median 7.5 ms per emission
+207 samples
+
+by phase (the first phase whose frame the stack holds):
+   31.4%      65  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+   27.5%      57  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   15.9%      33  elsewhere in Varka
+    6.8%      14  slot planning (Slots.plan)
+    4.8%      10  outside Varka (JVM, harness)
+    4.8%      10  measuring the class (VarkaEmittedClass.measure)
+    3.9%       8  analysis (Analysis.*)
+    1.9%       4  the compiler (VarkaExpressionCompiler and families)
+    1.9%       4  debug info (renderLineMap, renderOutputs, debugElement)
+    1.0%       2  grouping (groupOutputs)
+
+200 outputs: median 16.3 ms per emission
+244 samples
+
+by phase (the first phase whose frame the stack holds):
+   32.0%      78  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   27.5%      67  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+   20.1%      49  elsewhere in Varka
+    9.4%      23  slot planning (Slots.plan)
+    4.1%      10  outside Varka (JVM, harness)
+    2.9%       7  the compiler (VarkaExpressionCompiler and families)
+    2.0%       5  analysis (Analysis.*)
+    1.2%       3  grouping (groupOutputs)
+    0.8%       2  debug info (renderLineMap, renderOutputs, debugElement)
+
+400 outputs: median 38.9 ms per emission
+319 samples
+
+by phase (the first phase whose frame the stack holds):
+   30.1%      96  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   23.2%      74  elsewhere in Varka
+   22.6%      72  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+   11.3%      36  slot planning (Slots.plan)
+    4.1%      13  the compiler (VarkaExpressionCompiler and families)
+    3.8%      12  outside Varka (JVM, harness)
+    2.2%       7  analysis (Analysis.*)
+    2.2%       7  debug info (renderLineMap, renderOutputs, debugElement)
+    0.3%       1  grouping (groupOutputs)
+    0.3%       1  measuring the class (VarkaEmittedClass.measure)
