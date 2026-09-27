@@ -413,8 +413,15 @@ by halving - about twelve asks for 3000 outputs, each one emission through the
 shape cache - and the rest are demoted with the class-wide reason. Named
 declines are handled as before. G14 runs in nine seconds on the laptop; the
 sixty-`make_date` test of task 169 still fuses a prefix and demotes a suffix.
-This is very likely row 220's mechanism as well: a class-wide decline on a
-wide composition, paid once per output. Row 220 keeps its measurement.
+This was row 220's mechanism. Three of the night's composition runs that had
+hit their caps, replayed on this branch at their 4000 compositions: seed
+27090210023, timed out at thirty minutes overnight, 67 seconds; 27090200001,
+timed out at thirty minutes, 167 seconds; 27090190001, failed the suite's
+twenty-minute cap after 1337 seconds, 62 seconds. The fuzzer draws
+projections of up to three hundred entries, exactly where a driver crosses
+the budget and a class-wide decline was paid once per entry. Row 220 closes
+on this task's fix, with what is left of its question - emission time itself
+superlinear in width - being row 191's.
 
 **The review's findings, and what was done with each.**
 
