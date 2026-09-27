@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
 
 import scala.concurrent.duration._
@@ -61,8 +60,8 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
  *    its verdict, which is the query a shape's kernel serves from then on.
  *
  * Every timed iteration starts with the JVM quiet: no warm-up queued or running, and no JIT
- * compilation finished for a while ([[quiesce]]), so that no case pays for compiles an earlier
- * iteration requested.
+ * compilation finished for a while ([[VarkaSizeLadder.quiesce]]), so that no case pays for
+ * compiles an earlier iteration requested.
  *
  * After each rung's table, a line says how long the warm-up took to its verdict in each
  * iteration of the once-compiled case, and how many kernel calls it made. A second section runs
@@ -89,7 +88,7 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
  */
 object VarkaColdStartBenchmark extends SqlBasedBenchmark {
   import VarkaArrowSessions.createSession
-  import VarkaSizeLadder.{cacheDates, entry, varkaFused}
+  import VarkaSizeLadder.{cacheDates, entry, quiesce, varkaFused}
 
   private val smoke = sys.env.get("VARKA_COLDSTART_SMOKE").contains("true")
 
@@ -136,28 +135,6 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
   /** How long to wait for a warm-up's verdict: a hundred-entry kernel takes seconds. */
   private val warmupTimeoutMillis = 120000L
 
-  /**
-   * Waits until no warm-up is queued or running and the JIT has finished no compilation for a
-   * second, or a minute has passed. The JIT's accumulated compile time only moves when a
-   * compilation ends, and a kernel method's C2 compile takes under a second, so a second without
-   * movement means nothing an earlier iteration requested is still compiling.
-   */
-  private def quiesce(): Unit = {
-    VarkaKernelWarmup.awaitIdle(warmupTimeoutMillis)
-    val jit = ManagementFactory.getCompilationMXBean
-    val deadline = System.nanoTime() + 60.seconds.toNanos
-    var last = jit.getTotalCompilationTime
-    var stableSince = System.nanoTime()
-    while (System.nanoTime() - stableSince < 1.second.toNanos && System.nanoTime() < deadline) {
-      Thread.sleep(50)
-      val now = jit.getTotalCompilationTime
-      if (now != last) {
-        last = now
-        stableSince = System.nanoTime()
-      }
-    }
-  }
-
   /** A line into the results file, and onto the console. */
   private def report(line: String): Unit = {
     // scalastyle:off println
@@ -190,7 +167,9 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
       case v: VarkaColumnarToRowExec => v
       case v: VarkaProjectExec => v
     }.getOrElse(throw new IllegalStateException(s"no Varka node:\n${qe.executedPlan.treeString}"))
-    val counts = node.metrics.collect { case (k, m) if k.endsWith("Batches") => k -> m.value }
+    val counts = node.metrics.collect {
+      case (k, m) if k.endsWith("Batches") || k.startsWith("numFallbackBatches") => k -> m.value
+    }
     require(counts("numVarkaBatches") > 0 && counts("numWarmupBatches") == 0 &&
       counts.filter(_._1.startsWith("numFallbackBatches")).values.sum == 0,
       s"the compiled kernel did not serve every batch of $q: $counts")
