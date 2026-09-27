@@ -23,10 +23,13 @@ import java.util.List;
  * The emitter's refusal of a shape on a limit the JVM enforces, with the reason and the
  * outputs it names.
  *
- * <p>Thrown by {@link VarkaLoopEmitter#emit} under {@link VarkaEmitOptions#methodByteBudget}
- * when a method is still over a limit after every regroup the emitter can make: a group of one
- * output whose method exceeds the budget, a driver over it, or a class over the class-file
- * caps. It is an {@link IllegalArgumentException} so that every caller's existing contract
+ * <p>Thrown by {@link VarkaLoopEmitter#emit} when a method is still over a limit after every
+ * regroup the emitter can make: under {@link VarkaEmitOptions#methodByteBudget}, a group of one
+ * output whose method exceeds the budget or a driver over it; and whatever the budget, a method
+ * the class-file format cannot hold - which the Class-File API refuses while the class is
+ * assembled, and the emitter reads as the measurement it never got to take
+ * ({@code PLAN_TASK_219.md}) - or a class over the format's other caps. It is an
+ * {@link IllegalArgumentException} so that every caller's existing contract
  * holds - the emitter refused, fall back to the row engine - and a type of its own so that a
  * caller can tell a size decline from a structural one and report it as such. {@link #outputs}
  * is what {@code VarkaExpressionCompiler} acts on at plan time: the outputs whose own group

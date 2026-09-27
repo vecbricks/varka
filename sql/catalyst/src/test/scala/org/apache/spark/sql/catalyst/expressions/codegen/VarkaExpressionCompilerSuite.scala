@@ -2388,6 +2388,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite {
     assert(largestMethod(partial.fused, 2000) <= 2000)
   }
 
+  test("an output whose method the class-file format cannot hold is residual at plan time, " +
+      "with the reason, and the rest of the projection still fuses (task 219)") {
+    // PLAN_TASK_219.md 2.4: under the byte budget the op cap is off (task 190), so nothing but
+    // MAX_CHAIN_DEPTH bounds one output, and a tree of forty distinct nested make_dates over
+    // eighty-one distinct add_months - ten nodes deep, and legal SQL - makes a loop method of
+    // some 130 KB. The Class-File API refuses it while the class is assembled, before the byte
+    // budget can measure it; the emitter reads the refusal as a decline, and the compiler demotes
+    // the tree with the cap as its reason and fuses year(d) beside it. Before task 219 the
+    // refusal was an IllegalArgumentException the compiler read as a fit: the plan claimed
+    // fusion, and every task met the refusal behind the ghost fallback.
+    def distinct(depth: Int, i: Int): Expression =
+      if (depth == 0) AddMonths(d, Literal(i))
+      else MakeDate(Year(distinct(depth - 1, 3 * i)), Month(distinct(depth - 1, 3 * i + 1)),
+        DayOfMonth(distinct(depth - 1, 3 * i + 2)), failOnError = true)
+    val list = Seq(out(Year(d)), out(distinct(4, 0)))
+    val partial = VarkaExpressionCompiler.compilePartial(list, childOutput).get
+    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput))
+    // The tree is the second output, so its group's loop method is loopDense1.
+    val reason = partial.declines(1).reason
+    assert(reason.startsWith("over the emitter's method budget (loopDense1 is ") &&
+      reason.endsWith(" bytes, over the class-file cap of 65535: the class cannot be built)"),
+      reason)
+  }
+
   test("a filter whose folded condition is over the budget demotes its last-admitted " +
       "conjunct (task 169)") {
     // The fused conjuncts fold into one condition root, which the emitter cannot split by name.

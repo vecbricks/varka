@@ -720,7 +720,7 @@ What made it small, and what to carry to the next width change:
   one combined run they audited the old rows and passed; run the coverage suite
   first and the readers after, and rerun the readers when it changed the file.
 
-## The class-file caps are out of reach of any admitted shape, so their checks are pinned on hand-built measurements
+## The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal
 
 The IR caps (`MAX_FUSED_NODES` 64, `MAX_CHAIN_DEPTH` 16) bound what one kernel can carry, and
 the heaviest shapes they admit stop well short of the class-file format's caps of 65535 bytes of
@@ -741,6 +741,31 @@ four-op outputs, and the pool reads 1384 entries there. A third class-file cap w
 counts, and at 800 outputs the builder refused the class with "string too long". That one is
 reachable by an expression and is tested with one - an oversized plan fragment - and the fix is to
 bound the metadata (`VarkaDebugInfo.bounded`), never to decline a kernel for it.
+
+*Refuted for the method cap on 27 September 2026 (task 219), in two parts.* First, the cap is
+reachable: under the byte budget the op cap is off (task 190), so one output is bounded by
+`MAX_CHAIN_DEPTH` and the JVM alone, and a tree of forty distinct nested `make_date`s over
+eighty-one distinct `add_months` - ten nodes deep, legal SQL - makes a `loopDense0` of 132452
+bytes under production options (`PLAN_TASK_219.md` 2.4); the fuzzer reaches the same cap with
+forty *copies* once `cse` and `shareChronoPrefix` are both drawn off, which is how the night run
+of 26-27 September found it ten times. Second, and the reason the measurement never saw it: the
+Class-File API enforces the method cap while the class is *assembled*, after every body is built
+(`DirectCodeBuilder$4.writeBody` under `ClassFile.build`), by throwing an
+`IllegalArgumentException` reading "Code length N is outside the allowed range in <method>".
+So there is no class to measure, and no check that runs after the build can fire; before the fix
+the exception left the emitter as it was, and `admitBySize` read it as a fit. The emitter now
+reads the refusal as the measurement of that one method (`VarkaEmittedClass.refused`) and feeds
+it to the same regroup, so the shape splits or declines as any method over a limit does. The
+constant-pool cap is refused the same way, at assembly, with "65536 is not a valid index. Entry:
+..." (a probe of the API with 70000 field names), and is read too, as a class-wide decline; a far
+branch is not a cap at all, the API widens short jumps itself. Two lessons for the next cap. A
+throw census of the emitter has to count what the libraries it calls throw, not only the `throw`
+statements in the package - task 169's census missed this one for that reason. And when a cap or
+a budget is *lifted*, re-read every "out of reach" claim in the dimension the lift opens: task
+190's re-read probed width, four hundred small outputs, where the regroup protects, and not the
+one heavy output, where nothing does. The two JDK messages the emitter reads are pinned by a test
+that produces them through the API itself, so a JDK that changes the words fails a test and not a
+night's fuzzing.
 
 ## The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so
 

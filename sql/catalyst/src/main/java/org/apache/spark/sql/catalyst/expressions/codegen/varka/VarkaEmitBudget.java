@@ -77,7 +77,12 @@ final class VarkaEmitBudget {
    */
   static final int HUGE_METHOD_LIMIT = 8000;
 
-  /** The class-file format's cap on one method's bytecode length: a {@code u2} of code bytes. */
+  /**
+   * The class-file format's cap on one method's bytecode length: a {@code u2} of code bytes. The
+   * Class-File API enforces it while a class is assembled, by refusing the build, so a method
+   * over it is never in a class {@link VarkaEmittedClass#measure} could read; the emitter reads
+   * the refusal instead ({@link VarkaEmittedClass#refused}) and declines on it.
+   */
   static final int METHOD_CODE_CAP = 65535;
 
   /**

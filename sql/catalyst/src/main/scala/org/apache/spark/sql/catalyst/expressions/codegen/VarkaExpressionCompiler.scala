@@ -17,12 +17,14 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import java.util.concurrent.ConcurrentHashMap
 import java.util.function.IntUnaryOperator
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Attribute, BindReferences,
   BoundReference, Cast, EvalMode, Expression, Greatest, Least, Literal, Multiply, NamedExpression,
   RuntimeReplaceable, Subtract, UnaryMinus}
@@ -320,7 +322,7 @@ private[sql] case class CompiledVarkaPredicate(
  *
  * This is the only eligibility rule there is.
  */
-private[sql] object VarkaExpressionCompiler {
+private[sql] object VarkaExpressionCompiler extends Logging {
 
   /**
    * The most literals an `IN` list may hold and still fuse, counted after dedup.
@@ -520,7 +522,8 @@ private[sql] object VarkaExpressionCompiler {
    * build on every one of those. A decline names the outputs whose own group cannot fit; a
    * class-wide one names none, and the last-admitted output is demoted, since the driver it
    * leaves over the budget grows with the number of outputs. Any other failure admits the
-   * shape as before: the executor meets it where it always has, behind the ghost fallback.
+   * shape as before, and is logged once per JVM: the executor meets it where it always has,
+   * behind the ghost fallback.
    */
   private def admitBySize(
       fused: CompiledVarkaProjection,
@@ -539,9 +542,21 @@ private[sql] object VarkaExpressionCompiler {
         val named = d.outputs().asScala.map(_.intValue).toSeq
         val reason = s"over the emitter's method budget (${d.getMessage.split("; ").head})"
         Some((if (named.nonEmpty) named else Seq(fused.outputs.size - 1), reason))
-      case NonFatal(_) => None
+      case NonFatal(e) =>
+        // Not a decline, so not a shape the emitter refuses by design: an emitter bug, or a
+        // failure of the JVM's, which the executor meets behind the ghost fallback as before.
+        // Said once per JVM here as well, so that a plan admitting a shape the emitter cannot
+        // build shows on the driver and not only in a task's log (PLAN_TASK_219.md 3.1).
+        if (loggedEmitterFailures.add(String.valueOf(e.getMessage))) {
+          logWarning("The Varka emitter failed at plan time on a shape the compiler admitted, " +
+            s"which the executor will meet behind the fallback: ${e.getMessage}")
+        }
+        None
     }
   }
+
+  /** The plan-time emitter failures already logged in this JVM, by message. */
+  private val loggedEmitterFailures = ConcurrentHashMap.newKeySet[String]()
 
   /** Drops the entries a failed compile appended after `mark` (insertion order). */
   private[codegen] def truncate(table: mutable.LinkedHashMap[Int, Int], mark: Int): Unit = {

@@ -76,6 +76,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   private val iterations = sys.props.get("varka.fuzz.iterations").map(_.toInt).getOrElse(300)
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val classCounter = new AtomicInteger(0)
+  private val skippedPastTheCap = new AtomicInteger(0)
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
   /** A random variant of the options record, through its own `with*` methods. */
@@ -132,6 +133,40 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   private def alloc(arena: Arena, bytes: Long): MemorySegment =
     arena.allocate(math.max(bytes, 1L), 8)
 
+  /**
+   * The shape's class, or None for a shape no form of the emitter holds. Under the byte budget
+   * a shape whose single output is over the budget declines with a reason, by design (task 87);
+   * the heaviest trees are the ones most worth checking, so such a shape is run in the form
+   * without the budget rather than skipped. When that form declines too, or the budget was off
+   * and it declined at once, the reason is the class-file cap on a method's code, the one limit
+   * the legacy form has: the JVM holds no method the emitter could make of the shape, the
+   * decline is the emitter's answer (task 219), and the shape is counted and skipped. Anything
+   * else the emitter throws is a failure - it rejected a shape the grammar builds.
+   */
+  private def emitOrSkip(context: String, options: VarkaEmitOptions)(
+      emitWith: VarkaEmitOptions => Array[Byte]): Option[Array[Byte]] = {
+    def pastTheCap(d: VarkaEmitDeclined): Option[Array[Byte]] = {
+      assert(d.getMessage.contains("over the class-file cap of"),
+        s"$context: declined with no budget to decline on: ${d.getMessage}")
+      skippedPastTheCap.incrementAndGet()
+      None
+    }
+    try {
+      Some(emitWith(options))
+    } catch {
+      case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
+        assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
+        try {
+          Some(emitWith(options.withMethodByteBudget(0)))
+        } catch {
+          case again: VarkaEmitDeclined => pastTheCap(again)
+        }
+      case d: VarkaEmitDeclined => pastTheCap(d)
+      case e: IllegalArgumentException =>
+        fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
+    }
+  }
+
   private def runOne(iteration: Int): Unit = {
     val rnd = shapeRandom(seed, iteration)
     // The shape itself comes from the shared draw, so this suite and the emitted-bytes oracle
@@ -170,19 +205,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzz${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] =
       VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
-    val bytes =
-      try {
-        emitWith(options)
-      } catch {
-        // Under the byte budget a shape whose single output is over the budget declines with a
-        // reason, by design (task 87). The heaviest trees are the ones most worth checking, so
-        // the shape is run in the form without the budget rather than skipped.
-        case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
-          assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
-          emitWith(options.withMethodByteBudget(0))
-        case e: IllegalArgumentException =>
-          fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
-      }
+    val bytes = emitOrSkip(context, options)(emitWith) match {
+      case Some(b) => b
+      case None => return
+    }
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
     loader.defineGeneratedClass(className, bytes)
     val kernel = loader.loadClass(className).getConstructor().newInstance()
@@ -288,19 +314,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzzLong${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] =
       VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
-    val bytes =
-      try {
-        emitWith(options)
-      } catch {
-        // Under the byte budget a shape whose single output is over the budget declines with a
-        // reason, by design (task 87). The heaviest trees are the ones most worth checking, so
-        // the shape is run in the form without the budget rather than skipped.
-        case d: VarkaEmitDeclined if options.methodByteBudget() > 0 =>
-          assert(d.getMessage.contains("bytes"), s"$context: a size decline without a size")
-          emitWith(options.withMethodByteBudget(0))
-        case e: IllegalArgumentException =>
-          fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
-      }
+    val bytes = emitOrSkip(context, options)(emitWith) match {
+      case Some(b) => b
+      case None => return
+    }
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
     loader.defineGeneratedClass(className, bytes)
     val kernel = loader.loadClass(className).getConstructor().newInstance()
@@ -488,6 +505,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       case Some(k) => runOne(k)
       case None => (0 until iterations).foreach(runOne)
     }
+    reportSkipped()
   }
 
   test(s"random long-lane IR trees match the reference evaluator (seed $longSeed, " +
@@ -495,6 +513,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     only match {
       case Some(k) => runOneLong(k)
       case None => (0 until iterations).foreach(runOneLong)
+    }
+    reportSkipped()
+  }
+
+  private def reportSkipped(): Unit = {
+    val skipped = skippedPastTheCap.getAndSet(0)
+    if (skipped > 0) {
+      info(s"$skipped shape(s) past the class-file cap on a method in every form the emitter " +
+        "has: declined, and skipped (task 219)")
     }
   }
 }

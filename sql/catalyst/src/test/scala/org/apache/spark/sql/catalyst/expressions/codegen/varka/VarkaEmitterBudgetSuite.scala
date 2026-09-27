@@ -684,4 +684,107 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
     checkMatrix(roots, 1, lits, Seq(1, 1031), patterns, ctx = "a hundred wide outputs")
   }
+
+  /**
+   * The night fuzz run's family (PLAN_TASK_219.md 1): make_date nested so that each level's
+   * three fields read a copy of the level below, built fresh per occurrence as the fuzzer builds
+   * them, ANSI below a NULL-mode root so that the kernel has masked methods only, as the failing
+   * trees had. Each level triples the copies once the sharing options are off.
+   */
+  private def nestedMakeDates(depth: Int, top: Int): VarkaVectorIR = {
+    if (depth == 0) {
+      new ColumnRef(0)
+    } else {
+      def below = nestedMakeDates(depth - 1, top)
+      new MakeDate(new Year(below), new Month(below), new DayOfMonth(below), depth != top)
+    }
+  }
+
+  /** The base's `unshared` turns the prefix sharing off; with CSE off too, every copy emits. */
+  private val perCopy = unshared.withCse(false)
+
+  test("a method the class-file format cannot hold declines like a method over the budget, " +
+      "budget or not, naming the method, the bytes and the cap (task 219)") {
+    // Depth four builds a loop method under the cap; depth five builds one the Class-File API
+    // refuses while the class is assembled, before the byte budget can measure it. The emitter
+    // reads the refusal as the measurement, so the shape declines exactly as a method over the
+    // budget does, under the production budget and under none, since the cap is the JVM's.
+    // Under the budget the refused method is the loop method - the first one assembled - whose
+    // group is the one output, so the decline names it; without a budget the legacy form's
+    // single epilogue, one method over every output and assembled before the loops, is refused
+    // first, and the decline is class-wide and names no output, as a driver's is. Before task
+    // 219 both were the JDK's IllegalArgumentException, which no caller could tell from a bug,
+    // and the compiler read as a shape that fits.
+    val four = emitMulti(Seq(nestedMakeDates(4, 4)), 1, 0, perCopy.withMethodByteBudget(0))
+    val under = VarkaEmitterTestSupport.codeSize(four._2, "loopMasked0")
+    assert(under > VarkaEmitBudget.HUGE_METHOD_LIMIT && under <= VarkaEmitBudget.METHOD_CODE_CAP,
+      s"depth four is $under bytes")
+    val Loop = ("loopMasked0 is (\\d+) bytes, over the class-file cap of 65535: the class " +
+      "cannot be built; output \\[0\\] cannot be regrouped smaller").r
+    val Epilogue = ("epilogueMasked is (\\d+) bytes, over the class-file cap of 65535: the class " +
+      "cannot be built").r
+    Seq(VarkaEmitBudget.HUGE_METHOD_LIMIT, 0).foreach { budget =>
+      val declined = intercept[VarkaEmitDeclined] {
+        emitMulti(Seq(nestedMakeDates(5, 5)), 1, 0, perCopy.withMethodByteBudget(budget))
+      }
+      val bytes = (budget, declined.getMessage) match {
+        case (VarkaEmitBudget.HUGE_METHOD_LIMIT, Loop(n)) =>
+          assert(declined.outputs.asScala === Seq(0), declined.getMessage)
+          n.toInt
+        case (0, Epilogue(n)) =>
+          assert(declined.outputs.isEmpty, declined.getMessage)
+          n.toInt
+        case (_, other) => fail(s"budget $budget: $other")
+      }
+      assert(bytes > VarkaEmitBudget.METHOD_CODE_CAP, declined.getMessage)
+    }
+  }
+
+  test("a refused method regroups before it declines: a group the class-file format cannot " +
+      "hold in one method builds once split (task 219)") {
+    // Four depth-three trees of the family, each under the cap alone, in one group by a group
+    // budget past their weight: their one loop method is refused, the group is split, and the
+    // class builds with two loop methods each under the cap. A fix that declined on the refusal
+    // without regrouping would fail here, as does the JDK's exception before task 219. The
+    // byte budget is the cap itself, so that the form is the per-group one - the legacy form's
+    // single epilogue would be refused too, and no regroup shrinks it - and the split is the
+    // refusal's alone: under the production budget the halves would decline on it as any
+    // method over 8000 bytes does.
+    val roots = Seq.fill(4)(nestedMakeDates(3, 3))
+    val built = emitMulti(roots, 1, 0, perCopy.withGroupBudget(4000).withFusedCeiling(4000)
+      .withMethodByteBudget(VarkaEmitBudget.METHOD_CODE_CAP))
+    val loops = methodNames(built).filter(_.startsWith("loopMasked")).sorted
+    assert(loops === Seq("loopMasked0", "loopMasked1"), loops)
+    val sizes = loops.map(VarkaEmitterTestSupport.codeSize(built._2, _))
+    info(s"the split loop methods: ${sizes.mkString(" and ")} bytes")
+    assert(sizes.forall(_ <= VarkaEmitBudget.METHOD_CODE_CAP), sizes)
+    assert(sizes.sum > VarkaEmitBudget.METHOD_CODE_CAP, s"together only ${sizes.sum} bytes")
+  }
+
+  test("the refusals the emitter reads are the JDK's own, in the JDK's words (task 219)") {
+    // The emitter depends on two messages the Class-File API is not bound to keep. Each is
+    // produced here by the API itself, on a class built for the purpose, and read back: a JDK
+    // that changes the words fails this test at once, with the new words in the report, instead
+    // of leaving a refusal to escape as an IllegalArgumentException until a fuzz run finds it.
+    // The cap is inclusive - 65535 bytes of code build - and a length within it, or a message
+    // that is not a refusal, is left alone.
+    val method = VarkaEmitterTestSupport.refusalOfMethod(65536)
+    assert(method != null, "a 65536-byte method built")
+    val read = VarkaEmittedClass.refused(method)
+    assert(read.isPresent, method.getMessage)
+    assert(read.get.codeLength.asScala === Map("m" -> 65536) && read.get.constantPoolCount === 0,
+      method.getMessage)
+    assert(VarkaEmitterTestSupport.refusalOfMethod(65535) == null, "a 65535-byte method refused")
+    assert(!VarkaEmittedClass.refusedConstantPool(method), method.getMessage)
+    val pool = VarkaEmitterTestSupport.refusalOfConstantPool(70000)
+    assert(pool != null, "a class of 70000 names built")
+    assert(VarkaEmittedClass.refusedConstantPool(pool), pool.getMessage)
+    assert(VarkaEmittedClass.refused(pool).isEmpty, pool.getMessage)
+    val within =
+      new IllegalArgumentException("Code length 100 is outside the allowed range in m()void")
+    assert(VarkaEmittedClass.refused(within).isEmpty &&
+      !VarkaEmittedClass.refusedConstantPool(within))
+    val unrelated = new IllegalArgumentException("no output chains to emit")
+    assert(VarkaEmittedClass.refused(unrelated).isEmpty)
+  }
 }

@@ -345,4 +345,46 @@ public final class VarkaEmitterTestSupport {
     }
     return out;
   }
+
+  /**
+   * The exception the Class-File API throws for a class with one static method of
+   * {@code codeLength} bytes of code, or null when it builds the class: how the suites pin the
+   * refusal {@code VarkaEmittedClass.refused} reads, in the JDK's own words rather than a copy of
+   * them, so that a JDK that changes the words fails a test and not a night's fuzzing.
+   */
+  public static IllegalArgumentException refusalOfMethod(int codeLength) {
+    try {
+      ClassFile.of().build(java.lang.constant.ClassDesc.of("VarkaCapProbe"), b ->
+          b.withMethodBody("m", java.lang.constant.MethodTypeDesc.of(
+              java.lang.constant.ConstantDescs.CD_void),
+              java.lang.reflect.AccessFlag.STATIC.mask(), cb -> {
+                for (int i = 1; i < codeLength; i++) {
+                  cb.nop();
+                }
+                cb.return_();
+              }));
+      return null;
+    } catch (IllegalArgumentException e) {
+      return e;
+    }
+  }
+
+  /**
+   * The exception the Class-File API throws for a class whose constant pool needs
+   * {@code entries} distinct names, or null when it builds the class; the pool's counterpart of
+   * {@link #refusalOfMethod}.
+   */
+  public static IllegalArgumentException refusalOfConstantPool(int entries) {
+    try {
+      ClassFile.of().build(java.lang.constant.ClassDesc.of("VarkaPoolProbe"), b -> {
+        for (int i = 0; i < entries; i++) {
+          b.withField("f" + i, java.lang.constant.ConstantDescs.CD_int,
+              java.lang.reflect.AccessFlag.STATIC.mask());
+        }
+      });
+      return null;
+    } catch (IllegalArgumentException e) {
+      return e;
+    }
+  }
 }

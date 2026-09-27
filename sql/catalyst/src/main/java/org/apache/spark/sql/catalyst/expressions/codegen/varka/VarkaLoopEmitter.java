@@ -277,6 +277,9 @@ public final class VarkaLoopEmitter {
     // when no split is left declines with the reason (VarkaEmitDeclined): a single output
     // whose method is over budget, a driver over it - the driver sets up every output and
     // gains a call per group, so no regroup shrinks it - or a class over the class-file caps.
+    // The cap on one method's code is met before any measurement: the Class-File API refuses
+    // such a method while the class is assembled, so the refusal is read in place of the class
+    // and takes the same path, budget or not (task 219).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -289,13 +292,39 @@ public final class VarkaLoopEmitter {
     Set<Integer> forcedStarts = new HashSet<>();
     while (true) {
       List<List<Integer>> groups = groupOutputs(outputs, options, forcedStarts);
-      byte[] bytes = build(classDesc, source, debugInfo, outputs, analysis, numLiterals, groups,
-          budget > 0);
-      if (budget == 0) {
-        return bytes;
+      byte[] bytes;
+      VarkaEmittedClass measured;
+      int limit = budget;
+      try {
+        bytes = build(classDesc, source, debugInfo, outputs, analysis, numLiterals, groups,
+            budget > 0);
+        if (budget == 0) {
+          return bytes;
+        }
+        measured = VarkaEmittedClass.measure(bytes);
+      } catch (IllegalArgumentException e) {
+        // The class-file cap on a method's code is the one limit no measurement of the class
+        // can see: the Class-File API enforces it while the class is assembled, after every
+        // body is built, so a method over it leaves no class to measure. The refusal is read
+        // as the measurement of that one method and judged against the cap - whatever the
+        // budget, since the cap is the JVM's and binds the legacy form as well - and the loop
+        // below splits its group or declines exactly as for a measured method over a limit
+        // (PLAN_TASK_219.md 3.1). The constant pool's cap is enforced the same way and read
+        // here too, but no regroup shrinks a pool, so it declines class-wide at once. Any other
+        // refusal of the build is not a size and is rethrown.
+        java.util.Optional<VarkaEmittedClass> refusal = VarkaEmittedClass.refused(e);
+        if (refusal.isEmpty()) {
+          if (VarkaEmittedClass.refusedConstantPool(e)) {
+            throw new VarkaEmitDeclined("the constant pool is over the cap of " + CONSTANT_POOL_CAP
+                + ": the class cannot be built (" + e.getMessage() + ")", List.of());
+          }
+          throw e;
+        }
+        measured = refusal.get();
+        bytes = null;
+        limit = METHOD_CODE_CAP;
       }
-      VarkaEmittedClass measured = VarkaEmittedClass.measure(bytes);
-      SortedMap<Integer, Map.Entry<String, Integer>> over = groupsOver(measured, budget);
+      SortedMap<Integer, Map.Entry<String, Integer>> over = groupsOver(measured, limit);
       boolean split = false;
       List<Integer> stuck = new ArrayList<>();
       for (int g : over.keySet()) {
@@ -310,8 +339,10 @@ public final class VarkaLoopEmitter {
       if (split) {
         continue;
       }
-      List<String> findings = overLimits(measured, budget);
+      List<String> findings = overLimits(measured, limit);
       if (findings.isEmpty()) {
+        // Only a built class reaches here: a refusal's one method is over the cap by
+        // construction, so it always has a finding.
         return bytes;
       }
       throw new VarkaEmitDeclined(String.join("; ", findings)

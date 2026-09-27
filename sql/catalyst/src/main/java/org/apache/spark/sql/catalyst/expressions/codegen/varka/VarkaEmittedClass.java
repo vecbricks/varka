@@ -19,6 +19,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * What an emitted class measures in the units the JVM enforces, read back from its bytes.
@@ -64,6 +67,76 @@ record VarkaEmittedClass(
       slots.put(name, count);
     }
     return new VarkaEmittedClass(lengths, slots, model.constantPool().size());
+  }
+
+  /**
+   * The refusal the Class-File API throws for a method past
+   * {@link VarkaEmitBudget#METHOD_CODE_CAP}, as the JDK's {@code DirectCodeBuilder} words it:
+   * {@code "Code length %d is outside the allowed range in %s%s"}, with the length, the method's
+   * name and its descriptor in display form. The text is the JDK's and not an API; see
+   * {@link #refused}.
+   */
+  private static final Pattern REFUSAL =
+      Pattern.compile("Code length (\\d+) is outside the allowed range in ([^(\\s]+)\\(");
+
+  /**
+   * The measurement of a class the Class-File API would not build, read from its refusal: one
+   * method with the code length the refusal reports, no parameter slots, and a constant pool
+   * counted as 0 because it was never measured.
+   *
+   * <p>The API enforces the class-file format's cap on a method's code
+   * ({@link VarkaEmitBudget#METHOD_CODE_CAP}) while the class is assembled, after every method
+   * body has been built, by throwing an {@code IllegalArgumentException} - so no class exists
+   * for {@link #measure} to read, and the one place the method is named is the message. The
+   * emitter reads it here and hands the result to the same regroup that acts on a measured
+   * method over a limit ({@code PLAN_TASK_219.md} 2.1 and 3.1). Empty when {@code e} is not that
+   * refusal: the text is the JDK's and not an API, so an exception that does not match it, or
+   * that names a length within the cap, is left to its caller as it was before, and
+   * {@code VarkaIrFuzzSuite} is what reports a JDK that changed the words.
+   */
+  static Optional<VarkaEmittedClass> refused(IllegalArgumentException e) {
+    String message = e.getMessage();
+    if (message == null) {
+      return Optional.empty();
+    }
+    Matcher m = REFUSAL.matcher(message);
+    if (!m.lookingAt()) {
+      return Optional.empty();
+    }
+    int bytes = Integer.parseInt(m.group(1));
+    if (bytes <= VarkaEmitBudget.METHOD_CODE_CAP) {
+      return Optional.empty();
+    }
+    LinkedHashMap<String, Integer> lengths = new LinkedHashMap<>();
+    lengths.put(m.group(2), bytes);
+    return Optional.of(new VarkaEmittedClass(lengths, new LinkedHashMap<>(), 0));
+  }
+
+  /**
+   * The refusal the Class-File API throws when a class needs more constant pool entries than
+   * {@link VarkaEmitBudget#CONSTANT_POOL_CAP}, as the JDK's {@code BufWriterImpl} words it when
+   * the first entry past the cap is written: {@code "65536 is not a valid index. Entry: <entry>"}.
+   * The text is the JDK's and not an API; see {@link #refusedConstantPool}.
+   */
+  private static final Pattern POOL_REFUSAL =
+      Pattern.compile("(\\d+) is not a valid index\\. Entry: ");
+
+  /**
+   * Whether {@code e} is the Class-File API refusing a class whose constant pool is over
+   * {@link VarkaEmitBudget#CONSTANT_POOL_CAP}. Like the method cap it is enforced while the class
+   * is assembled, so a class over it is never measured; unlike the method cap no regroup shrinks
+   * a pool, so the emitter declines on it class-wide, naming no output, and the compiler demotes
+   * outputs from the end until it fits ({@code PLAN_TASK_219.md} 2.5). No shape the IR builds
+   * has come within a fortieth of the cap; it is read here because the refusal takes the same
+   * path as the method cap's, and would otherwise escape the same way.
+   */
+  static boolean refusedConstantPool(IllegalArgumentException e) {
+    String message = e.getMessage();
+    if (message == null) {
+      return false;
+    }
+    Matcher m = POOL_REFUSAL.matcher(message);
+    return m.lookingAt() && Long.parseLong(m.group(1)) > VarkaEmitBudget.CONSTANT_POOL_CAP;
   }
 
   /** The largest code length in the class, and the method that has it. */
