@@ -68,6 +68,16 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
     plan
   }
 
+  test("a projection with a nondeterministic entry runs as vanilla's, to rows and to batches") {
+    // The compiler declines such a projection, so no Varka node evaluates `rand`: the values are
+    // vanilla's, drawn from one seeded generator per partition, whichever sink takes them.
+    cacheDates(varkaSpark)
+    cacheDates(disabledSpark)
+    val query = "SELECT date_add(d, 1) AS a, rand(7) AS r FROM varka_dates"
+    checkDifferential(disabledSpark, varkaSpark, query, expectFused = false)
+    varkaSpark.sql(query).write.format("noop").mode("overwrite").save()
+  }
+
   test("date_add and date_sub match the row engine across literal offsets") {
     cacheDates(spark)
     cacheDates(varkaSpark)
