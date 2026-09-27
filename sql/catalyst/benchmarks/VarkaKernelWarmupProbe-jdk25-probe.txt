@@ -1,0 +1,65 @@
+The kernel warm-up's verdict under a starved machine (PLAN_TASK_221.md 2 and 9):
+VarkaKernelWarmupSuite run as plain JVMs pinned to cores 2 and 3 of the laptop while two busy
+loops hold both cores - the starvation sql/varka/skills/the-jit.md records as reproducing a
+four-core runner's compile delays. A probe's readings, not a benchmark: what they establish is
+which method allocates and whether the suite passes, and the warm-up durations are read from
+the warm-up's own log line ("is compiled after a warm-up of N ms").
+
+Reproduce:
+  taskset -c 2 bash -c 'while :; do :; done' &   (and the same on core 3)
+  taskset -c 2,3 java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+    -Dspark.testing=1 -cp <catalyst test classpath> org.scalatest.tools.Runner -oW \
+    -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupSuite
+
+commit:  4ce07f33462 (before the fix), and the task 221 branch (after)
+date:    2026-09-27
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+
+## 1. Before the fix: the suite under starvation
+
+Twelve runs with -XX:+PrintCompilation -Xlog:deoptimization=debug: 3 failed, each in "a warm-up
+claimed by a batch with some nulls compiles both of the kernel's drivers", each with
+"308608 was not less than or equal to 20480" and the outcome firstProbeBytes=736960,
+lastProbeBytes=14592; no deoptimization of any of the kernel's methods in any run. Twenty more
+runs under JFR (settings=profile) failed 2 before the loop stopped at the second failure, and
+a run under -XX:CompileCommand=option,*VarkaFusedProjection*::loopMasked1,PrintInlining failed
+1 of 2. With the suite's testRetry(n = 3) in place: 5 failing runs of 35 in all.
+
+## 2. Before the fix: who allocates in the failing run's measured calls (JFR)
+
+jdk.ObjectAllocationSample events on the test thread, stack depth 40, weight in kB:
+
+55 allocation samples under the test's allocationOfCalls, by kernel method:
+     6140.6 kB  loopMasked1
+     1022.3 kB  loopDense1
+      447.7 kB  outside the kernel
+       47.8 kB  runMasked
+       40.2 kB  epilogueMasked0
+       40.2 kB  epilogueMasked1
+by allocated class:
+     3788.3 kB  int[]
+     3374.6 kB  jdk.incubator.vector.Int512Vector
+      447.7 kB  java.util.HashMap
+      128.2 kB  jdk.internal.foreign.NativeMemorySegmentImpl
+by allocating frame <- first caller outside the JDK:
+     3584.1 kB  ScopedMemoryAccess.loadFromMemorySegmentScopedInternal <- loopMasked1
+     2142.9 kB  IntVector.lanewiseTemplate <- loopMasked1
+      630.5 kB  IntVector.lanewiseTemplate <- loopDense1
+      447.7 kB  ClassHierarchyResolver$1Factory.get <- get
+      413.6 kB  IntVector$IntSpecies.rvOp <- loopMasked1
+      391.8 kB  ScopedMemoryAccess.loadFromMemorySegmentScopedInternal <- loopDense1
+
+## 3. Before the fix: PrintInlining for loopMasked1
+
+Every C2 compile of loopMasked1, in the failing run and in a passing run, inlined every vector
+call as an intrinsic ("intrinsic", "inline (hot)") and reported no inlining failure of any kind.
+
+## 4. After the fix: the suite under the same starvation, without the retry
+
+30 runs of 30 passed.
+
+## 5. The warm-up's duration, from its log line, over the starved runs
+
+before the fix: 109 verdicts, median 544 ms, p90 970 ms, max 1318 ms
+after the fix: 120 verdicts, median 636.5 ms, p90 1086 ms, max 1265 ms

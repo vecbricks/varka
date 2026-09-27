@@ -663,3 +663,18 @@ reliable (`PLAN_TASK_212.md` 10).
   different entry, cold. A check that a shape's compiled kernel served a query has to run the
   query the way the query it checks ran.
 
+## A kernel's methods compile one at a time, so a verdict on the whole kernel must see every loop
+
+C2 compiles a kernel's loop methods one after another - on a starved machine about a hundred
+milliseconds each, queued - so for a while after the heavy group's loop is compiled a light
+group's loop can still run interpreted. A verdict that reads the whole kernel's allocation sees
+the heavy group's drop, and if its probe calls are short, the light loop's boxing - a few hundred
+bytes a call - hides under an allowance that exists to excuse per-call memory segments. The
+warm-up called such a kernel compiled, and the first real 1024-row batches boxed about twenty
+bytes a row in the light loop (`PLAN_TASK_221.md` 2, found by JFR allocation samples on the test
+thread; `PrintInlining` showed every compile of that loop fully intrinsified, so it was late, not
+bad). The rule: measure what grows with rows over calls long enough that it dominates what grows
+with calls - the warm-up's probe now runs whole-snapshot calls - and make each probe reach every
+driver's loops, which for the masked driver means a null count that does not trigger its
+all-null shortcut.
+
