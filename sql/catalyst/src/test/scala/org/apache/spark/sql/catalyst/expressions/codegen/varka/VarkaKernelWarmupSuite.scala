@@ -178,12 +178,11 @@ class VarkaKernelWarmupSuite extends SparkFunSuite {
   }
 
   Seq(NoNulls, SomeNulls, AllNull).foreach { claimed =>
-    // Retried, until row 221 lands: the verdict is a four-fold drop in a probe's allocation, and
-    // on a starved runner a kernel can satisfy it while a driver still boxes - a C2 body compiled
-    // before the vector classes it intrinsifies were loaded is the scalar fallback - so the
-    // absolute bound below fails on the first attempt and holds once the JIT has caught up.
-    testRetry(s"a warm-up claimed by a batch with $claimed compiles both of the kernel's drivers",
-        n = 3) {
+    // The shape has two groups whose loop methods compile one after the other, and the verdict
+    // must wait for both: on a starved machine a verdict read from short calls came while the
+    // light group's loop was still interpreted, and these calls, 1024 rows each, boxed in it
+    // (PLAN_TASK_221.md 2).
+    test(s"a warm-up claimed by a batch with $claimed compiles both of the kernel's drivers") {
       assume(VarkaAllocationSampler.supported(), "thread allocation accounting unavailable")
       assume(VarkaKernelWarmup.canWarm(), "this JVM cannot warm kernels")
       val entry = warm(new VarkaShapeCacheImpl(8), 10000, claimed)

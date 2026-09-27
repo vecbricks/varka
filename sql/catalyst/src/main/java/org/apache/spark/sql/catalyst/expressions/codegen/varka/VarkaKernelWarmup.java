@@ -53,7 +53,16 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth
  * species-pollution check's allowance ({@link VarkaAllocationSampler}) and allocates at most a
  * quarter ({@link #COMPILED_DROP}) of what the first block did; {@link #CLEAN_PROBES} clean blocks
  * in a row are the verdict. The per-column term keeps a wide kernel's segments from reading as
- * boxing, and the drop keeps a narrow kernel's boxing from reading as segments. A count cannot
+ * boxing, and the drop keeps a narrow kernel's boxing from reading as segments.
+ *
+ * <p>The probe's calls are long - the whole snapshot, {@link #PROBE_ROWS} rows - where the spin's
+ * are short, because boxing grows with the rows a call runs and segments with the calls. A
+ * kernel's methods compile one at a time, and on a busy machine a light group's loop method can
+ * land a compile or two after the heavy one; over short calls that loop's interpreted boxing, a
+ * few hundred bytes a call, fits under the per-column allowance, and the verdict would call the
+ * kernel compiled while one of its loops still boxes about twenty bytes a row on a real batch.
+ * Over a long call the same loop is thousands of bytes over the per-row allowance, so the verdict
+ * waits for every loop method the probe reaches ({@code PLAN_TASK_221.md} 2). A count cannot
  * say any of this: crossing a threshold only queues a compile, which lands whenever a compiler
  * thread reaches it. A kernel whose first block is already clean has nothing to wait for - its
  * driver returns before any loop runs, as it does over an all-null input - and is released at
@@ -118,8 +127,14 @@ public final class VarkaKernelWarmup {
   /** Calls between probes while the warm-up spins. */
   private static final int BLOCK_CALLS = 64;
 
-  /** Calls one allocation probe measures. */
-  private static final int PROBE_CALLS = 16;
+  /**
+   * Calls one allocation probe measures: two per driver, each over the whole snapshot. Long
+   * calls, so that a loop method still interpreted boxes enough to be seen (see the class doc).
+   */
+  private static final int PROBE_CALLS = 4;
+
+  /** Rows of each probe call: the whole snapshot. */
+  static final int PROBE_ROWS = SNAPSHOT_ROWS;
 
   /** Clean probes in a row that make the verdict. */
   static final int CLEAN_PROBES = 2;
@@ -337,6 +352,13 @@ public final class VarkaKernelWarmup {
     private final int rows;
     private final long[] dstData;
     private final long[] dstValidity;
+    // The probe's long calls: the whole snapshot from its first row, once per driver, into
+    // destinations of the snapshot's length.
+    private final long[][] probeData;
+    private final long[][] probeValidity;
+    private final int[][] probeNullCount;
+    private final long[] probeDstData;
+    private final long[] probeDstValidity;
     private final int[] scalarArgs;
     private final long[] longArgs;
     private final int columns;
@@ -400,6 +422,30 @@ public final class VarkaKernelWarmup {
               .address();
           dstValidity[o] = arena.allocate(validityBytes(MAX_CALL_ROWS), SLICE_STRIDE).address();
         }
+        // The probe's argument sets: the dense driver's with every count at zero, the masked
+        // driver's with each input's validity when the shape is nullable. A masked count is one
+        // whatever the input holds - an all-null input's zeroed bits included - because the
+        // count's only other effect is the driver's all-null shortcut, which returns before any
+        // loop runs, and a probe that runs no masked loop cannot see one still interpreted.
+        this.probeData = new long[2][numInputs];
+        this.probeValidity = new long[2][numInputs];
+        this.probeNullCount = new int[2][numInputs];
+        for (int d = 0; d < 2; d++) {
+          for (int i = 0; i < numInputs; i++) {
+            probeData[d][i] = dataBase[i];
+            if (nullable && d == 1) {
+              probeValidity[d][i] = validityBase[i];
+              probeNullCount[d][i] = 1;
+            }
+          }
+        }
+        this.probeDstData = new long[numOutputs];
+        this.probeDstValidity = new long[numOutputs];
+        for (int o = 0; o < numOutputs; o++) {
+          probeDstData[o] = arena.allocate((long) (PROBE_ROWS + SLICE_STRIDE) * 8, SLICE_STRIDE)
+              .address();
+          probeDstValidity[o] = arena.allocate(validityBytes(PROBE_ROWS), SLICE_STRIDE).address();
+        }
       } catch (Throwable t) {
         arena.close();
         throw t;
@@ -435,7 +481,8 @@ public final class VarkaKernelWarmup {
           long before = VarkaAllocationSampler.allocatedBytes();
           int probeRows = 0;
           for (int k = 0; k < PROBE_CALLS; k++) {
-            probeRows += call(calls++);
+            probeRows += probe(k);
+            calls++;
           }
           long allocated = VarkaAllocationSampler.allocatedBytes() - before;
           rowsRun += probeRows;
@@ -496,6 +543,19 @@ public final class VarkaKernelWarmup {
         LOG.info("Varka kernel " + kernelName + " stopped its warm-up after " + millis + " ms and "
             + calls + " calls (" + why + "); its batches run the kernel from now on.");
       }
+    }
+
+    /** One long probe call; even {@code k} runs the dense driver's arguments, odd the masked. */
+    private int probe(int k) {
+      int d = k % 2;
+      if (longLane) {
+        kernel.run(probeData[d], probeValidity[d], probeNullCount[d], probeDstData,
+            probeDstValidity, scalarArgs, longArgs, PROBE_ROWS);
+      } else {
+        kernel.run(probeData[d], probeValidity[d], probeNullCount[d], probeDstData,
+            probeDstValidity, scalarArgs, PROBE_ROWS);
+      }
+      return PROBE_ROWS;
     }
 
     private int call(int n) {
