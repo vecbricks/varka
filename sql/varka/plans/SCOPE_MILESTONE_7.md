@@ -3544,6 +3544,78 @@ programs - every equal form - while replacing the whistle with a cost-based
 extraction the emitter can budget. So: the ideas apply, the two that matter
 are above, and the machinery does not.
 
+### Item 58. Formal verification, read against the engine
+
+*Added on 27 September 2026, from the owner's question after item 57. The
+record has no earlier consideration of solvers or proofs; "SMT" in the plans
+means simultaneous multithreading.*
+
+**The question, framed so that it has an answer.** Varka's contract is the
+same answer as vanilla Spark, or a decline. Spark has no formal specification
+- its date semantics are its implementation, the Julian mapping included - so
+"verify Varka against Spark" is not a well-posed goal, and the differential
+machinery the project already runs (the coverage oracle, the sweeps against
+`java.time` and `DateTimeUtils`, the fuzzer against the reference evaluator)
+is the only sound method at that level. The engine is layered, though, and
+the layers answer differently.
+
+| layer | what correct means | verdict |
+|---|---|---|
+| the arithmetic lowerings over bounded integers: the multiply-high division and its magic numbers (task 149), `floorMod7`, the civil-from-days decomposition, the range checks, the bounds an overflow guard delivers | for every lane value in the guarded domain, the lowering equals the reference formula | **yes.** Bit-vector SMT decides these in seconds. The int32 cases are proven by exhaustion today - the multiply-high form over every dividend and every divisor in use, thirteen and a half minutes of every nightly - and the 64-bit lane cannot be exhausted: row 166 checks its two division forms with a Python model and a suite case over sampled regions near 2^52, and the long-lane fuzzer stops at task 147's bound. A solver proves the same statement over all 2^64 values, and *finds* the largest bound under which a cheaper lowering is exact, which is the number `BoundedDivide` (`PLAN_TASK_102.md` 8.4) and `SCOPE_STANDARD_MODE.md` want |
+| the IR's semantics against the reference evaluator | per node type, the two agree on every input | yes, and cheap; of medium value, since the sweeps check the evaluator against `java.time` already |
+| the emitter: masks, validity words, lane groups, epilogues, guards, batch edges | the bytecode computes the IR, lane by lane | **mostly no.** This is where the record's real bugs were - a byte-per-lane read of a bit-packed validity buffer, two guarded shifts that did not compose until the guard was re-armed, the all-null forced batch of length one - and a proof here would be relative to a model of the Vector API and the memory layout, which is where the risk lives. The bounded model checkers for Java do not see the incubator API or `MemorySegment`. The fuzzer's poisoned nulls and edge lengths stay the method; the validity and guard word algebra is the one finite piece a model could cover |
+| the plan-level logic: shape keys, declines, budgets, the regroup's termination | invariants | properties, not machinery: the fuzzer's reflective option draw already covers the key's completeness, and termination is a two-line argument in each plan |
+| HotSpot | - | the trusted base; reading the JVM's own output is the method, and no proof reaches it |
+
+**Why the narrow version pays.** Three reasons, none of them about assurance
+for its own sake.
+
+* It is the only route to the same confidence on 64-bit lanes that
+  exhaustion gives on 32-bit ones, and the long lane is milestone 5's whole
+  subject: `TIME`, the day-time intervals, the timestamps of item 31.
+* It trades CPU for a proof. A solver run of seconds in CI stands where a
+  quarter of an hour of the nightly stands now; the sweep stays for one cycle
+  beside the proof, because the SMT encoding of a lowering is a second
+  implementation of it and agreement between the two is worth more than
+  either - the same reason task 149 turned its script into a test "because
+  the arithmetic under proof is Java's".
+* It is publishable in the sense the promotion track wants. "Every
+  arithmetic lowering carries a machine-checked proof over its guarded
+  domain" is a sentence for the readers of the code. The closest analogue is
+  Alive2, which proves LLVM's peephole rewrites with their preconditions;
+  Varka's lowerings are peepholes whose precondition is the guard's bound,
+  and its `VarkaInputBound` check is what makes a bounded proof safe to rely
+  on per batch.
+
+**What to build, and done when.** One small row, in this order:
+
+1. The multiply-high divide's exactness bound per divisor, int32, as SMT-LIB
+   under `sql/varka/proofs/`, one file per lowering with the Java it encodes
+   named in its header, run by a `dev/varka_prove.sh` that fails on any
+   `sat` and on any solver absent. Compared against task 149's sweep for one
+   nightly cycle, then the sweep's opt-in test cites the proof.
+2. The long-lane division forms at row 166's regions and at 2^52 - 1, which
+   no sweep can reach, and the solver asked for the exact bound rather than
+   handed one.
+3. The other bounded lowerings as they are met: `floorMod7`'s forms, the
+   decomposition's constants over the covered years, `(v - lo)` compared
+   unsigned against `(hi - lo)` (row 208).
+
+**Done when** the three proofs exist, `dev/varka_prove.sh` runs them in the
+linters' CI job in under a minute, the 149 sweep names the proof it
+duplicates, and `sql/varka/AGENTS.md` says that a new bounded lowering comes
+with its proof file. Neither Z3 nor cvc5 is on the laptop today; SMT-LIB is
+independent of which one CI installs.
+
+**What it does not do.** No Java-level deductive verification of the emitter
+(KeY, OpenJML): the Vector API and the generated bytecode are outside their
+reach and the bugs are in the plumbing the tools cannot model. No formal
+specification of Spark's date semantics: it would be a transcription of
+Spark's code, as trustworthy as the transcription, and the differential tests
+already are that transcription, executed. No verified emitter in the
+CompCert sense: out of proportion for a research fork, and it would not reach
+the parts that fail.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
