@@ -30,9 +30,10 @@ At 54 entries the conversion's samples are 9.5 points of writes into the vectors
 (`OnHeapColumnVector.putInt`), which columnar output needs whatever writes it, and 3.3 points of
 the converter's own pass over the row; at 16 entries C2 inlines the writes into the converter,
 whose 10.1% holds both. What a projection that writes each entry straight into its vector would
-remove is the `UnsafeRow` write and the converter's pass: about 10% of the columnar node's time by
-these readings, where the 29 ms by which it trails the to-row node at 54 entries are 16% of it. What the check rules out:
-the vectors' allocation (0.5%), the scan (1 to 2%) and the copy (1 to 3%).
+remove is the `UnsafeRow` write and the converter's pass: about 10% of the columnar node's time
+by these readings, where the 29 ms by which it trails the to-row node at 54 entries are 16% of
+it. What the check rules out: the vectors' allocation (0.5%), the scan (1 to 2%) and the copy (1
+to 3%).
 
 ## 3. The design
 
@@ -111,3 +112,53 @@ arms, which run no changed code, are the controls.
 
 The plan and the admission check first, in this pull request; then A, measured; B only if A
 misses prediction 1.
+
+## 9. The measurement, 27 September 2026
+
+`VarkaColdPathBenchmark` with the direct path (commit `817ad443825`), against task 228's
+committed run (`b7d95f933fd`), on the quiet laptop.
+
+**The controls held**: the rows table, the compiled-kernel arms and Janino's compiles moved by a
+median of 1.4% over 99 cases, with single cases further - the to-row kernel at 54 entries (64 to
+89 ms), vanilla's whole-stage code to rows at 32 (119 to 149), and vanilla's whole-stage-off
+path to rows at 16 (54 to 43), whose earlier reading task 228 had already set aside as noise.
+
+**The columnar node's row path now runs level with the to-row node's**, 0.97 to 1.04 times it
+at every rung in the same run, and within 10% of vanilla's row-at-a-time path under the same
+sink (0.97 to 1.10), where it was 5 to 31% behind: 139 to 118 ms at 54 entries, 213 to 173 at
+80, 248 to 225 at 100.
+
+1. **Held, but for its first half at 16 entries.** The fall is 6 to 19% from 32 entries up and
+   nothing at 16 (45 to 45), where the node was already level with the to-row node's 45 in this
+   run; the second half, within 10% of the to-row node, held at every rung.
+2. **Held**, in the median; the single moves are above.
+3. **Held** (10).
+
+## 10. What C2 made of it
+
+`VarkaColdPathProbe` under JFR and `-XX:+LogCompilation`, with the direct path and with the
+fallback as the plan's commit had it; the readings are section 3 of
+`VarkaColumnarRowPath-jdk25-probe.txt`.
+
+* **Time**: 176.3 against 192.8 ms a query at 54 entries, 65.6 against 65.6 at 16, the
+  benchmark's pattern under the profiler.
+* **Allocation**: 41.17 against 41.48 MB a query at 54 entries, 13.10 against 13.12 at 16, with
+  no closure and no box per row on either path.
+* **Escape analysis**: every C2-compiled `greatest` method eliminates its three allocations on
+  both paths. The mutable projection splits its work into methods that evaluate the entries
+  (`apply_0_N$`), which eliminate twelve each, as the unsafe projection's `writeFields`
+  methods do - its first eliminates nine - and methods that only call the row's setters
+  (`apply_1_N$`), which have nothing to eliminate.
+
+## 11. What the task leaves
+
+* **A nondeterministic entry beside a fused one fails the query.** A check of the plan's first
+  risk section found that `SELECT add_months(d, 1), rand(7)` over an Arrow-cached table plans a
+  Varka node, whose row path evaluates `rand` through a projection nothing initialized:
+  `NullPointerException` on the generator, on both nodes, with no kernel and on the default
+  warm-up path, before and after this task. Row 232.
+* **Outputs without a primitive type** - strings, decimals, intervals, nested types - still
+  take the conversion. Writing them directly needs setters `MutableColumnarRow` lacks, or a
+  null path the generated code does not take for decimals and intervals; no measured case
+  asks for it yet.
+

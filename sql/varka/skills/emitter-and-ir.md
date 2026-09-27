@@ -785,3 +785,18 @@ task 87's review, so a stale name compared across two emissions read zero agains
 passed while asserting nothing. A test can also go vacuous without a missing name: under the
 per-group default, `epilogueMasked0` of a kernel whose outputs are two groups holds only the
 first group, so a test about what one epilogue holds across outputs pins budget 0.
+
+## A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else
+
+A Varka node whose output is batches evaluates its row path's projection row by row, and writing
+through an `UnsafeRow` that `RowToColumnConverter` reads back writes every value twice. Spark's
+own single write is a mutable projection whose target is a `MutableColumnarRow` over the output
+vectors, its `rowId` set before each row - the pattern of the vectorized hash aggregate - and it
+is safe for exactly the outputs whose Java type is primitive (`CodeGenerator.isPrimitiveType`).
+The generated code writes a string or a nested value through the row's `update`, which
+`MutableColumnarRow` rejects, and a null decimal or calendar interval through the typed setter
+with a null argument rather than through `setNullAt` - a rule that keeps an `UnsafeRow`'s offsets
+(`UnsafeRowUtils.avoidSetNullAt`) and that the columnar row turns into a null-pointer failure.
+`VarkaVectorProjection` makes the choice per projection, by output type; the single write took 6
+to 19% off the columnar node's row path from 32 entries up. See `PLAN_TASK_230.md` 9.
+

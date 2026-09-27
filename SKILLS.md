@@ -73,6 +73,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A lane can change width at a root's store without the loop ever holding two widths](sql/varka/skills/emitter-and-ir.md#a-lane-can-change-width-at-a-roots-store-without-the-loop-ever-holding-two-widths)
 * [The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal](sql/varka/skills/emitter-and-ir.md#the-class-file-cap-on-a-method-is-met-before-it-can-be-measured-the-jdk-refuses-the-class-and-the-emitter-reads-the-refusal)
 * [The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so](sql/varka/skills/emitter-and-ir.md#the-single-epilogue-form-is-a-reference-variant-at-methodbytebudget-0-and-the-tests-that-pin-its-facts-say-so)
+* [A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else](sql/varka/skills/emitter-and-ir.md#a-columnar-row-path-writes-primitive-entries-through-mutablecolumnarrow-and-nothing-else)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)
