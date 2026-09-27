@@ -259,6 +259,16 @@ final class Slots {
     return used;
   }
 
+  /** Every node under {@code root}, {@code root} included, added to {@code into}. */
+  private static void collectNodes(VarkaVectorIR root, Set<VarkaVectorIR> into) {
+    if (!into.add(root)) {
+      return;
+    }
+    for (VarkaVectorIR child : childrenOf(root)) {
+      collectNodes(child, into);
+    }
+  }
+
   private static void collectLiterals(VarkaVectorIR node, java.util.BitSet into) {
     if (node instanceof VarkaVectorIR.LiteralSlot l) {
       into.set(l.index());
@@ -356,26 +366,46 @@ final class Slots {
     slot += 2;
     s.maskTmp = slot++;
     s.status = slot++;
+    // Group-local frames (task 191): a group's method plans over the nodes it emits - its own
+    // outputs' subtrees - and no others, so its frame and its planning are the group's size and
+    // not the kernel's. The driver keeps the kernel: it zeroes every output and runs the bitmap
+    // pass. The kernel's topological order is kept and filtered, so children still precede
+    // parents where the word aliasing below depends on it; a one-group kernel's set is the whole
+    // kernel and its slots are numbered exactly as before, which is the byte identity the
+    // switch's tests pin. A node outside the set gets no slot at all, so a body that reached for
+    // one fails to build rather than reading a stale local - the discipline the -1 output and
+    // literal slots above keep.
+    boolean groupLocal = perGroup && analysis.options.groupLocalSlots();
+    Set<VarkaVectorIR> bodyNodes = groupLocal ? new HashSet<>() : null;
+    List<VarkaVectorIR> bodyRoots = outputs;
+    if (groupLocal) {
+      bodyRoots = new ArrayList<>();
+      for (int o : outputIdx) {
+        bodyRoots.add(outputs.get(o));
+        collectNodes(outputs.get(o), bodyNodes);
+      }
+    }
+    final List<VarkaVectorIR> scanned = bodyRoots;
     // One accumulator per body, and only in a body that emits a guarded producer: the caller acts
     // on the batch, not the lane, and a body with nothing to guard keeps the slot numbering - and
     // so the bytes - unchanged, whichever way the option is set.
     boolean producersGuarding = analysis.options.guardDayProducers() && mode != BodyMode.DRIVER
         && !analysis.guardedProducers.isEmpty()
-        && outputs.stream().anyMatch(o -> reaches(o, analysis.guardedProducers));
+        && scanned.stream().anyMatch(o -> reaches(o, analysis.guardedProducers));
     // A self-guarding node needs the accumulator whatever the option says.
     boolean selfGuarding = mode != BodyMode.DRIVER && !analysis.selfGuarding.isEmpty()
-        && outputs.stream().anyMatch(o -> reaches(o, analysis.selfGuarding));
+        && scanned.stream().anyMatch(o -> reaches(o, analysis.selfGuarding));
     // a checked int operation condemns the batch through the same accumulator, so a body holding
     // one needs it allocated whether or not anything else is guarded. The scratch slots for the
     // check itself are allocated in the node loop below; this is the accumulator they fold into,
     // and missing it is an emit-time failure rather than a wrong answer - which is how it was
     // found.
     boolean checkedArith = mode != BodyMode.DRIVER && analysis.options.checkIntOverflow()
-        && outputs.stream().anyMatch(o -> reaches(o, analysis.checkedArith));
+        && scanned.stream().anyMatch(o -> reaches(o, analysis.checkedArith));
     // The re-armed range check folds into the same accumulator and is behind no option, so a body
     // holding one needs it allocated on that ground alone.
     boolean rearmed = mode != BodyMode.DRIVER
-        && outputs.stream().anyMatch(o -> reachesGuardedDay(o, new HashSet<>()));
+        && scanned.stream().anyMatch(o -> reachesGuardedDay(o, new HashSet<>()));
     boolean guarding = producersGuarding || selfGuarding || checkedArith || rearmed;
     if (guarding) {
       s.guardAcc = slot++;
@@ -419,6 +449,9 @@ final class Slots {
     boolean cse = analysis.options.cse();
     boolean shareChronoPrefix = analysis.options.shareChronoPrefix();
     for (VarkaVectorIR node : analysis.topoOrder) {
+      if (bodyNodes != null && !bodyNodes.contains(node)) {
+        continue;
+      }
       if (vectorWalk) {
         // Vector-walk slots. Children precede parents in the topo order, so a word reference
         // computed here always sees concrete child references - the aliasing depends on it.

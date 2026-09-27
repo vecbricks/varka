@@ -251,3 +251,60 @@ shares recorded in the probe file's next section.
 ## 9. Outcome
 
 To be written when the measurement lands.
+
+## 10. Step 2, built: the frames, 27 September 2026
+
+*Written when the switch, the planner and the tests were in and every suite
+had passed; the measurement of section 6 is the next step.*
+
+**What is built.** `VarkaEmitOptions.groupLocalSlots`, off. Under it,
+`Slots.plan` for a group's loop or epilogue method collects the body's node
+set once - its outputs' subtrees - filters the kernel's topological order by
+it, and runs the four accumulator scans and the guarded-day scan over the
+body's own outputs; the driver keeps the kernel's plan. `VarkaEmitterTestSupport`
+reads a method's `max_locals`, `VarkaEmitterFramesSuite` holds tests 1 and 2,
+and `VarkaEmissionBenchmark`'s wide section has its second arm at every rung,
+"kernel-wide frames" beside "group-local frames".
+
+**The frames, read from the class** (the shape of 2.3, `Frames.java` after
+`Locals.java`, the byte budget as the benchmark sets it):
+
+| outputs | loop/epilogue `max_locals`, kernel-wide | group-local | driver's, group-local | class bytes, kernel-wide | group-local |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 25 | 726 | 174 | 174 | 119895 | 108435 |
+| 100 | 2766 | 174 | 329 | 480275 | 419015 |
+| 200 | 5466 | 174 | 629 | 969790 | 842130 |
+| 400 | 10866 | 174 | 1229 | 1947790 | 1687330 |
+
+Prediction 1 holds with room: 174 locals at every width, not under 400 at
+one; the frame is the group's and the group is four outputs whatever the
+kernel. The driver's frame grows with the kernel as 3.1 says it must. The
+class is 13% smaller at 400 outputs, the `wide` forms gone from the bodies;
+where the largest method is the driver (200 and 400 outputs) it is unchanged,
+and at 25 outputs the largest method fell from 4409 to 3689 bytes.
+
+**A finding, and prediction 4 refined.** Test 2 found a several-group shape
+of the shared grammar - fuzz shape 4, roots `addDays(lit0, lit1)` and
+`addMonths(col0, col2)`, a constant output alone in one group and a
+self-guarding node in the other - whose first loop method emits two fewer
+mask operations with group-local frames. Planned over the kernel, every body
+allocated the batch-condemning guard accumulator whenever any output of the
+kernel guarded, and a body that guards nothing still initialised it
+(`VectorMask.fromLong`) and tested it on exit (`anyTrue`): two operations that
+could never fire, returned as "no batch condemned" every time. Planned over
+the group, such a body has no accumulator. So 3.3's "the same operations" is
+"the same lane arithmetic, node for node, and a body that guards nothing
+loses the accumulator's two mask operations"; the suite's criterion says
+exactly that, and no method grew. The bytes of a one-group kernel are
+identical, as 3.3 said: over the grammar's first three hundred shapes and the
+wide shape at 25 and 100 outputs, every one-group kernel matched byte for
+byte and every several-group one kept its arithmetic.
+
+**Tests.** The frames suite's two tests; the IR fuzzer, whose reflective draw
+now covers the switch both ways, at its default; the emitted-bytes and
+coverage oracles unchanged, the default being off; the full Varka suites of
+`sql/catalyst`. Checkstyle, scalastyle, the javadoc build, the scans.
+
+**Next.** Section 6's measurement on an idle machine, both widths, the probe
+of 2.2 rerun, and the default flipped on the numbers, with the oracles
+regenerated where 3.3 allows.

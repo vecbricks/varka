@@ -299,6 +299,14 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        bitmaps. On by default, since measured ({@code PLAN_TASK_172.md} 9.7 and 9.8); off is
  *        the form before it, where such a predicate declines. Read by the compiler, not by the
  *        emitter.
+ * @param groupLocalSlots whether a group's loop and epilogue methods plan their frames over the
+ *        nodes they emit alone ({@code PLAN_TASK_191.md} 3.1). Off, every method's frame is
+ *        planned over the whole kernel - a slot per distinct node, kernel-wide - so a method
+ *        serving four outputs of a four-hundred-output kernel carries ten thousand locals, its
+ *        planning walks the kernel, and the class-file stack maps grow with the frames. On, a
+ *        method's frame holds its own nodes' slots: a one-group kernel emits the same bytes
+ *        either way, a several-group one the same operations with smaller frames. Like
+ *        {@link #cse} it changes no result. Off until the measurement chooses it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -328,7 +336,8 @@ public record VarkaEmitOptions(
     boolean narrowHalfSpecies,
     int methodByteBudget,
     boolean rangeSets,
-    boolean splitConditions) {
+    boolean splitConditions,
+    boolean groupLocalSlots) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -434,7 +443,7 @@ public record VarkaEmitOptions(
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
-          true, true);
+          true, true, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -501,6 +510,7 @@ public record VarkaEmitOptions(
       b.methodByteBudget = methodByteBudget;
       b.rangeSets = rangeSets;
       b.splitConditions = splitConditions;
+      b.groupLocalSlots = groupLocalSlots;
     return b;
   }
 
@@ -534,6 +544,7 @@ public record VarkaEmitOptions(
     private int methodByteBudget;
     private boolean rangeSets;
     private boolean splitConditions;
+    private boolean groupLocalSlots;
 
     private Builder() {
     }
@@ -678,6 +689,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder groupLocalSlots(boolean groupLocalSlots) {
+      this.groupLocalSlots = groupLocalSlots;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -685,7 +701,8 @@ public record VarkaEmitOptions(
           validityByWidth, validityOrFirst, validityByBitmap, checkIntOverflow,
           lanesOverride, truncDate, floorMod7, division, useAVX, misdescribeAdd,
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
-          mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions);
+          mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
+          groupLocalSlots);
     }
   }
 
@@ -708,6 +725,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withSplitConditions(boolean enabled) {
     return toBuilder().splitConditions(enabled).build();
+  }
+
+  public VarkaEmitOptions withGroupLocalSlots(boolean enabled) {
+    return toBuilder().groupLocalSlots(enabled).build();
   }
 
   public VarkaEmitOptions withShareWholeNodes(boolean enabled) {
@@ -857,6 +878,7 @@ public record VarkaEmitOptions(
         + misdescribeAdd + '|' + misdescribeWordLiveness + '|' + guardUnderArm + '|'
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
         + '|' + narrowHalfSpecies + '|' + methodByteBudget
-        + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions") + ')';
+        + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions")
+        + (groupLocalSlots ? "|groupLocalSlots" : "") + ')';
   }
 }

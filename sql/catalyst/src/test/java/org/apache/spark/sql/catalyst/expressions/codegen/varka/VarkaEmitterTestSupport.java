@@ -108,6 +108,23 @@ public final class VarkaEmitterTestSupport {
   }
 
   /**
+   * A method's {@code max_locals}: the size of its frame, which is what the slot planner decides
+   * and what the class-file stack maps are computed over (task 191). Fails when the method does
+   * not exist, for {@link #codeSize}'s reason.
+   */
+  public static int maxLocals(byte[] bytes, String methodName) {
+    for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
+      if (method.methodName().equalsString(methodName)) {
+        return method.code()
+            .map(code -> ((java.lang.classfile.attribute.CodeAttribute) code).maxLocals())
+            .orElse(0);
+      }
+    }
+    throw new IllegalArgumentException("no method " + methodName + " in the class; it has "
+        + methodNames(bytes));
+  }
+
+  /**
    * How many instructions in the named method invoke a method on {@code owner} (a binary class
    * name, e.g. {@code jdk.incubator.vector.IntVector}) - the emitted lane-op count, read off
    * the class file rather than counted in the emitter's source. It is the deterministic half
