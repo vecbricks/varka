@@ -910,6 +910,28 @@ proofs, parsing or the ILP extractor - is planned in `PLAN_EGRAPH_PORT.md`,
 independent of this item and buildable before it; Varka takes it as a
 pinned dependency when this item needs it.
 
+**The trigger has already fired, in the emitter. Noted 27 September 2026, at the owner's
+observation.** A date has two physical forms in Varka today: days since the epoch, the form
+the IR knows (`ColumnRef` over a `DateDayVector`), and the civil year-month-day tuple, which
+exists implicitly - every calendar node's lowering runs the civil-from-days decomposition and
+`add_months` and its kin recompose through `days_from_civil`; the emitter shares the
+decomposition as a group's prefix and recomputes it across groups (task 198). The choice of
+form is thus made per node kind by the lowering, not per expression. Making it explicit is
+what the design inputs above ask for: a representation on IR values, `CivilFromDays` and
+`DaysFromCivil` as conversion nodes, and the calendar family as tuple operations. The
+identities that pay live between the two forms - `year(add_months(d, k))` is a conversion
+round trip today and `(12 * y + m - 1 + k) div 12` in the tuple - and the prefix's forty ops
+give a conversion a real price, so dates alone are a measurable first instance of the
+extraction this item describes, with `VarkaSharedPrefixBenchmark` and the size ladder as the
+yardstick. The other implicit forms the emitter chooses by option today - the four
+decompositions of the prefix, the four forms of validity, the lane width and species, the
+range proofs that pick a lowering, the per-operation lowerings of division, `trunc` and the
+mod-7, and where shared work lives (a register slot, recomputation, or task 198's scratch
+buffer) - are the inventory the cost table would have to cover, the per-kernel policies
+among them (validity, width, ISA) staying policies. Milestone 6 was declared full the same
+day, so the IR decisions are a milestone 7 task, first in this item's order, and task 198's
+build should wait for them rather than fix the scratch buffer as a special case.
+
 ### Item 12. Fork-only date functions on intermediates the kernels already hold
 
 Recorded on 4 September 2026 while planning task 37, at the owner's request.
