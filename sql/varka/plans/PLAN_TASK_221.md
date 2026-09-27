@@ -112,6 +112,7 @@ None: no emitted code changes.
 |---|---|
 | `sql/varka/plans/PLAN_TASK_221.md` | this plan |
 | `sql/catalyst/benchmarks/VarkaKernelWarmupProbe-jdk25-probe.txt` | the check's and the measurement's readings |
+| `sql/core/benchmarks/VarkaColdStartBenchmark-jdk25-results.txt`, `-before-221-results.txt` | the cold start with the fix, and master the same day (section 10) |
 | `.../codegen/varka/VarkaKernelWarmup.java` | the probe's long calls and their buffers; the class doc |
 | `.../codegen/varka/VarkaKernelWarmupSuite.scala` | the `testRetry` removed, the comment saying what the three tests pin |
 | `sql/varka/skills/the-jit.md` | the lesson |
@@ -188,3 +189,42 @@ What the task leaves: nothing on this row. The verdict still reads the
 kernel as a whole, which is right now that the probe's calls are long enough
 for every loop to show; a per-method verdict would need the compiler's own
 state, which production cannot ask for.
+
+## 10. The cold start, measured, 27 September 2026
+
+The risk the fix could carry is on a new shape's first queries, where the
+warm-up runs, so `VarkaColdStartBenchmark` was run on the quiet laptop twice the
+same day, on master `c6834da51cb` and on master with this fix, wide width only
+(`--no-narrow`; the warm-up does not depend on the width). The fix's run is the
+committed `VarkaColdStartBenchmark-jdk25-results.txt`, and the master run is
+committed beside it as `VarkaColdStartBenchmark-jdk25-before-221-results.txt`,
+on task 212's precedent for an admission run. Best of five, milliseconds, a
+hundred thousand Arrow-cached rows.
+
+* **The controls held.** The cases the fix cannot touch - stock Spark, and
+  Varka without the warm-up - moved by a median of 0.9% over 36 rows, single
+  first runs at the small rungs by up to 11%, and one second run by 35%: the
+  day's noise.
+* **The warm-up arm's queries did not regress.** Its first and second runs
+  moved between -19% and +11% with mixed signs, inside that noise: at 16
+  entries 156 against 192 on the first run, at 100 entries 621 against 606.
+  Once compiled, every rung within 4%: 24 against 26 ms at 16 entries, 41
+  against 42 at 100.
+* **The compiled code is the same.** Over two million rows, straight after the
+  verdict: 47 against 47 ms at 16 entries, 133 against 132 at 54, 267 against
+  262 at 100. The probe's long calls do not change what C2 compiles from.
+* **Back to back, unchanged:** the median of queries three to fifteen is 69
+  against 72 ms at 16 entries, 218 against 224 at 54, 396 against 396 at 100.
+* **The verdict comes later, 7 to 20%.** The median verdict is 1788 ms against
+  1582 at 16 entries, 5626 against 5056 at 54, 11000 against 9261 at 100. That
+  is the fix working - the verdict now waits for every loop method, and a wide
+  kernel has many - and it is more than the single compile section 6.1
+  predicted for the narrow shape: at a hundred entries about 1.7 seconds. It
+  costs the queries nothing measurable here, because the batches it delays run
+  on the row path rather than on a partly interpreted kernel.
+
+Together with section 9's starved runs and the deopt census on the warm-up
+path (`dev/varka_deopt_cycle.sh --paths warmup`, the same day: 0 of 80 forks
+in the cycle, both forms and both widths, and no `profile_predicate` trap in
+any method of any fork), the fix is measured on every axis it could move.
+
