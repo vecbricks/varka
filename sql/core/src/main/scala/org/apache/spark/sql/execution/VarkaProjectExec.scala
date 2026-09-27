@@ -23,13 +23,11 @@ import org.apache.spark.{PartitionEvaluator, PartitionEvaluatorFactory, SparkExc
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, NamedExpression, SortOrder, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, NamedExpression, SortOrder}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
-import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
-import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.ArrayImplicits._
 
@@ -185,15 +183,10 @@ private[sql] class VarkaProjectEvaluatorFactory(
       }
     }
 
-    // The per-row projection behind the fallback, over the input columns it references, read
-    // once per row (`VarkaInputRows`), and the schema its rows are written back into.
-    // Lazy: a task the kernels serve end to end never compiles it, so the Janino
-    // compile is paid only by tasks that actually fall back.
-    private lazy val inputRows = new VarkaInputRows(projectList, childOutput)
-    private lazy val fallbackProjection = UnsafeProjection.create(projectList, inputRows.attributes)
-    private val outputSchema: StructType =
-      DataTypeUtils.fromAttributes(projectList.map(_.toAttribute))
-    private val converter = new RowToColumnConverter(outputSchema)
+    // The row path behind the fallback, which projects each input row into the output batch's
+    // vectors (`VarkaVectorProjection`). Lazy: a task the kernels serve end to end never builds
+    // it, so its Janino compile is paid only by tasks that actually fall back.
+    private lazy val rowPath = new VarkaVectorProjection(projectList, childOutput)
 
     override def eval(
         partitionIndex: Int,
@@ -255,27 +248,20 @@ private[sql] class VarkaProjectEvaluatorFactory(
     }
 
     /**
-     * Projects the input batch row by row into a fresh writable batch, the conversion
-     * [[RowToColumnConverter]] exists for. The batch is tracked by the kernel evaluator so that
-     * one task-completion listener covers both kinds of output batch.
+     * Projects the input batch row by row into a fresh writable batch ([[VarkaVectorProjection]]).
+     * The batch is tracked by the kernel evaluator so that one task-completion listener covers
+     * both kinds of output batch.
      */
     private def fallback(input: ColumnarBatch): ColumnarBatch = {
       val capacity = math.max(input.numRows(), 1)
       val vectors: Seq[WritableColumnVector] = if (offHeapColumnVectorEnabled) {
-        OffHeapColumnVector.allocateColumns(capacity, outputSchema).toImmutableArraySeq
+        OffHeapColumnVector.allocateColumns(capacity, rowPath.outputSchema).toImmutableArraySeq
       } else {
-        OnHeapColumnVector.allocateColumns(capacity, outputSchema).toImmutableArraySeq
+        OnHeapColumnVector.allocateColumns(capacity, rowPath.outputSchema).toImmutableArraySeq
       }
       val batch = new ColumnarBatch(vectors.toArray)
       try {
-        val writable = vectors.toArray[WritableColumnVector]
-        val rows = input.rowIterator()
-        var rowCount = 0
-        while (rows.hasNext) {
-          converter.convert(fallbackProjection(inputRows(rows.next())), writable)
-          rowCount += 1
-        }
-        batch.setNumRows(rowCount)
+        batch.setNumRows(rowPath.project(input, vectors.toArray[WritableColumnVector]))
       } catch {
         case e: Throwable =>
           // Attach a cleanup failure to the error being reported rather than replacing it:
