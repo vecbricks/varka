@@ -59,6 +59,10 @@ import org.apache.spark.sql.types.{ByteType, DataType, DateType, DayTimeInterval
  * at once, which is the only way a probe can see what the tail costs. The time of the second
  * half of the rounds is reported, after tiering has had the first half to settle; it is one
  * run in one fork, a probe's reading and not a benchmark's.
+ * `--repeat N` re-emits the shape N times after the first emission and reports the median time
+ * per emission: a loop for a profiler to sample - `dev/varka_jfr_frames.py` reads a JFR
+ * recording of it by phase - and again a probe's reading, where `VarkaEmissionBenchmark` is
+ * the number.
  *
  * Options take the record's own `with*` methods by name (`--options cse=false,groupBudget=24`),
  * found by reflection so a new option needs nothing here.
@@ -84,6 +88,7 @@ object VarkaEmitDump {
     var columns = defaultColumns
     var optionSpec = ""
     var rounds = 0
+    var repeat = 0
     var rows = 1024
     var nulls = 0
     var table = false
@@ -94,6 +99,7 @@ object VarkaEmitDump {
         case "--columns" => columns = args(i + 1); i += 2
         case "--options" => optionSpec = args(i + 1); i += 2
         case "--rounds" => rounds = args(i + 1).toInt; i += 2
+        case "--repeat" => repeat = args(i + 1).toInt; i += 2
         case "--rows" => rows = args(i + 1).toInt; i += 2
         case "--nulls" => nulls = args(i + 1).toInt; i += 2
         case "--table" => table = true; i += 1
@@ -104,7 +110,8 @@ object VarkaEmitDump {
     if (exprs.isEmpty) {
       // scalastyle:off println
       System.err.println("usage: VarkaEmitDump <sql expression>... " +
-        "[--columns d:date,i:int] [--options cse=false,...] [--rounds N] [--rows N] [--nulls N]")
+        "[--columns d:date,i:int] [--options cse=false,...] [--rounds N] [--rows N] [--nulls N] " +
+        "[--repeat N]")
       // scalastyle:on println
       System.exit(2)
     }
@@ -151,6 +158,24 @@ object VarkaEmitDump {
           report(s"declined by the emitter: ${d.getMessage}")
           return
       }
+    if (repeat > 0) {
+      // The same shape emitted again and again: a loop a profiler can sample, with the time per
+      // emission beside it. The second half's median is the settled reading, after tiering has
+      // had the first half; one fork, a probe's number, not the benchmark's.
+      val times = new Array[Long](repeat)
+      var r = 0
+      while (r < repeat) {
+        val t = System.nanoTime()
+        VarkaLoopEmitter.emit(className, fused.outputs.asJava, fused.inputOrdinals.size,
+          fused.numLiterals, null, null, options)
+        times(r) = System.nanoTime() - t
+        r += 1
+      }
+      val all = times.sorted
+      val second = times.drop(repeat / 2).sorted
+      report(f"repeat $repeat: median ${all(all.length / 2) / 1e6}%.1f ms per emission, " +
+        f"second half's median ${second(second.length / 2) / 1e6}%.1f ms")
+    }
     report("")
     report(f"${"method"}%-18s ${"bytes"}%6s ${"IntVector"}%9s ${"LongVector"}%10s " +
       f"${"DoubleVector"}%12s ${"convert"}%7s ${"VectorMask"}%10s ${"validity"}%8s ${"lines"}%5s")

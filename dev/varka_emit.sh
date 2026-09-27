@@ -22,6 +22,7 @@
 #   dev/varka_emit.sh "year(d)" "month(d)" --options shareChronoPrefix=false
 #   dev/varka_emit.sh "date_add(d, 7)" --columns d:date --asm
 #   dev/varka_emit.sh "year(d)" --rounds 20000 --nulls 64   # drive the masked path
+#   dev/varka_emit.sh "year(d)" --repeat 200               # re-emit, for a JFR profile
 #   dev/varka_emit.sh "year(d)" "month(d)" "add_months(d, 1)" --table \
 #     --variant neriSchneiderMonth=false
 #   dev/varka_emit.sh "second(t)" --columns t:time --asm --width=16   # 128-bit species

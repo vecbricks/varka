@@ -1,0 +1,104 @@
+The emission profile (PLAN_TASK_191.md 2): VarkaEmissionBenchmark's wide four-op shape -
+greatest(greatest(add_months(d, k), date_add(d, k)), last_day(d)) for k = 1..n over one date
+column - compiled and emitted repeatedly by VarkaEmitDump --repeat under a JFR recording
+(settings=profile), and each execution sample attributed by dev/varka_jfr_frames.py to the
+first emitter phase whose frame the stack holds. The byte budget is set out of reach at every
+width, as the benchmark sets it at 200 and 400, so every rung is one build with no regroup. The
+time per emission is the probe's reading on a laptop at a load of three to five, one fork, and
+not the benchmark's number; the shares and their growth are what this file is for.
+
+Reproduce (each width):
+  java -XX:StartFlightRecording=filename=emit.jfr,settings=profile ... VarkaEmitDump <n exprs> \
+    --columns d:date --options methodByteBudget=1048576 --repeat <20000 / n>
+  jfr print --events jdk.ExecutionSample --stack-depth 64 emit.jfr | dev/varka_jfr_frames.py
+
+commit:  ad7a546a18b (working tree with the --repeat option, PLAN_TASK_191.md's first commit)
+date:    2026-09-27T05:10:00+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+load:    5.17 2.90 1.71 at start
+
+## 1. Samples by phase, at three widths
+
+== 100 outputs, repeat 200, budget out of reach
+repeat 200: median 12.4 ms per emission, second half's median 12.1 ms
+313 samples
+
+by phase (the first phase whose frame the stack holds):
+   35.1%     110  slot planning (Slots.plan)
+   25.2%      79  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   22.0%      69  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+    8.6%      27  elsewhere in Varka
+    2.6%       8  analysis (Analysis.*)
+    1.9%       6  outside Varka (JVM, harness)
+    1.9%       6  the compiler (VarkaExpressionCompiler and families)
+    1.9%       6  grouping (groupOutputs)
+    0.3%       1  debug info (renderLineMap, renderOutputs, debugElement)
+    0.3%       1  measuring the class (VarkaEmittedClass.measure)
+
+== 200 outputs, repeat 100, budget out of reach
+repeat 100: median 43.2 ms per emission, second half's median 42.6 ms
+538 samples
+
+by phase (the first phase whose frame the stack holds):
+   56.5%     304  slot planning (Slots.plan)
+   15.8%      85  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+   13.6%      73  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+    9.7%      52  elsewhere in Varka
+    1.3%       7  outside Varka (JVM, harness)
+    1.3%       7  analysis (Analysis.*)
+    0.9%       5  the compiler (VarkaExpressionCompiler and families)
+    0.6%       3  debug info (renderLineMap, renderOutputs, debugElement)
+    0.2%       1  grouping (groupOutputs)
+    0.2%       1  measuring the class (VarkaEmittedClass.measure)
+
+== 400 outputs, repeat 50, budget out of reach
+repeat 50: median 205.8 ms per emission, second half's median 204.9 ms
+1152 samples
+
+by phase (the first phase whose frame the stack holds):
+   71.8%     827  slot planning (Slots.plan)
+    9.2%     106  body emission (VarkaBodyEmitter, VarkaVectorWalk, lowerings)
+    8.2%      95  class assembly (ClassFile.build under VarkaLoopEmitter.build)
+    7.3%      84  elsewhere in Varka
+    1.2%      14  outside Varka (JVM, harness)
+    0.5%       6  the compiler (VarkaExpressionCompiler and families)
+    0.5%       6  debug info (renderLineMap, renderOutputs, debugElement)
+    0.5%       6  analysis (Analysis.*)
+    0.5%       6  grouping (groupOutputs)
+    0.2%       2  measuring the class (VarkaEmittedClass.measure)
+
+EXIT 0
+
+## 2. The 400-output samples by the nearest Varka frame to the top of the stack
+
+by the nearest Varka frame to the top of the stack (top 14):
+   49.7%     572  Slots.plan
+    8.1%      93  VarkaLoopEmitter.build
+    4.9%      56  VarkaVectorIR.childrenOf
+    4.5%      52  Slots.reachesGuardedDay
+    3.1%      36  VarkaSqlResolve$.resolve
+    3.0%      35  VarkaBodyEmitter.emitBody
+    2.1%      24  VarkaVectorIR$AddMonths.hashCode
+    2.0%      23  VarkaEmitDump$.$anonfun$main$1
+    1.8%      21  VarkaVectorIR$ColumnRef.hashCode
+    1.7%      20  VarkaVectorIR$AddDays.hashCode
+    1.6%      19  VarkaEmitterTestSupport.invocationCount
+    1.3%      15  VarkaVectorIR$Greatest.hashCode
+    1.2%      14  (no Varka frame)
+    1.1%      13  VarkaVectorIR$LiteralSlot.hashCode
+
+Of the 95 samples under VarkaLoopEmitter.build with no planner or body-emitter frame (the class
+assembly), 90 hold a StackMapGenerator frame; the top frames are Arrays.fill (18),
+StackMapGenerator$Frame.checkLocal (12), StackMapGenerator.processBlock (9),
+RawBytecodeHelper.next (9), EntryMap.nextToken (6) and StackMapGenerator.processMethod (5).
+
+## 3. The frames: max_locals per method, read from the class
+
+The same shape emitted once per width and parsed back (java.lang.classfile, CodeAttribute):
+25 and 100 outputs under the default budget, 200 and 400 with it out of reach, as the benchmark.
+
+25 outputs: 32 methods, class 119895 bytes, largest method 4409 bytes, max_locals up to 726 (epilogueMasked6), mean 399 per method
+100 outputs: 104 methods, class 480275 bytes, largest method 5828 bytes, max_locals up to 2766 (epilogueMasked24), mean 1315 per method
+200 outputs: 204 methods, class 969790 bytes, largest method 12412 bytes, max_locals up to 5466 (epilogueMasked49), mean 2566 per method
+400 outputs: 404 methods, class 1947790 bytes, largest method 25812 bytes, max_locals up to 10866 (epilogueMasked99), mean 5066 per method
