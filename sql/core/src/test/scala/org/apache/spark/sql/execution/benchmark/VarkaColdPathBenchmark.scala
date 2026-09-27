@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.benchmark
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicReference
 
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
@@ -30,36 +31,42 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.{ByteCodeStats, CodeGenerator}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaKernelWarmup,
   VarkaShapeCache}
-import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, SQLExecution,
-  VarkaColumnarToRowExec, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan,
+  VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.util.QueryExecutionListener
 
 /**
- * What a new shape's batches cost on each path they could take before its kernel is compiled,
+ * What a new shape's batches cost on each path they can take before its kernel is compiled,
  * the admission check of task 228 (see row 228 of `PLAN_MILESTONE_6.md`).
  *
- * While a shape's kernel warms, the Varka node serves its batches on Spark's row path: an
- * `UnsafeProjection` applied row by row over each batch's `ColumnarBatchRow`, so every reference
- * to an input column in the projection is a read through the batch's `ArrowColumnVector`.
- * Vanilla Spark scans the same cache row by row - the Arrow cache's row reader writes each row's
- * fields into an `UnsafeRow` once - and projects in one whole-stage method, which reads each
- * field once per row and which HotSpot compiles only while the method is at most 8000 bytes of
- * bytecode (`-XX:HugeMethodLimit`). Task 228 proposes whole-stage code as the cold path wherever
- * it compiles. This benchmark measures what the proposal rests on, at the size ladder's rungs
- * over the cold-start benchmark's hundred thousand Arrow-cached rows:
+ * While a shape's kernel warms, and whenever a batch falls back, a Varka node evaluates its
+ * projection row by row, with Spark's `UnsafeProjection` over each batch's `ColumnarBatchRow`.
+ * Which node that is depends on the consumer. Under a consumer of rows the planner puts
+ * `VarkaColumnarToRowExec`, which hands the projected rows on; under a consumer of batches it
+ * keeps `VarkaProjectExec`, which writes them back into column vectors. Vanilla Spark scans the
+ * same Arrow cache row by row - the cache's row reader writes each row's fields into an
+ * `UnsafeRow` - and projects in one whole-stage method, which HotSpot compiles only while the
+ * method is at most 8000 bytes of bytecode (`-XX:HugeMethodLimit`).
  *
- *  - **first run** and **steady state** of three paths: vanilla's whole-stage code, the shape
- *    of the proposed cold path; vanilla with whole-stage codegen off, the same projection
- *    applied row by row but over the reader's `UnsafeRow`s; and Varka's row path alone. The last
- *    is the Varka node with no kernel and so no warm-up, forced by the evaluator's
- *    emission-failure test hook, so that nothing compiles beside it. [[VarkaColdStartBenchmark]]
- *    times the same path while a warm-up competes with it for the compiler, and the difference
- *    between the two is the price of that competition. The steady state also times the compiled
- *    kernel, the level a cold path hands over to.
+ * At the size ladder's rungs, over the cold-start benchmark's hundred thousand Arrow-cached rows:
+ *
+ *  - **rows** (`toRdd`, every row consumed as a row, the control the other Varka benchmarks use
+ *    to force the to-row node): first run and steady state of vanilla's whole-stage code, of
+ *    vanilla with whole-stage codegen off, and of `VarkaColumnarToRowExec` with no kernel; the
+ *    steady state also times the node with its compiled kernel.
+ *  - **a columnar sink** (`noop`, which takes batches, the sink the other Varka benchmarks write
+ *    to, the cold-start one included): the steady state of the same vanilla arms, and of
+ *    `VarkaProjectExec` with no kernel and with its compiled kernel.
  *  - **the whole-stage class's compile**: Janino's compile of vanilla's generated class for the
- *    rung's projection, from new source every iteration, which vanilla's first run pays and a
- *    whole-stage cold path would pay once per shape; and the size of the class's largest method,
- *    which decides whether HotSpot compiles it at all.
+ *    rung's projection, from new source every iteration, which vanilla's first run pays, and the
+ *    size of the class's largest method, which decides whether HotSpot compiles it at all.
+ *
+ * "No kernel" is the evaluator's emission-failure test hook: the node cannot obtain a kernel,
+ * every batch takes its row path, and no warm-up runs beside it. [[VarkaColdStartBenchmark]]
+ * times the same paths while a warm-up competes with them for the compiler. Before each rung
+ * the checks run the plans the timed cases run and read their nodes' metrics, so a case that
+ * timed another node or another path fails the run.
  *
  * A first run takes offsets no earlier query used, so its generated source is new and Janino
  * compiles it, and each arm has offsets of its own, so that no arm finds another arm's class in
@@ -109,7 +116,7 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
   /** How long to wait for a warm-up's verdict: a hundred-entry kernel takes seconds. */
   private val warmupTimeoutMillis = 120000L
 
-  /** The logger of the evaluator, whose failed emissions the row-path arm provokes. */
+  /** The logger of the evaluator, whose failed emissions the no-kernel arms provoke. */
   private val evaluatorLogger = "org.apache.spark.sql.execution.VarkaKernelEvaluator"
 
   /** A line into the results file, and onto the console. */
@@ -120,11 +127,18 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
     output.foreach(_.write((line + "\n").getBytes(StandardCharsets.UTF_8)))
   }
 
+  /** Every row consumed as a row: Varka plans `VarkaColumnarToRowExec`. */
+  private def toRows(session: SparkSession, q: String): Unit =
+    session.sql(q).queryExecution.toRdd.count()
+
+  /** Into the noop sink, which takes batches: Varka plans `VarkaProjectExec`. */
+  private def toNoop(session: SparkSession, q: String): Unit = session.sql(q).noop()
+
   /**
    * Runs `body` with the Varka node unable to obtain a kernel, so that every batch takes its
    * row path and no warm-up starts.
    */
-  private def rowPathOnly[T](body: => T): T = {
+  private def noKernel[T](body: => T): T = {
     VarkaColumnarToRowExec.setFailEmissionForTesting(true)
     try body finally VarkaColumnarToRowExec.setFailEmissionForTesting(false)
   }
@@ -138,13 +152,40 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
   private def wholeStage(session: SparkSession, q: String): Option[WholeStageCodegenExec] =
     session.sql(q).queryExecution.executedPlan.collectFirst { case w: WholeStageCodegenExec => w }
 
-  /** Runs `q` once as the timed queries run and returns the Varka node's metrics. */
-  private def nodeMetrics(session: SparkSession, q: String): Map[String, Long] = {
+  /** Runs `q` as [[toRows]] does and returns the executed plan, its metrics filled in. */
+  private def rowsPlan(session: SparkSession, q: String): SparkPlan = {
     val qe = session.sql(q).queryExecution
-    SQLExecution.withNewExecutionId(qe, Some("check"))(qe.toRdd.count())
-    val node = qe.executedPlan.collectFirst { case v: VarkaColumnarToRowExec => v }.getOrElse(
-      throw new IllegalStateException(s"no Varka node:\n${qe.executedPlan.treeString}"))
-    node.metrics.map { case (k, m) => k -> m.value }
+    qe.toRdd.count()
+    qe.executedPlan
+  }
+
+  /** Runs `q` as [[toNoop]] does and returns the write's executed plan, from its listener. */
+  private def noopPlan(session: SparkSession, q: String): SparkPlan = {
+    val captured = new AtomicReference[SparkPlan]()
+    val listener = new QueryExecutionListener {
+      override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit =
+        captured.set(qe.executedPlan)
+      override def onFailure(funcName: String, qe: QueryExecution, error: Exception): Unit = ()
+    }
+    session.listenerManager.register(listener)
+    try {
+      toNoop(session, q)
+      session.sparkContext.listenerBus.waitUntilEmpty()
+    } finally {
+      session.listenerManager.unregister(listener)
+    }
+    Option(captured.get).getOrElse(throw new IllegalStateException(s"no plan for the write: $q"))
+  }
+
+  /** The metrics of the plan's one Varka node, which must be of the class the sink plans. */
+  private def nodeMetrics(plan: SparkPlan, expected: Class[_ <: SparkPlan]): Map[String, Long] = {
+    val nodes = plan.collect {
+      case v: VarkaColumnarToRowExec => v
+      case v: VarkaProjectExec => v
+    }
+    require(nodes.size == 1 && expected.isInstance(nodes.head),
+      s"expected one ${expected.getSimpleName}:\n${plan.treeString}")
+    nodes.head.metrics.map { case (k, m) => k -> m.value }
   }
 
   private def fallbacks(counts: Map[String, Long]): Long =
@@ -164,25 +205,37 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
       s"whole-stage codegen off still generated a stage: $q")
   }
 
-  /** Every batch of the row-path arm took the row path, with no kernel and no warm-up. */
-  private def checkRowPath(varka: SparkSession, q: String): Unit = {
-    val counts = rowPathOnly(nodeMetrics(varka, q))
-    require(counts("numInputBatches") > 0 && counts("numVarkaBatches") == 0 &&
-      counts("numWarmupBatches") == 0 && counts("numEmissionFailures") > 0,
-      s"Varka's row path alone did not take the row path for every batch of $q: $counts")
+  /** Under each sink, the no-kernel arm's node took its row path for every batch. */
+  private def checkNoKernel(varka: SparkSession, q: String): Unit = {
+    for ((plan, node) <- Seq(
+        noKernel(rowsPlan(varka, q)) -> classOf[VarkaColumnarToRowExec],
+        noKernel(noopPlan(varka, q)) -> classOf[VarkaProjectExec])) {
+      val counts = nodeMetrics(plan, node)
+      require(counts("numInputBatches") > 0 && counts("numVarkaBatches") == 0 &&
+        counts("numWarmupBatches") == 0 && counts("numEmissionFailures") > 0,
+        s"${node.getSimpleName} with no kernel did not take its row path for every batch: $counts")
+    }
   }
 
-  /** The compiled kernel served every batch: none on the row path, warming or falling back. */
-  private def checkKernelServed(session: SparkSession, q: String): Unit = {
-    val counts = nodeMetrics(session, q)
-    require(counts("numVarkaBatches") > 0 && counts("numWarmupBatches") == 0 &&
-      fallbacks(counts) == 0, s"the compiled kernel did not serve every batch of $q: $counts")
+  /** Under each sink, the compiled kernel served every batch: none warming or falling back. */
+  private def checkKernelServed(warmup: SparkSession, q: String): Unit = {
+    for ((plan, node) <- Seq(
+        rowsPlan(warmup, q) -> classOf[VarkaColumnarToRowExec],
+        noopPlan(warmup, q) -> classOf[VarkaProjectExec])) {
+      val counts = nodeMetrics(plan, node)
+      require(counts("numVarkaBatches") > 0 && counts("numWarmupBatches") == 0 &&
+        fallbacks(counts) == 0,
+        s"the compiled kernel did not serve every batch of ${node.getSimpleName}: $counts")
+    }
   }
 
-  private def awaitVerdict(): VarkaKernelWarmup.Outcome = {
+  /** Runs `start` and waits for the warm-up it queued: its verdict, or None if it queued none. */
+  private def warmUp(start: => Unit): Option[VarkaKernelWarmup.Outcome] = {
+    val before = VarkaKernelWarmup.recentOutcomes().asScala.lastOption
+    start
     require(VarkaKernelWarmup.awaitIdle(warmupTimeoutMillis),
       s"no warm-up verdict in ${warmupTimeoutMillis / 1000} seconds")
-    VarkaKernelWarmup.recentOutcomes().asScala.last
+    VarkaKernelWarmup.recentOutcomes().asScala.lastOption.filterNot(o => before.exists(_ eq o))
   }
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
@@ -206,9 +259,9 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
     val largest = 100 * (steady + 1) + rungs.max
     require(largest <= VarkaChrono.MONTH_ARITH_MAX_MONTHS,
       s"offsets up to $largest pass the kernel's month bound ${VarkaChrono.MONTH_ARITH_MAX_MONTHS}")
-    // The row-path arm's emissions fail on purpose, and each task would log the failure with its
-    // stack trace: a cost of the injection, not of the path, so the evaluator's warnings are off
-    // for the run. The checks below read the node's metrics instead.
+    // The no-kernel arms' emissions fail on purpose, and each task would log the failure with
+    // its stack trace: a cost of the injection, not of the path, so the evaluator's warnings are
+    // off for the run. The checks read the nodes' metrics instead.
     val evaluatorLevel = LogManager.getLogger(evaluatorLogger).getLevel
     Configurator.setLevel(evaluatorLogger, Level.ERROR)
     try {
@@ -223,16 +276,16 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
             require(fused == n, s"the Varka arm fused $fused of $n entries: $q")
           }
           checkVanilla(baseline, steadyQuery)
-          checkRowPath(varka, steadyQuery)
+          checkNoKernel(varka, steadyQuery)
 
-          val first = new Benchmark(s"$n entries over $numRows Arrow-cached rows, first run",
-            numRows, minNumIters = repetitions, warmupTime = 0.seconds, minTime = 0.seconds,
-            outputPerIteration = true, output = output)
+          val first = new Benchmark(s"$n entries over $numRows Arrow-cached rows, rows, " +
+            "first run", numRows, minNumIters = repetitions, warmupTime = 0.seconds,
+            minTime = 0.seconds, outputPerIteration = true, output = output)
           first.addTimerCase("vanilla Spark, whole-stage code") { timer =>
             val q = query(n, vanillaFirst + timer.iteration)
             quiesce(warmupTimeoutMillis)
             timer.startTiming()
-            baseline.sql(q).noop()
+            toRows(baseline, q)
             timer.stopTiming()
           }
           first.addTimerCase("vanilla Spark, whole-stage codegen off") { timer =>
@@ -240,62 +293,67 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
             quiesce(warmupTimeoutMillis)
             rowByRow(baseline) {
               timer.startTiming()
-              baseline.sql(q).noop()
+              toRows(baseline, q)
               timer.stopTiming()
             }
           }
-          first.addTimerCase("Varka's row path alone") { timer =>
+          first.addTimerCase("Varka to rows, no kernel") { timer =>
             val q = query(n, rowPathFirst + timer.iteration)
             quiesce(warmupTimeoutMillis)
-            rowPathOnly {
+            noKernel {
               timer.startTiming()
-              varka.sql(q).noop()
+              toRows(varka, q)
               timer.stopTiming()
             }
           }
           first.run()
 
-          quiesce(warmupTimeoutMillis)
-          val steadyState = new Benchmark(s"$n entries over $numRows Arrow-cached rows, " +
-            "steady state", numRows, minNumIters = repetitions, warmupTime = steadyWarmup,
-            output = output)
-          steadyState.addTimerCase("vanilla Spark, whole-stage code") { timer =>
-            timer.startTiming()
-            baseline.sql(steadyQuery).noop()
-            timer.stopTiming()
-          }
-          steadyState.addTimerCase("vanilla Spark, whole-stage codegen off") { timer =>
-            rowByRow(baseline) {
+          // The kernel is warmed on the first call of its case, inside the harness's warmup, so
+          // that no case before it runs beside the warm-up's compiles; the columnar table's
+          // kernel case then finds the same kernel compiled, since the two nodes share it.
+          var verdict: Option[Option[VarkaKernelWarmup.Outcome]] = None
+          for ((sink, sinkRun, node) <- Seq(
+              ("rows", toRows _, "Varka to rows"),
+              ("a columnar sink", toNoop _, "Varka columnar"))) {
+            quiesce(warmupTimeoutMillis)
+            val table = new Benchmark(s"$n entries over $numRows Arrow-cached rows, $sink, " +
+              "steady state", numRows, minNumIters = repetitions, warmupTime = steadyWarmup,
+              output = output)
+            table.addTimerCase("vanilla Spark, whole-stage code") { timer =>
               timer.startTiming()
-              baseline.sql(steadyQuery).noop()
+              sinkRun(baseline, steadyQuery)
               timer.stopTiming()
             }
-          }
-          steadyState.addTimerCase("Varka's row path alone") { timer =>
-            rowPathOnly {
+            table.addTimerCase("vanilla Spark, whole-stage codegen off") { timer =>
+              rowByRow(baseline) {
+                timer.startTiming()
+                sinkRun(baseline, steadyQuery)
+                timer.stopTiming()
+              }
+            }
+            table.addTimerCase(s"$node, no kernel") { timer =>
+              noKernel {
+                timer.startTiming()
+                sinkRun(varka, steadyQuery)
+                timer.stopTiming()
+              }
+            }
+            table.addTimerCase(s"$node, the kernel once compiled") { timer =>
+              if (verdict.isEmpty) {
+                VarkaShapeCache.invalidateAll()
+                verdict = Some(warmUp(sinkRun(warmup, steadyQuery)))
+                quiesce(warmupTimeoutMillis)
+              }
               timer.startTiming()
-              varka.sql(steadyQuery).noop()
+              sinkRun(warmup, steadyQuery)
               timer.stopTiming()
             }
+            table.run()
           }
-          // The kernel is warmed on the first call, inside the harness's warmup, so that no
-          // case before this one runs beside the warm-up's compiles.
-          var verdict: Option[VarkaKernelWarmup.Outcome] = None
-          steadyState.addTimerCase("Varka, the kernel once compiled") { timer =>
-            if (verdict.isEmpty) {
-              VarkaShapeCache.invalidateAll()
-              warmup.sql(steadyQuery).noop()
-              verdict = Some(awaitVerdict())
-              quiesce(warmupTimeoutMillis)
-            }
-            timer.startTiming()
-            warmup.sql(steadyQuery).noop()
-            timer.stopTiming()
-          }
-          steadyState.run()
           checkKernelServed(warmup, steadyQuery)
-          report(s"rung $n: the kernel's warm-up verdict: " + verdict.map(o =>
-            s"${o.state()} after ${o.runNanos() / 1000000} ms and ${o.calls()} calls").get)
+          report(s"rung $n: the kernel's warm-up verdict: " + verdict.flatten.map(o =>
+            s"${o.state()} after ${o.runNanos() / 1000000} ms and ${o.calls()} calls")
+            .getOrElse("none, the kernel was compiled already"))
         }
       }
       runBenchmark("the whole-stage class's compile: Janino, from new source every iteration") {
