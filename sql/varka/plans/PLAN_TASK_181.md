@@ -175,6 +175,11 @@ ladder, so the reader sees both. The trailer follows.
 So one measurement, task 195, and one test task, 188's Varka arm, stand between
 the outline and the draft. Everything else the post needs is committed.
 
+*27 September 2026*: the reproducers for G15, G33 and G34 landed
+(`PLAN_TASK_188.md` 6), and task 195's cost is written in (section 9). Of the
+table's rows marked needed, the JVM's inlining evidence for the split-call case
+is the one still open.
+
 ## 5. Verification
 
 * Every number in the draft traces under `dev/varka_quote_check.py`, at zero

@@ -53,7 +53,7 @@ operator stays Spark's), ? = unsure. All Varka answers are proposals.
 | G12 | No split in `splitExpressionsWithCurrentInputs` inside WSCG | `currentVars != null` (the WSCG case) | The code of all expressions is concatenated in one method. 26 call sites | No | I (does not use it) |
 | G13 | No `reduceCodeSize` inside WSCG | `ctx.currentVars != null` | A large expression is not moved to its own method | No | I |
 | G14 | No split of the row writer's top-level fields inside WSCG | `isTopLevel && (row == null or currentVars != null)` | ProjectExec's UnsafeRow writer stays inline | No | I (Varka's merge/residual projections run outside WSCG, where this does split) |
-| G15 | The 1024-character heuristic | `spark.sql.codegen.methodSplitThreshold` (1024 characters of source) | Splits by source characters, not bytecode bytes | No | S: bytes are measured after build (`VarkaLoopEmitter.java:400-431`) |
+| G15 | The 1024-character heuristic | `spark.sql.codegen.methodSplitThreshold` (1024 characters of source) | Splits by source characters, not bytecode bytes: about seven to a byte, so the default splits at about 230 bytes (section 6) | No | S: bytes are measured after build (`VarkaLoopEmitter.java:400-431`) |
 | G16 | Consume method per operator not split out | `splitConsumeFuncByOperator` (true); parent must use all outputs; parameter length <= 255 | Parent's consume code inlined into the child's method | No | NA/I (Varka nodes are outside WSCG) |
 | G17 | Subexpression split refused (WSCG) | code > threshold and a function's parameter length > 255 | CSE stays inline | INFO "Failed to split subexpression code..." (tests: internal error) | I (IR-level CSE, fixed seven-parameter methods). *Corrected 25 September 2026 (section 6): not reached - the shape that provokes it in Spark declines earlier at Varka's own fused-node budget* |
 | G18 | Aggregate-function split refused | `...aggregate.splitAggregateFunc.enabled` (true); a SimpleExprValue in subexprs (silent); parameter length > 255 | Aggregate update code inline | INFO "Failed to split aggregate code..." for the parameter case only | NA |
@@ -72,7 +72,7 @@ operator stays Spark's), ? = unsure. All Varka answers are proposals.
 | G31 | Compiler backend routed back to Janino | `spark.sql.codegen.compiler`=jdk but javac missing, REPL, package-object or unnameable class | Janino used instead | WARN once / INFO once | I (no source compiler) |
 | G32 | Expression codegen fails outside WSCG | any exception from codegen or compile in UnsafeProjection/MutableProjection/SafeProjection/Predicate/RowOrdering `.create` | Interpreted object used instead | WARN "Expr codegen error and falling back to interpreter mode" | Varka's residual/fallback projections inherit this. Kernel failures go to the ghost fallback (WARN) |
 | G33 | Callers that bypass the interpreted fallback | direct `GenerateX.generate(...)`: about 30 sites | Exception, so the query or task fails | ERROR from G24 | NA |
-| G34 | No size check outside WSCG | a non-WSCG projection/predicate over 8000 bytes | Runs interpreted; `hugeMethodLimit` does not apply | INFO line of G26 only | Varka's residual projections are in this class |
+| G34 | No size check outside WSCG | a non-WSCG projection/predicate over 8000 bytes | Runs interpreted; `hugeMethodLimit` does not apply | INFO line of G26 only | Varka's residual projections are Spark's, in this class: measured (section 6), they cannot cross under the splitter and cross as vanilla's do with it off |
 
 Count: 34 entries. 30 are give-ups in the strict sense. G22 and G23 are
 mitigations, and G29 and G31 are degradations of the machinery rather than of
@@ -906,3 +906,38 @@ census is complete as a reading of the source; it is not yet backed by committed
   A first lesson from doing it: an arm that asserts "fused or declined, never thrown" holds for
   every shape and says nothing, and the first G17 arm was that. The arm has to assert the census's
   claim, so that a wrong claim fails the test and gets corrected, which is what happened.
+* **Three more, 27 September 2026**, in the same suite: the three task 181's post asked for
+  (`PLAN_TASK_181.md` 4).
+  * **G15**: forty `x + k` outside a stage make forty `writeFields` methods at a threshold of 1,
+    fourteen at the default of 1024 and none at `Int.MaxValue`, where the projection is inlined.
+    Compiled, the shape runs at about seven characters of source to a byte of bytecode: the
+    default's methods are 235 bytes, a threshold of 8000 makes methods of 1435, and unsplit the
+    forty are 3208. The proxy is calibrated far under the 8000 bytes its comment names, on the
+    side of many small methods, which the comment says it means to be; what it never does is
+    measure the result. Varka's arm: the budget every emitted method is held to is
+    `CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT`, in bytes, on the built class.
+  * **G33**: `ORDER BY <1200-branch CASE WHEN> LIMIT 5` plans `TakeOrderedAndProjectExec`, whose
+    `LazilyGeneratedOrdering` calls `GenerateOrdering.generate` itself. With the splitter off the
+    CASE WHEN is generated twice into one `compare` method, past 64KB, and the query fails with
+    the compile error, `CodeGenerator`'s ERROR logged; the same order asked through
+    `RowOrdering.create`, the factory `SortExec` uses, answers with an `InterpretedOrdering`. A
+    site the entry's list did not name: `ShuffleExchangeExec`'s range partitioner builds a
+    `LazilyGeneratedOrdering` too, over the sort keys projected first, so its ordering is over
+    attributes. The same query without LIMIT failed differently in a probe, the per-task compiles
+    of the unsplit ordering running the test JVM out of heap, and is not pinned. Varka: none.
+  * **G34**: sixty five-branch string CASE WHENs beside a fused date entry, distinct so that
+    subexpression elimination shares nothing. Outside a stage, at the default threshold, no
+    method of the projection reaches 8000 bytes: G15's characters keep each near 300. With the
+    splitter off the projection is one method of about 31000 bytes, which Spark compiles, logs
+    with G26's line and uses - no WARN, no fallback - and `hugeMethodLimit` at 8000 does nothing
+    to it, where the same query inside a stage is replaced ("Found too long generated codes",
+    G25; that stage's method is 22712 bytes). Varka's arm, the cell that said "unmeasured": the
+    node evaluates its declined entries through a projection of Spark's, in the same class -
+    no method refused under the splitter, and with the splitter off the same one method past
+    8000 bytes, used as vanilla's is. So at Spark's defaults a residual projection cannot cross;
+    a `methodSplitThreshold` past some fifty thousand characters puts it, and every projection
+    outside a stage, past the JIT.
+
+  That makes eighteen entries with a reproducer. Left as before: G3 with task 185; G13, G16 and
+  G19 read from the source; G30 with no honest way to provoke it; G9, G20, G21, G29 and G31 not
+  attempted.

@@ -21,14 +21,17 @@ import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression,
-  GreaterThan, Literal, NamedExpression, UnaryExpression, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeGenerator,
-  CodegenFallback, FusedOutput, VarkaDecline, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, AttributeReference,
+  BindReferences, Expression, GreaterThan, InterpretedOrdering, Literal, NamedExpression,
+  RowOrdering, UnaryExpression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeCompiler,
+  CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, FusedOutput,
+  GenerateUnsafeProjection, VarkaDecline, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.classic.ExpressionUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, DateType}
+import org.apache.spark.sql.types.{DataType, DateType, LongType}
 
 /**
  * Reproducers for the census of the places vanilla Spark's code generation gives up
@@ -113,6 +116,46 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
   private def varkaDates(): DataFrame = {
     cacheDates(varkaSpark)
     varkaSpark.table("varka_dates")
+  }
+
+  /** The loggers of the two objects that compile generated code and report on the classes. */
+  private val compilerLoggers =
+    Seq(classOf[CodeGenerator[_, _]].getName, CodeCompiler.getClass.getName.stripSuffix("$"))
+
+  /**
+   * The projection class for `exprs` over `input`, as `GenerateUnsafeProjection.create` assembles
+   * it, compiled for what the generator computes and discards: the byte-code size of its largest
+   * method, and beside it the number of `writeFields` methods the splitter made.
+   */
+  private def projectionMethods(exprs: Seq[Expression], input: Seq[Attribute]): (Int, Int) = {
+    val ctx = new CodegenContext
+    val eval = GenerateUnsafeProjection.createCode(ctx, BindReferences.bindReferences(exprs, input))
+    val functions = ctx.declareAddedFunctions()
+    val body = s"""
+      |public java.lang.Object generate(Object[] references) { return new Probe(references); }
+      |class Probe extends ${classOf[UnsafeProjection].getName} {
+      |  private Object[] references;
+      |  ${ctx.declareMutableStates()}
+      |  public Probe(Object[] references) {
+      |    this.references = references;
+      |    ${ctx.initMutableStates()}
+      |  }
+      |  public void initialize(int partitionIndex) { ${ctx.initPartition()} }
+      |  ${CodeGenerator.function1ApplyBridge(ctx.INPUT_ROW)}
+      |  public UnsafeRow apply(InternalRow ${ctx.INPUT_ROW}) { ${eval.code} return ${eval.value}; }
+      |  $functions
+      |}""".stripMargin
+    val code = CodeFormatter.stripOverlappingComments(
+      new CodeAndComment(body, ctx.getPlaceHolderToComments()))
+    (CodeGenerator.compile(code)._2.maxMethodCodeSize,
+      "private void writeFields_".r.findAllIn(functions).length)
+  }
+
+  /** The byte sizes of the methods `lines` report as too long for the JIT, by class and method. */
+  private def jitRefused(lines: Seq[(Level, String)]): Seq[(String, Int)] = lines.collect {
+    case (Level.INFO, m) if m.contains("Generated method too long to be JIT compiled") =>
+      val words = m.split(" ")
+      (words(words.indexOf("is") - 1), words(words.indexOf("is") + 1).toInt)
   }
 
   test("G1: with whole-stage codegen switched off there is no stage at all") {
@@ -338,6 +381,37 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
     // (`VarkaEmitterBudgetSuite`, "a shape still over the byte budget when no split is left").
   }
 
+  test("G15: the splitter counts source characters, and a character is not a byte") {
+    // Forty `x + k` outside a stage: the splitter closes a `writeFields` method when a block's
+    // source passes `methodSplitThreshold`, so their count follows the threshold - one per
+    // expression at 1, fourteen at the default 1024 on this shape, none at Int.MaxValue, where
+    // the whole projection is inlined. The JIT's limit is 8000 bytes of bytecode, and the proxy
+    // is in characters: the shape's source compiles at about seven characters to a byte, so a
+    // threshold of 8000 makes methods of about 1400 bytes, and the default of 1024 methods of
+    // about 230 - the splitter errs far on the small side, and nothing measures the result.
+    val x = AttributeReference("x", LongType)()
+    val adds = (1 to 40).map(k => Add(x, Literal(k.toLong)))
+    def at(threshold: Int): (Int, Int) =
+      withSQLConf(SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> threshold.toString) {
+        projectionMethods(adds, Seq(x))
+      }
+    val (bytesAtOne, methodsAtOne) = at(1)
+    assert(methodsAtOne == 40)
+    val (bytesAtDefault, methodsAtDefault) =
+      at(SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.defaultValue.get)
+    assert(methodsAtDefault > 1 && methodsAtDefault < 40, methodsAtDefault)
+    assert(bytesAtDefault < 1024 && bytesAtOne < 1024, (bytesAtOne, bytesAtDefault))
+    val (bytesAtLimit, _) = at(CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT)
+    assert(bytesAtLimit < CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT / 4, bytesAtLimit)
+    val (bytesUnsplit, methodsUnsplit) = at(Int.MaxValue)
+    assert(methodsUnsplit == 0 && bytesUnsplit > 2 * bytesAtLimit, (bytesUnsplit, bytesAtLimit))
+    // Varka's answer: the budget every emitted method is held to is in the JVM's unit and is
+    // the JIT's own limit, measured on the class after it is built and regrouped until it holds
+    // (`VarkaEmitterBudgetSuite`, "regroup before decline"; `VarkaHugeMethodSuite`).
+    assert(VarkaEmitOptions.DEFAULTS.methodByteBudget() ==
+      CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT)
+  }
+
   /**
    * `n` nullable int columns, `c1` to `cn`, read from a shuffle, so each is an input of the stage
    * above it rather than an expression the optimizer folds into its consumer, and a split
@@ -406,6 +480,101 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
     assert(causes(e).exists(_.contains("has too many parameters (256)")), causes(e).take(2))
     // Varka's answer: its methods have a fixed arity, and `VarkaEmitBudget` counts every emitted
     // method's parameter slots against the cap all the same (`VarkaEmitterBudgetSuite`).
+  }
+
+  test("G33: an ordering asked of its generator directly fails the query the factory would save") {
+    // `ORDER BY ... LIMIT` plans `TakeOrderedAndProjectExec`, whose `LazilyGeneratedOrdering`
+    // calls `GenerateOrdering.generate` itself. With the splitter off, the 1200-branch CASE WHEN
+    // is generated twice into one `compare` method, past 64KB, and the failure is the query's:
+    // `CodeGenerator` logs its ERROR and the exception carries the cause. The same order asked
+    // through `RowOrdering.create` - the factory with the interpreted fallback, which `SortExec`
+    // uses - answers with an `InterpretedOrdering`. The count is kept near the smallest that
+    // crosses, since Janino's heap grows much faster than the method (see G32).
+    val branches = (1 to 1200).map(k => s"WHEN id = $k THEN id * $k").mkString(" ")
+    val query = s"SELECT id FROM range(10) ORDER BY CASE $branches ELSE 0 END LIMIT 5"
+    withSQLConf(SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> Int.MaxValue.toString,
+        SQLConf.CODEGEN_FACTORY_MODE.key -> "FALLBACK") {
+      noAqe {
+        val df = spark.sql(query)
+        val top = df.queryExecution.executedPlan
+          .collectFirst { case t: TakeOrderedAndProjectExec => t }
+          .getOrElse(fail(df.queryExecution.executedPlan.treeString))
+        val lines = logged(compilerLoggers, Level.ERROR) {
+          val e = intercept[Throwable](df.collect())
+          assert(causes(e).exists(_.contains("64 KB")), causes(e).take(3))
+        }
+        assert(lines.exists(_._2.contains("Failed to compile the generated Java code")), lines)
+        val ordering = RowOrdering.create(top.sortOrder, top.child.output)
+        assert(ordering.isInstanceOf[InterpretedOrdering], ordering.getClass.getName)
+      }
+    }
+    // Varka's answer: none. Varka has no ordering and no node that sorts, and it calls no
+    // generator of Spark's; the query plans no Varka node.
+    assert(varkaProjections(varkaSpark.sql(query)).isEmpty)
+  }
+
+  /** A view of a date and a string column, cached with the Arrow serializer, in `session`. */
+  private def cacheDatedStrings(session: SparkSession): Unit = {
+    val rows = (0 until 200).map(i => (date(s"2024-01-${1 + i % 28}"), s"ab$i"))
+    session.createDataFrame(rows).toDF("d", "s").createOrReplaceTempView("varka_dated_strings")
+    session.catalog.cacheTable("varka_dated_strings")
+  }
+
+  test("G34: outside a stage nothing measures a method against 8000 bytes") {
+    // Sixty string CASE WHENs of five branches each, beside a fused date entry; distinct, so
+    // subexpression elimination shares nothing. Outside a stage the splitter's characters (G15)
+    // keep every method of the projection near 300 bytes, and no method can reach 8000; with the
+    // splitter off the projection is one method of about 31000 bytes, which Spark compiles,
+    // logs as too long for the JIT (G26's line) and uses - `hugeMethodLimit`, which replaces a
+    // stage whose method is past it (G25), does not apply to a projection outside one.
+    val query = "SELECT date_add(d, 1) AS a, " + (1 to 60).map(k => "CASE " +
+      (1 to 5).map(b => s"WHEN s = 'k$k-$b' THEN 'v$b'").mkString(" ") + s" ELSE 'z' END AS c$k")
+      .mkString(", ") + " FROM varka_dated_strings"
+    val stageLogger = Seq(classOf[WholeStageCodegenExec].getName)
+    val unsplit = SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> Int.MaxValue.toString
+    val limitAt8000 = SQLConf.WHOLESTAGE_HUGE_METHOD_LIMIT.key -> "8000"
+    cacheDatedStrings(disabledSpark)
+    def run(session: SparkSession): Unit =
+      session.sql(query).write.format("noop").mode("overwrite").save()
+    withSessionConf(disabledSpark, SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false", limitAt8000) {
+      assert(!disabledSpark.sql(query).queryExecution.executedPlan
+        .exists(_.isInstanceOf[WholeStageCodegenExec]))
+      val split = logged(compilerLoggers, Level.INFO)(run(disabledSpark))
+      assert(jitRefused(split).isEmpty, split.map(_._2))
+      withSessionConf(disabledSpark, unsplit) {
+        val whole = logged(compilerLoggers ++ stageLogger, Level.INFO)(run(disabledSpark))
+        val refused = jitRefused(whole)
+        assert(refused.exists { case (method, bytes) =>
+          method.contains("SpecificUnsafeProjection") && bytes > 8000
+        }, refused)
+        assert(!whole.exists(_._1 == Level.WARN), whole.filter(_._1 == Level.WARN))
+        assert(!whole.exists(_._2.contains("Found too long generated codes")))
+      }
+    }
+    withSessionConf(disabledSpark, SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true", limitAt8000) {
+      val staged = logged(stageLogger, Level.INFO)(run(disabledSpark))
+      assert(staged.exists(_._2.contains("Found too long generated codes")), staged.map(_._2))
+    }
+    // Varka's answer: the sixty entries decline and the date entry fuses, and the node evaluates
+    // the declined entries through a projection of Spark's, in the same class as vanilla's: under
+    // the splitter its methods stay small, and with the splitter off it is the same one method
+    // past 8000 bytes, used as vanilla's is.
+    cacheDatedStrings(varkaSpark)
+    val df = varkaSpark.sql(query)
+    assert(varkaProjections(df).nonEmpty, df.queryExecution.executedPlan)
+    val (fused, declined) = classified(df)
+    assert(fused == Set(0) && declined.size == 60, (fused, declined.keySet))
+    // The expected rows are computed first, so that only the Varka query compiles in the window.
+    val expected = disabledSpark.sql(query).collect().toSeq
+    val split = logged(compilerLoggers, Level.INFO)(checkAnswer(df, expected))
+    assert(jitRefused(split).isEmpty, split.map(_._2))
+    withSessionConf(varkaSpark, unsplit) {
+      val whole = logged(compilerLoggers, Level.INFO)(checkAnswer(df, expected))
+      val refused = jitRefused(whole)
+      assert(refused.exists { case (method, bytes) =>
+        method.contains("SpecificUnsafeProjection") && bytes > 8000
+      }, refused)
+    }
   }
 }
 
