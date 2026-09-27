@@ -91,11 +91,27 @@ public final class VarkaEmitterTestSupport {
    * with zero and pass while asserting nothing, which is how a renamed method goes unnoticed.
    */
   public static int codeSize(byte[] bytes, String methodName) {
+    return code(bytes, methodName).map(c -> c.codeLength()).orElse(0);
+  }
+
+  /**
+   * A method's {@code max_locals}: the size of its frame, which is what the slot planner decides
+   * and what the class-file stack maps are computed over (task 191). Fails when the method does
+   * not exist, for {@link #codeSize}'s reason.
+   */
+  public static int maxLocals(byte[] bytes, String methodName) {
+    return code(bytes, methodName).map(c -> c.maxLocals()).orElse(0);
+  }
+
+  /**
+   * The named method's {@code Code} attribute, empty for a method without code; the lookup
+   * {@link #codeSize} and {@link #maxLocals} share, failing like them for a method not there.
+   */
+  private static java.util.Optional<java.lang.classfile.attribute.CodeAttribute> code(
+      byte[] bytes, String methodName) {
     for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
       if (method.methodName().equalsString(methodName)) {
-        return method.code()
-            .map(code -> ((java.lang.classfile.attribute.CodeAttribute) code).codeLength())
-            .orElse(0);
+        return method.code().map(c -> (java.lang.classfile.attribute.CodeAttribute) c);
       }
     }
     throw missing(bytes, methodName);
@@ -105,6 +121,36 @@ public final class VarkaEmitterTestSupport {
   private static IllegalArgumentException missing(byte[] bytes, String methodName) {
     return new IllegalArgumentException("the class has no method " + methodName + "; it has "
         + methodNames(bytes));
+  }
+
+  /**
+   * Every method with code, from one parse of the class: its code length, its
+   * {@code max_locals}, and how many instructions invoke a method on each of {@code owners}, in
+   * that order. What {@link #codeSize}, {@link #maxLocals} and {@link #invocationCount} give one
+   * method per parse, for a test that reads every method of a large class.
+   */
+  public static java.util.Map<String, int[]> methodProfile(byte[] bytes, List<String> owners) {
+    java.util.Map<String, int[]> profile = new java.util.LinkedHashMap<>();
+    for (java.lang.classfile.MethodModel method : ClassFile.of().parse(bytes).methods()) {
+      if (method.code().isEmpty()) {
+        continue;
+      }
+      java.lang.classfile.attribute.CodeAttribute code =
+          (java.lang.classfile.attribute.CodeAttribute) method.code().get();
+      int[] row = new int[2 + owners.size()];
+      row[0] = code.codeLength();
+      row[1] = code.maxLocals();
+      for (java.lang.classfile.CodeElement element : code) {
+        if (element instanceof java.lang.classfile.instruction.InvokeInstruction invoke) {
+          int k = owners.indexOf(invoke.owner().asInternalName().replace('/', '.'));
+          if (k >= 0) {
+            row[2 + k]++;
+          }
+        }
+      }
+      profile.put(method.methodName().stringValue(), row);
+    }
+    return profile;
   }
 
   /**

@@ -250,4 +250,176 @@ shares recorded in the probe file's next section.
 
 ## 9. Outcome
 
-To be written when the measurement lands.
+*Written 27 September 2026, when the measurement had landed on an idle
+machine and the default was flipped.*
+
+Group-local frames are the default. A group's loop and epilogue methods
+carry 174 locals at every width where they carried 726 to 10866, and one
+emission of the wide section's four-hundred-output kernel takes 30535216 ns
+where the kernel-wide form takes 107055659 - 3.5 times faster - with every
+rung faster, down to 25 outputs at 1373370 ns against 1642955
+(`VarkaEmissionBenchmark-jdk25-results.txt`; the 128-bit file agrees rung
+for rung, 29736552 ns at 400 outputs). The narrow section, one group and
+unchanged code, moved about one percent, the control reading.
+
+**A correction to section 2, and a fix.** The admission check's profile was
+taken through `VarkaEmitDump`, which handed the emitter its outputs as a
+Scala `List` seen through `asJava`, whose `get(i)` walks from the head. The
+planner indexes the outputs per method, so every emission in 2.2 also paid a
+walk per lookup: the probe's times (12.4, 43.2, 205.8 ms) were inflated, and
+planning's share with them (35.1%, 56.5%, 71.8%); the frames of 2.3, read
+from the class, are unaffected. Production never paid it - the shape cache
+copies the outputs into a random-access list - and the benchmark builds a
+`java.util.List`, which is why the two disagreed about the form under the
+switch (107.5 ms in the probe, 30.5 in the benchmark) until the reason was
+found. `VarkaLoopEmitter.emit` now copies its outputs on entry, so no caller
+can pay it again, and the probe rerun with the copy agrees with the
+benchmark: kernel-wide 10.7, 32.2 and 113.3 ms at 100, 200 and 400 outputs
+with planning 30.7%, 44.2% and 56.3%; group-local 7.5, 16.3 and 38.9 ms with
+planning 6.8%, 9.4% and 11.3% (`VarkaEmissionProfile-jdk25-probe.txt` 4).
+The conclusion of section 2 stands on the corrected numbers: planning was
+the growing term, and it is what the switch removed.
+
+Prediction by prediction (6.1):
+
+1. **Held.** 174 locals in every loop and epilogue method at 25, 100, 200
+   and 400 outputs, against under 400 predicted; it does not grow with the
+   width.
+2. **Held on the times, refuted on the last ratio.** 200 outputs in 12470134
+   ns and 400 in 30535216, under the 17 and 35 ms predicted, and 25 and 50
+   outputs faster rather than level. The per-doubling ratio is 2.03, 2.06
+   and 2.17 through 200 outputs and 2.45 from 200 to 400, over the 2.3
+   predicted. What is left superlinear is the driver: it keeps the kernel's
+   frame by design (329, 629 and 1229 locals at 100, 200 and 400 outputs,
+   section 10), and its planning and stack maps grow with the kernel.
+3. **Held on planning, near on assembly.** Planning is 11.3% of the
+   four-hundred-output emission, under the 25% predicted. Assembly's time in
+   the corrected probe fell from about 15.6 ms to 8.8 ms, a factor of 0.56
+   against the half predicted.
+4. **Held.** `coverage.json` is unchanged; in `emitted_bytes.json` no
+   coverage row's method hash moved - the coverage rows are single-output
+   kernels, one group each, so their bytes are identical - and what moved is
+   the fuzz sequences' block digests and the option arms' digests at both
+   widths, fourteen entries, the several-group kernels renumbering. That the
+   several-group ones keep their lane arithmetic is what
+   `VarkaEmitterFramesSuite` asserts, over the same grammar.
+5. **Not observed.** No shape in the suites regrouped under the switch; the
+   frames suite counts a regrouping as allowed, and the budget suite's
+   task-169 test still fuses a prefix and demotes a suffix.
+
+What moved that the plan did not list: the dead guard accumulator (section
+10), the list-access trap above, and the inputs a group's method sets up
+(section 11).
+
+What the task leaves: the driver's frame, the one method still planned over
+the kernel, which is what keeps the last doubling above 2.3 - a driver per
+group of outputs, or a leaner prologue, is the next step if a wider kernel
+needs it; rows 222 and 223, the IR's structural hashing and CSE's kernel-wide
+use counts; and row 199, bytes predicted before emission, which would remove
+the regroup's rebuilds that each emission now makes cheap.
+
+## 10. Step 2, built: the frames, 27 September 2026
+
+*Written when the switch, the planner and the tests were in and every suite
+had passed; the measurement of section 6 is the next step.*
+
+**What is built.** `VarkaEmitOptions.groupLocalSlots`, off. Under it,
+`Slots.plan` for a group's loop or epilogue method collects the body's node
+set once - its outputs' subtrees - filters the kernel's topological order by
+it, and runs the four accumulator scans and the guarded-day scan over the
+body's own outputs; the driver keeps the kernel's plan. `VarkaEmitterTestSupport`
+reads a method's `max_locals`, `VarkaEmitterFramesSuite` holds tests 1 and 2,
+and `VarkaEmissionBenchmark`'s wide section has its second arm at every rung,
+"kernel-wide frames" beside "group-local frames".
+
+**The frames, read from the class** (the shape of 2.3, `Frames.java` after
+`Locals.java`, the byte budget as the benchmark sets it):
+
+| outputs | loop/epilogue `max_locals`, kernel-wide | group-local | driver's, group-local | class bytes, kernel-wide | group-local |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 25 | 726 | 174 | 174 | 119895 | 108435 |
+| 100 | 2766 | 174 | 329 | 480275 | 419015 |
+| 200 | 5466 | 174 | 629 | 969790 | 842130 |
+| 400 | 10866 | 174 | 1229 | 1947790 | 1687330 |
+
+Prediction 1 holds with room: 174 locals at every width, not under 400 at
+one; the frame is the group's and the group is four outputs whatever the
+kernel. The driver's frame grows with the kernel as 3.1 says it must. The
+class is 13% smaller at 400 outputs, the `wide` forms gone from the bodies;
+where the largest method is the driver (200 and 400 outputs) it is unchanged,
+and at 25 outputs the largest method fell from 4409 to 3689 bytes.
+
+**A finding, and prediction 4 refined.** Test 2 found a several-group shape
+of the shared grammar - fuzz shape 4, roots `addDays(lit0, lit1)` and
+`addMonths(col0, col2)`, a constant output alone in one group and a
+self-guarding node in the other - whose first loop method emits two fewer
+mask operations with group-local frames. Planned over the kernel, every body
+allocated the batch-condemning guard accumulator whenever any output of the
+kernel guarded, and a body that guards nothing still initialised it
+(`VectorMask.fromLong`) and tested it on exit (`anyTrue`): two operations that
+could never fire, returned as "no batch condemned" every time. Planned over
+the group, such a body has no accumulator. So 3.3's "the same operations" is
+"the same lane arithmetic, node for node, and a body that guards nothing
+loses the accumulator's two mask operations"; the suite's criterion says
+exactly that, and no method grew. The bytes of a one-group kernel are
+identical, as 3.3 said: over the grammar's first three hundred shapes and the
+wide shape at 25 and 100 outputs, every one-group kernel matched byte for
+byte and every several-group one kept its arithmetic.
+
+**Tests.** The frames suite's two tests; the IR fuzzer, whose reflective draw
+now covers the switch both ways, at its default; the emitted-bytes and
+coverage oracles unchanged, the default being off; the full Varka suites of
+`sql/catalyst`. Checkstyle, scalastyle, the javadoc build, the scans.
+
+**Next.** Section 6's measurement on an idle machine, both widths, the probe
+of 2.2 rerun, and the default flipped on the numbers, with the oracles
+regenerated where 3.3 allows.
+
+## 11. After review, 27 September 2026
+
+*Written after a code review of the pull request, before the measurement.*
+
+The review found the planner still doing kernel-sized work under the switch,
+in three places, and the frames suite weaker than it read. What changed:
+
+* **The body's nodes are its own list.** Filtering `analysis.topoOrder` still
+  visited every node of the kernel per method, a membership test each: the
+  groups-times-nodes term, cheaper per step. The body's node set is now
+  sorted by the nodes' line numbers - their positions in the kernel's
+  topological order - and walked alone, so the order the word aliasing needs
+  is kept and a one-group kernel's slots are numbered as before.
+* **The inputs are the group's.** Every method still set up every column the
+  kernel read: a segment, null state and word, six locals a column, and the
+  prologue's loads. `Slots.inputs` is now the columns the body's outputs read
+  - the kernel's referenced columns without the switch - and the prologue and
+  `wordKnownBeforeCompute` read it. For the benchmark's one-column shape this
+  changes nothing; on a kernel whose groups read different columns it is the
+  larger part of a frame.
+* **The guard scans are passes over the node set** rather than walks of the
+  group's trees, which revisited a shared subtree once per path.
+* **The switch does nothing with the byte budget off**, where no group's
+  method has a frame of its own; the option's javadoc says so.
+* **The frames suite** compares operations only where both forms group a
+  kernel the same way - grouping is decided by measuring bytes, and smaller
+  methods can split differently near the budget, as prediction 5 says - and
+  otherwise only that both build; a shape the group-local form declines that
+  the kernel-wide form builds fails it, the other way round is allowed. It
+  parses each class once (`VarkaEmitterTestSupport.methodProfile`), where it
+  had parsed a two-megabyte class more than a thousand times.
+
+Left as they were: CSE's shared slots by kernel-wide use counts, which is row
+223; and the emission benchmark's committed results still carry the wide
+section's old labels until step 3 regenerates them with both arms.
+
+The frames are as section 10 read them - 174 locals in every group's method
+at 25 to 400 outputs - and the IR fuzzer at twenty thousand trees per lane,
+three seeds, with the switch drawn both ways, agrees with the reference
+evaluator.
+
+## 12. Step 3, measured, 27 September 2026
+
+The measurement and the flip are recorded in section 9, where the plan asks
+for them. The default is `groupLocalSlots` on; off is the reference variant,
+and the option's canonical string names the off arm (`|kernelWideSlots`), so
+every shape hash taken under the default is the one it was before the task.
+

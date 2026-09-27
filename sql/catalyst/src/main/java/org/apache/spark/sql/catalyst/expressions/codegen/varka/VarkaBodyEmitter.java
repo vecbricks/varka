@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Slots.planFragmentsReadingMonth;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.referenced;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.*;
@@ -164,7 +163,7 @@ final class VarkaBodyEmitter {
     // by the morsel contract, so its segment must not be materialized; its validity word is 0L
     // in every group instead, which nulls everything computed from it.
     for (int i = 0; i < numInputs; i++) {
-      if (!referenced(analysis, i)) {
+      if ((s.inputs >>> i & 1L) == 0) {
         continue;
       }
       // a loop or epilogue body whose every reader of this input's word is gone needs none of its
@@ -742,7 +741,7 @@ final class VarkaBodyEmitter {
       return true;
     }
     for (int i = 0; i < analysis.numInputs; i++) {
-      if ((analysis.referencedColumns >>> i & 1L) != 0 && s.word[i] == ref) {
+      if ((s.inputs >>> i & 1L) != 0 && s.word[i] == ref) {
         return true;
       }
     }

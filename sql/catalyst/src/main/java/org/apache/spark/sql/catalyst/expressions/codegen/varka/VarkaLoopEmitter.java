@@ -234,6 +234,11 @@ public final class VarkaLoopEmitter {
     if (outputs.isEmpty()) {
       throw new IllegalArgumentException("no output chains to emit");
     }
+    // The planner and the body emitters index the outputs per method, so a caller's list that is
+    // not random access - a Scala List seen through asJava, as the tools pass it - would make every
+    // lookup a walk and the emission quadratic in the width for that reason alone. The shape
+    // cache already hands in a copy; copying here makes it true of every caller.
+    outputs = List.copyOf(outputs);
     if (numInputs < 1 || numInputs > MAX_INPUTS) {
       throw new IllegalArgumentException(
           "numInputs " + numInputs + " outside [1, " + MAX_INPUTS + "]");
