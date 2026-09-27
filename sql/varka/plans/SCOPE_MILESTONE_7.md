@@ -3466,6 +3466,84 @@ either way. **Done when** the three results files are committed with the JDK
 in their provenance and this section records what the flagged run did to the
 parity file's refused-call rows. Size: small, measured.
 
+### Item 57. Supercompilation, read against the engine
+
+*Added on 27 September 2026, from the owner's question after task 219, which
+had just fixed an emitter that unfolded forty copies of one node into a method
+the JVM refused.*
+
+**What it is.** Turchin's supercompiler (Refal, the 1970s and 80s; the
+positive form of Sorensen, Gluck and Jones is what has been implemented since)
+*drives* a program on partially unknown input: it unfolds calls symbolically,
+and at every branch it propagates what the branch now knows about the data
+into the branch's body. That builds a process tree of configurations, kept
+finite by two mechanisms: *folding*, when a configuration is an instance of
+one already seen, which becomes a call to a shared residual function; and the
+*whistle* (homeomorphic embedding) with *generalization*, when the unfolding
+grows without repeating. The residual program has fused traversals, no
+intermediate structures and specialized branches; partial evaluation and
+deforestation fall out of it, and Klyuchnikov and Romanenko later used the
+same machinery to prove program equivalences by supercompiling both sides to
+one residual. Slesarenko's paper in item 11 comes from the same school.
+
+**How much of it Varka already is, under other names.**
+
+| supercompilation | Varka |
+|---|---|
+| deforestation: no intermediate structures | the fused kernel, a projection in one loop with no column materialized per node; the architecture, not a transformation |
+| driving with positive information | `VarkaRangeAnalysis`, `GuardedRange`, `dayRange` as an interval lattice, `guardUnderArm` qualifying a guard by its arm's condition |
+| folding a repeated configuration into a shared function | CSE, `shareChronoPrefix`, `shareWholeNodes`, the shape cache keyed on structure |
+| the whistle: stop unfolding, generalize | the byte budget and its regroup, the declines, and since task 219 the class-file cap |
+| specialization on known values | constant divisions by magic number; literals otherwise are deliberately slots, not values |
+
+Task 219 was, in these terms, a supercompiler with folding switched off and no
+whistle: the fuzzer drew `cse` and `shareChronoPrefix` off, forty copies of one
+configuration unfolded to 67426 bytes, and the check that should have
+generalized never ran (`PLAN_TASK_219.md` 2.3).
+
+**Where the fit ends.** Supercompilation earns its keep on recursive programs
+over inductive data, where unfolding reveals what a fixed pass cannot. Varka's
+kernels are non-recursive DAGs over batches, and the loop is the runtime's,
+not the program's: there is nothing to unfold, and every interesting decision
+is which of several equal forms to emit, which is extraction under a cost
+model, not driving. Its value specialization runs against the measured cost
+structure: the JIT compile is the cliff (`the-jit.md`), the shape cache exists
+so that one compiled class serves every literal value, and a Futamura-style
+specializer would multiply shapes, each a C2 compile. And its output is
+unpredictable in size and compile time, the opposite of what a byte-budgeted
+emitter wants; GHC, where it was studied most (Supero; supercompilation by
+evaluation), kept rewrite rules and stream fusion for the same reason.
+
+**What to take from it.** Two design principles for the compiler's foundation,
+recorded here so that item 11's design input carries them, and one research
+question.
+
+* *Driving as a discipline.* Varka propagates facts in several places, each
+  written for its case; a supercompiler propagates them everywhere, always.
+  One semilattice of facts per node - range, nullability, encoding, the shape
+  item 11 already asks analyses to take - driven through arms and guards is
+  what would let the emitter prove guards dead: `year(d)` is bounded for every
+  date, so an overflow guard on `year(d) + 1` can never condemn a batch. Fewer
+  guards, fewer declines, and the direction of `SCOPE_STANDARD_MODE.md`.
+* *Folding as a first-class step*, decided while the code is built rather
+  than measured after it. Today growth is controlled by measuring bytes after
+  the build; a supercompiler recognizes the repeat during construction. Row
+  199 (bytes predicted before emission) is that idea in the emitter's
+  vocabulary, and item 11's hash-consed DAG is its natural home.
+* *The proving use*, as research: an equivalence between a lowering and
+  Spark's row semantics over a whole domain, shown by driving both to one
+  residual, where the sweeps show it by exhaustion and the fuzzer by sampling.
+  Not a task; a question for whoever builds the analyses above.
+
+**What it settles.** The right relative of supercompilation for this engine is
+equality saturation, and item 11 reached that conclusion for the right reason:
+today the rewrite arms are few and never conflict, so saturation adds nothing,
+and it becomes the engine once representation choice has to be decided per
+projection. An e-graph gives what supercompilation gives for straight-line
+programs - every equal form - while replacing the whistle with a cost-based
+extraction the emitter can budget. So: the ideas apply, the two that matter
+are above, and the machinery does not.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
