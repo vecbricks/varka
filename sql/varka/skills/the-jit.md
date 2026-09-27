@@ -663,3 +663,27 @@ reliable (`PLAN_TASK_212.md` 10).
   different entry, cold. A check that a shape's compiled kernel served a query has to run the
   query the way the query it checks ran.
 
+## A row projection over a batch's rows can cost escape analysis its allocations
+
+Spark's `UnsafeProjection` over a `ColumnarBatchRow` reads each column reference through the
+batch's column vector and, for Arrow, its accessor, and subexpression elimination leaves plain
+column references alone: the size ladder's 16-entry projection reads `d` about 33 times a row.
+The reads do not show in a profile - they are inlined, and cheap - but they change what C2
+makes of the generated methods. Over that projection the callers C2 compiles inlined 9260 bytes
+against 8811 over an `UnsafeRow`, and escape analysis eliminated six allocations in each where it
+eliminates twelve on vanilla's path; each `add_months` then allocated the closure that Spark's
+`MathUtils.toIntExact` hands `withOverflow`, 33 MB a query of a hundred thousand rows, and the
+row path ran at about 1.6 times vanilla's row-at-a-time path.
+
+* **Read each column once.** Copy the referenced columns into an `UnsafeRow` per row and project
+  over that (`VarkaInputRows`): C2 then makes of the projection what it makes of vanilla's, to
+  the eliminated allocation. Only where some column is read more than once - a column read once
+  is read once either way.
+* **Look at allocation by class before timing.** JFR's `jdk.ObjectAllocationSample` put a
+  closure class at the top of Varka's row path and nowhere on vanilla's, where the execution
+  samples only said the date arithmetic was slow.
+* **Compare what C2 eliminated, not only what it inlined.** The inlining at `withOverflow` was
+  the same on both paths; `dev/varka_c2_report.py` over a `-XX:+LogCompilation` log counts the
+  eliminated allocations per compile, and that is where the paths differed. See
+  `PLAN_TASK_228.md` 7.
+

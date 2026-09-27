@@ -23,17 +23,13 @@ import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 
-import org.apache.logging.log4j.{Level, LogManager}
-import org.apache.logging.log4j.core.config.Configurator
-
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.{ByteCodeStats, CodeGenerator}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaKernelWarmup,
   VarkaShapeCache}
 import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan,
-  SQLExecution, VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
-import org.apache.spark.sql.internal.SQLConf
+  VarkaColumnarToRowExec, VarkaProjectExec, WholeStageCodegenExec}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 /**
@@ -83,7 +79,8 @@ import org.apache.spark.sql.util.QueryExecutionListener
  */
 object VarkaColdPathBenchmark extends SqlBasedBenchmark {
   import VarkaArrowSessions.createSession
-  import VarkaSizeLadder.{cacheDates, entry, quiesce, varkaFused}
+  import VarkaColdPath._
+  import VarkaSizeLadder.{cacheDates, quiesce, varkaFused}
 
   private val smoke = sys.env.get("VARKA_COLDPATH_SMOKE").contains("true")
 
@@ -93,31 +90,18 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
   private val steadyWarmup = if (smoke) 500.millis else 2.seconds
 
   /**
-   * The rung's query at an offset family's iteration, as [[VarkaColdStartBenchmark]] builds it:
-   * a hundred months between iterations, so no two share a query, and every executed offset
-   * within the kernel's month bound.
-   */
-  private def query(n: Int, iteration: Int): String = {
-    val base = 100 * (iteration + 1)
-    s"SELECT ${(1 to n).map(k => entry(base + k)).mkString(", ")} FROM ladder_dates"
-  }
-
-  /**
-   * The offset families: one per arm's first run, so each compiles its own source, and one for
-   * the steady state, which every arm shares. The compile section's queries are generated and
-   * never run, so they count up from `compiles` without regard to the month bound.
+   * The offset families: one per arm's first run, so each compiles its own source; the steady
+   * state's, which every arm shares, is [[VarkaColdPath.steady]]. The compile section's queries
+   * are generated and never run, so they count up from `compiles` without regard to the month
+   * bound.
    */
   private val vanillaFirst = 0
   private val rowwiseFirst = 10
   private val rowPathFirst = 20
-  private val steady = 30
   private val compiles = 1000
 
   /** How long to wait for a warm-up's verdict: a hundred-entry kernel takes seconds. */
   private val warmupTimeoutMillis = 120000L
-
-  /** The logger of the evaluator, whose failed emissions the no-kernel arms provoke. */
-  private val evaluatorLogger = "org.apache.spark.sql.execution.VarkaKernelEvaluator"
 
   /** A line into the results file, and onto the console. */
   private def report(line: String): Unit = {
@@ -127,41 +111,8 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
     output.foreach(_.write((line + "\n").getBytes(StandardCharsets.UTF_8)))
   }
 
-  /**
-   * Every row consumed as a row: Varka plans `VarkaColumnarToRowExec`. Inside an SQL execution
-   * of its own, as a Dataset action runs and as the noop write runs: a query run outside one
-   * gets another class loader, and the loader is part of the shape cache's key, so the two
-   * sinks would warm two kernels for one shape.
-   */
-  private def toRows(session: SparkSession, q: String): Unit = rowsPlan(session, q)
-
-  /** Into the noop sink, which takes batches: Varka plans `VarkaProjectExec`. */
-  private def toNoop(session: SparkSession, q: String): Unit = session.sql(q).noop()
-
-  /**
-   * Runs `body` with the Varka node unable to obtain a kernel, so that every batch takes its
-   * row path and no warm-up starts.
-   */
-  private def noKernel[T](body: => T): T = {
-    VarkaColumnarToRowExec.setFailEmissionForTesting(true)
-    try body finally VarkaColumnarToRowExec.setFailEmissionForTesting(false)
-  }
-
-  /** Runs `body` with whole-stage codegen off in `session`. */
-  private def rowByRow[T](session: SparkSession)(body: => T): T = {
-    session.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, false)
-    try body finally session.conf.unset(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key)
-  }
-
   private def wholeStage(session: SparkSession, q: String): Option[WholeStageCodegenExec] =
     session.sql(q).queryExecution.executedPlan.collectFirst { case w: WholeStageCodegenExec => w }
-
-  /** Runs `q` as [[toRows]] does and returns the executed plan, its metrics filled in. */
-  private def rowsPlan(session: SparkSession, q: String): SparkPlan = {
-    val qe = session.sql(q).queryExecution
-    SQLExecution.withNewExecutionId(qe, Some("rows"))(qe.toRdd.count())
-    qe.executedPlan
-  }
 
   /** Runs `q` as [[toNoop]] does and returns the write's executed plan, from its listener. */
   private def noopPlan(session: SparkSession, q: String): SparkPlan = {
@@ -263,11 +214,7 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
     val largest = 100 * (steady + 1) + rungs.max
     require(largest <= VarkaChrono.MONTH_ARITH_MAX_MONTHS,
       s"offsets up to $largest pass the kernel's month bound ${VarkaChrono.MONTH_ARITH_MAX_MONTHS}")
-    // The no-kernel arms' emissions fail on purpose, and each task would log the failure with
-    // its stack trace: a cost of the injection, not of the path, so the evaluator's warnings are
-    // off for the run. The checks read the nodes' metrics instead.
-    val evaluatorLevel = LogManager.getLogger(evaluatorLogger).getLevel
-    Configurator.setLevel(evaluatorLogger, Level.ERROR)
+    val restoreEvaluator = silenceEvaluator()
     try {
       cacheDates(baseline, numRows)
       cacheDates(varka, numRows)
@@ -384,7 +331,7 @@ object VarkaColdPathBenchmark extends SqlBasedBenchmark {
         }
       }
     } finally {
-      Configurator.setLevel(evaluatorLogger, evaluatorLevel)
+      restoreEvaluator()
       baseline.stop()
       varka.stop()
       warmup.stop()

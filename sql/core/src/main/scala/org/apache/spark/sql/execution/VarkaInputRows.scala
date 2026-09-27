@@ -19,34 +19,55 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression,
-  UnsafeProjection, UnsafeRow}
+  UnsafeProjection}
 
 /**
- * Reads the input columns a row-by-row evaluation references, once per row, into an
- * `UnsafeRow`, so that the evaluation reads them from there rather than from the batch.
+ * The input rows of a row-by-row evaluation over a columnar batch: the batch's own rows, or,
+ * when the evaluation reads some column more than once, a copy of the columns it references in
+ * an `UnsafeRow`.
  *
  * A row of a columnar batch is a view: every read goes through the column vector and, for an
  * Arrow batch, the vector's accessor. Subexpression elimination leaves plain column references
- * alone, so a projection that mentions a column thirty times reads it thirty times through that
- * chain. Copying the referenced columns first costs one read each, and the evaluation's reads
- * become `UnsafeRow` reads - what vanilla Spark's row-at-a-time path over a cached table does,
- * whose cache reader writes each row into an `UnsafeRow` before any operator sees it. Only the
- * referenced columns are copied, in the child's order.
+ * alone, so a projection that mentions a column thirty times inlines thirty such reads into its
+ * generated methods. The reads are cheap, but they change what C2 makes of those methods:
+ * escape analysis then leaves allocations in place - one closure per `add_months`, from the
+ * overflow check of Spark's `toIntExact` - that it removes when the same projection reads an
+ * `UnsafeRow`, the row vanilla Spark's cache reader hands its operators. Copying the referenced
+ * columns first, one read each, gives C2 vanilla's shape; see `PLAN_TASK_228.md` 7.
+ *
+ * A column read once is read once either way, and copying it - a string's bytes, say - would be
+ * pure cost, so the copy is made only when some column is referenced more than once.
  *
  * Bind the evaluation to [[attributes]], not to the child's output, and apply it to what
- * [[apply]] returns. The returned row is reused: it is rewritten by the next call.
+ * [[apply]] returns. A copied row is reused: it is rewritten by the next call.
  */
 private[execution] class VarkaInputRows(
     expressions: Seq[Expression],
     childOutput: Seq[Attribute]) {
 
-  /** The referenced columns, in the child's order: the schema of the rows [[apply]] returns. */
-  val attributes: Seq[Attribute] = {
-    val referenced = AttributeSet(expressions.flatMap(_.references))
-    childOutput.filter(referenced.contains)
+  /** Whether the rows are copied: some input column is referenced more than once. */
+  val copies: Boolean = {
+    val references = expressions.flatMap(_.collect { case a: Attribute => a.exprId })
+    references.size > references.distinct.size
   }
 
-  private val copy = UnsafeProjection.create(attributes, childOutput)
+  /**
+   * The schema of the rows [[apply]] returns: the referenced columns in the child's order when
+   * the rows are copied, the child's output when they are not.
+   */
+  val attributes: Seq[Attribute] =
+    if (copies) {
+      val referenced = AttributeSet(expressions.flatMap(_.references))
+      childOutput.filter(referenced.contains)
+    } else {
+      childOutput
+    }
 
-  def apply(row: InternalRow): UnsafeRow = copy(row)
+  private val copy: Option[UnsafeProjection] =
+    if (copies) Some(UnsafeProjection.create(attributes, childOutput)) else None
+
+  def apply(row: InternalRow): InternalRow = copy match {
+    case Some(project) => project(row)
+    case None => row
+  }
 }

@@ -1,0 +1,41 @@
+VarkaColdPathProbe readings for task 228 (PLAN_TASK_228.md 7): what the JVM did with the
+projection a Varka node runs on its row path, with and without the copy of the referenced
+columns into an UnsafeRow (VarkaInputRows), against vanilla's row-at-a-time path.
+
+Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
+one run per arm, 16 entries, twenty seconds each. "With the copy" is commit c6ba280d015's main
+sources; "without the copy" is the same tree with VarkaProjectExec.scala and
+VarkaColumnarToRowExec.scala from 3b8d7bc2586, the admission check's commit. Each run:
+
+  build/sbt "project sql" 'set Test/javaOptions ++= Seq(
+      "-XX:StartFlightRecording=filename=<arm>.jfr,settings=profile",
+      "-XX:+UnlockDiagnosticVMOptions", "-XX:+LogCompilation", "-XX:LogFile=<arm>.xml")' \
+    "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaColdPathProbe <sink> <arm> 16 20"
+
+1. The probe's own line (queries in twenty seconds, mean per query, under JFR and
+   LogCompilation, so slower than the benchmark's steady state)
+
+  nocopy-rows                queries=258 mean=77.7 ms
+  copy-rows                  queries=312 mean=64.1 ms
+  nocopy-columnar            queries=232 mean=86.5 ms
+  copy-columnar              queries=315 mean=63.6 ms
+  vanilla-rowwise-columnar   queries=345 mean=58.0 ms
+
+2. Allocation on the executor thread per query, from JFR's jdk.ObjectAllocationSample weights
+   (jfr print --events jdk.ObjectAllocationSample --stack-depth 2), the five largest classes
+
+  nocopy-rows                 40.74 MB/query: MathUtils closure 33.32, byte[] 3.51, ArrayList$Itr 0.38, Object[] 0.36, BestEffortLazyVal 0.36
+  copy-rows                    5.20 MB/query: byte[] 3.14, other lambda 0.27, String 0.23, Object[] 0.17, PartialFunction$OrElse 0.16
+  nocopy-columnar             16.86 MB/query: int[] 7.49, byte[] 3.54, MathUtils closure 2.09, Integer 1.36, other lambda 0.53
+  copy-columnar               13.10 MB/query: int[] 6.37, byte[] 4.20, String 0.37, $colon$colon 0.32, other lambda 0.29
+  vanilla-rowwise-columnar     4.60 MB/query: byte[] 2.93, String 0.23, other lambda 0.17, Object[] 0.14, HashMap$Node 0.10
+
+3. What C2 made of the generated projection (dev/varka_c2_report.py <arm>.xml --holder
+   SpecificUnsafeProjection): for each method, the allocations escape analysis eliminated in
+   each C2 compilation of it, and the bytes the two callers inlined
+
+  nocopy-rows                each greatest: 2 x16 | callers: writeFields_0_0$=6 writeFields_0_1$=6 | bytes the callers inlined: 9260
+  copy-rows                  each greatest: 3 x16 | callers: writeFields_0_0$=12 writeFields_0_1$=12 | bytes the callers inlined: 8811
+  nocopy-columnar            each greatest: 3 x16 | callers: writeFields_0_0$=9 writeFields_0_1$=9 | bytes the callers inlined: 9254
+  copy-columnar              each greatest: 3 x16 | callers: writeFields_0_0$=12 writeFields_0_1$=12 | bytes the callers inlined: 8811
+  vanilla-rowwise-columnar   each greatest: 3 x16 | callers: writeFields_0_0$=12 writeFields_0_1$=12 | bytes the callers inlined: 8811
