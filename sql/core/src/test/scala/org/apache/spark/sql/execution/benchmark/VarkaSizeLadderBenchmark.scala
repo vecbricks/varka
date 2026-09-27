@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.benchmark
 
+import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
 
 import scala.concurrent.duration._
@@ -26,12 +27,15 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.NamedExpression
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, FusedOutput,
   VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmup
 import org.apache.spark.sql.execution.{SparkPlan, VarkaColumnarToRowExec, VarkaProjectExec}
 
 /**
- * The size ladder's rungs, data and query, shared by [[VarkaSizeLadderBenchmark]] and
- * [[VarkaSizeLadderTuningBenchmark]]. A plain object, not the benchmark's, for the reason
- * [[VarkaArrowSessions]] gives.
+ * The size ladder's rungs, data and query, shared by [[VarkaSizeLadderBenchmark]],
+ * [[VarkaSizeLadderTuningBenchmark]] and the benchmarks that time a new shape's first queries
+ * over the same data ([[VarkaColdStartBenchmark]], [[VarkaColdPathBenchmark]]), with the wait for
+ * a quiet JIT those start each timed iteration with. A plain object, not the benchmark's, for the
+ * reason [[VarkaArrowSessions]] gives.
  */
 object VarkaSizeLadder {
 
@@ -56,6 +60,29 @@ object VarkaSizeLadder {
          |from range(0, $rows)""".stripMargin)
       .createOrReplaceTempView("ladder_dates")
     VarkaArrowSessions.cache(session, "ladder_dates")
+  }
+
+  /**
+   * Waits until no kernel warm-up is queued or running and the JIT has finished no compilation
+   * for a second, or a minute has passed, so that a timed iteration pays for no compile an earlier
+   * one requested. The JIT's accumulated compile time only moves when a compilation ends, and a
+   * kernel method's C2 compile takes under a second, so a second without movement means nothing
+   * is still compiling.
+   */
+  private[benchmark] def quiesce(warmupTimeoutMillis: Long = 120000L): Unit = {
+    VarkaKernelWarmup.awaitIdle(warmupTimeoutMillis)
+    val jit = ManagementFactory.getCompilationMXBean
+    val deadline = System.nanoTime() + 60.seconds.toNanos
+    var last = jit.getTotalCompilationTime
+    var stableSince = System.nanoTime()
+    while (System.nanoTime() - stableSince < 1.second.toNanos && System.nanoTime() < deadline) {
+      Thread.sleep(50)
+      val now = jit.getTotalCompilationTime
+      if (now != last) {
+        last = now
+        stableSince = System.nanoTime()
+      }
+    }
   }
 
   /**
