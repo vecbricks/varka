@@ -298,3 +298,38 @@ may also come a compile later once task 221's fix lands (#467), which the
 runner's run will include. Section 4's row for 195 is now "written; the
 runner's run owed".
 
+
+### 9.1 Regenerated with tasks 228 and 230, and run on a runner, 27 September 2026
+
+The committed file was regenerated the same evening on master `7a83a8ef13c`,
+which has the row path's two fixes of the day (`PLAN_TASK_228.md`,
+`PLAN_TASK_230.md`), and the same code ran on a GitHub-hosted runner, an Intel
+Xeon Platinum 8370C with four cores, through `benchmark.yml`
+(`VarkaColdStartBenchmark-jdk25-runner-xeon8370c-results.txt`, with its
+provenance): the run section 4 owed. Against the morning's committed file:
+
+* **Below the cliff the first query's loss mostly closed on the laptop.**
+  Varka's first run against vanilla's went from 1.31 to 1.10 times at 16
+  entries (127 against 115 ms), from 1.88 to 1.06 at 32 and from 1.82 to 1.03
+  at 52; the second run from 1.63 to 1.29 at 16 (66 against 51) and to 0.94 at
+  52 (136 against 145). Past the cliff, from 54 entries, the first run is 0.54
+  to 0.60 times vanilla's (263 against 457 at 54) and the second 0.29 to 0.33.
+* **On the runner the loss is larger and the win past the cliff the same.**
+  The first run is 1.31 to 1.52 times vanilla's below the cliff (294 against
+  224 ms at 16 entries, 644 against 433 at 52) and 0.89 to 0.93 past it; the
+  second run 1.06 to 1.40 below (146 against 104 at 16) and 0.33 to 0.37 past
+  (255 against 686 at 54). The verdict takes 4.2 to 4.5 s at 16 entries and
+  22.5 to 24.3 at 100 on the runner's four cores, against 1.8 to 1.9 and 11.1
+  to 11.6 on the laptop, so short queries on a new shape stay on the row path
+  longer: fifteen back-to-back queries at 16 entries never reach the kernel on
+  either machine, at 52 to 57 ms against vanilla's 38 to 41 on the laptop and
+  73 to 85 against 64 to 68 on the runner.
+* **Once compiled, unchanged:** 27, 27 and 40 ms at 16, 54 and 100 entries on
+  the laptop; 37, 44 and 72 on the runner, against vanilla's 104, 686 and 1288.
+
+What bound 4 says now: a new shape's first query below the cliff costs within
+about a tenth of stock Spark's on the laptop and up to half again on a
+four-core runner, and past the cliff it is already faster; short queries on a
+new shape run 1.2 to 1.4 times slower than stock for the warm-up's two to four
+seconds, then about twice as fast at 16 entries and fifteen times at 54. The
+figures the draft quotes are to be replaced from these two files.

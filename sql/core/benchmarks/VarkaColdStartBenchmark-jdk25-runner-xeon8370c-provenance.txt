@@ -1,0 +1,17 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.VarkaColdStartBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36340015126
+commit:      7a83a8ef13c (master, with tasks 228 and 230: the row path reads a re-read column
+             once, and the columnar node writes into its vectors once)
+date:        2026-09-27
+inputs:      class=*VarkaColdStartBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+             extra-java-options=--add-modules jdk.incubator.vector
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure, runner image ubuntu-24.04 20260920.314.1
+cpu:         Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz (Ice Lake, the full avx512 flag set;
+             four cores on the runner; its datapath ratio is not on record in
+             sql/varka/HARDWARE.md, whose Intel row is the 8573C)
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
+purpose:     task 181's first-query cost (PLAN_TASK_181.md 9) on a runner rather than the
+             laptop, on the code the post describes; the laptop's own file of the same day is
+             VarkaColdStartBenchmark-jdk25-results.txt
