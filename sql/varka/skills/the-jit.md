@@ -766,3 +766,23 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
   four times a fork in most forks at 10 and 14 outputs, and every fork settled fast by second
   4; the cheap shape's 99- to 177-site methods cycled for good in a tenth to a half. Which
   loop keeps re-hoisting a failing predicate is not read from its size.
+
+## Split methods compile, but C2 stops inlining their calls at the caller's budget
+
+Splitting generated code into methods keeps every method under the 8000 bytes HotSpot
+compiles, but it does not keep the calls cheap. C2 inlines callees into a caller only until
+the caller's inlined bytecode reaches `DesiredMethodLimit` (8000 bytes in HotSpot's source, a
+develop flag no product JDK can change) and refuses the rest with `size > DesiredMethodLimit`.
+The refused methods are then compiled by C2 on their own, so nothing runs interpreted, and
+each row still pays a real call per refused method, with no optimisation across the calls.
+
+* **Read it per caller, with the compile's tier.** `-XX:CompileCommand=PrintInlining,<class>::*`
+  prints call-site lines with no header naming the compiled method; add
+  `-XX:+PrintCompilation` and take the lines after a tier-4 header, skipping the "made not
+  entrant" lines that share the header's shape. Without the tier, C1's refusals ("callee uses
+  too much stack") read like C2's.
+* **On vanilla Spark's projection outside a stage**, a `CASE WHEN` of 16 branches splits into
+  6 methods and C2 inlines 5; at 300 branches it splits into 101, grouped into one caller, and
+  C2 inlines 11 and refuses 90 for the budget, identically in every fork under `-Xbatch`.
+  `VarkaSplitInliningSuite` pins both ends; see `PLAN_TASK_181.md` 10.
+

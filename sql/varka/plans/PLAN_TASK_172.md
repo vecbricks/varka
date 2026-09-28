@@ -546,3 +546,33 @@ improvements to B's loop that the assembly suggested.
 
 What is left of this task is the 9V45 figure for the post, and task 195's first-query cost,
 which decides whether B stays.
+
+### 9.10 The 9V45 figure, 28 September 2026
+
+Ten dispatches of `benchmark.yml` from master `1f68b5e5de9` with `expected-cpu` set to
+`AMD EPYC 9V45`, so that a run on any other CPU stops at the workflow's CPU check before the
+build. One drew the 9V45 (`VarkaRangeFilterBenchmark-jdk25-runner-9v45-results.txt`, with its
+provenance); the other nine drew seven EPYC 7763s and two Xeons. Nanoseconds a row, with both
+Varka arms at their defaults of today - B is the range set, A the split conditions:
+
+| ranges | vanilla | B | A | vanilla / B | vanilla / A |
+|---:|---:|---:|---:|---:|---:|
+| 10 | 23.9 | 8.6 | 7.1 | 2.8 | 3.4 |
+| 49 | 28.1 | 11.2 | 10.6 | 2.5 | 2.7 |
+| 100 | 4490.3 | 18.1 | 18.6 | 248 | 241 |
+| 200 | 8426.4 | 34.3 | 33.0 | 246 | 255 |
+
+**The shape is the other runners' and the ratio is the 9V74's.** Vanilla steps about 160 times
+between 49 and 100 ranges, and at the query's 200 ranges Varka is 246 to 255 times faster,
+against 250 on the first 9V74 (9.4). Both sides are about twice as fast as on the 9V74 - 8426.4
+against 17773.9 ns a row for vanilla, 34.3 against 69.6 for B (9.8) - so the ratio the post
+quotes does not depend on which of the two machines it comes from. The A and B arms are within
+5% of each other past ten ranges except at 150, where A is 10% ahead (24.9 against 27.6).
+
+**The averages of arm A are not its cost.** Its average is far above its best at 48, 100, 150
+and 200 ranges (1362 against 66 ms at 200, a standard deviation of 2170 ms): one slow iteration
+a case. Every committed file of this benchmark shows the same, the laptop's and the two earlier
+runners' included, so it is not the 9V45's; this task reads best times, and the figure does too.
+
+The 9V45 figure the post needs is this file. What is left of this task is the decision on B
+that task 195's first-query cost was to inform.

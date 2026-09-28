@@ -340,6 +340,56 @@ seconds, then about twice as fast at 16 entries and fifteen times at 54. The
 figures the draft quotes are to be replaced from these two files.
 
 
+## 10. The inlining evidence, and four rows made owed, 28 September 2026
+
+**The owner's decision.** Section 4 marked four rows as improving the post but
+not gating it: the 9V45 figure of `modified-q3` (172), parallelism (197), the
+threshold below 8000 (170) and spark-vector's arm (202). The owner decided the
+post is not submitted until all four are done as well. Section 4's "No" for
+those rows no longer stands; its rows marked "Yes" are unchanged. The size
+distribution row was not part of that decision and is still open.
+
+**The inlining evidence, done.** `VarkaSplitInliningSuite` forks a JVM
+(`VarkaSplitInliningProbe`) that runs one `CASE WHEN` of `WHEN v = k THEN v * k`
+branches over a long column as a projection outside a stage, under `-Xbatch
+-XX:+PrintCompilation` and `PrintInlining` for the generated class, and reads
+which split `caseWhen_*` methods C2 inlined into their caller. On JDK 25 on the
+laptop, the same in each of six forks per rung:
+
+| branches | split methods | C2's caller | inlined | refused, `size > DesiredMethodLimit` |
+| ---: | ---: | :-- | ---: | ---: |
+| 16 | 6 | `apply` | 5 | 0 (one cold, "too big") |
+| 32 | 11 | `CaseWhen_0$` | 7 | 4 |
+| 64 | 22 | `CaseWhen_0$` | 7 | 15 |
+| 128 | 43 | `CaseWhen_0$` | 9 | 34 |
+| 300 | 101 | `CaseWhen_0$` | 11 | 90 |
+
+From 32 branches the calls are grouped into `CaseWhen_0$` (SPARK-59783, which
+the fork carries), and `apply` calls it. Every method C2 refuses to inline is
+compiled by C2 on its own, so the code is compiled and each row still makes the
+calls. The suite asserts the two ends: at 16 branches at least four split
+methods inlined and none refused for the budget; at 300 some inlined, more than
+four times as many refused for the budget, and every refused one compiled
+alone. `DesiredMethodLimit` is 8000 bytes of inlined bytecode in HotSpot's
+source, a develop flag no product JDK can change, and a separate budget from
+the 8000-byte `HugeMethodLimit` the post is named after.
+
+What 3.4 can now say: splitting keeps every method compilable, but past a few
+thousand bytes of split code C2 stops inlining the calls, so the code is
+compiled and still pays a call per method a row. The same mechanism showed
+inside a stage on apache/spark#59069 (SPARK-33301), where 32 split methods at
+64 branches had 13 inlined and 11 refused for the budget; that PR is not in
+the fork, and the post cites it as upstream work in review.
+
+What stands between the outline and the draft now: the four rows above, none
+of which is a test task.
+
+*Later the same day*: asked about the one optional row left, the distribution
+of generated method sizes over a real workload, the owner said to include it
+too. Every row of section 4 is now owed before the post is submitted, so what
+stands between the outline and the draft is five rows: 170, 172's 9V45 figure,
+197, 202 and the size distribution.
+
 ## 11. The size distribution, 28 September 2026
 
 Section 4's last owed row. `VarkaMethodSizeCensus` runs Spark's golden-file suite and its
@@ -380,3 +430,6 @@ code generation.
 
 Every row of section 4 is now done or owed as a measurement: 170, 172's 9V45 figure (in
 review), 197 and 202.
+
+*Later the same day*: the 9V45 figure merged (`PLAN_TASK_172.md` 9.10), so of section 4's
+rows 170, 197 and 202 remain.
