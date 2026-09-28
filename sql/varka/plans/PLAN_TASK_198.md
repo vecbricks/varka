@@ -137,3 +137,313 @@ start there.
 
 * The computed-once prefix itself, until section 6 admits it.
 * Row 209's cliff, which is its own task.
+
+## 8. The design, 28 September 2026
+
+*Section 6 admitted the task. This section is the design the owner asked for
+before any code, with its options weighed, its predictions registered, and the
+measurement that decides it.*
+
+### 8.1 What is shared, and where it is recomputed
+
+The civil-from-days prefix is not an IR node. It is an emission fragment
+(`VarkaChronoLowering.emitChronoPrefix`) keyed by the date it decomposes
+(`chronoChild`): from the day count in `t[0]` it leaves the era, the day of
+year, the century, the year of century and the March month in `t[1..5]`,
+about 38 `IntVector` operations, most of them magic multiplies
+(`PLAN_TASK_87.md` 2.2; `CHRONO_PREFIX_WEIGHT` is 31 in the weight model). A
+calendar tail - `year`, `month`, `dayofmonth`, `make_date`'s recompose,
+`last_day`, `trunc` - reads what it needs from those locals, and the `trunc`
+and `last_day` tails and `add_months` read `t[0]` as well.
+
+Within one body the fragment is emitted once per lane group: `Slots` keys it
+by the date (and, in the masked body, by the validity word), and a sibling
+over the same date finds the locals filled (`emittedFragments`). That is the
+sharing `shareChronoPrefix` gives, and it stops at the method: a lane group's
+locals do not outlive the method, and the driver runs each group's loop over
+the whole batch before the next group's - `loopDense0` over every lane group,
+then `loopDense1`, and so on, then the epilogues in the same order - so a
+prefix over `d` that outputs in twelve groups need is computed twelve times per
+lane group of the batch. At sixty `make_date` outputs the default grouping is
+twelve groups of five, because five outputs' methods are what fit under 8000
+bytes, and no grouping can put sixty outputs in one method. The size ladder's
+own entry, `greatest(add_months(d, k), date_add(d, k), last_day(d))`, shares
+`d`'s prefix between `add_months` and `last_day` in every entry, so every
+group of a wide rung past the first recomputes it too: at 100 entries the
+emitter makes 25 groups of four, each loop method 3271 bytes with 402
+`IntVector` call sites (`dev/varka_emit.sh`, 28 September 2026), 38 of them
+the prefix. This is why the task moves the ladder and not only the
+shared-prefix benchmark.
+
+### 8.2 The option space
+
+* **S1. A scratch buffer the kernel owns.** The producing group stores the
+  prefix's vectors into a per-batch buffer; later groups load them. The buffer
+  is a field of the kernel instance: a kernel instance is per task
+  (`VarkaShapeEntry.newKernel`; the warm-up runs an instance of its own), so
+  the field is single-threaded by construction, and the `run` signature and
+  every caller's arrays are unchanged. The cost is that a kernel is no longer
+  stateless: it allocates its scratch on the first batch and grows it when a
+  longer one comes, and holds it for the instance's life.
+* **S2. A scratch buffer the caller owns**, passed as trailing entries of
+  `dstData`: the class declares how many it needs and the evaluator, the
+  warm-up and every harness allocate them beside the outputs. Keeps the kernel
+  stateless and the "a call allocates nothing" contract; touches the twenty-four
+  files that drive a kernel, and their arrays.
+* **W. Grouping that keeps sharers together** (row 200): the exact partition
+  in output order, and reordering for prefix affinity. It removes the
+  recomputation the greedy walk causes by order - `year(d), year(d2), month(d)`
+  puts `month(d)` in a third group - and nothing else: sixty sharers of one
+  prefix cross eleven method boundaries under the byte budget whatever the
+  order. A complement, after this task says what a boundary costs.
+* **K. The kernel boundary** (task 190's C): under several kernels per
+  projection the prefix would be an inter-kernel column. The same idea one
+  level up, with the columns' plumbing; it is 190's to build if B is chosen
+  there, and this design's plan-time analysis is what it would reuse.
+* **The general form**, not taken now: any subtree read by outputs in two
+  groups could be materialized the same way, one vector per shared node. The
+  prefix is taken first because it is the shared thing that weighs 31 where a
+  shared `year(d)` weighs one load either way; the region-per-key layout
+  leaves the door open.
+
+**S2 is chosen**, on the owner's word that stateless is preferred where it
+costs no speed, and it costs none: the two are the same emitted loop code, and
+differ only in who allocates the buffer and when. S1 would have been the
+smaller change - the emitter alone, against the emitter plus every caller -
+and its buffer is small, at most six vectors of a batch's rows, 240 KB at the
+Arrow cache's ten thousand rows. But it breaks a contract the engine has kept
+since milestone 1, that a kernel is a pure function of its arguments and a
+call allocates nothing, and it leaves the buffer's lifetime to garbage
+collection. Under S2 the caller allocates the scratch as it allocates the
+output vectors, owns it for as long, and frees it with them. The scratch is a
+new parameter of `run` rather than a trailing entry of `dstData`, so that
+every caller is found by the compiler rather than by an index past the end of
+an array at run time: two callers in production (the evaluator's runner and
+the warm-up) and twenty-one harnesses and benchmarks in the test trees. If
+task 190 passes a prefix between kernels, this is already the shape it needs.
+
+### 8.3 The mechanism
+
+Behind an emit option, `materializeChronoPrefix`, in `canonical()` so the
+shape key sees it; off until 8.7's predictions are read.
+
+**Plan time**, in `VarkaLoopEmitter.emit` after `groupOutputs` and inside the
+byte-budget regroup loop, since a split can create a crossing: for each
+fragment key (the date; the dense key, since the values are the same whatever
+the validity word), the groups whose outputs reach a calendar node over it. A
+key used by two groups or more is *materialized*: its producer is the first
+such group in output order, its consumers the rest, and it gets a scratch
+index. The layout is one region per materialized key of six vectors - `t[0]`
+to `t[5]`, so that `add_months`, `trunc` and `last_day` tails find the day
+count too - of the batch's rows, int32 whatever the tail's lane, since the
+prefix is int-lane by construction (`VarkaChronoLowering`'s class doc). A
+region of `length` rows is enough: the loop's unmasked accesses stay under the
+loop bound, and the epilogue's masked ones check only the lanes their mask
+sets, as the output stores do; the body views the region as it views an
+output's buffer, a segment of `length` rows.
+
+**The contract.** `VarkaFusedKernel.run` gains a parameter, `long scratch`,
+the address of a buffer of at least `scratchBytesPerRow() * length` bytes,
+and the interface gains
+`scratchBytesPerRow()`, a constant the emitted class returns: zero for every
+kernel with nothing to materialize, which passes `0L` and never dereferences
+it. The driver of a kernel with scratch begins with one compare, and a zero
+address is an `IllegalArgumentException` naming the kernel rather than a
+write to address zero. Kernels stay pure functions of their arguments and a
+call allocates nothing, as `VarkaFusedKernel`'s javadoc says today; the
+javadoc gains the scratch's contract beside the validity addresses'.
+
+**The callers.** The evaluator's `FusedRunner` allocates one scratch buffer
+from the task's allocator on the first batch, sized to that batch's rows, and
+grows it when a longer batch comes; it joins the buffers the evaluator already
+keeps for a task's life and releases in its task-completion listener before
+the allocator closes (the `maskBuf` discipline, `closeScratch`), so nothing
+new is invented for its lifetime. The warm-up allocates its own in the arena
+that already holds its probe outputs, for `MAX_CALL_ROWS`; `VarkaEmitterTestBase`
+allocates for the suites in the helper the suites already drive kernels
+through; each benchmark's driver allocates once beside its output buffers.
+`VarkaScratch.sizeFor(kernel, rows)` is the one place the size is computed.
+
+**The producer's bodies** - its loop method and its epilogue, dense and masked
+- store `t[0..5]` to the region right after `emitChronoPrefix` leaves them,
+with the body's own store form: unmasked in the loop, under the epilogue's
+bounds mask in the epilogue. In the masked body the prefix is computed on
+every lane already (the date is masked-loaded with zero fill); the lanes no
+consumer reads hold whatever the arithmetic made of a zero, which is what they
+hold today in the producer's own locals.
+
+**The consumers' bodies** load `t[0..5]` from the region where they would have
+run the prefix (`emitChronoPrefixOnce`), and do not emit the date child for it:
+a child another node of the group needs is emitted by that node's own arm, as
+now. Six loads replace one column load and about 38 operations. The guard that
+condemns a batch on an out-of-range day lives on the date's producer and runs
+where that producer is emitted, so the status is set once, by the producing
+group, and the union in the driver is unchanged.
+
+**The weights.** `GroupOps` keeps the prefixes of every group closed so far,
+not only the group being built, and counts a calendar node whose prefix an
+earlier group computes at its tail plus the six loads rather than at
+`CHRONO_WEIGHT`, so `groupOutputs` packs more consumers per group; bytes still
+decide, in the regroup. A materialized key is planned again on each regroup
+iteration from the groups of that iteration, so a split that moves a producer
+into a later group moves the producer with it.
+
+**The month step.** `planFragmentsReadingMonth` decides per lane group of one
+body whether a fragment's run ends with the March month, from that body's
+tails alone (`elideChronoMonth`). For a materialized key the producer's run is
+decided over every consumer's tails as well: a `year(d)` producer whose
+consumers include `month(d)` keeps the month step it would otherwise elide, in
+its loop and in its epilogue.
+
+**Two things the design rests on, checked in the source.** First, a masked
+body computes every output's DAG on every lane group: the validity words
+(`0L`, the bitmap's bits or `-1L`) gate only which validity bits are written,
+and the masks inside the prefix are the carries' compare masks, not a
+validity word (`emitCarry`), so a prefix keyed by the date alone holds the
+same values whatever word its producer's output carries, and a consumer with a
+wider word finds them computed. Second, a shared node is emitted by whichever
+reader reaches it first (`emitValue`'s `computed` set), so a consumer that no
+longer emits the date child for the prefix leaves it to the child's next
+reader in the group, if any.
+
+**Task 209's budget** gets the same relief for free: a consumer group has about
+thirty fewer vector call sites, a third of the 93 C1 compiles.
+
+### 8.4 What is deliberately unchanged
+
+* With the option off the emitter emits what it emits today, byte for byte:
+  `emitted_bytes.json` is the oracle, as for every emitter change since task
+  167.
+* `shareChronoPrefix`'s sharing within a lane group stays and composes with
+  this: a producer group with two tails over `d` still runs the prefix once per
+  lane group and stores it once.
+* The `run` signature, the callers' arrays, the reference evaluator, the
+  warm-up's protocol and the shape cache: an instance's scratch is invisible
+  to all of them.
+* The cheap-tail cliff (row 209) and the exact grouping (row 200).
+
+### 8.5 Files
+
+| file | what |
+|---|---|
+| `VarkaEmitOptions.java` | `materializeChronoPrefix`, canonical |
+| `VarkaEmitBudget.java` | the consumer's weight beside `CHRONO_PREFIX_WEIGHT` |
+| `VarkaLoopEmitter.java` | the plan of materialized keys per grouping; the two fields; the helper's call at the top of the driver |
+| `Analysis.java`, `Slots.java` | the key-to-region map; a slot for the region's base address per body |
+| `VarkaBodyEmitter.java` | unpacking the scratch address at method entry, as the output addresses are |
+| `VarkaChronoLowering.java` | the stores after the prefix, the loads in place of it |
+| `VarkaScratch.java` (new) | `sizeFor`: the region's size, in one place |
+| `VarkaFusedKernel.java` | the `scratch` parameter of both `run` overloads, `scratchBytesPerRow()`, and their contract in the javadoc |
+| `VarkaEvaluatorBase.scala` (`FusedRunner`), `VarkaKernelWarmup.java` | the two production callers: allocate, grow, free |
+| `VarkaEmitterTestBase`, the probes and benchmarks that drive a kernel | the twenty-one callers in the test trees, found by the compiler |
+| `VarkaEmitterChronoSuite`, `VarkaEmitterBudgetSuite`, `VarkaEmittedBytesSuite` | 8.6 |
+| `VarkaSharedPrefixBenchmark` | the materialized arms, 8.8 |
+| `PLAN_MILESTONE_6.md` | rows 198, 200 and 209 |
+
+### 8.6 Tests, and what each is for
+
+1. **Which keys materialize** (`VarkaEmitterBudgetSuite`, from the plan alone):
+   `year(d), month(d)` in one group - none; sixty `make_date` at the default -
+   one key, producer group 0, eleven consumers; `year(d), year(d2), month(d)`
+   - `d`'s key between groups 0 and 2, the greedy limitation now costing six
+   loads rather than a prefix; a computed child, `year(date_add(d, 1))` and
+   `month(date_add(d, 1))` forced into two groups - materialized, and the
+   consumer emits no `date_add`.
+2. **Answers equal to `VarkaReferenceEvaluator`** with the option on
+   (`VarkaEmitterChronoSuite`): sixty `make_date` at the default grouping and
+   at a fused ceiling of 100 (sixty groups); the ladder's `greatest` entry at
+   twenty; a nullable date, so the masked bodies store and load; at lengths
+   1024, 1031 and 1 (an even batch, a ragged tail, and a batch shorter than a
+   lane group) at both widths, as task 87's ladder tests.
+3. **The scratch's contract**: one runner at 1000 rows, then 10000, then 1,
+   answers right each time (the caller's buffer grew once); a kernel with
+   scratch given `0L` fails by name; a kernel without scratch given `0L` runs;
+   a batch that condemns itself on an out-of-range day returns the same status
+   on and off.
+4. **The bytes.** Off: `emitted_bytes.json` unchanged. On: every consumer loop
+   method carries at least twenty-five fewer `IntVector` call sites than its
+   producer's (`VarkaEmitterTestSupport.methodNames`) - the prefix's 38 and the
+   date's load gone, six loads in their place - which is the count
+   `dev/varka_emit.sh` prints and task 209 reads.
+5. **The fuzzers with the option on** (`VarkaIrFuzzSuite`'s option matrix): the
+   IR fuzzer draws calendar nodes over shared and computed dates, so it is the
+   test of every crossing this plan did not think of.
+
+### 8.7 Predictions, registered before the build
+
+1. **Sixty `make_date` at the default grouping**: the materialized arm is at
+   least 15% faster per row than the 26.8 ns of the wide run and 10% faster
+   than the 86.0 of the narrow one (section 6), against a ceiling of 40% and
+   33%. Below 10% on the wide run the mechanism is not worth its state, and
+   the option stays off with this file as the reason.
+2. **At sixty groups** (fused ceiling 100) the materialized arm is within 1.5
+   times the default's twelve-group time, where recomputation put it at 2.7:
+   the remainder is the per-group fixed cost - the column reloads, the loop,
+   the call - which this arm separates from the prefix, the measurement
+   section 3 said was missing.
+3. **The size ladder** at 100 entries improves by at least 10% at 512 bits on
+   the runner and on the laptop: 24 of its 25 groups recompute the prefix, 38
+   of each group's 402 call sites, about 9% of the operations, and the
+   admission check found the prefix's time share well above its share of
+   operations. The rungs under 54 entries, one or two groups, move within
+   the band.
+4. **The cheap-tail shape does not move**: one group, nothing crosses, and its
+   per-run cliff is row 209's, not this option's.
+5. **Group counts do not grow** anywhere in `emitted_bytes.json`'s corpus with
+   the option on, and at sixty `make_date` they fall below twelve once
+   consumers weigh their loads rather than a prefix.
+
+### 8.8 The measurement
+
+* `VarkaSharedPrefixBenchmark` gains a materialized arm at each ceiling for
+  both shapes, so every table reads recomputed against computed once at the
+  same group count; regenerated at both widths with a band
+  (`dev/varka_bench_regen.sh catalyst VarkaSharedPrefixBenchmark`,
+  `dev/varka_bench_repeat.sh`), quiet.
+* `VarkaMethodSizeBenchmark` (task 87's ladder) and the size ladder
+  (`VarkaSizeLadder`, task 171's) with the option on against their committed
+  files, on the laptop and then on a runner, since the ladder is a headline.
+* The bytes and call sites per method from `dev/varka_emit.sh` on the sixty
+  `make_date` shape, committed beside the plan as the reading of 8.6's test 4.
+* If prediction 1 holds, the option flips on by default in its own pull
+  request, with `emitted_bytes.json` regenerated under task 167's rule, the
+  fuzzers' run, and both ladders' files regenerated; rows 200 and 209 note what
+  moved for them.
+
+### 8.9 Risks
+
+1. **Memory traffic where compute was.** Six vectors of a batch written once
+   and read per consumer: 240 KB per batch at ten thousand rows, which stays in
+   L2 on every host in the census. On a longer batch it does not, and the
+   loads would come from L3; the ladder's batches are the Arrow cache's, so the
+   measurement sees the real size.
+2. **A consumer's tail reads a prefix local the producer did not keep.** Under
+   `elideChronoMonth` the producer may skip the month step when no tail *of its
+   group* reads it; a materialized key's month step is decided over every
+   consumer's tails as well (`fragmentsReadingMonth` widened to the key's
+   groups), and test 2's `make_date`, whose recompose reads the month, is the
+   check.
+3. **A caller sizes the scratch short.** The bytes per row live in one helper,
+   and the driver cannot check a segment's length from an address; test 3's
+   growing batches and the fuzzers' ragged lengths are the check, and the
+   evaluator's allocation is the one path production runs.
+5. **The producer gains call sites.** Six stores are six `IntVector` calls, and
+   a producer group already near task 209's 93-site budget could cross it
+   where its consumers fall well under. The budget's setting (row 209) counts
+   the stores; a producer that would cross splits like any group over a limit.
+4. **The regroup moves a producer.** A split whose new first half holds no
+   consumer of a key it produced leaves the key to the next group; the plan is
+   recomputed per iteration, so it cannot leave a consumer without a producer,
+   and test 1's forced grouping is the pin.
+
+### 8.10 Sequencing
+
+1. The option, the plan of materialized keys, and test 1 - no emission yet.
+2. The contract: the `run` parameter, `scratchBytesPerRow()`, every caller
+   allocating (most pass `0L` until a kernel needs more), `emitted_bytes.json`
+   unmoved; then the emission: stores and loads; tests 2 to 4.
+3. The benchmark's arms and the quiet regeneration; predictions 1, 2 and 4
+   scored.
+4. The ladders on the laptop and a runner; predictions 3 and 5 scored; the
+   fuzzers on.
+5. The default, in its own pull request, if 1 holds; then rows 200 and 209.

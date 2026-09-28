@@ -237,6 +237,35 @@ jobs:
           if [ "$varka_scope" = "docs" ]; then
             docs=false
           fi
+          # Nor can a change confined to Varka's code (row 225): unidoc drops every source under
+          # sql/catalyst, sql/execution and sql/internal, where Varka's Spark-side code lives, and
+          # leaves the engine module out, and the SQL docs list no internal config. A file under
+          # docs/ is Jekyll's own input and keeps the job whatever else changed.
+          if [ "$varka_scope" = "scoped" ] || [ "$varka_scope" = "none" ]; then
+            docs=false
+          fi
+          if echo "${changed_files:-}" | grep -qE '^docs/'; then
+            docs=true
+          fi
+          # The lint job's steps are gated the same way (row 225). MiMa cannot see Varka's code:
+          # catalyst and execution are excluded from it and the engine has no released artifact
+          # to compare against; the dependency test reads the poms, and a pom is a Spark file;
+          # the connect client's MiMa and the R linter read nothing of Varka's. The Scala and
+          # Java linters read Varka's sources, and the Python linter Varka's tools under dev/, so
+          # those run for a change that has such files. A Spark change and the weekly run keep
+          # every step; the job reads a missing flag as true.
+          lint_spark=true
+          lint_code=true
+          lint_python=true
+          if [ "$varka_scope" != "spark" ]; then
+            lint_spark=false
+            if ! echo "${changed_files:-}" | grep -qE '\.pyi?$'; then
+              lint_python=false
+            fi
+          fi
+          if [ "$varka_scope" = "docs" ] || [ "$varka_scope" = "none" ]; then
+            lint_code=false
+          fi
           varka_engine=`./dev/is-changed.py -m varka-engine`
           varka_bench=`./dev/is-changed.py -m varka-bench`
           varka_docs=`./dev/is-changed.py -m varka-docs`
@@ -277,6 +306,9 @@ jobs:
               \"buf\" : \"$buf\",
               \"ui\" : \"$ui\",
               \"transpile\": \"$transpile\",
+              \"lint-spark\": \"$lint_spark\",
+              \"lint-code\": \"$lint_code\",
+              \"lint-python\": \"$lint_python\",
             }"
           echo $precondition # For debugging
           # Remove `\n` to avoid "Invalid format" error
@@ -1089,11 +1121,15 @@ jobs:
       uses: ./.github/actions/install-varka-engine
     - name: License test
       run: ./dev/check-license
+    # Which steps run for a change confined to Varka is decided in the precondition (row 225).
     - name: Dependencies test
+      if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./dev/test-dependencies.sh
     - name: MIMA test
+      if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./dev/mima
     - name: Scala linter
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
       run: ./dev/lint-scala
     # The config binding policy exceptions file lists pre-existing configs that were created before
     # the binding policy was introduced. It must never grow: new configs must declare a binding
@@ -1128,24 +1164,30 @@ jobs:
       run: |
         python3.12 ./dev/structured_logging_style.py
     - name: Java linter
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
       run: ./dev/lint-java
     - name: Spark connect jvm client mima check
+      if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./dev/connect-jvm-client-mima-check
     - name: List Python packages
+      if: fromJson(needs.precondition.outputs.required).lint-python != 'false'
       shell: 'script -q -e -c "bash {0}"'
       run: |
         lsb_release -a
         python3.12 --version
         python3.12 -m pip list
     - name: Python linter
+      if: fromJson(needs.precondition.outputs.required).lint-python != 'false'
       shell: 'script -q -e -c "bash {0}"'
       run: |
         PYTHON_EXECUTABLE=python3.12 ./dev/lint-python
     - name: JS linter
       run: ./dev/lint-js
     - name: Install R linter dependencies and SparkR
+      if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./R/install-dev.sh
     - name: R linter
+      if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./dev/lint-r
 
   java25:
