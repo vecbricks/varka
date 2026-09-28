@@ -32,7 +32,9 @@
 # that separates a vectorised loop from one running the Vector API's Java bodies: an intrinsic C2
 # did not apply leaves a call, or the body it inlined in the intrinsic's place. A compilation that
 # failed has no <nmethod> record, so its compiler is read from what it wrote: only C2 writes
-# late-inline, loop-tree and register-allocation records.
+# late-inline, loop-tree and register-allocation records. A <failure> inside a task whose
+# <task_done> says success is a bailout C2 retried within the task - "retry without subsuming
+# loads" is the usual one - and the task counts as a compile, with the retry noted.
 # The log is read line by line: a C2 log of a few minutes' work is hundreds of megabytes.
 import argparse
 import re
@@ -84,6 +86,7 @@ def compilations(path, holder, method):
                         "stamp": a.get("stamp", "?"),
                         "osr": a.get("compile_kind", "") == "osr",
                         "failure": None,
+                        "retried": None,
                         "c2_marks": 0,
                         "inlined": 0,
                         "eliminated": 0,
@@ -128,7 +131,10 @@ def compilations(path, holder, method):
             elif line.startswith("<eliminate_boxing"):
                 task["boxes"] += 1
             elif line.startswith("<task_done"):
-                task["inlined"] = int(attributes(line).get("inlined_bytes", "0") or 0)
+                a = attributes(line)
+                task["inlined"] = int(a.get("inlined_bytes", "0") or 0)
+                if a.get("success") == "1" and task["failure"]:
+                    task["retried"], task["failure"] = task["failure"], None
             elif line.startswith("</task>"):
                 yield task
                 task = None
@@ -193,7 +199,11 @@ def main():
                 task["eliminated"],
                 task["boxes"],
                 refused,
-                "  FAILED: %s" % task["failure"] if task["failure"] else "",
+                "  FAILED: %s" % task["failure"]
+                if task["failure"]
+                else "  retried: %s" % task["retried"]
+                if task["retried"]
+                else "",
             )
         )
         if args.refusals:

@@ -45,8 +45,15 @@ import org.apache.spark.sql.types.DateType
  * `PrintIntrinsics` scoped to the emitted class print into this process's output, between the
  * markers, and `-XX:+LogCompilation` writes the compile log `dev/varka_c2_report.py` reads.
  *
+ * Two shapes: `cheap`, the tails above, and `makedate`, the deopt guard's
+ * `make_date(year(d), month(d), k)` outputs, whose every call site carries more of C1's virtual
+ * registers. And an optional compiler directive on the emitted class, `inline`, which forces
+ * `VarkaVectorSupport`'s helpers inline whatever C2's budgets say and raises the class's node
+ * limit: the arm that asks whether steering the JIT lifts the cliff on a stock JDK.
+ *
  * Lines the reader looks for:
- *  - `VARKA_CLIFF_BEGIN=<class> pid=<pid> outputs=<n> ceiling=<c> c1=<on|off> xbatch=<on|off>`;
+ *  - `VARKA_CLIFF_BEGIN=<class> pid=<pid> outputs=<n> ceiling=<c> c1=<on|off> xbatch=<on|off>
+ *    shape=<cheap|makedate> directive=<none|inline>`;
  *  - `VARKA_CLIFF_METHODS=<method>:<bytes>:<IntVector call sites>,...` for the loop methods;
  *  - `VARKA_CLIFF_RATE=<second> <nanoseconds a row>` once a second;
  *  - `VARKA_CLIFF_ALLOC=<bytes a call>` over the last second, since a scalar fallback boxes;
@@ -66,14 +73,21 @@ object VarkaInliningCliffProbe {
   /** The emitted classes' prefix, which the launcher's `CompileCommand` patterns name. */
   val CLASS_PREFIX = "org.apache.spark.sql.varka.execution.VarkaCliffProbe_"
 
-  def className(outputs: Int, ceiling: Int, c1: String): String =
-    s"$CLASS_PREFIX${outputs}_${ceiling}_$c1"
+  def className(outputs: Int, ceiling: Int, c1: String, shape: String, directive: String): String =
+    s"$CLASS_PREFIX${outputs}_${ceiling}_${c1}_${shape}_$directive"
 
-  private def excludeC1(): Unit = {
+  /** The C2 options the `inline` directive sets on the emitted class. */
+  private val inlineDirective = "c2: { inline: [\"+org/apache/spark/sql/varka/vector/" +
+    "VarkaVectorSupport.*\"], MaxNodeLimit: 240000 }"
+
+  /** Installs a compiler directive on the emitted classes: C1 excluded, the C2 options, or both. */
+  private def addDirective(excludeC1: Boolean, inline: Boolean): Unit = {
+    val options = Seq(if (excludeC1) "c1: { Exclude: true }" else "",
+      if (inline) inlineDirective else "").filter(_.nonEmpty).mkString(", ")
     val file = Files.createTempFile("varka-cliff-probe-directive", ".json")
     try {
       Files.writeString(file, "[{ match: \"org/apache/spark/sql/varka/execution/" +
-        "VarkaCliffProbe_*.*\", c1: { Exclude: true } }]")
+        "VarkaCliffProbe_*.*\", " + options + " }]")
       val reply = ManagementFactory.getPlatformMBeanServer.invoke(
         new ObjectName("com.sun.management:type=DiagnosticCommand"), "compilerDirectivesAdd",
         Array[AnyRef](Array(file.toString)), Array(classOf[Array[String]].getName))
@@ -86,21 +100,32 @@ object VarkaInliningCliffProbe {
   private val d = AttributeReference("d", DateType)()
   private val columns: Seq[Attribute] = Seq(d)
 
-  /** Task 198's cheap tails: `year(d) + k`, the prefix most of each output's work. */
-  private def shape(n: Int): CompiledVarkaProjection = {
+  /**
+   * The projection: task 198's cheap tails, `year(d) + k`, the prefix most of each output's
+   * work; or the deopt guard's `make_date(year(d), month(d), k)` outputs.
+   */
+  private def shape(kind: String, n: Int): CompiledVarkaProjection = {
     val exprs = (1 to n).map { k =>
-      Alias(VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(s"year(d) + $k"), columns),
-        s"c$k")()
+      val sql = kind match {
+        case "cheap" => s"year(d) + $k"
+        case "makedate" =>
+          val day = (k - 1) % 28 + 1
+          val yearOffset = (k - 1) / 28
+          val year = if (yearOffset == 0) "year(d)" else s"year(d) + $yearOffset"
+          s"make_date($year, month(d), $day)"
+        case other => throw new IllegalArgumentException(s"shape $other is not cheap or makedate")
+      }
+      Alias(VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(sql), columns), s"c$k")()
     }
     VarkaExpressionCompiler.compile(exprs, columns).getOrElse(
-      throw new IllegalStateException(s"the $n-output cheap-tail projection did not fuse"))
+      throw new IllegalStateException(s"the $n-output $kind projection did not fuse"))
   }
 
   def main(args: Array[String]): Unit = {
     // scalastyle:off println
     if (args.length < 3) {
       System.err.println("usage: VarkaInliningCliffProbe <outputs> <fusedCeiling> <seconds> " +
-        "[rows] [c1on|c1off]")
+        "[rows] [c1on|c1off] [cheap|makedate] [none|inline]")
       System.exit(2)
     }
     val outputs = args(0).toInt
@@ -109,18 +134,22 @@ object VarkaInliningCliffProbe {
     val rows = if (args.length > 3) args(3).toInt else 1024
     val c1 = if (args.length > 4) args(4).stripPrefix("c1") else "on"
     require(c1 == "on" || c1 == "off", s"C1 is on or off, not $c1")
+    val kind = if (args.length > 5) args(5) else "cheap"
+    val directive = if (args.length > 6) args(6) else "none"
+    require(directive == "none" || directive == "inline",
+      s"the directive is none or inline, not $directive")
     val xbatch = if (ManagementFactory.getRuntimeMXBean.getInputArguments.contains("-Xbatch")) {
       "on"
     } else {
       "off"
     }
-    val name = className(outputs, ceiling, c1)
+    val name = className(outputs, ceiling, c1, kind, directive)
     println(s"$BEGIN_PREFIX$name pid=${ProcessHandle.current().pid()} outputs=$outputs " +
-      s"ceiling=$ceiling c1=$c1 xbatch=$xbatch")
-    if (c1 == "off") {
-      excludeC1()
+      s"ceiling=$ceiling c1=$c1 xbatch=$xbatch shape=$kind directive=$directive")
+    if (c1 == "off" || directive == "inline") {
+      addDirective(excludeC1 = c1 == "off", inline = directive == "inline")
     }
-    val fused = shape(outputs)
+    val fused = shape(kind, outputs)
     val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
       fused.numLiterals, null, null, VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling))
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala

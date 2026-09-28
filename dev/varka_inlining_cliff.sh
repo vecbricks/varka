@@ -20,13 +20,18 @@
 # (PLAN_TASK_209.md 2)? Forks fresh JVMs of VarkaInliningCliffProbe - task 198's cheap-tail
 # shape, `year(d) + k` over one date, at a given output count and fused ceiling - under
 # -XX:+LogCompilation and PrintInlining and PrintIntrinsics scoped to the emitted class, and
-# reads each fork's verdict and C2's reasons with dev/varka_inlining_cliff.py.
+# reads each fork's verdict and C2's reasons with dev/varka_inlining_cliff.py. --shapes makedate
+# forks the deopt guard's make_date shape instead, whose call sites are heavier; --directives
+# inline installs a compiler directive on the emitted class that forces VarkaVectorSupport's
+# helpers inline and raises its node limit.
 #
 #   dev/varka_inlining_cliff.sh                                   # the sweep: 16 to 64 outputs in one group, 20 forks each
 #   dev/varka_inlining_cliff.sh --outputs 64 --ceilings 400,100,50 # one, two and six groups of the 64 tails
 #   dev/varka_inlining_cliff.sh --outputs 64 --xbatch on,off       # with the order of compilation fixed, and not
 #   dev/varka_inlining_cliff.sh --outputs 64 --c1 off              # C1 kept off the class, as the warm-up keeps it
 #   dev/varka_inlining_cliff.sh --outputs 64 --jvm "-XX:NodeCountInliningCutoff=60000"   # a cutoff raised
+#   dev/varka_inlining_cliff.sh --shapes makedate --outputs 8,12,16   # the deopt guard's make_date shape
+#   dev/varka_inlining_cliff.sh --outputs 48 --directives none,inline # the helpers forced inline by directive
 #
 # --widths is in bytes, as the JVM's MaxVectorSize counts them, and empty means the host's own.
 # Each (width, xbatch, jvm) combination is one sbt session with one forked JVM per case and
@@ -39,7 +44,7 @@
 usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 set -euo pipefail
 outputs=16,24,32,40,48,56,64; ceilings=400; widths=""; forks=20; seconds=6; rows=1024
-xbatch=off; c1=on; jvm=""
+xbatch=off; c1=on; jvm=""; shapes=cheap; directives=none
 while [ $# -gt 0 ]; do
   case "$1" in
     --outputs) outputs="$2"; shift 2 ;;
@@ -51,6 +56,8 @@ while [ $# -gt 0 ]; do
     --xbatch) xbatch="$2"; shift 2 ;;
     --c1) c1="$2"; shift 2 ;;
     --jvm) jvm="$2"; shift 2 ;;
+    --shapes) shapes="$2"; shift 2 ;;
+    --directives) directives="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) usage ;;
   esac
@@ -66,13 +73,15 @@ mkdir -p "$out"
   echo "jdk:     $(java -version 2>&1 | head -1)"
   echo "cpu:     $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
   echo "load:    $(cut -d' ' -f1-3 /proc/loadavg) at start"
-  echo "args:    outputs=$outputs ceilings=$ceilings widths=${widths:-host} forks=$forks seconds=$seconds rows=$rows xbatch=$xbatch c1=$c1 jvm=$jvm"
+  echo "args:    outputs=$outputs ceilings=$ceilings widths=${widths:-host} forks=$forks seconds=$seconds rows=$rows xbatch=$xbatch c1=$c1 shapes=$shapes directives=$directives jvm=$jvm"
 } > "$out/provenance.txt"
 cat "$out/provenance.txt"
 IFS=',' read -r -a output_list <<< "$outputs"
 IFS=',' read -r -a ceiling_list <<< "$ceilings"
 IFS=',' read -r -a xbatch_list <<< "$xbatch"
 IFS=',' read -r -a c1_list <<< "$c1"
+IFS=',' read -r -a shape_list <<< "$shapes"
+IFS=',' read -r -a directive_list <<< "$directives"
 if [ -n "$widths" ]; then IFS=',' read -r -a width_list <<< "$widths"; else width_list=(host); fi
 logs=()
 for w in "${width_list[@]}"; do
@@ -90,8 +99,12 @@ for w in "${width_list[@]}"; do
     for n in "${output_list[@]}"; do
       for c in "${ceiling_list[@]}"; do
         for c1mode in "${c1_list[@]}"; do
-          for ((i = 0; i < forks; i++)); do
-            cmds+=("Test/runMain $main $n $c $seconds $rows c1$c1mode")
+          for shape in "${shape_list[@]}"; do
+            for directive in "${directive_list[@]}"; do
+              for ((i = 0; i < forks; i++)); do
+                cmds+=("Test/runMain $main $n $c $seconds $rows c1$c1mode $shape $directive")
+              done
+            done
           done
         done
       done

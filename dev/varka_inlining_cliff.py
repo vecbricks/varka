@@ -94,6 +94,8 @@ def read_fork(header, lines, slow_at):
         "ceiling": int(fields.get("ceiling", "0")),
         "c1": fields.get("c1", "?"),
         "xbatch": fields.get("xbatch", "?"),
+        "shape": fields.get("shape", "cheap"),
+        "directive": fields.get("directive", "none"),
         "pid": fields.get("pid", "?"),
         "methods": [],
         "rates": [],
@@ -172,6 +174,7 @@ def read_compile_log(fork, directory):
                     "id": task["id"],
                     "stamp": task["stamp"],
                     "failure": task["failure"],
+                    "retried": task["retried"],
                     "intrinsics": task["intrinsics"],
                     "vector_ops": ids["_VectorBinaryOp"]
                     + ids["_VectorUnaryOp"]
@@ -203,11 +206,16 @@ def describe_jit(jit):
     else:
         if good:
             last = good[-1]
+            retried = [c for c in good if c["retried"]]
             words.append(
-                "C2 x%d%s, first at %ss: %d intrinsics, %d vector ops, %d calls left, refused %s"
+                "C2 x%d%s%s, first at %ss: %d intrinsics, %d vector ops, %d calls left, refused %s"
                 % (
                     len(good),
                     " (+%d OSR)" % jit["osr"] if jit["osr"] else "",
+                    " (%d after a retry: %s)"
+                    % (len(retried), "; ".join(sorted({c["retried"] for c in retried})))
+                    if retried
+                    else "",
                     good[0]["stamp"],
                     last["intrinsics"],
                     last["vector_ops"],
@@ -241,6 +249,8 @@ def jit_facts(jit):
         facts.append("C2 none")
     if good:
         facts.append("C2 compiled once" if len(good) == 1 else "C2 recompiled")
+        if any(c["retried"] for c in good):
+            facts.append("after a retry")
     if failed:
         facts.append("C2 failed")
     if any(k[0] == "trap" for k in jit["events"]):
@@ -249,11 +259,17 @@ def jit_facts(jit):
 
 
 def case_of(fork):
-    return "%d outputs, ceiling %d, c1 %s, xbatch %s" % (
+    extras = ""
+    if fork["shape"] != "cheap":
+        extras += ", " + fork["shape"]
+    if fork["directive"] != "none":
+        extras += ", directive " + fork["directive"]
+    return "%d outputs, ceiling %d, c1 %s, xbatch %s%s" % (
         fork["outputs"],
         fork["ceiling"],
         fork["c1"],
         fork["xbatch"],
+        extras,
     )
 
 
