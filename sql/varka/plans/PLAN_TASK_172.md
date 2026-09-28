@@ -576,3 +576,34 @@ runners' included, so it is not the 9V45's; this task reads best times, and the 
 
 The 9V45 figure the post needs is this file. What is left of this task is the decision on B
 that task 195's first-query cost was to inform.
+
+### 9.11 The first query of the two designs, planned, 28 September 2026
+
+The decision 9.9 left open - whether design B, the range set, stays beside design A, the
+split conditions, which is faster or equal at steady state - was to be informed by task 195's
+first-query cost. Task 195's benchmark prices the ladder's projections, not this filter, so the
+number does not exist. `VarkaColdStartBenchmark` gains a section for it: the same cases as its
+projection section (plan only, first run, second run; and once compiled on the warm-up arm) for
+each design on each Varka arm, at 48 ranges and at the query's 200, over its hundred thousand
+rows, with every bound shifted by a day per iteration so no iteration's source is one Janino
+has compiled. Vanilla's arm is the baseline, as in the range filter benchmark.
+
+**Predictions, registered before the run.**
+
+1. *Plan only* holds the emission. A emits several methods of several thousand bytes where B
+   emits one under 2000, so A's plan-only case is slower than B's at 200 ranges, by more than
+   the noise; both are tens of milliseconds.
+2. *First run without the warm-up*: both designs' kernels run interpreted until compiled, and A
+   has more code to interpret and more methods for C2 to compile, so A's first run is slower
+   than B's at 200 ranges. At 48 ranges the two are within the noise.
+3. *With the warm-up*, A's verdict comes later than B's at 200 ranges (more methods to compile),
+   and its once-compiled case equals B's within the noise, as the steady state does.
+4. *Vanilla* at 200 ranges pays a Janino compile of a method past 8000 bytes and then runs it
+   interpreted, so its first run is slower than either design's, and its second run is not
+   faster than its first by much: it never leaves the interpreter.
+
+**The rule for the decision.** If A's first-run and plan-only costs at 200 ranges are within
+about a fifth of B's on the runner's file, B has no case left and goes, with rows 207 and 208;
+if A pays clearly more, both stay and the post says when each applies. The figure the post
+quotes comes from a GitHub runner, as every headline number does; the laptop's run checks the
+benchmark and gives the first reading.

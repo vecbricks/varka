@@ -24,9 +24,10 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaKernelWarmup,
-  VarkaShapeCache}
-import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, VarkaProjectExec}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaEmitOptions,
+  VarkaKernelWarmup, VarkaShapeCache}
+import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, VarkaFilterExecBase,
+  VarkaProjectExec, VarkaQ3Ranges}
 
 /**
  * What the first query costs (tasks 195 and 212): a query's first runs against its steady state,
@@ -73,6 +74,14 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
  *
  * A rung whose Varka arms do not fuse every entry fails the run rather than timing a partly
  * per-row Varka arm, as the ladder does.
+ *
+ * A fourth section asks the same first-query question of TPC-DS `modified-q3`'s filter, the
+ * realistic query of task 172, whose two designs tie at steady state: the range set, one loop
+ * method under 2000 bytes over a table of bounds, and the split conditions, several methods of
+ * several thousand bytes each. Which costs more on the first query is what decides whether both
+ * stay (`PLAN_TASK_172.md` 9.11). The same cases as the projection's, for each design on each
+ * Varka arm, at 48 ranges (under vanilla's crossing) and at the query's 200; the bounds shift by
+ * a day per iteration so that no iteration's source is one Janino has compiled.
  *
  * Iterations are printed one by one rather than summarised, because a first run is one event
  * and its spread is the finding. The rungs and data are `VarkaSizeLadder`'s.
@@ -132,6 +141,55 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
   private val series = 40
   private val steady = 50
 
+  /** The range filter's rungs: under vanilla's crossing, and the query's own count. */
+  private val rangeRungs = if (smoke) Seq(48) else Seq(48, 200)
+
+  /**
+   * The two designs of task 172 for a disjunction of ranges: the range set (the defaults) and
+   * the split conditions, chosen the way `VarkaRangeFilterBenchmark` chooses them.
+   */
+  private val designs = Seq(
+    "range set" -> VarkaEmitOptions.DEFAULTS,
+    "split conditions" -> VarkaEmitOptions.DEFAULTS.withRangeSets(false).withSplitConditions(true))
+
+  /** Runs `body` with the Varka sessions planning and emitting under `options`. */
+  private def withOptions[T](options: VarkaEmitOptions)(body: => T): T = {
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(options)
+    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaEmitOptions.DEFAULTS)
+  }
+
+  /**
+   * The filter of `n` of `modified-q3`'s ranges over an Arrow-cached key column, with every bound
+   * shifted by `iteration` days: a different source for each iteration, since a range's literals
+   * are in vanilla's generated code and Janino would otherwise serve its cache. The ranges are
+   * a year apart, so a shift of a few tens of days keeps them disjoint and the selectivity.
+   */
+  private def rangeQuery(n: Int, iteration: Int): String = {
+    val predicate = VarkaQ3Ranges.ranges.take(n)
+      .map { case (a, b) => s"ss_sold_date_sk between ${a + iteration} and ${b + iteration}" }
+      .mkString(" or ")
+    s"SELECT ss_sold_date_sk FROM range_keys WHERE $predicate"
+  }
+
+  /** `VarkaRangeFilterBenchmark`'s keys, over this benchmark's rows. */
+  private def cacheKeys(session: SparkSession): Unit = {
+    session.sql(
+      s"""select case when id % 31 = 0 then null
+         |       else cast(2415022 + (id * 7919) % 73049 as int) end as ss_sold_date_sk
+         |from range(0, $numRows)""".stripMargin)
+      .createOrReplaceTempView("range_keys")
+    VarkaArrowSessions.cache(session, "range_keys")
+  }
+
+  /** Whether the Varka arm ran the filter of `q` as a kernel. */
+  private def varkaFilters(session: SparkSession, q: String): Boolean = {
+    val df = session.sql(q)
+    df.queryExecution.toRdd.count()
+    df.queryExecution.executedPlan.collectFirst {
+      case f: VarkaFilterExecBase => f.metrics("numVarkaBatches").value > 0
+    }.getOrElse(false)
+  }
+
   /** How long to wait for a warm-up's verdict: a hundred-entry kernel takes seconds. */
   private val warmupTimeoutMillis = 120000L
 
@@ -166,6 +224,7 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
     val node = qe.executedPlan.collectFirst {
       case v: VarkaColumnarToRowExec => v
       case v: VarkaProjectExec => v
+      case v: VarkaFilterExecBase => v
     }.getOrElse(throw new IllegalStateException(s"no Varka node:\n${qe.executedPlan.treeString}"))
     val counts = node.metrics.collect {
       case (k, m) if k.endsWith("Batches") || k.startsWith("numFallbackBatches") => k -> m.value
@@ -277,6 +336,92 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
           checkKernelServed(warmup, query(n, compiled + repetitions - 1))
           report(s"rung $n: the warm-up's verdicts, one per once-compiled iteration: " +
             verdicts.result().map(describe).mkString("; "))
+        }
+      }
+      Seq(baseline, varka, warmup).foreach(cacheKeys)
+      runBenchmark("the first query of modified-q3's filter: the range set against the split " +
+          "conditions") {
+        for (n <- rangeRungs) {
+          for ((design, options) <- designs;
+              last <- Seq(firstRun, secondRun, compiled).map(_ + repetitions - 1)) {
+            require(withOptions(options)(varkaFilters(varka, rangeQuery(n, last))),
+              s"the $design arm declined the filter of $n ranges at iteration $last")
+          }
+          val benchmark = new Benchmark(s"$n ranges over $numRows Arrow-cached rows", numRows,
+            minNumIters = repetitions, warmupTime = 0.seconds, minTime = 0.seconds,
+            outputPerIteration = true, output = output)
+          benchmark.addTimerCase("vanilla Spark, plan only") { timer =>
+            val q = rangeQuery(n, planOnly + timer.iteration)
+            quiesce()
+            timer.startTiming()
+            baseline.sql(q).queryExecution.executedPlan
+            timer.stopTiming()
+          }
+          benchmark.addTimerCase("vanilla Spark, first run") { timer =>
+            val q = rangeQuery(n, firstRun + timer.iteration)
+            quiesce()
+            timer.startTiming()
+            baseline.sql(q).noop()
+            timer.stopTiming()
+          }
+          benchmark.addTimerCase("vanilla Spark, second run") { timer =>
+            val q = rangeQuery(n, secondRun + timer.iteration)
+            quiesce()
+            baseline.sql(q).noop()
+            timer.startTiming()
+            baseline.sql(q).noop()
+            timer.stopTiming()
+          }
+          val verdicts = Seq.newBuilder[String]
+          for ((design, options) <- designs;
+              (arm, session) <- Seq("Varka" -> varka, "Varka with warm-up" -> warmup)) {
+            benchmark.addTimerCase(s"$arm, $design, plan only") { timer =>
+              val q = rangeQuery(n, planOnly + timer.iteration)
+              VarkaShapeCache.invalidateAll()
+              quiesce()
+              timer.startTiming()
+              withOptions(options)(session.sql(q).queryExecution.executedPlan)
+              timer.stopTiming()
+            }
+            benchmark.addTimerCase(s"$arm, $design, first run") { timer =>
+              val q = rangeQuery(n, firstRun + timer.iteration)
+              VarkaShapeCache.invalidateAll()
+              quiesce()
+              timer.startTiming()
+              withOptions(options)(session.sql(q).noop())
+              timer.stopTiming()
+            }
+            benchmark.addTimerCase(s"$arm, $design, second run") { timer =>
+              val q = rangeQuery(n, secondRun + timer.iteration)
+              VarkaShapeCache.invalidateAll()
+              quiesce()
+              withOptions(options)(session.sql(q).noop())
+              timer.startTiming()
+              withOptions(options)(session.sql(q).noop())
+              timer.stopTiming()
+            }
+            if (session eq warmup) {
+              benchmark.addTimerCase(s"$arm, $design, once compiled") { timer =>
+                val q = rangeQuery(n, compiled + timer.iteration)
+                VarkaShapeCache.invalidateAll()
+                quiesce()
+                withOptions(options)(warmup.sql(q).noop())
+                verdicts += s"$design: ${describe(awaitVerdict())}"
+                quiesce()
+                timer.startTiming()
+                withOptions(options)(warmup.sql(q).noop())
+                timer.stopTiming()
+                // This design's kernel is compiled now and gone from the cache once the other
+                // design's cases run, so it is checked here, on the last iteration.
+                if (timer.iteration == repetitions - 1) {
+                  withOptions(options)(checkKernelServed(warmup, q))
+                }
+              }
+            }
+          }
+          benchmark.run()
+          report(s"rung $n ranges: the warm-up's verdicts, one per once-compiled iteration: " +
+            verdicts.result().mkString("; "))
         }
       }
       runBenchmark("the same shape back to back: ms per query") {
