@@ -26,6 +26,7 @@ import scala.collection.mutable
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.launcher.JavaModuleOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaProbeOutput
 import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
 
 /**
@@ -86,12 +87,15 @@ class VarkaSizeLadderJitSuite extends SparkFunSuite {
       while (line != null) {
         tail.enqueue(line)
         if (tail.size > 40) tail.dequeue()
-        val trimmed = line.trim
-        if (trimmed.startsWith(BYTES_PREFIX)) {
-          bytes = trimmed.stripPrefix(BYTES_PREFIX).toInt
-        } else if (trimmed == DONE) {
+        // A marker can share a line with a compile record a compiler thread wrote, on either
+        // side, so each is looked for anywhere in the line, and the line is read for a compile
+        // record as well (`VarkaProbeOutput`).
+        VarkaProbeOutput.longAfter(line, BYTES_PREFIX).foreach(b => bytes = b.toInt)
+        if (VarkaProbeOutput.has(line, DONE)) {
           done = true
-        } else if (trimmed.contains(method)) {
+        }
+        val trimmed = line.trim
+        if (trimmed.contains(method)) {
           // `PrintCompilation`: timestamp, compile id, attribute flags (`%` for an on-stack
           // replacement), the tier, then `class::method`. The tier is the token before the
           // method, whatever the flags in front of it.

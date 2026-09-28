@@ -72,19 +72,21 @@ class VarkaInliningCliffSuite extends SparkFunSuite {
   test("the probe prints its markers, and the reader makes one row of them") {
     val lines = fork(outputs = 16, ceiling = 400, seconds = 3)
     def marked(prefix: String): Seq[String] =
-      lines.map(_.trim).filter(_.startsWith(prefix)).map(_.stripPrefix(prefix))
+      lines.flatMap(VarkaProbeOutput.after(_, prefix)).map(_.trim)
     val begin = marked(VarkaInliningCliffProbe.BEGIN_PREFIX)
     assert(begin.size == 1 && begin.head.contains("outputs=16 ceiling=400 c1=on xbatch=off"),
       begin)
     val methods = marked(VarkaInliningCliffProbe.METHODS_PREFIX)
     assert(methods.size == 1, methods)
     // One group of sixteen tails: a dense and a masked loop, each with vector call sites.
-    val loops = methods.head.split(",").map(_.split(":")).map(f => (f(0), f(1).toInt, f(2).toInt))
+    // The list has no spaces, so a record glued after it ends at the first one.
+    val loops = methods.head.takeWhile(!_.isWhitespace).split(",").map(_.split(":"))
+      .map(f => (f(0), f(1).toInt, f(2).toInt))
     assert(loops.map(_._1).toSet == Set("loopDense0", "loopMasked0"), loops.toSeq)
     assert(loops.forall { case (_, bytes, sites) => bytes > 0 && sites > 0 }, loops.toSeq)
     assert(marked(VarkaInliningCliffProbe.RATE_PREFIX).size >= 2, lines.takeRight(10))
     assert(marked(VarkaInliningCliffProbe.ALLOC_PREFIX).size == 1)
-    assert(marked(VarkaInliningCliffProbe.DONE_PREFIX).exists(_.endsWith("status=0")),
+    assert(marked(VarkaInliningCliffProbe.DONE_PREFIX).exists(_.split("\\s+").contains("status=0")),
       marked(VarkaInliningCliffProbe.DONE_PREFIX))
 
     val log = Files.createTempFile("varka-cliff", ".log")
