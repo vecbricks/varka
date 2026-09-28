@@ -739,3 +739,30 @@ next. Reading each fork's compile log beside its rate settled what the timing co
   to 4.4 ns a row, where the one group that lands well runs at 1.2 to 1.4 and the one that
   cycles at 115. See `PLAN_TASK_209.md` 9.
 
+
+## The deoptimization cycle is profiled loop predication's, and the wait before C2 is nobody's
+
+The night after task 209's admission check ran its arms at 24, 40 and 48 cheap-tail outputs,
+ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
+
+* **`-XX:-UseProfiledLoopPredicate` ends the cycle**: no fork of 30 cycled under it against 10
+  of 30 with the default, with the same compiled code to the intrinsic and the same settle
+  seconds. The trap reason `profile_predicate` was the mechanism's name: C2 hoists a predicate
+  out of the loop on the profile's word, it fails, the code is thrown away, the next compile
+  hoists it again. The flag is a product flag; its cost to everything else is unmeasured.
+* **Nothing shortens the interpreter's seconds before C2** - 2 at 24 outputs, 4 at 40, 6 at 48
+  in every arm: C1 excluded, helpers forced inline by directive with `MaxNodeLimit` raised, the
+  flag. Only a loop method C1 compiles is fast from the first second, and C1 compiles 93
+  vector call sites and refuses 99 on JDK 25.0.4.1: 20 cheap tails on their prefix, or one
+  `make_date` output, at 55 sites each on a prefix of 38.
+* **A compiler directive that forces helpers inline changes nothing when C2 inlines them
+  already**: look for "force inline by CompileCommand" in the log to see that it matched, and
+  compare the vector operations and calls left to see whether it mattered.
+* **A `<failure>` inside a compile task is not a failed compile until `<task_done>` says so**:
+  "retry without subsuming loads" is a bailout C2 retries within the task, and the task's
+  `success` attribute is the outcome. `dev/varka_c2_report.py` reads it so, and every loop
+  method of the `make_date` shape compiles that way.
+* **Traps are not the cycle.** The `make_date` shape's 313-site methods trapped and recompiled
+  four times a fork in most forks at 10 and 14 outputs, and every fork settled fast by second
+  4; the cheap shape's 99- to 177-site methods cycled for good in a tenth to a half. Which
+  loop keeps re-hoisting a failing predicate is not read from its size.

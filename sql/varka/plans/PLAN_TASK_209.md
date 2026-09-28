@@ -298,3 +298,112 @@ What is still to measure before the budget is set, in its own pull request:
 * **The nightly guard** takes the cheap-tail shape at 24 and 40 outputs beside the `make_date`
   ladder, since row 218's "the default form never cycles" is now false for it, with
   `dev/varka_inlining_cliff.py` given a `--fail-if-slow` for the purpose.
+
+## 10. The night of 27 to 28 September: the boundary, the `make_date` shape and the arms
+
+The laptop's share of 9.5's list ran unattended after #490 merged - the boundary, the
+`make_date` shape, the warm-up's C1 exclusion, and two arms of the "steer the JIT" kind: a
+compiler directive on the emitted class that forces `VarkaVectorSupport`'s helpers inline and
+raises its `MaxNodeLimit` to 240000, and `-XX:-UseProfiledLoopPredicate`, the flag behind the
+cycle's trap reason. Same JVM, machine and reader as section 9; the readings are section 4 of
+`VarkaInliningCliff-jdk25-probe.txt`. The runner classes' census is still to do.
+
+### 10.1 The boundary: C1 compiles 93 vector call sites and refuses 99
+
+Twenty forks of twelve seconds a case, the cheap tails in one loop method:
+
+| outputs | loop bytes, sites | C1 | slow / fast | the fast forks | the slow forks |
+|---:|---:|---|---:|---|---|
+| 18 | 1325, 87 | compiles | 0 / 20 | settled at second 1, 0.9 to 1.1 ns a row | - |
+| 20 | 1431, 93 | compiles | 0 / 20 | second 1 or 2, 1.0 to 1.1 | - |
+| 22 | 1537, 99 | fails | 3 / 17 | second 2, 1.1 to 1.2 | the cycle, 109.2 to 109.6, 75 `profile_predicate` traps over the three |
+
+The limit 9.1 put between 81 and 105 sites lies between 93 and 99, and the two shapes give the
+count's arithmetic: a cheap tail costs 3 sites on a shared prefix of 33 (69 at 12 outputs, 87
+at 18, 93 at 20, 99 at 22, 105 at 24, 153 at 40, 177 at 48), a `make_date` output 55 on a
+prefix of 38 (93 for one, 148 for two, 203 for three, 258 for four, 313 for five). So the
+budget's value on this JDK is 93 sites a loop method - 20 cheap tails, or one `make_date`
+output - and since C1's bailout is a count of its own virtual registers, the value should be
+the JDK's and not the machine's, which the runner census can confirm.
+
+### 10.2 The `make_date` shape: every method past C1 from eight outputs, and no fork slow
+
+Twenty forks of sixteen seconds a case, the deopt guard's `make_date(year(d), month(d), k)`
+outputs under the default options with the fused ceiling at 400 - which the byte budget still
+splits, five outputs a loop method at 313 sites and a remainder method:
+
+| outputs | loop methods, sites | slow / fast | settled at, ns a row | C2 on the first method |
+|---:|---|---:|---|---|
+| 8 | 313, 203 | 0 / 20 | second 2, 3.2 to 3.7 | once, in all 20 |
+| 10 | 313, 313 | 0 / 20 | 2 to 4, 4.4 | recompiled in 12, 48 `profile_predicate` traps between |
+| 12 | 313, 313, 148 | 0 / 20 | 2 to 3, 5.7 to 5.8 | once, in all 20 |
+| 14 | 313, 313, 258 | 0 / 20 | 3 to 4, 5.9 to 6.4 | recompiled in 18, 72 traps |
+| 16 | 313, 313, 313, 93 | 0 / 20 | 3, 6.7 to 7.8 | once, in all 20 |
+
+* **C1 refuses every method of this shape from the first case**, since one output with its
+  prefix is already 93 sites; the first code the loop runs under C2 is the interpreter's at
+  seconds 2 to 4, as for the cheap tails past 20 outputs.
+* **C2's first attempt at each loop bails out and its retry lands in the same compile task**:
+  "retry without subsuming loads" in all 100 forks, the `<task_done>` record marked a success.
+  The readers counted such a task as failed until this night; `dev/varka_c2_report.py` now
+  reads the task's outcome from `<task_done>` and notes the retry, and the reading is "C2
+  compiled once, after a retry".
+* **The traps do not become the cycle here.** At 10 and 14 outputs most forks recompiled the
+  first loop method, four `profile_predicate` traps a fork, and every one of them settled fast
+  by second 4; at 8, 12 and 16 outputs the byte-identical first method (2956 bytes, 313 sites,
+  the same five outputs) trapped in no fork. The cheap shape's methods of 99 to 177 sites
+  cycled for good in 3 forks of 20 to 6 of 10 the same night. The cycle is not a function of
+  the site count, and what C2 traps on is not only the method's own code.
+
+### 10.3 The arms at 24, 40 and 48 outputs: the flag ends the cycle, nothing shortens the wait
+
+Ten forks of 24 seconds a case, the cheap tails in one loop method (105, 153 and 177 sites),
+slow / fast:
+
+| arm | 24 | 40 | 48 | the fast forks settle at | C2's code |
+|---|---:|---:|---:|---|---|
+| C1 on, the default (the control) | 1 / 9 | 3 / 7 | 6 / 4 | seconds 2, 4, 6 | 46, 62, 70 vector ops; 1616, 2170, 2441 calls left |
+| C1 on, `-XX:-UseProfiledLoopPredicate` | 0 / 10 | 0 / 10 | 0 / 10 | 2, 4, 6 | the same counts |
+| C1 excluded (the warm-up's directive, task 212) | 2 / 8 | 0 / 10 | 0 / 10 | 2, 4, 6 | the same |
+| C1 excluded and the `inline` directive | 0 / 10 | 2 / 8 | 3 / 7 | 2, 4, 6 | the same |
+| C1 on and the `inline` directive | 1 / 9 | 2 / 8 | 3 / 7 | 2, 4, 6 | the same |
+
+* **`-XX:-UseProfiledLoopPredicate` removed the cycle: no fork of 30 against 10 of 30 in the
+  control**, with the same compiled code to the intrinsic and the same settle seconds. The
+  trap reason named the mechanism and the flag confirms it: C2 hoists a predicate out of the
+  loop on the profile's word, the predicate fails, the code traps and is thrown away, and the
+  next compile hoists it again. It is a product flag, so it can be set on a Spark JVM today;
+  what it costs everything else is the next measurement (10.4).
+* **Excluding C1 reduced the cycle and did not remove it**: 2 slow forks of 30 without the
+  directive, 5 of 30 with it, against 10 of 30 with C1 on.
+* **The `inline` directive changed nothing C2 emitted.** It matched - the 60 forks under it
+  are the 60 compile logs with a "force inline by CompileCommand" record - and the vector
+  operations, the calls left and the refusals a fork are the same as the control's: the helpers
+  were inlined without it, and the refusals that remain are inside the Vector API's bodies.
+  Whether its `MaxNodeLimit` moved the cycle's count (5 of 30 against 2 of 30) is within these
+  samples' noise.
+* **The seconds before C2 moved in no arm**: 2 at 24 outputs, 4 at 40, 6 at 48, in all 150
+  forks. The cliff's cost is the interpreter's time, and only keeping the method under C1's
+  limit removes it - which is the budget's case, unchanged.
+
+### 10.4 What the night settles, and what it leaves
+
+* **The budget's value**: 93 sites a loop method on JDK 25.0.4.1 - the last count C1
+  compiled, 6 under the first it refused. To confirm on the runner classes' JDK before it is
+  hard-coded, and to key by the JDK version in the census that guards it.
+* **The budget's price for heavy shapes**: one `make_date` output a method, its prefix
+  recomputed in each, against the two or three seconds of interpretation and the traps that
+  resolved that the 313-site methods pay today. The ladders under the budget (9.5) have to be
+  run for both shapes, and the decision may be a budget that heavy shapes exceed on purpose:
+  a method past C1 that settles in 3 seconds and never cycles is a different case from one
+  that cycles for good.
+* **The cycle has a switch.** `-XX:-UseProfiledLoopPredicate` is the first arm to end it, and
+  its cost is unmeasured: the next night runs the throughput and parity files under the flag
+  against their bands, and the deopt guard (task 189) under it. If the cost is nothing
+  measurable, the flag is a line in Varka's recommended JVM options and the guard's remedy;
+  the budget still owns the seconds before C2.
+* **The warm-up's C1 exclusion** (task 212) keeps its case on these numbers - fewer cycles,
+  never more - and gives up nothing for methods under the budget, which C1 would compile in
+  the first second anyway; that trade is the ladder measurement's to price.
+* **Still to do from 9.5**: the runner classes' census; the ladders under the budget; the
+  nightly guard's `--fail-if-slow`.
