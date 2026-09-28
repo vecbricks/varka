@@ -62,7 +62,18 @@ newcomer to the row's issue when it has one.
 
 ## 4. Outcome
 
-*Written from the workflow's first run.*
+*Written 28 September 2026, from the workflow's runs since it merged.*
+
+The first run, on 26 September 2026 at 06:14 (run 36217236376, on the push
+that merged `ab8946048cf`), opened one issue per open row of
+`PLAN_MILESTONE_6.md`: 37 issues, each titled `[Task <n>] <title>`, labelled
+`task` and `milestone-6`, with a body naming the row's state and quoting the
+row. Every push that changes a plan has run it since, 18 more issues on
+27 September as rows were added, and by 28 September it had closed 16 as
+their rows turned done - task 228's as completed, for one - and left 39
+open, which is the table's count of open rows. The labels and bodies read
+as intended, so the row is done; what remains is the mirror's ordinary
+upkeep, which the workflow does.
 
 ## 5. Explicitly out of this task
 
