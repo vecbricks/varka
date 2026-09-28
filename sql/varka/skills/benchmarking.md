@@ -560,3 +560,14 @@ measures. Under sbt the same flag is also the `SPARK_TESTING` environment variab
 JVM cannot clear, so such a rung still throws there; the runners' `spark-submit` path is where
 the full ladder runs. The quickest local check that a benchmark's fallback arm behaves as in
 production is `bin/spark-submit` from a stock distribution, not `build/sbt Test/runMain`.
+
+## A rate printed with one decimal cannot read a cold case
+
+Spark's benchmark tables print the rate in M/s and the time a row in nanoseconds, each with
+one decimal, and they are the same measurement. For a fast case the rate carries the digits;
+for a cold one - a first query, a compile, a few thousand rows - the rate moves in steps of 12%
+at 0.8 M/s and prints 0.0 below 0.05, where every change reads as zero or as a division by
+zero. `dev/varka_bench_band.py` and `dev/varka_bench_diff.py` read each case from whichever
+figure has more digits. The difference is not cosmetic: measured on the rate, three runs of
+`VarkaColdStartBenchmark` put 56 of 96 cases in the quiet tier, many of them because the rounded
+rate did not move at all; measured on the time a row, 36.
