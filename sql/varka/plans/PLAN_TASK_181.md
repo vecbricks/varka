@@ -383,3 +383,9 @@ the fork, and the post cites it as upstream work in review.
 
 What stands between the outline and the draft now: the four rows above, none
 of which is a test task.
+
+*Later the same day*: asked about the one optional row left, the distribution
+of generated method sizes over a real workload, the owner said to include it
+too. Every row of section 4 is now owed before the post is submitted, so what
+stands between the outline and the draft is five rows: 170, 172's 9V45 figure,
+197, 202 and the size distribution.
