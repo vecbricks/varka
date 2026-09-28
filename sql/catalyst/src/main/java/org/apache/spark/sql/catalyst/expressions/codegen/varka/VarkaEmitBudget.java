@@ -281,6 +281,13 @@ final class VarkaEmitBudget {
   static final int CHRONO_PREFIX_WEIGHT = 31;
 
   /**
+   * What a calendar node weighs in place of {@link #CHRONO_PREFIX_WEIGHT} when its prefix is
+   * materialized by an earlier group (task 198): the loads of the prefix's six vectors from the
+   * scratch region, one operation each, where the prefix itself is thirty-one.
+   */
+  static final int CHRONO_PREFIX_LOAD_WEIGHT = 6;
+
+  /**
    * The four task-26 fields' tails - {@code year} 5, {@code month} 4, {@code dayofmonth} 5,
    * {@code quarter} 7 - as one constant at the widest, since the four share
    * {@link #CHRONO_WEIGHT} and a two-op difference decides no grouping.

@@ -298,7 +298,8 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
           // production. Every shape this harness drives is one the kernel must answer.
           val status = kernel.run(cols.map(_.data.address()).toArray, validityAddrs.toArray,
             nullCounts.toArray, dstData.toArray,
-            outs.map(_._2.address()).toArray, lits, length)
+            outs.map(_._2.address()).toArray, lits, length,
+            VarkaEmitterTestSupport.scratch(kernel, length))
           assert(status === 0,
             s"$ctx: the kernel declined a batch it should have computed " +
               s"(length $length, combo $comboId, status $status)")
@@ -414,7 +415,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
           val status = kernel.run(cols.map(_.data.address()).toArray,
             cols.map(_.validityAddress(length)).toArray, cols.map(_.nullCount).toArray,
             dstData.toArray, outs.map(_._2.address()).toArray,
-            Array.empty[Int], lits, length)
+            Array.empty[Int], lits, length, VarkaEmitterTestSupport.scratch(kernel, length))
           assert(status === 0,
             s"$ctx at $lanes lanes: the kernel declined a batch it should have computed " +
               s"(length $length, combo $comboId, status $status)")
@@ -546,7 +547,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
           }
           val status = kernel.run(Array(data.address()), Array(validity.address()), Array(0),
             outs.map(_._1.address()).toArray, outs.map(_._2.address()).toArray,
-            Array.empty[Int], n)
+            Array.empty[Int], n, VarkaEmitterTestSupport.scratch(kernel, n))
           assert(status === 0, s"the kernel declined an in-range batch at day $day")
           i = 0
           while (i < n) {
@@ -606,7 +607,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
           }
           val status = kernel.run(Array(data.address()), Array(validity.address()), Array(0),
             outs.map(_._1.address()).toArray, outs.map(_._2.address()).toArray,
-            Array.empty[Int], n)
+            Array.empty[Int], n, VarkaEmitterTestSupport.scratch(kernel, n))
           assert(status === 0, s"the kernel declined an in-range batch at day $day")
           i = 0
           while (i < n) {
@@ -654,7 +655,8 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
             i += 1
           }
           val status = kernel.run(Array(data.address()), Array(validity.address()), Array(0),
-            Array(out._1.address()), Array(out._2.address()), Array.empty[Int], n)
+            Array(out._1.address()), Array(out._2.address()), Array.empty[Int], n,
+            VarkaEmitterTestSupport.scratch(kernel, n))
           assert(status === 0, s"the kernel declined an in-range batch at day $day")
           i = 0
           while (i < n) {
@@ -739,7 +741,8 @@ trait VarkaEmitterTestBase extends SparkFunSuite {
       Array(a.data.address(), b.data.address()),
       Array(a.validityAddress(length), b.validityAddress(length)),
       Array(a.nullCount, b.nullCount),
-      Array(out._1.address()), Array(out._2.address()), Array.empty[Int], length)
+      Array(out._1.address()), Array(out._2.address()), Array.empty[Int], length,
+      VarkaEmitterTestSupport.scratch(kernel, length))
 
   // Task 63's int arithmetic. `checkOff` is the A/B arm the benchmark prices and the flag the
   // emitter reads to drop the sign test; it is never a correct setting for an ANSI query.

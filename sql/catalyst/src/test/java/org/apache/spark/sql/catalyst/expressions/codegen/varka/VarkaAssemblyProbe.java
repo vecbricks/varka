@@ -487,8 +487,8 @@ public final class VarkaAssemblyProbe {
       public int run(int rounds) {
         int status = 0;
         for (int r = 0; r < rounds; r++) {
-          status |= kernel.run(
-              srcData, srcValidity, srcNullCount, dstData, dstValidity, scalarArgs, ROWS);
+          status |= kernel.run(srcData, srcValidity, srcNullCount, dstData, dstValidity,
+              scalarArgs, ROWS, VarkaEmitterTestSupport.scratch(kernel, ROWS));
         }
         return status;
       }

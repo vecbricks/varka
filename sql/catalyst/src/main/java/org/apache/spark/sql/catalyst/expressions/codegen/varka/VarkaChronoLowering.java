@@ -417,16 +417,80 @@ final class VarkaChronoLowering {
       line(cb, analysis, node);
       return;
     }
-    emitValue(cb, chronoChild(node), dense, analysis, s, computed);
-    line(cb, analysis, node);
-    // Whether the run ends with the month step. Under sharing that is a question about every
-    // consumer of this fragment, not about the node that happens to be emitting it; with
-    // sharing off two nodes with equal keys name different locals, so it is per node and
+    VarkaVectorIR date = chronoChild(node);
+    // Whether this fragment's own tails read the month step. Under sharing that is a question
+    // about every consumer of this fragment, not about the node that happens to be emitting it;
+    // with sharing off two nodes with equal keys name different locals, so it is per node and
     // year(d) does not pay for a month(d) it shares nothing with.
-    boolean emitMonth = !analysis.options.elideChronoMonth()
+    boolean ownMonth = !analysis.options.elideChronoMonth()
         || (shareChronoPrefix ? s.fragmentsReadingMonth.contains(key)
             : tailReadsMarchMonth(node));
+    // A prefix materialized across groups (task 198): the first group to decompose the date
+    // stores the prefix's vectors into the caller's scratch after computing them, and every
+    // later group loads them into this fragment's locals in place of the decomposition. The
+    // driver runs the groups' loop methods in order and their epilogues after, in order, so
+    // the loads always find the rows stored.
+    Analysis.Materialized mat = analysis.materialized.get(date);
+    if (mat != null && mat.producer() != s.group) {
+      // The date's value is not needed here, but in the masked body a date whose validity word
+      // is its own - not an alias of an input's or a child's - stores that word as a side effect
+      // of its visit, and the tails' words alias it; such a date is visited and its vector
+      // dropped. Every other date, a column above all, is not loaded at all.
+      if (!dense && s.ownWord.contains(date)) {
+        emitValue(cb, date, dense, analysis, s, computed);
+        cb.pop();
+      }
+      line(cb, analysis, node);
+      emitPrefixTransfer(cb, analysis, s, t, mat, ownMonth, false);
+      return;
+    }
+    emitValue(cb, date, dense, analysis, s, computed);
+    line(cb, analysis, node);
+    boolean emitMonth = ownMonth || (mat != null && mat.needsMonth());
     emitChronoPrefix(cb, node, dense, analysis, s, t, emitMonth);
+    if (mat != null && s.storedPrefixes.add(date)) {
+      emitPrefixTransfer(cb, analysis, s, t, mat, mat.needsMonth(), true);
+    }
+  }
+
+  /**
+   * The prefix's vectors between the locals {@code t[0..5]} and the scratch region of a
+   * materialized prefix: {@code store} writes them, a consumer's load reads them. The month
+   * vector travels only when {@code withMonth}: a producer stores it when any group's tail
+   * reads it, a consumer loads it when its own tails do. The same offset and mask as a column's
+   * load at this point of the body, so the epilogue's partial lane group stays inside the
+   * region.
+   */
+  private static void emitPrefixTransfer(CodeBuilder cb, Analysis analysis, Slots s, int[] t,
+      Analysis.Materialized mat, boolean withMonth, boolean store) {
+    int vectors = withMonth ? Analysis.SCRATCH_VECTORS : Analysis.SCRATCH_VECTORS - 1;
+    for (int k = 0; k < vectors; k++) {
+      int seg = s.scratchSeg[mat.region() * Analysis.SCRATCH_VECTORS + k];
+      if (store) {
+        cb.aload(t[k]);
+        cb.aload(seg);
+        cb.lload(s.byteOffset);
+        cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+        if (s.epilogueMask != null) {
+          cb.aload(s.epilogueMask);
+          cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentMasked);
+        } else {
+          cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
+        }
+      } else {
+        cb.aload(s.species);
+        cb.aload(seg);
+        cb.lload(s.byteOffset);
+        cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+        if (s.epilogueMask != null) {
+          cb.aload(s.epilogueMask);
+          cb.invokestatic(INT_VECTOR, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
+        } else {
+          cb.invokestatic(INT_VECTOR, "fromMemorySegment", Lane.INT.fromMemorySegmentDense);
+        }
+        cb.astore(t[k]);
+      }
+    }
   }
 
   /**

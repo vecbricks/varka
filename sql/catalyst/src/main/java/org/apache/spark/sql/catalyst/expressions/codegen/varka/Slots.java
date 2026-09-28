@@ -245,6 +245,23 @@ final class Slots {
    */
   final Set<Integer> deadRefs = new HashSet<>();
 
+  /**
+   * The loop-method group this body is planned for, or -1 for the driver and for the single
+   * epilogue of the form without a byte budget. A calendar node reads it to tell whether its
+   * group produces a materialized prefix or consumes one (task 198).
+   */
+  int group = -1;
+  /**
+   * Under a materialized prefix (task 198): one {@code MemorySegment} local per vector of each
+   * scratch region this body stores or loads, indexed {@code region * SCRATCH_VECTORS + k},
+   * -1 for a region this body never touches; null when the emission materializes nothing.
+   * Allocated after every other slot, so no other local moves.
+   */
+  int[] scratchSeg;
+  /** The dates whose materialized prefix this body has already stored; see the producer's
+   * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
+  final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
+
   Slots(int numInputs, int numOutputs) {
     srcSeg = new int[numInputs];
     srcValSeg = new int[numInputs];
@@ -307,9 +324,17 @@ final class Slots {
    */
   static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, Analysis analysis, int numLiterals, boolean perGroup) {
+    return plan(dense, mode, outputs, outputIdx, analysis, numLiterals, perGroup, -1);
+  }
+
+  /** As above, for the loop or epilogue method of loop-method group {@code group}. */
+  static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
+      List<Integer> outputIdx, Analysis analysis, int numLiterals, boolean perGroup,
+      int group) {
     int numInputs = analysis.numInputs;
     Slots s = new Slots(numInputs, outputs.size());
-    int slot = analysis.lane.firstLocal;
+    s.group = group;
+    int slot = analysis.firstLocal();
     s.dataBytes = slot;
     slot += 2;
     s.validityBytes = slot;
@@ -610,7 +635,42 @@ final class Slots {
         }
       }
     }
+    // A materialized prefix's scratch segments (task 198): a local per vector of every region a
+    // calendar node of this body stores into or loads from. Last, so that every slot above keeps
+    // its number, and only in the loop and epilogue methods, which are the bodies that run the
+    // vector walk.
+    if (analysis.hasScratch() && vectorWalk) {
+      s.scratchSeg = new int[analysis.materialized.size() * Analysis.SCRATCH_VECTORS];
+      Arrays.fill(s.scratchSeg, -1);
+      Set<VarkaVectorIR> visited = new HashSet<>();
+      for (int o : outputIdx) {
+        for (VarkaVectorIR date : materializedDates(outputs.get(o), analysis, visited)) {
+          int region = analysis.materialized.get(date).region();
+          for (int k = 0; k < Analysis.SCRATCH_VECTORS; k++) {
+            if (s.scratchSeg[region * Analysis.SCRATCH_VECTORS + k] < 0) {
+              s.scratchSeg[region * Analysis.SCRATCH_VECTORS + k] = slot++;
+            }
+          }
+        }
+      }
+    }
     return s;
+  }
+
+  /** The dates with a materialized prefix that the calendar nodes under {@code root} decompose. */
+  private static List<VarkaVectorIR> materializedDates(VarkaVectorIR root, Analysis analysis,
+      Set<VarkaVectorIR> visited) {
+    List<VarkaVectorIR> dates = new ArrayList<>();
+    if (!visited.add(root)) {
+      return dates;
+    }
+    if (isChrono(root) && analysis.materialized.containsKey(chronoChild(root))) {
+      dates.add(chronoChild(root));
+    }
+    for (VarkaVectorIR child : childrenOf(root)) {
+      dates.addAll(materializedDates(child, analysis, visited));
+    }
+    return dates;
   }
 
   /**

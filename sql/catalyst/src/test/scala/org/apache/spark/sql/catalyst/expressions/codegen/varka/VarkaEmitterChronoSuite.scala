@@ -1789,4 +1789,91 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       nullPatterns.map(p => Seq(p._2)), data = days, ctx = "digit-sum-variant",
       options = VarkaEmitOptions.DEFAULTS.withFloorMod7(VarkaEmitOptions.FloorMod7.DIGIT_SUM))
   }
+
+  test("a materialized prefix answers as the reference does: stored by the first group, " +
+      "loaded by the later ones, in the loop and in the epilogue") {
+    // Task 198. Sixty make_date at the default grouping and at a ceiling that splits them
+    // into many groups; the four fields one per group; a computed date, and one whose validity
+    // word is its own, which the masked consumer still visits; at an even batch, a ragged tail
+    // and a batch shorter than a lane group; under every null pattern, so the masked bodies
+    // store and load through the epilogue's mask as well.
+    val on = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
+    val split = on.withGroupBudget(1).withFusedCeiling(1)
+    val col = new ColumnRef(0)
+    val lengths = Seq(1, 1024, 1031)
+    def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
+      new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
+    }
+    val days = Array.tabulate(60)(k => k % 28 + 1)
+    checkMatrix(ladder(60), 1, days, lengths, combos(1), ctx = "sixty make_date", options = on)
+    checkMatrix(ladder(60), 1, days, lengths, combos(1), ctx = "sixty make_date, ceiling 100",
+      options = on.withFusedCeiling(100))
+    checkMatrix(Seq(new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col)), 1,
+      Array.empty[Int], lengths, combos(1), ctx = "four fields, one per group", options = split)
+    val shifted = new AddDays(col, new LiteralSlot(0))
+    checkMatrix(Seq(new Year(shifted), new Month(shifted)), 1, Array(1), lengths, combos(1),
+      ctx = "a computed date", options = split)
+    val twoColumns = new AddDays(col, new ColumnRef(1))
+    checkMatrix(Seq(new Year(twoColumns), new Month(twoColumns)), 2, Array.empty[Int], lengths,
+      combos(2), ctx = "a date with its own validity word", options = split)
+  }
+
+  test("the scratch contract: a kernel with a materialized prefix refuses a zero address " +
+      "and the seven-argument run by name, one without runs with a zero, and a declined " +
+      "batch declines the same either way") {
+    // Task 198. The address travels as an eighth argument; a kernel that needs it says so
+    // rather than read through zero, and a kernel that does not ignores what it is passed,
+    // which is what lets every caller use the one form.
+    val on = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
+      .withGroupBudget(1).withFusedCeiling(1)
+    val col = new ColumnRef(0)
+    val roots = Seq[VarkaVectorIR](new Year(col), new Month(col))
+    val (kernel, loader) = load(emitMulti(roots, 1, 0, on))
+    val (plain, plainLoader) = load(emitMulti(roots, 1, 0))
+    val arena = Arena.ofConfined()
+    try {
+      val length = 100
+      val data = arena.allocate(length * 4L, 64)
+      val dst = roots.map(_ => arena.allocate(length * 4L, 64).address()).toArray
+      val dstValidity = roots.map(_ => arena.allocate(16L, 64).address()).toArray
+      val none = Array.empty[Int]
+      assert(kernel.scratchBytesPerRow() === 24 && plain.scratchBytesPerRow() === 0)
+      val zero = intercept[IllegalArgumentException] {
+        kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, length, 0L)
+      }
+      assert(zero.getMessage.contains("bytes of scratch per row"), zero.getMessage)
+      val seven = intercept[UnsupportedOperationException] {
+        kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, length)
+      }
+      assert(seven.getMessage.contains("call run with the scratch address"), seven.getMessage)
+      assert(plain.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
+        length, 0L) === 0)
+      val scratch = arena.allocate(24L * length, 64)
+      assert(kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
+        length, scratch.address()) === 0)
+      // A batch a guard condemns - an out-of-range day under ANSI make_date - in the group
+      // that loads the prefix: the same status as with the prefix recomputed.
+      val bad = Seq[VarkaVectorIR](
+        new MakeDate(new Year(col), new Month(col), new LiteralSlot(0), true),
+        new MakeDate(new Year(col), new Month(col), new LiteralSlot(1), true))
+      val (badOn, badOnLoader) = load(emitMulti(bad, 1, 2, on))
+      val (badOff, badOffLoader) = load(emitMulti(bad, 1, 2))
+      try {
+        val lits = Array(1, 40)
+        val statusOn = badOn.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity,
+          lits, length, scratch.address())
+        val statusOff = badOff.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity,
+          lits, length)
+        assert(statusOn !== 0, "the out-of-range day did not condemn the batch")
+        assert(statusOn === statusOff)
+      } finally {
+        badOnLoader.release()
+        badOffLoader.release()
+      }
+    } finally {
+      arena.close()
+      loader.release()
+      plainLoader.release()
+    }
+  }
 }

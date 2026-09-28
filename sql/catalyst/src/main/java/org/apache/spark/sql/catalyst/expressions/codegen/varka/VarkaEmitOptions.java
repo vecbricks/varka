@@ -299,6 +299,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        bitmaps. On by default, since measured ({@code PLAN_TASK_172.md} 9.7 and 9.8); off is
  *        the form before it, where such a predicate declines. Read by the compiler, not by the
  *        emitter.
+ * @param materializeChronoPrefix whether a civil-from-days prefix that outputs in two or more
+ *        loop-method groups decompose is computed once per batch, by the first of those groups,
+ *        into a scratch region the caller passes to {@code run}, and loaded by the later groups
+ *        in place of the prefix (task 198). Off, every group recomputes it.
  * @param groupLocalSlots whether a group's loop and epilogue methods plan their frames over the
  *        nodes they emit alone ({@code PLAN_TASK_191.md} 3.1). Off, every method's frame is
  *        planned over the whole kernel - a slot per distinct node, kernel-wide - so a method
@@ -340,7 +344,8 @@ public record VarkaEmitOptions(
     int methodByteBudget,
     boolean rangeSets,
     boolean splitConditions,
-    boolean groupLocalSlots) {
+    boolean groupLocalSlots,
+    boolean materializeChronoPrefix) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -446,7 +451,7 @@ public record VarkaEmitOptions(
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
-          true, true, true);
+          true, true, true, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -514,6 +519,7 @@ public record VarkaEmitOptions(
       b.rangeSets = rangeSets;
       b.splitConditions = splitConditions;
       b.groupLocalSlots = groupLocalSlots;
+      b.materializeChronoPrefix = materializeChronoPrefix;
     return b;
   }
 
@@ -548,6 +554,7 @@ public record VarkaEmitOptions(
     private boolean rangeSets;
     private boolean splitConditions;
     private boolean groupLocalSlots;
+    private boolean materializeChronoPrefix;
 
     private Builder() {
     }
@@ -697,6 +704,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder materializeChronoPrefix(boolean materializeChronoPrefix) {
+      this.materializeChronoPrefix = materializeChronoPrefix;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -705,7 +717,7 @@ public record VarkaEmitOptions(
           lanesOverride, truncDate, floorMod7, division, useAVX, misdescribeAdd,
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
-          groupLocalSlots);
+          groupLocalSlots, materializeChronoPrefix);
     }
   }
 
@@ -732,6 +744,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withGroupLocalSlots(boolean enabled) {
     return toBuilder().groupLocalSlots(enabled).build();
+  }
+
+  public VarkaEmitOptions withMaterializeChronoPrefix(boolean enabled) {
+    return toBuilder().materializeChronoPrefix(enabled).build();
   }
 
   public VarkaEmitOptions withShareWholeNodes(boolean enabled) {
@@ -882,6 +898,7 @@ public record VarkaEmitOptions(
         + shareWholeNodes + '|' + validityByWord + '|' + mulHiDivide
         + '|' + narrowHalfSpecies + '|' + methodByteBudget
         + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions")
-        + (groupLocalSlots ? "" : "|kernelWideSlots") + ')';
+        + (groupLocalSlots ? "" : "|kernelWideSlots")
+        + (materializeChronoPrefix ? "|materializePrefix" : "") + ')';
   }
 }

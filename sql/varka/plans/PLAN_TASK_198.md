@@ -447,3 +447,77 @@ thirty fewer vector call sites, a third of the 93 C1 compiles.
 4. The ladders on the laptop and a runner; predictions 3 and 5 scored; the
    fuzzers on.
 5. The default, in its own pull request, if 1 holds; then rows 200 and 209.
+
+## 9. The build, 28 September 2026
+
+Steps 1 and 2 of 8.10 are built, behind `materializeChronoPrefix`, off by default. What was
+built as 8.3 says is not repeated here; what differs from it is:
+
+* **The contract is two new overloads, not a changed one.** `VarkaFusedKernel.run` keeps its
+  seven- and eight-argument forms, and gains each form with `long scratch` after the length,
+  as interface defaults that drop the address and call the old form. A kernel with nothing
+  to materialize implements the old form as before, so its bytes are unchanged -
+  `emitted_bytes.json` is unmoved with no regeneration, and a caller that never meets a
+  materialized kernel needs no change. A kernel with scratch implements the new form, an old
+  form that throws `UnsupportedOperationException` naming the kernel and its bytes per row,
+  and `scratchBytesPerRow()`. The production callers, the evaluator and the warm-up, and the
+  test harnesses that drive kernels under arbitrary options, call the new form always; the
+  parity and arithmetic benchmarks keep the old form, which is right for them since their
+  options never materialize.
+* **There is no `VarkaScratch.sizeFor`.** The size is the kernel's own answer,
+  `scratchBytesPerRow()`, computed once in `Analysis.scratchBytesPerRow()` as the regions
+  times six vectors times the lane's stride; the tests share one helper,
+  `VarkaEmitterTestSupport.scratch(kernel, rows)`, a thread-local buffer regrown on demand.
+* **Where the region is addressed.** Not at the top of the driver: each loop and epilogue
+  method that touches a region builds its six segments in its own prologue, right after the
+  batch's sizes, as `scratch + (region * 6 + k) * dataBytes` of `dataBytes` each, so the
+  layout follows the batch's own length and the driver, which runs no calendar node, keeps its
+  frame. The segment locals are planned after every other slot of the frame, so no local of
+  an unchanged emission moves. The public `run` of such a kernel refuses a zero address with
+  an `IllegalArgumentException` before dispatching.
+* **The consumer still visits one kind of date.** 8.3 said a consumer emits no date child for
+  the prefix. In the masked body a date whose validity word is its own - `date_add(d, e)` over
+  two columns, not `d` or `date_add(d, 1)`, whose words alias an input's - stores that word as
+  a side effect of its visit, and the calendar tails' words alias it; so such a date is still
+  visited by the masked consumer and its vector dropped (`Slots.ownWord`), where a column or
+  a literal-offset date is not loaded at all. The dense body never visits it.
+* **The month vector travels only where it is read.** The producer computes the month step
+  when any group's tail over the date reads it, as 8.3 says, and stores `t[5]` only then; a
+  consumer loads `t[5]` only when its own fragment's tails read it (`fragmentsReadingMonth`),
+  so a `year`-only consumer of a `month`-reading key loads five vectors.
+* **The weights, in detail.** `GroupOps` takes the closed groups' prefixes as a shared set. The
+  first calendar node over a date in a group pays `CHRONO_PREFIX_LOAD_WEIGHT`, six, where an
+  earlier group computes the prefix, and `CHRONO_PREFIX_WEIGHT` otherwise; a later node over
+  the same date in the group saves exactly what the first paid, so clause 2 of `groupOutputs`
+  still opens the wider ceiling for a group that reuses a loaded prefix, on the same ground -
+  joining is strictly less work.
+* **The materialization needs the sharing and the byte budget.** With `shareChronoPrefix` off
+  no fragment is shared inside a group either, and with `methodByteBudget` zero the epilogue
+  is one method over every output, which computes each prefix once already; both leave the
+  option without effect rather than half an effect.
+* **Test 1 reads the class, not the plan.** The materialized keys are read as the kernel's
+  `scratchBytesPerRow()` - twenty-four per key - and as the loop methods' `IntVector` call
+  sites, a consumer's at least twenty-five below its producer's; the plan-time map is package
+  state of `Analysis` and has no reader outside the emitter.
+
+**The reading of 8.8's third item**, `dev/varka_emit.sh` on the sixty `make_date` outputs
+(`make_date(year(d) + k / 28, month(d), k % 28 + 1)`), `IntVector` call sites per dense loop
+method:
+
+| arm | loop methods | producer | consumers | call sites per batch |
+|---|---|---|---|---|
+| off | 12, five outputs each | 313 to 317 each | | 3756 |
+| on | 11: five outputs, nine of six, one of one | 319 (313 and six stores) | 343 to 347 for six outputs; 70 for the last | 3485 |
+
+A consumer's six outputs cost what five and a prefix cost before, which is the weights
+working: 7% fewer call sites per batch and one call fewer, where 8.7's predictions rest on the
+prefix's share of time being well above its share of operations, as the admission check found.
+The masked methods read the same way, six more sites in the producer's `loopMasked0`.
+
+The tests of 8.6 pass on the laptop: test 1 in `VarkaEmitterBudgetSuite`, tests 2 and 3 in
+`VarkaEmitterChronoSuite`, test 4's byte identity in `VarkaEmittedBytesSuite`, and the fuzzers,
+whose option draw covers every boolean `with*` and so this one. The evaluator's side is
+`VarkaMaterializedPrefixSuite` in `sql/core`: sixty `make_date` over a nullable Arrow-cached
+date, at the default grouping and one output per group, against the row engine. The
+benchmark's arms (8.8) are in `VarkaSharedPrefixBenchmark`; the quiet regeneration and the
+predictions' scoring follow in section 10.

@@ -793,4 +793,78 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val unrelated = new IllegalArgumentException("no output chains to emit")
     assert(VarkaEmittedClass.refused(unrelated).isEmpty)
   }
+
+  test("a prefix two loop-method groups decompose is materialized, and no other") {
+    // Task 198: under `materializeChronoPrefix` the first group to decompose a date computes
+    // its prefix into the caller's scratch, and the later groups load it. Read off the class -
+    // the scratch it asks for per row, six int vectors per date the groups share - and off the
+    // loop methods' IntVector call sites, since a consumer drops the decomposition's
+    // thirty-eight and the date's load for five or six loads.
+    val on = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
+    // Every output its own group, so a producer and its consumers are one output apart and
+    // their methods differ by the prefix and their tails alone.
+    val split = on.withGroupBudget(1).withFusedCeiling(1)
+    val col = new ColumnRef(0)
+    val region = 6 * 4
+    def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
+        options: VarkaEmitOptions): (Array[Byte], Int) = {
+      val named = emitMulti(roots, inputs, lits, options)
+      val (kernel, loader) = load(named)
+      try {
+        (named._2, kernel.scratchBytesPerRow())
+      } finally {
+        loader.release()
+      }
+    }
+    def sites(bytes: Array[Byte], method: String): Int =
+      VarkaEmitterTestSupport.invocationCount(bytes, method, "jdk.incubator.vector.IntVector")
+    def consumersLighter(bytes: Array[Byte], consumers: Range): Unit = {
+      for (g <- consumers; side <- Seq("loopDense", "loopMasked")) {
+        assert(sites(bytes, side + g) <= sites(bytes, side + 0) - 25,
+          s"$side$g: ${sites(bytes, side + g)} IntVector call sites against the producer's " +
+            s"${sites(bytes, side + 0)}")
+      }
+    }
+    def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
+      new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
+    }
+    // One group: nothing crosses and nothing is materialized, whatever the option says.
+    assert(emitted(Seq(new Year(col), new Month(col)), 1, 0, on)._2 === 0)
+    // Off, no kernel asks for scratch.
+    assert(emitted(ladder(60), 1, 60, VarkaEmitOptions.DEFAULTS)._2 === 0)
+    // Sixty make_date at the default grouping: one date, so one region; and no more groups
+    // than before, since the consumers weigh their loads rather than a prefix.
+    val (sixty, sixtyScratch) = emitted(ladder(60), 1, 60, on)
+    assert(sixtyScratch === region)
+    val loopsOn = VarkaEmitterTestSupport.methodNames(sixty).asScala
+      .count(_.startsWith("loopDense"))
+    val loopsOff = methodNames(emitMulti(ladder(60), 1, 60)).count(_.startsWith("loopDense"))
+    assert(loopsOn <= loopsOff, s"$loopsOn groups with the option on, $loopsOff off")
+    // year(d), year(d2), month(d) in three groups: d's prefix crosses from group 0 to group 2
+    // and is materialized; d2's is group 1's alone and is not.
+    val (three, threeScratch) =
+      emitted(Seq(new Year(col), new Year(new ColumnRef(1)), new Month(col)), 2, 0, split)
+    assert(threeScratch === region)
+    assert(sites(three, "loopDense2") <= sites(three, "loopDense0") - 25)
+    assert(sites(three, "loopDense1") >= sites(three, "loopDense0") - 8,
+      "the group over the other date still decomposes it")
+    // The four fields one per group: three consumers, each with the loads for the prefix.
+    val (fields, fieldsScratch) = emitted(
+      Seq(new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col)), 1, 0, split)
+    assert(fieldsScratch === region)
+    consumersLighter(fields, 1 to 3)
+    // A computed date: the consumer emits neither the decomposition nor the date_add.
+    val shifted = new AddDays(col, new LiteralSlot(0))
+    val (computed, computedScratch) =
+      emitted(Seq(new Year(shifted), new Month(shifted)), 1, 1, split)
+    assert(computedScratch === region)
+    consumersLighter(computed, 1 to 1)
+    // A date whose validity word is its own - two columns' - is still visited by the masked
+    // consumer for that word, and its vector dropped; the dense consumer skips it entirely.
+    val twoColumns = new AddDays(col, new ColumnRef(1))
+    val (ownWord, ownWordScratch) =
+      emitted(Seq(new Year(twoColumns), new Month(twoColumns)), 2, 0, split)
+    assert(ownWordScratch === region)
+    consumersLighter(ownWord, 1 to 1)
+  }
 }

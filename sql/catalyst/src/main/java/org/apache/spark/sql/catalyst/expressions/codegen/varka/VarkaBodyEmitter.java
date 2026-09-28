@@ -25,6 +25,8 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVecto
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
+import java.lang.constant.MethodTypeDesc;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -83,7 +85,8 @@ final class VarkaBodyEmitter {
       throw new IllegalArgumentException(
           "a " + mode + " body under the byte budget is one group's");
     }
-    Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup);
+    Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup,
+        group);
     List<Integer> prologueOutputs = perGroup ? bodyOutputs : all;
 
     // (1) if (length <= 0) return 0 - nothing ran, so there is nothing to report.
@@ -107,6 +110,25 @@ final class VarkaBodyEmitter {
     cb.loadConstant(8L);
     cb.ldiv();
     cb.lstore(s.validityBytes);
+
+    // A materialized prefix's scratch regions (task 198): region r's vector k is the segment of
+    // dataBytes at scratch + (r * SCRATCH_VECTORS + k) * dataBytes, so the caller's scratch is
+    // laid out by the batch's own length and a body needs no size but the one it has.
+    if (s.scratchSeg != null) {
+      for (int i = 0; i < s.scratchSeg.length; i++) {
+        if (s.scratchSeg[i] < 0) {
+          continue;
+        }
+        cb.lload(analysis.scratchParam());
+        cb.lload(s.dataBytes);
+        cb.loadConstant((long) i);
+        cb.lmul();
+        cb.ladd();
+        cb.lload(s.dataBytes);
+        cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
+        cb.astore(s.scratchSeg[i]);
+      }
+    }
 
     // (3) Per output: segments, and - in the driver only - zero(dstValidity) before any
     // return below, the emitter invariant: an output nothing writes must still read as
@@ -329,7 +351,7 @@ final class VarkaBodyEmitter {
         cb.istore(s.status);
         for (int g = 0; g < groups.size(); g++) {
           cb.iload(s.status);
-          invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g, analysis.lane);
+          invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g, analysis);
           cb.ior();
           cb.istore(s.status);
         }
@@ -344,7 +366,7 @@ final class VarkaBodyEmitter {
           // driver is the one method no regroup can shrink, so its bytes are worth keeping.
           for (int g = 0; g < groups.size(); g++) {
             cb.iload(s.status);
-            invokeCall(cb, classDesc, epilogue + g, analysis.lane);
+            invokeCall(cb, classDesc, epilogue + g, analysis);
             cb.ior();
             if (g < groups.size() - 1) {
               cb.istore(s.status);
@@ -352,7 +374,7 @@ final class VarkaBodyEmitter {
           }
         } else {
           cb.iload(s.status);
-          invokeCall(cb, classDesc, epilogue, analysis.lane);
+          invokeCall(cb, classDesc, epilogue, analysis);
           cb.ior();
         }
         cb.ireturn();
@@ -1005,8 +1027,12 @@ final class VarkaBodyEmitter {
   /** The three body-method roles; see the method-layout note in {@link VarkaLoopEmitter#emit}. */
   enum BodyMode { DRIVER, LOOP, EPILOGUE }
 
-  /** {@code this.<name>(srcData, ..., length)} - all seven parameters forwarded. */
-  static void invokeCall(CodeBuilder cb, ClassDesc classDesc, String name, Lane lane) {
+  /**
+   * {@code this.<name>(srcData, ..., length)} - all seven parameters forwarded, and the scratch
+   * address after them in an emission that materializes a prefix.
+   */
+  static void invokeCall(CodeBuilder cb, ClassDesc classDesc, String name, Analysis analysis) {
+    Lane lane = analysis.lane;
     cb.aload(0);
     cb.aload(P_SRC_DATA);
     cb.aload(P_SRC_VALIDITY);
@@ -1018,6 +1044,19 @@ final class VarkaBodyEmitter {
       cb.aload(lane.pLongArgs);
     }
     cb.iload(lane.pLength);
-    cb.invokespecial(classDesc, name, lane.runDesc);
+    if (analysis.hasScratch()) {
+      cb.lload(analysis.scratchParam());
+    }
+    cb.invokespecial(classDesc, name, analysis.bodyDesc());
+  }
+
+  /** {@code throw new <exception>(message)}. */
+  static void emitThrow(CodeBuilder cb, ClassDesc exception, String message) {
+    cb.new_(exception);
+    cb.dup();
+    cb.loadConstant(message);
+    cb.invokespecial(exception, "<init>",
+        MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_String));
+    cb.athrow();
   }
 }

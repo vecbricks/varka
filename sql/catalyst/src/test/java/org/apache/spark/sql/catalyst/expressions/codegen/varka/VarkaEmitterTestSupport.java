@@ -61,6 +61,29 @@ import java.util.stream.Collectors;
  */
 public final class VarkaEmitterTestSupport {
 
+  /**
+   * The scratch address a kernel's {@code run} takes for {@code rows} rows (task 198): zero for
+   * a kernel that asks for no scratch, otherwise the address of a buffer that outlives the call.
+   * The test harnesses run kernels one after another on a thread, so one buffer per thread
+   * serves every call; it is regrown when a longer call comes, and the arena keeps what it
+   * replaces, which bounds the waste by the largest call's size.
+   */
+  public static long scratch(VarkaFusedKernel kernel, int rows) {
+    int perRow = kernel.scratchBytesPerRow();
+    if (perRow == 0) {
+      return 0L;
+    }
+    long needed = (long) perRow * Math.max(rows, 1);
+    java.lang.foreign.MemorySegment buffer = SCRATCH.get();
+    if (buffer == null || buffer.byteSize() < needed) {
+      buffer = java.lang.foreign.Arena.global().allocate(Math.max(needed, 1L << 16), 64);
+      SCRATCH.set(buffer);
+    }
+    return buffer.address();
+  }
+
+  private static final ThreadLocal<java.lang.foreign.MemorySegment> SCRATCH = new ThreadLocal<>();
+
   private VarkaEmitterTestSupport() {
   }
 

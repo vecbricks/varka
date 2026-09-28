@@ -31,18 +31,19 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
 /**
- * What recomputing the civil-from-days prefix costs, per group that recomputes it (task 198's
- * admission check, `sql/varka/plans/PLAN_TASK_198.md`).
+ * What recomputing the civil-from-days prefix costs, per group that recomputes it, against
+ * computing it once per batch (task 198, `sql/varka/plans/PLAN_TASK_198.md`).
  *
  * A calendar output - `year(d)`, `month(d)`, `make_date(year(d), month(d), k)` - decomposes its
  * date through a prefix of about forty vector operations, and the outputs of one loop method
  * that decompose the same date share it. A kernel whose outputs are split across several loop
- * methods recomputes it in each. Task 198 would compute it once per batch into a scratch buffer
- * the later methods read; before that is built, this measures what it could save, with no new
- * code: the same outputs emitted with the fused ceiling lowered, so the emitter splits them into
- * more groups and every extra group recomputes the prefix once more. The difference between two
- * arms of one table is the price of the extra recomputations, plus one method call per group per
- * batch, which is the whole ceiling of what a computed-once prefix can win on that shape.
+ * methods recomputes it in each - or, under `materializeChronoPrefix`, the first method stores
+ * the prefix's vectors into a scratch region the caller passes and the later methods load them.
+ * Each table takes the same outputs at the fused ceiling lowered step by step, so the emitter
+ * splits them into more groups, and at each ceiling emits them both ways: the recomputed arm
+ * and the materialized arm at the same group count, so their difference is what the
+ * materialization wins at that many groups, and the recomputed arms' differences price the
+ * recomputations the way the admission check did before the mechanism was built.
  *
  * Two shapes. Cheap tails over one date, `year(d) + k`, where the prefix is most of each
  * group's work and the ceiling is widest; and the make_date ladder's top rung, 60
@@ -106,7 +107,7 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
     try {
       val data = arena.allocate(chunk * 4L, 64)
       for (i <- 0 until chunk) data.set(ValueLayout.JAVA_INT, i * 4L, i * 7 % 20000 - 10000)
-      runBenchmark("the civil-from-days prefix, recomputed per group") {
+      runBenchmark("the civil-from-days prefix, recomputed per group or computed once") {
         for (((title, sqls), s) <- shapes.zipWithIndex) {
           val fused = compile(sqls)
           val n = sqls.size
@@ -114,31 +115,41 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
           val dst: Array[Long] = Array.fill(n)(arena.allocate(chunk * 4L, 64).address())
           val dstValidity: Array[Long] =
             Array.fill(n)(arena.allocate(chunk / 8L, 64).address())
-          val arms = ceilings.map { c =>
-            val (kernel, groups) = emit(fused, loader, s"${s}_$c",
-              VarkaEmitOptions.DEFAULTS.withFusedCeiling(c))
-            (c, groups, kernel)
+          // Per ceiling, the recomputed arm and the materialized one; the latter's scratch is
+          // one region per date the groups share, sized by the batch.
+          val arms = ceilings.flatMap { c =>
+            Seq(false, true).map { materialized =>
+              val (kernel, groups) = emit(fused, loader, s"${s}_${c}_$materialized",
+                VarkaEmitOptions.DEFAULTS.withFusedCeiling(c)
+                  .withMaterializeChronoPrefix(materialized))
+              val scratch = kernel.scratchBytesPerRow() match {
+                case 0 => 0L
+                case perRow => arena.allocate(perRow.toLong * chunk, 64).address()
+              }
+              (c, materialized, groups, kernel, scratch)
+            }
           }
-          def drive(kernel: VarkaFusedKernel): Int = {
+          def drive(kernel: VarkaFusedKernel, scratch: Long): Int = {
             var status = 0
             var done = 0
             while (done < numRows) {
               val len = math.min(chunk, numRows - done)
               status |= kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity,
-                literals, len)
+                literals, len, scratch)
               done += len
             }
             status
           }
-          for ((c, _, kernel) <- arms) {
-            require(drive(kernel) == 0, s"$title at ceiling $c declined a batch")
+          for ((c, materialized, _, kernel, scratch) <- arms) {
+            require(drive(kernel, scratch) == 0,
+              s"$title at ceiling $c, materialized $materialized, declined a batch")
           }
           val benchmark = new Benchmark(s"$title over $numRows rows", numRows,
             minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-          for ((c, groups, kernel) <- arms) {
-            benchmark.addCase(s"fused ceiling $c: $groups group${if (groups == 1) "" else "s"}") {
-              _ => drive(kernel)
-            }
+          for ((c, materialized, groups, kernel, scratch) <- arms) {
+            val name = s"fused ceiling $c: $groups group${if (groups == 1) "" else "s"}" +
+              (if (materialized) ", prefix computed once" else ", prefix per group")
+            benchmark.addCase(name) { _ => drive(kernel, scratch) }
           }
           benchmark.run()
         }

@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeRef
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator,
   CompiledVarkaProjection, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions,
-  VarkaFusedKernel, VarkaLoopEmitter, VarkaSqlResolve, VarkaVectorIR}
+  VarkaEmitterTestSupport, VarkaFusedKernel, VarkaLoopEmitter, VarkaSqlResolve, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
@@ -208,14 +208,15 @@ object VarkaMethodSizeBenchmark extends BenchmarkBase {
           def drive(kernel: VarkaFusedKernel, chunk: Int, mixed: Boolean): Int = {
             var status = 0
             var done = 0
+            val scratch = VarkaEmitterTestSupport.scratch(kernel, chunk)
             while (done < numRows) {
               val len = math.min(chunk, numRows - done)
               status |= (if (mixed) {
                 kernel.run(Array(mxData.address()), Array(mxValidity.address()),
-                  Array(nullsIn(len)), dst, dstValidity, literals, len)
+                  Array(nullsIn(len)), dst, dstValidity, literals, len, scratch)
               } else {
                 kernel.run(Array(nfData.address()), Array(0L), Array(0),
-                  dst, dstValidity, literals, len)
+                  dst, dstValidity, literals, len, scratch)
               })
               done += len
             }

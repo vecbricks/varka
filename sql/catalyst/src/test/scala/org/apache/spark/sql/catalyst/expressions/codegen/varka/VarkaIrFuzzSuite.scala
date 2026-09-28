@@ -257,7 +257,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
         (if (r.isInstanceOf[Cond]) 0L else d.address(), d, v)
       }
       val status = kernel.run(srcData, srcValidity, nullCounts, outs.map(_._1).toArray,
-        outs.map(_._3.address()).toArray, lits, length)
+        outs.map(_._3.address()).toArray, lits, length,
+        VarkaEmitterTestSupport.scratch(kernel, length))
       assert(status === 0, s"$context: the kernel declined the batch (status $status)")
       for (i <- 0 until length) {
         val row = (0 until numInputs).map(c => if (patterns(c)(i)) None else Some(data(c)(i)))
@@ -360,7 +361,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
         (if (r.isInstanceOf[Cond]) 0L else d.address(), d, v)
       }
       val status = kernel.run(srcData, srcValidity, nullCounts, outs.map(_._1).toArray,
-        outs.map(_._3.address()).toArray, Array.empty[Int], lits, length)
+        outs.map(_._3.address()).toArray, Array.empty[Int], lits, length,
+        VarkaEmitterTestSupport.scratch(kernel, length))
       assert(status === 0, s"$context: the kernel declined the batch (status $status)")
       for (i <- 0 until length) {
         val row = (0 until numInputs).map(c => if (patterns(c)(i)) None else Some(data(c)(i)))

@@ -341,6 +341,8 @@ public final class VarkaKernelWarmup {
     private final VarkaFusedKernel kernel;
     private final boolean longLane;
     private final Arena arena;
+    /** The scratch a kernel with a materialized prefix takes (task 198), or 0 for one without. */
+    private final long scratch;
     private final long queuedAt = System.nanoTime();
 
     // One set of source arguments per slice and driver, built once, so a call does nothing but
@@ -446,6 +448,10 @@ public final class VarkaKernelWarmup {
               .address();
           probeDstValidity[o] = arena.allocate(validityBytes(PROBE_ROWS), SLICE_STRIDE).address();
         }
+        // Sized for the longest call, the probe's; a warm-up call passes the same region.
+        int perRow = kernel.scratchBytesPerRow();
+        this.scratch = perRow == 0 ? 0L
+            : arena.allocate((long) perRow * (PROBE_ROWS + SLICE_STRIDE), SLICE_STRIDE).address();
       } catch (Throwable t) {
         arena.close();
         throw t;
@@ -550,10 +556,10 @@ public final class VarkaKernelWarmup {
       int d = k % 2;
       if (longLane) {
         kernel.run(probeData[d], probeValidity[d], probeNullCount[d], probeDstData,
-            probeDstValidity, scalarArgs, longArgs, PROBE_ROWS);
+            probeDstValidity, scalarArgs, longArgs, PROBE_ROWS, scratch);
       } else {
         kernel.run(probeData[d], probeValidity[d], probeNullCount[d], probeDstData,
-            probeDstValidity, scalarArgs, PROBE_ROWS);
+            probeDstValidity, scalarArgs, PROBE_ROWS, scratch);
       }
       return PROBE_ROWS;
     }
@@ -562,10 +568,10 @@ public final class VarkaKernelWarmup {
       int v = n % NUM_CALLS;
       if (longLane) {
         kernel.run(srcData[v], srcValidity[v], srcNullCount[v], dstData, dstValidity, scalarArgs,
-            longArgs, rows);
+            longArgs, rows, scratch);
       } else {
         kernel.run(srcData[v], srcValidity[v], srcNullCount[v], dstData, dstValidity, scalarArgs,
-            rows);
+            rows, scratch);
       }
       return rows;
     }

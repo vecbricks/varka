@@ -100,4 +100,33 @@ public interface VarkaFusedKernel {
     throw new UnsupportedOperationException(
         getClass().getName() + " is a 32-bit-lane kernel; call the seven-argument run");
   }
+
+  /**
+   * How many bytes of scratch a call must pass per row: zero for every kernel that materializes
+   * no calendar prefix (task 198), which ignores the address. A caller allocates
+   * {@code scratchBytesPerRow() * length} bytes and passes their address to the two overloads
+   * below; a kernel with scratch owns none of it, so a call still allocates nothing.
+   */
+  default int scratchBytesPerRow() {
+    return 0;
+  }
+
+  /**
+   * The seven-argument {@code run} with the scratch address after the length: the form every
+   * caller uses. A kernel with no scratch inherits this default, which drops the address and
+   * runs the seven-argument form, so its emitted bytes are unchanged; a kernel with scratch
+   * implements this one, and its seven-argument form throws by name.
+   */
+  default int run(long[] srcData, long[] srcValidity, int[] srcNullCount,
+      long[] dstData, long[] dstValidity, int[] scalarArgs, int length, long scratch) {
+    return run(srcData, srcValidity, srcNullCount, dstData, dstValidity, scalarArgs, length);
+  }
+
+  /** The eight-argument {@code run} with the scratch address after the length; as above. */
+  default int run(long[] srcData, long[] srcValidity, int[] srcNullCount,
+      long[] dstData, long[] dstValidity, int[] scalarArgs, long[] longArgs, int length,
+      long scratch) {
+    return run(srcData, srcValidity, srcNullCount, dstData, dstValidity, scalarArgs, longArgs,
+        length);
+  }
 }

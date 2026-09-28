@@ -427,6 +427,7 @@ object VarkaEmitDump {
       val dstValidity = Array.fill(outputs)(buffer((rows + 7) / 8L).address())
       val longArgs = fused.longLiterals.toArray
       var status = 0
+      val scratch = VarkaEmitterTestSupport.scratch(kernel, rows)
       // The second half of the rounds is timed, so the figure is after tiering has had the
       // first half to settle. It is a probe's reading, not a benchmark's: one run, one fork.
       var started = 0L
@@ -434,10 +435,10 @@ object VarkaEmitDump {
         if (round == rounds / 2) started = System.nanoTime()
         status |= (if (long) {
           kernel.run(src.map(_.address()), Array.fill(numInputs)(validity.address()),
-            Array.fill(numInputs)(nulls), dst, dstValidity, literals, longArgs, rows)
+            Array.fill(numInputs)(nulls), dst, dstValidity, literals, longArgs, rows, scratch)
         } else {
           kernel.run(src.map(_.address()), Array.fill(numInputs)(validity.address()),
-            Array.fill(numInputs)(nulls), dst, dstValidity, literals, rows)
+            Array.fill(numInputs)(nulls), dst, dstValidity, literals, rows, scratch)
         })
       }
       val timed = rounds - rounds / 2

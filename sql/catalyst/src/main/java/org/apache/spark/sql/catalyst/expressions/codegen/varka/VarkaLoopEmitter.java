@@ -298,6 +298,10 @@ public final class VarkaLoopEmitter {
     Set<Integer> forcedStarts = new HashSet<>();
     while (true) {
       List<List<Integer>> groups = groupOutputs(outputs, options, forcedStarts);
+      // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
+      // unless the option is on and a prefix crosses one, and then the class takes the scratch
+      // address as an eighth argument (task 198).
+      analysis.planMaterialized(outputs, groups);
       byte[] bytes;
       VarkaEmittedClass measured;
       int limit = budget;
@@ -374,8 +378,25 @@ public final class VarkaLoopEmitter {
             cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
             cb.return_();
           })
-          .withMethodBody("run", analysis.lane.runDesc, AccessFlag.PUBLIC.mask(),
+          .withMethodBody("run", analysis.bodyDesc(), AccessFlag.PUBLIC.mask(),
               (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis));
+      if (analysis.hasScratch()) {
+        // The seven-argument form is the one every caller without scratch reaches through the
+        // interface's defaults; a kernel that needs the address refuses it by name rather than
+        // read an address it was not given. The size is the interface's question about how
+        // much a caller passes per row.
+        b.withMethodBody("run", analysis.lane.runDesc, AccessFlag.PUBLIC.mask(),
+            (CodeBuilder cb) -> VarkaBodyEmitter.emitThrow(cb,
+                ClassDesc.of("java.lang.UnsupportedOperationException"),
+                classDesc.displayName() + " materializes a calendar prefix and needs "
+                    + analysis.scratchBytesPerRow() + " bytes of scratch per row: call run"
+                    + " with the scratch address"));
+        b.withMethodBody("scratchBytesPerRow", MethodTypeDesc.of(ConstantDescs.CD_int),
+            AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
+              cb.loadConstant(analysis.scratchBytesPerRow());
+              cb.ireturn();
+            });
+      }
       // A kernel that nulls a valid input (non-ANSI make_date) has no dense methods: the dense body
       // writes no per-lane validity, so the dispatch takes the masked methods for every batch, and
       // the masked body treats a null-free input as a constant word.
@@ -430,21 +451,22 @@ public final class VarkaLoopEmitter {
       List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
       List<List<Integer>> groups, boolean epiloguePerGroup) {
     String side = dense ? "Dense" : "Masked";
-    b.withMethodBody("run" + side, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+    MethodTypeDesc desc = analysis.bodyDesc();
+    b.withMethodBody("run" + side, desc, AccessFlag.PRIVATE.mask(),
         (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.DRIVER, -1,
             classDesc, outputs, analysis, numLiterals, groups));
     if (!epiloguePerGroup) {
-      b.withMethodBody("epilogue" + side, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+      b.withMethodBody("epilogue" + side, desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, -1,
               classDesc, outputs, analysis, numLiterals, groups));
     }
     for (int g = 0; g < groups.size(); g++) {
       final int group = g;
-      b.withMethodBody("loop" + side + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+      b.withMethodBody("loop" + side + g, desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.LOOP, group,
               classDesc, outputs, analysis, numLiterals, groups));
       if (epiloguePerGroup) {
-        b.withMethodBody("epilogue" + side + g, analysis.lane.runDesc, AccessFlag.PRIVATE.mask(),
+        b.withMethodBody("epilogue" + side + g, desc, AccessFlag.PRIVATE.mask(),
             (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, group,
                 classDesc, outputs, analysis, numLiterals, groups));
       }
@@ -544,7 +566,12 @@ public final class VarkaLoopEmitter {
       VarkaEmitOptions options, Set<Integer> forcedStarts) {
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
-    GroupOps group = new GroupOps(options.shareChronoPrefix());
+    // The prefixes the closed groups compute. Under `materializeChronoPrefix` a later group
+    // loads such a prefix rather than recomputing it, and weighs it so (task 198); the set is
+    // shared by every GroupOps of this partition and grows as groups close.
+    Set<VarkaVectorIR> earlier = new HashSet<>();
+    boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
+    GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
     for (int o = 0; o < outputs.size(); o++) {
       GroupOps withNext = group.copy();
       int marginal = withNext.add(outputs.get(o));
@@ -555,7 +582,7 @@ public final class VarkaLoopEmitter {
       // opens the wider bound, its size does not.
       int reuse = withNext.saved;
       if (options.shareWholeNodes()) {
-        GroupOps alone = new GroupOps(options.shareChronoPrefix());
+        GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
         reuse = alone.add(outputs.get(o)) - marginal;
       }
       boolean fits = group.ops + marginal <= options.groupBudget()
@@ -568,7 +595,8 @@ public final class VarkaLoopEmitter {
       if (!current.isEmpty() && ((marginal > 0 && !fits) || forcedStarts.contains(o))) {
         groups.add(current);
         current = new ArrayList<>();
-        withNext = new GroupOps(options.shareChronoPrefix());
+        earlier.addAll(group.prefixes);
+        withNext = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
         withNext.add(outputs.get(o));
       }
       current.add(o);
@@ -593,6 +621,10 @@ public final class VarkaLoopEmitter {
    */
   private static final class GroupOps {
     private final boolean sharePrefix;
+    /** Whether a prefix an earlier group computes is loaded here rather than recomputed. */
+    private final boolean materialize;
+    /** The prefixes the earlier groups compute; shared with them, read here. */
+    private final Set<VarkaVectorIR> earlier;
     private final Set<VarkaVectorIR> nodes;
     private final Set<VarkaVectorIR> prefixes;
     /** The group's op total. */
@@ -601,20 +633,32 @@ public final class VarkaLoopEmitter {
      * computed; zero for an output that reuses none. */
     int saved;
 
-    GroupOps(boolean sharePrefix) {
-      this(sharePrefix, new HashSet<>(), new HashSet<>(), 0);
+    GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier) {
+      this(sharePrefix, materialize, earlier, new HashSet<>(), new HashSet<>(), 0);
     }
 
-    private GroupOps(boolean sharePrefix, Set<VarkaVectorIR> nodes,
-        Set<VarkaVectorIR> prefixes, int ops) {
+    private GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier,
+        Set<VarkaVectorIR> nodes, Set<VarkaVectorIR> prefixes, int ops) {
       this.sharePrefix = sharePrefix;
+      this.materialize = materialize;
+      this.earlier = earlier;
       this.nodes = nodes;
       this.prefixes = prefixes;
       this.ops = ops;
     }
 
     GroupOps copy() {
-      return new GroupOps(sharePrefix, new HashSet<>(nodes), new HashSet<>(prefixes), ops);
+      return new GroupOps(sharePrefix, materialize, earlier, new HashSet<>(nodes),
+          new HashSet<>(prefixes), ops);
+    }
+
+    /**
+     * What this group pays for a prefix the first time one of its nodes needs it: the loads of
+     * its vectors where an earlier group materializes it, the decomposition otherwise.
+     */
+    private int prefixCost(VarkaVectorIR date) {
+      return materialize && earlier.contains(date) ? CHRONO_PREFIX_LOAD_WEIGHT
+          : CHRONO_PREFIX_WEIGHT;
     }
 
     /** Adds the output's distinct nodes; returns how many ops were new, and leaves in
@@ -631,9 +675,17 @@ public final class VarkaLoopEmitter {
         return;
       }
       int weight = weightOf(node);
-      if (sharePrefix && isChrono(node) && !prefixes.add(chronoChild(node))) {
-        weight -= CHRONO_PREFIX_WEIGHT;
-        saved += CHRONO_PREFIX_WEIGHT;
+      if (sharePrefix && isChrono(node)) {
+        // weightOf counts the whole decomposition; the group pays it, or the loads that stand
+        // in for it, once per date, and a second node over the date saves exactly that.
+        VarkaVectorIR date = chronoChild(node);
+        int cost = prefixCost(date);
+        if (prefixes.add(date)) {
+          weight += cost - CHRONO_PREFIX_WEIGHT;
+        } else {
+          weight -= CHRONO_PREFIX_WEIGHT;
+          saved += cost;
+        }
       }
       ops += weight;
       for (VarkaVectorIR child : childrenOf(node)) {
@@ -743,9 +795,22 @@ public final class VarkaLoopEmitter {
    * null-free? - selecting {@code runDense} or {@code runMasked} (`PLAN_TASK_10.md` 2.5).
    */
   private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
+    if (analysis.hasScratch()) {
+      // The bodies address the scratch without a check of their own, so a zero is refused here,
+      // once per batch, instead of faulting in a loop method.
+      Label given = cb.newLabel();
+      cb.lload(analysis.scratchParam());
+      cb.loadConstant(0L);
+      cb.lcmp();
+      cb.ifne(given);
+      VarkaBodyEmitter.emitThrow(cb, ClassDesc.of("java.lang.IllegalArgumentException"),
+          classDesc.displayName() + " needs " + analysis.scratchBytesPerRow()
+              + " bytes of scratch per row; the address passed is zero");
+      cb.labelBinding(given);
+    }
     if (analysis.nullsFromValidInputs) {
       // No dense path for this kernel (see emit): every batch is served by the masked methods.
-      invokeBody(cb, classDesc, "runMasked", analysis.lane);
+      invokeBody(cb, classDesc, "runMasked", analysis);
       return;
     }
     Label masked = cb.newLabel();
@@ -758,10 +823,10 @@ public final class VarkaLoopEmitter {
         cb.ifne(masked);
       }
     }
-    invokeBody(cb, classDesc, "runDense", analysis.lane);
+    invokeBody(cb, classDesc, "runDense", analysis);
     if (anyColumns) {
       cb.labelBinding(masked);
-      invokeBody(cb, classDesc, "runMasked", analysis.lane);
+      invokeBody(cb, classDesc, "runMasked", analysis);
     }
     // With no referenced columns the masked label is never targeted and must not be bound:
     // unreachable code has no stack frame to compute.
@@ -771,8 +836,9 @@ public final class VarkaLoopEmitter {
    * {@link VarkaBodyEmitter#invokeCall} whose status becomes this method's own - a tail call in
    * effect.
    */
-  private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name, Lane lane) {
-    invokeCall(cb, classDesc, name, lane);
+  private static void invokeBody(CodeBuilder cb, ClassDesc classDesc, String name,
+      Analysis analysis) {
+    invokeCall(cb, classDesc, name, analysis);
     cb.ireturn();
   }
 

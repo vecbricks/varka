@@ -610,6 +610,38 @@ private[sql] abstract class VarkaEvaluatorBase(
   private var derivedData: Array[ArrowBuf] = null
   private var derivedValidity: Array[ArrowBuf] = null
 
+  // The scratch a kernel with a materialized calendar prefix takes (task 198): one buffer for
+  // the task, grown to the largest batch's need under the same discipline as the derived
+  // inputs' buffers, and released beside them. A kernel without scratch asks for zero bytes per
+  // row and is passed a zero address, which its `run` ignores.
+  private var kernelScratch: ArrowBuf = null
+
+  private def kernelScratchAddress(bytesPerRow: Int, len: Int): Long = {
+    if (bytesPerRow == 0) {
+      0L
+    } else {
+      val needed = bytesPerRow.toLong * len
+      if (kernelScratch == null || kernelScratch.capacity() < needed) {
+        // Allocate, store, then release, for the reasons `growSlot` gives.
+        val fresh = taskAllocator().buffer(needed)
+        val old = kernelScratch
+        kernelScratch = fresh
+        if (old != null) {
+          old.close()
+        }
+      }
+      kernelScratch.memoryAddress()
+    }
+  }
+
+  private def releaseKernelScratch(): Unit = {
+    val b = kernelScratch
+    kernelScratch = null
+    if (b != null) {
+      closeQuietly(b, "a Varka kernel scratch buffer")
+    }
+  }
+
   private def derivedScratch(i: Int, len: Int): Unit = {
     if (derivedData == null) {
       val n = fusedPlan.get.inputOrdinals.size
@@ -740,6 +772,7 @@ private[sql] abstract class VarkaEvaluatorBase(
         closeAllQuietly(openBatches.values.flatten, "a Varka batch left open at task completion")
         openBatches.clear()
         releaseDerivedScratch()
+        releaseKernelScratch()
         try {
           onTaskCleanup()
         } catch {
@@ -883,12 +916,13 @@ private[sql] abstract class VarkaEvaluatorBase(
       // plan's lane is fixed at compile time, so this is a branch on a final field, not a
       // per-batch discovery. The wrong overload would not run a wrong kernel - each default
       // throws naming the lane - but that throw would be a fallback with a misleading cause.
+      val scratch = kernelScratchAddress(runner.scratchBytesPerRow, len)
       if (runner.lane == LaneType.LONG) {
         runner.kernel.run(runner.srcData, runner.srcValidity, runner.srcNullCount,
-          runner.dstData, runner.dstValidity, runner.scalarArgs, runner.longArgs, len)
+          runner.dstData, runner.dstValidity, runner.scalarArgs, runner.longArgs, len, scratch)
       } else {
         runner.kernel.run(runner.srcData, runner.srcValidity, runner.srcNullCount,
-          runner.dstData, runner.dstValidity, runner.scalarArgs, len)
+          runner.dstData, runner.dstValidity, runner.scalarArgs, len, scratch)
       }
     } catch {
       case e if isCatchable(e) => throw new VarkaKernelFailure(e)
@@ -961,6 +995,9 @@ private[sql] abstract class VarkaEvaluatorBase(
     }
 
     val kernel: VarkaFusedKernel = entry.newKernel()
+
+    /** Bytes of scratch per row this kernel's `run` takes; zero for most kernels (task 198). */
+    val scratchBytesPerRow: Int = kernel.scratchBytesPerRow()
 
     /** The shape's warm state, shared with every task that runs the shape. */
     val warmth: VarkaKernelWarmth = entry.warmth()

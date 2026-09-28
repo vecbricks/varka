@@ -150,6 +150,14 @@ enum Lane {
       this.pLength = P_SCALAR_ARGS + 2;
     }
     this.firstLocal = this.pLength + 1;
+    // The same descriptor with the scratch address after the length, for a kernel that
+    // materializes a calendar prefix (task 198): every slot before it is unchanged, so such a
+    // kernel's bodies shift their locals by the long's two slots and nothing else, and every
+    // other kernel keeps the descriptor above and its bytes.
+    this.runDescScratch =
+        this.runDesc.insertParameterTypes(this.runDesc.parameterCount(), ConstantDescs.CD_long);
+    this.pScratch = this.pLength + 1;
+    this.firstLocalScratch = this.pLength + 3;
     this.localWidth = scalar.equals(ConstantDescs.CD_long) ? 2 : 1;
     this.preferredLanes = bits == Integer.SIZE
         ? jdk.incubator.vector.IntVector.SPECIES_PREFERRED.length()
@@ -182,6 +190,12 @@ enum Lane {
   final int pLongArgs;
   /** The first local slot after the parameters. */
   final int firstLocal;
+  /** {@link #runDesc} plus the scratch address, for a kernel with a materialized prefix. */
+  final MethodTypeDesc runDescScratch;
+  /** The scratch address's slot under {@link #runDescScratch}: a long, two slots. */
+  final int pScratch;
+  /** The first local slot after the parameters under {@link #runDescScratch}. */
+  final int firstLocalScratch;
   /** JVM local slots one value of this lane's scalar type occupies: two for a long, one else. */
   final int localWidth;
 
