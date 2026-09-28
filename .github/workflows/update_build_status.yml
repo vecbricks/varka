@@ -22,6 +22,9 @@ name: Update build status workflow
 on:
   schedule:
   - cron: "*/15 * * * *"
+  # Dispatched by dev/varka_ci_queue.sh when a held run's rerun completes, so a pull
+  # request's check shows the rerun's result then rather than at the cron's next start.
+  workflow_dispatch:
 
 jobs:
   update:

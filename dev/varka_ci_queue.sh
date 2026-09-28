@@ -20,6 +20,7 @@
 #   dev/varka_ci_queue.sh status          # each open PR: its Build run, and whether it is current
 #   dev/varka_ci_queue.sh hold 341 342    # cancel their Build runs and queue them, in this order
 #   dev/varka_ci_queue.sh run             # rerun the queue, one run at a time, until it is empty
+#   dev/varka_ci_queue.sh run --while-open  # the same, then idle while any PR is open
 #   dev/varka_ci_queue.sh drop 339        # take a PR off the queue and cancel its running Build
 #   dev/varka_ci_queue.sh list            # the queue as it stands
 #
@@ -41,13 +42,22 @@
 # run without queuing the PR, and `run` and `status` report it ready. A merge-in of master
 # counts as what master brought: a test file among master's new commits means a rerun.
 #
+# When a rerun completes, `run` asks the base repository to sync the pull request's
+# `Build` check (`update_build_status.yml`, dispatched): until then the check shows the
+# attempt `hold` cancelled, and GitHub starts that workflow's own cron only every few
+# hours. `run --while-open` does not exit when the queue empties: it idles, polling for a
+# later `hold` every VARKA_CI_IDLE seconds (default 180), until no pull request is open.
+#
 # The queue is a file in the clone's git directory, shared by every worktree of
 # the clone. Every wait keys on a run's completed status, never on `gh run watch`
 # (which returns at once without a terminal), and has a deadline
-# (VARKA_CI_WAIT_MINUTES, default 240). The script prints `EXIT <status>` on every
-# path, so another script can wait on that line. Needs `gh` authenticated; the
-# base repository is read from the `origin` remote (VARKA_BASE_REMOTE overrides),
-# and each PR's fork and branch from GitHub.
+# (VARKA_CI_WAIT_MINUTES, default 240); a wait that finds its deadline passed asks once
+# more before giving up, since a laptop that slept through the wait wakes past the
+# deadline with the run long finished. The runner is a process on this machine, so it
+# sleeps when the machine does; a dispatcher on GitHub is the fix for that
+# (PLAN_TASK_227.md). The script prints `EXIT <status>` on every path, so another script
+# can wait on that line. Needs `gh` authenticated; the base repository is read from the
+# `origin` remote (VARKA_BASE_REMOTE overrides), and each PR's fork and branch from GitHub.
 set -euo pipefail
 
 # Usage text is found rather than numbered: a hard-coded range silently truncates as the
@@ -62,6 +72,8 @@ repo="$(git remote get-url "$remote" | sed -E 's#\.git$##; s#.*[:/]([^/]+/[^/]+)
 workflow="${VARKA_CI_WORKFLOW:-Build}"
 poll="${VARKA_CI_POLL:-60}"
 deadline_minutes="${VARKA_CI_WAIT_MINUTES:-240}"
+idle="${VARKA_CI_IDLE:-180}"
+sync_workflow="${VARKA_CI_SYNC_WORKFLOW:-update_build_status.yml}"
 state="$(git rev-parse --git-common-dir)/varka-ci-queue"
 touch "$state"
 
@@ -151,26 +163,40 @@ passed_run_covering() {
 }
 
 # Waits until the run is completed; prints its conclusion. Keyed on the run's own status, so
-# a cancellation or a timeout ends the wait as surely as a pass. Fails at the deadline.
+# a cancellation or a timeout ends the wait as surely as a pass. Fails at the deadline, after
+# one more look: a machine that slept through the wait wakes past the deadline, and the run
+# may have finished hours ago (28 September 2026, when a laptop's sleep cost the queue a day).
 wait_completed() {
   local fork="$1" id="$2" end=$((SECONDS + deadline_minutes * 60)) s
-  while [ "$SECONDS" -lt "$end" ]; do
+  while :; do
     s="$(run_state "$fork" "$id" 2>/dev/null || echo "unknown -")"
     if [ "${s%% *}" = "completed" ]; then
       echo "${s#* }"
       return 0
     fi
+    [ "$SECONDS" -lt "$end" ] || break
     sleep "$poll" 8>&-
   done
   echo "timeout"
   return 1
 }
 
+# Asks the base repository to copy the fork run's result onto the pull request's check now,
+# rather than when GitHub next starts the sync workflow's cron. Best effort: the dispatch
+# needs `workflow_dispatch` on that workflow's default branch, and the cron still runs.
+sync_status() {
+  if gh workflow run "$sync_workflow" --repo "$repo" >/dev/null 2>&1; then
+    echo "#$1: asked $repo to sync the $workflow check"
+  else
+    echo "#$1: could not dispatch $sync_workflow on $repo; its cron will sync the check"
+  fi
+}
+
 # Waits until no run of the workflow is queued or in progress anywhere on the fork. A run
 # the queue does not know about - a push nobody held - still holds the slots.
 wait_fork_idle() {
   local fork="$1" end=$((SECONDS + deadline_minutes * 60)) busy said=""
-  while [ "$SECONDS" -lt "$end" ]; do
+  while :; do
     busy="$(gh run list --repo "$fork" --workflow "$workflow" --limit 20 \
       --json databaseId,status,headBranch \
       --jq '.[] | select(.status != "completed") | "\(.databaseId) on \(.headBranch)"' \
@@ -182,6 +208,7 @@ wait_fork_idle() {
       echo "  $(now): waiting for run $busy"
       said="$busy"
     fi
+    [ "$SECONDS" -lt "$end" ] || break
     sleep "$poll" 8>&-
   done
   echo "  gave up waiting for the fork to go idle after $deadline_minutes minutes"
@@ -245,6 +272,12 @@ cmd_hold() {
 }
 
 cmd_run() {
+  local stay=0
+  case "${1:-}" in
+    --while-open) stay=1 ;;
+    "") ;;
+    *) usage ;;
+  esac
   # One runner per clone: a second would start a run beside the first one's. The sleeps below
   # close the lock's descriptor (8>&-), so a runner that is killed mid-sleep releases the lock
   # at once rather than leaving an orphaned sleep holding it for the rest of its interval.
@@ -254,7 +287,8 @@ cmd_run() {
     return 1
   fi
   local pr qid fork branch sha st run id rstatus rconcl rsha verdict failures=0
-  local covering cid csha kind
+  local covering cid csha kind open
+  while :; do
   while read -r pr qid < <(head -1 "$state") && [ -n "${pr:-}" ]; do
     read -r fork branch sha st <<<"$(pr_info "$pr")"
     if [ "$st" != "open" ]; then
@@ -300,6 +334,7 @@ cmd_run() {
     fi
     verdict="$(wait_completed "$fork" "$id")" || { echo "#$pr: run $id: $verdict"; return 1; }
     echo "#$pr: $(now): run $id finished: $verdict"
+    sync_status "$pr"
     if [ "$(queued_run "$pr")" != "$qid" ]; then
       # Held again or dropped while its run went: that run's verdict is not the PR's, unless
       # the head moved by docs only, in which case it is, and the new hold is not needed.
@@ -328,6 +363,18 @@ cmd_run() {
     locked queue_del_if "$pr" "$qid"
   done
   echo "queue empty"
+  [ "$stay" = 1 ] || break
+  # Idle until a `hold` refills the queue, or no pull request is open.
+  while [ ! -s "$state" ]; do
+    open="$(gh pr list --repo "$repo" --state open --json number --jq 'length' 2>/dev/null || echo 1)"
+    if [ "$open" = 0 ]; then
+      echo "$(now): no pull request is open; done"
+      return "$failures"
+    fi
+    sleep "$idle" 8>&-
+  done
+  echo "$(now): the queue has work again"
+  done
   return "$failures"
 }
 
@@ -389,7 +436,7 @@ main() {
   case "$command" in
     status) cmd_status ;;
     hold) cmd_hold "$@" ;;
-    run) cmd_run ;;
+    run) cmd_run "$@" ;;
     drop) cmd_drop "$@" ;;
     list) cmd_list ;;
     *) usage ;;
