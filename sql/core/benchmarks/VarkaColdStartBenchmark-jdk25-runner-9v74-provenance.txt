@@ -1,0 +1,12 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.VarkaColdStartBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36474540895
+commit:      bf7a6aa788b (branch varka-task-172-cold-ranges, with the range-filter section)
+date:        2026-09-28
+inputs:      class=*VarkaColdStartBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+             generate-tpcds=false extra-java-options=--add-modules jdk.incubator.vector
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 9V74 80-Core Processor, four cores to the job; a first query's cost is
+             planning, emission and compilation, so the datapath's width does not enter it
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)

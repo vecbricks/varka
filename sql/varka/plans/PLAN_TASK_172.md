@@ -607,3 +607,59 @@ about a fifth of B's on the runner's file, B has no case left and goes, with row
 if A pays clearly more, both stay and the post says when each applies. The figure the post
 quotes comes from a GitHub runner, as every headline number does; the laptop's run checks the
 benchmark and gives the first reading.
+
+### 9.12 The first query of the two designs, measured: B stays, 28 September 2026
+
+The runner's run of `VarkaColdStartBenchmark` with the section 9.11 added, on an
+EPYC 9V74 with four cores (`VarkaColdStartBenchmark-jdk25-runner-9v74-results.txt`,
+with its provenance), at 48 and 200 ranges over a hundred thousand rows, best of
+five iterations. Milliseconds a query; B is the range set, A the split conditions:
+
+| case | 48: vanilla | B | A | 200: vanilla | B | A |
+|:--|--:|--:|--:|--:|--:|--:|
+| plan only | 13 | 12 | 14 | 27 | 28 | 61 |
+| first run | 175 | 73 | 110 | 1748 | 142 | 420 |
+| second run | 41 | 24 | 97 | 1634 | 52 | 350 |
+| with the warm-up, first run | | 418 | 159 | | 302 | 1503 |
+| with the warm-up, second run | | 283 | 148 | | 55 | 1005 |
+| once compiled | | 23 | 24 | | 53 | 55 |
+| the warm-up's verdict | | 0.72-0.86 s | 0.62-0.66 s | | 0.10-0.13 s | 3.1-3.6 s |
+
+**Prediction by prediction (9.11).**
+
+1. **Held at 200, within the noise at 48.** Plan only is 61 against 28 ms at
+   200 ranges, 2.2 times: A's emission of several methods against B's one loop
+   over a table. At 48 ranges, 14 against 12.
+2. **Held, and at 48 ranges too.** A's first run without the warm-up is 420
+   against 142 ms at 200 ranges and 110 against 73 at 48, where the prediction
+   had the two within the noise. And A's second run is 350 ms at 200 ranges
+   against B's 52: A's methods are not compiled by the second query either,
+   where B's loop is.
+3. **Held.** The warm-up's verdict on A takes 3.1 to 3.6 seconds at 200 ranges
+   against 0.10 to 0.13 on B, some thirty times; once compiled the two are 55
+   and 53 ms, equal as at steady state. At 48 ranges the verdicts are alike.
+4. **Held.** Vanilla at 200 ranges takes 1748 ms on the first run and 1634 on
+   the second: its method is past 8000 bytes and never leaves the interpreter,
+   so it is slower than either design on every run.
+
+**The decision.** By 9.11's rule A would have to be within about a fifth of B
+on the first run and plan only at 200 ranges; it is three times B on the one
+and twice on the other. **B stays**, as 9.9 configured it: `rangeSets` on, so
+a disjunction of ranges over one column compiles to the range set, and
+`splitConditions` on for every other predicate too large for one method, where
+A is the only design there is. Rows 207 and 208, B's loop improvements, keep
+their point. The post says which shape each serves.
+
+**A finding for the warm-up (rows 212 and 213, task 221).** With the warm-up
+on, which is the default, A's first two queries at 200 ranges take 1503 and
+1005 ms, against 420 and 350 without it: while the warm-up compiles A's methods
+for three seconds the queries run on the row path, and the row path over two
+hundred ranges is the interpreted stage vanilla runs, about 1.7 seconds a
+query. For a kernel whose verdict is slow and whose row path is this slow, the
+warm-up costs more than it saves; B, whose verdict comes in a tenth of a
+second, shows the policy at its best (302 then 55 ms). The verdict's cost
+against the row path's is a per-shape question the warm-up does not ask today.
+
+The laptop's regeneration of the committed file, with this section, is queued
+for the night of 28 September and lands beside this run's file; the decision
+is read from the runner's, as every headline number is.
