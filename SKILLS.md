@@ -33,6 +33,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Before pricing a shape, look for the benchmark that already priced it](sql/varka/skills/benchmarking.md#before-pricing-a-shape-look-for-the-benchmark-that-already-priced-it)
 * [A harness that checks how a row was produced, and never what it produced](sql/varka/skills/benchmarking.md#a-harness-that-checks-how-a-row-was-produced-and-never-what-it-produced)
 * [Spark's benchmarks run with `spark.testing` set; a benchmark of a fallback clears it](sql/varka/skills/benchmarking.md#sparks-benchmarks-run-with-sparktesting-set-a-benchmark-of-a-fallback-clears-it)
+* [A rate printed with one decimal cannot read a cold case](sql/varka/skills/benchmarking.md#a-rate-printed-with-one-decimal-cannot-read-a-cold-case)
 * [Spark's codegen histograms are samples, and its TPC suites compile nothing under AQE](sql/varka/skills/benchmarking.md#sparks-codegen-histograms-are-samples-and-its-tpc-suites-compile-nothing-under-aqe)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)

@@ -82,8 +82,8 @@ HEADER = re.compile(r"^(.*?):\s+Best Time\(ms\)")
 
 
 def parse(path):
-    """{(table, case, occurrence): rate} for one run's output."""
-    rates, seen, table = {}, {}, ""
+    """{(table, case, occurrence): (rate, per_row_ns)} for one run's output."""
+    rows, seen, table = {}, {}, ""
     with open(path, errors="replace") as f:
         for line in f:
             line = re.sub(r"^\[info\] ?", "", line.rstrip())
@@ -95,18 +95,29 @@ def parse(path):
             if m:
                 base = (table, m.group(1).strip())
                 seen[base] = seen.get(base, 0) + 1
-                rates[base + (seen[base],)] = float(m.group(5))
-    return rates
+                rows[base + (seen[base],)] = (float(m.group(5)), float(m.group(6)))
+    return rows
 
 
 def spreads(runs):
-    """{key: (spread_pct, lo, hi)} over the keys every run has."""
+    """{key: (spread_pct, lo, hi)} over the keys every run has.
+
+    The rate and the time a row are the same measurement, reciprocals of each other, and
+    both are printed with one decimal; so the spread is read from whichever has more
+    digits. A fast case's rate (3452.2 M/s) resolves 0.003%, where its 0.3 ns a row cannot
+    tell two runs apart; a cold case's rate (0.8 M/s) moves in steps of 12%, and a query
+    over a few rows prints 0.0, where its 1250.0 ns a row resolves 0.01%.
+    """
     common = set(runs[0])
     for r in runs[1:]:
         common &= set(r)
     out = {}
     for k in common:
-        vs = [r[k] for r in runs]
+        rates = [r[k][0] for r in runs]
+        per_row = [r[k][1] for r in runs]
+        vs = rates if min(rates) >= min(per_row) else per_row
+        if min(vs) <= 0:
+            continue
         out[k] = ((max(vs) - min(vs)) / min(vs) * 100, min(vs), max(vs))
     return out
 

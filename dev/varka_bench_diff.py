@@ -111,6 +111,36 @@ def pct(before, after):
     return (after / before - 1.0) * 100.0 if before else float("nan")
 
 
+def per_row(text):
+    """{(table, case, occurrence): nanoseconds a row}, keyed as parse() keys rates."""
+    out, seen, table = {}, {}, ""
+    for line in text.splitlines():
+        line = re.sub(r"^\[info\] ?", "", line)
+        h = HEADER.match(line)
+        if h:
+            table = h.group(1).strip()
+            continue
+        m = ROW.match(line)
+        if m:
+            base = (table, m.group(1).strip())
+            seen[base] = seen.get(base, 0) + 1
+            out[base + (seen[base],)] = float(m.group(6))
+    return out
+
+
+def rate_change(before, after, before_ns=None, after_ns=None):
+    """The rate's change in percent, read from whichever printed figure has more digits.
+
+    The rate and the time a row are reciprocals, both printed with one decimal. A cold
+    case's rate moves in steps of 12% at 0.8 M/s and prints 0.0 over a few rows, which
+    would make every change unreadable; its time a row resolves such a case to 0.01%.
+    dev/varka_bench_band.py measures the band from the same figure.
+    """
+    if before_ns and after_ns and min(before, after) < min(before_ns, after_ns):
+        return (before_ns / after_ns - 1.0) * 100.0
+    return pct(before, after)
+
+
 def repo_root():
     return subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True
@@ -183,7 +213,7 @@ def band_verdict(band, key, change):
     return (f" <-- ({BAND_LABEL[tier]})" if over else ""), over
 
 
-def print_rows(rows, threshold, band=None):
+def print_rows(rows, threshold, band=None, changes=None):
     # A case name repeats across tables ("hand-written kernel, null-free" is in date_add's
     # table and in datediff's), so name the table wherever the case alone is ambiguous.
     counts = {}
@@ -196,7 +226,7 @@ def print_rows(rows, threshold, band=None):
     width = max((len(label) for label, _, _, _ in labels), default=10)
     print(f"{'case':{width}}  {'before':>9}  {'after':>9}  {'change':>8}")
     for label, key, b, a in labels:
-        change = pct(b, a)
+        change = changes[key] if changes and key in changes else pct(b, a)
         if band is None:
             mark = " <--" if abs(change) >= threshold else ""
         else:
@@ -207,16 +237,19 @@ def print_rows(rows, threshold, band=None):
 def before_after(old_text, new_text, args):
     old, _ = parse(old_text)
     new, order = parse(new_text)
+    old_ns, new_ns = per_row(old_text), per_row(new_text)
     band = read_band(args.band) if args.band else None
     control = re.compile(args.control)
     controls, moved, same, missing, unreadable = [], [], [], [], []
+    changes = {}
     for key in order:
         section, case, occ = key
         if key not in old:
             missing.append(key)
             continue
         row = (section, case, occ, old[key], new[key])
-        change = pct(old[key], new[key])
+        change = rate_change(old[key], new[key], old_ns.get(key), new_ns.get(key))
+        changes[key] = change
         if control.search(case):
             controls.append(row)
             continue
@@ -233,21 +266,21 @@ def before_after(old_text, new_text, args):
         (moved if over else same).append(row)
     if controls:
         print(f"-- controls ({args.control}); if these moved, the machine moved --")
-        print_rows(controls, args.threshold, band)
+        print_rows(controls, args.threshold, band, changes)
         print()
     if band is None:
         print(f"-- moved by at least {args.threshold:g}% --")
     else:
         print(f"-- moved past the band in {args.band} --")
-    print_rows(moved, args.threshold, band) if moved else print("(none)")
+    print_rows(moved, args.threshold, band, changes) if moved else print("(none)")
     if unreadable:
         print()
         print(f"-- {len(unreadable)} case(s) the band calls unreadable, not classified --")
-        print_rows(unreadable, args.threshold, band)
+        print_rows(unreadable, args.threshold, band, changes)
     if args.all and same:
         print()
         print("-- within the band --" if band else "-- within the threshold --")
-        print_rows(same, args.threshold, band)
+        print_rows(same, args.threshold, band, changes)
     if args.requote:
         print()
         print("-- requote: document lines quoting the old numbers of the moved rows --")
@@ -427,6 +460,13 @@ projection, columnar consumer   14 14 0 1430.0 0.7 1.0X
 SELFTEST_SUMS_B = SELFTEST_SUMS_A.replace("fold=42", "fold=43")
 
 
+def selftest_rate_change():
+    """A cold case is read from its time a row: 0.0 M/s to 0.0 is still a 25% change."""
+    assert abs(rate_change(0.0, 0.0, 1250000.0, 1000000.0) - 25.0) < 1e-9
+    assert abs(rate_change(0.8, 1.0, 1250.0, 1000.0) - 25.0) < 1e-9
+    assert abs(rate_change(3452.2, 3452.2, 0.3, 0.3)) < 1e-9
+
+
 def selftest():
     """The keying, on a file holding the collision the parity file really has.
 
@@ -521,6 +561,7 @@ def main():
 
     if args.selftest:
         selftest()
+        selftest_rate_change()
         return
     if args.table:
         surface_table(args.table)
