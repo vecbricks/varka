@@ -65,7 +65,7 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, L
  * that means to change the emitted code regenerates the file and says so in its plan - but it
  * is never a note: the step that produced it reads the two renderings before it is accepted.
  */
-class VarkaEmittedBytesSuite extends SparkFunSuite {
+class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val seed = fuzzSeed
   private val shapes = 10000

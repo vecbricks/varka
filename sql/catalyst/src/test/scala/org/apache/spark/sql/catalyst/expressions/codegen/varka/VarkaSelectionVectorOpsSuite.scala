@@ -31,7 +31,7 @@ import org.apache.spark.SparkFunSuite
  * Named with the `Varka` prefix, unlike the class it tests, so the documented
  * `testOnly *Varka*` gate picks it up.
  */
-class VarkaSelectionVectorOpsSuite extends SparkFunSuite {
+class VarkaSelectionVectorOpsSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val lanes = SelectionVectorOps.intLanes()
 

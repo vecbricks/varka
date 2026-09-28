@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAllocationSa
  * section). The boxing case itself is established by `VarkaAssemblySuite`'s polluted gather
  * pair in a forked JVM, through the same thread-allocation counter this sampler reads.
  */
-class VarkaAllocationSamplerSuite extends SparkFunSuite {
+class VarkaAllocationSamplerSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("the default schedule skips the warm-up, then samples powers of two and every 4096th") {
     val s = Schedule.DEFAULT

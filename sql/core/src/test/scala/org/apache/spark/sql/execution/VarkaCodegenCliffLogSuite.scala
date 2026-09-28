@@ -21,6 +21,7 @@ import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 
@@ -33,7 +34,7 @@ import org.apache.spark.sql.test.SharedSparkSession
  * that the line is there, for the size ladder's projection past the limit and not below it, so
  * the claim the milestone's post makes about it rests on a test rather than on one run's log.
  */
-class VarkaCodegenCliffLogSuite extends QueryTest with SharedSparkSession {
+class VarkaCodegenCliffLogSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   /**
    * The size ladder's projection at `n` entries over generated dates. The offsets are this

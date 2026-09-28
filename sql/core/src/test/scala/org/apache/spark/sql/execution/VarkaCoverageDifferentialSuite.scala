@@ -22,6 +22,7 @@ import scala.jdk.CollectionConverters._
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 
 /**
@@ -41,7 +42,8 @@ import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
  * `VarkaDifferentialSuite` (extreme offsets, overflow, cache conversion) stay there; this is the
  * floor under them.
  */
-class VarkaCoverageDifferentialSuite extends QueryTest with VarkaSharedSessions {
+class VarkaCoverageDifferentialSuite extends QueryTest with VarkaSharedSessions
+  with VarkaTestWatchdog {
 
   /** One row of the table: what it prints, what runs, and which form it takes. */
   private case class CoverageRow(sql: String, executable: String, family: String, form: String)

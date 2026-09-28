@@ -22,6 +22,7 @@ import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, GreaterThan, IsNotNull, LessThan, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
@@ -38,7 +39,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * The batch scaffolding - `BatchSpec`, `TestColumnarBatchPlan`, `buildBatch` - is shared with
  * [[VarkaColumnarToRowExecSuite]].
  */
-class VarkaFilterExecSuite extends QueryTest with SharedSparkSession {
+class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   private val attrD = AttributeReference("d", DateType)()
   private val intAttr = AttributeReference("i", IntegerType)()

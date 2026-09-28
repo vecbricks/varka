@@ -21,6 +21,7 @@ import java.time.{Duration, LocalTime}
 
 import org.apache.spark.{SparkArithmeticException, SparkDateTimeException}
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DayTimeIntervalType, LongType, StructField, StructType, TimeType}
@@ -42,7 +43,7 @@ import org.apache.spark.sql.types.{DayTimeIntervalType, LongType, StructField, S
  * return a time where Spark returns an error, and that is exactly the difference the guard
  * exists to remove.
  */
-class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions {
+class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private val secondsPerDay = 86400
   private val day = "varka_time_day"

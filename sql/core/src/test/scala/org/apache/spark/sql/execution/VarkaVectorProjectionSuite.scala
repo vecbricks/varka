@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, DateAdd, Literal,
   NamedExpression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.execution.vectorized.{OnHeapColumnVector, WritableColumnVector}
 import org.apache.spark.sql.types._
@@ -30,7 +31,7 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
  * same null counts as projecting each row into an `UnsafeRow` and converting it, whichever of its
  * two paths it takes, and the direct path exactly for the outputs with a primitive Java type.
  */
-class VarkaVectorProjectionSuite extends SparkFunSuite {
+class VarkaVectorProjectionSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val rows = 6
 

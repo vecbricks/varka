@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.classic.{SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryRelation}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
@@ -36,7 +37,7 @@ import org.apache.spark.sql.test.SharedSparkSession
  * built any other way, registered twice when `getOrCreate` was called twice on one builder, and
  * mutated a user-supplied extensions object. The last three tests pin those down.
  */
-class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession {
+class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   private var session: SparkSession = _
 

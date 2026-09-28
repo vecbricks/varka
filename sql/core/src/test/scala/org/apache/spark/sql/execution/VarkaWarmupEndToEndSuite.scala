@@ -23,6 +23,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmth,
   VarkaKernelWarmup, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -39,7 +40,7 @@ import org.apache.spark.sql.util.QueryExecutionListener
  * warm-up batch, and a batch the evaluator declines while it copies it for a warm-up is the
  * declined batch it would have been on the kernel path.
  */
-class VarkaWarmupEndToEndSuite extends QueryTest with VarkaSharedSessions {
+class VarkaWarmupEndToEndSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private val numRows = 40000
 

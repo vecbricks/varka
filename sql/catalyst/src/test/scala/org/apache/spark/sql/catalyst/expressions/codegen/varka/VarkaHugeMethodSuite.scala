@@ -40,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHugeMethodPr
  * ([[VarkaHugeMethodProbe]]) under `-Xbatch -XX:+PrintCompilation`, runs the ladder hot, and
  * reads the tiers HotSpot printed for the emitted class's methods.
  */
-class VarkaHugeMethodSuite extends SparkFunSuite {
+class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val outputs = 16
 

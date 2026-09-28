@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{And, BoundReference, EqualTo, Expression,
   GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Literal, Or}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.types.{DateType, IntegerType}
 
 /**
@@ -29,7 +30,7 @@ import org.apache.spark.sql.types.{DateType, IntegerType}
  * set of rows is one shape however the query wrote it. `VarkaRangeSetSuite` checks the answers
  * end to end; this checks the form.
  */
-class VarkaRangeSetCompilerSuite extends SparkFunSuite {
+class VarkaRangeSetCompilerSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val k = BoundReference(0, IntegerType, nullable = true)
   private val k2 = BoundReference(1, IntegerType, nullable = true)

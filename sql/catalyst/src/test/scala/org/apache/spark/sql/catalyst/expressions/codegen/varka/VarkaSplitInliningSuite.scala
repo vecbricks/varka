@@ -40,7 +40,7 @@ import org.apache.spark.SparkFunSuite
  * for the generated class, and reads which of the split `caseWhen_*` methods C2 inlined into
  * their caller. The post that quotes this is `PLAN_TASK_181.md` 3.4.
  */
-class VarkaSplitInliningSuite extends SparkFunSuite {
+class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val childTimeoutSeconds = 300L
 

@@ -62,7 +62,7 @@ import org.apache.spark.util.Utils
  * The same shape as Spark's own `SQLKeywordSuite`, which fails when the ANSI keyword
  * documentation and the parser grammar disagree.
  */
-class VarkaCoverageSuite extends SparkFunSuite {
+class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   // The columns every row is written against. They are the columns of the benchmark's
   // `varka_dates` table (`Surface.java`), so an expression in the table can be pasted into

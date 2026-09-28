@@ -36,7 +36,7 @@ import org.apache.spark.util.Utils
  * moves here too: bounded by cache capacity rather than task lifetime, proven the same way as
  * `VarkaGeneratedClassLoaderSuite`'s per-task proof - weak references, now against eviction.
  */
-class VarkaShapeCacheSuite extends SparkFunSuite {
+class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /** Total budget (ms) for GC-retry loops; generous to stay robust on loaded JVMs. */
   private val gcTimeoutMs = 10000L

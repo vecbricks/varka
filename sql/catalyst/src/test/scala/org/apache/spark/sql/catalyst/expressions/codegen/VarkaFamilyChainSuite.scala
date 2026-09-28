@@ -26,6 +26,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, BindReferences,
   Expression, RuntimeReplaceable}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaSqlResolve, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 
 /**
@@ -45,7 +46,7 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
  * last test duplicates a group on purpose and asserts the check catches it, which is what makes
  * a green run mean something.
  */
-class VarkaFamilyChainSuite extends SparkFunSuite {
+class VarkaFamilyChainSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /** The coverage table's columns and every row's executable SQL, from the committed file. */
   private lazy val (columns: Seq[Attribute], rows: Seq[String]) = {

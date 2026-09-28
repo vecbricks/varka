@@ -44,7 +44,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  *   build/sbt "project catalyst" 'set Test/javaOptions += "-Dvarka.sweep=true"' \
  *     'testOnly *VarkaChronoSuite'
  */
-class VarkaChronoSuite extends SparkFunSuite {
+class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /** `java.time`'s answer, which is exactly what Spark's `DateTimeUtils.getYear` and its three
    * siblings return for the same day. */

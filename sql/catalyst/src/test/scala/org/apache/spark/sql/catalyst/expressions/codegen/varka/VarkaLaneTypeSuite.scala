@@ -36,7 +36,7 @@ import org.apache.spark.sql.varka.vector.VarkaVectorSupport
  * parameterised on it (task 85, steps 3 and 4) the int lane is the only one it can emit, so a
  * well-formed 64-bit tree is built here and refused there, which is what the last test pins.
  */
-class VarkaLaneTypeSuite extends SparkFunSuite {
+class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val intCol = new ColumnRef(0)
   private val intLit = new LiteralSlot(0)

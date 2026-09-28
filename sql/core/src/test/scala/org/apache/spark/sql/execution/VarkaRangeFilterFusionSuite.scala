@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, Expre
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
   VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
@@ -37,7 +38,7 @@ import org.apache.spark.sql.types.IntegerType
  * one condition is emitted into one method, and the chain fit the 8000-byte budget only up to 48
  * ranges (`PLAN_TASK_172.md` 9.1); this pins that the range set removed that limit.
  */
-class VarkaRangeFilterFusionSuite extends SparkFunSuite {
+class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val s = AttributeReference("ss_sold_date_sk", IntegerType)()
 

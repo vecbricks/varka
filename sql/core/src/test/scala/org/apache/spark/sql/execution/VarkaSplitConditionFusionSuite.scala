@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
   VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
   VarkaLoopEmitter}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
@@ -41,7 +42,7 @@ import org.apache.spark.sql.types.IntegerType
  * hold compiles exactly as it does without the option. TPC-DS `modified-q3`'s ranges are the
  * realistic case, compiled with range sets off so that they reach the split as comparisons.
  */
-class VarkaSplitConditionFusionSuite extends SparkFunSuite {
+class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val s = AttributeReference("ss_sold_date_sk", IntegerType)()
   private val t = AttributeReference("t", IntegerType)()

@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
  * A disjunction of ranges over one int or date column - `c between a and b or c between d and
@@ -29,7 +30,7 @@ import org.apache.spark.sql.{QueryTest, SparkSession}
  * written with strict bounds or as equalities, in either operand order - over nulls and the int
  * extremes.
  */
-class VarkaRangeSetSuite extends QueryTest with VarkaSharedSessions {
+class VarkaRangeSetSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private def cacheKeys(session: SparkSession): Unit = {
     val values: Seq[Integer] = Seq[Integer](null, Int.MinValue, Int.MinValue + 1, -5, -1, 0, 1,

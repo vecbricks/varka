@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
  * Filters too large for one method, split across several selection outputs
@@ -27,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
  * must select the same rows with the kernel having run. Range sets are off, so `modified-q3`'s
  * ranges reach the split as the comparisons the query writes.
  */
-class VarkaSplitConditionSuite extends QueryTest with VarkaSharedSessions {
+class VarkaSplitConditionSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private def cacheKeys(session: SparkSession): Unit = {
     val values: Seq[Integer] = Seq[Integer](null, Int.MinValue, Int.MinValue + 1, -5, -1, 0, 1,

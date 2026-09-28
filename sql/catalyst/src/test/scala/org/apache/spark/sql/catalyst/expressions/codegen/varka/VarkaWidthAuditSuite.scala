@@ -64,7 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
  *   VARKA_AUDIT_REGEN=true build/sbt 'catalyst/testOnly *VarkaWidthAuditSuite'
  * }}}
  */
-class VarkaWidthAuditSuite extends SparkFunSuite {
+class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val childTimeoutSeconds = 600L
 

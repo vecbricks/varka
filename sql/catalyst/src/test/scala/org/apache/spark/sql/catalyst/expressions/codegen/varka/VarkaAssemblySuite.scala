@@ -53,7 +53,7 @@ import org.apache.spark.SparkFunSuite
  * state of a CI runner, and a gate that goes red for missing tooling is a gate people delete.
  * It says which of the two happened: no library found, or found and refused to load.
  */
-class VarkaAssemblySuite extends SparkFunSuite {
+class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   // --- The families -------------------------------------------------------------------------
 

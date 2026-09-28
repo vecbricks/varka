@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoad
  * are the key and the threshold, and neither needs a running compiler to check, while a test
  * that waits for C2 is exactly the kind that goes flaky on a loaded runner.
  */
-class VarkaCompilationWatchSuite extends SparkFunSuite {
+class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val prefix = VarkaShapeCacheImpl.CLASS_NAME_PREFIX
   private val shapeA = "0123456789abcdef"

@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
  * End-to-end tests for the Varka columnar execution path (Task 6). The three sessions are set up
@@ -28,7 +29,7 @@ import org.apache.spark.sql.QueryTest
  * [[VarkaColumnarToRowExec]] and produce results identical to the row-based engine, while
  * ineligible projections and the disabled config must leave the plan untouched.
  */
-class VarkaEndToEndSuite extends QueryTest with VarkaSharedSessions {
+class VarkaEndToEndSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   test("date_add and date_sub over a cached Arrow source are fused and match the row engine") {
     cacheDates(spark)

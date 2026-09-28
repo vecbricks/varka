@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 
 /**
@@ -34,7 +35,7 @@ import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
  * of `TIME`, both signs and the extremes of `bigint` and the interval, and each query is asserted
  * to have fused, since a differential passes trivially when everything falls back.
  */
-class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions {
+class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   /**
    * The three fixtures - nulls mixed in, none, all - each a cached view with the columns the

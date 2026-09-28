@@ -34,7 +34,7 @@ import org.apache.spark.SparkFunSuite
  * free (`PLAN_TASK_209.md` 2); this suite runs one short fork and asserts nothing about which
  * side of the cliff it landed on.
  */
-class VarkaInliningCliffSuite extends SparkFunSuite {
+class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private def testClasspath: String =
     Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)

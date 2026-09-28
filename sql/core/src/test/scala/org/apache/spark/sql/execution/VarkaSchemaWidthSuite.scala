@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql.{Observation, QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.functions.{count, lit}
 import org.apache.spark.sql.internal.SQLConf
@@ -38,7 +39,7 @@ import org.apache.spark.sql.internal.SQLConf
  * check Varka's, and the reason it logs where a cause a user can act on still keeps the batches
  * away.
  */
-class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions {
+class VarkaSchemaWidthSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   /**
    * Caches `varka_wide_<n>`: a date `d` and `n - 1` int columns, with nulls in both, so the
