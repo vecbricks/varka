@@ -338,3 +338,45 @@ four-core runner, and past the cliff it is already faster; short queries on a
 new shape run 1.2 to 1.4 times slower than stock for the warm-up's two to four
 seconds, then about twice as fast at 16 entries and fifteen times at 54. The
 figures the draft quotes are to be replaced from these two files.
+
+
+## 11. The size distribution, 28 September 2026
+
+Section 4's last owed row. `VarkaMethodSizeCensus` runs Spark's golden-file suite and its
+TPC-DS, TPC-H and SSB query suites in one JVM with Varka off, and counts the bytecode size of
+every method of every class Spark compiles, per suite family
+(`VarkaCodegenMethodSizes-jdk25-results.txt`, with its provenance). Spark records the same
+sizes in `CodegenMetrics`' `generatedMethodSize` histogram, but that histogram keeps a sample
+of about a thousand values that decays with time; the census puts an exact count in its place.
+
+| suite | methods | median | p99 | largest | past 8000 |
+| :-- | ---: | ---: | ---: | ---: | ---: |
+| golden files | 331256 | 26 | 395 | 6704 | 0 |
+| TPC-DS | 17436 | 63 | 758 | 12450 | 1 |
+| TPC-H | 1322 | 50 | 548 | 2533 | 0 |
+| SSB | 370 | 50 | 619 | 763 | 0 |
+| all | 350384 | 27 | 425 | 12450 | 1 |
+
+**Spark's own queries almost never reach the limit.** Of 350384 methods, 99.330% are under
+500 bytes and 5 are between 4000 and 8000. The one past 8000 is `modified-q3`'s
+`hashAgg_doAggregateWithKeys_0`, at 12450 bytes: the query `TPCDSQuerySuite` exempts from its
+size check (SPARK-29128), and the one task 172 measures. So the cliff is not where Spark's
+test queries go; it is where wide expressions go, which is why the post's evidence is the size
+ladder and one realistic query rather than a sweep of the suites. The distribution is the
+figure that says so, and 3.3 can open with it.
+
+**What the census needed.** On the fork, the TPC suites compiled nothing: their size check
+walks the plan with `foreach`, which does not enter an adaptive plan, so under AQE it found no
+stage (SPARK-59764). The upstream fixes, SPARK-59764 (the check with AQE off) and SPARK-59765
+(broadcast joins generated in full rather than as the stub an empty build side gives), merged
+into apache/spark on 25 September and are not in the fork, which last merged upstream on 15
+September. This branch carries both as cherry-picks.
+
+**How to read the counts.** A class is counted once per JVM, since Spark caches compiled
+classes by their source, so each family's count depends on which suites ran before it: TPC-H
+counts 1328 methods alone and 1322 after the golden files. One golden-file test of 788
+failed, `udtf.sql`'s Python UDTFs, in the Python worker: the local Python environment, not the
+code generation.
+
+Every row of section 4 is now done or owed as a measurement: 170, 172's 9V45 figure (in
+review), 197 and 202.

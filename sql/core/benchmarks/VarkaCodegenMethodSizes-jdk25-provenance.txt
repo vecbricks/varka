@@ -1,0 +1,17 @@
+census:      org.apache.spark.sql.execution.VarkaMethodSizeCensus (a suite, run only with
+             VARKA_CENSUS=1)
+command:     VARKA_CENSUS=1 build/sbt "sql/testOnly org.apache.spark.sql.execution.VarkaMethodSizeCensus"
+where:       the owner's laptop; bytecode sizes do not depend on the machine
+commit:      a2492f7e0bb (master) with SPARK-59764 and SPARK-59765 cherry-picked from
+             apache/spark (73054c78f8b, 3fa48313900), so that the TPC suites compile every
+             stage with AQE off and broadcast joins generated in full
+date:        2026-09-28
+jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+settings:    Varka off (its default); every suite's own configuration unchanged
+suites:      SQLQueryTestSuite, TPCDSQuerySuite, TPCHQuerySuite, SSBQuerySuite, in that order,
+             in one JVM; 973 tests, 972 passed; udtf/udtf.sql's Python UDTFs failed in the
+             Python worker, a local Python environment failure
+counting:    every method of every class Spark compiled, once per distinct generated class:
+             a class already compiled by an earlier suite is not counted again, so a family's
+             count depends on the order (TPC-H counts 1328 methods alone, 1322 after the
+             golden files)

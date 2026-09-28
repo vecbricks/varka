@@ -560,3 +560,27 @@ measures. Under sbt the same flag is also the `SPARK_TESTING` environment variab
 JVM cannot clear, so such a rung still throws there; the runners' `spark-submit` path is where
 the full ladder runs. The quickest local check that a benchmark's fallback arm behaves as in
 production is `bin/spark-submit` from a stock distribution, not `build/sbt Test/runMain`.
+
+## Spark's codegen histograms are samples, and its TPC suites compile nothing under AQE
+
+Two instruments that look like they answer "how large is the code Spark generates" do not,
+as they stand.
+
+* **`CodegenMetrics`' histograms keep a decaying sample.** `generatedMethodSize` and its
+  siblings are Dropwizard histograms with the default reservoir: about a thousand values,
+  weighted towards the last few minutes. Their counts are exact, their distribution is not, and
+  after an hour of queries it describes the end of the run. For a distribution, count every
+  value: `VarkaMethodSizeCensus` swaps the reservoir for an exact counter by reflection and
+  keeps the counts per suite.
+* **`BenchmarkQueryTest.checkGeneratedCode` finds no stage under adaptive execution** unless the
+  suite carries SPARK-59764: it walks the plan with `foreach`, which stops at
+  `AdaptiveSparkPlanExec`, so the TPC-DS, TPC-H and SSB suites passed while compiling nothing.
+  "Total compile time: 0.0 seconds" in the suite's log is the tell. With AQE off, broadcast
+  joins over the suites' empty tables generate a stub unless SPARK-59765 is there too.
+* **sbt runs a suite's nested suites as separate tasks after it**, so a wrapper cannot count
+  around `Suites(...)`; run the suites from inside one test instead. And `@DoNotDiscover` keeps
+  a suite out of `testOnly` even by its full name; gate it on an environment variable, which
+  the forked test JVM inherits where the sbt JVM's system properties do not reach.
+
+See `PLAN_TASK_181.md` 11.
+
