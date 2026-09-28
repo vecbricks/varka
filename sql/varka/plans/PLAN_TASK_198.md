@@ -198,12 +198,21 @@ moves the ladder and not only the shared-prefix benchmark.
   level up, with the columns' plumbing; it is 190's to build if B is chosen
   there, and S1 is what it would reuse inside each kernel.
 
-**S1 is chosen.** S2 is the same emitted code with a wider blast radius, and
-the statelessness it keeps buys nothing today: instances are per task already,
-and the buffer is at most six vectors of a batch's rows - 240 KB at the Arrow
-cache's ten thousand rows - held once per task per shape. If task 190 wants
-scratch passed between kernels, S1's plan-time analysis and emission are the
-part that carries over, and only the buffer's owner changes.
+**S2 is chosen**, on the owner's word that stateless is preferred where it
+costs no speed, and it costs none: the two are the same emitted loop code, and
+differ only in who allocates the buffer and when. S1 would have been the
+smaller change - the emitter alone, against the emitter plus every caller -
+and its buffer is small, at most six vectors of a batch's rows, 240 KB at the
+Arrow cache's ten thousand rows. But it breaks a contract the engine has kept
+since milestone 1, that a kernel is a pure function of its arguments and a
+call allocates nothing, and it leaves the buffer's lifetime to garbage
+collection. Under S2 the caller allocates the scratch as it allocates the
+output vectors, owns it for as long, and frees it with them. The scratch is a
+new parameter of `run` rather than a trailing entry of `dstData`, so that
+every caller is found by the compiler rather than by an index past the end of
+an array at run time: two callers in production (the evaluator's runner and
+the warm-up) and twenty-one harnesses and benchmarks in the test trees. If
+task 190 passes a prefix between kernels, this is already the shape it needs.
 
 ### 8.3 The mechanism
 
@@ -223,14 +232,25 @@ what lets the epilogue use the masked loads and stores it already uses for
 outputs. The scratch is int32 whatever the tail's lane, since the prefix is
 int-lane by construction (`VarkaChronoLowering`'s class doc).
 
-**The class** gets two instance fields, the scratch's address and its capacity
-in rows, and the driver (`run`) begins with one compare: if `length` is past
-the capacity, a static helper (`VarkaScratch.ensure`) allocates a segment of
-the new size, registers it with a `Cleaner` keyed on the kernel, frees the old
-one and returns the address. Every other call pays the compare and nothing
-else. The helper lives in the `varka` package beside `VarkaFusedKernel`, whose
-javadoc says what changed in its contract: a call allocates nothing but the
-scratch, once per size the instance has seen.
+**The contract.** `VarkaFusedKernel.run` gains a parameter, `long scratch`,
+the address of a buffer of at least `scratchBytesPerRow() * rows` bytes for
+`length` rows rounded up to a whole lane group, and the interface gains
+`scratchBytesPerRow()`, a constant the emitted class returns: zero for every
+kernel with nothing to materialize, which passes `0L` and never dereferences
+it. The driver of a kernel with scratch begins with one compare, and a zero
+address is an `IllegalArgumentException` naming the kernel rather than a
+write to address zero. Kernels stay pure functions of their arguments and a
+call allocates nothing, as `VarkaFusedKernel`'s javadoc says today; the
+javadoc gains the scratch's contract beside the validity addresses'.
+
+**The callers.** The evaluator's `FusedRunner` allocates one scratch segment
+from the task's allocator on the first batch, sized to that batch's rows, and
+grows it when a longer batch comes, freeing it with the runner as it frees the
+output vectors; the warm-up allocates its own in the arena that already holds
+its probe outputs, for `MAX_CALL_ROWS`; `VarkaEmitterTestBase` allocates for
+the suites in the helper the suites already drive kernels through; each
+benchmark's driver allocates once beside its output buffers. A static helper,
+`VarkaScratch.sizeFor(kernel, rows)`, is the one place the rounding lives.
 
 **The producer's bodies** - its loop method and its epilogue, dense and masked
 - store `t[0..5]` to the region right after `emitChronoPrefix` leaves them,
@@ -281,8 +301,10 @@ thirty fewer vector call sites, a third of the 93 C1 compiles.
 | `Analysis.java`, `Slots.java` | the key-to-region map; a slot for the region's base address per body |
 | `VarkaBodyEmitter.java` | unpacking the scratch address at method entry, as the output addresses are |
 | `VarkaChronoLowering.java` | the stores after the prefix, the loads in place of it |
-| `VarkaScratch.java` (new) | `ensure`: allocate, grow, free, the `Cleaner` |
-| `VarkaFusedKernel.java` | the allocation contract's one exception, in its javadoc |
+| `VarkaScratch.java` (new) | `sizeFor`: the rounding to a lane group, in one place |
+| `VarkaFusedKernel.java` | the `scratch` parameter of both `run` overloads, `scratchBytesPerRow()`, and their contract in the javadoc |
+| `VarkaEvaluatorBase.scala` (`FusedRunner`), `VarkaKernelWarmup.java` | the two production callers: allocate, grow, free |
+| `VarkaEmitterTestBase`, the probes and benchmarks that drive a kernel | the twenty-one callers in the test trees, found by the compiler |
 | `VarkaEmitterChronoSuite`, `VarkaEmitterBudgetSuite`, `VarkaEmittedBytesSuite` | 8.6 |
 | `VarkaSharedPrefixBenchmark` | the materialized arms, 8.8 |
 | `PLAN_MILESTONE_6.md` | rows 198, 200 and 209 |
@@ -302,10 +324,11 @@ thirty fewer vector call sites, a third of the 93 C1 compiles.
    twenty; a nullable date, so the masked bodies store and load; at lengths
    1024, 1031 and 1 (an even batch, a ragged tail, and a batch shorter than a
    lane group) at both widths, as task 87's ladder tests.
-3. **The scratch's life**: one instance run at 1000 rows, then 10000, then 1,
-   answers right each time (the buffer grew once and was not shrunk); two
-   instances of one class at once, each right (no shared state); a batch that
-   condemns itself on an out-of-range day returns the same status on and off.
+3. **The scratch's contract**: one runner at 1000 rows, then 10000, then 1,
+   answers right each time (the caller's buffer grew once); a kernel with
+   scratch given `0L` fails by name; a kernel without scratch given `0L` runs;
+   a batch that condemns itself on an out-of-range day returns the same status
+   on and off.
 4. **The bytes.** Off: `emitted_bytes.json` unchanged. On: every consumer loop
    method carries at least thirty fewer `IntVector` call sites than its
    producer's (`VarkaEmitterTestSupport.methodNames`), which is the count
@@ -365,10 +388,11 @@ thirty fewer vector call sites, a third of the 93 C1 compiles.
    consumer's tails as well (`fragmentsReadingMonth` widened to the key's
    groups), and test 2's `make_date`, whose recompose reads the month, is the
    check.
-3. **The scratch outlives its usefulness.** A task's instance holds up to 240
-   KB until it is collected; a thousand tasks per executor is 240 MB. Bounded
-   by the batch size and the number of live instances, and the `Cleaner` frees
-   it; if it shows in the allocation sampler's account, S2 moves the ownership.
+3. **A caller sizes the scratch short.** The rounding to a lane group and the
+   bytes per row live in one helper, and the driver cannot check a segment's
+   length from an address; test 3's growing batches and the fuzzers' ragged
+   lengths are the check, and the evaluator's allocation is the one path
+   production runs.
 4. **The regroup moves a producer.** A split whose new first half holds no
    consumer of a key it produced leaves the key to the next group; the plan is
    recomputed per iteration, so it cannot leave a consumer without a producer,
@@ -377,8 +401,9 @@ thirty fewer vector call sites, a third of the 93 C1 compiles.
 ### 8.10 Sequencing
 
 1. The option, the plan of materialized keys, and test 1 - no emission yet.
-2. The emission: stores, loads, the fields, the helper; tests 2 to 4 and
-   `emitted_bytes.json` unmoved.
+2. The contract: the `run` parameter, `scratchBytesPerRow()`, every caller
+   allocating (most pass `0L` until a kernel needs more), `emitted_bytes.json`
+   unmoved; then the emission: stores and loads; tests 2 to 4.
 3. The benchmark's arms and the quiet regeneration; predictions 1, 2 and 4
    scored.
 4. The ladders on the laptop and a runner; predictions 3 and 5 scored; the
