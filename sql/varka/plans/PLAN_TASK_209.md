@@ -684,3 +684,80 @@ prediction did not name, the slow mode's residue in a JVM of many kernels.
   session warms, whose warm-up calls create the profile at once, and why it must stay tied to
   the warm-up; whether it should skip the methods under the budget altogether is item 61's
   third bullet, with this run as its first number.
+
+## 13. The review, 29 September 2026
+
+A code review of the pull request raised ten findings. Each was checked against the code and the
+committed logs; seven changed the code or its documents, one was factually wrong in part, and
+one asked for a change the rendering's contract forbids. None of the changes moves an emitted
+byte for any shape this plan measured: the method tables of the cheap tails at 22, 48 and 64
+outputs, the sixty `make_date` outputs and the size ladder's hundred entries, bytes and vector
+call sites for every method, were captured with `dev/varka_emit.sh` before the first edit and
+after the last, and are identical; `emitted_bytes.json` passes without regeneration. The
+readings of section 12 therefore stand for the code as merged.
+
+* **A budget that splits can make a class decline.** Each split gives the driver a call more in
+  each form, so a wide shape whose driver is just under the byte budget would decline under the
+  budget where the budget-off emitter emits. Fixed: when a class the call-site splits produced
+  would decline, the emitter builds it again with the budget off, so the emission is exactly the
+  budget-off one, decline or not, and the budget can never cost a kernel. A test forces the case
+  with a byte budget between the one-group form's widest method and the one-output-a-group
+  driver, and checks the answers.
+* **Epilogues were outside the budget.** The reasoning that an epilogue "costs a little per
+  batch" did not hold: the committed deopt logs show C1 refusing per-group epilogues, and an
+  epilogue has no back edge, so it reaches C2 only by invocation count and runs interpreted on
+  every batch that leaves a remainder for thousands of batches. Fixed: the budget reads a
+  group's loop and epilogue methods alike, as the byte budget does, and the names lose the
+  "loop" - the option is `VarkaEmitOptions.callSiteBudget` and the constant
+  `VarkaEmitBudget.CALL_SITE_BUDGET`, where sections 11 and 12 say `loopCallSiteBudget` and
+  `LOOP_CALL_SITE_BUDGET`. On every shape measured a group's epilogue carries exactly its loop's
+  count, which the suite now pins, so no split moved.
+* **The unit leaves out the masks' calls and the support helpers,** which C1 inlines and spends
+  registers on too. True, and unmeasured: the evidence in hand points the other way - the
+  `make_date` producer of 99 vector sites and about ten mask calls compiled in five forks of
+  five where 99 cheap-tail sites were refused (12.1) - so the count is a proxy calibrated on
+  two shapes, not C1's measure. Documented as such in the constant's doc; the census of a
+  mask-heavy wide group, a split-condition filter's, is added to milestone 7's item 61 rather
+  than the unit changed blind.
+* **The warm-up's C1-exclusion doc contradicted the budget**, saying a kernel's loop methods are
+  too large for C1. Fixed in the doc: the exclusion now covers methods C1 could compile, whether
+  it should spare them is item 61's, and it must stay tied to the warm-up (12.5).
+* **"512-bit hosts are unmeasured."** Wrong in part: the laptop's JVM prefers the 512-bit species
+  (`Int512Vector` in the probe file's allocation sections), so the host-width forks read 512 bits
+  and `--widths 16` read 128. The 256-bit species of the AVX2 runners is unmeasured, and item 61
+  now says so; the constant's doc names the species it was read at.
+* **Wasted rebuilds.** Half right. While a group is stuck on bytes the class declines whatever
+  the call sites say, so reading them then only cost builds; fixed, they are not read. Splitting
+  into as many pieces as a group's count needs, instead of halving, was not taken: the fused
+  ceiling keeps a group's count near 180, so halving settles any group in two or three builds,
+  and a different split rule would change the groupings section 12 measured.
+* **Settings that emit identical code render different shape keys** - a heavy-group count of 0
+  against 1, a call-site budget under the legacy form. No change: the rendering's contract is
+  that distinct option values never collide, `VarkaShapeCacheSuite` holds every component to it,
+  and these options are test-only. The docs now say that 0 and 1 alike split every group.
+* **The probe script hardcoded 93** when the heavy-group arm was asked for without a budget.
+  Fixed: the probe reads `default` for either argument as the production value, and the script
+  passes that word.
+* **The two group readers and the two split loops were copies.** Fixed: one reader over a
+  per-method measure serves both budgets, and one halving helper serves both splits.
+* **The corpus property counted only int-lane stores and drew only int-lane shapes.** Fixed: it
+  counts the stores at both lanes and runs over four hundred shapes of each grammar, and a new
+  test splits a wide long-lane group - forty outputs sharing a division by whole-node reuse -
+  and checks its answers at two and eight lanes. The corpus still has no wide group: 0 of 800
+  shapes regroup, 152 have a narrow one over the budget.
+
+### 13.1 A warm-up suite that fails after the budget suite, on master too
+
+The full Varka run after the review failed the warm-up suite's four compile tests: the warm-up ran
+its kernel for its sixty seconds and it never stopped allocating. The kernel is the suite's own
+three-output shape, a narrow group the budget never splits, so its class is the same with or
+without this task. Run in the order `VarkaEmitterBudgetSuite` then `VarkaKernelWarmupSuite` in one
+JVM, the four tests fail every time - on this branch before the review, after it, and on master
+at `8047ea08f74`, which has no task 209 code - and the warm-up suite alone passes in twelve
+seconds; ahead of it, either new budget test alone, either corpus test alone and either pair of
+the new tests leave it passing. The full Varka run orders its suites by hash and puts the warm-up
+suite seventh, before the budget suite, with the same six suites ahead of it on all three runs of
+the day, of which it failed one: the full run after the review passed on its second try, all 457
+catalyst tests. So the failure is not this task's: it is a kernel whose outcome
+depends on what the JVM ran before it, the effect section 12.4 measured in the shared-prefix
+benchmark, and a deterministic reproducer of it. It is recorded as item 62's first case.

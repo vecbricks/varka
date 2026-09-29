@@ -53,8 +53,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  * <p>Weight is a proxy. The quantities the JVM actually enforces - a method's bytecode length,
  * a class's constant pool, a method's parameter slots - are the limits at the top of this
  * class, and {@link #overLimits} reads an emitted class against them ({@code PLAN_TASK_87.md}).
- * One more is C1's rather than the class file's: the Vector API call sites a loop method carries,
- * bounded by {@link #LOOP_CALL_SITE_BUDGET} and read by {@link #groupsOverCallSites}
+ * One more is C1's rather than the class file's: the Vector API call sites a group method
+ * carries, bounded by {@link #CALL_SITE_BUDGET} and read by {@link #groupsOverCallSites}
  * ({@code PLAN_TASK_209.md}).
  */
 final class VarkaEmitBudget {
@@ -75,7 +75,7 @@ final class VarkaEmitBudget {
    * first. Two more sit below it and are not limits in the same sense: C1 refuses a method past
    * a count of Vector API call sites ("out of virtual registers"), which is register pressure
    * and only correlates with bytes, so such a method is interpreted until C2 compiles it - the
-   * budget {@link #LOOP_CALL_SITE_BUDGET} holds loop methods under that count; and a loop
+   * budget {@link #CALL_SITE_BUDGET} holds a wide group's methods under that count; and a loop
    * reaches C2 quickly through its backedges where a method with no loop, such as an epilogue,
    * reaches it only by invocation count. See {@code PLAN_TASK_87.md} 2.3 and 2.6.5.
    */
@@ -166,10 +166,20 @@ final class VarkaEmitBudget {
    */
   static SortedMap<Integer, Map.Entry<String, Integer>> groupsOver(VarkaEmittedClass emitted,
       int methodLimit) {
+    return groupsOver(emitted.codeLength(), methodLimit);
+  }
+
+  /**
+   * {@link #groupsOver} over any per-method measure: the groups with a method whose
+   * {@code measure} is over {@code limit}, each with its largest such method. The byte budget
+   * reads the code lengths through it, the call-site budget the vector call sites.
+   */
+  private static SortedMap<Integer, Map.Entry<String, Integer>> groupsOver(
+      Map<String, Integer> measure, int limit) {
     SortedMap<Integer, Map.Entry<String, Integer>> over = new TreeMap<>();
-    for (Map.Entry<String, Integer> e : emitted.codeLength().entrySet()) {
+    for (Map.Entry<String, Integer> e : measure.entrySet()) {
       int g = groupOf(e.getKey());
-      if (g >= 0 && e.getValue() > methodLimit
+      if (g >= 0 && e.getValue() > limit
           && (!over.containsKey(g) || over.get(g).getValue() < e.getValue())) {
         over.put(g, e);
       }
@@ -178,110 +188,89 @@ final class VarkaEmitBudget {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // What C1 enforces: a loop method's Vector API call sites.
+  // What C1 enforces: a group method's Vector API call sites.
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The most Vector API call sites one emitted <i>loop method</i> carries by default: the
-   * invocations of {@code IntVector} and the other vector classes in its body, as
-   * {@link VarkaEmittedClass#vectorCallSites} counts them.
+   * The most Vector API call sites one emitted group method - a loop method, or the epilogue
+   * beside it - carries by default: the invocations of {@code IntVector} and the other vector
+   * classes in its body, as {@link VarkaEmittedClass#vectorCallSites} counts them.
    *
-   * <p><b>Why a loop method is bounded in this unit.</b> C1 compiles a method by inlining every
-   * Vector API call into its own intermediate form, and it refuses a method whose form needs more
-   * virtual registers than it has ("out of virtual registers in LIR generator"). The refusal is
-   * not a bytes limit - it falls at under 1500 bytes for a method of short calendar tails and
-   * near 1900 for one of {@code make_date} outputs - but it follows the count of vector call
-   * sites: on JDK 25 C1 compiles a loop method of 93 sites and refuses one of 99, for both
-   * shapes ({@code PLAN_TASK_209.md} 10.1). What the refusal costs is the time before C2: a loop
-   * method C1 compiles runs at speed from its first second in every JVM, where one C1 refuses
-   * runs interpreted, boxing every vector, for two to six seconds until C2's compile lands,
-   * and in a quarter to a third of JVMs then enters the deoptimization cycle of task 189 for
-   * good ({@code PLAN_TASK_209.md} 9.1 and 10.3). No JIT flag shortened that wait; keeping the
-   * method under C1's limit removes it.
+   * <p><b>Why methods are bounded in this unit.</b> C1 compiles a method by inlining every
+   * Vector API call into its own intermediate form, and it refuses a method whose form needs
+   * more virtual registers than it has ("out of virtual registers in LIR generator"). The
+   * refusal follows the count of vector call sites far better than the method's bytes, and it
+   * is costly. A loop method C1 refuses runs interpreted, boxing every vector, for seconds
+   * until C2 compiles it, and in some JVMs then enters the deoptimization cycle for good; an
+   * epilogue C1 refuses has no back edge to reach C2 by, so it runs interpreted on every batch
+   * that leaves a remainder until invocation counts bring C2. A method under C1's limit is
+   * compiled at once and runs at speed from its first second. See {@code PLAN_TASK_209.md} 9
+   * and 10.
    *
-   * <p><b>What the budget does.</b> The emitter reads each loop method's count off the built
-   * class, beside its bytes, and splits a group whose loop method is over the budget through the
-   * same regroup the byte budget uses ({@code VarkaLoopEmitter.emit}) - while the group holds
-   * more than {@link #HEAVY_GROUP_OUTPUTS} outputs, since a group of fewer is one of heavy
-   * outputs that no split brings under C1 (see there). It does not decline: a single output
-   * over the budget - one {@code make_date} output with its prefix is exactly at it, a heavier
-   * node is past it - cannot be split, and a method C2 compiles in seconds is still far better
-   * than the row fallback, so such a group stands as it is. The byte budget declines because a
-   * method over {@link #HUGE_METHOD_LIMIT} is never compiled at all; this one bounds a delay,
-   * not a refusal.
+   * <p><b>What the count is not.</b> It is C1's register need by proxy. It leaves out the
+   * mask, shuffle and species calls and the {@code VarkaVectorSupport} helpers, which C1 inlines
+   * too, and a site's cost differs by shape: a {@code make_date} producer compiles at a count
+   * the cheap tails are refused at. The value was read on the cheap tails, at the 512-bit and
+   * 128-bit species, on JDK 25; a mask-heavy wide group, such as a split-condition filter's, and
+   * the 256-bit species are uncalibrated ({@code SCOPE_MILESTONE_7.md} item 61).
    *
-   * <p><b>The value.</b> The last count C1 compiled on JDK 25.0.4.1, six under the first it
-   * refused; the boundary is C1's own accounting, so it is the JDK's and not the machine's, and
-   * {@code VarkaInliningCliffSuite} is the guard that says when a JDK moves it. An emit option
-   * ({@link VarkaEmitOptions#loopCallSiteBudget}, 0 for off) so a retune is priced rather than
-   * argued, and so the arm without the budget stays measurable.
+   * <p><b>What the budget does.</b> The emitter reads each group method's count off the built
+   * class, beside its bytes, and a group whose loop or epilogue is over the budget is split
+   * through the byte budget's regroup ({@code VarkaLoopEmitter.emit}) while it holds more than
+   * {@link #HEAVY_GROUP_OUTPUTS} outputs. It never costs a kernel: a group it cannot bring
+   * under stands, since a method C2 compiles in seconds still beats the row fallback, and a
+   * class its splits would make decline - the driver gains a call per group - is built again
+   * without them.
+   *
+   * <p><b>The value.</b> The last count C1 compiled, six under the first it refused
+   * ({@code PLAN_TASK_209.md} 10.1). An emit option ({@link VarkaEmitOptions#callSiteBudget}, 0
+   * for off), so a retune is priced rather than argued and the arm without it stays measurable;
+   * {@code VarkaInliningCliffSuite} is the guard that says when a JDK moves the boundary.
    */
-  public static final int LOOP_CALL_SITE_BUDGET = 93;
+  public static final int CALL_SITE_BUDGET = 93;
 
   /**
-   * The most outputs a group may hold and still keep a loop method over
-   * {@link #LOOP_CALL_SITE_BUDGET}: the call-site budget splits a group only while it holds
-   * more outputs than this.
+   * The most outputs a group may hold and still keep a method over {@link #CALL_SITE_BUDGET}:
+   * the call-site budget splits a group only while it holds more outputs than this.
    *
-   * <p>A group of few outputs over the budget is a group of heavy outputs - one {@code make_date}
-   * with its prefix is at the budget alone, the size ladder's {@code greatest(add_months,
-   * date_add, last_day)} entry is past it alone - and splitting it ends in one output a method.
-   * That buys at most a shorter wait for C2, and often not even that, since a heavy output alone
-   * is still past C1; and it costs a call, a loop and the prefix's loads per method per batch
-   * for good: sixty {@code make_date} outputs ran 2.3 times slower in sixty methods than in
-   * eleven ({@code VarkaSharedPrefixBenchmark}). What such a group risks past C1 is seconds of
-   * interpretation once per JVM, and the census found groups of five such outputs settle by
-   * second four and enter the deoptimization cycle in no fork of 116, where groups of
-   * twenty-two and more cheap outputs past C1 cycle in a sixth to a half of JVMs
-   * ({@code PLAN_TASK_209.md} 10.2 and 10.3) - the difference the record ties to how many
-   * memory segments the loop keeps live ({@code PLAN_TASK_198.md} 12), one per output. So the
-   * budget bounds the wide groups, whose outputs are cheap and whose segments are many, and
-   * leaves the narrow ones. Six is the most outputs the fused ceiling packs of the heaviest
-   * calendar nodes, so no group the ladders emit today is touched; an emit option
-   * ({@link VarkaEmitOptions#heavyGroupOutputs}, 0 to split every group over the budget) keeps
-   * the other arm measurable.
+   * <p>A narrow group over the budget is a group of heavy outputs - one {@code make_date} with
+   * its prefix is at the budget alone, the size ladder's entry is past it - and no split brings
+   * such outputs under C1. Splitting them to one output a method would only add a call, a loop
+   * and the prefix's loads per method per batch, at steady state and for good. What a narrow
+   * group past C1 risks is its wait for C2, and the census found that bounded: narrow groups
+   * settled within seconds and did not cycle, where wide groups of cheap outputs past C1 did.
+   * So the budget bounds the wide groups and leaves the narrow ones. Six is the most outputs the
+   * fused ceiling packs of the heaviest calendar nodes. See {@code PLAN_TASK_209.md} 11.2 and
+   * 11.3. The option is {@link VarkaEmitOptions#heavyGroupOutputs}, where 0 and 1 alike split
+   * every group over the budget down to single outputs.
    */
   public static final int HEAVY_GROUP_OUTPUTS = 6;
 
-  /** Whether {@code method} is a group's loop method - {@code loopDense<g>} or
-   * {@code loopMasked<g>} - which the call-site budget bounds; an epilogue runs once per batch
-   * and reaches C2 by invocation count, so it is not held to it. */
-  static boolean isLoopMethod(String method) {
-    return method.startsWith("loop") && groupOf(method) >= 0;
-  }
-
   /**
-   * The groups with a loop method over {@code callSiteBudget} vector call sites, each with its
-   * largest such method: what the emitter's regroup splits on the call-site budget, in the shape
-   * {@link #groupsOver} reports for bytes.
+   * The groups with a loop or epilogue method over {@code callSiteBudget} vector call sites,
+   * each with its largest such method: what the emitter's regroup splits on the call-site
+   * budget. A group's epilogue carries about its loop's count, so the larger of the two
+   * decides, as it does for the bytes.
    */
   static SortedMap<Integer, Map.Entry<String, Integer>> groupsOverCallSites(
       VarkaEmittedClass emitted, int callSiteBudget) {
-    SortedMap<Integer, Map.Entry<String, Integer>> over = new TreeMap<>();
-    for (Map.Entry<String, Integer> e : emitted.vectorCallSites().entrySet()) {
-      int g = groupOf(e.getKey());
-      if (isLoopMethod(e.getKey()) && e.getValue() > callSiteBudget
-          && (!over.containsKey(g) || over.get(g).getValue() < e.getValue())) {
-        over.put(g, e);
-      }
-    }
-    return over;
+    return groupsOver(emitted.vectorCallSites(), callSiteBudget);
   }
 
   /**
-   * Every loop method over {@code callSiteBudget}, one sentence each, naming the method and the
-   * count; empty when every loop method is under the budget. For the tools, beside
-   * {@link #overLimits}: such a method is what the emitter leaves when the group is a heavy one
-   * (at most {@link #HEAVY_GROUP_OUTPUTS} outputs) or the budget is off, and it is worth seeing,
-   * since C1 refuses it and the loop runs interpreted until C2 compiles it.
+   * Every group method over {@code callSiteBudget}, one sentence each, naming the method and
+   * the count; empty when every one is under the budget. For the tools, beside
+   * {@link #overLimits}: such a method is what the emitter leaves when its group is a narrow one
+   * or splitting it would have declined the class, and it is worth seeing, since C1 refuses it
+   * and it runs interpreted until C2 compiles it.
    */
   static List<String> overCallSiteBudget(VarkaEmittedClass emitted, int callSiteBudget) {
     List<String> findings = new ArrayList<>();
     for (Map.Entry<String, Integer> e : emitted.vectorCallSites().entrySet()) {
-      if (isLoopMethod(e.getKey()) && e.getValue() > callSiteBudget) {
+      if (groupOf(e.getKey()) >= 0 && e.getValue() > callSiteBudget) {
         findings.add(e.getKey() + " carries " + e.getValue() + " vector call sites, over the "
-            + "loop method's budget of " + callSiteBudget + ": a heavy group the budget leaves, "
-            + "which C1 refuses and C2 compiles in seconds");
+            + "call-site budget of " + callSiteBudget + ": C1 refuses it, so it runs "
+            + "interpreted until C2 compiles it");
       }
     }
     return findings;
@@ -320,8 +309,8 @@ final class VarkaEmitBudget {
    *
    * <p><b>Why bound a method at all.</b> Past a count of vector call sites C1 refuses a loop
    * method and it runs interpreted until C2 lands, so a method that grows without limit has a
-   * window in which it is very slow; {@link #LOOP_CALL_SITE_BUDGET} now bounds that count
-   * exactly, and this weight budget is the coarser bound that runs before anything is built.
+   * window in which it is very slow; {@link #CALL_SITE_BUDGET} now bounds that count for wide
+   * groups, and this weight budget is the coarser bound that runs before anything is built.
    * Keeping methods small also keeps each one's C2 node and inlining budgets to itself, so no
    * method's size can cost another its intrinsics.
    *
@@ -365,10 +354,10 @@ final class VarkaEmitBudget {
    * outputs (700 ops) at both widths, so the bound comes from compile time - an eight-output method
    * of 376 ops has every method at tier 4 within 894 ms of its first compile, the twelve-output one
    * takes 1.9 s, and the rule was one second. A method near this ceiling is past what C1
-   * compiles, so it would run interpreted until C2 lands; {@link #LOOP_CALL_SITE_BUDGET} splits
-   * such a group after the class is measured, which is why the ceiling can stay a bound on the
-   * prefix sharing alone. An emit option ({@link VarkaEmitOptions#fusedCeiling}) so a retune is
-   * priced rather than argued.
+   * compiles, so it would run interpreted until C2 lands; {@link #CALL_SITE_BUDGET} splits
+   * such a group after the class is measured when it is a wide one, which is why the ceiling
+   * can stay a bound on the prefix sharing alone. An emit option
+   * ({@link VarkaEmitOptions#fusedCeiling}) so a retune is priced rather than argued.
    */
   public static final int FUSED_CEILING = 400;
 

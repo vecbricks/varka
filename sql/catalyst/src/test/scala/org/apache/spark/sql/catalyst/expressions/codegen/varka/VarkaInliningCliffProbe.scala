@@ -52,12 +52,14 @@ import org.apache.spark.sql.types.DateType
  * limit: the arm that asks whether steering the JIT lifts the cliff on a stock JDK.
  *
  * The last two arguments are the emitter's call-site budget
- * (`VarkaEmitOptions.loopCallSiteBudget`) and its heavy-group exemption
+ * (`VarkaEmitOptions.callSiteBudget`) and its heavy-group exemption
  * (`VarkaEmitOptions.heavyGroupOutputs`), by default the production values: under them the
  * emitter splits a wide group whose loop method is past C1's limit, so the cheap shape forks as
  * several loop methods and the make_date shape as it always did. A budget of `0` turns it off,
  * which is the arm the census ran before the budget existed and the control it is measured
- * against; an exemption of `0` splits the make_date shape too, one output a method.
+ * against; an exemption of `0` splits the make_date shape too, one output a method. Either
+ * argument may be `default`, which is how the launcher asks for the production value of one
+ * while it sets the other.
  *
  * Lines the reader looks for:
  *  - `VARKA_CLIFF_BEGIN=<class> pid=<pid> outputs=<n> ceiling=<c> c1=<on|off> xbatch=<on|off>
@@ -135,7 +137,8 @@ object VarkaInliningCliffProbe {
     // scalastyle:off println
     if (args.length < 3) {
       System.err.println("usage: VarkaInliningCliffProbe <outputs> <fusedCeiling> <seconds> " +
-        "[rows] [c1on|c1off] [cheap|makedate] [none|inline] [callSiteBudget] [heavyGroupOutputs]")
+        "[rows] [c1on|c1off] [cheap|makedate] [none|inline] [callSiteBudget|default] " +
+        "[heavyGroupOutputs|default]")
       System.exit(2)
     }
     val outputs = args(0).toInt
@@ -148,10 +151,10 @@ object VarkaInliningCliffProbe {
     val directive = if (args.length > 6) args(6) else "none"
     require(directive == "none" || directive == "inline",
       s"the directive is none or inline, not $directive")
-    val budget =
-      if (args.length > 7) args(7).toInt else VarkaEmitOptions.DEFAULTS.loopCallSiteBudget()
-    val heavy =
-      if (args.length > 8) args(8).toInt else VarkaEmitOptions.DEFAULTS.heavyGroupOutputs()
+    def countOrDefault(i: Int, default: Int): Int =
+      if (args.length > i && args(i) != "default") args(i).toInt else default
+    val budget = countOrDefault(7, VarkaEmitOptions.DEFAULTS.callSiteBudget())
+    val heavy = countOrDefault(8, VarkaEmitOptions.DEFAULTS.heavyGroupOutputs())
     val xbatch = if (ManagementFactory.getRuntimeMXBean.getInputArguments.contains("-Xbatch")) {
       "on"
     } else {
@@ -167,7 +170,7 @@ object VarkaInliningCliffProbe {
     val fused = shape(kind, outputs)
     val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
       fused.numLiterals, null, null,
-      VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withLoopCallSiteBudget(budget)
+      VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withCallSiteBudget(budget)
         .withHeavyGroupOutputs(heavy))
     val measured = VarkaEmittedClass.measure(bytes)
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala

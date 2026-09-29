@@ -125,7 +125,7 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
           // scratch its kernel asks for, sized by the batch. Then the two call-site budget arms
           // at the default ceiling, materialized: the budget off, and every group split.
           val budgetArms = Seq(
-            "call-site budget off" -> VarkaEmitOptions.DEFAULTS.withLoopCallSiteBudget(0),
+            "call-site budget off" -> VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0),
             "every group split" -> VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0))
           val arms = ceilings.flatMap { c =>
             Seq(false, true).map { materialized =>

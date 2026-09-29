@@ -3759,10 +3759,21 @@ buys no C1 and costs a method per output for good. Three things about that are u
 * **Whether 93 travels.** C1's bailout is a count of its own virtual registers, so the boundary
   should be the JDK's and not the machine's; one dispatch of `VarkaInliningCliffSuite`'s probe
   per runner class, under the JDK the runners install, says whether the twenty-tail method
-  compiles and the twenty-two-tail one is refused there too. The nightly cliff step guards the
-  laptop's JDK only.
+  compiles and the twenty-two-tail one is refused there too. The laptop's census read the
+  512-bit and 128-bit species; the AVX2 runners' 256-bit species is the one no fork has read.
+  The nightly cliff step guards the laptop's JDK only.
+* **Whether 93 holds for a mask-heavy wide group.** The count is of the vector classes' calls,
+  and C1 spends registers on the masks' calls and `VarkaVectorSupport`'s helpers too; a site's
+  cost already differs by shape, since a `make_date` producer of 99 vector sites and about ten
+  mask calls compiled in five forks of five where 99 sites of cheap tails were refused
+  (`PLAN_TASK_209.md` 12.1). A split-condition filter's wide group is mostly compares, ANDs and
+  ORs, and no fork has read one: a probe shape of that kind at the counts around the boundary
+  says whether the unit needs the masks, or a weight per call class.
 * **The heavy groups' seconds, and their two modes.** A group C1 refuses runs interpreted for
-  two to four seconds until C2 compiles it, and task 198's size ladder read two modes at sixteen
+  two to four seconds until C2 compiles it - its epilogue for longer, since an epilogue reaches
+  C2 only by invocation count, so a heavy kernel fed batches that leave a remainder runs its
+  epilogues interpreted for thousands of batches, a cost no benchmark here has isolated - and
+  task 198's size ladder read two modes at sixteen
   entries, 27.5 and 36 to 38 ns a row, from one JVM run to the next (`PLAN_TASK_198.md` 13) -
   the same class, so C2's two outcomes on a heavy group. `-XX:-UseProfiledLoopPredicate` ended
   the wide groups' cycle in every fork (`PLAN_TASK_209.md` 10.3) and its cost to everything else
@@ -3770,8 +3781,10 @@ buys no C1 and costs a method per output for good. Three things about that are u
   size ladder's sixteen-entry rung under it in ten runs, decide whether it is a line in Varka's
   recommended JVM options.
 * **The warm-up's C1 exclusion** (task 212) now covers methods C1 would compile: under the
-  budget a wide group's loop methods are under C1's limit, and the exclusion keeps C1 off them
-  anyway, so they wait for C2 as the heavy groups do. Whether the exclusion should apply only to
+  budget a wide group's methods are under C1's limit, and the exclusion keeps C1 off them
+  anyway, so they wait for C2 as the heavy groups do. A narrow benchmark run with the exclusion
+  and no warm-up ran every light kernel interpreted for its whole case (`PLAN_TASK_209.md`
+  12.5), so the exclusion must stay tied to the warm-up whatever its scope. Whether the exclusion should apply only to
   methods over the budget - the emitter knows which - is a cold-start measurement
   (`VarkaColdStartBenchmark`) with the cheap-tail shape added to it.
 
@@ -3794,11 +3807,26 @@ templates are shared and their profiles are the JVM's, not the class's (`PLAN_TA
 task 209's plan named the same thing as its first risk. A production JVM runs many kernels, so
 this is the condition that matters and the one no guard reads.
 
+**A reproducer that fails every time.** Found in task 209's review (`PLAN_TASK_209.md` 13):
+`build/sbt "catalyst/testOnly *VarkaEmitterBudgetSuite *VarkaKernelWarmupSuite"` runs the two
+suites in one JVM, and the warm-up suite's four compile tests fail after their sixty seconds with
+the kernel still allocating - 62996 calls, the last probe at 61840 bytes where a compiled kernel
+allocates none - on master at `8047ea08f74` as on the task's branch, while the warm-up suite alone
+passes in twelve seconds, and the same four tests pass after either new budget test alone, after
+both corpus tests alone, and after either pair of the new tests. The kernel is the warm-up
+suite's own three-output `add_months`, `last_day`, `date_add` shape, unchanged throughout; what
+changes is what the JVM ran before it. The full Varka run orders its suites by hash and runs the
+warm-up suite seventh, before the budget suite, which is why it passes there - and it too failed
+once in three runs on the same day. This is the probe's first case, with a verdict already known.
+
 **What to measure.** A probe that compiles N other kernels of the corpus first and then the
 kernel under test, forked per N, with the same reader as the cliff probe: the slow mode's
 frequency as a function of N, which methods land slow, and whether
 `-XX:-UseProfiledLoopPredicate` (item 61) or the warm-up's C1 exclusion moves it. The
-benchmarks already run kernels after kernels; what they lack is the per-method reading.
+benchmarks already run kernels after kernels; what they lack is the per-method reading. The
+reproducer above is where to start: bisect the budget suite's tests ahead of the warm-up suite
+to the smallest history that still fails, then read that JVM's compile log for the warm-up
+kernel's methods.
 
 **Done when** the probe exists with its readings committed beside the cliff probe's, the slow
 mode's frequency under history is a number, and the nightly runs one arm of it.

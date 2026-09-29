@@ -34,17 +34,17 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * methods go from the interpreter to C2 and to nothing in between. One compiler directive, added
  * once per JVM, the first time a session decides to warm its kernels ({@link #readyForWarmup}).
  *
- * <p><b>Why.</b> A kernel's loop and epilogue methods are too large for C1 to compile with full
- * profiling, tier 3: its LIR generator runs out of virtual registers, the compile is skipped with
- * "retry at different tier", and the method is profiled in the interpreter until C2 takes it. But
- * they are not always too large for tier 2, the limited-profile code the tiered policy asks C1
+ * <p><b>Why.</b> A wide kernel's loop and epilogue methods can be too large for C1 to compile with
+ * full profiling, tier 3: its LIR generator runs out of virtual registers, the compile is skipped
+ * with "retry at different tier", and the method is profiled in the interpreter until C2 takes it.
+ * But they are not always too large for tier 2, the limited-profile code the tiered policy asks C1
  * for instead of tier 3 while the C2 queue is long. A method compiled at tier 2 that way is
  * stranded: from tier 2 the policy climbs only to tier 3, which C1 cannot compile, and tier-2 code
  * does not update the profile a direct climb to C2 would read. It then runs C1 code, boxing every
- * vector operation, for as long as its class lives. Whether a kernel falls into this depends on
- * how busy C2 is at the moment the kernel crosses its first threshold, and a warm-up, which
- * crosses every threshold within a second while a new query's own compiles fill the queue, falls
- * into it often (`PLAN_TASK_212.md` 10).
+ * vector operation, for as long as its class lives. Whether a kernel falls into this depends on how
+ * busy C2 is at the moment the kernel crosses its first threshold, and a warm-up, which crosses
+ * every threshold within a second while a new query's own compiles fill the queue, falls into it
+ * often (`PLAN_TASK_212.md` 10).
  *
  * <p>With C1 excluded, the first C1 request for a kernel method is refused and marks the method
  * not C1-compilable - where a tier-3 failure leaves it anyway - so the interpreter profiles it and
@@ -57,6 +57,15 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * ({@link VarkaShapeCacheImpl#WARMED_MARK}) only when its session warms kernels and this JVM can,
  * every such class gets a warm-up whose calls create its profile at once, and every other kernel
  * compiles as HotSpot decides.
+ *
+ * <p><b>Under the call-site budget.</b> The emitter keeps a wide group's methods under the count
+ * C1 compiles ({@code VarkaEmitBudget.CALL_SITE_BUDGET}), so the methods that can be stranded
+ * are the narrow, heavy groups' it leaves past it; the directive still matches every method of
+ * a warmed class, the ones C1 could compile included, and whether it should spare those is a
+ * cold-start measurement ({@code SCOPE_MILESTONE_7.md} item 61). It has to stay tied to the
+ * warm-up either way: a method it keeps from C1 has no profile until the warm-up's calls make
+ * one, and a light kernel fed only by its batches then runs interpreted far longer than C1
+ * would have let it ({@code PLAN_TASK_209.md} 12.5).
  *
  * <p><b>Where it applies.</b> Where C1 and C2 are tiered, which is HotSpot's default. Where C2 is
  * the only compiler (tiered compilation off) there is no C1 to exclude and a warm-up needs no

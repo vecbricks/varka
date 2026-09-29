@@ -44,10 +44,8 @@ import java.lang.reflect.AccessFlag;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.SortedMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -287,15 +285,19 @@ public final class VarkaLoopEmitter {
     // such a method while the class is assembled, so the refusal is read in place of the class
     // and takes the same path, budget or not (task 219).
     //
-    // The same measurement reads each loop method's Vector API call sites, and a group whose
-    // loop method is over the call-site budget is split the same way (task 209): past that
-    // count C1 refuses the method and the loop runs interpreted until C2 compiles it, seconds
-    // in which the kernel is slower than the row path, and in some JVMs the deoptimization
-    // cycle after. Only a group of more than HEAVY_GROUP_OUTPUTS outputs is split: a narrower
-    // group over the budget is one of heavy outputs, which no split brings under C1 and which
-    // would pay a method per output at steady state. This budget splits and never declines -
-    // a group it leaves over the budget runs under C2 in seconds, far better than the fallback
-    // - which is why its groups are not counted among the stuck ones below.
+    // The same measurement reads each group method's Vector API call sites, and a group whose
+    // loop or epilogue is over the call-site budget is split the same way (task 209): past that
+    // count C1 refuses the method, which then runs interpreted until C2 compiles it. Only a
+    // group of more than HEAVY_GROUP_OUTPUTS outputs is split: a narrower group over the
+    // budget is one of heavy outputs, which no split brings under C1 and which would pay a
+    // method per output at steady state. The budget never costs a kernel. A group it leaves
+    // over the budget is not stuck, since C2 compiles it in seconds; while a group is stuck on
+    // bytes the class declines anyway, so the call sites are not read at all; and a class its
+    // splits made decline - each split gives the driver a call more, so they can push it past
+    // the byte budget - is built again without the budget, which makes the emission exactly
+    // the one the budget-off emitter makes, decline or not. Halving at the middle output
+    // settles any group in two or three builds, since the fused ceiling keeps a group's count
+    // near 180 at most.
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -305,6 +307,10 @@ public final class VarkaLoopEmitter {
         planFragment != null ? planFragment : "",
         VarkaBodyEmitter.renderLineMap(analysis));
     int budget = options.methodByteBudget();
+    // The call-site budget in force: the option's, until a class its splits produced declines.
+    int siteBudget = options.callSiteBudget();
+    int narrowest = Math.max(1, options.heavyGroupOutputs());
+    boolean siteSplit = false;
     Set<Integer> forcedStarts = new HashSet<>();
     while (true) {
       List<List<Integer>> groups = groupOutputs(outputs, options, forcedStarts);
@@ -344,28 +350,15 @@ public final class VarkaLoopEmitter {
         bytes = null;
         limit = METHOD_CODE_CAP;
       }
-      SortedMap<Integer, Map.Entry<String, Integer>> over = groupsOver(measured, limit);
-      boolean split = false;
       List<Integer> stuck = new ArrayList<>();
-      for (int g : over.keySet()) {
-        List<Integer> group = groups.get(g);
-        if (group.size() > 1) {
-          forcedStarts.add(group.get(group.size() / 2));
-          split = true;
-        } else {
-          stuck.add(group.get(0));
-        }
-      }
+      boolean split = halveGroups(groupsOver(measured, limit).keySet(), groups, 1, forcedStarts,
+          stuck);
       // Only a built class has call-site counts: a refusal's measurement is one method's bytes.
-      if (bytes != null && options.loopCallSiteBudget() > 0) {
-        int narrow = Math.max(1, options.heavyGroupOutputs());
-        for (int g : groupsOverCallSites(measured, options.loopCallSiteBudget()).keySet()) {
-          List<Integer> group = groups.get(g);
-          if (group.size() > narrow) {
-            forcedStarts.add(group.get(group.size() / 2));
-            split = true;
-          }
-        }
+      if (bytes != null && siteBudget > 0 && stuck.isEmpty()
+          && halveGroups(groupsOverCallSites(measured, siteBudget).keySet(), groups, narrowest,
+              forcedStarts, null)) {
+        siteSplit = true;
+        split = true;
       }
       if (split) {
         continue;
@@ -376,10 +369,39 @@ public final class VarkaLoopEmitter {
         // construction, so it always has a finding.
         return bytes;
       }
+      if (siteSplit) {
+        siteBudget = 0;
+        siteSplit = false;
+        forcedStarts.clear();
+        continue;
+      }
       throw new VarkaEmitDeclined(String.join("; ", findings)
           + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
               + " cannot be regrouped smaller"), stuck);
     }
+  }
+
+  /**
+   * Adds a forced start at the middle output of each of the groups {@code over} names that
+   * holds more than {@code narrowest} outputs, so the next grouping halves it, and says whether
+   * it added any. A group it leaves whole is a single output when {@code narrowest} is 1, and
+   * is then appended to {@code stuck} where that is given: the byte budget's case, whose single
+   * outputs over a limit decline. The call-site budget passes no list, since a group it leaves
+   * stands.
+   */
+  private static boolean halveGroups(Set<Integer> over, List<List<Integer>> groups, int narrowest,
+      Set<Integer> forcedStarts, List<Integer> stuck) {
+    boolean split = false;
+    for (int g : over) {
+      List<Integer> group = groups.get(g);
+      if (group.size() > narrowest) {
+        forcedStarts.add(group.get(group.size() / 2));
+        split = true;
+      } else if (stuck != null) {
+        stuck.add(group.get(0));
+      }
+    }
+    return split;
   }
 
   /** One build of the class over {@code groups}; see the method-layout note in {@link #emit}. */

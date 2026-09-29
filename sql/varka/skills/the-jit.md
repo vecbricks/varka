@@ -780,12 +780,13 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
   every C2 version; the deoptimization log's `pc=` is the return address after the
   `UncommonTrapBlob` call, and the check is the compare that branches to that stub.
 
-## A call-site budget keeps a wide loop method under C1, and a narrow heavy one runs under C2 alone
+## A call-site budget keeps wide groups under C1, and a narrow heavy group runs under C2 alone
 
-Task 209's remedy for the cliff above (`PLAN_TASK_209.md` 11): the emitter reads each loop
-method's Vector API call sites off the built class, beside the bytes it already measures, and
-splits a group whose loop method is over 93 - C1's last compiled count on JDK 25 - through the
-same regroup the byte budget uses. What the build taught, beyond the census:
+Task 209's remedy for the cliff above (`PLAN_TASK_209.md` 11 and 13): the emitter reads each
+group method's Vector API call sites off the built class, beside the bytes it already measures,
+and splits a group whose loop or epilogue is over 93 - C1's last compiled count on JDK 25 -
+through the same regroup the byte budget uses. What the build and its review taught, beyond the
+census:
 
 * **Count the unit C1 counts, from the class, not from the weights.** The grouping weights
   over-count a cheap tail by two (a field's seven plus one, against three sites emitted), and
@@ -813,6 +814,15 @@ same regroup the byte budget uses. What the build taught, beyond the census:
   `emitted_bytes.json` moved nothing under the budget, and the guard on the budget's behaviour
   is `VarkaEmitterBudgetSuite`'s pinned counts and `VarkaInliningCliffSuite`'s forks, not the
   oracle.
+* **Bound the epilogue too.** An epilogue C1 refuses has no back edge to reach C2 by: it runs
+  interpreted on every batch that leaves a remainder until invocation counts bring C2, which
+  is thousands of batches, where a loop method's back edges bring C2 in seconds. The committed
+  deopt logs show C1 refusing per-group epilogues. A group's epilogue carries its loop's count
+  on every shape measured, so reading both costs no split.
+* **A budget that bounds a delay must never cost a kernel.** Each split gives the driver a call
+  more in each form, so splits can push the driver past the byte budget where the unsplit
+  grouping fits; the emitter builds such a class again without the call-site budget rather
+  than decline, since a method C2 compiles in seconds still beats the row fallback.
 * **The dump says which methods are past C1.** `dev/varka_emit.sh` prints `PAST C1:` for a loop
   method over the budget; under the defaults that is a heavy group left on purpose, and the
   line is information, not a finding to fix.

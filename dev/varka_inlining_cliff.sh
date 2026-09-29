@@ -43,7 +43,7 @@
 # verdict is decided at the loop method's C2 compile and then stable for the JVM's life, so
 # forks, not iterations, are the sample. Not a benchmark: a fork's rate is a probe's reading, a
 # factor of ten apart between the two sides, and the verdict on why is C2's own log. --budgets
-# is the emitter's call-site budget per arm (VarkaEmitOptions.loopCallSiteBudget, 0 for off)
+# is the emitter's call-site budget per arm (VarkaEmitOptions.callSiteBudget, 0 for off)
 # and --heavy its heavy-group exemption (VarkaEmitOptions.heavyGroupOutputs, 0 to split every
 # group over the budget); left out, every fork emits under the production defaults.
 # --fail-if-slow makes the exit status 1 when any fork is slow at the end or did not finish,
@@ -95,11 +95,12 @@ IFS=',' read -r -a c1_list <<< "$c1"
 IFS=',' read -r -a shape_list <<< "$shapes"
 IFS=',' read -r -a directive_list <<< "$directives"
 # An empty --budgets or --heavy passes no such argument, so the probe emits under the default;
-# --heavy alone passes the default budget in front of it, since the arguments are positional.
+# --heavy alone passes `default` for the budget in front of it, since the arguments are
+# positional and the probe reads that word as the production value.
 if [ -n "$budgets" ]; then IFS=',' read -r -a budget_list <<< "$budgets"; else budget_list=(""); fi
 if [ -n "$heavy" ]; then
   IFS=',' read -r -a heavy_list <<< "$heavy"
-  [ -n "$budgets" ] || budget_list=(93)
+  [ -n "$budgets" ] || budget_list=(default)
 else
   heavy_list=("")
 fi

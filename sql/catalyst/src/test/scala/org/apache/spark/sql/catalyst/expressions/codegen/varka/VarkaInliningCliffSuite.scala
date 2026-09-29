@@ -80,7 +80,7 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
       lines.flatMap(VarkaProbeOutput.after(_, prefix)).map(_.trim)
     val begin = marked(VarkaInliningCliffProbe.BEGIN_PREFIX)
     assert(begin.size == 1 && begin.head.contains("outputs=16 ceiling=400 c1=on xbatch=off") &&
-      begin.head.endsWith(s" budget=${VarkaEmitBudget.LOOP_CALL_SITE_BUDGET} " +
+      begin.head.endsWith(s" budget=${VarkaEmitBudget.CALL_SITE_BUDGET} " +
         s"heavy=${VarkaEmitBudget.HEAVY_GROUP_OUTPUTS}"), begin)
     val methods = marked(VarkaInliningCliffProbe.METHODS_PREFIX)
     assert(methods.size == 1, methods)
@@ -122,7 +122,7 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
         .map(f => f(0) -> f(2).toInt).toMap
     val split = loops(fork(outputs = 22, ceiling = 400, seconds = 2))
     assert(split.keySet == Set("loopDense0", "loopDense1", "loopMasked0", "loopMasked1"), split)
-    assert(split.values.forall(_ <= VarkaEmitBudget.LOOP_CALL_SITE_BUDGET), split)
+    assert(split.values.forall(_ <= VarkaEmitBudget.CALL_SITE_BUDGET), split)
     val whole = fork(outputs = 22, ceiling = 400, seconds = 2, budget = Some(0))
     assert(whole.exists(_.contains(" budget=0")), whole.take(3))
     assert(loops(whole) == Map("loopDense0" -> 99, "loopMasked0" -> 99), loops(whole))

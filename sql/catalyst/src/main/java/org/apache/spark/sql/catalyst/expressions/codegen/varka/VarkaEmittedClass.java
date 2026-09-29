@@ -34,8 +34,8 @@ import java.util.regex.Pattern;
  * quantity it is a budget <i>of</i>, and so a tool can print it beside the op counts. See
  * {@code PLAN_TASK_87.md} section 2. A fourth measure is read the same way for a limit of the
  * JIT's rather than the class file's: how many call sites of the Vector API's vector classes a
- * method carries, which is what decides whether C1 compiles it
- * ({@link VarkaEmitBudget#LOOP_CALL_SITE_BUDGET}).
+ * method carries, which C1's refusal of a method follows on the shapes it was calibrated on
+ * ({@link VarkaEmitBudget#CALL_SITE_BUDGET}).
  *
  * <p>Every field is a plain Java type: Scala's typechecker cannot complete the Class-File API's
  * types, so nothing from that API may appear in a signature Scala reaches.
@@ -52,7 +52,8 @@ import java.util.regex.Pattern;
  *                        itself, by {@link #isVectorClass}; not the masks, species or operator
  *                        tokens - by method name, for every method with code. One invocation is
  *                        one call site whatever it inlines to, which is the unit C1's refusal
- *                        was measured in ({@code PLAN_TASK_209.md} 10.1)
+ *                        was measured in ({@code PLAN_TASK_209.md} 10.1); the calls it leaves
+ *                        out cost C1 registers too, which is why the count is a proxy
  */
 record VarkaEmittedClass(
     LinkedHashMap<String, Integer> codeLength,
