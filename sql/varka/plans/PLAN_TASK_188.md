@@ -941,3 +941,36 @@ census is complete as a reading of the source; it is not yet backed by committed
   That makes eighteen entries with a reproducer. Left as before: G3 with task 185; G13, G16 and
   G19 read from the source; G30 with no honest way to provoke it; G9, G20, G21, G29 and G31 not
   attempted.
+* **The last five, 29 September 2026**, in the same suite:
+  * **G9**: `MergeRowsExec`, built as `MergeRowsExecBenchmark` builds it over the join output a
+    `MERGE` reads, is inside a stage over 10 nullable int columns and outside one over 130, whose
+    parameter slots are 260; it answers either way, and nothing is logged. Varka: none, since it
+    has no row-level operator.
+  * **G20**, settling open question 7: a `With` does reach a stage. The optimizer inlines a
+    `With` except in a conditional branch, so `if(c1 > 0, (c1 + ... + c60) BETWEEN 0 AND 1000,
+    false)` plans with `with(...)` in the stage's projection. There its definition goes to a
+    `computeCommonExpr` method only when every value it reads can be passed, and in the stages a
+    query builds the inputs are not yet evaluated where the definition is generated, which
+    refuses the method before the slot bound is asked; so the bound is reached the way an
+    operator would reach it, the definition generated against evaluated input variables: 60
+    nullable ints, 120 slots, get the method, and 130, 260 slots, stay inline, with no log line.
+    Varka: the entry declines with a reason, as an int-valued conditional (scope item 55).
+  * **G21**: a partial aggregate with a long key generates its `FastHashMap`, and one with a
+    struct key does not. Production logs the INFO line of section 2; under `spark.testing` it
+    logs nothing, so the generated source is what is asserted. Varka: none.
+  * **G29**: a class the statistics cannot parse reports -1 for its largest method and its pool,
+    with WARN "Error calculating stats of compiled class.", which lets G25's size check pass a
+    class it never measured; a class that parses reports its size. No real compile produces an
+    unparseable class today, so the bytes fed to the statistics are not a class file. Varka:
+    none, since its emitter measures its own classes.
+  * **G31**: under `spark.sql.codegen.compiler=jdk`, a unit that names a class in a Scala package
+    object is compiled by Janino anyway and an ordinary unit by the JDK compiler; under the
+    default, Janino. Varka: immune, since it emits bytecode with no source compiler.
+
+  That makes twenty-three entries with a reproducer, every one that can be provoked. The rest are
+  not triggers a test can pull: G5, G6, G7 and G11 are lists of operators and conditions; G22 and
+  G23 are mitigations; G13 and the silent inlining of G16 and G19 are properties of the generated
+  source; G30 has no honest way to be provoked; and G3 is solved under Varka with its cache
+  (`PLAN_TASK_185.md` 8.5). The census is complete in the sense done-when item 4 of the milestone
+  asks: every give-up enumerated from the source with Varka's answer to it, and every one that a
+  query or a hand-built class can reach, reached.

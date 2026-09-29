@@ -21,18 +21,22 @@ import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, AttributeReference,
-  BindReferences, Expression, GreaterThan, InterpretedOrdering, Literal, NamedExpression,
-  RowOrdering, UnaryExpression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Add, And, Attribute, AttributeReference,
+  BindReferences, BoundReference, Expression, GreaterThan, GreaterThanOrEqual,
+  InterpretedOrdering, IsNotNull, LessThanOrEqual, Literal, NamedExpression, RowOrdering,
+  UnaryExpression, UnsafeProjection, With}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeCompiler,
-  CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, FusedOutput,
-  GenerateUnsafeProjection, VarkaDecline, VarkaExpressionCompiler}
+  CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, EmptyBlock, ExprCode, FusedOutput,
+  GenerateUnsafeProjection, JaninoCodeCompiler, JavaCode, JdkCodeCompiler, VarkaCensusCodegenAccess,
+  VarkaDecline, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.plans.logical.Project
-import org.apache.spark.sql.classic.ExpressionUtils
+import org.apache.spark.sql.catalyst.plans.logical.{MergeRows, Project}
+import org.apache.spark.sql.catalyst.plans.logical.MergeRows.{Keep, Update}
+import org.apache.spark.sql.classic.{Dataset, ExpressionUtils}
+import org.apache.spark.sql.execution.datasources.v2.MergeRowsExec
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, DateType, LongType}
+import org.apache.spark.sql.types.{DataType, DateType, IntegerType, LongType}
 
 /**
  * Reproducers for the census of the places vanilla Spark's code generation gives up
@@ -576,6 +580,139 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
         method.contains("SpecificUnsafeProjection") && bytes > 8000
       }, refused)
     }
+  }
+
+  /** The generated source of every whole-stage codegen stage of `df`'s executed plan. */
+  private def stageSources(df: DataFrame): Seq[String] =
+    df.queryExecution.executedPlan.collect {
+      case w: WholeStageCodegenExec => w.doCodeGen()._2.body
+    }
+
+  test("G9: a MergeRows over more than 255 parameter slots leaves the stage") {
+    // `MergeRowsExec`, the row-level operator of `MERGE INTO`, is in a stage only while its
+    // child's output fits the 255 parameter slots of one method: two for each nullable int. The
+    // operator is built as `MergeRowsExecBenchmark` builds it, over the join output a `MERGE`
+    // would read, so no catalog is needed. Spark logs nothing when the operator leaves.
+    def merge(n: Int): DataFrame = {
+      val input = nullableInts(n).selectExpr(
+        (1 to n).map(k => s"c$k") ++ Seq("1 AS _source_marker", "1 AS _target_marker"): _*)
+      val attrs = input.queryExecution.analyzed.output
+      val plan = MergeRows(
+        isSourceRowPresent = IsNotNull(attrs(n)),
+        isTargetRowPresent = IsNotNull(attrs(n + 1)),
+        matchedInstructions = Seq(Keep(Update, Literal.TrueLiteral, attrs.take(n))),
+        notMatchedInstructions = Nil,
+        notMatchedBySourceInstructions = Nil,
+        checkCardinality = false,
+        output = attrs.take(n).map(a => AttributeReference(a.name, a.dataType, a.nullable)()),
+        child = input.queryExecution.analyzed)
+      Dataset.ofRows(spark, plan)
+    }
+    wideStages {
+      assert(staged(merge(10)).exists(_.isInstanceOf[MergeRowsExec]),
+        merge(10).queryExecution.executedPlan)
+      val wide = merge(130)
+      assert(wide.queryExecution.executedPlan.exists(_.isInstanceOf[MergeRowsExec]))
+      assert(!staged(wide).exists(_.isInstanceOf[MergeRowsExec]), wide.queryExecution.executedPlan)
+      assert(wide.count() == 20)
+    }
+    // Varka's answer: none. Varka has no row-level operator, so this give-up is not one it meets.
+  }
+
+  test("G20: a With definition over more than 255 parameter slots stays inline") {
+    // `BETWEEN` is a `With` that evaluates its operand once. The optimizer inlines a `With`
+    // except in a conditional branch, where it is left for code generation to memoize - which is
+    // how one reaches a stage at all, as the plan below shows, settling open question 7.
+    val sum = (1 to 60).map(k => s"c$k").mkString(" + ")
+    val query = nullableInts(60).selectExpr(s"if(c1 > 0, ($sum) BETWEEN 0 AND 1000, false) AS a")
+    wideStages {
+      assert(query.queryExecution.executedPlan.toString.contains("with("),
+        query.queryExecution.executedPlan)
+      assert(query.count() == 20)
+    }
+    // There the definition goes to a method of its own, `computeCommonExpr`, when its code is
+    // long and every value it reads can be passed in 255 parameter slots; otherwise it stays
+    // inline, with no log line. In the stages a query builds the method is refused earlier, since
+    // an input the stage has not yet evaluated cannot be passed at all, so the slot bound is
+    // reached here the way the operator would reach it: the definition generated against input
+    // variables already evaluated, two slots each for a nullable int. Sixty fit, a hundred and
+    // thirty do not.
+    def methodsOver(n: Int): Int = {
+      val ctx = new CodegenContext
+      ctx.INPUT_ROW = null
+      ctx.currentVars = (0 until n).map { k =>
+        ExprCode(EmptyBlock, JavaCode.isNullVariable(s"v${k}IsNull"),
+          JavaCode.variable(s"v$k", IntegerType))
+      }
+      val total = (0 until n).map(k => BoundReference(k, IntegerType, nullable = true): Expression)
+        .reduce(Add(_, _))
+      val between = With(total) { case Seq(ref) =>
+        And(GreaterThanOrEqual(ref, Literal(0)), LessThanOrEqual(ref, Literal(1000)))
+      }
+      between.genCode(ctx)
+      "private void computeCommonExpr_".r.findAllIn(ctx.declareAddedFunctions()).size
+    }
+    withSQLConf(SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> "1024") {
+      assert(methodsOver(60) == 1, "120 parameter slots fit a method")
+      assert(methodsOver(130) == 0, "260 do not, and the definition stays inline")
+    }
+    // Varka's answer: the `With` reaches its compiler only as an operand of a conditional, and an
+    // int-valued entry is not one it fuses (scope item 55), so the entry declines with a reason.
+    val (fused, declined) = classified(query)
+    assert(fused.isEmpty && declined.keySet == Set(0), declined)
+  }
+
+  test("G21: an aggregate the fast hash map does not support gets only the regular map") {
+    // The partial aggregate puts a generated first-level map, `FastHashMap`, in front of its
+    // hash table when every key and buffer is primitive, decimal, string or interval. A struct key
+    // is none of these, so the map is refused and the stage has the regular table alone. In
+    // production Spark logs INFO "... is set to true, but current version of codegened fast
+    // hashmap does not support this aggregate."; under `spark.testing` it logs nothing, so the
+    // generated source is what this asserts.
+    noAqe {
+      val base = spark.range(0, 100).selectExpr("id % 10 AS k", "id AS v")
+      val plain = base.groupBy("k").sum("v")
+      val struct = base.selectExpr("struct(k) AS s", "v").groupBy("s").sum("v")
+      assert(stageSources(plain).exists(_.contains("FastHashMap")), "a long key gets the map")
+      assert(!stageSources(struct).exists(_.contains("FastHashMap")), "a struct key does not")
+      assert(struct.count() == 10)
+    }
+    // Varka's answer: none. Varka has no aggregate node.
+  }
+
+  test("G29: a class the statistics cannot parse reports -1, and the size check passes it") {
+    // Every compiled class is parsed for its largest method and constant pool. Where the parse
+    // fails, `CodeCompiler` logs WARN "Error calculating stats of compiled class." and reports -1
+    // for both, and G25's check - the largest method against `hugeMethodLimit` - passes a class
+    // whose size it never saw. A real compile does not produce such a class today; the bytes
+    // here are not a class file, which is the parse failure itself.
+    val lines = logged(compilerLoggers, Level.WARN) {
+      val stats = VarkaCensusCodegenAccess.byteCodeStats("not a class file".getBytes("UTF-8"))
+      assert(stats.maxMethodCodeSize == -1 && stats.maxConstPoolSize == -1, stats)
+    }
+    assert(lines.exists(_._2.contains("Error calculating stats of compiled class.")), lines)
+    // A class that parses reports its largest method, as the check needs.
+    val a = AttributeReference("a", LongType)()
+    assert(projectionMethods(Seq(Add(a, Literal(1L))), Seq(a))._1 > 0)
+    // Varka's answer: its emitter measures the classes it builds itself, in the JVM's units
+    // (`VarkaEmittedClass.measure`), and does not depend on this statistic.
+  }
+
+  test("G31: the JDK compiler backend routes a unit it cannot name back to Janino") {
+    // With `spark.sql.codegen.compiler=jdk`, a unit whose source names a class nested in a Scala
+    // package object is compiled by Janino anyway, since `package` is a word Java cannot spell as
+    // an identifier; so are REPL units and units naming an unnarrowable anonymous or local
+    // class. Each routing logs INFO once per JVM. It changes which compiler's limits (G24)
+    // apply to that unit, not whether it compiles.
+    withSQLConf(SQLConf.CODEGEN_COMPILER.key -> "jdk") {
+      assert(VarkaCensusCodegenAccess.backendFor("int f() { return 1; }") eq JdkCodeCompiler)
+      assert(VarkaCensusCodegenAccess.backendFor(
+        "Object f() { return new a.b.package$Inner(); }") eq JaninoCodeCompiler)
+    }
+    assert(VarkaCensusCodegenAccess.backendFor("int f() { return 1; }") eq JaninoCodeCompiler,
+      "the default backend")
+    // Varka's answer: immune. Varka emits bytecode itself with the Class-File API; no source
+    // compiler, and so no backend choice, is involved.
   }
 }
 
