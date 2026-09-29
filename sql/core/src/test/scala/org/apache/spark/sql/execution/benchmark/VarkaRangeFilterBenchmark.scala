@@ -24,9 +24,7 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
-import org.apache.spark.sql.execution.{VarkaColumnarToRowExec, VarkaFilterExecBase,
-  VarkaQ3Ranges}
+import org.apache.spark.sql.execution.VarkaQ3Ranges
 
 /**
  * TPC-DS `modified-q3`'s filter on vanilla Spark and on Varka: an Arrow-cached int column of date
@@ -57,49 +55,13 @@ import org.apache.spark.sql.execution.{VarkaColumnarToRowExec, VarkaFilterExecBa
  * }}}
  */
 object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
-  import VarkaArrowSessions.{createSession, vanillaMethodBytes}
+  import VarkaArrowSessions.{cacheRangeKeys, createSession, splitConditionsDesign, vanillaMethodBytes,
+    varkaFilters, withEmitOptions}
 
   private val numRows = 2000000
 
-  /** The split arm's options: see the class doc. */
-  private val splitOptions =
-    VarkaEmitOptions.DEFAULTS.withRangeSets(false).withSplitConditions(true)
-
-  /** Runs `body` with the Varka session planning and emitting under `options`. */
-  private def withOptions[T](options: VarkaEmitOptions)(body: => T): T = {
-    VarkaColumnarToRowExec.setEmitOptionsForTesting(options)
-    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaEmitOptions.DEFAULTS)
-  }
-
   /** Straddling Varka's boundary (48 and 49) and vanilla's crossing. */
   private val rungs = Seq(10, 48, 49, 100, 150, 200)
-
-  /**
-   * Date keys spread evenly over `date_dim`'s surrogate keys, 2415022 to 2488070, with one in 31
-   * null as in the other ladders, so the ranges, one December a year, select about a twelfth.
-   */
-  private def cacheKeys(session: SparkSession): Unit = {
-    session.sql(
-      s"""select case when id % 31 = 0 then null
-         |       else cast(2415022 + (id * 7919) % 73049 as int) end as ss_sold_date_sk
-         |from range(0, $numRows)""".stripMargin)
-      .createOrReplaceTempView("range_keys")
-    VarkaArrowSessions.cache(session, "range_keys")
-  }
-
-  /**
-   * Whether the Varka arm ran the filter as a kernel, after checking it ran at all; with the
-   * executed plan, for the message when that is not what the rung expects.
-   */
-  private def varkaFilters(varka: SparkSession, query: String): (Boolean, String) = {
-    val df = varka.sql(query)
-    df.queryExecution.toRdd.count()
-    val plan = df.queryExecution.executedPlan
-    val ran = plan.collectFirst {
-      case f: VarkaFilterExecBase => f.metrics("numVarkaBatches").value > 0
-    }.getOrElse(false)
-    (ran, plan.treeString)
-  }
 
   private def note(line: String): Unit = {
     // scalastyle:off println
@@ -123,8 +85,8 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
     require(baseline ne varka, "the two sessions must be distinct or there is no baseline")
     val limit = CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT
     try {
-      cacheKeys(baseline)
-      cacheKeys(varka)
+      cacheRangeKeys(baseline, numRows)
+      cacheRangeKeys(varka, numRows)
       runBenchmark("modified-q3's filter: n date ranges joined by or") {
         for (n <- rungs) {
           val query = "SELECT ss_sold_date_sk FROM range_keys WHERE " +
@@ -132,7 +94,8 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
           val bytes = vanillaMethodBytes(baseline, query)
           val (fused, plan) = varkaFilters(varka, query)
           require(fused, s"at $n ranges the Varka arm declined the filter:\n$plan")
-          val (split, splitPlan) = withOptions(splitOptions)(varkaFilters(varka, query))
+          val (split, splitPlan) =
+            withEmitOptions(splitConditionsDesign)(varkaFilters(varka, query))
           require(split, s"at $n ranges the split arm declined the filter:\n$splitPlan")
           val selected = baseline.sql(query).count()
           val benchmark = new Benchmark(s"$n ranges over $numRows Arrow-cached rows", numRows,
@@ -144,7 +107,7 @@ object VarkaRangeFilterBenchmark extends SqlBasedBenchmark {
             varka.sql(query).noop()
           }
           benchmark.addCase("Varka, split conditions") { _ =>
-            withOptions(splitOptions)(varka.sql(query).noop())
+            withEmitOptions(splitConditionsDesign)(varka.sql(query).noop())
           }
           benchmark.run()
           note(s"rung $n: vanilla's largest generated method is $bytes bytes, " +

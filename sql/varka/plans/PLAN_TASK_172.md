@@ -670,3 +670,24 @@ provenance), read the same ordering at 200 ranges: plan only 25 against 43 ms, f
 against 285, second run 41 against 241, and with the warm-up 171 and 47 against 535 and 406.
 The rows the section did not touch moved within the band, the sub-second ones by a few
 milliseconds either way.
+
+### 9.13 Corrections from the review of the pull request, 29 September 2026
+
+* **What design A is at 48 ranges.** The split begins at 49 ranges (section 3.1's table: 48
+  fit one method, 49 would be 8142 bytes), so at the 48 rung the "split conditions" arm is the
+  plain comparison tree in one method, the range set merely off. 9.12's prediction 2 stands at
+  200 ranges, where A splits; at 48 its 110 against 73 ms is the one-method tree against the
+  range set's loop, not a split kernel, and the table's "48: A" column reads that way. The
+  smoke run takes 49 now, so it reaches a split emission.
+* **The designs are emitted exclusively.** B was the defaults, which have the split on too, so
+  a B that failed to lower to the range set would have run as A without a word; B is now the
+  defaults with the split off, and a design that does not lower declines, which the rung's
+  check catches. B's kernel is the same either way, so the committed numbers stand.
+* **The section runs second** in the file, after the projection's first-query section and
+  before the back-to-back and steady-state sections, which start from the JVM it leaves; the
+  class doc said fourth. The plan's note that the untouched rows moved within the band is the
+  measure of that.
+* **The warm-up finding has a row**: `SCOPE_MILESTONE_7.md` item 60, the verdict's cost against
+  the row path's as a per-shape question.
+* The two benchmarks over the range keys share their helpers through `VarkaArrowSessions`, and
+  this benchmark's two first-query sections register their cases through one helper.

@@ -3724,6 +3724,29 @@ predicates over rows - which is a literature of its own and not the
 expression layer's problem; and not a mechanized proof of the calendar
 theorems themselves, unless someone wants one.
 
+### Item 60. The warm-up's verdict against the row path, per shape
+
+*Added 29 September 2026 from task 172's first-query measurement (`PLAN_TASK_172.md` 9.12).*
+
+The kernel warm-up (task 212, on by default) runs a new shape's queries on the row path until
+its verdict, on the ground that the verdict comes soon and the row path is cheap meanwhile.
+Task 172's split-conditions design at 200 ranges shows the case where neither holds: its
+verdict takes three seconds, and its row path is the interpreted stage vanilla runs, about 1.7
+seconds a query, so its first two queries take 1503 and 1005 ms against 420 and 350 with the
+warm-up off. The range set, whose verdict comes in a tenth of a second, shows the policy at
+its best (302 then 55 ms).
+
+**What to decide.** Whether the warm-up should weigh the verdict's expected cost against the
+row path's for the shape at hand - a kernel with many large methods against a row path that
+is itself a giant generated method - and run the interpreted kernel meanwhile where the row
+path is the slower of the two, or skip the warm-up for such a shape. The inputs exist at plan
+time: the emitted class's method count and bytes, and vanilla's method size for the same stage
+(`VarkaArrowSessions.vanillaMethodBytes`).
+
+**Done when** the policy is stated in `VarkaKernelWarmup`'s doc with the shapes it is decided
+by, and `VarkaColdStartBenchmark`'s range section shows the split design's first queries no
+slower with the warm-up on than off.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
