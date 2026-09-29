@@ -1,49 +1,73 @@
 Narrow-width companion of VarkaSharedPrefixBenchmark-jdk25-results.txt: the same benchmark under
 -XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
   benchmark:   org.apache.spark.sql.VarkaSharedPrefixBenchmark
-  commit:      35bea33f068
-  date:        2026-09-25T22:18:26Z
+  commit:      c954d7cceac
+  date:        2026-09-29T00:26:58Z
   jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
   kernel:      7.0.0-31-generic
   cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
   power:       governor=performance epp=performance profile=performance
   pinned to:   taskset -c 0,12,13,14,15,1,2,3
-  load at start: 0.47
-  canary:      ok (compute +0.2% cache +2.1% memory -0.6% )
+  load at start: 0.86
+  canary:      ok (compute +0.2% cache +1.1% memory -0.3% )
   wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaSharedPrefixBenchmark
   narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaSharedPrefixBenchmark"
 
 Running benchmark: 64 cheap tails over one date: year(d) + k over 1000000 rows
-  Running case: fused ceiling 400: 1 group
-  Stopped after 5 iterations, 4893 ms
-  Running case: fused ceiling 200: 1 group
-  Stopped after 5 iterations, 4950 ms
-  Running case: fused ceiling 100: 2 groups
-  Stopped after 5 iterations, 4588 ms
-  Running case: fused ceiling 50: 6 groups
-  Stopped after 200 iterations, 2004 ms
+  Running case: fused ceiling 400: 1 group, prefix per group
+  Stopped after 5 iterations, 4687 ms
+  Running case: fused ceiling 400: 1 group, prefix computed once
+  Stopped after 5 iterations, 4747 ms
+  Running case: fused ceiling 200: 1 group, prefix per group
+  Stopped after 5 iterations, 4679 ms
+  Running case: fused ceiling 200: 1 group, prefix computed once
+  Stopped after 5 iterations, 4661 ms
+  Running case: fused ceiling 100: 2 groups, prefix per group
+  Stopped after 5 iterations, 4599 ms
+  Running case: fused ceiling 100: 2 groups, prefix computed once
+  Stopped after 5 iterations, 4719 ms
+  Running case: fused ceiling 50: 6 groups, prefix per group
+  Stopped after 197 iterations, 2007 ms
+  Running case: fused ceiling 50: 3 groups, prefix computed once
+  Stopped after 5 iterations, 2668 ms
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 cheap tails over one date: year(d) + k over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------
-fused ceiling 400: 1 group                                             977            979           2          1.0         976.6       1.0X
-fused ceiling 200: 1 group                                             960            990          21          1.0         960.2       1.0X
-fused ceiling 100: 2 groups                                            900            918          17          1.1         900.0       1.1X
-fused ceiling 50: 6 groups                                              10             10           0        100.3          10.0      97.9X
+fused ceiling 400: 1 group, prefix per group                           935            938           2          1.1         935.1       1.0X
+fused ceiling 400: 1 group, prefix computed once                       941            949           8          1.1         940.8       1.0X
+fused ceiling 200: 1 group, prefix per group                           924            936           7          1.1         924.3       1.0X
+fused ceiling 200: 1 group, prefix computed once                       928            932           4          1.1         927.5       1.0X
+fused ceiling 100: 2 groups, prefix per group                          908            920           7          1.1         908.4       1.0X
+fused ceiling 100: 2 groups, prefix computed once                      919            944          29          1.1         919.1       1.0X
+fused ceiling 50: 6 groups, prefix per group                            10             10           0         98.9          10.1      92.4X
+fused ceiling 50: 3 groups, prefix computed once                       500            534          71          2.0         500.2       1.9X
 Running benchmark: 60 make_date(year(d), month(d), k) outputs over 1000000 rows
-  Running case: fused ceiling 400: 12 groups
-  Stopped after 24 iterations, 2068 ms
-  Running case: fused ceiling 200: 30 groups
-  Stopped after 17 iterations, 2112 ms
-  Running case: fused ceiling 100: 60 groups
-  Stopped after 10 iterations, 2126 ms
-  Running case: fused ceiling 50: 60 groups
-  Stopped after 9 iterations, 2037 ms
+  Running case: fused ceiling 400: 12 groups, prefix per group
+  Stopped after 23 iterations, 2041 ms
+  Running case: fused ceiling 400: 11 groups, prefix computed once
+  Stopped after 40 iterations, 2048 ms
+  Running case: fused ceiling 200: 30 groups, prefix per group
+  Stopped after 16 iterations, 2041 ms
+  Running case: fused ceiling 200: 26 groups, prefix computed once
+  Stopped after 34 iterations, 2002 ms
+  Running case: fused ceiling 100: 60 groups, prefix per group
+  Stopped after 10 iterations, 2144 ms
+  Running case: fused ceiling 100: 60 groups, prefix computed once
+  Stopped after 19 iterations, 2041 ms
+  Running case: fused ceiling 50: 60 groups, prefix per group
+  Stopped after 9 iterations, 2198 ms
+  Running case: fused ceiling 50: 60 groups, prefix computed once
+  Stopped after 18 iterations, 2057 ms
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 60 make_date(year(d), month(d), k) outputs over 1000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
-fused ceiling 400: 12 groups                                             86             86           1         11.6          86.0       1.0X
-fused ceiling 200: 30 groups                                            124            124           0          8.1         123.9       0.7X
-fused ceiling 100: 60 groups                                            212            213           2          4.7         211.7       0.4X
-fused ceiling 50: 60 groups                                             216            226          10          4.6         215.8       0.4X
+fused ceiling 400: 12 groups, prefix per group                           86             89           4         11.6          86.3       1.0X
+fused ceiling 400: 11 groups, prefix computed once                       48             51           4         20.6          48.4       1.8X
+fused ceiling 200: 30 groups, prefix per group                          126            128           3          8.0         125.5       0.7X
+fused ceiling 200: 26 groups, prefix computed once                       59             59           0         17.0          58.8       1.5X
+fused ceiling 100: 60 groups, prefix per group                          212            214           5          4.7         211.6       0.4X
+fused ceiling 100: 60 groups, prefix computed once                       91            107           8         11.0          90.9       0.9X
+fused ceiling 50: 60 groups, prefix per group                           235            244          10          4.3         235.2       0.4X
+fused ceiling 50: 60 groups, prefix computed once                       108            114           7          9.2         108.2       0.8X

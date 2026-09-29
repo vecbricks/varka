@@ -521,3 +521,52 @@ whose option draw covers every boolean `with*` and so this one. The evaluator's 
 date, at the default grouping and one output per group, against the row engine. The
 benchmark's arms (8.8) are in `VarkaSharedPrefixBenchmark`; the quiet regeneration and the
 predictions' scoring follow in section 10.
+
+## 10. The quiet run, 29 September 2026
+
+`dev/varka_bench_regen.sh catalyst VarkaSharedPrefixBenchmark` on the laptop at 02:26, load
+0.86 at start, the option's arm beside the recomputed one at every ceiling
+(`VarkaSharedPrefixBenchmark-jdk25-results.txt`, its 128-bit companion and provenance). The
+master baseline regenerated the same night, eight minutes later, reads within noise of the
+committed file on every recomputed row, so the arms are compared within one run and against
+a same-night baseline alike. Per row, nanoseconds:
+
+| sixty `make_date` | groups | recomputed | computed once | change |
+|---|---|---|---|---|
+| ceiling 400, the default, 256-bit | 12 / 11 | 25.3 | 17.0 | -33% |
+| ceiling 200, 256-bit | 30 / 26 | 41.8 | 20.4 | -51% |
+| ceiling 100, 256-bit | 60 / 60 | 73.1 | 34.5 | -53% |
+| ceiling 400, the default, 128-bit | 12 / 11 | 86.3 | 48.4 | -44% |
+| ceiling 200, 128-bit | 30 / 26 | 125.5 | 58.8 | -53% |
+| ceiling 100, 128-bit | 60 / 60 | 211.6 | 90.9 | -57% |
+
+The predictions of 8.7, scored:
+
+1. **Holds, past the ceiling on the narrow run.** 33% on the wide run against at least 15%,
+   44% on the narrow against at least 10%. Section 6's ceiling put the recomputed prefixes at
+   about 40% and 33% of the two runs' time; the narrow run gains more than that ceiling, so the
+   ceiling's accounting missed something the mechanism also removes: the consumers pack six
+   outputs per group where five and a prefix fitted before, one loop and one epilogue call
+   fewer per batch, and each consumer drops the date's load beside the decomposition. The
+   default flips in its own pull request (8.10 step 5).
+2. **Holds.** At sixty groups the materialized arm is 1.36 times the default's twelve-group
+   time on the wide run (34.5 against 25.3) and 1.05 on the narrow (90.9 against 86.3), where
+   recomputation put it at 2.9 and 2.5: the remainder is the per-group fixed cost, now
+   separated from the prefix.
+3. **Pending**: the ladders run at the default options, so they are scored by the flip.
+4. **Holds at the default grouping, with a finding at ceiling 50.** The cheap tails are one
+   group either way at the default (251 against 240, within noise), and both arms sit on row
+   209's cliff, as every run of this file has: 64 tails in one method, about 250 ns per row.
+   At ceiling 50 the weights pack the tails into three groups where recomputation took six,
+   and the three sit on the cliff (129.9) in a run where the six came off it (4.1); the master
+   baseline's six sat on it (330) the same night, and the committed file's (412) before. The
+   cliff is per run and per method size, which is row 209's subject; the option moves the
+   group count, and with it which side of the cliff a shape near it lands on. Row 209 reads
+   this file too.
+5. **Pending**: the corpus's group counts under the option are read by the flip's
+   regeneration of `emitted_bytes.json`.
+
+What the sixty-group arms say beyond the predictions: at ceiling 100 and 50 every output is
+its own group, so fifty-nine consumers load a prefix one producer stores, and the arm still
+halves the time of recomputation - the stores and loads through L1 cost a small fraction of
+the decomposition they replace, on both widths.
