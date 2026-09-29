@@ -3747,6 +3747,191 @@ time: the emitted class's method count and bytes, and vanilla's method size for 
 by, and `VarkaColdStartBenchmark`'s range section shows the split design's first queries no
 slower with the warm-up on than off.
 
+### Item 61. What the call-site budget leaves: C1's boundary elsewhere, and the heavy groups' seconds
+
+*Added 29 September 2026 from task 209's build (`PLAN_TASK_209.md` 11 and 12).*
+
+Task 209's budget holds a wide loop method under C1's limit, 93 Vector API call sites on JDK
+25.0.4.1, and leaves a narrow group of heavy outputs - a `make_date` output is at the limit
+alone, the size ladder's entry past it - to run under C2 alone, since splitting such a group
+buys no C1 and costs a method per output for good. Three things about that are unmeasured:
+
+* **Whether 93 travels.** C1's bailout is a count of its own virtual registers, so the boundary
+  should be the JDK's and not the machine's; one dispatch of `VarkaInliningCliffSuite`'s probe
+  per runner class, under the JDK the runners install, says whether the twenty-tail method
+  compiles and the twenty-two-tail one is refused there too. The nightly cliff step guards the
+  laptop's JDK only.
+* **The heavy groups' seconds, and their two modes.** A group C1 refuses runs interpreted for
+  two to four seconds until C2 compiles it, and task 198's size ladder read two modes at sixteen
+  entries, 27.5 and 36 to 38 ns a row, from one JVM run to the next (`PLAN_TASK_198.md` 13) -
+  the same class, so C2's two outcomes on a heavy group. `-XX:-UseProfiledLoopPredicate` ended
+  the wide groups' cycle in every fork (`PLAN_TASK_209.md` 10.3) and its cost to everything else
+  is unmeasured: the throughput and parity files under the flag against their bands, and the
+  size ladder's sixteen-entry rung under it in ten runs, decide whether it is a line in Varka's
+  recommended JVM options.
+* **The warm-up's C1 exclusion** (task 212) now covers methods C1 would compile: under the
+  budget a wide group's loop methods are under C1's limit, and the exclusion keeps C1 off them
+  anyway, so they wait for C2 as the heavy groups do. Whether the exclusion should apply only to
+  methods over the budget - the emitter knows which - is a cold-start measurement
+  (`VarkaColdStartBenchmark`) with the cheap-tail shape added to it.
+
+**Done when** the boundary is read on the runner classes and recorded beside the laptop's in
+`VarkaInliningCliff-jdk25-probe.txt`, the flag's cost is in the band files or ruled out, and the
+exclusion's scope is decided by the cold-start numbers.
+
+### Item 62. A kernel after other kernels: the JVM's history as a variable
+
+*Added 29 September 2026 from task 209's measurement (`PLAN_TASK_209.md` 12.3 and 12.4).*
+
+Every JIT verdict the project has taken was taken one class per JVM: the deopt guard, the
+inlining-cliff probe and the warm-up probe fork a fresh JVM per case, because that is the only
+way to attribute an outcome to a class. Task 209's shared-prefix regeneration then read, at 128
+bits, one instance of a four-group kernel - every loop method under the call-site budget -
+slow for its whole case, 265.8 ns a row against 5.9 for four byte-identical instances in the
+same JVM and 6.0 to 6.5 in ten fresh JVMs of the class alone. Task 153's audit had already found
+that a kernel compiled after others can meet different C2 answers, since the Vector API's
+templates are shared and their profiles are the JVM's, not the class's (`PLAN_TASK_154.md`);
+task 209's plan named the same thing as its first risk. A production JVM runs many kernels, so
+this is the condition that matters and the one no guard reads.
+
+**What to measure.** A probe that compiles N other kernels of the corpus first and then the
+kernel under test, forked per N, with the same reader as the cliff probe: the slow mode's
+frequency as a function of N, which methods land slow, and whether
+`-XX:-UseProfiledLoopPredicate` (item 61) or the warm-up's C1 exclusion moves it. The
+benchmarks already run kernels after kernels; what they lack is the per-method reading.
+
+**Done when** the probe exists with its readings committed beside the cliff probe's, the slow
+mode's frequency under history is a number, and the nightly runs one arm of it.
+
+### Item 63. The grouping weights against the emitted counts
+
+*Added 29 September 2026 from task 209's build (`PLAN_TASK_209.md` 11.1).*
+
+The grouping pass prices a node by `VarkaEmitBudget.weightOf`, a hand-maintained register
+described as the lane operations a lowering emits. Task 209 read the emitted count beside it: a
+cheap `year(d) + k` tail weighs a field's seven plus one and emits three Vector API call sites,
+so the register over-counts the shape the fused ceiling is set for by more than two, and row 148
+had already found a division weighed wrong. With two budgets now read off the built class - the
+bytes and the call sites - the weights decide only the first grouping, and the regroup corrects
+a group that measures over a limit but never one that measures under, so an over-count means
+more loop methods than the limits need, and a method's fixed cost per batch for each.
+
+**What to decide.** Whether the register is retuned from the emitted counts, shape by shape,
+with a test that pins each weight to the count its lowering emits alone (the register test
+`VarkaEmitterBudgetSuite` already has for the calendar tails, widened); or whether the
+first grouping is made from measured counts too - an emission per output, which task 191's
+emission times make affordable for the sizes that matter - and the register retired. Row 200's
+exact grouping needs a cost per node either way, and should take this as its input.
+
+**Done when** every weight in the register equals the count its node emits alone, pinned by a
+test, or the register is gone and the grouping reads the class; and the shared-prefix ladder's
+group counts at each ceiling are the ones the measured costs give.
+
+### Item 64. The configuration surface for the emit options
+
+*Added 29 September 2026 from the review of task 209's build.*
+
+Four settings reach SQL configuration: `spark.sql.codegen.varka.enabled`,
+`spark.sql.codegen.varka.warmup.enabled`, `spark.sql.codegen.varka.emit.useAVX` and
+`spark.sql.codegen.varka.classDumpDirectory`. Every other field of `VarkaEmitOptions` - the
+budgets, the ceiling, the lowering choices, the materialization - is set by suites, fuzz
+iterations and benchmark arms through a test hook, and its class doc says so. The project's
+model for a configuration is two surfaces with one mapping between them, the user-facing string
+and the typed option (`PLAN_TASK_23.md` 4, `PLAN_TASK_121.md`), and the shape cache already
+renders a non-default option into the shape key, so the mechanism is in place; what is missing
+is the decision which options a user may set and the arm the bytes oracle pins for each,
+since an option a configuration reaches has to have its emissions pinned per value
+(`emitter-and-ir.md`, "The bytes oracle pins one point in the option space").
+
+**What to decide.** The list: the call-site budget and its exemption, the byte budget and the
+fused ceiling are the candidates a deployment might need to turn, since their right values are
+the JDK's and the JIT's rather than the shape's; the lowering choices are not, since their right
+value is measured once. And whether the string surface is one setting per field or one string
+of `key=value` pairs, which is what `dev/varka_emit.sh --options` already parses.
+
+**Done when** the user-settable options are named in `docs/sql-varka.md` with their defaults and
+the reason each is exposed, each has its oracle arm, and `VarkaShapeCacheSuite` covers the
+rendering of every one.
+
+### Item 65. What a query reports: fallback counts as SQL metrics
+
+*Added 29 September 2026 from the review of task 209's build.*
+
+A query's plan says which entries fused (`VarkaFusionReport`, the decline reasons of task 16),
+and the evaluator falls back to the row path per batch when a kernel declines one at run time.
+Nothing reports how often that happened: the operators under `sql/core`'s `execution` package
+define no SQL metrics of their own, so a query whose kernels declined every batch shows the
+same UI as one whose kernels ran every batch, and only a benchmark's timing tells them apart.
+
+**What to build.** Per operator, the counters Spark's own operators carry: batches served by a
+kernel, batches that fell back and the reason class, rows through each path, and the time in
+the kernel against the time in the fallback; the warm-up's verdict (task 212) and its wait as
+one more, since item 60 needs the same number.
+
+**Done when** the metrics show in the Spark UI and `EXPLAIN` output for a fused stage, a suite
+asserts them on a query with a forced per-batch decline, and the benchmarks' provenance can
+name the fallback share of a run instead of inferring it.
+
+### Item 66. String transformations, beyond predicates and keys
+
+*Added 29 September 2026 from the review of task 209's build.*
+
+Item 3 takes strings as predicates and as group keys - equality, `IN`, the fixed-width compare.
+The query census (section 2) counts `substring`, `concat`, `upper`, `lower`, `trim`, `LIKE` and
+`length` too, and none of them is a deliverable anywhere: a string transformation produces a
+string, which needs an output representation (offsets and bytes, or a fixed width where the
+type declares one) that no Varka lane has, and a `LIKE` over UTF-8 is a byte-level kernel with
+its own literature. They are a family, not a node.
+
+**What to decide.** Whether the family opens with the transformations whose output is not a
+string - `length`, `LIKE` and `startswith` as predicates, which item 3's compare machinery can
+carry - and leaves the string-producing ones for a representation decision under item 11; and
+which of the census's counts are in a query Varka could own end to end (section 7, question 2).
+
+**Done when** the predicate-valued functions are lowered and measured against Spark's codegen
+on the strings the census names, and the string-producing ones have a representation decision
+recorded, built or declined.
+
+### Item 67. Varka on ARM
+
+*Added 29 September 2026 from the review of task 209's build.*
+
+Every number the project has committed is from x86: the laptop's Zen 5 at 256 bits, the runner
+pool's EPYC and Xeon classes, the 9V45 at 512. The comparison items discuss NEON and SVE at
+length - the Vector API's `compress` falls to a scalar path where SVE is absent, Graviton2 is
+NEON only - but no item measures a Varka kernel on an ARM machine, and the emitter's width
+handling was written for widths of 16, 32 and 64 bytes on one instruction family. GitHub's pool
+has ARM runners, so the measurement costs a dispatch.
+
+**What to measure.** The width audit and the throughput and parity files on an ARM runner class,
+with the datapath probe read first as task 62 reads it on x86: which lowerings keep their
+intrinsics at 128 bits on NEON, which fall to the scalar path, and where the calendar
+arithmetic's constant division stands without the AVX2 or AVX-512 forms.
+
+**Done when** an ARM results file with its provenance sits beside the x86 ones for the width
+audit and the throughput file, and `vector-api-and-width.md` says which lowerings differ.
+
+### Item 68. The fallback scratch's lifetime
+
+*Added 29 September 2026 from task 198's build (`PLAN_TASK_198.md` 11), noted as a hole in the
+review of task 209.*
+
+A kernel with a materialized prefix called through the seven-argument `run` takes its scratch
+from `VarkaScratch`: one buffer per thread from the global arena, regrown by doubling and never
+freed. The evaluator and the warm-up pass their own scratch and never come there; the suites,
+probes and tools do, and the class doc says the buffer is a fallback and not the contract.
+Bounded by the largest batch a thread has run, so not a leak in the sense of growth without
+limit - but a thread pool that ran one large batch keeps that buffer for the JVM's life, and a
+future caller on a production path that took the seven-argument form would inherit it unseen.
+
+**What to decide.** Whether the seven-argument form should refuse a kernel with scratch outside
+test code - a check on the caller's class, or a system property the test harness sets - so that
+the fallback cannot become a production path by accident; or whether the buffer is released
+with the thread through a cleaner. Small either way.
+
+**Done when** the form's contract is stated in `VarkaFusedKernel`'s doc and enforced by a test,
+one way or the other.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
