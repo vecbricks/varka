@@ -642,35 +642,15 @@ final class Slots {
     if (analysis.hasScratch() && vectorWalk) {
       s.scratchSeg = new int[analysis.materialized.size() * Analysis.SCRATCH_VECTORS];
       Arrays.fill(s.scratchSeg, -1);
-      Set<VarkaVectorIR> visited = new HashSet<>();
-      for (int o : outputIdx) {
-        for (VarkaVectorIR date : materializedDates(outputs.get(o), analysis, visited)) {
-          int region = analysis.materialized.get(date).region();
+      for (Analysis.Materialized mat : analysis.materialized.values()) {
+        if (mat.groups().contains(group)) {
           for (int k = 0; k < Analysis.SCRATCH_VECTORS; k++) {
-            if (s.scratchSeg[region * Analysis.SCRATCH_VECTORS + k] < 0) {
-              s.scratchSeg[region * Analysis.SCRATCH_VECTORS + k] = slot++;
-            }
+            s.scratchSeg[mat.region() * Analysis.SCRATCH_VECTORS + k] = slot++;
           }
         }
       }
     }
     return s;
-  }
-
-  /** The dates with a materialized prefix that the calendar nodes under {@code root} decompose. */
-  private static List<VarkaVectorIR> materializedDates(VarkaVectorIR root, Analysis analysis,
-      Set<VarkaVectorIR> visited) {
-    List<VarkaVectorIR> dates = new ArrayList<>();
-    if (!visited.add(root)) {
-      return dates;
-    }
-    if (isChrono(root) && analysis.materialized.containsKey(chronoChild(root))) {
-      dates.add(chronoChild(root));
-    }
-    for (VarkaVectorIR child : childrenOf(root)) {
-      dates.addAll(materializedDates(child, analysis, visited));
-    }
-    return dates;
   }
 
   /**

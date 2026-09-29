@@ -433,10 +433,14 @@ final class VarkaChronoLowering {
     Analysis.Materialized mat = analysis.materialized.get(date);
     if (mat != null && mat.producer() != s.group) {
       // The date's value is not needed here, but in the masked body a date whose validity word
-      // is its own - not an alias of an input's or a child's - stores that word as a side effect
-      // of its visit, and the tails' words alias it; such a date is visited and its vector
-      // dropped. Every other date, a column above all, is not loaded at all.
-      if (!dense && s.ownWord.contains(date)) {
+      // is owned under it - its own, or a descendant's it aliases, as a guarded day aliases its
+      // day arithmetic's - has that word stored as a side effect of its visit, and the tails'
+      // words alias it; such a date is visited and its vector dropped. A date whose word is an
+      // input's, a constant or dead - a column above all - is not loaded at all.
+      Integer ref = s.wordRef.get(date);
+      boolean wordOwnedUnder = !dense && ref != null
+          && s.ownWord.stream().anyMatch(n -> ref.equals(s.wordRef.get(n)));
+      if (wordOwnedUnder) {
         emitValue(cb, date, dense, analysis, s, computed);
         cb.pop();
       }

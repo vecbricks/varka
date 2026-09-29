@@ -617,7 +617,7 @@ private[sql] abstract class VarkaEvaluatorBase(
   private var kernelScratch: ArrowBuf = null
 
   private def kernelScratchAddress(bytesPerRow: Int, len: Int): Long = {
-    if (bytesPerRow == 0) {
+    if (bytesPerRow == 0 || len <= 0) {
       0L
     } else {
       val needed = bytesPerRow.toLong * len
@@ -905,6 +905,9 @@ private[sql] abstract class VarkaEvaluatorBase(
     kernelBatches += 1
     val sampled = allocationSampling && VarkaKernelEvaluator.allocationSchedule.due(kernelBatches)
     val before = if (sampled) VarkaAllocationSampler.allocatedBytes() else 0L
+    // Grown outside the try below, as the derived inputs' buffers are: an allocator's failure
+    // is the per-batch machinery's, not the kernel's, and must not be marked as the kernel's.
+    val scratch = kernelScratchAddress(runner.scratchBytesPerRow, len)
     val status = try {
       if (VarkaColumnarToRowExec.isFailKernelForTesting) {
         // scalastyle:off throwerror
@@ -916,7 +919,6 @@ private[sql] abstract class VarkaEvaluatorBase(
       // plan's lane is fixed at compile time, so this is a branch on a final field, not a
       // per-batch discovery. The wrong overload would not run a wrong kernel - each default
       // throws naming the lane - but that throw would be a fallback with a misleading cause.
-      val scratch = kernelScratchAddress(runner.scratchBytesPerRow, len)
       if (runner.lane == LaneType.LONG) {
         runner.kernel.run(runner.srcData, runner.srcValidity, runner.srcNullCount,
           runner.dstData, runner.dstValidity, runner.scalarArgs, runner.longArgs, len, scratch)

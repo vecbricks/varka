@@ -495,6 +495,17 @@ built as 8.3 says is not repeated here; what differs from it is:
   no fragment is shared inside a group either, and with `methodByteBudget` zero the epilogue
   is one method over every output, which computes each prefix once already; both leave the
   option without effect rather than half an effect.
+* **A date's word may be owned below it.** The consumer's visit rule above is by the word,
+  not the node: a guarded day, which the compiler wraps around column arithmetic such as
+  `date_add(d, e)`, aliases its child's word, so the consumer visits the date whenever the
+  word it references is some node's own under it, and skips it only when the word is an
+  input's, a constant or dead. Found by the review of the pull request, with the shape as a
+  test in both suites.
+* **An empty batch takes a zero address.** The public `run` of a kernel with scratch returns
+  on `length <= 0` before it refuses a zero, as the drivers return on it, and the evaluator
+  allocates nothing for such a batch; the allocation itself runs outside the try that marks a
+  kernel failure, as the derived inputs' buffers do, so an allocator's failure is not the
+  kernel's.
 * **Test 1 reads the class, not the plan.** The materialized keys are read as the kernel's
   `scratchBytesPerRow()` - twenty-four per key - and as the loop methods' `IntVector` call
   sites, a consumer's at least twenty-five below its producer's; the plan-time map is package

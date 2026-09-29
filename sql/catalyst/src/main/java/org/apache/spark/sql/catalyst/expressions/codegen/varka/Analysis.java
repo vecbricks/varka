@@ -338,81 +338,6 @@ final class Analysis {
   /** The vectors one region holds: the prefix's {@code t[0..5]}, the day count included. */
   static final int SCRATCH_VECTORS = 6;
 
-  /**
-   * Decides which prefixes {@code groups} materialize: those that two or more groups decompose,
-   * under the option, the fragment sharing it builds on and the byte budget whose per-group
-   * methods it needs. The producer is the first group in order, since the driver runs the loop
-   * methods in group order and the epilogues after them in the same order, so a later group's
-   * loads always follow the producer's stores over the same rows. A date only one group
-   * decomposes is left as it is: within a group the fragment sharing already computes it once.
-   */
-  void planMaterialized(List<VarkaVectorIR> outputs, List<List<Integer>> groups) {
-    materialized = Map.of();
-    if (!options.materializeChronoPrefix() || !options.shareChronoPrefix()
-        || options.methodByteBudget() <= 0 || groups.size() < 2) {
-      return;
-    }
-    Map<VarkaVectorIR, Set<Integer>> touching = new LinkedHashMap<>();
-    Map<VarkaVectorIR, Boolean> month = new HashMap<>();
-    for (int g = 0; g < groups.size(); g++) {
-      Set<VarkaVectorIR> seen = new HashSet<>();
-      for (int o : groups.get(g)) {
-        collectPrefixes(outputs.get(o), g, seen, touching, month);
-      }
-    }
-    Map<VarkaVectorIR, Materialized> planned = new LinkedHashMap<>();
-    int region = 0;
-    for (Map.Entry<VarkaVectorIR, Set<Integer>> e : touching.entrySet()) {
-      if (e.getValue().size() < 2) {
-        continue;
-      }
-      int producer = java.util.Collections.min(e.getValue());
-      planned.put(e.getKey(), new Materialized(producer, region++, month.get(e.getKey()),
-          Set.copyOf(e.getValue())));
-    }
-    if (!planned.isEmpty()) {
-      materialized = planned;
-    }
-  }
-
-  private void collectPrefixes(VarkaVectorIR node, int group, Set<VarkaVectorIR> seen,
-      Map<VarkaVectorIR, Set<Integer>> touching, Map<VarkaVectorIR, Boolean> month) {
-    if (!seen.add(node)) {
-      return;
-    }
-    if (isChrono(node)) {
-      VarkaVectorIR date = chronoChild(node);
-      touching.computeIfAbsent(date, k -> new java.util.TreeSet<>()).add(group);
-      month.merge(date, !options.elideChronoMonth() || tailReadsMarchMonth(node),
-          Boolean::logicalOr);
-    }
-    for (VarkaVectorIR child : childrenOf(node)) {
-      collectPrefixes(child, group, seen, touching, month);
-    }
-  }
-
-  boolean hasScratch() {
-    return !materialized.isEmpty();
-  }
-
-  /** What {@code VarkaFusedKernel.scratchBytesPerRow()} returns for this emission. */
-  int scratchBytesPerRow() {
-    return materialized.size() * SCRATCH_VECTORS * (int) lane.byteStride;
-  }
-
-  int scratchParam() {
-    return lane.pScratch;
-  }
-
-  /** The first local after the parameters: two further along when the scratch address is one. */
-  int firstLocal() {
-    return hasScratch() ? lane.firstLocalScratch : lane.firstLocal;
-  }
-
-  /** The descriptor every body method of this emission shares; see {@link Lane#runDesc}. */
-  java.lang.constant.MethodTypeDesc bodyDesc() {
-    return hasScratch() ? lane.runDescScratch : lane.runDesc;
-  }
   private final Map<VarkaVectorIR, Integer> height = new HashMap<>();
   /** The union of every node's columns: unreferenced inputs get no locals and no state. */
   long referencedColumns = 0L;
@@ -568,6 +493,82 @@ final class Analysis {
         pureWord.put(node, pure);
       }
     }
+  }
+
+  /**
+   * Decides which prefixes {@code groups} materialize: those that two or more groups decompose,
+   * under the option, the fragment sharing it builds on and the byte budget whose per-group
+   * methods it needs. The producer is the first group in order, since the driver runs the loop
+   * methods in group order and the epilogues after them in the same order, so a later group's
+   * loads always follow the producer's stores over the same rows. A date only one group
+   * decomposes is left as it is: within a group the fragment sharing already computes it once.
+   */
+  void planMaterialized(List<VarkaVectorIR> outputs, List<List<Integer>> groups) {
+    materialized = Map.of();
+    if (!options.materializeChronoPrefix() || !options.shareChronoPrefix()
+        || options.methodByteBudget() <= 0 || groups.size() < 2) {
+      return;
+    }
+    Map<VarkaVectorIR, Set<Integer>> touching = new LinkedHashMap<>();
+    Map<VarkaVectorIR, Boolean> month = new HashMap<>();
+    for (int g = 0; g < groups.size(); g++) {
+      Set<VarkaVectorIR> seen = new HashSet<>();
+      for (int o : groups.get(g)) {
+        collectPrefixes(outputs.get(o), g, seen, touching, month);
+      }
+    }
+    Map<VarkaVectorIR, Materialized> planned = new LinkedHashMap<>();
+    int region = 0;
+    for (Map.Entry<VarkaVectorIR, Set<Integer>> e : touching.entrySet()) {
+      if (e.getValue().size() < 2) {
+        continue;
+      }
+      int producer = java.util.Collections.min(e.getValue());
+      planned.put(e.getKey(), new Materialized(producer, region++, month.get(e.getKey()),
+          Set.copyOf(e.getValue())));
+    }
+    if (!planned.isEmpty()) {
+      materialized = planned;
+    }
+  }
+
+  private void collectPrefixes(VarkaVectorIR node, int group, Set<VarkaVectorIR> seen,
+      Map<VarkaVectorIR, Set<Integer>> touching, Map<VarkaVectorIR, Boolean> month) {
+    if (!seen.add(node)) {
+      return;
+    }
+    if (isChrono(node)) {
+      VarkaVectorIR date = chronoChild(node);
+      touching.computeIfAbsent(date, k -> new java.util.TreeSet<>()).add(group);
+      month.merge(date, !options.elideChronoMonth() || tailReadsMarchMonth(node),
+          Boolean::logicalOr);
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      collectPrefixes(child, group, seen, touching, month);
+    }
+  }
+
+  boolean hasScratch() {
+    return !materialized.isEmpty();
+  }
+
+  /** What {@code VarkaFusedKernel.scratchBytesPerRow()} returns for this emission. */
+  int scratchBytesPerRow() {
+    return materialized.size() * SCRATCH_VECTORS * (int) lane.byteStride;
+  }
+
+  int scratchParam() {
+    return lane.pScratch;
+  }
+
+  /** The first local after the parameters: two further along when the scratch address is one. */
+  int firstLocal() {
+    return hasScratch() ? lane.firstLocalScratch : lane.firstLocal;
+  }
+
+  /** The descriptor every body method of this emission shares; see {@link Lane#runDesc}. */
+  java.lang.constant.MethodTypeDesc bodyDesc() {
+    return hasScratch() ? lane.runDescScratch : lane.runDesc;
   }
 
   /**

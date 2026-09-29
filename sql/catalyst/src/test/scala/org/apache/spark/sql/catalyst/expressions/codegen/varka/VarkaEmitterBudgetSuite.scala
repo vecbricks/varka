@@ -859,12 +859,15 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       emitted(Seq(new Year(shifted), new Month(shifted)), 1, 1, split)
     assert(computedScratch === region)
     consumersLighter(computed, 1 to 1)
-    // A date whose validity word is its own - two columns' - is still visited by the masked
-    // consumer for that word, and its vector dropped; the dense consumer skips it entirely.
-    val twoColumns = new AddDays(col, new ColumnRef(1))
-    val (ownWord, ownWordScratch) =
-      emitted(Seq(new Year(twoColumns), new Month(twoColumns)), 2, 0, split)
-    assert(ownWordScratch === region)
-    consumersLighter(ownWord, 1 to 1)
+    // A date whose validity word is owned under it - two columns' arithmetic, bare or under the
+    // guard the compiler wraps it in - is still visited by the masked consumer for that word,
+    // and its vector dropped; the dense consumer skips it entirely.
+    for (twoColumns <- Seq[VarkaVectorIR](new AddDays(col, new ColumnRef(1)),
+        new GuardedDay(new AddDays(col, new ColumnRef(1))))) {
+      val (ownWord, ownWordScratch) =
+        emitted(Seq(new Year(twoColumns), new Month(twoColumns)), 2, 0, split)
+      assert(ownWordScratch === region)
+      consumersLighter(ownWord, 1 to 1)
+    }
   }
 }

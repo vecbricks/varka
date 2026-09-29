@@ -1813,9 +1813,17 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     val shifted = new AddDays(col, new LiteralSlot(0))
     checkMatrix(Seq(new Year(shifted), new Month(shifted)), 1, Array(1), lengths, combos(1),
       ctx = "a computed date", options = split)
-    val twoColumns = new AddDays(col, new ColumnRef(1))
-    checkMatrix(Seq(new Year(twoColumns), new Month(twoColumns)), 2, Array.empty[Int], lengths,
-      combos(2), ctx = "a date with its own validity word", options = split)
+    for (twoColumns <- Seq[VarkaVectorIR](new AddDays(col, new ColumnRef(1)),
+        new GuardedDay(new AddDays(col, new ColumnRef(1))))) {
+      checkMatrix(Seq(new Year(twoColumns), new Month(twoColumns)), 2, Array.empty[Int],
+        lengths, combos(2), ctx = s"a date with its word owned under it: $twoColumns",
+        options = split)
+      // The word's producers as make_date's fields, so the tails' words are loaded.
+      checkMatrix(Seq(new MakeDate(new Year(twoColumns), new Month(twoColumns),
+        new LiteralSlot(0), false)), 2, Array(1), lengths, combos(2),
+        ctx = s"make_date over a date with its word owned under it: $twoColumns",
+        options = split)
+    }
   }
 
   test("the scratch contract: a kernel with a materialized prefix refuses a zero address " +
@@ -1838,6 +1846,9 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       val dstValidity = roots.map(_ => arena.allocate(16L, 64).address()).toArray
       val none = Array.empty[Int]
       assert(kernel.scratchBytesPerRow() === 24 && plain.scratchBytesPerRow() === 0)
+      // An empty batch touches no scratch, so a zero address is fine for it.
+      assert(kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, 0,
+        0L) === 0)
       val zero = intercept[IllegalArgumentException] {
         kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, length, 0L)
       }
@@ -1848,7 +1859,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       assert(seven.getMessage.contains("call run with the scratch address"), seven.getMessage)
       assert(plain.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
         length, 0L) === 0)
-      val scratch = arena.allocate(24L * length, 64)
+      val scratch = arena.allocate(kernel.scratchBytesPerRow().toLong * length, 64)
       assert(kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
         length, scratch.address()) === 0)
       // A batch a guard condemns - an out-of-range day under ANSI make_date - in the group

@@ -115,17 +115,14 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
           val dst: Array[Long] = Array.fill(n)(arena.allocate(chunk * 4L, 64).address())
           val dstValidity: Array[Long] =
             Array.fill(n)(arena.allocate(chunk / 8L, 64).address())
-          // Per ceiling, the recomputed arm and the materialized one; the latter's scratch is
-          // one region per date the groups share, sized by the batch.
+          // Per ceiling, the recomputed arm and the materialized one; the latter takes the
+          // scratch its kernel asks for, sized by the batch.
           val arms = ceilings.flatMap { c =>
             Seq(false, true).map { materialized =>
               val (kernel, groups) = emit(fused, loader, s"${s}_${c}_$materialized",
                 VarkaEmitOptions.DEFAULTS.withFusedCeiling(c)
                   .withMaterializeChronoPrefix(materialized))
-              val scratch = kernel.scratchBytesPerRow() match {
-                case 0 => 0L
-                case perRow => arena.allocate(perRow.toLong * chunk, 64).address()
-              }
+              val scratch = VarkaEmitterTestSupport.scratch(kernel, chunk)
               (c, materialized, groups, kernel, scratch)
             }
           }

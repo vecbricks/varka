@@ -797,7 +797,14 @@ public final class VarkaLoopEmitter {
   private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
     if (analysis.hasScratch()) {
       // The bodies address the scratch without a check of their own, so a zero is refused here,
-      // once per batch, instead of faulting in a loop method.
+      // once per batch, instead of faulting in a loop method. An empty batch touches no scratch
+      // and returns first, as the drivers return on it, so a caller may pass a zero for it.
+      Label nonEmpty = cb.newLabel();
+      cb.iload(analysis.lane.pLength);
+      cb.ifgt(nonEmpty);
+      cb.loadConstant(0);
+      cb.ireturn();
+      cb.labelBinding(nonEmpty);
       Label given = cb.newLabel();
       cb.lload(analysis.scratchParam());
       cb.loadConstant(0L);
