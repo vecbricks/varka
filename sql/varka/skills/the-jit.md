@@ -766,6 +766,19 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
   four times a fork in most forks at 10 and 14 outputs, and every fork settled fast by second
   4; the cheap shape's 99- to 177-site methods cycled for good in a tenth to a half. Which
   loop keeps re-hoisting a failing predicate is not read from its size.
+* **Every `MemorySegment` a loop keeps live is a set of checks C2 hoists before the loop**, and
+  their count is one thing that decides the cycle (`PLAN_TASK_198.md` 12). The Vector API's
+  segment loads and stores carry the segment's class, read-only flag, length, session state and
+  the session's confined-owner test; C2 hoists them per segment as profiled predicates once it
+  no longer scalar-replaces the segments. Task 198's producer loop went from six live segments
+  to twelve - one per prefix vector stored - and cycled at 8 to 60 outputs at both widths on
+  the batches path; one segment over the whole scratch, addressed by offset, brought it back
+  to seven and to compiling once. So a kernel body should hold as few segment objects as its
+  work allows: one per region of memory, offsets for the rest. To read such a fork:
+  `VARKA_DEOPT_DUMP=<dir>` makes `VarkaDeoptCycleProbe` write the class, and
+  `-XX:CompileCommand=print,<class>::loopDense0` with `dev/varka_emit.sh`'s `hsdis` prints
+  every C2 version; the deoptimization log's `pc=` is the return address after the
+  `UncommonTrapBlob` call, and the check is the compare that branches to that stub.
 
 ## Split methods compile, but C2 stops inlining their calls at the caller's budget
 

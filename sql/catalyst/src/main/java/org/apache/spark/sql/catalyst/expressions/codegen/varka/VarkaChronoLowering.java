@@ -461,19 +461,20 @@ final class VarkaChronoLowering {
    * The prefix's vectors between the locals {@code t[0..5]} and the scratch region of a
    * materialized prefix: {@code store} writes them, a consumer's load reads them. The month
    * vector travels only when {@code withMonth}: a producer stores it when any group's tail
-   * reads it, a consumer loads it when its own tails do. The same offset and mask as a column's
-   * load at this point of the body, so the epilogue's partial lane group stays inside the
-   * region.
+   * reads it, a consumer loads it when its own tails do. Vector {@code k} of the region lives
+   * at {@code byteOffset + (region * SCRATCH_VECTORS + k) * dataBytes} of the body's one
+   * scratch segment, with the same mask as a column's load at this point of the body, so the
+   * epilogue's partial lane group stays inside its region.
    */
   private static void emitPrefixTransfer(CodeBuilder cb, Analysis analysis, Slots s, int[] t,
       Analysis.Materialized mat, boolean withMonth, boolean store) {
     int vectors = withMonth ? Analysis.SCRATCH_VECTORS : Analysis.SCRATCH_VECTORS - 1;
     for (int k = 0; k < vectors; k++) {
-      int seg = s.scratchSeg[mat.region() * Analysis.SCRATCH_VECTORS + k];
+      long index = (long) mat.region() * Analysis.SCRATCH_VECTORS + k;
       if (store) {
         cb.aload(t[k]);
-        cb.aload(seg);
-        cb.lload(s.byteOffset);
+        cb.aload(s.scratchSeg);
+        emitScratchOffset(cb, s, index);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogueMask != null) {
           cb.aload(s.epilogueMask);
@@ -483,8 +484,8 @@ final class VarkaChronoLowering {
         }
       } else {
         cb.aload(s.species);
-        cb.aload(seg);
-        cb.lload(s.byteOffset);
+        cb.aload(s.scratchSeg);
+        emitScratchOffset(cb, s, index);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogueMask != null) {
           cb.aload(s.epilogueMask);
@@ -494,6 +495,17 @@ final class VarkaChronoLowering {
         }
         cb.astore(t[k]);
       }
+    }
+  }
+
+  /** {@code byteOffset + index * dataBytes}, the vector's place in the scratch, as a long. */
+  private static void emitScratchOffset(CodeBuilder cb, Slots s, long index) {
+    cb.lload(s.byteOffset);
+    if (index != 0) {
+      cb.lload(s.dataBytes);
+      cb.loadConstant(index);
+      cb.lmul();
+      cb.ladd();
     }
   }
 

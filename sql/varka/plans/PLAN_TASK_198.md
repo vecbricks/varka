@@ -606,3 +606,52 @@ and the tests that read the recomputing arm name it. Two things the flip found:
 
 The ladders regenerated at both widths on the laptop and the size ladder on a 9V45 runner
 follow below, with predictions 3 and 5 scored.
+
+## 12. The flip's cycle, and one segment for the scratch, 29 September 2026
+
+The flip (#507, section 11) went in with two of its measurements unread: the laptop's ladders,
+and the deopt-cycle census the nightly guard runs. Read the same morning, on the laptop:
+
+* **The method-size ladder** improved at every rung from eight outputs up, 12% to 37% per row
+  at 256 bits and 15% to 43% at 128, except the eight-output rung at 128 bits, whose null-free
+  cases ran at 1450 ns per row, a hundred and thirty times slower.
+* **The deopt-cycle probe** (`dev/varka_deopt_cycle.sh`, task 189's) said why: on the
+  batches path - the kernel called on its batches from the first call, which is the probes,
+  the benchmarks and a deployment with the warm-up off - the producer's dense loop enters
+  C2's deoptimization cycle at 8 outputs at 128 bits and at 12, 16 and 60 outputs at both
+  widths, 21 of 24 forks, where the commit before the flip cycles in none of 15. On the
+  warm-up path, task 212's short calls, no fork cycles at any of those sizes: production is
+  not exposed, and the nightly guard, which reads the batches path at twelve outputs, would
+  have failed.
+* **The size ladder at 256 bits** regressed 46% to 50% at 52, 54 and 56 entries in one run
+  and improved 14% to 17% at the same rungs in the next, with the other rungs improving 5%
+  to 13% in both; the JVM's log of the second run shows no cycle at those rungs. A per-run
+  outcome of the kind row 209 records, on kernels the flip regrouped, to be read with the band
+  tooling once the fix below is in.
+
+**The mechanism, from the JVM's output.** One cycling fork of the eight-output kernel at 128
+bits, its class dumped (`VARKA_DEOPT_DUMP`) and `loopDense0` printed at every C2 compile
+(`-XX:CompileCommand=print`, `dev/varka_emit.sh`'s form), against the same fork of the
+commit before the flip:
+
+* The traps are `profile_predicate`, four at the loop head (`if_icmpge`, bci 304, then the
+  per-bytecode limit) and one per C2 version at the back edge (`goto`, bci 3104) until the
+  per-method limit, as task 189 described.
+* Before the loop, C2 hoists, per `MemorySegment` the loop touches, the checks the Vector
+  API's `intoMemorySegment` and `fromMemorySegment` carry: the segment's class, its read-only
+  flag, its length against the vector's bytes, its session's state, and an identity check that
+  reads a field of the session against a value taken from the current thread - the
+  confined-owner test of `MemorySessionImpl.checkValidState`, hoisted on a profile the whole
+  JVM shares. The flip's producer loop keeps twelve segments live (one input, five outputs, six
+  scratch, one per prefix vector) and its OSR compile hoists all twelve sets; the pre-flip loop
+  keeps six and hoists six in its OSR compile and one in its steady compile. Which of the
+  hoisted checks fails at run time, and why the pre-flip loop's one does not, is row 218's
+  question and stays open here; what this fork settles is that the count of live segment
+  objects decides whether the loop crosses into the cycle.
+* **One segment for the scratch.** The body takes one `MemorySegment` over the whole scratch,
+  regions times six times `dataBytes`, and addresses region `r`'s vector `k` at
+  `byteOffset + (r * 6 + k) * dataBytes`, so the producer's loop keeps seven segments live
+  rather than twelve. The same fork compiles once and runs at 91 to 101 M rows/s, the
+  pre-flip fork's 85 to 89. The cycle map over 8, 12, 16 and 60 outputs at both widths on the
+  batches path, two forks each: 0 of 16 in the cycle, against 21 of 24 for the flip's six
+  segments per region. The suites and the benchmarks follow below.

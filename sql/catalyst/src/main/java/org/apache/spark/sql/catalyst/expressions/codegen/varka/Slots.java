@@ -252,12 +252,16 @@ final class Slots {
    */
   int group = -1;
   /**
-   * Under a materialized prefix (task 198): one {@code MemorySegment} local per vector of each
-   * scratch region this body stores or loads, indexed {@code region * SCRATCH_VECTORS + k},
-   * -1 for a region this body never touches; null when the emission materializes nothing.
-   * Allocated after every other slot, so no other local moves.
+   * Under a materialized prefix (task 198): the one {@code MemorySegment} local over the whole
+   * scratch, which a body that stores or loads a region addresses at
+   * {@code byteOffset + (region * SCRATCH_VECTORS + k) * dataBytes}; -1 in a body that touches
+   * no region. One segment rather than one per vector: every segment object a loop method
+   * keeps live is a set of session and bounds checks C2 hoists before the loop once it stops
+   * scalar-replacing them, and six per region were enough to tip the producer's loop into the
+   * profiled-predicate deoptimization cycle (`PLAN_TASK_198.md` 12). Allocated after every
+   * other slot, so no other local moves.
    */
-  int[] scratchSeg;
+  int scratchSeg = -1;
   /** The dates whose materialized prefix this body has already stored; see the producer's
    * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
   final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
@@ -635,20 +639,12 @@ final class Slots {
         }
       }
     }
-    // A materialized prefix's scratch segments (task 198): a local per vector of every region a
-    // calendar node of this body stores into or loads from. Last, so that every slot above keeps
-    // its number, and only in the loop and epilogue methods, which are the bodies that run the
-    // vector walk.
-    if (analysis.hasScratch() && vectorWalk) {
-      s.scratchSeg = new int[analysis.materialized.size() * Analysis.SCRATCH_VECTORS];
-      Arrays.fill(s.scratchSeg, -1);
-      for (Analysis.Materialized mat : analysis.materialized.values()) {
-        if (mat.groups().contains(group)) {
-          for (int k = 0; k < Analysis.SCRATCH_VECTORS; k++) {
-            s.scratchSeg[mat.region() * Analysis.SCRATCH_VECTORS + k] = slot++;
-          }
-        }
-      }
+    // A materialized prefix's scratch segment (task 198), in a body whose calendar nodes store
+    // into or load from a region. Last, so that every slot above keeps its number, and only in
+    // the loop and epilogue methods, which are the bodies that run the vector walk.
+    if (analysis.hasScratch() && vectorWalk
+        && analysis.materialized.values().stream().anyMatch(m -> m.groups().contains(group))) {
+      s.scratchSeg = slot++;
     }
     return s;
   }

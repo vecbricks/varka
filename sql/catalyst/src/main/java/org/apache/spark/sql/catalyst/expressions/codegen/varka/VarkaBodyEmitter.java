@@ -111,23 +111,17 @@ final class VarkaBodyEmitter {
     cb.ldiv();
     cb.lstore(s.validityBytes);
 
-    // A materialized prefix's scratch regions (task 198): region r's vector k is the segment of
-    // dataBytes at scratch + (r * SCRATCH_VECTORS + k) * dataBytes, so the caller's scratch is
-    // laid out by the batch's own length and a body needs no size but the one it has.
-    if (s.scratchSeg != null) {
-      for (int i = 0; i < s.scratchSeg.length; i++) {
-        if (s.scratchSeg[i] < 0) {
-          continue;
-        }
-        cb.lload(analysis.scratchParam());
-        cb.lload(s.dataBytes);
-        cb.loadConstant((long) i);
-        cb.lmul();
-        cb.ladd();
-        cb.lload(s.dataBytes);
-        cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
-        cb.astore(s.scratchSeg[i]);
-      }
+    // A materialized prefix's scratch (task 198): one segment over all of it, regions times
+    // SCRATCH_VECTORS times dataBytes, so the caller's scratch is laid out by the batch's own
+    // length and a body needs no size but the one it has; region r's vector k is read and
+    // written at byteOffset + (r * SCRATCH_VECTORS + k) * dataBytes.
+    if (s.scratchSeg >= 0) {
+      cb.lload(analysis.scratchParam());
+      cb.lload(s.dataBytes);
+      cb.loadConstant((long) (analysis.materialized.size() * Analysis.SCRATCH_VECTORS));
+      cb.lmul();
+      cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
+      cb.astore(s.scratchSeg);
     }
 
     // (3) Per output: segments, and - in the driver only - zero(dstValidity) before any
