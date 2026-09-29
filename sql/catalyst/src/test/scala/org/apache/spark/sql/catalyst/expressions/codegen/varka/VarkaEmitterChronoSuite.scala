@@ -1837,7 +1837,8 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     val col = new ColumnRef(0)
     val roots = Seq[VarkaVectorIR](new Year(col), new Month(col))
     val (kernel, loader) = load(emitMulti(roots, 1, 0, on))
-    val (plain, plainLoader) = load(emitMulti(roots, 1, 0))
+    val off = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(false)
+    val (plain, plainLoader) = load(emitMulti(roots, 1, 0, off))
     val arena = Arena.ofConfined()
     try {
       val length = 100
@@ -1868,7 +1869,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
         new MakeDate(new Year(col), new Month(col), new LiteralSlot(0), true),
         new MakeDate(new Year(col), new Month(col), new LiteralSlot(1), true))
       val (badOn, badOnLoader) = load(emitMulti(bad, 1, 2, on))
-      val (badOff, badOffLoader) = load(emitMulti(bad, 1, 2))
+      val (badOff, badOffLoader) = load(emitMulti(bad, 1, 2, off))
       try {
         val lits = Array(1, 40)
         val statusOn = badOn.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity,

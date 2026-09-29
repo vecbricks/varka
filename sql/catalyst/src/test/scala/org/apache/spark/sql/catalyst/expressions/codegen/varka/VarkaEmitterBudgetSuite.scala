@@ -801,6 +801,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // loop methods' IntVector call sites, since a consumer drops the decomposition's
     // thirty-eight and the date's load for five or six loads.
     val on = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
+    val off = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(false)
     // Every output its own group, so a producer and its consumers are one output apart and
     // their methods differ by the prefix and their tails alone.
     val split = on.withGroupBudget(1).withFusedCeiling(1)
@@ -831,14 +832,14 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // One group: nothing crosses and nothing is materialized, whatever the option says.
     assert(emitted(Seq(new Year(col), new Month(col)), 1, 0, on)._2 === 0)
     // Off, no kernel asks for scratch.
-    assert(emitted(ladder(60), 1, 60, VarkaEmitOptions.DEFAULTS)._2 === 0)
+    assert(emitted(ladder(60), 1, 60, off)._2 === 0)
     // Sixty make_date at the default grouping: one date, so one region; and no more groups
     // than before, since the consumers weigh their loads rather than a prefix.
     val (sixty, sixtyScratch) = emitted(ladder(60), 1, 60, on)
     assert(sixtyScratch === region)
     val loopsOn = VarkaEmitterTestSupport.methodNames(sixty).asScala
       .count(_.startsWith("loopDense"))
-    val loopsOff = methodNames(emitMulti(ladder(60), 1, 60)).count(_.startsWith("loopDense"))
+    val loopsOff = methodNames(emitMulti(ladder(60), 1, 60, off)).count(_.startsWith("loopDense"))
     assert(loopsOn <= loopsOff, s"$loopsOn groups with the option on, $loopsOff off")
     // year(d), year(d2), month(d) in three groups: d's prefix crosses from group 0 to group 2
     // and is materialized; d2's is group 1's alone and is not.

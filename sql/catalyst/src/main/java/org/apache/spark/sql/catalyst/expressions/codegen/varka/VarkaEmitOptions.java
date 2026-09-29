@@ -302,7 +302,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param materializeChronoPrefix whether a civil-from-days prefix that outputs in two or more
  *        loop-method groups decompose is computed once per batch, by the first of those groups,
  *        into a scratch region the caller passes to {@code run}, and loaded by the later groups
- *        in place of the prefix (task 198). Off, every group recomputes it.
+ *        in place of the prefix (task 198). On by default since its measurement
+ *        ({@code PLAN_TASK_198.md} 10): off, every group recomputes it.
  * @param groupLocalSlots whether a group's loop and epilogue methods plan their frames over the
  *        nodes they emit alone ({@code PLAN_TASK_191.md} 3.1). Off, every method's frame is
  *        planned over the whole kernel - a slot per distinct node, kernel-wide - so a method
@@ -451,7 +452,7 @@ public record VarkaEmitOptions(
           TruncDateForm.SUBTRACT, FloorMod7.MAGIC, Division.MAGIC, USE_AVX_UNKNOWN,
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
-          true, true, true, false);
+          true, true, true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -899,6 +900,6 @@ public record VarkaEmitOptions(
         + '|' + narrowHalfSpecies + '|' + methodByteBudget
         + (rangeSets ? "" : "|noRangeSets") + (splitConditions ? "" : "|noSplitConditions")
         + (groupLocalSlots ? "" : "|kernelWideSlots")
-        + (materializeChronoPrefix ? "|materializePrefix" : "") + ')';
+        + (materializeChronoPrefix ? "" : "|recomputePrefix") + ')';
   }
 }
