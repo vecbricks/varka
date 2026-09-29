@@ -85,6 +85,15 @@ on:
           - 'chains'
           - 'time'
           - 'timechains'
+          - 'ladder'
+      input:
+        type: choice
+        description: 'Where the table rows come from. "cache" is each distribution default cache (Arrow on the Varka arm). "parquet" writes the table to a Parquet file once and reads it back uncached, the path a query over a file takes; task 194 asks the ladder both ways. The file name gains "-parquet".'
+        required: false
+        default: 'cache'
+        options:
+          - 'cache'
+          - 'parquet'
       shard:
         type: string
         description: 'I/N - run entries I, I+N, I+2N of the surface, so N dispatches cover it once. For the row count the fixed-share rule wants, the whole surface does not fit one job. Merge with dev/varka_bench_merge.py. See PLAN_TASK_62.md 11.11.'
@@ -353,6 +362,7 @@ jobs:
         ONLY: ${{ inputs.only }}
         SHARD: ${{ inputs.shard }}
         BENCHMARK: ${{ inputs.benchmark }}
+        INPUT: ${{ inputs.input }}
         EXTRA_CONFS: ${{ inputs.extra-confs }}
         MAX_FIXED_SHARE: ${{ inputs.max-fixed-share }}
       run: |
@@ -372,6 +382,7 @@ jobs:
         # Guarded like ONLY and SHARD above it: an empty value would pass
         # `--benchmark ""` and the shell driver would reject it.
         [ -n "$BENCHMARK" ] && ARGS+=(--benchmark "$BENCHMARK")
+        [ -n "$INPUT" ] && ARGS+=(--input "$INPUT")
         # An arm's third field is a comma list of confs, `varka` among them: extra confs open
         # that field on the arms that have none and extend it on the one that does.
         OPEN="${EXTRA_CONFS:+:$EXTRA_CONFS}"; MORE="${EXTRA_CONFS:+,$EXTRA_CONFS}"

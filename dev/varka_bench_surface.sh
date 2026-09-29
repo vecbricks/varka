@@ -22,7 +22,8 @@
 #       [--driver-memory 16g] \
 #       [--max-fixed-share PERCENT] [--force] [--only REGEX] [--replace] [--shard I/N] \
 #       [--skip-build] \
-#       [--benchmark surface|chains|time|timechains] [--table-columns all|dates|times] \
+#       [--benchmark surface|chains|time|timechains|ladder] [--table-columns all|dates|times] \
+#       [--input cache|parquet] \
 #       LABEL=SPARK_HOME:JAVA_HOME[:conf=value,conf=value...] ...
 #
 # --benchmark chains runs Chains through the same driver instead of Surface, writing
@@ -57,6 +58,14 @@
 # --replace to overwrite a committed file deliberately. --replace is separate from
 # --force on purpose: --force says the machine is not in its measured state, which is
 # a common thing to say and has nothing to do with discarding a results file.
+#
+# --benchmark ladder runs LadderBenchmark, task 171's size ladder on every distribution
+# (task 194), writing VarkaLadder-<label>-results.txt: the same projection widened rung by
+# rung, over the surface's date table at the ladder's row count (--rows 2000000), so a
+# stock distribution's own codegen and cache are timed against the fork's on the ladder's
+# question. --input parquet writes the table to a Parquet file once and reads it back
+# uncached in place of the cache, for the path a query over a file takes; the file name
+# gains "-parquet" so the two inputs' files sit side by side.
 #
 # --shard I/N runs entries I, I+N, I+2N ... of whichever list --benchmark selected -
 # 52 surface entries or 12 chains, so N is bounded by that list and not by the
@@ -141,7 +150,7 @@ cd "$(git rev-parse --show-toplevel)"
 usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 rows=500000000; partitions=1; cores=1; force=0; only=""; build=1; memory=16g; share=5; dists=()
 replace=0
-shard=""; benchmark=surface; table_columns=""
+shard=""; benchmark=surface; table_columns=""; input=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --rows) rows="$2"; shift 2 ;;
@@ -155,6 +164,7 @@ while [ "$#" -gt 0 ]; do
     --shard) shard="$2"; shift 2 ;;
     --benchmark) benchmark="$2"; shift 2 ;;
     --table-columns) table_columns="$2"; shift 2 ;;
+    --input) input="$2"; shift 2 ;;
     --skip-build) build=0; shift ;;
     --help|-h) usage 0 ;;
     *=*) dists+=("$1"); shift ;;
@@ -167,7 +177,9 @@ case "$benchmark" in
   chains)  main_class=org.apache.spark.sql.varka.bench.DateChainBenchmark;   stem=DateChain ;;
   time)    main_class=org.apache.spark.sql.varka.bench.TimeSurfaceBenchmark; stem=TimeSurface ;;
   timechains) main_class=org.apache.spark.sql.varka.bench.TimeChainBenchmark; stem=TimeChain ;;
-  *) echo "--benchmark wants surface, chains, time or timechains, got '$benchmark'" >&2; exit 2 ;;
+  ladder)  main_class=org.apache.spark.sql.varka.bench.LadderBenchmark;      stem=VarkaLadder ;;
+  *) echo "--benchmark wants surface, chains, time, timechains or ladder, got '$benchmark'" >&2
+     exit 2 ;;
 esac
 
 # The --only truncation guard (task 100). Checked before the machine checks below, not just
@@ -299,14 +311,16 @@ for spec in "${dists[@]}"; do
   # The shard in the file name, not only in the provenance: shards of one run are
   # collected into one directory before merging, and two of them must not be the same path.
   suffix=""
-  [ -n "$shard" ] && suffix="-shard${shard//\//of}"
+  [ "$input" = parquet ] && suffix="-parquet"
+  [ -n "$shard" ] && suffix="$suffix-shard${shard//\//of}"
   out="$out_dir/$stem-$label$suffix-results.txt"
   echo "== $label: $spark_home under $java_home -> $out"
   JAVA_HOME="$java_home" "$spark_home/bin/spark-submit" "${submit[@]}" \
     --class "$main_class" "$jar" \
     --label "$label" --rows "$rows" --partitions "$partitions" --out "$out" \
     ${only:+--only "$only"} ${shard:+--shard "$shard"} \
-    ${table_columns:+--table-columns "$table_columns"} "${driver[@]}" \
+    ${table_columns:+--table-columns "$table_columns"} ${input:+--input "$input"} \
+    "${driver[@]}" \
     --provenance "commit=$commit" --provenance "cores=$cores" \
     --provenance "datapath=$datapath" \
     --provenance "canary=$canary" --provenance "host=$(hostname -s)" \

@@ -176,6 +176,8 @@ public final class DateSurfaceBenchmark {
     StorageLevel storageLevel = StorageLevel.MEMORY_ONLY();
     TableShape tableShape = TableShape.ALL;
     double maxFixedShare = Double.NaN;
+    /** Where the table's rows come from: the cache (the default) or a Parquet file. */
+    String input = "cache";
     final Map<String, String> provenance = new LinkedHashMap<>();
 
     static Args parse(String[] argv, int entryCount, TableShape shape) {
@@ -213,6 +215,12 @@ public final class DateSurfaceBenchmark {
             i--;
           }
           case "--max-fixed-share" -> a.maxFixedShare = Double.parseDouble(need(k, v));
+          case "--input" -> {
+            a.input = need(k, v);
+            if (!a.input.equals("cache") && !a.input.equals("parquet")) {
+              throw new IllegalArgumentException("--input wants cache or parquet, got " + v);
+            }
+          }
           case "--provenance" -> {
             String kv = need(k, v);
             int eq = kv.indexOf('=');
@@ -289,10 +297,19 @@ public final class DateSurfaceBenchmark {
       }
     };
     PrintStream log = System.out;
+    Path parquetDir = null;
     try {
-      buildTable(spark, args.rows, args.partitions, args.storageLevel, args.tableShape);
-      String cache = cacheState(spark, args.partitions);
-      if (!cacheResident(spark, args.partitions) && !args.allowNonresidentCache) {
+      String cache;
+      if (args.input.equals("parquet")) {
+        parquetDir = Files.createTempDirectory("varka-bench-parquet");
+        buildParquetTable(spark, args.rows, args.partitions, args.tableShape, parquetDir);
+        cache = "a Parquet file, read uncached";
+      } else {
+        buildTable(spark, args.rows, args.partitions, args.storageLevel, args.tableShape);
+        cache = cacheState(spark, args.partitions);
+      }
+      if (parquetDir == null && !cacheResident(spark, args.partitions)
+          && !args.allowNonresidentCache) {
         throw new IllegalStateException("the cached table is not resident: " + cache
             + ". Every timing below it would be a recompute rate, not a kernel rate. Raise"
             + " --partitions so no single block has to fit, or lower --rows; raising"
@@ -305,7 +322,9 @@ public final class DateSurfaceBenchmark {
       prov.put("partitions", Integer.toString(args.partitions));
       // Always written, so a whole-surface file says "0/1" rather than being silent about it
       // and leaving a reader to wonder whether it is complete. The merge reads this.
-      prov.put("cache", cache + ", " + args.storageLevel.description());
+      prov.put("cache", parquetDir == null ? cache + ", " + args.storageLevel.description()
+          : cache);
+      prov.put("input", args.input);
       prov.put("table columns", args.tableShape.provenance());
       // Which benchmark wrote this file, as data rather than as a file name. The merge groups
       // on it: name-parsing let a chains merge collect the committed whole-surface files that
@@ -343,6 +362,24 @@ public final class DateSurfaceBenchmark {
       }
     } finally {
       spark.stop();
+      if (parquetDir != null) {
+        deleteTree(parquetDir);
+      }
+    }
+  }
+
+  /** Removes a temporary directory and what is under it; a failure is not worth a run. */
+  private static void deleteTree(Path dir) {
+    try (var walk = Files.walk(dir)) {
+      walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+        try {
+          Files.deleteIfExists(p);
+        } catch (IOException e) {
+          System.err.println("could not delete " + p + ": " + e.getMessage());
+        }
+      });
+    } catch (IOException e) {
+      System.err.println("could not delete " + dir + ": " + e.getMessage());
     }
   }
 
@@ -445,6 +482,38 @@ public final class DateSurfaceBenchmark {
       buildTimesTable(spark, rows, partitions, level);
       return;
     }
+    spark.sql(datesQuery(rows, partitions, shape)).createOrReplaceTempView("varka_dates");
+    // MEMORY_ONLY, not Spark's MEMORY_AND_DISK default, and the difference is not academic:
+    // the default is right for a workload, which should finish rather than fail, and exactly
+    // wrong for a benchmark, which should fail rather than measure something else. Three runs
+    // in September 2026 logged "Persisting block rdd_4_0 to disk instead" and then timed the
+    // runner's SSD - 72.6 M rows/s against 854 M/s for the same entry at half the rows - and
+    // reported success, because a disk-backed cache is still a cache as far as everything
+    // downstream is concerned. Removing the disk path makes "cached" mean one thing, so the
+    // partition count alone is a complete residency statement.
+    spark.catalog().cacheTable("varka_dates", level);
+    spark.sql("SELECT count(*) FROM varka_dates").collect();
+  }
+
+  /**
+   * The same table written once to a Parquet file under {@code dir} and read back from it,
+   * uncached, so an arm times the path a query over a file takes - the vectorized Parquet
+   * reader into the engine - rather than a cache (task 194). Only the date tables: the
+   * {@code TIME} table's type is not one Parquet writes on every distribution.
+   */
+  static void buildParquetTable(SparkSession spark, long rows, int partitions, TableShape shape,
+      Path dir) {
+    if (shape == TableShape.TIMES) {
+      throw new IllegalArgumentException("--input parquet is for the date tables");
+    }
+    String file = dir.resolve("varka_dates").toString();
+    spark.sql(datesQuery(rows, partitions, shape)).write().mode("overwrite").parquet(file);
+    spark.read().parquet(file).createOrReplaceTempView("varka_dates");
+    spark.sql("SELECT count(*) FROM varka_dates").collect();
+  }
+
+  /** The date tables' generator, in the given number of partitions. */
+  private static String datesQuery(long rows, int partitions, TableShape shape) {
     String dates = "CASE WHEN id %% 31 = 0 THEN NULL"
         + " ELSE date_add(DATE'2020-01-01', CAST(id %% 1460 AS INT)) END AS d,"
         + " date_add(DATE'2021-01-01', CAST(id %% 1500 AS INT)) AS d2,"
@@ -456,19 +525,8 @@ public final class DateSurfaceBenchmark {
         + " CAST(CAST(id %% 20 AS INT) AS INTERVAL YEAR) AS ymy,"
         + " make_ym_interval(CAST(id %% 20 AS INT), CAST(id %% 12 AS INT)) AS ym";
     String select = shape == TableShape.ALL ? dates + "," + intervals : dates;
-    spark.sql(String.format(Locale.ROOT,
-        "SELECT " + select + " FROM range(0, %d, 1, %d)", rows, partitions))
-        .createOrReplaceTempView("varka_dates");
-    // MEMORY_ONLY, not Spark's MEMORY_AND_DISK default, and the difference is not academic:
-    // the default is right for a workload, which should finish rather than fail, and exactly
-    // wrong for a benchmark, which should fail rather than measure something else. Three runs
-    // in September 2026 logged "Persisting block rdd_4_0 to disk instead" and then timed the
-    // runner's SSD - 72.6 M rows/s against 854 M/s for the same entry at half the rows - and
-    // reported success, because a disk-backed cache is still a cache as far as everything
-    // downstream is concerned. Removing the disk path makes "cached" mean one thing, so the
-    // partition count alone is a complete residency statement.
-    spark.catalog().cacheTable("varka_dates", level);
-    spark.sql("SELECT count(*) FROM varka_dates").collect();
+    return String.format(Locale.ROOT,
+        "SELECT " + select + " FROM range(0, %d, 1, %d)", rows, partitions);
   }
 
   /**
