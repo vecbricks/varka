@@ -462,3 +462,58 @@ groups of a few heavy expressions past it, where splitting would cost more than 
 (`PLAN_TASK_209.md`)." Its numbers trace to the committed files 209 names; what the budget leaves -
 C1's boundary on the runners' JDK and on mask-heavy groups, and the heavy groups' seconds - is
 milestone 7's item 61, and the post says nothing about it.
+
+## 13. Section 3.7 drafted, 29 September 2026 (task 202)
+
+Row 202's measurement is the one comparison 3.7 may quote as a number (section 3.7 above). The
+draft was written before the runner's numbers landed, with four placeholders defined below, and
+filled from the 9V45 run of 29 September 2026 (run 36616758753, `PLAN_TASK_202.md` 7): its two
+files `VarkaLadder-vecruntime-0.0.3-jdk25-parquet` and `VarkaLadder-spark-4.1.3-jdk25-parquet`,
+and Varka's value from the committed 9V45 ladder (`VarkaSizeLadderBenchmark-jdk25-runner`). No
+laptop reading is quoted.
+
+> **The accelerators.** Gluten, Comet and Photon avoid the method limits by leaving the JVM: for
+> the operators their native libraries implement there is no 64KB method and no 8000-byte compile
+> refusal. What they pay is a coverage boundary, past which they fall back to Spark and every limit
+> above returns. Comet draws that boundary with the contract Varka arrived at on its own: a support
+> level per expression, the fallback reason in `EXPLAIN`, and no conversion until every child
+> that produces data is native.
+>
+> An engine that evaluates one expression node at a time, over a whole batch, needs neither
+> native code nor a size limit. Velox works this way in C++, and vecruntime 0.0.3 does it on the
+> JVM with the Vector API, as a plugin for stock Spark 4.1: each node writes its result out as a
+> column and the next node reads it back. On the size ladder, on the same 9V45 runner as the
+> figure above, vecruntime has no step. Its time grows by about 58 ns a row for each entry,
+> the price of the four columns an entry's `add_months`, `date_add`, `last_day` and `greatest`
+> write and read. Below the cliff that makes it 2.9 times slower than Spark 4.1.3, whose
+> whole-stage code keeps an entry's values in locals; at a hundred entries, past the cliff, it
+> is 1.7 times faster. Varka runs the same hundred entries at 97.1 ns a row, 59 times faster
+> than vecruntime. Having no cliff is all an engine of that kind gets; fusion is what keeps the
+> intermediate values out of memory, as whole-stage code does, without its limit.
+>
+> Two bounds on those numbers. vecruntime leaves a cached table to Spark, so it reads Parquet
+> where Varka reads its Arrow cache; Spark itself runs the ladder as fast from one as from the
+> other, so the ratio is the engines'. And the ladder is the one shape both engines run:
+> vecruntime converts none of the date chains, which add a year-month interval to a date.
+
+What each placeholder was, so that filling it was arithmetic rather than judgment, and what
+it came to from the executor-time tables:
+
+* **58**: vecruntime's per-row time at 100 entries less its time at 16, over 84: 5748 less 857.
+* **2.9**: vecruntime over Spark 4.1.3 at 16 entries, 857 against 293.5; at 48 entries it is the
+  same, 2510.5 against 866.5, so the rung needs no naming.
+* **1.7**: Spark 4.1.3 over vecruntime at 100 entries, 9509 against 5748.
+* **59**: vecruntime at 100 entries over Varka's 97.1.
+
+The sentence "Spark itself runs the ladder as fast from one as from the other" rests on task 194's
+two inputs on the 7763 runner (`PLAN_TASK_194.md` 7). On the 9V45 the fork with Varka off reads
+Parquet within 15% of its cache ladder at every rung, which cannot move a ratio of fifty-nine, so
+the sentence stands (`PLAN_TASK_202.md` 7). The second paragraph's last sentence is the section's
+claim and `PLAN_TASK_202.md`'s prediction 4, which held by a factor of fifty-nine against ten. A
+second 9V45 run, the repeat, moves none of the four numbers by more than 4%.
+
+One comparison the draft leaves out. Section 2's third claim has the post show that Spark can
+tune its way off the cliff, and with `hugeMethodLimit=8000` the fork's vanilla runs the ladder 2.5
+to 3.0 times faster than vecruntime at every rung (`PLAN_TASK_202.md` 7): vecruntime is faster
+than Spark only under Spark's defaults. The draft's "1.7 times faster" is true of the defaults and
+says so only by context; a clause naming the setting would close that, at the cost of a sentence.

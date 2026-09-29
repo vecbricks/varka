@@ -123,3 +123,74 @@ Spark 4.1.3, and Varka's ratio to it at 16, 54 and 100 entries, each with the in
 The plan and the tooling first, this pull request, since the workflow dispatches only from the
 default branch. Then the dispatches, and the results with the predictions of 4.1 scored, the
 post's 3.7 text and row 202 as their own pull request.
+
+## 7. Results, 29 September 2026
+
+**Two runs, both on a 9V45.** Both dispatches ran the ladder at this plan's commit over Parquet,
+two million rows and one partition, with six arms: stock 4.2.0 on JDK 17 and 25, stock 4.1.3,
+vecruntime 0.0.3, and the fork with Varka off and on. The ungated dispatch section 4 asked for
+(run 36616758753) drew an AMD EPYC 9V45 whose probe read 2.00, so it is the 9V45 measurement as
+well; the gated one (run 36618382924) drew a second 9V45, ran at the same time, and is its repeat.
+Both concluded "failure" for the one reason task 194 recorded for this input: the fork with Varka
+on plans a Varka node whose kernel serves no Parquet batch, and the driver fails the run on it
+after writing the file (`PLAN_TASK_194.md` 7). vecruntime's arm passed its check in both.
+
+**The files.** Every file the two runs wrote is committed. The first run's are the reading: the
+two new arms under the driver's names, and the four whose names hold task 194's 7763 readings
+with a `-9v45` suffix, as task 164 suffixed its second machine's files. The second run's carry
+the same names with `-repeat` added.
+
+**The ladder**, nanoseconds a row by executor time, from the first run. Every column reads Parquet
+except the last, Varka over its Arrow cache from the committed 9V45 ladder
+(`VarkaSizeLadderBenchmark-jdk25-runner`). Stock 4.2.0 is its JDK 25 arm, and "fallback" is the
+fork with Varka on, whose every batch falls back to the row path.
+
+| entries | vecruntime | stock 4.1.3 | stock 4.2.0 | Varka off | fallback | Varka |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | 857.0 | 293.5 | 306.0 | 300.5 | 332.5 | 28.3 |
+| 32 | 1667.0 | 601.0 | 622.0 | 620.0 | 714.0 | 43.7 |
+| 48 | 2510.5 | 866.5 | 920.5 | 924.5 | 1111.0 | 57.7 |
+| 52 | 2736.0 | 4707.0 | 4929.0 | 1000.5 | 1066.0 | 55.9 |
+| 54 | 2864.5 | 4879.0 | 5110.0 | 5059.0 | 1200.0 | 59.1 |
+| 56 | 3007.5 | 5091.5 | 5347.5 | 5295.5 | 1620.0 | 59.8 |
+| 64 | 3516.5 | 5865.5 | 5966.5 | 6134.5 | 1828.5 | 64.8 |
+| 80 | 4383.0 | 7617.0 | 7558.0 | 7722.0 | 2215.0 | 72.1 |
+| 100 | 5748.0 | 9509.0 | 9547.0 | 9425.0 | 2434.5 | 97.1 |
+
+**The predictions of 4.1, scored.**
+
+1. **Held.** Every rung of both runs planned `VectorProject`, with no row-engine node above it.
+2. **Held.** At 100 entries vecruntime reads 5748.0 against 5356 for the sixteen-entry time
+   scaled, 7% over where 20% was allowed, and 5% over in the repeat. Its slope rises rather than
+   steps, about 52 ns an entry from 16 to 48 entries and 62 from 48 to 100, where both stock arms
+   and the fork with Varka off grow more than five times between two adjacent rungs.
+3. **Held.** Below the cliff vecruntime is 2.9, 2.8 and 2.9 times slower than stock 4.1.3 at 16,
+   32 and 48 entries; at 100 it is 1.65 times faster, 1.71 in the repeat. The two cross only at
+   stock's step, between 48 and 52 entries: below it stock grows 18 ns an entry against
+   vecruntime's 52, so without the step they would not meet.
+4. **Held, three times over.** Varka over its cache is 30 times faster than vecruntime at 16
+   entries, 48 times at 54 and 59 at 100, where the prediction's floor was ten.
+
+**The repeat** reads within 3.3% of the first run at every rung, on both the vecruntime and the
+4.1.3 arm. Section 3.7's four numbers come to 56, 2.9, 1.7 and 57 from it, against 58, 2.9, 1.7
+and 59 from the first run, which is the post's source.
+
+**The input.** The fork with Varka off reads Parquet within 15% of its committed 9V45 ladder over
+the cache at every rung of both runs, and steps where that ladder does, between 52 and 54 entries.
+Both stock releases step one rung earlier, between 48 and 52, as on both of task 194's inputs, so
+the rung is the engine's and not the input's. A difference that size cannot move a ratio of
+fifty-nine.
+
+**What Spark's own routes around the cliff add.** The fallback evaluates each row through
+`UnsafeProjection`, whose generated code gives each expression its own method, so it has no step
+either (`PLAN_TASK_194.md` 7). It runs the ladder 1.7 to 2.6 times faster than vecruntime at every
+rung of both runs. Below the step it costs 11% to 20% over the fork with Varka off, the price of
+per-expression methods on this machine: task 192's `wholeStage=false` arm costs 12% to 17% over
+the defaults at the same rungs (`VarkaSizeLadderTuningBenchmark-jdk25-runner`). The same file's
+`hugeMethodLimit=8000` arm, the setting that removes whole-stage code's step, is 2.5 to 3.0 times
+faster than vecruntime at every rung, over its cache. So vecruntime beats Spark only under Spark's
+defaults, and 3.7 as drafted compares against the defaults alone (`PLAN_TASK_181.md` 13).
+
+**The chains** were not dispatched. The admission check found the plugin converting none of the
+twelve (section 2), and the driver would fail the arm on the first; that finding is the result for
+the chains, as risk 3 says.

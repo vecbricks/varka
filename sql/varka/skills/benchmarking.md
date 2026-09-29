@@ -595,3 +595,26 @@ as they stand.
 
 See `PLAN_TASK_181.md` 11.
 
+## Another engine's number is timed only on the plan it actually took
+
+A plugin engine for Spark converts what it supports and leaves the rest to Spark,
+and the query runs either way, so a run timed under its name can be Spark's
+number. Task 202's admission check found vecruntime 0.0.3 taking every rung of
+the size ladder and none of the twelve date chains, each declined for one logged
+reason ("unsupported expression DateAddYMInterval"). Timed without a check, the
+chains would have published Spark 4.1.3's times as vecruntime's.
+
+So an arm of another engine gets the check `--expect-fused` gives Varka's arms,
+pointed at that engine's own node: the ladder driver's `--expect-operator REGEX`
+fails the run unless every case plans a node whose line matches, with no
+row-engine `Filter` or `Project` above it, and writes the node it found on the
+file's `# plan:` line. Take the regex from `EXPLAIN` of the engine's own plan,
+since its nodes are its own (`VectorProject`, `VectorFilter`), and turn on its
+fallback log to read why a case declined.
+
+Two more things that arm needed, which the next such arm should look for first.
+The engine may support one Spark line only, which then needs a stock control of
+its own on that line: vecruntime supports 4.1.x, so a stock 4.1.3 arm runs beside
+it. And it may leave Spark's cached table alone, which puts a different input
+under its number: vecruntime reads Parquet, so what bounds its ratio to Varka is
+task 194's measurement of Spark over both inputs.

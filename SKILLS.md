@@ -35,6 +35,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Spark's benchmarks run with `spark.testing` set; a benchmark of a fallback clears it](sql/varka/skills/benchmarking.md#sparks-benchmarks-run-with-sparktesting-set-a-benchmark-of-a-fallback-clears-it)
 * [A rate printed with one decimal cannot read a cold case](sql/varka/skills/benchmarking.md#a-rate-printed-with-one-decimal-cannot-read-a-cold-case)
 * [Spark's codegen histograms are samples, and its TPC suites compile nothing under AQE](sql/varka/skills/benchmarking.md#sparks-codegen-histograms-are-samples-and-its-tpc-suites-compile-nothing-under-aqe)
+* [Another engine's number is timed only on the plan it actually took](sql/varka/skills/benchmarking.md#another-engines-number-is-timed-only-on-the-plan-it-actually-took)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
@@ -76,6 +77,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal](sql/varka/skills/emitter-and-ir.md#the-class-file-cap-on-a-method-is-met-before-it-can-be-measured-the-jdk-refuses-the-class-and-the-emitter-reads-the-refusal)
 * [The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so](sql/varka/skills/emitter-and-ir.md#the-single-epilogue-form-is-a-reference-variant-at-methodbytebudget-0-and-the-tests-that-pin-its-facts-say-so)
 * [A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else](sql/varka/skills/emitter-and-ir.md#a-columnar-row-path-writes-primitive-entries-through-mutablecolumnarrow-and-nothing-else)
+* [One kernel a node, written out as columns, loses to Spark's own row code](sql/varka/skills/emitter-and-ir.md#one-kernel-a-node-written-out-as-columns-loses-to-sparks-own-row-code)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)

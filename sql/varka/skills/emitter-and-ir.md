@@ -800,3 +800,22 @@ with a null argument rather than through `setNullAt` - a rule that keeps an `Uns
 `VarkaVectorProjection` makes the choice per projection, by output type; the single write took 6
 to 19% off the columnar node's row path from 32 entries up. See `PLAN_TASK_230.md` 9.
 
+## One kernel a node, written out as columns, loses to Spark's own row code
+
+An engine that evaluates each expression node over the whole batch with its own
+kernel, and writes the result out as a column for the next node to read, has no
+8000-byte cliff, because no method grows with the query. Task 202 measured one on
+the JVM, vecruntime 0.0.3 with the Vector API, on two 9V45 runners
+(`PLAN_TASK_202.md` 7). On the size ladder it pays about 58 ns a row an entry, an
+entry being four nodes (`add_months`, `date_add`, `last_day`, `greatest`) and so
+four columns written and read, where whole-stage code pays about 18 below its
+cliff with the values in locals. That makes it 2.9 times slower than stock Spark
+there, and faster only past the cliff under Spark's defaults. Spark's own ways
+around the cliff beat it at every rung: `hugeMethodLimit=8000` by 2.5 to 3.0
+times, and the per-expression methods of `UnsafeProjection` by 1.7 to 2.6.
+
+The question it settles: escaping the method-size cliff does not need
+node-at-a-time evaluation, and on the JVM node-at-a-time evaluation is slower
+than either of Spark's own escapes. Varka's factor over Spark comes from fusion,
+the values staying in registers across nodes; its fused kernel runs the same
+hundred entries 59 times faster than vecruntime.
