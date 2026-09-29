@@ -663,3 +663,10 @@ against the row path's is a per-shape question the warm-up does not ask today.
 The laptop's regeneration of the committed file, with this section, is queued
 for the night of 28 September and lands beside this run's file; the decision
 is read from the runner's, as every headline number is.
+
+**The laptop's companion files**, regenerated on the night of 28 to 29 September 2026 with the
+section in (`VarkaColdStartBenchmark-jdk25-results.txt`, its 128-bit companion and
+provenance), read the same ordering at 200 ranges: plan only 25 against 43 ms, first run 107
+against 285, second run 41 against 241, and with the warm-up 171 and 47 against 535 and 406.
+The rows the section did not touch moved within the band, the sub-second ones by a few
+milliseconds either way.
