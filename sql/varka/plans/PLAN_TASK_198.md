@@ -717,5 +717,37 @@ Faster at every rung: 9% to 18% at 256 bits and 17% to 27% at 128, with 52 to 56
 13% to 18% where the flip's first run had them 46% to 50% slower and its second 14% to 17%
 faster. **Prediction 3 holds** on the laptop as on the runner: a hundred entries is 14% faster
 at 256 bits and 26% at 128, against at least 10%. The band runs of section 13 say how much of
-the 52-to-56 swing was the day and how much the kernels. The emission benchmark and the
-shared-prefix benchmark follow.
+the 52-to-56 swing was the day and how much the kernels.
+
+**The emission benchmark** moved nothing past its band: the plan of the materialized keys and
+the one segment cost the emitter nothing it can measure.
+
+**The shared-prefix benchmark under the fix**, against #502's arms (six segments per region),
+per row: at the default grouping the arms are the same, 17.0 against 17.0 ns at 256 bits and
+46.6 against 48.4 at 128, so the fix costs nothing where a kernel runs. At sixty groups, the
+load-heavy arm this benchmark keeps to price recomputation, the one segment is slower than the
+six: 39.1 against 34.5 at 256 bits and 113.1 against 90.9 at 128, which moves prediction 2's
+ratio to 1.55 at 256 bits (over the 1.5) and 1.31 at 128. Six loads a lane group through one
+segment at `byteOffset + k * dataBytes` pay something the six segments at `byteOffset` did
+not, most likely a bounds check per load that C2 no longer hoists; a layout that interleaves
+the six vectors per lane group would give constant addends but needs the region padded by a
+lane group, which the per-row contract does not give it. Left as it is: the cost shows only
+where every output is its own group, which no grouping of the default produces, and the six
+segments' price is the cycle.
+
+## 13. The size ladder's band under the default, 29 September 2026
+
+Two runs of the 256-bit ladder through `dev/varka_bench_repeat.sh`, on the quiet laptop,
+pinned as the regeneration pins, writing `VarkaSizeLadderBenchmark-jdk25-band.txt` in place of
+the band of 24 September, which was the old kernels': eighteen cases, a median spread of 0.55%,
+a 90th percentile of 1.35% and a worst of 2.2%, none over 3%. The 52, 54 and 56 entry rungs
+read 58.2 to 58.5, 60.4 to 60.5 and 62.0 to 62.4 ns per row in the two runs, the
+regeneration's 57.9, 61.4 and 61.2 beside them: the flip's 105 at those rungs was one run's
+outcome, not the kernels'.
+
+**What the two runs did not see.** At sixteen entries both read 36.2 and 37.0 ns per row where
+the regeneration of the same hour read 27.5, the flip's 28.7 and the file before it 30.2: a
+two-mode outcome, a third apart, that a band of two runs in one mode records as a 2.2% spread.
+Row 209's per-run cliff at a small rung, in the JVM run's hands rather than the kernel's; the
+band file is committed as the tool wrote it, and a third run is queued to widen it. A reader of
+the sixteen-entry rung takes the range, 27.5 to 37.0, not either number.
