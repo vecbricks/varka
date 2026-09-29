@@ -433,3 +433,32 @@ review), 197 and 202.
 
 *Later the same day*: the 9V45 figure merged (`PLAN_TASK_172.md` 9.10), so of section 4's
 rows 170, 197 and 202 remain.
+
+## 12. The threshold below 8000, 29 September 2026 (task 170)
+
+Row 170 was owed before the post (section 10). Task 209 answered it (`PLAN_TASK_209.md` 10 to 13):
+a limit below 8000 earns its calls, but the limit is C1's and is counted in Vector API call sites,
+not in bytes, and it earns them for wide groups only.
+
+* **The limit.** C1 compiles a loop method of 93 vector call sites and refuses one of 99 on JDK 25,
+  at under 1500 bytes for cheap tails and near 1900 for `make_date` outputs, so no byte limit
+  tracks it. A method C1 refuses runs interpreted, boxing every vector, until C2 compiles it
+  seconds later, and in some JVMs then enters the deoptimization cycle for good.
+* **What the lower limit costs and buys.** Split under 93 sites, a wide group of cheap outputs
+  costs nothing measurable at steady state: sixty-four `year(d) + k` outputs in four methods run at
+  3.3 ns a row where one method read 243 to 265 in the committed run
+  (`VarkaSharedPrefixBenchmark-jdk25-results.txt`), and the cheap shape at 22 to 64 outputs forked
+  again under the budget is 0 of 140 forks slow against 13 of 66 without it. A narrow group of heavy
+  outputs does not earn the split: sixty `make_date` outputs one to a method run 2.3 times slower
+  than in eleven groups, so such groups stay past C1 and wait for C2.
+* **What the emitter does.** It holds every wide group's loop and epilogue methods under 93 sites
+  (`VarkaEmitBudget.CALL_SITE_BUDGET`) beside the 8000-byte budget, and never declines on it.
+
+**The footnote for 3.4.** "8000 bytes is the limit HotSpot enforces, and the one this post's
+comparison is about. A second sits below it: C1, HotSpot's first compiler, refuses a method of
+about a hundred Vector API calls whatever its bytes, and such a method waits seconds for C2.
+Varka's emitter keeps wide groups under that count too, at no cost we can measure, and leaves
+groups of a few heavy expressions past it, where splitting would cost more than the wait
+(`PLAN_TASK_209.md`)." Its numbers trace to the committed files 209 names; what the budget leaves -
+C1's boundary on the runners' JDK and on mask-heavy groups, and the heavy groups' seconds - is
+milestone 7's item 61, and the post says nothing about it.
