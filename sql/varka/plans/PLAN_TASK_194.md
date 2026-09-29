@@ -104,3 +104,71 @@ fair stand-in for stock and the post says which arm it quotes.
 A stock arm inside the fork's own ladder class, which cannot run another
 distribution's jars; a Parquet arm for Varka, which is the columnar datasource
 of the roadmap; ORC; a laptop run, since the runner is the ladder's instrument.
+
+## 7. Outcome, 29 September 2026
+
+Two dispatches on `vecbricks/varka` after the merge, runs 36523439147 (`input: cache`) and
+36523441165 (`input: parquet`), both on AMD EPYC 7763 runners with four vCPUs on `local[1]`,
+the same class of machine as task 197's dispatch of the same morning
+(`VarkaSizeLadderBenchmark-jdk25-runner-7763-results.txt`, the fork's vanilla over Arrow, read
+beside them). The eight files are `sql/varka/bench/benchmarks/VarkaLadder-*-results.txt`.
+Per row, nanoseconds, best iteration, over each distribution's default cache:
+
+| entries | stock 4.2.0, JDK 17 | stock 4.2.0, JDK 25 | fork, Varka off | fork over Arrow (task 197's file) | Varka |
+|---:|---:|---:|---:|---:|---:|
+| 16 | 549 | 557 | 520 | 552 | 84 |
+| 32 | 1043 | 1083 | 1001 | 1076 | 124 |
+| 48 | 1553 | 1585 | 1465 | 1609 | 169 |
+| 52 | 8558 | 8722 | 1577 | 1749 | 183 |
+| 54 | 8982 | 9240 | 8976 | 9096 | 174 |
+| 56 | 9468 | 9576 | 9234 | 9709 | 177 |
+| 64 | 11003 | 11198 | 10864 | 11263 | 218 |
+| 80 | 14442 | 13972 | 13679 | 14110 | 278 |
+| 100 | 18278 | 17851 | 17418 | 17714 | 324 |
+
+And over a Parquet file, read uncached:
+
+| entries | stock 4.2.0, JDK 25 | fork, Varka off | fork, Varka on: the row fallback |
+|---:|---:|---:|---:|
+| 16 | 565 | 568 | 601 |
+| 48 | 1579 | 1632 | 1662 |
+| 52 | 8767 | 1740 | 1779 |
+| 54 | 9195 | 9333 | 1861 |
+| 100 | 17962 | 17850 | 3595 |
+
+The predictions of section 3, scored:
+
+1. **Held.** Stock's 52-entry rung is 5.5 times its 48 on both JDKs; the fork's is 8% over its
+   48. Stock crosses between 48 and 52, the fork between 52 and 54.
+2. **Held.** Below the cliff stock on JDK 25 and the fork with Varka off, both over the default
+   cache, are 7% to 8% apart per rung, the fork the faster.
+3. **Held.** From 54 entries on the three interpreted arms are within 5% of each other at every
+   rung; the JDK moves stock by under 3%.
+4. **Held.** The fork's vanilla over the default cache is 6% to 10% faster than over Arrow at
+   every rung, from a run of the same morning on the same class of machine, inside the 20%.
+5. **Held for stock, missed for the fork.** Stock over Parquet is within 2% of stock over its
+   cache at every rung: at two million rows of one column the vectorized read costs nothing
+   the table can see. The fork's vanilla over Parquet is 9% to 11% over its default cache from
+   16 to 52 entries, past the 5% allowed from 48 on, and level with stock over Parquet; the
+   fork's default cache is the faster path, by the same 7% to 10% it beats stock by. The cliffs
+   stay where they were, on both inputs.
+6. **Held in mechanism, failed in the size.** The Varka arm over Parquet plans a Varka node,
+   the kernel serves no batch (every batch falls back, 2934 to 3423 a rung), the driver reports
+   the violation and the run fails on it, as predicted. Below the cliff the fallback is 2% to
+   6% slower than the fork's vanilla, as predicted. Past the cliff it is not level with vanilla
+   but five times faster: 1861 against 9333 ns at 54 entries, 3595 against 17850 at a hundred.
+   The fallback evaluates the projection through `UnsafeProjection`, whose generated code
+   splits each expression into its own method, so no method of it crosses 8000 bytes; whole-
+   stage codegen puts the projection into one consume method and does. So the fork's row
+   fallback, on an input Varka does not read, already stands clear of the cliff the post is
+   about, by the mechanism SPARK-33301 brings to whole-stage codegen for one expression.
+7. **Held.** Stock 4.2.0 on JDK 25 against Varka at a hundred entries is 55 times; the fork's
+   own ladder on the same class of machine that morning is 59 (17714 against 301), 7% apart.
+
+**What the answer decides.** The post's ratio can be quoted against stock 4.2.0 over its default
+cache, the path a reader runs, at fifty-five times on a 7763 and naming stock's crossing
+between 48 and 52 entries; the fork's vanilla arm is a fair stand-in, 7% to 10% kinder to
+vanilla than stock is. The Parquet input changes nothing a reader would notice for vanilla.
+The finding of prediction 6 is a sentence for the post and a note for the columnar
+datasource item: on an input the kernels do not read, the operator's row fallback stays off
+the cliff.
