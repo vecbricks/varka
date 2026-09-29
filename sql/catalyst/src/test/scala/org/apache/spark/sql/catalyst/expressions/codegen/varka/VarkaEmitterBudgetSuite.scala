@@ -419,7 +419,14 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>").foreach { m =>
       assert(measured.codeLength.get(m) === VarkaEmitterTestSupport.codeSize(bytes, m),
         s"$m: the two readers disagree")
+      // The fourth measure, the Vector API call sites the call-site budget bounds (task 209):
+      // the vector classes' invocations as the suites count them, and none of the masks'.
+      val vectors = Seq("IntVector", "LongVector", "DoubleVector", "Vector").map(c =>
+        VarkaEmitterTestSupport.invocationCount(bytes, m, s"jdk.incubator.vector.$c")).sum
+      assert(measured.vectorCallSites.get(m) === vectors, s"$m: the call-site readers disagree")
     }
+    assert(measured.vectorCallSites.get("loopDense0") > 30,
+      "a year decomposition is thirty-odd lane operations")
     assert(measured.parameterSlots.get("run") === 8)
     assert(measured.constantPoolCount > 0 && measured.constantPoolCount < 1000,
       s"one-output kernel: ${measured.constantPoolCount} constant pool entries")
@@ -656,13 +663,14 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       code.foreach { case (m, n) => lengths.put(m, n) }
       val slots = new java.util.LinkedHashMap[String, Integer]()
       code.foreach { case (m, _) => slots.put(m, 8) }
-      new VarkaEmittedClass(lengths, slots, 300)
+      new VarkaEmittedClass(lengths, slots, 300, new java.util.LinkedHashMap[String, Integer]())
     }
     val cap = VarkaEmitBudget.overLimits(measured("run" -> 38, "epilogueMasked" -> 70000)).asScala
     assert(cap === Seq("epilogueMasked is 70000 bytes, over the class-file cap of 65535: the " +
       "class cannot be built"))
     val pool = new VarkaEmittedClass(new java.util.LinkedHashMap[String, Integer](),
-      new java.util.LinkedHashMap[String, Integer](), 70000)
+      new java.util.LinkedHashMap[String, Integer](), 70000,
+      new java.util.LinkedHashMap[String, Integer]())
     assert(VarkaEmitBudget.overLimits(pool).asScala ===
       Seq("the constant pool has 70000 entries, over the cap of 65535"))
     assert(VarkaEmitBudget.groupOf("loopMasked12") === 12 &&
@@ -913,5 +921,143 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     }
     assert(counted >= 200, s"only $counted of 400 shapes emitted under both arms")
     logInfo(s"$fewer of $counted corpus shapes take fewer groups with the prefix materialized")
+  }
+
+  test("a group whose loop method is over the call-site budget is split while it holds more " +
+      "outputs than a heavy group, and every narrower group stands (task 209)") {
+    // PLAN_TASK_209.md 10.1: C1 compiles a loop method of 93 vector call sites and refuses one
+    // of 99, and past its refusal the loop runs interpreted for seconds until C2 compiles it.
+    // Twenty cheap tails `year(d) + k` on their shared prefix are 93 sites and twenty-two are
+    // 99. The counts are pinned exactly: they are the register the budget's value was read
+    // against, so a lowering change that moves them fails here rather than moving the
+    // boundary unseen.
+    def tails(n: Int): Seq[VarkaVectorIR] = (1 to n).map { k =>
+      new IntArith(IntOp.ADD, Overflow.WRAP, new Year(new ColumnRef(0)), new LiteralSlot(k - 1))
+    }
+    val budget = VarkaEmitBudget.LOOP_CALL_SITE_BUDGET
+    val off = VarkaEmitOptions.DEFAULTS.withLoopCallSiteBudget(0)
+    def loopSites(bytes: Array[Byte]): Seq[(String, Int)] =
+      VarkaEmittedClass.measure(bytes).vectorCallSites.asScala.toSeq
+        .collect { case (m, n) if m.startsWith("loopDense") => (m, n.toInt) }.sortBy(_._1)
+    def bodies(b: Array[Byte]): Map[String, String] = VarkaEmitterTestSupport.methodBodies(b)
+      .asScala.toMap.map { case (m, body) => m -> body.replaceAll("VarkaFusedTest\\d+", "K") }
+    assert(budget === 93 && VarkaEmitBudget.HEAVY_GROUP_OUTPUTS === 6)
+    assert(loopSites(emitMulti(tails(20), 1, 20)._2) === Seq("loopDense0" -> 93),
+      "twenty tails are one group at the budget")
+    assert(loopSites(emitMulti(tails(22), 1, 22, off)._2) === Seq("loopDense0" -> 99),
+      "with the budget off, twenty-two tails are one group past C1")
+    // Split at the middle: the first group computes the prefix and stores it for the second
+    // (task 198), the second loads it in place of the decomposition.
+    val split = loopSites(emitMulti(tails(22), 1, 22)._2)
+    assert(split === Seq("loopDense0" -> 71, "loopDense1" -> 42), split)
+    // Forty-eight tails: one group of 177 halves to 24 and 24; the first, with its stores, is
+    // still over and halves again; the second loads the prefix and fits.
+    val wide = loopSites(emitMulti(tails(48), 1, 48)._2)
+    assert(wide.size === 3 && wide.forall(_._2 <= budget), wide)
+    // A split on call sites is byte-identical from one emission to the next, as a split on
+    // bytes is, since the shape cache treats either as one emission; and the answers hold.
+    assert(bodies(emitMulti(tails(22), 1, 22)._2) === bodies(emitMulti(tails(22), 1, 22)._2))
+    val lits = (1 to 22).toArray
+    val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
+    checkMatrix(tails(22), 1, lits, Seq(1, 1024, 1031), patterns, ctx = "split on call sites")
+    // The heavy groups. One make_date output with its prefix is at the budget alone, so a
+    // group of two is over it and, at two outputs, stands: no split brings it under C1, and
+    // one output a method costs a call and the prefix's loads per method per batch for good
+    // (VarkaSharedPrefixBenchmark's sixty-group arms). The ladder of twelve, in groups of four
+    // and five, emits byte for byte what it emits with the budget off. With the exemption off
+    // the pair splits into one output a method: the producer over the budget by the six
+    // stores of the prefix it materializes, the consumer under it by the loads. And a greatest
+    // over four add_months is past the budget alone and emits regardless, where a method over
+    // the byte budget would decline: this budget bounds a delay before C2, not whether C2
+    // compiles at all.
+    val ladder = VarkaHugeMethodProbe.ladder _
+    assert(loopSites(emitMulti(ladder(1), 1, 1)._2) === Seq("loopDense0" -> 93))
+    assert(loopSites(emitMulti(ladder(2), 1, 2)._2) === Seq("loopDense0" -> 148))
+    assert(bodies(emitMulti(ladder(12), 1, 12)._2) ===
+      bodies(emitMulti(ladder(12), 1, 12, off)._2), "the ladder is left as it was")
+    val pair = loopSites(emitMulti(ladder(2), 1, 2,
+      VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0))._2)
+    assert(pair === Seq("loopDense0" -> (93 + Analysis.SCRATCH_VECTORS), "loopDense1" -> 68),
+      pair)
+    def tree(lo: Int, hi: Int): VarkaVectorIR =
+      if (lo == hi) new AddMonths(new ColumnRef(0), new LiteralSlot(lo - 1))
+      else new Greatest(tree(lo, (lo + hi) / 2), tree((lo + hi) / 2 + 1, hi))
+    val heavy = loopSites(emitMulti(Seq(tree(1, 4)), 1, 4)._2)
+    assert(heavy.size === 1 && heavy.head._2 > budget, heavy)
+    // Under a budget of one with no heavy groups every group is a single output, nothing
+    // declines, and the answers hold; and the legacy form has no measurement, so the budget
+    // does not apply to it.
+    val one = VarkaEmitOptions.DEFAULTS.withLoopCallSiteBudget(1).withHeavyGroupOutputs(0)
+    assert(loopSites(emitMulti(tails(22), 1, 22, one)._2).size === 22)
+    checkMatrix(tails(22), 1, lits, Seq(1, 1024, 1031), patterns, options = one,
+      ctx = "one output a group")
+    assert(loopSites(emitMulti(tails(22), 1, 22,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))._2) === Seq("loopDense0" -> 99))
+  }
+
+  test("the call-site budget regroups only the corpus shapes with a wide loop method over it, " +
+      "and leaves every other shape's bytes unchanged (task 209)") {
+    // Prediction 2 of PLAN_TASK_209.md 6.1, read as bytes rather than time: a shape whose loop
+    // methods are all under the budget with it off emits byte for byte the same with it on,
+    // since the budget only ever adds a forced start once a method measures over it - and so
+    // does a shape whose loop methods over the budget are heavy groups, of at most
+    // HEAVY_GROUP_OUTPUTS outputs. A shape with a wider loop method over the budget takes more
+    // loop-method groups, and every loop method it still has over the budget is a heavy group.
+    // A loop method's outputs are read as its stores, one `intoMemorySegment` per value output
+    // plus the six of a prefix it materializes. Over the fuzzer's own shapes, as the task 198
+    // test above reads them.
+    val on = VarkaEmitOptions.DEFAULTS
+    val off = on.withLoopCallSiteBudget(0)
+    val budget = on.loopCallSiteBudget()
+    val mostStores = VarkaEmitBudget.HEAVY_GROUP_OUTPUTS + Analysis.SCRATCH_VECTORS
+    def bodies(b: Array[Byte]): Map[String, String] = VarkaEmitterTestSupport.methodBodies(b)
+      .asScala.toMap.map { case (m, body) => m -> body.replaceAll("VarkaFusedTest\\d+", "K") }
+    def loopSites(b: Array[Byte]): Map[String, Int] =
+      VarkaEmittedClass.measure(b).vectorCallSites.asScala
+        .collect { case (m, n) if m.startsWith("loop") => m -> n.toInt }.toMap
+    def stores(b: Array[Byte], m: String): Int = {
+      val owner = "jdk.incubator.vector.IntVector"
+      VarkaEmitterTestSupport.invocationCount(b, m, owner) -
+        VarkaEmitterTestSupport.invocationCount(b, m, owner, Seq("intoMemorySegment").asJava)
+    }
+    def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
+        options: VarkaEmitOptions): Option[Array[Byte]] = {
+      try {
+        Some(emitMulti(roots, inputs, lits, options)._2)
+      } catch {
+        case _: VarkaEmitDeclined | _: IllegalArgumentException => None
+      }
+    }
+    var counted = 0
+    var regrouped = 0
+    var heavy = 0
+    for (k <- 0 until 400) {
+      val drawn = VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(VarkaIrGrammar.fuzzSeed, k))
+      emitted(drawn.roots, drawn.numInputs, drawn.numLiterals, off).foreach { offBytes =>
+        val onBytes = emitted(drawn.roots, drawn.numInputs, drawn.numLiterals, on).getOrElse(
+          fail(s"shape $k emits with the budget off and declines with it on: ${drawn.roots}"))
+        counted += 1
+        val offSites = loopSites(offBytes)
+        val wideOver =
+          offSites.filter { case (m, n) => n > budget && stores(offBytes, m) > mostStores }
+        if (wideOver.isEmpty) {
+          if (offSites.values.max > budget) heavy += 1
+          assert(bodies(onBytes) === bodies(offBytes),
+            s"shape $k has no wide loop method over the budget and still changed: ${drawn.roots}")
+        } else {
+          regrouped += 1
+          val onSites = loopSites(onBytes)
+          assert(onSites.size > offSites.size, s"shape $k has a wide loop method of " +
+            s"${wideOver.values.max} sites and did not regroup: ${drawn.roots}")
+          onSites.filter(_._2 > budget).foreach { case (m, sites) =>
+            assert(stores(onBytes, m) <= mostStores, s"shape $k: $m carries $sites sites over " +
+              s"${stores(onBytes, m)} stores, a wide group the budget left: ${drawn.roots}")
+          }
+        }
+      }
+    }
+    assert(counted >= 200, s"only $counted of 400 shapes emitted")
+    logInfo(s"$regrouped of $counted corpus shapes regroup under the call-site budget, and " +
+      s"$heavy more have a heavy group over it")
   }
 }

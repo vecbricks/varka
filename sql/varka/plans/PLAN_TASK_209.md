@@ -407,3 +407,280 @@ slow / fast:
   the first second anyway; that trade is the ladder measurement's to price.
 * **Still to do from 9.5**: the runner classes' census; the ladders under the budget; the
   nightly guard's `--fail-if-slow`.
+
+## 11. The budget built, 29 September 2026
+
+Design A, built in the emitter with the value section 10 read, and corrected in one respect the
+suites found before anything was timed: the budget is a rule for wide groups, and a narrow group
+of heavy outputs keeps its methods past C1 on purpose, the case 10.4 anticipated.
+
+### 11.1 The unit is read off the built class, beside the bytes
+
+`VarkaEmittedClass.measure` counts, for every method with code, the invocations of the Vector
+API's vector classes - `IntVector`, `LongVector`, `DoubleVector`, and `Vector` itself, on which
+`convertShape` is declared - and not the masks, species or operator tokens. That is the count
+the census reported as `IntVector` call sites: the cheap tails invoke nothing else, and the
+`make_date` shape's ten to twelve `VectorMask` calls an output do not change any grouping. The
+count is taken from the class the byte budget already measures, not estimated from the grouping
+weights, for two reasons. The weights over-count the cheap tails by two - a `year(d) + k` tail
+weighs a field's seven plus one where it emits three sites - and the boundary is six sites wide,
+so a weight-based budget would have split at fourteen tails what C1 compiles at twenty. And the
+regroup was already there: a group whose loop method measures over the budget is given a forced
+start at its middle output and the class is built again, exactly as for a method over its bytes
+(`VarkaLoopEmitter.emit`). The budget reads loop methods only; an epilogue runs once a batch and
+reaches C2 by invocation count, so C1's refusal of it costs a little per batch and no cycle.
+
+The value is `VarkaEmitBudget.LOOP_CALL_SITE_BUDGET`, 93, C1's last compiled count on JDK
+25.0.4.1 (10.1); the option is `VarkaEmitOptions.loopCallSiteBudget`, 0 for off, rendered in
+the canonical string only when it differs from the default, so no committed hash moves. Under the
+legacy form, `methodByteBudget` 0, nothing is measured and the budget does not apply, so that
+form stays the reference it is. The budget never declines: a group it cannot bring under runs
+under C2 in seconds, which is far better than the row fallback that a decline would mean, where
+the byte budget declines because a method over `HugeMethodLimit` is never compiled at all.
+
+### 11.2 The blanket budget's cost, found by the suites
+
+With the budget applied to every group over it, three existing tests failed before any ladder
+was run, and each is a shape the ladders have:
+
+* **The `make_date` ladder of sixteen** split from four groups to sixteen: one output with its
+  prefix is 93 sites, so no two share a method under the budget. The shared-prefix results of
+  task 198 already price that grouping - sixty `make_date` outputs in sixty methods ran at 39.1
+  ns a row against 17.0 in eleven (`VarkaSharedPrefixBenchmark-jdk25-results.txt`), 2.3 times
+  slower, at steady state and for good.
+* **A hundred `greatest(add_months(d, k), date_add(d, k), last_day(d))` entries** - the size
+  ladder's own entry - declined: each entry is about 150 sites alone, so every group split to
+  one entry a method, a hundred loop methods, and the driver that calls them grew past 8000
+  bytes. The blanket budget would have undone task 190's hundred-entry kernel, and its
+  single-entry methods would still have been past C1.
+* **Task 219's refused group** of four nested `make_date` trees regrouped to four methods where
+  the class-file cap needs two.
+
+The common shape is a group of few heavy outputs. Splitting such a group buys at most a shorter
+wait for C2 - often not even that, since a heavy output alone is past C1 - and costs a call, a
+loop and the prefix's loads per method per batch at steady state. The census's own numbers say
+the wait is bounded and the cycle does not visit these groups: five `make_date` outputs a method,
+313 sites, settled by second 4 and cycled in no fork of 116 (10.2), where the cheap tails past C1
+- 99 to 177 sites, twenty-two to forty-eight outputs and as many output segments live in the
+loop - cycled in a sixth to a half (10.1, 10.3). Task 198's diagnosis of the flip's cycle ties
+the difference to the memory segments a loop keeps live (`PLAN_TASK_198.md` 12), which is one
+per output plus the inputs and the scratch: seven for a `make_date` group of five, over twenty
+for the cheap tails.
+
+### 11.3 The heavy-group exemption
+
+So the budget splits a group only while it holds more outputs than
+`VarkaEmitBudget.HEAVY_GROUP_OUTPUTS`, six, the most the fused ceiling packs of the heaviest
+calendar nodes - the sixty `make_date` outputs group as eleven under materialization, the size
+ladder's hundred entries as twenty-five groups of four, at 378 to 408 sites a loop method
+(`dev/varka_emit.sh`, the default against `loopCallSiteBudget=0`: the same twenty-five methods,
+byte for byte) - so no group the ladders emit today is touched, and the wide cheap groups are. The option is `VarkaEmitOptions.heavyGroupOutputs`, 0 to split every group over
+the budget, which is the blanket arm kept measurable. A group over the budget at six outputs or
+fewer stands; the regroup halves a wider group at its middle output until each half is under the
+budget or narrow enough.
+
+What the rule does to the shapes in hand, read from the emitted classes by
+`VarkaEmitterBudgetSuite`:
+
+| shape | budget off | default | every group split |
+|---|---|---|---|
+| 20 cheap tails | one method, 93 sites | the same | the same |
+| 22 cheap tails | one method, 99 | two: 71 and 42 | the same two |
+| 48 cheap tails | one method, 177 | three, all under 93 | the same three |
+| 1 `make_date` | 93 | 93 | 93 |
+| 2 `make_date` | one method, 148 | the same | two: 99 and 68 |
+| the `make_date` ladder of 12 | groups of four and five | byte-identical | one a method |
+| `greatest` over four `add_months` | one method, past the budget | the same | the same |
+
+The split's arithmetic under task 198's materialization: the first group computes the prefix
+and stores its six vectors for the groups after it, six sites more than the prefix alone, and a
+later group loads them in place of the decomposition's thirty-three. Twenty-two tails halve to
+71 and 42; forty-eight to 24 and 24, of which the first, at 111 with its stores, halves again
+and the second loads the prefix and fits at 78. Split by force, the `make_date` pair's producer
+is 99 sites - over the budget by exactly the six stores - and its consumer 68. Whether C1
+compiles a 99-site producer is a question for the probe (section 12); under the default the pair
+is a heavy group and never splits, so the answer decides nothing about the shipped grouping.
+
+### 11.4 What changed besides the emitter
+
+* `VarkaEmittedClass` has the fourth measure, `vectorCallSites`, and `VarkaEmitBudget` the
+  readers over it: `groupsOverCallSites`, which the regroup uses, and `overCallSiteBudget`, which
+  `dev/varka_emit.sh` prints after the `HugeMethodLimit` line - a loop method over the budget in
+  a dump is a heavy group, or the budget is off.
+* `VarkaInliningCliffProbe` takes the budget and the exemption as its last two arguments and
+  prints them in its `BEGIN` line, prints its methods' sites in the emitter's unit, and
+  `dev/varka_inlining_cliff.sh` has `--budgets` and `--heavy` for the arms,
+  `dev/varka_inlining_cliff.py` the labels. The default fork is now the production emitter;
+  `--budgets 0` is the census's arm. The reader's `--fail-if-slow` and the script's switch of
+  the same name make the exit status the verdict, and `dev/varka_nightly.sh` runs the cheap
+  shape at 24 and 40 outputs under it, ten forks of twelve seconds, as its `cliff` step beside
+  the deopt guard - the nightly guard 9.5 asked for.
+* `VarkaSharedPrefixBenchmark` has two more arms per shape at the default ceiling: the budget
+  off, which is the one loop method past C1 the census measured, and every group split, which
+  is the blanket budget's grouping - sixty methods for the sixty `make_date` outputs.
+* The tests of section 5.2: the split and the exemption on the shapes above with their counts
+  pinned; the answers of the split kernel checked; the corpus property that a shape without a
+  wide loop method over the budget emits byte for byte the same with the budget on and off,
+  and one with such a method takes more groups and leaves no wide group over it.
+
+### 11.5 The corpus and the bytes oracle
+
+The property test over the first four hundred shapes of the fuzzer's sequence found no shape
+with a wide loop method over the budget: 0 of 400 regroup, and 152 have a loop method over the
+budget that is a heavy group - a single root of many nodes, which is the shape the grammar
+draws, and which the budget leaves. `emitted_bytes.json` regenerated accordingly moves nothing:
+0 of 92 coverage rows at either width, 0 of 100 fuzz blocks at either lane. The budget's default
+changes no committed emission; what it changes is the wide cheap group the ladders build by hand,
+which no coverage row has because no single expression is one.
+
+## 12. The measurement, 29 September 2026
+
+Section 6's runs, on the laptop the same afternoon the budget was built, the machine otherwise
+idle (load 1.4 to 2.5 at the starts, the probe's forks and one sbt session the whole of it).
+The probe's readings are section 5 of `VarkaInliningCliff-jdk25-probe.txt`.
+
+### 12.1 The cliff, under the budget: no slow fork in eighty
+
+The census's counts, forked again with the production emitter - the budget at 93 and the
+heavy-group exemption at six, `dev/varka_inlining_cliff.sh --outputs 22,24,40,48 --forks 20
+--seconds 12` - against the census's own control (10.1 and 10.3, the same counts with the
+budget not yet built):
+
+| outputs | loop methods under the budget (sites) | slow / fast, budget | slow / fast, control | settled at, ns a row |
+|---:|---|---:|---:|---|
+| 22 | 2 (71, 42) | 0 / 20 | 3 / 17 | second 1 or 2, 1.1 to 1.2 |
+| 24 | 2 (74, 45) | 0 / 20 | 1 / 9 | second 1, 1.2 to 1.4 |
+| 40 | 3 (68, 39, 69) | 0 / 20 | 3 / 7 | second 2, 1.9 to 2.2 |
+| 48 | 3 (74, 45, 81) | 0 / 20 | 6 / 4 | second 2, 2.5 to 2.7 |
+
+C1 compiled every loop method in every fork ("C1 ok x20" for `loopDense0` in each case), C2
+compiled each once, no fork trapped, and the fast forks' rates are the control's fast forks'
+rates: 48 outputs in three methods run at 2.5 to 2.7 ns a row where the one method that landed
+well ran at 2.68 (section 3 of the probe file), and the six-group arm of the same shape ran at
+4.1 to 4.4. The split costs the shape nothing measurable at steady state and removes the two
+outcomes that were the cliff - the seconds interpreted and the cycle - in eighty forks of
+eighty. Prediction 1 of 6.1 holds at the host's width; the 128-bit arm is 12.2.
+
+**The make_date pair split by force** (`--shapes makedate --outputs 2 --heavy 0`, five forks of
+eight seconds): the producer at 99 sites - 93 plus the six prefix stores - is compiled by C1 in
+all five forks, C2 compiles it once, and the fork settles at second 1 at 1.9 ns a row. So C1's
+limit for this shape is at least 99, above the cheap tails' 93 to 99, and the six stores do not
+tip a method over it; the budget's value stays the cheap shape's last compiled count, which is
+the conservative side. Under the default the pair is a heavy group and never splits, so this
+settles nothing about the shipped grouping - it says that where the exemption is off, the
+producer is not the method the split leaves past C1.
+
+### 12.2 The same at 128 bits
+
+`--outputs 22,48 --widths 16 --forks 10 --seconds 12`, the same classes under
+`-XX:MaxVectorSize=16`: 0 of 20 forks slow, C1 compiling every loop method in every fork, C2
+once; 22 outputs settle at second 1 at 2.3 to 2.4 ns a row and 48 at second 3 at 4.6 to 5.0,
+about twice the 512-bit rates as four lanes against sixteen should give at these small bodies.
+Prediction 1 holds at both widths, over a hundred forks in all.
+
+### 12.3 The shared-prefix ladder under the budget
+
+`dev/varka_bench_regen.sh catalyst VarkaSharedPrefixBenchmark`, both widths, pinned, load 0.93
+at the start, the canary within 1.4% on all three legs. The default arms now carry the budget,
+and two arms per shape were added at the default ceiling: the budget off, and every group split
+(11.4). Per row, in nanoseconds:
+
+| arm | 256 bits, before | 256 bits, now | 128 bits, before | 128 bits, now |
+|---|---:|---:|---:|---:|
+| 64 cheap tails, ceiling 400, materialized: 1 group before, 4 now | 243.2 | 3.3 | 977.2 | **265.8** |
+| the same, recomputed | 264.7 | 3.4 | 967.5 | 7.5 |
+| 64 cheap tails, ceiling 200 and 100, materialized: 1 to 2 groups before, 4 now | 253.6 to 258.6 | 3.3 | 927.0 to 997.7 | 5.9 |
+| 64 cheap tails, ceiling 50, materialized: 3 groups before, 4 now | 129.4 | 3.3 | 518.8 | 5.9 |
+| 64 cheap tails, ceiling 50, recomputed: 6 groups, both | 4.1 | 4.1 | 10.0 | 9.9 |
+| 64 cheap tails, budget off: 1 group | - | 261.2 | - | 905.9 |
+| 64 cheap tails, every group split: 4 groups | - | 3.4 | - | 5.9 |
+| 60 make_date, default: 11 groups, both | 17.0 | 17.0 | 46.6 | 48.5 |
+| 60 make_date, budget off: 11 groups | - | 17.1 | - | 49.4 |
+| 60 make_date, every group split: 60 groups | - | 39.0 | - | 113.2 |
+| 60 make_date, ceiling 100 and 50: 60 groups, both | 38.8 to 39.1 | 38.8 to 39.7 | 113.1 to 113.2 | 113.2 |
+
+* **The cheap shape is off the cliff at both widths, in eleven arms of twelve.** Every
+  four-group arm at 256 bits reads 3.3 to 3.4 ns a row, where the one-group arm read 243 to 265
+  in this file's committed run and about 4 in the band's runs that landed well
+  (`PLAN_TASK_198.md` 6): the split costs nothing at steady state and removes the outcome that
+  was seventy times slower. At 128 bits the same arms read 5.9 to 7.5 against 894 to 998 before,
+  and the budget-off arm, the census's one method, reads 261 and 906 in the same JVMs. Prediction
+  3 of 6.1 holds: the regrouped shape pays the loads task 198 priced and nothing more, and in
+  fact less than the six-group arm that recomputes the prefix.
+* **The heavy shape is untouched**, as 11.3 requires: the sixty `make_date` outputs read 17.0 ns
+  at 256 bits under the default and 17.1 with the budget off, 48.5 and 49.4 at 128, the same
+  classes byte for byte; the every-group-split arm prices the blanket budget at 39.0 and 113.2,
+  which is the sixty-group arm the ceiling already had. Prediction 2 holds by construction.
+* **One arm at 128 bits landed slow: 265.8 ns a row for the ceiling-400 materialized kernel**,
+  whose class is byte-identical to the every-group-split arm's (5.9 in the same JVM) and to the
+  ceiling-200 and ceiling-100 arms' (5.9 each). Its four loop methods carry 86, 57, 57 and 57
+  sites, all under the budget, and the same class in the 256-bit JVM read 3.3. The rate is what
+  one of four groups in the slow mode and three fast would give - a quarter of the old one-group
+  kernel's 900 plus the fast rest - so one loop method of one instance of the class stayed
+  slow for the whole ten seconds of its case, in a JVM that had compiled nine other kernels of
+  the two shapes first. The forked probe, one class per JVM, saw no slow fork in 120 under the
+  budget at either width (12.1 and 12.2). Section 12.4 forks the sixty-four-tail class itself at
+  both widths and repeats the narrow run three times, to say whether this is the class's or the
+  JVM's history's - risk 1 of section 7, which the probe's fresh JVMs cannot see by design.
+
+### 12.4 The slow arm's frequency: the class alone, and the benchmark's JVM repeated
+
+Two readings of the one slow arm of 12.3, the same afternoon.
+
+**The sixty-four-tail class alone**, `dev/varka_inlining_cliff.sh --outputs 64 --forks 10
+--seconds 12`, at 128 bits and at the host's width: 0 of 10 forks slow at either, C1 compiling
+every loop method in every fork, C2 once, settled at second 3 at 6.0 to 6.5 ns a row and at
+seconds 2 to 3 at 3.4 to 3.6 - the benchmark's fast rates. Its methods carry 86, 57, 57 and 57
+sites. With 12.1 and 12.2 that is 140 forks under the budget with no slow one.
+
+**The benchmark's JVM repeated**, `dev/varka_bench_repeat.sh catalyst VarkaSharedPrefixBenchmark
+3` at each width, the band files rewritten from the three runs
+(`VarkaSharedPrefixBenchmark-jdk25-band.txt`, and a 128-bit band this benchmark did not have),
+read beside the regeneration and the first three narrow repeats, so eight runs of the twenty
+arms in all - the six under `dev/varka_bench_repeat.sh` unpinned from the committed files, the
+per-run tables kept in the plan's record only through the bands:
+
+| the cheap shape's arms, per row in ns | instances | fast | slow | the slow ones |
+|---|---:|---:|---:|---|
+| four groups under the budget, 256 bits | 40 | 39 | 1 | 207.9, the ceiling-400 recomputed arm in one repeat |
+| four groups under the budget, 128 bits | 40 | 37 | 3 | 265.8 (12.3); 261.9 and 342.3, two arms of one repeat |
+| six groups, ceiling 50 recomputed, both widths | 8 | 8 | 0 | - |
+| one group, the budget off, both widths | 8 | 0 | 8 | 236 to 261 at 256 bits, 906 to 925 at 128 |
+| the `make_date` arms, both widths | 80 | 80 | - | within 5% of the regeneration throughout |
+
+The slow instances are one of five byte-identical classes in a JVM whose four siblings read
+fast, never the same arm twice, and never the same arm at both widths; the fast instances read
+3.3 to 3.6 and 5.9 to 7.6, the rates the class reads alone. So the budget's kernel is fast in
+76 of 80 instances in a JVM of twenty kernels and in every one of 140 fresh JVMs, where the
+one-method kernel it replaces is slow in 8 of 8 and in a fifth to a half of fresh JVMs (10.1 and
+10.3). What remains is a slow mode of about one instance in twenty that the class does not
+carry and a fresh JVM does not show - the JVM's history, risk 1 of section 7, which the
+census's one-class forks could not see by construction and which `PLAN_TASK_198.md` 6 had
+already met in this benchmark's six-group arm before the budget existed. That is milestone 7's
+item 62, with the probe it needs.
+
+**Predictions of 6.1, scored.** 1 holds: no slow fork in twenty at any count of the cheap shape,
+at either width, in 140 forks. 2 holds by construction: no shape without a wide loop method over
+the budget emits differently, the ladders and the corpus among them, and the `make_date` arms
+read the regeneration's numbers in every run. 3 holds and then some: the regrouped shape pays
+the prefix's stores and loads task 198 priced and nothing else measurable - 3.3 against about 4
+for the one method that landed well, 4.0 for six groups - and the measurement adds what the
+prediction did not name, the slow mode's residue in a JVM of many kernels.
+
+### 12.5 Two more narrow runs, for the tiers and for the warm-up's exclusion
+
+* **Under `-XX:+PrintCompilation`**, every loop method of every cheap arm went C1 at tier 3, then
+  C2 at tier 4, then the tier-3 code made not entrant - the tiered path the budget is for - and
+  one arm's four methods trapped once and came back through tier 2 to a second tier-4 compile.
+  The compile log interleaves the case table, so that run's rates are unreadable and are not
+  quoted; the tiers were the question.
+* **With C1 excluded for the benchmark's classes** by a compiler directive - the warm-up's
+  production directive (task 212), applied here without the warm-up - every cheap arm read 1076
+  to 1551 ns a row, slower than the one-method kernel's 911, while the `make_date` arms read the
+  regeneration's numbers to within 2%. A light method that C1 would compile, kept from C1 and
+  fed only by its batches, does not reach C2 within a case of twelve seconds: the interpreter
+  creates its profile late (`VarkaKernelCompileDirective`'s doc), where the heavy methods, past
+  C1 either way, are unaffected. That is why the exclusion is added only for kernels the
+  session warms, whose warm-up calls create the profile at once, and why it must stay tied to
+  the warm-up; whether it should skip the methods under the budget altogether is item 61's
+  third bullet, with this run as its first number.

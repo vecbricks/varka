@@ -780,6 +780,44 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
   every C2 version; the deoptimization log's `pc=` is the return address after the
   `UncommonTrapBlob` call, and the check is the compare that branches to that stub.
 
+## A call-site budget keeps a wide loop method under C1, and a narrow heavy one runs under C2 alone
+
+Task 209's remedy for the cliff above (`PLAN_TASK_209.md` 11): the emitter reads each loop
+method's Vector API call sites off the built class, beside the bytes it already measures, and
+splits a group whose loop method is over 93 - C1's last compiled count on JDK 25 - through the
+same regroup the byte budget uses. What the build taught, beyond the census:
+
+* **Count the unit C1 counts, from the class, not from the weights.** The grouping weights
+  over-count a cheap tail by two (a field's seven plus one, against three sites emitted), and
+  the boundary is six sites wide, so a weight-based budget splits at fourteen tails what C1
+  compiles at twenty. `VarkaEmittedClass.vectorCallSites` is the count; the masks' calls are
+  left out because the census's boundary had none, and the `make_date` shape's ten masks an
+  output move no grouping.
+* **A budget in C1's unit is a rule for wide groups only.** Applied to every group over it, the
+  budget split the `make_date` ladder to one output a method - 2.3 times slower at steady state
+  for sixty outputs, the shared-prefix file's sixty-group arm - and declined task 190's
+  hundred-entry kernel, whose single-entry methods were still past C1 at 150 sites each. A
+  group of few heavy outputs gains no C1 from a split and pays a call, a loop and the prefix's
+  loads per method per batch for good; so the budget splits a group only while it holds more
+  than `HEAVY_GROUP_OUTPUTS` (six) outputs. The census's numbers back the exemption: five
+  `make_date` outputs a method, 313 sites, settled by second 4 and cycled in no fork of 116,
+  where the cheap tails past C1, with over twenty output segments live, cycled in a sixth to a
+  half - the segment count task 198 tied the cycle to.
+* **Under materialization a split's producer carries six stores more than its prefix**, so the
+  first half of a split group can sit over the budget by exactly those stores (a `make_date`
+  pair split by force: 99 and 68), and a later group loads the prefix in six sites where the
+  decomposition cost thirty-three (twenty-two tails: 71 and 42). Read a split's counts from the
+  class rather than adding them up.
+* **The oracle does not see wide groups.** No coverage row is a wide cheap group - no single
+  expression is one - and the fuzzer's shapes are single roots of many nodes, heavy groups all;
+  `emitted_bytes.json` moved nothing under the budget, and the guard on the budget's behaviour
+  is `VarkaEmitterBudgetSuite`'s pinned counts and `VarkaInliningCliffSuite`'s forks, not the
+  oracle.
+* **The dump says which methods are past C1.** `dev/varka_emit.sh` prints `PAST C1:` for a loop
+  method over the budget; under the defaults that is a heavy group left on purpose, and the
+  line is information, not a finding to fix.
+
+
 ## Split methods compile, but C2 stops inlining their calls at the caller's budget
 
 Splitting generated code into methods keeps every method under the 8000 bytes HotSpot

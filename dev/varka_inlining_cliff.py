@@ -21,6 +21,7 @@
 # (PLAN_TASK_209.md 2).
 #   dev/varka_inlining_cliff.py target/varka-inlining-cliff/<date>/width-host-xbatch-off.log ...
 #   dev/varka_inlining_cliff.py --slow-at 40 <log>...    # the verdict's cut, in nanoseconds a row
+#   dev/varka_inlining_cliff.py --fail-if-slow <log>...  # exit 1 on a slow fork: the nightly guard
 # A fork is one VarkaInliningCliffProbe child; its lines run from its VARKA_CLIFF_BEGIN line to
 # the next fork's, so the lines a JVM prints after its DONE line while shutting down are its own.
 # Per fork it reads the case (outputs, fused ceiling, C1 on or off, -Xbatch or not), the loop
@@ -96,6 +97,10 @@ def read_fork(header, lines, slow_at):
         "xbatch": fields.get("xbatch", "?"),
         "shape": fields.get("shape", "cheap"),
         "directive": fields.get("directive", "none"),
+        # The emitter's call-site budget the fork emitted under (task 209); logs from before
+        # the budget existed carry no field, and their forks read as budget-less.
+        "budget": fields.get("budget"),
+        "heavy": fields.get("heavy"),
         "pid": fields.get("pid", "?"),
         "methods": [],
         "rates": [],
@@ -264,6 +269,10 @@ def case_of(fork):
         extras += ", " + fork["shape"]
     if fork["directive"] != "none":
         extras += ", directive " + fork["directive"]
+    if fork["budget"] is not None:
+        extras += ", budget " + ("off" if fork["budget"] == "0" else fork["budget"])
+    if fork["heavy"] is not None:
+        extras += ", heavy groups " + ("split" if fork["heavy"] == "0" else "to " + fork["heavy"])
     return "%d outputs, ceiling %d, c1 %s, xbatch %s%s" % (
         fork["outputs"],
         fork["ceiling"],
@@ -281,6 +290,11 @@ def main():
         type=float,
         default=40.0,
         help="nanoseconds a row above which a fork is slow (default 40)",
+    )
+    parser.add_argument(
+        "--fail-if-slow",
+        action="store_true",
+        help="exit 1 when any fork is slow at the end or did not finish: the nightly guard",
     )
     args = parser.parse_args()
     all_forks = []
@@ -381,6 +395,18 @@ def main():
                 if traps:
                     line += "; traps %s" % ", ".join("%s x%d" % kv for kv in traps.most_common(4))
                 print(line)
+    # The guard's verdict, last and on its own line, as dev/varka_deopt_cycle.py prints its own:
+    # a fork slow at the end is the cliff, and a fork that did not finish is unread, which the
+    # guard treats as a failure too rather than as a pass by silence.
+    slow = sum(1 for f in all_forks if f["verdict"] == "slow")
+    unfinished = sum(1 for f in all_forks if f["verdict"] == "unfinished")
+    print()
+    print(
+        "verdict: %d of %d forks slow%s"
+        % (slow, len(all_forks), ", %d unfinished" % unfinished if unfinished else "")
+    )
+    if args.fail_if_slow and (slow or unfinished):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

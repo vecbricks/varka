@@ -120,6 +120,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A row projection over a batch's rows can cost escape analysis its allocations](sql/varka/skills/the-jit.md#a-row-projection-over-a-batchs-rows-can-cost-escape-analysis-its-allocations)
 * [A wide loop method's cliff is the time before C2, and a six-second verdict cannot see past it](sql/varka/skills/the-jit.md#a-wide-loop-methods-cliff-is-the-time-before-c2-and-a-six-second-verdict-cannot-see-past-it)
 * [The deoptimization cycle is profiled loop predication's, and the wait before C2 is nobody's](sql/varka/skills/the-jit.md#the-deoptimization-cycle-is-profiled-loop-predications-and-the-wait-before-c2-is-nobodys)
+* [A call-site budget keeps a wide loop method under C1, and a narrow heavy one runs under C2 alone](sql/varka/skills/the-jit.md#a-call-site-budget-keeps-a-wide-loop-method-under-c1-and-a-narrow-heavy-one-runs-under-c2-alone)
 * [Split methods compile, but C2 stops inlining their calls at the caller's budget](sql/varka/skills/the-jit.md#split-methods-compile-but-c2-stops-inlining-their-calls-at-the-callers-budget)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)

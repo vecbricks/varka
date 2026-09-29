@@ -40,16 +40,21 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
     Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
       .getOrElse(System.getProperty("java.class.path"))
 
-  private def fork(outputs: Int, ceiling: Int, seconds: Int): Seq[String] = {
+  /** One fork of the probe; `budget` is the emitter's call-site budget, the default when
+   *  absent, which reaches the probe as its last positional argument behind the others. */
+  private def fork(outputs: Int, ceiling: Int, seconds: Int,
+      budget: Option[Int] = None): Seq[String] = {
     val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val pattern = s"${VarkaInliningCliffProbe.CLASS_PREFIX}*::*"
     val command = new java.util.ArrayList[String]()
-    Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
+    (Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
       "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-XX:+UnlockDiagnosticVMOptions",
       "-XX:CompileCommand=quiet", s"-XX:CompileCommand=PrintInlining,$pattern",
       s"-XX:CompileCommand=PrintIntrinsics,$pattern", "-cp", testClasspath,
       VarkaInliningCliffProbe.getClass.getName.stripSuffix("$"),
-      outputs.toString, ceiling.toString, seconds.toString).foreach(command.add)
+      outputs.toString, ceiling.toString, seconds.toString) ++
+      budget.toSeq.flatMap(b => Seq("1024", "c1on", "cheap", "none", b.toString)))
+      .foreach(command.add)
     val process = new ProcessBuilder(command).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
@@ -74,8 +79,9 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
     def marked(prefix: String): Seq[String] =
       lines.flatMap(VarkaProbeOutput.after(_, prefix)).map(_.trim)
     val begin = marked(VarkaInliningCliffProbe.BEGIN_PREFIX)
-    assert(begin.size == 1 && begin.head.contains("outputs=16 ceiling=400 c1=on xbatch=off"),
-      begin)
+    assert(begin.size == 1 && begin.head.contains("outputs=16 ceiling=400 c1=on xbatch=off") &&
+      begin.head.endsWith(s" budget=${VarkaEmitBudget.LOOP_CALL_SITE_BUDGET} " +
+        s"heavy=${VarkaEmitBudget.HEAVY_GROUP_OUTPUTS}"), begin)
     val methods = marked(VarkaInliningCliffProbe.METHODS_PREFIX)
     assert(methods.size == 1, methods)
     // One group of sixteen tails: a dense and a masked loop, each with vector call sites.
@@ -102,5 +108,23 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
     } finally {
       Files.deleteIfExists(log)
     }
+  }
+
+  test("under the call-site budget the probe forks twenty-two tails as two loop methods, and " +
+      "with the budget off as the one method past C1 the census measured (task 209)") {
+    // The census of PLAN_TASK_209.md 10.1 put C1's limit between 93 and 99 vector call sites,
+    // twenty and twenty-two cheap tails in one loop method. The probe's default arm is now the
+    // production emitter, whose call-site budget splits the second shape; the `0` arm is the
+    // census's own, kept so the cliff stays reproducible with the budget in place.
+    def loops(lines: Seq[String]): Map[String, Int] =
+      lines.flatMap(VarkaProbeOutput.after(_, VarkaInliningCliffProbe.METHODS_PREFIX))
+        .head.trim.takeWhile(!_.isWhitespace).split(",").map(_.split(":"))
+        .map(f => f(0) -> f(2).toInt).toMap
+    val split = loops(fork(outputs = 22, ceiling = 400, seconds = 2))
+    assert(split.keySet == Set("loopDense0", "loopDense1", "loopMasked0", "loopMasked1"), split)
+    assert(split.values.forall(_ <= VarkaEmitBudget.LOOP_CALL_SITE_BUDGET), split)
+    val whole = fork(outputs = 22, ceiling = 400, seconds = 2, budget = Some(0))
+    assert(whole.exists(_.contains(" budget=0")), whole.take(3))
+    assert(loops(whole) == Map("loopDense0" -> 99, "loopMasked0" -> 99), loops(whole))
   }
 }

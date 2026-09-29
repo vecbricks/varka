@@ -32,6 +32,9 @@
 #   dev/varka_inlining_cliff.sh --outputs 64 --jvm "-XX:NodeCountInliningCutoff=60000"   # a cutoff raised
 #   dev/varka_inlining_cliff.sh --shapes makedate --outputs 8,12,16   # the deopt guard's make_date shape
 #   dev/varka_inlining_cliff.sh --outputs 48 --directives none,inline # the helpers forced inline by directive
+#   dev/varka_inlining_cliff.sh --outputs 22,48 --budgets 93,0      # the emitter's call-site budget, and off
+#   dev/varka_inlining_cliff.sh --shapes makedate --outputs 8 --heavy 6,0   # heavy groups kept, and split
+#   dev/varka_inlining_cliff.sh --outputs 24,40 --forks 10 --seconds 12 --fail-if-slow   # the nightly guard
 #
 # --widths is in bytes, as the JVM's MaxVectorSize counts them, and empty means the host's own.
 # Each (width, xbatch, jvm) combination is one sbt session with one forked JVM per case and
@@ -39,12 +42,18 @@
 # and the summary go under target/varka-inlining-cliff/<date-time>/. Fresh JVMs because the
 # verdict is decided at the loop method's C2 compile and then stable for the JVM's life, so
 # forks, not iterations, are the sample. Not a benchmark: a fork's rate is a probe's reading, a
-# factor of ten apart between the two sides, and the verdict on why is C2's own log.
+# factor of ten apart between the two sides, and the verdict on why is C2's own log. --budgets
+# is the emitter's call-site budget per arm (VarkaEmitOptions.loopCallSiteBudget, 0 for off)
+# and --heavy its heavy-group exemption (VarkaEmitOptions.heavyGroupOutputs, 0 to split every
+# group over the budget); left out, every fork emits under the production defaults.
+# --fail-if-slow makes the exit status 1 when any fork is slow at the end or did not finish,
+# which is the nightly's guard on the cliff (dev/varka_nightly.sh).
 # Usage text is found rather than numbered, for the reason dev/varka_deopt_cycle.sh gives.
 usage() { sed -n '17,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 set -euo pipefail
 outputs=16,24,32,40,48,56,64; ceilings=400; widths=""; forks=20; seconds=6; rows=1024
-xbatch=off; c1=on; jvm=""; shapes=cheap; directives=none
+xbatch=off; c1=on; jvm=""; shapes=cheap; directives=none; budgets=""; heavy=""
+fail_if_slow=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --outputs) outputs="$2"; shift 2 ;;
@@ -58,6 +67,9 @@ while [ $# -gt 0 ]; do
     --jvm) jvm="$2"; shift 2 ;;
     --shapes) shapes="$2"; shift 2 ;;
     --directives) directives="$2"; shift 2 ;;
+    --budgets) budgets="$2"; shift 2 ;;
+    --heavy) heavy="$2"; shift 2 ;;
+    --fail-if-slow) fail_if_slow=(--fail-if-slow); shift ;;
     -h|--help) usage 0 ;;
     *) usage ;;
   esac
@@ -73,7 +85,7 @@ mkdir -p "$out"
   echo "jdk:     $(java -version 2>&1 | head -1)"
   echo "cpu:     $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
   echo "load:    $(cut -d' ' -f1-3 /proc/loadavg) at start"
-  echo "args:    outputs=$outputs ceilings=$ceilings widths=${widths:-host} forks=$forks seconds=$seconds rows=$rows xbatch=$xbatch c1=$c1 shapes=$shapes directives=$directives jvm=$jvm"
+  echo "args:    outputs=$outputs ceilings=$ceilings widths=${widths:-host} forks=$forks seconds=$seconds rows=$rows xbatch=$xbatch c1=$c1 shapes=$shapes directives=$directives budgets=${budgets:-default} heavy=${heavy:-default} jvm=$jvm"
 } > "$out/provenance.txt"
 cat "$out/provenance.txt"
 IFS=',' read -r -a output_list <<< "$outputs"
@@ -82,6 +94,15 @@ IFS=',' read -r -a xbatch_list <<< "$xbatch"
 IFS=',' read -r -a c1_list <<< "$c1"
 IFS=',' read -r -a shape_list <<< "$shapes"
 IFS=',' read -r -a directive_list <<< "$directives"
+# An empty --budgets or --heavy passes no such argument, so the probe emits under the default;
+# --heavy alone passes the default budget in front of it, since the arguments are positional.
+if [ -n "$budgets" ]; then IFS=',' read -r -a budget_list <<< "$budgets"; else budget_list=(""); fi
+if [ -n "$heavy" ]; then
+  IFS=',' read -r -a heavy_list <<< "$heavy"
+  [ -n "$budgets" ] || budget_list=(93)
+else
+  heavy_list=("")
+fi
 if [ -n "$widths" ]; then IFS=',' read -r -a width_list <<< "$widths"; else width_list=(host); fi
 logs=()
 for w in "${width_list[@]}"; do
@@ -101,8 +122,12 @@ for w in "${width_list[@]}"; do
         for c1mode in "${c1_list[@]}"; do
           for shape in "${shape_list[@]}"; do
             for directive in "${directive_list[@]}"; do
-              for ((i = 0; i < forks; i++)); do
-                cmds+=("Test/runMain $main $n $c $seconds $rows c1$c1mode $shape $directive")
+              for budget in "${budget_list[@]}"; do
+                for h in "${heavy_list[@]}"; do
+                  for ((i = 0; i < forks; i++)); do
+                    cmds+=("Test/runMain $main $n $c $seconds $rows c1$c1mode $shape $directive $budget $h")
+                  done
+                done
               done
             done
           done
@@ -114,5 +139,7 @@ for w in "${width_list[@]}"; do
     build/sbt -batch "project catalyst" "$flags" "${cmds[@]}" > "$log" 2>&1 || true
   done
 done
-dev/varka_inlining_cliff.py "${logs[@]}" | tee "$out/summary.txt"
+status=0
+dev/varka_inlining_cliff.py "${fail_if_slow[@]}" "${logs[@]}" | tee "$out/summary.txt" || status=$?
 echo "logs, compile logs and summary under $out"
+exit "$status"

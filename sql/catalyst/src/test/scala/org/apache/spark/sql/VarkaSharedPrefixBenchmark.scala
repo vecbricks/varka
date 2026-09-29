@@ -52,6 +52,12 @@ import org.apache.spark.sql.types.DateType
  * so the x-axis is in the file. Null-free batches of 1024 rows, which every lane count divides:
  * the loop methods are what is measured, and the epilogue returns at once.
  *
+ * Two more arms at the default ceiling price the call-site budget (task 209), which splits a
+ * wide group whose loop method C1 refuses and leaves a narrow one: the budget off, so the cheap
+ * tails are the one loop method past C1 the census measured; and the budget with its heavy-group
+ * exemption off, so the make_date outputs split to one a method as the cheap tails do. The
+ * default arms carry the budget as production does.
+ *
  * To run this benchmark:
  * {{{
  *   dev/varka_bench_regen.sh catalyst VarkaSharedPrefixBenchmark
@@ -116,15 +122,23 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
           val dstValidity: Array[Long] =
             Array.fill(n)(arena.allocate(chunk / 8L, 64).address())
           // Per ceiling, the recomputed arm and the materialized one; the latter takes the
-          // scratch its kernel asks for, sized by the batch.
+          // scratch its kernel asks for, sized by the batch. Then the two call-site budget arms
+          // at the default ceiling, materialized: the budget off, and every group split.
+          val budgetArms = Seq(
+            "call-site budget off" -> VarkaEmitOptions.DEFAULTS.withLoopCallSiteBudget(0),
+            "every group split" -> VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0))
           val arms = ceilings.flatMap { c =>
             Seq(false, true).map { materialized =>
               val (kernel, groups) = emit(fused, loader, s"${s}_${c}_$materialized",
                 VarkaEmitOptions.DEFAULTS.withFusedCeiling(c)
                   .withMaterializeChronoPrefix(materialized))
               val scratch = VarkaEmitterTestSupport.scratch(kernel, chunk)
-              (c, materialized, groups, kernel, scratch)
+              (s"fused ceiling $c", materialized, groups, kernel, scratch)
             }
+          } ++ budgetArms.map { case (label, options) =>
+            val (kernel, groups) = emit(fused, loader, s"${s}_$label", options)
+            val scratch = VarkaEmitterTestSupport.scratch(kernel, chunk)
+            (s"fused ceiling ${ceilings.head}, $label", true, groups, kernel, scratch)
           }
           def drive(kernel: VarkaFusedKernel, scratch: Long): Int = {
             var status = 0
@@ -137,14 +151,14 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
             }
             status
           }
-          for ((c, materialized, _, kernel, scratch) <- arms) {
+          for ((arm, materialized, _, kernel, scratch) <- arms) {
             require(drive(kernel, scratch) == 0,
-              s"$title at ceiling $c, materialized $materialized, declined a batch")
+              s"$title at $arm, materialized $materialized, declined a batch")
           }
           val benchmark = new Benchmark(s"$title over $numRows rows", numRows,
             minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-          for ((c, materialized, groups, kernel, scratch) <- arms) {
-            val name = s"fused ceiling $c: $groups group${if (groups == 1) "" else "s"}" +
+          for ((arm, materialized, groups, kernel, scratch) <- arms) {
+            val name = s"$arm: $groups group${if (groups == 1) "" else "s"}" +
               (if (materialized) ", prefix computed once" else ", prefix per group")
             benchmark.addCase(name) { _ => drive(kernel, scratch) }
           }

@@ -32,7 +32,10 @@ import java.util.regex.Pattern;
  * method's parameters have a hard slot count.
  * This reads all three from the class the emitter built, so a budget can be checked against the
  * quantity it is a budget <i>of</i>, and so a tool can print it beside the op counts. See
- * {@code PLAN_TASK_87.md} section 2.
+ * {@code PLAN_TASK_87.md} section 2. A fourth measure is read the same way for a limit of the
+ * JIT's rather than the class file's: how many call sites of the Vector API's vector classes a
+ * method carries, which is what decides whether C1 compiles it
+ * ({@link VarkaEmitBudget#LOOP_CALL_SITE_BUDGET}).
  *
  * <p>Every field is a plain Java type: Scala's typechecker cannot complete the Class-File API's
  * types, so nothing from that API may appear in a signature Scala reaches.
@@ -44,21 +47,38 @@ import java.util.regex.Pattern;
  *                       {@code this} on an instance method - by method name
  * @param constantPoolCount the class's {@code constant_pool_count}, which includes the unused
  *                          slot zero, and is the number the class-file format caps
+ * @param vectorCallSites each method's invocations of a Vector API vector class - {@code
+ *                        IntVector}, {@code LongVector}, {@code DoubleVector} or {@code Vector}
+ *                        itself, by {@link #isVectorClass}; not the masks, species or operator
+ *                        tokens - by method name, for every method with code. One invocation is
+ *                        one call site whatever it inlines to, which is the unit C1's refusal
+ *                        was measured in ({@code PLAN_TASK_209.md} 10.1)
  */
 record VarkaEmittedClass(
     LinkedHashMap<String, Integer> codeLength,
     LinkedHashMap<String, Integer> parameterSlots,
-    int constantPoolCount) {
+    int constantPoolCount,
+    LinkedHashMap<String, Integer> vectorCallSites) {
 
-  /** Reads the three measures from a class file's bytes. */
+  /** Reads the measures from a class file's bytes. */
   static VarkaEmittedClass measure(byte[] classBytes) {
     java.lang.classfile.ClassModel model = java.lang.classfile.ClassFile.of().parse(classBytes);
     LinkedHashMap<String, Integer> lengths = new LinkedHashMap<>();
     LinkedHashMap<String, Integer> slots = new LinkedHashMap<>();
+    LinkedHashMap<String, Integer> sites = new LinkedHashMap<>();
     for (java.lang.classfile.MethodModel method : model.methods()) {
       String name = method.methodName().stringValue();
-      method.code().ifPresent(code -> lengths.put(name,
-          ((java.lang.classfile.attribute.CodeAttribute) code).codeLength()));
+      method.code().ifPresent(code -> {
+        lengths.put(name, ((java.lang.classfile.attribute.CodeAttribute) code).codeLength());
+        int count = 0;
+        for (java.lang.classfile.CodeElement element : code) {
+          if (element instanceof java.lang.classfile.instruction.InvokeInstruction invoke
+              && isVectorClass(invoke.owner().asInternalName())) {
+            count++;
+          }
+        }
+        sites.put(name, count);
+      });
       int count = method.flags().has(java.lang.reflect.AccessFlag.STATIC) ? 0 : 1;
       for (java.lang.constant.ClassDesc p : method.methodTypeSymbol().parameterList()) {
         String d = p.descriptorString();
@@ -66,7 +86,17 @@ record VarkaEmittedClass(
       }
       slots.put(name, count);
     }
-    return new VarkaEmittedClass(lengths, slots, model.constantPool().size());
+    return new VarkaEmittedClass(lengths, slots, model.constantPool().size(), sites);
+  }
+
+  /**
+   * Whether {@code internalName} is one of the Vector API's vector classes - {@code
+   * jdk/incubator/vector/IntVector} and its siblings, and the abstract {@code Vector} that
+   * {@code convertShape} is declared on - as opposed to its masks, species, shuffles and
+   * operator tokens, whose calls are not the lane operations the budget counts.
+   */
+  static boolean isVectorClass(String internalName) {
+    return internalName.startsWith("jdk/incubator/vector/") && internalName.endsWith("Vector");
   }
 
   /**
@@ -81,8 +111,8 @@ record VarkaEmittedClass(
 
   /**
    * The measurement of a class the Class-File API would not build, read from its refusal: one
-   * method with the code length the refusal reports, no parameter slots, and a constant pool
-   * counted as 0 because it was never measured.
+   * method with the code length the refusal reports, no parameter slots, no call sites, and a
+   * constant pool counted as 0 because it was never measured.
    *
    * <p>The API enforces the class-file format's cap on a method's code
    * ({@link VarkaEmitBudget#METHOD_CODE_CAP}) while the class is assembled, after every method
@@ -112,7 +142,8 @@ record VarkaEmittedClass(
     }
     LinkedHashMap<String, Integer> lengths = new LinkedHashMap<>();
     lengths.put(m.group(2), bytes);
-    return Optional.of(new VarkaEmittedClass(lengths, new LinkedHashMap<>(), 0));
+    return Optional.of(new VarkaEmittedClass(lengths, new LinkedHashMap<>(), 0,
+        new LinkedHashMap<>()));
   }
 
   /**

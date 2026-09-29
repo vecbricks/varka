@@ -220,6 +220,21 @@ object VarkaEmitDump {
     } else {
       over.foreach(finding => report(s"OVER LIMIT: $finding"))
     }
+    // C1's limit rather than the JVM's: a loop method over the call-site budget is a heavy
+    // group the emitter leaves on purpose - at most HEAVY_GROUP_OUTPUTS outputs, each near the
+    // budget alone - or the budget was off (task 209). Not an error, but worth seeing: the
+    // method runs interpreted until C2 compiles it.
+    val budget = options.loopCallSiteBudget()
+    if (budget > 0) {
+      val overSites = VarkaEmitBudget.overCallSiteBudget(measured, budget).asScala
+      if (overSites.isEmpty) {
+        report(s"every loop method is under the call-site budget ($budget vector call sites)")
+      } else {
+        overSites.foreach(finding => report(s"PAST C1: $finding"))
+      }
+    } else {
+      report("the call-site budget is off")
+    }
     VarkaDebugInfo.read(bytes).ifPresent { info =>
       report("")
       report("line map (line=node):")

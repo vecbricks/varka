@@ -286,6 +286,16 @@ public final class VarkaLoopEmitter {
     // The cap on one method's code is met before any measurement: the Class-File API refuses
     // such a method while the class is assembled, so the refusal is read in place of the class
     // and takes the same path, budget or not (task 219).
+    //
+    // The same measurement reads each loop method's Vector API call sites, and a group whose
+    // loop method is over the call-site budget is split the same way (task 209): past that
+    // count C1 refuses the method and the loop runs interpreted until C2 compiles it, seconds
+    // in which the kernel is slower than the row path, and in some JVMs the deoptimization
+    // cycle after. Only a group of more than HEAVY_GROUP_OUTPUTS outputs is split: a narrower
+    // group over the budget is one of heavy outputs, which no split brings under C1 and which
+    // would pay a method per output at steady state. This budget splits and never declines -
+    // a group it leaves over the budget runs under C2 in seconds, far better than the fallback
+    // - which is why its groups are not counted among the stuck ones below.
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -344,6 +354,17 @@ public final class VarkaLoopEmitter {
           split = true;
         } else {
           stuck.add(group.get(0));
+        }
+      }
+      // Only a built class has call-site counts: a refusal's measurement is one method's bytes.
+      if (bytes != null && options.loopCallSiteBudget() > 0) {
+        int narrow = Math.max(1, options.heavyGroupOutputs());
+        for (int g : groupsOverCallSites(measured, options.loopCallSiteBudget()).keySet()) {
+          List<Integer> group = groups.get(g);
+          if (group.size() > narrow) {
+            forcedStarts.add(group.get(group.size() / 2));
+            split = true;
+          }
         }
       }
       if (split) {

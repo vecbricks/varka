@@ -1,4 +1,5 @@
-Task 209's admission check (PLAN_TASK_209.md 2 and 9): does the loop method of a wide kernel keep
+Task 209's admission check (PLAN_TASK_209.md 2 and 9; the budget's own forks in section 5, 11 and
+12 there): does the loop method of a wide kernel keep
 its vector intrinsics, and does the same class land on either side from one JVM to the next?
 
 Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
@@ -272,4 +273,69 @@ logs and its summary; this file is the summaries.
   48 outputs, ceiling 400, c1 on, xbatch off     0 /  10 /   0
       fast  2.7 to 2.8 ns/row, settled at seconds [6] | callee is too large x9635, DesiredMethodLimit x6580, not inlineable x3520, inlining too deep x10, too big x10 | no answer
             loopDense0: C1 failed x10, C2 compiled once x10; C2's vector ops [70], calls left [2441]
+
+
+5. The afternoon of 29 September, the budget built (PLAN_TASK_209.md 11 and 12), the same JVM,
+   machine and reader: the census's counts forked again under the production emitter - the
+   call-site budget at 93 and the heavy-group exemption at 6, which the BEGIN line now names
+   as budget= and heavy= - at the host's width (20 forks of 12 seconds a case) and at 128 bits
+   (10 forks), and the make_date pair split by force (heavy 0, 5 forks of 8 seconds), which
+   asks whether C1 compiles a 99-site producer. The sites are in the emitter's own unit,
+   VarkaEmittedClass.vectorCallSites, the vector classes' invocations, which for these shapes
+   is the IntVector count the sections above print. Each arm as in section 4
+
+-- outputs=2 ceilings=400 widths=host forks=5 seconds=8 rows=1024 xbatch=off c1=on shapes=makedate directives=none budgets=default heavy=0 jvm=
+   2_400_on_makedate_none_93_0: loopDense0:1070:99,loopDense1:793:68,loopMasked0:1185:99,loopMasked1:908:68
+  2 outputs, ceiling 400, c1 on, xbatch off, makedate, budget 93, heavy groups split   0 /   5 /   0
+      fast  1.9 to 1.9 ns/row, settled at seconds [1] | callee is too large x1959, not inlineable x205, too big x70, inlining too deep x35, failed to inline (intrinsic) x20 | ** missing constant x38
+            loopDense0: C1 ok x5, C2 compiled once x5; C2's vector ops [68], calls left [1767]
+verdict: 0 of 5 forks slow
+
+-- outputs=22,24,40,48 ceilings=400 widths=host forks=20 seconds=12 rows=1024 xbatch=off c1=on shapes=cheap directives=none budgets=default heavy=default jvm=
+   22_400_on_cheap_none_93_6: loopDense0:1053:71,loopDense1:810:42,loopMasked0:1053:71,loopMasked1:810:42
+   24_400_on_cheap_none_93_6: loopDense0:1106:74,loopDense1:863:45,loopMasked0:1106:74,loopMasked1:863:45
+   40_400_on_cheap_none_93_6: loopDense0:1000:68,loopDense1:757:39,loopDense2:1287:69,loopMasked0:1000:68,loopMasked1:757:39,loopMasked2:1287:69
+   48_400_on_cheap_none_93_6: loopDense0:1106:74,loopDense1:863:45,loopDense2:1499:81,loopMasked0:1106:74,loopMasked1:863:45,loopMasked2:1499:81
+  22 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  20 /   0
+      fast  1.1 to 1.2 ns/row, settled at seconds [1, 2] | callee is too large x13530, not inlineable x4971, DesiredMethodLimit x1900, inlining too deep x120, failed to inline (intrinsic) x88, too big x40 | ** missing constant x176
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [33], calls left [1236]
+  24 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  20 /   0
+      fast  1.2 to 1.4 ns/row, settled at seconds [1] | callee is too large x14283, not inlineable x5256, DesiredMethodLimit x2200, failed to inline (intrinsic) x204, inlining too deep x120, too big x40 | ** missing constant x408
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [34], calls left [1272]
+  40 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  20 /   0
+      fast  1.9 to 2.2 ns/row, settled at seconds [2] | callee is too large x23387, not inlineable x8363, DesiredMethodLimit x3940, failed to inline (intrinsic) x529, inlining too deep x220, too big x162 | ** missing constant x1040
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [32], calls left [1200]
+  48 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  20 /   0
+      fast  2.5 to 2.7 ns/row, settled at seconds [2] | callee is too large x26375, not inlineable x9472, DesiredMethodLimit x5200, inlining too deep x220, failed to inline (intrinsic) x192, too big x41 | ** missing constant x381
+            loopDense0: C1 ok x20, C2 compiled once x20; C2's vector ops [34], calls left [1272]
+verdict: 0 of 80 forks slow
+
+-- outputs=22,48 ceilings=400 widths=16 forks=10 seconds=12 rows=1024 xbatch=off c1=on shapes=cheap directives=none budgets=default heavy=default jvm=
+   22_400_on_cheap_none_93_6 at 16 bytes: loopDense0:1052:71,loopDense1:809:42,loopMasked0:1052:71,loopMasked1:809:42
+   48_400_on_cheap_none_93_6 at 16 bytes: loopDense0:1105:74,loopDense1:862:45,loopDense2:1498:81,loopMasked0:1105:74,loopMasked1:862:45,loopMasked2:1498:81
+  22 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  10 /   0
+      fast  2.3 to 2.4 ns/row, settled at seconds [1] | callee is too large x6769, not inlineable x2484, DesiredMethodLimit x950, failed to inline (intrinsic) x244, inlining too deep x60, too big x20 | ** missing constant x257
+            loopDense0: C1 ok x10, C2 compiled once x10; C2's vector ops [33], calls left [1236]
+  48 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  10 /   0
+      fast  4.6 to 5.0 ns/row, settled at seconds [3] | callee is too large x13178, not inlineable x4737, DesiredMethodLimit x2600, failed to inline (intrinsic) x555, inlining too deep x110, too big x20 | ** missing constant x514
+            loopDense0: C1 ok x10, C2 compiled once x10; C2's vector ops [34], calls left [1272]
+verdict: 0 of 20 forks slow
+
+   The sixty-four-tail class - the shared-prefix benchmark's cheap shape, four loop methods under
+   the budget - forked alone at 128 bits and at the host's width, ten forks of twelve seconds
+   each, after one instance of it landed slow in the benchmark's JVM (PLAN_TASK_209.md 12.3):
+
+-- outputs=64 ceilings=400 widths=16 forks=10 seconds=12 rows=1024 xbatch=off c1=on shapes=cheap directives=none budgets=default heavy=default jvm=
+   64_400_on_cheap_none_93_6 at 16 bytes: loopDense0:1317:86,loopDense1:1074:57,loopDense2:1074:57,loopDense3:1074:57,loopMasked0:1317:86,loopMasked1:1074:57,loopMasked2:1074:57,loopMasked3:1074:57
+  64 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  10 /   0
+      fast  6.0 to 6.5 ns/row, settled at seconds [3] | callee is too large x17719, not inlineable x6287, DesiredMethodLimit x3530, failed to inline (intrinsic) x662, inlining too deep x160, too big x20 | ** missing constant x1083
+            loopDense0: C1 ok x10, C2 compiled once x10; C2's vector ops [38], calls left [1404]
+verdict: 0 of 10 forks slow
+
+-- outputs=64 ceilings=400 widths=host forks=10 seconds=12 rows=1024 xbatch=off c1=on shapes=cheap directives=none budgets=default heavy=default jvm=
+   64_400_on_cheap_none_93_6: loopDense0:1318:86,loopDense1:1075:57,loopDense2:1075:57,loopDense3:1075:57,loopMasked0:1318:86,loopMasked1:1075:57,loopMasked2:1075:57,loopMasked3:1075:57
+  64 outputs, ceiling 400, c1 on, xbatch off, budget 93, heavy groups to 6   0 /  10 /   0
+      fast  3.4 to 3.6 ns/row, settled at seconds [2, 3] | callee is too large x17757, not inlineable x6302, DesiredMethodLimit x3530, failed to inline (intrinsic) x240, inlining too deep x160, too big x23 | ** missing constant x474
+            loopDense0: C1 ok x10, C2 compiled once x10; C2's vector ops [38], calls left [1404]
+verdict: 0 of 10 forks slow
 

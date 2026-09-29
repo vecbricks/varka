@@ -1,0 +1,33 @@
+Band for 20 cases: how far apart repeated runs of an unchanged file land.
+Written by dev/varka_bench_band.py. Read by dev/varka_bench_diff.py --band, which
+uses a case's tier to decide whether its move in a regeneration means anything.
+
+tier 0 <= 3%   1 <= 10%   2 <= 25%   3 not readable from a diff at all
+
+runs:    3
+commit:  8047ea08f74
+date:    2026-09-29T14:18:01+00:00
+jdk:     openjdk version "25.0.4.1" 2026-08-18
+cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+
+tier   spread occ  table | case
+0     0.09   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 100: 60 groups, prefix computed once
+0     1.17   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 100: 60 groups, prefix per group
+1     9.03   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 200: 26 groups, prefix computed once
+0     0.72   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 200: 30 groups, prefix per group
+1     6.22   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 400, call-site budget off: 11 groups, prefix computed once
+2    14.01   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 400, every group split: 60 groups, prefix computed once
+1     5.57   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 400: 11 groups, prefix computed once
+0     0.12   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 400: 12 groups, prefix per group
+0     0.09   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 50: 60 groups, prefix computed once
+0     1.22   1  60 make_date(year(d), month(d), k) outputs over 1000000 rows | fused ceiling 50: 60 groups, prefix per group
+1     4.89   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 100: 4 groups, prefix computed once
+0     1.30   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 100: 4 groups, prefix per group
+1     8.36   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 200: 4 groups, prefix computed once
+3  4464.00   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 200: 4 groups, prefix per group
+0     2.14   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 400, call-site budget off: 1 group, prefix computed once
+1     3.70   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 400, every group split: 4 groups, prefix computed once
+3  4265.00   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 400: 4 groups, prefix computed once
+0     1.59   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 400: 4 groups, prefix per group
+1     3.88   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 50: 4 groups, prefix computed once
+0     1.00   1  64 cheap tails over one date: year(d) + k over 1000000 rows | fused ceiling 50: 6 groups, prefix per group

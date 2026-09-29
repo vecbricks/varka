@@ -51,10 +51,19 @@ import org.apache.spark.sql.types.DateType
  * `VarkaVectorSupport`'s helpers inline whatever C2's budgets say and raises the class's node
  * limit: the arm that asks whether steering the JIT lifts the cliff on a stock JDK.
  *
+ * The last two arguments are the emitter's call-site budget
+ * (`VarkaEmitOptions.loopCallSiteBudget`) and its heavy-group exemption
+ * (`VarkaEmitOptions.heavyGroupOutputs`), by default the production values: under them the
+ * emitter splits a wide group whose loop method is past C1's limit, so the cheap shape forks as
+ * several loop methods and the make_date shape as it always did. A budget of `0` turns it off,
+ * which is the arm the census ran before the budget existed and the control it is measured
+ * against; an exemption of `0` splits the make_date shape too, one output a method.
+ *
  * Lines the reader looks for:
  *  - `VARKA_CLIFF_BEGIN=<class> pid=<pid> outputs=<n> ceiling=<c> c1=<on|off> xbatch=<on|off>
- *    shape=<cheap|makedate> directive=<none|inline>`;
- *  - `VARKA_CLIFF_METHODS=<method>:<bytes>:<IntVector call sites>,...` for the loop methods;
+ *    shape=<cheap|makedate> directive=<none|inline> budget=<sites> heavy=<outputs>`;
+ *  - `VARKA_CLIFF_METHODS=<method>:<bytes>:<vector call sites>,...` for the loop methods, the
+ *    sites in the budget's unit (`VarkaEmittedClass.vectorCallSites`);
  *  - `VARKA_CLIFF_RATE=<second> <nanoseconds a row>` once a second;
  *  - `VARKA_CLIFF_ALLOC=<bytes a call>` over the last second, since a scalar fallback boxes;
  *  - `VARKA_CLIFF_DONE=<class> status=<status>`.
@@ -73,8 +82,9 @@ object VarkaInliningCliffProbe {
   /** The emitted classes' prefix, which the launcher's `CompileCommand` patterns name. */
   val CLASS_PREFIX = "org.apache.spark.sql.varka.execution.VarkaCliffProbe_"
 
-  def className(outputs: Int, ceiling: Int, c1: String, shape: String, directive: String): String =
-    s"$CLASS_PREFIX${outputs}_${ceiling}_${c1}_${shape}_$directive"
+  def className(outputs: Int, ceiling: Int, c1: String, shape: String, directive: String,
+      budget: Int, heavy: Int): String =
+    s"$CLASS_PREFIX${outputs}_${ceiling}_${c1}_${shape}_${directive}_${budget}_$heavy"
 
   /** The C2 options the `inline` directive sets on the emitted class. */
   private val inlineDirective = "c2: { inline: [\"+org/apache/spark/sql/varka/vector/" +
@@ -125,7 +135,7 @@ object VarkaInliningCliffProbe {
     // scalastyle:off println
     if (args.length < 3) {
       System.err.println("usage: VarkaInliningCliffProbe <outputs> <fusedCeiling> <seconds> " +
-        "[rows] [c1on|c1off] [cheap|makedate] [none|inline]")
+        "[rows] [c1on|c1off] [cheap|makedate] [none|inline] [callSiteBudget] [heavyGroupOutputs]")
       System.exit(2)
     }
     val outputs = args(0).toInt
@@ -138,24 +148,31 @@ object VarkaInliningCliffProbe {
     val directive = if (args.length > 6) args(6) else "none"
     require(directive == "none" || directive == "inline",
       s"the directive is none or inline, not $directive")
+    val budget =
+      if (args.length > 7) args(7).toInt else VarkaEmitOptions.DEFAULTS.loopCallSiteBudget()
+    val heavy =
+      if (args.length > 8) args(8).toInt else VarkaEmitOptions.DEFAULTS.heavyGroupOutputs()
     val xbatch = if (ManagementFactory.getRuntimeMXBean.getInputArguments.contains("-Xbatch")) {
       "on"
     } else {
       "off"
     }
-    val name = className(outputs, ceiling, c1, kind, directive)
+    val name = className(outputs, ceiling, c1, kind, directive, budget, heavy)
     println(s"$BEGIN_PREFIX$name pid=${ProcessHandle.current().pid()} outputs=$outputs " +
-      s"ceiling=$ceiling c1=$c1 xbatch=$xbatch shape=$kind directive=$directive")
+      s"ceiling=$ceiling c1=$c1 xbatch=$xbatch shape=$kind directive=$directive " +
+      s"budget=$budget heavy=$heavy")
     if (c1 == "off" || directive == "inline") {
       addDirective(excludeC1 = c1 == "off", inline = directive == "inline")
     }
     val fused = shape(kind, outputs)
     val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
-      fused.numLiterals, null, null, VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling))
+      fused.numLiterals, null, null,
+      VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withLoopCallSiteBudget(budget)
+        .withHeavyGroupOutputs(heavy))
+    val measured = VarkaEmittedClass.measure(bytes)
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala
       .filter(_.startsWith("loop"))
-      .map(m => s"$m:${VarkaEmitterTestSupport.codeSize(bytes, m)}:" +
-        VarkaEmitterTestSupport.invocationCount(bytes, m, "jdk.incubator.vector.IntVector"))
+      .map(m => s"$m:${measured.codeLength.get(m)}:${measured.vectorCallSites.get(m)}")
       .mkString(","))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
     loader.defineGeneratedClass(name, bytes)
