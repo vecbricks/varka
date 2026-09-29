@@ -37,7 +37,9 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 object VarkaArrowSessions {
 
   /**
-   * A local, one-core session whose cache is Arrow, with the Varka rule when asked for.
+   * A local session whose cache is Arrow, with the Varka rule when asked for; one core unless
+   * `master` says otherwise, since every ladder times one core and the parallel ladder (task
+   * 197) is the one that asks for `local[*]`.
    *
    * The kernel warm-up is off unless asked for: every Varka benchmark but the cold-start one
    * times steady state and checks that the kernel served its batches (`VarkaSizeLadder.
@@ -46,9 +48,10 @@ object VarkaArrowSessions {
   def createSession(
       appName: String,
       varkaEnabled: Boolean,
-      warmupEnabled: Boolean = false): SparkSession = {
+      warmupEnabled: Boolean = false,
+      master: String = "local[1]"): SparkSession = {
     val builder = SparkSession.builder()
-      .master("local[1]")
+      .master(master)
       .appName(appName)
       .config(UI_ENABLED.key, false)
       .config(SQLConf.SHUFFLE_PARTITIONS.key, 1)
