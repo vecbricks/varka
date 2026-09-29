@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution.benchmark
 
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec, VarkaFilterExecBase,
   WholeStageCodegenExec}
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryTableScanExec}
