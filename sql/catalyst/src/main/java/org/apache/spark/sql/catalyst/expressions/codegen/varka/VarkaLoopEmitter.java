@@ -381,16 +381,33 @@ public final class VarkaLoopEmitter {
           .withMethodBody("run", analysis.bodyDesc(), AccessFlag.PUBLIC.mask(),
               (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis));
       if (analysis.hasScratch()) {
-        // The seven-argument form is the one every caller without scratch reaches through the
-        // interface's defaults; a kernel that needs the address refuses it by name rather than
-        // read an address it was not given. The size is the interface's question about how
-        // much a caller passes per row.
+        // The form without the address, which every caller that drives a kernel as a function
+        // of its arguments reaches: it takes the thread's fallback buffer for its rows
+        // (VarkaScratch) and runs the form with the address. The callers that pass their own
+        // scratch never come through here. The size is the interface's question about how much
+        // a caller passes per row.
         b.withMethodBody("run", analysis.lane.runDesc, AccessFlag.PUBLIC.mask(),
-            (CodeBuilder cb) -> VarkaBodyEmitter.emitThrow(cb,
-                ClassDesc.of("java.lang.UnsupportedOperationException"),
-                classDesc.displayName() + " materializes a calendar prefix and needs "
-                    + analysis.scratchBytesPerRow() + " bytes of scratch per row: call run"
-                    + " with the scratch address"));
+            (CodeBuilder cb) -> {
+              Lane lane = analysis.lane;
+              cb.aload(0);
+              cb.aload(P_SRC_DATA);
+              cb.aload(P_SRC_VALIDITY);
+              cb.aload(P_NULL_COUNT);
+              cb.aload(P_DST_DATA);
+              cb.aload(P_DST_VALIDITY);
+              cb.aload(P_SCALAR_ARGS);
+              if (lane.pLongArgs >= 0) {
+                cb.aload(lane.pLongArgs);
+              }
+              cb.iload(lane.pLength);
+              cb.loadConstant(analysis.scratchBytesPerRow());
+              cb.iload(lane.pLength);
+              cb.invokestatic(ClassDesc.of(VarkaScratch.class.getName()), "forRows",
+                  MethodTypeDesc.of(ConstantDescs.CD_long, ConstantDescs.CD_int,
+                      ConstantDescs.CD_int));
+              cb.invokevirtual(classDesc, "run", lane.runDescScratch);
+              cb.ireturn();
+            });
         b.withMethodBody("scratchBytesPerRow", MethodTypeDesc.of(ConstantDescs.CD_int),
             AccessFlag.PUBLIC.mask(), (CodeBuilder cb) -> {
               cb.loadConstant(analysis.scratchBytesPerRow());

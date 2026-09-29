@@ -468,8 +468,12 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       val col = new ColumnRef(0)
       new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
     }
-    val on = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
-    val legacy = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
+    // The recomputing arm: the materialized prefix (task 198) needs the budget's per-group
+    // methods, so the legacy form cannot carry it, and the switch this test reads would
+    // otherwise move the producer's op count by its stores.
+    val recompute = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(false)
+    val on = recompute.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+    val legacy = recompute.withMethodByteBudget(0)
     def sizes(n: Int, options: VarkaEmitOptions): Map[String, Int] = {
       val bytes = emitMulti(ladder(n), 1, n, options)._2
       VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
@@ -522,7 +526,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // than any group.
     val rungs = Seq(4, 8, 12, 13, 14, 16, 32, 60)
     for (lanes <- Seq(0, 4)) {
-      val off = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes).withMethodByteBudget(0)
+      // The recomputing arm, for the reason step 3a's test gives.
+      val off = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(false)
+        .withLanesOverride(lanes).withMethodByteBudget(0)
       val on = off.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
       for (n <- rungs) {
         val roots = VarkaHugeMethodProbe.ladder(n)
@@ -568,8 +574,11 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // one. The regroup is inside emit, so emitting twice is byte-identical, and the shape
     // cache sees one emission like any other.
     val roots = VarkaHugeMethodProbe.ladder(16)
-    val four = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
-    val split = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(1500)
+    // The recomputing arm: with the prefix materialized (task 198) the consumers pack more
+    // outputs per group and the four groups this test counts become three.
+    val recompute = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(false)
+    val four = recompute.withMethodByteBudget(VarkaEmitBudget.HUGE_METHOD_LIMIT)
+    val split = recompute.withMethodByteBudget(1500)
     val bytes = emitMulti(roots, 1, 16, split)._2
     val names = VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
     val loops = names.count(_.startsWith("loopMasked"))
@@ -870,5 +879,39 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       assert(ownWordScratch === region)
       consumersLighter(ownWord, 1 to 1)
     }
+  }
+
+  test("with the prefix materialized by default, no corpus shape takes more loop-method groups") {
+    // Prediction 5 of PLAN_TASK_198.md 8.7 over the fuzzer's own shapes: a consumer weighs six
+    // loads where a prefix weighed thirty-one, so a grouping can only tighten. Read as the
+    // count of loop methods per shape, on against off, over a prefix of the corpus's sequence
+    // (VarkaIrGrammar's draw and seed, as VarkaEmittedBytesSuite reads them); a shape either
+    // arm declines is left out, since it has no grouping to count.
+    val on = VarkaEmitOptions.DEFAULTS
+    val off = on.withMaterializeChronoPrefix(false)
+    def loops(drawn: VarkaIrGrammar.Drawn, options: VarkaEmitOptions): Option[Int] = {
+      try {
+        val names = methodNames(emitMulti(drawn.roots, drawn.numInputs, drawn.numLiterals, options))
+        Some(math.max(names.count(_.startsWith("loopDense")),
+          names.count(_.startsWith("loopMasked"))))
+      } catch {
+        case _: VarkaEmitDeclined | _: IllegalArgumentException => None
+      }
+    }
+    var counted = 0
+    var fewer = 0
+    for (k <- 0 until 400) {
+      val drawn = VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(VarkaIrGrammar.fuzzSeed, k))
+      (loops(drawn, on), loops(drawn, off)) match {
+        case (Some(a), Some(b)) =>
+          counted += 1
+          assert(a <= b, s"shape $k takes $a loop-method groups with the prefix materialized " +
+            s"and $b without: ${drawn.roots}")
+          if (a < b) fewer += 1
+        case _ =>
+      }
+    }
+    assert(counted >= 200, s"only $counted of 400 shapes emitted under both arms")
+    logInfo(s"$fewer of $counted corpus shapes take fewer groups with the prefix materialized")
   }
 }

@@ -105,17 +105,21 @@ public interface VarkaFusedKernel {
    * How many bytes of scratch a call must pass per row: zero for every kernel that materializes
    * no calendar prefix (task 198), which ignores the address. A caller allocates
    * {@code scratchBytesPerRow() * length} bytes and passes their address to the two overloads
-   * below; a kernel with scratch owns none of it, so a call still allocates nothing.
+   * below; a kernel with scratch owns none of it, so a call still allocates nothing. A caller
+   * that uses the forms without the address on such a kernel gets the thread's fallback buffer
+   * ({@link VarkaScratch}), which is for the suites and the tools; the evaluator and the warm-up
+   * pass their own.
    */
   default int scratchBytesPerRow() {
     return 0;
   }
 
   /**
-   * The seven-argument {@code run} with the scratch address after the length: the form every
-   * caller uses. A kernel with no scratch inherits this default, which drops the address and
-   * runs the seven-argument form, so its emitted bytes are unchanged; a kernel with scratch
-   * implements this one, and its seven-argument form throws by name.
+   * The seven-argument {@code run} with the scratch address after the length: the form the
+   * evaluator and the warm-up use. A kernel with no scratch inherits this default, which drops
+   * the address and runs the seven-argument form, so its emitted bytes are unchanged; a kernel
+   * with scratch implements this one, refuses a zero address by name, and its seven-argument
+   * form takes the thread's fallback buffer and calls this one.
    */
   default int run(long[] srcData, long[] srcValidity, int[] srcNullCount,
       long[] dstData, long[] dstValidity, int[] scalarArgs, int length, long scratch) {

@@ -459,8 +459,8 @@ built as 8.3 says is not repeated here; what differs from it is:
   to materialize implements the old form as before, so its bytes are unchanged -
   `emitted_bytes.json` is unmoved with no regeneration, and a caller that never meets a
   materialized kernel needs no change. A kernel with scratch implements the new form, an old
-  form that throws `UnsupportedOperationException` naming the kernel and its bytes per row,
-  and `scratchBytesPerRow()`. The production callers, the evaluator and the warm-up, and the
+  form that took the thread's fallback buffer once the default flipped (section 11; it threw
+  by name until then), and `scratchBytesPerRow()`. The production callers, the evaluator and the warm-up, and the
   test harnesses that drive kernels under arbitrary options, call the new form always; the
   parity and arithmetic benchmarks keep the old form, which is right for them since their
   options never materialize.
@@ -585,3 +585,24 @@ What the sixty-group arms say beyond the predictions: at ceiling 100 and 50 ever
 its own group, so fifty-nine consumers load a prefix one producer stores, and the arm still
 halves the time of recomputation - the stores and loads through L1 cost a small fraction of
 the decomposition they replace, on both widths.
+
+## 11. The default, 29 September 2026
+
+Step 5 of 8.10: `materializeChronoPrefix` is on by default, the shape key renders the off arm,
+and the tests that read the recomputing arm name it. Two things the flip found:
+
+* **The form without the address had forty callers.** The suites, the probes and the tools
+  drive a kernel as a function of its arguments through the seven-argument `run`, which a
+  kernel with scratch refused by name; behind the default every multi-group calendar kernel
+  refused, and `VarkaKernelWarmupSuite` and `VarkaHugeMethodSuite` fell over in the first run
+  of the flip. Rather than teach forty sites about scratch, the seven-argument form of such a
+  kernel now takes a fallback buffer of the thread (`VarkaScratch`, from the global arena,
+  doubled on demand, never freed) and calls its own eight-argument form; the explicit zero
+  address is still refused. The evaluator and the warm-up pass their own scratch and never come
+  through it. The corpus was regenerated twice, for the flip and for the fallback body.
+* **Prediction 5 as a test.** `VarkaEmitterBudgetSuite` emits the first four hundred shapes of
+  the corpus's sequence under both arms and asserts no shape takes more loop-method groups
+  with the prefix materialized, which is the property the weights were written to have.
+
+The ladders regenerated at both widths on the laptop and the size ladder on a 9V45 runner
+follow below, with predictions 3 and 5 scored.

@@ -1826,12 +1826,13 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("the scratch contract: a kernel with a materialized prefix refuses a zero address " +
-      "and the seven-argument run by name, one without runs with a zero, and a declined " +
-      "batch declines the same either way") {
-    // Task 198. The address travels as an eighth argument; a kernel that needs it says so
-    // rather than read through zero, and a kernel that does not ignores what it is passed,
-    // which is what lets every caller use the one form.
+  test("the scratch contract: a kernel with a materialized prefix refuses a zero address, " +
+      "serves its seven-argument run from the thread's buffer, one without runs with a zero, " +
+      "and a declined batch declines the same either way") {
+    // Task 198. The address travels as an eighth argument; a kernel that needs it refuses a
+    // zero rather than read through it, and takes the thread's fallback buffer when a caller
+    // uses the form without the address; a kernel that does not need it ignores what it is
+    // passed, which is what lets every caller use the one form.
     val on = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
       .withGroupBudget(1).withFusedCeiling(1)
     val col = new ColumnRef(0)
@@ -1854,10 +1855,8 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
         kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, length, 0L)
       }
       assert(zero.getMessage.contains("bytes of scratch per row"), zero.getMessage)
-      val seven = intercept[UnsupportedOperationException] {
-        kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none, length)
-      }
-      assert(seven.getMessage.contains("call run with the scratch address"), seven.getMessage)
+      assert(kernel.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
+        length) === 0)
       assert(plain.run(Array(data.address()), Array(0L), Array(0), dst, dstValidity, none,
         length, 0L) === 0)
       val scratch = arena.allocate(kernel.scratchBytesPerRow().toLong * length, 64)
