@@ -487,8 +487,9 @@ laptop reading is quoted.
 > the price of the four columns an entry's `add_months`, `date_add`, `last_day` and `greatest`
 > write and read. Below the cliff that makes it 2.9 times slower than Spark 4.1.3, whose
 > whole-stage code keeps an entry's values in locals; at a hundred entries, past the cliff, it
-> is 1.7 times faster. Varka runs the same hundred entries at 97.1 ns a row, 59 times faster
-> than vecruntime. Having no cliff is all an engine of that kind gets; fusion is what keeps the
+> is 1.7 times faster, though with `hugeMethodLimit=8000` vanilla Spark is 2.7 times faster
+> than it. Varka runs the same hundred entries at 97.1 ns a row, 59 times faster than
+> vecruntime. Having no cliff is all an engine of that kind gets; fusion is what keeps the
 > intermediate values out of memory, as whole-stage code does, without its limit.
 >
 > Two bounds on those numbers. vecruntime leaves a cached table to Spark, so it reads Parquet
@@ -512,8 +513,10 @@ the sentence stands (`PLAN_TASK_202.md` 7). The second paragraph's last sentence
 claim and `PLAN_TASK_202.md`'s prediction 4, which held by a factor of fifty-nine against ten. A
 second 9V45 run, the repeat, moves none of the four numbers by more than 4%.
 
-One comparison the draft leaves out. Section 2's third claim has the post show that Spark can
-tune its way off the cliff, and with `hugeMethodLimit=8000` the fork's vanilla runs the ladder 2.5
-to 3.0 times faster than vecruntime at every rung (`PLAN_TASK_202.md` 7): vecruntime is faster
-than Spark only under Spark's defaults. The draft's "1.7 times faster" is true of the defaults and
-says so only by context; a clause naming the setting would close that, at the cost of a sentence.
+The clause after "1.7 times faster" was added the same day, on the owner's decision. The first
+draft compared vecruntime with Spark's defaults only, while section 3.5 shows tuned vanilla beside
+the ladder figure, and with `hugeMethodLimit=8000` the fork's vanilla runs the ladder 2.5 to 3.0
+times faster than vecruntime at every rung (`PLAN_TASK_202.md` 7): vecruntime is faster than
+Spark only under Spark's defaults. The clause's 2.7 is vecruntime at 100 entries over tuned
+vanilla's 2155.6 on the 9V45 (`VarkaSizeLadderTuningBenchmark-jdk25-runner`), which reads the
+cache; the third paragraph's bound on the input covers it as it covers Varka's 97.1.

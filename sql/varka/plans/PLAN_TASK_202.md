@@ -189,7 +189,7 @@ per-expression methods on this machine: task 192's `wholeStage=false` arm costs 
 the defaults at the same rungs (`VarkaSizeLadderTuningBenchmark-jdk25-runner`). The same file's
 `hugeMethodLimit=8000` arm, the setting that removes whole-stage code's step, is 2.5 to 3.0 times
 faster than vecruntime at every rung, over its cache. So vecruntime beats Spark only under Spark's
-defaults, and 3.7 as drafted compares against the defaults alone (`PLAN_TASK_181.md` 13).
+defaults, and 3.7 says so in a clause that names the setting (`PLAN_TASK_181.md` 13).
 
 **The chains** were not dispatched. The admission check found the plugin converting none of the
 twelve (section 2), and the driver would fail the arm on the first; that finding is the result for
