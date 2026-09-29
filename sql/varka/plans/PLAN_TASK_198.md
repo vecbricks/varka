@@ -654,4 +654,68 @@ commit before the flip:
   rather than twelve. The same fork compiles once and runs at 91 to 101 M rows/s, the
   pre-flip fork's 85 to 89. The cycle map over 8, 12, 16 and 60 outputs at both widths on the
   batches path, two forks each: 0 of 16 in the cycle, against 21 of 24 for the flip's six
-  segments per region. The suites and the benchmarks follow below.
+  segments per region. Every Varka suite of both modules passes on it.
+
+**The benchmarks under the fix**, regenerated on the laptop the same day; against the
+committed files, which are the ones from before the flip (the flip's laptop files were never
+committed, see above). Per row, nanoseconds, the null-free even-chunk case of the method-size
+ladder's per-group arm:
+
+| outputs | 256-bit before | 256-bit fix | 128-bit before | 128-bit fix |
+|---:|---:|---:|---:|---:|
+| 4 | 1.7 | 1.6 | 6.2 | 6.2 |
+| 8 | 3.6 | 3.2 | 11.2 | 10.3 |
+| 12 | 4.9 | 4.4 | 18.0 | 13.4 |
+| 16 | 7.7 | 5.0 | 24.6 | 14.6 |
+| 32 | 14.8 | 9.4 | 47.1 | 27.9 |
+| 60 | 27.0 | 17.0 | 85.2 | 49.5 |
+
+The same gains the flip measured, 11% to 37% at 256 bits and 8% to 42% at 128 from eight
+outputs up, with the mixed-null arm 4% to 29% behind them, and the eight-output rung at 128
+bits, the cycle's, at 10.3 against the flip's 1450.
+
+**The size ladder on the 9V45 under the fix**, four runs from thirty-six pinned dispatches
+that landed on one the same hour (runs 36549685302, 36549679288, 36549672688 and 36549669123;
+the first, nearest the median at a hundred entries, is the committed file). Varka's nanoseconds
+per row across the four, against the flip's six-segment run and the file before the flip:
+
+| entries | fix, four runs | flip (six segments) | before the flip |
+|---:|---:|---:|---:|
+| 16 | 25.9 to 28.3 | 27.7 | 33.2 |
+| 32 | 36.2 to 43.9 | 40.5 | 52.2 |
+| 48 | 52.4 to 58.8 | 54.1 | 68.5 |
+| 52 | 55.5 to 58.2 | 55.5 | 66.9 |
+| 54 | 57.0 to 66.2 | 54.0 | 69.6 |
+| 56 | 54.5 to 59.8 | 55.7 | 65.4 |
+| 64 | 63.0 to 67.2 | 60.7 | 72.8 |
+| 80 | 72.1 to 79.2 | 79.2 | 91.1 |
+| 100 | 87.3 to 98.9 | 97.9 | 111.4 |
+
+The one segment costs nothing the runner can see against the six: the flip's run sits inside
+the fix's spread at every rung. Against the file before the flip, a hundred entries is 11% to
+22% faster across the four runs, prediction 3's 10% held on the runner in every one; the
+four runs' spread, 5% to 21% per rung, is the shared VMs' own, and vanilla's rows spread 5% to
+25% across the same four.
+
+**The laptop's size ladder under the fix**, both widths, against the file before the flip;
+Varka's nanoseconds per row, vanilla within 1% at 256 bits and 11% to 13% faster at 128 bits
+below the cliff (a day's drift of the laptop, the same in both arms' direction):
+
+| entries | 256-bit before | 256-bit fix | 128-bit before | 128-bit fix |
+|---:|---:|---:|---:|---:|
+| 16 | 30.2 | 27.5 | 57.4 | 47.8 |
+| 32 | 46.7 | 41.4 | 102.6 | 78.6 |
+| 48 | 64.9 | 54.9 | 148.0 | 109.2 |
+| 52 | 71.0 | 57.9 | 156.2 | 117.0 |
+| 54 | 70.6 | 61.4 | 163.0 | 120.0 |
+| 56 | 71.9 | 61.2 | 167.3 | 123.7 |
+| 64 | 79.5 | 68.4 | 190.3 | 143.8 |
+| 80 | 99.6 | 84.4 | 235.0 | 171.7 |
+| 100 | 122.8 | 106.1 | 292.9 | 216.2 |
+
+Faster at every rung: 9% to 18% at 256 bits and 17% to 27% at 128, with 52 to 56 entries at
+13% to 18% where the flip's first run had them 46% to 50% slower and its second 14% to 17%
+faster. **Prediction 3 holds** on the laptop as on the runner: a hundred entries is 14% faster
+at 256 bits and 26% at 128, against at least 10%. The band runs of section 13 say how much of
+the 52-to-56 swing was the day and how much the kernels. The emission benchmark and the
+shared-prefix benchmark follow.

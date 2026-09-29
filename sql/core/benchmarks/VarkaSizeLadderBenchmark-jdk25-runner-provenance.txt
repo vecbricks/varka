@@ -1,10 +1,13 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSizeLadderBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks"),
-             pinned to the 9V45 by expected-cpu (one of twelve dispatches landed on it)
-run:         https://github.com/MaxGekk/spark/actions/runs/36530580401
-commit:      caad735d544 (varka-task-198-default: master defe20108c4 plus the default flip of
-             materializeChronoPrefix, with the workflow's Varka engine jar on --jars)
-date:        2026-09-29T06:20:39Z
+             pinned to the 9V45 by expected-cpu; four of thirty-six dispatches landed on one,
+             and this file is the run nearest the median of the four at a hundred entries
+run:         https://github.com/MaxGekk/spark/actions/runs/36549685302
+             (the other three: 36549679288, 36549672688, 36549669123; their Varka rows are
+             within 5% to 21% of each other per rung, PLAN_TASK_198.md 12)
+commit:      4cedebc4719 (varka-task-198-outcome: master 872b59c0c92, the flip, plus one segment
+             for the scratch, with the workflow's Varka engine jar on --jars)
+date:        2026-09-29T09:31:08Z
 inputs:      class=*VarkaSizeLadderBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
              generate-tpcds=false expected-cpu="AMD EPYC 9V45"
              extra-java-options=--add-modules jdk.incubator.vector
@@ -13,6 +16,6 @@ kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 9V45 96-Core Processor, the pool's full-width 512-bit machine
              (its datapath probe reads 512:256 at about 2; sql/varka/HARDWARE.md)
 pinned to:   none inside the runner (the file is the workflow's artifact unchanged)
-supersedes:  the run of 24 September 2026 (35986894315), before the calendar prefix was
-             computed once per batch; its numbers stay in PLAN_TASK_171.md 9.2 and
-             PLAN_TASK_198.md 11
+supersedes:  the flip's run of the same morning (36530580401, six scratch segments per region)
+             and the run of 24 September 2026 (35986894315), before the prefix was computed
+             once per batch; their numbers stay in PLAN_TASK_171.md 9.2 and PLAN_TASK_198.md

@@ -6,104 +6,104 @@ OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 4 make_date outputs over 1000000 rows in chunks:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     2              2           0        568.0           1.8       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                   2              2           0        441.9           2.3       0.8X
-single epilogue, chunk 1031 (ragged), null-free                   2              2           0        618.8           1.6       1.1X
-single epilogue, chunk 1031 (ragged), mixed nulls                 2              2           0        431.2           2.3       0.8X
-epilogue per group, chunk 1024 (even), null-free                  2              2           0        590.6           1.7       1.0X
-epilogue per group, chunk 1024 (even), mixed nulls                2              2           0        434.1           2.3       0.8X
-epilogue per group, chunk 1031 (ragged), null-free                2              2           0        524.6           1.9       0.9X
-epilogue per group, chunk 1031 (ragged), mixed nulls              2              2           0        442.8           2.3       0.8X
+single epilogue, chunk 1024 (even), null-free                     2              2           0        607.0           1.6       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                   2              2           0        429.1           2.3       0.7X
+single epilogue, chunk 1031 (ragged), null-free                   2              2           0        598.1           1.7       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls                 2              2           0        422.4           2.4       0.7X
+epilogue per group, chunk 1024 (even), null-free                  2              2           0        607.1           1.6       1.0X
+epilogue per group, chunk 1024 (even), mixed nulls                2              2           0        437.3           2.3       0.7X
+epilogue per group, chunk 1031 (ragged), null-free                2              2           0        577.0           1.7       1.0X
+epilogue per group, chunk 1031 (ragged), mixed nulls              2              2           0        421.5           2.4       0.7X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 8 make_date outputs over 1000000 rows in chunks:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     4              4           0        267.2           3.7       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                   5              5           0        207.3           4.8       0.8X
-single epilogue, chunk 1031 (ragged), null-free                   4              4           0        263.9           3.8       1.0X
-single epilogue, chunk 1031 (ragged), mixed nulls                 5              5           0        216.0           4.6       0.8X
-epilogue per group, chunk 1024 (even), null-free                  4              4           0        274.6           3.6       1.0X
-epilogue per group, chunk 1024 (even), mixed nulls                5              5           0        210.3           4.8       0.8X
-epilogue per group, chunk 1031 (ragged), null-free                4              4           0        271.6           3.7       1.0X
-epilogue per group, chunk 1031 (ragged), mixed nulls              5              5           0        220.9           4.5       0.8X
+single epilogue, chunk 1024 (even), null-free                     4              4           0        267.7           3.7       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                   5              5           0        213.8           4.7       0.8X
+single epilogue, chunk 1031 (ragged), null-free                   4              4           0        266.0           3.8       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls                 5              5           0        205.8           4.9       0.8X
+epilogue per group, chunk 1024 (even), null-free                  3              3           0        314.2           3.2       1.2X
+epilogue per group, chunk 1024 (even), mixed nulls                4              4           0        248.8           4.0       0.9X
+epilogue per group, chunk 1031 (ragged), null-free                3              3           0        322.0           3.1       1.2X
+epilogue per group, chunk 1031 (ragged), mixed nulls              4              4           0        245.1           4.1       0.9X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 12 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     6              6           0        170.8           5.9       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                   7              7           0        134.0           7.5       0.8X
-single epilogue, chunk 1031 (ragged), null-free                   6              6           0        170.6           5.9       1.0X
-single epilogue, chunk 1031 (ragged), mixed nulls                 7              7           0        135.2           7.4       0.8X
-epilogue per group, chunk 1024 (even), null-free                  5              6           0        202.7           4.9       1.2X
-epilogue per group, chunk 1024 (even), mixed nulls                7              7           0        143.1           7.0       0.8X
-epilogue per group, chunk 1031 (ragged), null-free                6              6           0        172.6           5.8       1.0X
-epilogue per group, chunk 1031 (ragged), mixed nulls              7              7           0        142.3           7.0       0.8X
+single epilogue, chunk 1024 (even), null-free                     6              6           0        165.1           6.1       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                   7              7           0        137.0           7.3       0.8X
+single epilogue, chunk 1031 (ragged), null-free                   6              6           0        165.5           6.0       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls                 7              7           0        136.3           7.3       0.8X
+epilogue per group, chunk 1024 (even), null-free                  4              4           0        229.5           4.4       1.4X
+epilogue per group, chunk 1024 (even), mixed nulls                6              6           0        172.1           5.8       1.0X
+epilogue per group, chunk 1031 (ragged), null-free                4              4           0        256.2           3.9       1.6X
+epilogue per group, chunk 1031 (ragged), mixed nulls              6              6           0        165.9           6.0       1.0X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 13 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     6              6           0        166.5           6.0       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                   8              8           0        120.9           8.3       0.7X
-single epilogue, chunk 1031 (ragged), null-free                   6              6           0        163.9           6.1       1.0X
-single epilogue, chunk 1031 (ragged), mixed nulls                25             25           0         40.7          24.6       0.2X
-epilogue per group, chunk 1024 (even), null-free                  5              6           0        197.7           5.1       1.2X
-epilogue per group, chunk 1024 (even), mixed nulls                8              8           0        132.9           7.5       0.8X
-epilogue per group, chunk 1031 (ragged), null-free                6              6           0        170.6           5.9       1.0X
-epilogue per group, chunk 1031 (ragged), mixed nulls              8              8           0        131.7           7.6       0.8X
+single epilogue, chunk 1024 (even), null-free                     6              6           0        164.1           6.1       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                   8              8           0        121.8           8.2       0.7X
+single epilogue, chunk 1031 (ragged), null-free                   6              6           0        162.3           6.2       1.0X
+single epilogue, chunk 1031 (ragged), mixed nulls                24             25           0         40.8          24.5       0.2X
+epilogue per group, chunk 1024 (even), null-free                  4              4           0        226.8           4.4       1.4X
+epilogue per group, chunk 1024 (even), mixed nulls                6              6           0        161.2           6.2       1.0X
+epilogue per group, chunk 1031 (ragged), null-free                4              4           0        224.6           4.5       1.4X
+epilogue per group, chunk 1031 (ragged), mixed nulls              6              6           0        156.9           6.4       1.0X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 14 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     7              7           0        143.8           7.0       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                   9              9           0        116.0           8.6       0.8X
-single epilogue, chunk 1031 (ragged), null-free                  23             24           0         43.5          23.0       0.3X
-single epilogue, chunk 1031 (ragged), mixed nulls                26             27           0         38.6          25.9       0.3X
-epilogue per group, chunk 1024 (even), null-free                  6              6           0        168.4           5.9       1.2X
-epilogue per group, chunk 1024 (even), mixed nulls                8              8           0        130.4           7.7       0.9X
-epilogue per group, chunk 1031 (ragged), null-free                5              6           0        190.3           5.3       1.3X
-epilogue per group, chunk 1031 (ragged), mixed nulls              8              8           0        127.7           7.8       0.9X
+single epilogue, chunk 1024 (even), null-free                     7              7           0        152.7           6.5       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                   9              9           0        115.4           8.7       0.8X
+single epilogue, chunk 1031 (ragged), null-free                  23             24           0         43.6          22.9       0.3X
+single epilogue, chunk 1031 (ragged), mixed nulls                26             27           1         38.5          26.0       0.3X
+epilogue per group, chunk 1024 (even), null-free                  4              5           0        246.1           4.1       1.6X
+epilogue per group, chunk 1024 (even), mixed nulls                6              7           0        154.8           6.5       1.0X
+epilogue per group, chunk 1031 (ragged), null-free                5              5           0        217.0           4.6       1.4X
+epilogue per group, chunk 1031 (ragged), mixed nulls              7              7           0        149.8           6.7       1.0X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                     8              9           0        119.9           8.3       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                  11             11           0         94.4          10.6       0.8X
-single epilogue, chunk 1031 (ragged), null-free                  27             28           0         37.1          26.9       0.3X
+single epilogue, chunk 1024 (even), null-free                     9              9           0        111.8           8.9       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                  10             10           0         95.8          10.4       0.9X
+single epilogue, chunk 1031 (ragged), null-free                  27             28           0         36.7          27.2       0.3X
 single epilogue, chunk 1031 (ragged), mixed nulls                30             31           0         32.9          30.4       0.3X
-epilogue per group, chunk 1024 (even), null-free                  8              8           0        129.1           7.7       1.1X
-epilogue per group, chunk 1024 (even), mixed nulls                9              9           0        106.3           9.4       0.9X
-epilogue per group, chunk 1031 (ragged), null-free                7              8           0        145.1           6.9       1.2X
-epilogue per group, chunk 1031 (ragged), mixed nulls             10             10           0        104.9           9.5       0.9X
+epilogue per group, chunk 1024 (even), null-free                  5              5           0        198.1           5.0       1.8X
+epilogue per group, chunk 1024 (even), mixed nulls                7              7           0        140.4           7.1       1.3X
+epilogue per group, chunk 1031 (ragged), null-free                5              5           0        196.7           5.1       1.8X
+epilogue per group, chunk 1031 (ragged), mixed nulls              7              7           0        134.6           7.4       1.2X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                    16             18           0         60.9          16.4       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                  22             22           0         46.0          21.7       0.8X
-single epilogue, chunk 1031 (ragged), null-free                  54             55           1         18.5          53.9       0.3X
-single epilogue, chunk 1031 (ragged), mixed nulls                61             63           2         16.3          61.2       0.3X
-epilogue per group, chunk 1024 (even), null-free                 15             15           0         67.7          14.8       1.1X
-epilogue per group, chunk 1024 (even), mixed nulls               19             19           0         53.8          18.6       0.9X
-epilogue per group, chunk 1031 (ragged), null-free               15             15           0         67.0          14.9       1.1X
-epilogue per group, chunk 1031 (ragged), mixed nulls             19             19           0         53.0          18.9       0.9X
+single epilogue, chunk 1024 (even), null-free                    18             18           0         55.9          17.9       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                  21             21           0         47.1          21.2       0.8X
+single epilogue, chunk 1031 (ragged), null-free                  54             56           1         18.5          53.9       0.3X
+single epilogue, chunk 1031 (ragged), mixed nulls                60             61           1         16.6          60.2       0.3X
+epilogue per group, chunk 1024 (even), null-free                  9              9           0        106.0           9.4       1.9X
+epilogue per group, chunk 1024 (even), mixed nulls               14             14           0         71.3          14.0       1.3X
+epilogue per group, chunk 1031 (ragged), null-free                9              9           0        112.1           8.9       2.0X
+epilogue per group, chunk 1031 (ragged), mixed nulls             15             15           0         67.0          14.9       1.2X
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 60 make_date outputs over 1000000 rows in chunks:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-single epilogue, chunk 1024 (even), null-free                    33             35           0         30.1          33.2       1.0X
-single epilogue, chunk 1024 (even), mixed nulls                  42             42           0         24.1          41.6       0.8X
-single epilogue, chunk 1031 (ragged), null-free                 103            105           1          9.7         103.0       0.3X
-single epilogue, chunk 1031 (ragged), mixed nulls               115            117           2          8.7         115.5       0.3X
-epilogue per group, chunk 1024 (even), null-free                 27             27           0         37.0          27.0       1.2X
-epilogue per group, chunk 1024 (even), mixed nulls               34             34           0         29.4          34.0       1.0X
-epilogue per group, chunk 1031 (ragged), null-free               27             27           0         36.7          27.2       1.2X
-epilogue per group, chunk 1031 (ragged), mixed nulls             35             35           0         28.9          34.6       1.0X
+single epilogue, chunk 1024 (even), null-free                    35             35           0         28.7          34.8       1.0X
+single epilogue, chunk 1024 (even), mixed nulls                  41             42           1         24.3          41.1       0.8X
+single epilogue, chunk 1031 (ragged), null-free                 103            104           1          9.7         103.0       0.3X
+single epilogue, chunk 1031 (ragged), mixed nulls               115            116           1          8.7         115.0       0.3X
+epilogue per group, chunk 1024 (even), null-free                 17             17           0         58.9          17.0       2.1X
+epilogue per group, chunk 1024 (even), mixed nulls               26             27           0         37.8          26.4       1.3X
+epilogue per group, chunk 1031 (ragged), null-free               17             17           0         58.3          17.2       2.0X
+epilogue per group, chunk 1031 (ragged), mixed nulls             27             28           0         36.8          27.2       1.3X
 
 

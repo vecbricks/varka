@@ -1,12 +1,12 @@
 benchmark:   org.apache.spark.sql.VarkaMethodSizeBenchmark
-commit:      ed5949ec6b4
-date:        2026-09-23T22:31:34Z
+commit:      4cedebc4719
+date:        2026-09-29T09:34:10Z
 jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
 kernel:      7.0.0-31-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 power:       governor=performance epp=performance profile=performance
 pinned to:   taskset -c 0,12,13,14,15,1,2,3
-load at start: 0.61
-canary:      ok (compute +0.2% cache -2.2% memory -0.9% )
+load at start: 0.75
+canary:      ok (compute +0.2% cache +0.5% memory -0.7% )
 wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaMethodSizeBenchmark
 narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaMethodSizeBenchmark"
