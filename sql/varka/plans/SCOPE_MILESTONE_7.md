@@ -3832,7 +3832,8 @@ The grouping pass prices a node by `VarkaEmitBudget.weightOf`, a hand-maintained
 described as the lane operations a lowering emits. Task 209 read the emitted count beside it: a
 cheap `year(d) + k` tail weighs a field's seven plus one and emits three Vector API call sites,
 so the register over-counts the shape the fused ceiling is set for by more than two, and row 148
-had already found a division weighed wrong. With two budgets now read off the built class - the
+had already found a division weighed wrong. *Task 148 corrected that weight on 29 September 2026
+and handed this item its second question, what weights are for (`PLAN_TASK_148.md` 9.3).* With two budgets now read off the built class - the
 bytes and the call sites - the weights decide only the first grouping, and the regroup corrects
 a group that measures over a limit but never one that measures under, so an over-count means
 more loop methods than the limits need, and a method's fixed cost per batch for each.

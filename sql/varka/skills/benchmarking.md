@@ -239,6 +239,12 @@ reading a diff as a regression.
   excluded, and check the tool can produce the target before the number is registered.
   `dev/varka_emit.sh` now prints the validity count beside `IntVector` and `VectorMask`,
   so the check is a command rather than an argument.
+- The converse holds too: one owner can miss the work. The int lane's constant division
+  runs eight of its eleven operations on `LongVector` and on `Vector` itself, so a count of
+  `IntVector` calls, the test base's `laneOps`, reads it as three. A weight counted that way
+  under-counts by the operations on other types. The division's register counts every
+  vector type, and subtracts the body of a division by one to take out the load and the
+  store (`PLAN_TASK_148.md` 2).
 
 ## An inventory made by reading is not an inventory made by counting
 

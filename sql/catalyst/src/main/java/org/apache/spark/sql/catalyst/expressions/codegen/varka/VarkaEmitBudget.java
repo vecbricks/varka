@@ -566,12 +566,21 @@ final class VarkaEmitBudget {
   static final int NEXT_DAY_WEIGHT = 15;
 
   /**
-   * {@link VarkaVectorIR.ConstDivide}'s weight: the fourteen lane operations
-   * {@code emitMagicDivide} spends, which is the larger of its two lowerings - the conversion
-   * form spends three. Which one a body will take is not known while the groups are formed, so
-   * the budget is held to the worse case; see the note at the call site in {@link #weightOf}.
+   * {@link VarkaVectorIR.ConstDivide}'s weight at the long lane: the fourteen lane operations
+   * {@code emitMagicDivide} spends, the larger of the lane's two lowerings - the conversion form
+   * spends three. See the note at the call site in {@link #weightOf}.
    */
-  static final int CONST_DIVIDE_WEIGHT = 14;
+  static final int LONG_CONST_DIVIDE_WEIGHT = 14;
+
+  /**
+   * {@link VarkaVectorIR.ConstDivide}'s weight at the int lane: the eleven lane operations
+   * {@code emitMulHiDivide} spends for a positive divisor, the larger of the lane's two
+   * lowerings - the conversion through double lanes spends seven. Each int half widens,
+   * multiplies, shifts and narrows, eight operations on {@code LongVector} and {@code Vector},
+   * and an {@code or}, a shift and an {@code add} finish the quotient. A negative divisor adds a
+   * multiply by -1, which {@link #weightOf} counts on top.
+   */
+  static final int INT_CONST_DIVIDE_WEIGHT = 11;
 
   /**
    * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node has
@@ -585,9 +594,9 @@ final class VarkaEmitBudget {
    * is written as {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@code GroupOps} counts the prefix
    * once.
    *
-   * <p>This is deliberately only about <i>grouping</i>. {@code MAX_FUSED_NODES} still counts
-   * nodes, so a projection may fuse as many calendar fields as it likes; whether they share a
-   * method is {@code groupOutputs}' question.
+   * <p>This is deliberately only about <i>grouping</i>: whether outputs share a loop method is
+   * {@code groupOutputs}' question, and how many a kernel may fuse is the byte budget's, with
+   * {@link #MAX_FUSED_NODES} counting nodes only where that budget is off.
    */
   static int weightOf(VarkaVectorIR node) {
     if (node instanceof ColumnRef || node instanceof LiteralSlot) {
@@ -635,18 +644,16 @@ final class VarkaEmitBudget {
     if (node instanceof DayOfWeekIso) {
       return DAY_OF_WEEK_ISO_WEIGHT;
     }
-    if (node instanceof ConstDivide n && n.laneType() == VarkaVectorIR.LaneType.LONG) {
-      // Weight approximates lane ops, as every entry above does. At the long lane the two forms
-      // are three operations and fourteen, and which one emits cannot be asked here - `weightOf`
-      // runs while the groups are formed, before an `Analysis` exists - so the larger is used.
-      // Over-weighing costs an extra loop method on a host that did not need one; under-weighing
-      // would let sixteen divisions into one body and two hundred operations with them, and the
-      // epilogue is the method no byte budget bounds.
-      //
-      // The int lane keeps the default weight of 1 although its conversion form is seven
-      // operations. That under-count predates this lane and correcting it moves committed
-      // bytes, so it is a task of its own rather than a side effect of this one.
-      return CONST_DIVIDE_WEIGHT;
+    if (node instanceof ConstDivide n) {
+      // Weight approximates lane ops, as every entry above does, counted over every vector type
+      // the lowering touches. Each lane has two forms, and which one emits cannot be asked here -
+      // `weightOf` runs while the groups are formed, before an `Analysis` exists - so the larger
+      // is used. Over-weighing costs an extra loop method on a host that did not need one;
+      // under-weighing puts more work in a method than the budget means, which the byte and
+      // call-site budgets correct only when the built class measures over them.
+      return n.laneType() == VarkaVectorIR.LaneType.LONG
+          ? LONG_CONST_DIVIDE_WEIGHT
+          : INT_CONST_DIVIDE_WEIGHT + (n.divisor() < 0 ? 1 : 0);
     }
     if (node instanceof InRanges) {
       // Emitted as one loop whatever the number of ranges: a start mask, and a body of two scalar

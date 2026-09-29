@@ -325,6 +325,76 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     assert(VarkaEmitBudget.CHRONO_FIELD_TAIL_WEIGHT === 7)
   }
 
+  /** Every lane op `loopDense0` runs, on whichever vector type it runs it: what a weight counts. */
+  private def vectorOps(bytes: Array[Byte]): Int =
+    Seq("IntVector", "LongVector", "DoubleVector", "Vector").map { owner =>
+      VarkaEmitterTestSupport.invocationCount(bytes, "loopDense0", s"jdk.incubator.vector.$owner")
+    }.sum
+
+  test("a constant division weighs the larger of its two forms, counted over every vector type") {
+    // The division's register, asserted off the class file as the calendar register above is.
+    // Each lane has two forms and a body picks one after the groups are formed, so the weight is
+    // the larger. The count takes in every vector type: the int lane's multiply-high form runs
+    // eight of its eleven operations on LongVector and on Vector itself, which a count of
+    // IntVector calls alone would miss. A division by one emits nothing of its own, so a
+    // division's count is its body's less that body's, which takes out the load and the store.
+    def division(lane: LaneType, d: Long): ConstDivide =
+      if (lane == LaneType.INT) new ConstDivide(new ColumnRef(0, lane), d)
+      else new ConstDivide(new ColumnRef(0, lane), d, ConstDivide.EXACT_DIVIDEND_BOUND)
+    def ops(lane: LaneType, d: Long, options: VarkaEmitOptions): Int = {
+      def body(divisor: Long): Int =
+        vectorOps(emitMulti(Seq(division(lane, divisor)), 1, 0, options)._2)
+      body(d) - body(1)
+    }
+    // The int lane, at every divisor the IR grammar draws: the multiply-high form by default,
+    // the conversion through double lanes as the reference arm.
+    for (d <- Seq(2L, 3L, 7L, 12L, 100L, -3L, -12L)) {
+      val mulHi = ops(LaneType.INT, d, VarkaEmitOptions.DEFAULTS)
+      val converting = ops(LaneType.INT, d, VarkaEmitOptions.DEFAULTS.withMulHiDivide(false))
+      assert(mulHi > converting, s"/$d: the multiply-high form should be the larger")
+      val weight = VarkaEmitBudget.weightOf(division(LaneType.INT, d))
+      assert(weight === mulHi,
+        s"/$d weighs $weight and emits $mulHi lane ops - recount INT_CONST_DIVIDE_WEIGHT")
+    }
+    // The long lane: the conversion form where the host's conversions intrinsify, as at
+    // AVX-512, and the magic-number form where they do not, as at AVX2.
+    for (d <- Seq(60L, 1000L, -7L)) {
+      val converting = ops(LaneType.LONG, d, VarkaEmitOptions.DEFAULTS.withUseAVX(3))
+      val magic = ops(LaneType.LONG, d, VarkaEmitOptions.DEFAULTS.withUseAVX(2))
+      assert(magic > converting, s"/$d: the magic form should be the larger")
+      val weight = VarkaEmitBudget.weightOf(division(LaneType.LONG, d))
+      assert(weight === magic,
+        s"/$d weighs $weight and emits $magic lane ops - recount LONG_CONST_DIVIDE_WEIGHT")
+    }
+  }
+
+  test("int-lane divisions over four columns take a loop method each, and a subtraction from " +
+      "one joins its division") {
+    // extract(YEAR FROM ym) over four year-month interval columns: the shape a single output
+    // cannot show, since one division alone forms one group whatever it weighs. Two divisions
+    // weigh 22 against GROUP_BUDGET's 16, so no two share a loop method.
+    def years(c: Int): VarkaVectorIR = new ConstDivide(new ColumnRef(c, LaneType.INT), 12)
+    val four = (0 until 4).map(years)
+    def loops(bytes: Array[Byte]): Seq[String] =
+      VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq.filter(_.startsWith("loopDense"))
+    assert(loops(emitMulti(four, 4, 0)._2) === (0 until 4).map(g => s"loopDense$g"))
+    // extract(YEAR FROM ym) - 1 beside extract(YEAR FROM ym): only the checked subtraction is
+    // new to the division's group, and 11 + 5 is the budget exactly.
+    val minusOne = new IntArith(IntOp.SUB, Overflow.FAIL, years(0), new LiteralSlot(0))
+    assert(loops(emitMulti(Seq(years(0), minusOne), 1, 1)._2) === Seq("loopDense0"))
+    // The four answer as the reference evaluator does at both widths, over dividends of both
+    // signs and on either side of the multiples of twelve.
+    val data = (c: Int, i: Int) => (i - 500) * (c + 7) + i % 12
+    val patterns = Seq(
+      Seq.fill(4)((_: Int) => false),
+      Seq.tabulate(4)(c => (i: Int) => (i + c) % 5 == 0))
+    for (lanes <- Seq(4, 16)) {
+      checkMatrix(four, 4, Array.empty[Int], Seq(1, 17, 1031), patterns, data = data,
+        ctx = s"four divisions at $lanes lanes",
+        options = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes))
+    }
+  }
+
   test("sharing the prefix moves the epilogue's HugeMethodLimit crossing, and the bitmap " +
     "pass moves " +
       "it again: unshared 21 to 22, shared 44 to 49") {

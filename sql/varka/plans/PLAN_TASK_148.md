@@ -152,3 +152,42 @@ measurement of what moved.
    weight alone would fail the oracle, so the two cannot be green apart.
 
 ## 9. Outcome
+
+### 9.1 Built, 29 September 2026
+
+`weightOf` weighs an int-lane division at `INT_CONST_DIVIDE_WEIGHT`, 11, plus one for a negative
+divisor, and the long lane's constant is `LONG_CONST_DIVIDE_WEIGHT`, still 14. The two comments
+section 3.2 names are corrected. `VarkaEmitterBudgetSuite` gains two tests:
+
+* **The division's register.** Each form is counted across every vector type, as the body less
+  a division by one's. At the int lane it checks every divisor the grammar draws, the
+  multiply-high form against the conversion, and at the long lane the magic form against the
+  conversion. The weight equals the larger form at each.
+* **Four divisions over four columns take a loop method each.** A checked subtraction from one
+  of them joins its division, at 11 plus 5, the budget exactly. The four answer as the reference
+  evaluator does at 4 and 16 lanes.
+
+### 9.2 The predictions, scored
+
+1. **Held.** No coverage row's hash moved.
+2. **Held.** No long-lane fuzz block moved.
+3. **Held.** 43 of the 10000 int-lane fuzz shapes moved, each holding an int-lane division and
+   more than one output, and none lost a loop method. 41 gained one loop-method group. Shape 9210
+   gained two: its three outputs, one of them a division, went from one group to one each. Shape
+   931 kept its two groups while an output moved from the first to the second, because its
+   division no longer fits beside the first output. Over the 43 the groups went from 64 to 107.
+   The same shapes moved at both widths, and the fuzz blocks that moved are exactly theirs, 36
+   of the 100 at each width. The shapes are 361, 386, 426, 459, 524, 931, 1168, 1673, 2663,
+   2751, 2965, 3215, 3531, 3728, 4022, 4234, 4336, 4561, 4894, 5229, 5718, 5798, 5819, 5936,
+   6000, 6075, 6198, 6270, 6447, 6818, 7148, 7239, 7591, 8474, 8552, 8640, 9141, 9193, 9210,
+   9549, 9580, 9596 and 9661, each replayable through `VarkaIrFuzzSuite` with
+   `-Dvarka.fuzz.only=<k>`. The list comes from the same scratch dump as section 2, run on the
+   code before and after the change.
+4. **Held.** The four-column projection emits four loop methods where it emitted one.
+5. **Held.** All five `useAVX` option arms moved, at both widths, since each digests every shape.
+
+### 9.3 What the task leaves
+
+Section 2.2a's second question, whether weights should still bound size now that bytes and call
+sites are measured on the built class, is `SCOPE_MILESTONE_7.md` item 63's, as is any speed
+measurement of what accurate weights change.
