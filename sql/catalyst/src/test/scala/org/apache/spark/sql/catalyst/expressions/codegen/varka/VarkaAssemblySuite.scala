@@ -177,20 +177,17 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
     /** The child's own `IntVector.SPECIES_PREFERRED` width - the flags in force decide it. */
     def preferredBits: Int = {
-      val line = output.linesIterator
-        .find(_.startsWith(VarkaAssemblyProbe.PREFERRED_BITS_PREFIX))
-        .getOrElse(fail(s"the probe printed no preferred width; output:\n${tail(output)}"))
-      line.stripPrefix(VarkaAssemblyProbe.PREFERRED_BITS_PREFIX).trim.toInt
+      longAfter(VarkaAssemblyProbe.PREFERRED_BITS_PREFIX).toInt
     }
 
     def ranToCompletion: Boolean =
-      output.linesIterator.exists(_.startsWith(VarkaAssemblyProbe.DONE_PREFIX))
+      output.linesIterator.exists(VarkaProbeOutput.has(_, VarkaAssemblyProbe.DONE_PREFIX))
 
-    private def longAfter(prefix: String): Long = {
-      val line = output.linesIterator.find(_.startsWith(prefix))
+    // Markers are found anywhere in a line, since a compiler thread's record can share it
+    // (`VarkaProbeOutput`).
+    private def longAfter(prefix: String): Long =
+      output.linesIterator.flatMap(VarkaProbeOutput.longAfter(_, prefix)).nextOption()
         .getOrElse(fail(s"the probe printed no '$prefix' line; output:\n${tail(output)}"))
-      line.stripPrefix(prefix).trim.toLong
-    }
 
     /** Heap bytes the child allocated per call of the method under test, at steady state. */
     def allocBytesPerCall: Long = longAfter(VarkaAssemblyProbe.ALLOC_BYTES_PER_CALL_PREFIX)

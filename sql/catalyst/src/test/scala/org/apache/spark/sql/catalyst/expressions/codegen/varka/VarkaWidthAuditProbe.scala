@@ -52,6 +52,7 @@ object VarkaWidthAuditProbe {
   val USE_AVX_PREFIX = "VARKA_AUDIT_USE_AVX="
   val SHAPE_BEGIN_PREFIX = "VARKA_AUDIT_SHAPE_BEGIN "
   val SHAPE_END_PREFIX = "VARKA_AUDIT_SHAPE_END "
+  val SHAPE_NAME_END = " VARKA_AUDIT_NAME_END"
   val DONE = "VARKA_AUDIT_DONE"
 
   /** The prefix every emitted class is named with; the `PrintIntrinsics` directive matches it. */
@@ -76,7 +77,9 @@ object VarkaWidthAuditProbe {
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
     try {
       shapes.zipWithIndex.foreach { case (shape, k) =>
-        println(SHAPE_BEGIN_PREFIX + shape.name)
+        // The name holds spaces, so it is closed with a mark the reader stops at: a compiler
+        // thread's record can run into the line (`VarkaProbeOutput`).
+        println(SHAPE_BEGIN_PREFIX + shape.name + SHAPE_NAME_END)
         System.out.flush()
         runHot(shape, k, loader)
         println(SHAPE_END_PREFIX + shape.name)

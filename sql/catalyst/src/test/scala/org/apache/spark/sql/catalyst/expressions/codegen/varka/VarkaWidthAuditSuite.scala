@@ -125,19 +125,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       while (line != null) {
         tail.enqueue(line)
         if (tail.size > 40) tail.dequeue()
+        // Markers are found anywhere in a line: a compiler thread's record can share the line
+        // (`VarkaProbeOutput`).
         val trimmed = line.trim
-        if (trimmed.startsWith(PREFERRED_BITS_PREFIX)) {
-          bits = trimmed.stripPrefix(PREFERRED_BITS_PREFIX).toInt
-        } else if (trimmed.startsWith(USE_AVX_PREFIX)) {
-          useAVX = trimmed.stripPrefix(USE_AVX_PREFIX).toInt
-        } else if (trimmed.startsWith(SHAPE_BEGIN_PREFIX)) {
-          current = Some(trimmed.stripPrefix(SHAPE_BEGIN_PREFIX))
-          refusals.getOrElseUpdate(current.get, mutable.LinkedHashSet.empty)
-        } else if (trimmed.startsWith(SHAPE_END_PREFIX)) {
+        VarkaProbeOutput.longAfter(line, PREFERRED_BITS_PREFIX).foreach(b => bits = b.toInt)
+        VarkaProbeOutput.longAfter(line, USE_AVX_PREFIX).foreach(u => useAVX = u.toInt)
+        VarkaProbeOutput.between(line, SHAPE_BEGIN_PREFIX, SHAPE_NAME_END).foreach { name =>
+          current = Some(name)
+          refusals.getOrElseUpdate(name, mutable.LinkedHashSet.empty)
+        }
+        if (VarkaProbeOutput.has(line, SHAPE_END_PREFIX)) {
           current = None
-        } else if (trimmed == DONE) {
+        }
+        if (VarkaProbeOutput.has(line, DONE)) {
           done = true
-        } else if (trimmed.startsWith("** ")) {
+        }
+        if (trimmed.startsWith("** ")) {
           val what = trimmed.stripPrefix("** ").trim
           current match {
             case Some(name) => refusals(name) += what

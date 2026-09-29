@@ -99,6 +99,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Predict immunity from what the scan produces, and pin both arms of a reproducer](sql/varka/skills/testing-and-debugging.md#predict-immunity-from-what-the-scan-produces-and-pin-both-arms-of-a-reproducer)
 * [A reproducer past 64KB is sized near the smallest count that crosses it](sql/varka/skills/testing-and-debugging.md#a-reproducer-past-64kb-is-sized-near-the-smallest-count-that-crosses-it)
 * [A Scala `List` handed to Java through `asJava` is not random access](sql/varka/skills/testing-and-debugging.md#a-scala-list-handed-to-java-through-asjava-is-not-random-access)
+* [A probe's marker can share a line with a compiler thread's output](sql/varka/skills/testing-and-debugging.md#a-probes-marker-can-share-a-line-with-a-compiler-threads-output)
 * [`failAfter` without a signaler cannot stop a test, so a hang holds the CI slot](sql/varka/skills/testing-and-debugging.md#failafter-without-a-signaler-cannot-stop-a-test-so-a-hang-holds-the-ci-slot)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)

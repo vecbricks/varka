@@ -549,6 +549,29 @@ Java method that indexes a list it was given copies it first (`List.copyOf`, fre
 is already immutable), and a probe that disagrees with its benchmark about the same code is
 measuring its own harness until shown otherwise.
 
+## A probe's marker can share a line with a compiler thread's output
+
+A suite that forks a JVM under `-XX:+PrintCompilation` or `PrintInlining` and reads the child's
+stdout for markers (`VARKA_LADDER_DONE`, `VARKA_AUDIT_PREFERRED_BITS=256`) is reading a stream
+that HotSpot's compiler threads and log4j write to as well, and they do not coordinate with the
+probe's `System.out`. A marker can therefore share a line with a compile record, on either
+side of it, and a reader that requires the marker on a line of its own (`startsWith`, `==`
+after trimming) misses it: the probe exits 0, having printed the marker, and the test fails on
+"done was false" with forty compile lines as its evidence. It happened once in about a hundred
+runs of `VarkaSizeLadderJitSuite` on the fork CI (#473, 27 September 2026).
+
+* **Read markers through `VarkaProbeOutput`**: `has` finds a marker anywhere in the line;
+  `longAfter` reads the digits after a prefix, `tokenAfter` a name up to the next whitespace,
+  `between` a name that holds spaces up to the end mark the probe prints after it, and `after`
+  a payload of `key=value` fields as the rest of the line. HotSpot pads a record's
+  timestamp with spaces, which is what keeps a number's digits apart from a record glued after
+  them.
+* **Read every line for both**: a line that carries a marker may carry a compile record too, so
+  the marker check and the record parser are two `if`s, not an `if`/`else`.
+* **The Python readers already did this** (`dev/varka_inlining_cliff.py`, `dev/varka_deopt_cycle.py`
+  use `in` and `split(MARKER, 1)`); the Scala suites had each written their own stricter loop.
+  `VarkaProbeOutputSuite` is the parser test to extend when a new marker shape appears.
+
 ## `failAfter` without a signaler cannot stop a test, so a hang holds the CI slot
 
 `SparkFunSuite` wraps every test in ScalaTest's `failAfter(20 minutes)`, and it reads as a cap.
