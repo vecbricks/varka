@@ -1,0 +1,16 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSizeLadderBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks"),
+             in one dispatch with the other size ladder class, so the one-core and the
+             every-core files come from the same machine and hour (task 197)
+run:         https://github.com/MaxGekk/spark/actions/runs/36519637464
+commit:      23413940398 (varka-task-197-parallel, master defe20108c4 plus the task's commit,
+             with the workflow's Varka engine jar on --jars)
+date:        2026-09-29T04:00:13Z
+inputs:      class=*VarkaSizeLadder{Benchmark,ParallelBenchmark} jdk=25 scala=2.13 num-splits=1
+             create-commit=false generate-tpcds=false
+             extra-java-options=--add-modules jdk.incubator.vector
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 64-Core Processor, four vCPUs to the runner; avx avx2, no AVX-512,
+             MaxVectorSize 32 (256-bit lanes), so its Varka numbers are not the 9V45 file's
+pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
