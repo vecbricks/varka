@@ -3807,26 +3807,19 @@ templates are shared and their profiles are the JVM's, not the class's (`PLAN_TA
 task 209's plan named the same thing as its first risk. A production JVM runs many kernels, so
 this is the condition that matters and the one no guard reads.
 
-**A reproducer that fails every time.** Found in task 209's review (`PLAN_TASK_209.md` 13):
-`build/sbt "catalyst/testOnly *VarkaEmitterBudgetSuite *VarkaKernelWarmupSuite"` runs the two
-suites in one JVM, and the warm-up suite's four compile tests fail after their sixty seconds with
-the kernel still allocating - 62996 calls, the last probe at 61840 bytes where a compiled kernel
-allocates none - on master at `8047ea08f74` as on the task's branch, while the warm-up suite alone
-passes in twelve seconds, and the same four tests pass after either new budget test alone, after
-both corpus tests alone, and after either pair of the new tests. The kernel is the warm-up
-suite's own three-output `add_months`, `last_day`, `date_add` shape, unchanged throughout; what
-changes is what the JVM ran before it. The full Varka run orders its suites by hash and runs the
-warm-up suite seventh, before the budget suite, which is why it passes there - and it too failed
-once in three runs on the same day. This is the probe's first case, with a verdict already known.
+**Not this item's: the warm-up suite's order-dependent failure.** Task 209's review first read
+the warm-up suite's failure after `VarkaEmitterBudgetSuite` as this item's case; the diagnosis
+(`PLAN_TASK_209.md` 13.2) found the two-species hazard instead - a 128-bit int kernel run in the
+shared test JVM makes the Vector API's templates bimorphic and every later 512-bit kernel's
+vectors boxed. This item's own cases, the shared-prefix benchmark's slow instances, run in JVMs of
+one species each, so what makes them slow is still open.
 
 **What to measure.** A probe that compiles N other kernels of the corpus first and then the
 kernel under test, forked per N, with the same reader as the cliff probe: the slow mode's
 frequency as a function of N, which methods land slow, and whether
 `-XX:-UseProfiledLoopPredicate` (item 61) or the warm-up's C1 exclusion moves it. The
-benchmarks already run kernels after kernels; what they lack is the per-method reading. The
-reproducer above is where to start: bisect the budget suite's tests ahead of the warm-up suite
-to the smallest history that still fails, then read that JVM's compile log for the warm-up
-kernel's methods.
+benchmarks already run kernels after kernels; what they lack is the per-method reading. A slow instance's compile log against a fast one's, read for a
+second receiver in the templates' profiles, is the first thing to rule out.
 
 **Done when** the probe exists with its readings committed beside the cliff probe's, the slow
 mode's frequency under history is a number, and the nightly runs one arm of it.

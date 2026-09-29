@@ -761,3 +761,49 @@ the day, of which it failed one: the full run after the review passed on its sec
 catalyst tests. So the failure is not this task's: it is a kernel whose outcome
 depends on what the JVM ran before it, the effect section 12.4 measured in the shared-prefix
 benchmark, and a deterministic reproducer of it. It is recorded as item 62's first case.
+
+### 13.2 The warm-up failure, diagnosed: a second int species in the shared test JVM
+
+13.1's reading - the JVM's history in general, item 62's case - was wrong; the cause is narrower
+and already in the record. Bisecting the budget suite ahead of the warm-up suite's first compile
+test, one test at a time (a script over ScalaTest's `-z`), found one test enough: "under the byte
+budget the epilogue is one method per group ... at both widths" (task 87, step 4), which runs its
+answers at the host's width and at `lanesOverride` 4. Run at the host's width alone it leaves the
+warm-up test passing; at 128 bits alone it fails it. So what breaks the warm-up kernel is an int
+kernel of a second species, `Int128Vector`, run hot in the same JVM before the warm-up kernel is
+compiled at the preferred 512-bit species.
+
+The JVM's own output, a failing run against a passing one of the same warm-up test:
+
+* **The heap and the code cache are not involved.** Live heap after each collection about 91 MB
+  of 826 MB committed (a 4 GB maximum); code cache at most 28.6 MB of the test JVM's 128 MB; the
+  run with a 512 MB code cache fails the same way.
+* **The kernel compiles once and still allocates.** `LogCompilation`: C2 compiles the heavy loop
+  once in both runs, no deoptimization, but to 37424 bytes of code in the failing run against
+  3648 in the passing one, with half as many vector intrinsics again (131 binary operations
+  against 101).
+* **The allocation is a box per operation.** A JFR recording of the failing run: 8.5 GB of `int[]`
+  in the kernel's frames on the warm-up thread, all at the intrinsic call sites in
+  `IntVector.lanewiseTemplate` and `lanewiseShiftTemplate` reached from `add`, `mul`, `sub`, `min`
+  and the shifts, inlined into the C2-compiled `loopDense0` and `loopMasked0` - the payload of a
+  vector materialized as an object, about 1.1 GB every ten seconds.
+* **The tell `vector-api-and-width.md` names.** The failing compile has 132 virtual calls to the
+  shared `broadcast` and `lanewise` templates whose profile carries two receivers,
+  `Int512Vector` at 115911 and `Int128Vector` at 47997; the passing compile never mentions the
+  128-bit class. C2 inlines both species' bodies and the merge after them needs the vector as an
+  object, which is the box. `-XX:-UseBimorphicInlining` does not help: the call then stays
+  virtual, and its argument is boxed anyway.
+
+This is the hazard `vector-api-and-width.md` records under "Every operator the plans rely on is
+one instruction; two species in one JVM is a box per iteration" (`PLAN_TASK_28.md` 2.2), whose
+rule is never to run
+a second species of a lane type in a JVM shared with anything else, and whose note says the
+catalyst harness is safe by construction. It is not: `VarkaEmitterBudgetSuite`,
+`VarkaEmitterValiditySuite`, `VarkaCoverageCompositionFuzzSuite` and `VarkaEmitterDivisionSuite`
+run kernels at a second width in the shared test JVM, and every kernel compiled after them there
+may box. Their answers stay right, since a box is slow and not wrong, so the only in-process tests
+that notice are those whose verdict is a JIT outcome - the warm-up suite's four compile tests.
+The full Varka run passes or fails by how much 128-bit work ran before the warm-up kernel's
+compile, which is what its hash order leaves to chance. Master has it too; it is not this task's,
+and its fix is a change of its own. Item 62's own cases, the shared-prefix benchmark's JVMs, run one
+species each, so that item's question stands.
