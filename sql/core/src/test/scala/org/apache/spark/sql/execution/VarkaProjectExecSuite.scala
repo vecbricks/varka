@@ -22,6 +22,7 @@ import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{AddMonths, Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, Expression, ExtractANSIIntervalDays, Greatest, Literal, NamedExpression, Remainder}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAllocationSampler,
   VarkaChrono, VarkaFallbackEvent, VarkaJfrTestSupport, VarkaKernelAllocationEvent}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -40,7 +41,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * The batch scaffolding - `BatchSpec`, `TestColumnarBatchPlan`, `buildBatch` - is shared with
  * [[VarkaColumnarToRowExecSuite]].
  */
-class VarkaProjectExecSuite extends QueryTest with SharedSparkSession {
+class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   private val attrD = AttributeReference("d", DateType)()
   private val attrD2 = AttributeReference("d2", DateType)()

@@ -24,6 +24,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
  * Task 7 Metaspace/unloadability proof for the catalyst-side [[VarkaGeneratedClassLoader]],
@@ -39,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaLoopEmitter
  * before/after the batch stress as a diagnostic only - never asserted, because GC/collection
  * timings are JVM dependent.
  */
-class VarkaGeneratedClassLoaderSuite extends SparkFunSuite {
+class VarkaGeneratedClassLoaderSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val genPackage = "org.apache.spark.sql.varka.gen"
 

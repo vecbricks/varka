@@ -33,7 +33,7 @@ import org.apache.spark.util.Utils
  * claimed the warm-up - its release when the shape leaves the cache, and the compiler directive
  * that keeps C1 off the warmed kernel classes so the verdict can arrive at all.
  */
-class VarkaKernelWarmupSuite extends SparkFunSuite {
+class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * A shape with enough calendar work that its uncompiled calls allocate unmistakably, emitted

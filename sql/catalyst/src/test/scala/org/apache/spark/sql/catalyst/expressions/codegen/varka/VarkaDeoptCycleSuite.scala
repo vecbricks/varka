@@ -40,7 +40,7 @@ import org.apache.spark.SparkFunSuite
  *    parser's first rule misread as the cycle - and the first fork's JVM prints compiles after
  *    its DONE line, while it shuts down.
  */
-class VarkaDeoptCycleSuite extends SparkFunSuite {
+class VarkaDeoptCycleSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private def script: Path = getWorkspaceFilePath("dev", "varka_deopt_cycle.py")
 

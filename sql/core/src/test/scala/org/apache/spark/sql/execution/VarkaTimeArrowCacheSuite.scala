@@ -23,6 +23,7 @@ import java.time.{Duration, LocalTime}
 import org.apache.arrow.vector.{BaseFixedWidthVector, DurationVector, TimeNanoVector}
 
 import org.apache.spark.sql.{QueryTest, Row}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.classic.DataFrame
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
 import org.apache.spark.sql.types.{DataType, DayTimeIntervalType, StructField, StructType, TimeType}
@@ -40,7 +41,7 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector
  * and this suite is about Varka's. The checks run inside the cached RDD's partitions, where the
  * Arrow memory lives, and return counts, so no off-heap buffer outlives its batch.
  */
-class VarkaTimeArrowCacheSuite extends QueryTest with VarkaSharedSessions {
+class VarkaTimeArrowCacheSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private val rows = 1000
 

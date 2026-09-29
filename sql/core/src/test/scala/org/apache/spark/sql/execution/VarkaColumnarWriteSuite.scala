@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.datasources.v2.V2TableWriteExec
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -31,7 +32,7 @@ import org.apache.spark.sql.util.QueryExecutionListener
  * The sessions come from [[VarkaSharedSessions]], so the source is a real Arrow-backed
  * `InMemoryTableScanExec`.
  */
-class VarkaColumnarWriteSuite extends QueryTest with VarkaSharedSessions {
+class VarkaColumnarWriteSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private val query = "SELECT date_add(d, 3) AS a FROM varka_dates"
 

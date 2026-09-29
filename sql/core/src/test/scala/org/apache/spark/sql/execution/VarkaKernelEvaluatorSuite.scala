@@ -28,6 +28,7 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, DateAddYMInterval, If, In, LessThan, Literal, NamedExpression, NextDay, Remainder, TruncDate, Year}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.test.SharedSparkSession
@@ -49,7 +50,7 @@ import org.apache.spark.unsafe.types.UTF8String
  * observable through a collected result. It also owns the task-13 telemetry round trip off
  * [[VarkaKernelEvaluator.emittedClassBytes]], the one place the emitted bytes are reachable.
  */
-class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession {
+class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   private val attrD = AttributeReference("d", DateType)()
   private val intAttr = AttributeReference("i", IntegerType)()

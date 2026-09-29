@@ -40,7 +40,7 @@ import org.apache.spark.SparkFunSuite
  * for the generated class, and reads which of the split `caseWhen_*` methods C2 inlined into
  * their caller. The post that quotes this is `PLAN_TASK_181.md` 3.4.
  */
-class VarkaSplitInliningSuite extends SparkFunSuite {
+class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val childTimeoutSeconds = 300L
 
@@ -64,7 +64,7 @@ class VarkaSplitInliningSuite extends SparkFunSuite {
 
   // `PrintCompilation`: timestamp, compile id, attribute flags, the tier, `class::method` and
   // the size. A line saying a compile was discarded ("made not entrant") has the same shape.
-  private val header = """^\s*\d+\s+\d+\s+[%sbn!\s]*?([0-4])\s+(\S+)::(\S+) \(\d+ bytes\)""".r
+  private val header = """\d+\s+\d+\s+[%sbn!\s]*?([0-4])\s+(\S+)::(\S+) \(\d+ bytes\)""".r
   // `PrintInlining`: one line per call site of the compiled method, `@ bci class::method`, the
   // callee's size and the decision.
   private val callee = """@ \d+\s+(\S+)::(caseWhen_\d+_\d+\$) \(\d+ bytes\)\s+(.*)$""".r
@@ -95,9 +95,11 @@ class VarkaSplitInliningSuite extends SparkFunSuite {
       while (line != null) {
         tail.enqueue(line)
         if (tail.size > 40) tail.dequeue()
-        if (line.startsWith(VarkaSplitInliningProbe.DONE)) {
+        // The marker may share a line with a compile record (`VarkaProbeOutput`).
+        if (VarkaProbeOutput.has(line, VarkaSplitInliningProbe.DONE)) {
           done = true
-        } else if (!line.contains("made not entrant") && !line.contains("made zombie")) {
+        }
+        if (!line.contains("made not entrant") && !line.contains("made zombie")) {
           header.findFirstMatchIn(line) match {
             case Some(h) =>
               close()

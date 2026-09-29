@@ -28,6 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeCo
   CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, FusedOutput,
   GenerateUnsafeProjection, VarkaDecline, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.classic.ExpressionUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -51,7 +52,7 @@ import org.apache.spark.sql.types.{DataType, DateType, LongType}
  * instead of falling back, and a refused split is an error instead of an INFO line. The tests
  * below assert what Spark does under test and say so where it differs from production.
  */
-class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions {
+class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   /** Every operator inside a whole-stage codegen stage of `df`'s executed plan. */
   private def staged(df: DataFrame): Seq[SparkPlan] = {

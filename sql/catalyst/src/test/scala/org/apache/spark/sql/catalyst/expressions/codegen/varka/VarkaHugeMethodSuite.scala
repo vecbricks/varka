@@ -40,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHugeMethodPr
  * ([[VarkaHugeMethodProbe]]) under `-Xbatch -XX:+PrintCompilation`, runs the ladder hot, and
  * reads the tiers HotSpot printed for the emitted class's methods.
  */
-class VarkaHugeMethodSuite extends SparkFunSuite {
+class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val outputs = 16
 
@@ -82,9 +82,11 @@ class VarkaHugeMethodSuite extends SparkFunSuite {
       while (line != null) {
         tail.enqueue(line)
         if (tail.size > 40) tail.dequeue()
-        if (line.trim == DONE) {
+        // The marker may share a line with a compile record (`VarkaProbeOutput`).
+        if (VarkaProbeOutput.has(line, DONE)) {
           done = true
-        } else if (line.contains(marker)) {
+        }
+        if (line.contains(marker)) {
           // `PrintCompilation`: timestamp, compile id, attribute flags, the tier, then
           // `class::method (N bytes)`; a later `made not entrant` line repeats the tier. The
           // tier is the token before the method, whatever the flags in front of it were.

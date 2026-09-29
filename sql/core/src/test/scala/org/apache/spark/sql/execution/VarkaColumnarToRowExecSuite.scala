@@ -26,6 +26,7 @@ import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Alias, Ascending, Attribute, AttributeReference, DateAdd, DateDiff, DateSub, LeafExpression, Literal, NamedExpression, Remainder, SortOrder}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -43,7 +44,7 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
  * The child plan serves batches built lazily inside the task from a serializable spec
  * (`ColumnarBatch` and Arrow vectors are not serializable), like a real columnar scan would.
  */
-class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession {
+class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession with VarkaTestWatchdog {
 
   private val attrD = AttributeReference("d", DateType)()
   private val attrD2 = AttributeReference("d2", DateType)()

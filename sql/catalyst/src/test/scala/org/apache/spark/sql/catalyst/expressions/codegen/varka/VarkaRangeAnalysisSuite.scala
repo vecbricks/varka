@@ -48,7 +48,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * functions. Budget: `-Dvarka.range.trees` (default 10000) and `-Dvarka.range.seed` (default
  * fixed), on the fuzz suite's precedent.
  */
-class VarkaRangeAnalysisSuite extends SparkFunSuite {
+class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val seed = sys.props.get("varka.range.seed").map(_.toLong).getOrElse(20260916L)
   private val trees = sys.props.get("varka.range.trees").map(_.toInt).getOrElse(10000)

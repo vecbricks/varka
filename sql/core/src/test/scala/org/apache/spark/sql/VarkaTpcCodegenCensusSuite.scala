@@ -27,6 +27,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeFormatter, CodeGenerator}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.resourceToString
 import org.apache.spark.sql.execution.{InputAdapter, LocalTableScanExec, SparkPlan,
   WholeStageCodegenExec}
@@ -64,7 +65,7 @@ import org.apache.spark.sql.internal.SQLConf
  * bytes is written there, for reading which operator made it big. `dev/varka_tpc_census.sh`
  * runs all six.
  */
-trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase {
+trait VarkaTpcCodegenCensus extends BenchmarkQueryTest with TPCBase with VarkaTestWatchdog {
 
   /** The name of this configuration, which names its results file. */
   protected def configuration: String

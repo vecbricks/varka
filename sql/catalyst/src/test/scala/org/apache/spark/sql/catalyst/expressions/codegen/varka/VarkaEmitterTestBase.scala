@@ -47,7 +47,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  *     "testOnly *VarkaEmitter*Suite"
  * }}}
  */
-trait VarkaEmitterTestBase extends SparkFunSuite {
+trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
 
   protected val classCounter = new AtomicInteger(0)
 

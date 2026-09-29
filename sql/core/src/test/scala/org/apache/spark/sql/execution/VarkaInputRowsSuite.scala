@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, Literal,
   NamedExpression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -29,7 +30,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * referenced columns when some column is read more than once, the batch's own rows otherwise,
  * and either way the results the evaluation would compute over the batch's rows.
  */
-class VarkaInputRowsSuite extends SparkFunSuite {
+class VarkaInputRowsSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val a = AttributeReference("a", IntegerType)()
   private val b = AttributeReference("b", StringType)()

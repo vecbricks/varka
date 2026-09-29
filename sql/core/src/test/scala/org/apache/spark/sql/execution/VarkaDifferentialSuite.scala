@@ -22,6 +22,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.{SparkArithmeticException, SparkDateTimeException, SparkIllegalArgumentException}
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaEmitOptions, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -32,7 +33,7 @@ import org.apache.spark.sql.internal.SQLConf
  * Where the projection is fused into [[VarkaColumnarToRowExec]], the SIMD kernels must actually
  * process the Arrow batches; where it is not, the plan must be untouched.
  */
-class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions {
+class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
   private def metaspaceUsed(): Long = {
     java.lang.management.ManagementFactory.getMemoryPoolMXBeans.asScala.collect {
