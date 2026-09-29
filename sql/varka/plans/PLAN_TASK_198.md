@@ -748,6 +748,12 @@ outcome, not the kernels'.
 **What the two runs did not see.** At sixteen entries both read 36.2 and 37.0 ns per row where
 the regeneration of the same hour read 27.5, the flip's 28.7 and the file before it 30.2: a
 two-mode outcome, a third apart, that a band of two runs in one mode records as a 2.2% spread.
-Row 209's per-run cliff at a small rung, in the JVM run's hands rather than the kernel's; the
-band file is committed as the tool wrote it, and a third run is queued to widen it. A reader of
-the sixteen-entry rung takes the range, 27.5 to 37.0, not either number.
+Row 209's per-run cliff at a small rung, in the JVM run's hands rather than the kernel's.
+
+**Three fresh runs**, the band file rewritten from them: a median spread of 1.48%, a 90th
+percentile of 4.4% and a worst of 6.8% (32 entries, 39.7 to 42.4), four cases over 3% and none
+over 10%; 52 to 56 entries at 58.4 to 63.5 in all three. Sixteen entries read 36.7 to 37.6 in
+all three, so of the day's six runs of this ladder one, the regeneration, took the fast mode at
+that rung and five the slow; the committed results file carries the fast one, the band the
+slow ones' agreement. A reader of the sixteen-entry rung takes the range, 27.5 to 37.6, not
+either number, and the question of what decides the mode is row 209's.
