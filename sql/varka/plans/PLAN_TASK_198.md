@@ -528,8 +528,12 @@ predictions' scoring follow in section 10.
 0.86 at start, the option's arm beside the recomputed one at every ceiling
 (`VarkaSharedPrefixBenchmark-jdk25-results.txt`, its 128-bit companion and provenance). The
 master baseline regenerated the same night, eight minutes later, reads within noise of the
-committed file on every recomputed row, so the arms are compared within one run and against
-a same-night baseline alike. Per row, nanoseconds:
+committed file on every recomputed `make_date` row, so the arms are compared within one run
+and against a same-night baseline alike; only the cheap tails' cliff rows moved, which is row
+209's per-run cliff. The ladders' master baselines regenerated after it,
+`VarkaMethodSizeBenchmark` and `VarkaSizeLadderBenchmark` at both widths, moved nothing past
+their bands, so the committed ladder files, from before task 191's default, stand as the
+flip's baselines and none of the three is recommitted. Per row, nanoseconds:
 
 | sixty `make_date` | groups | recomputed | computed once | change |
 |---|---|---|---|---|
