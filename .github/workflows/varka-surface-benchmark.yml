@@ -109,6 +109,11 @@ on:
         description: 'Comma-separated key=value settings appended to every arm, stock and fork alike, e.g. spark.driver.extraJavaOptions=-XX:UseAVX=2,spark.sql.codegen.varka.emit.useAVX=2 for task 121 (in local[1] the driver is the executor, so the JVM flag reaches the kernels). Empty appends nothing.'
         required: false
         default: ''
+      vecruntime:
+        type: boolean
+        description: 'Add two arms on Spark 4.1.3, the release vecruntime supports: stock, and with the vecruntime plugin, every case held to the plugin''s own nodes (task 202). Parquet input only, since the plugin leaves a cached table to Spark.'
+        required: false
+        default: false
       create-commit:
         type: boolean
         description: 'Commit the results files to this branch'
@@ -247,6 +252,11 @@ jobs:
     env:
       SPARK_LOCAL_IP: localhost
       STOCK_VERSION: 4.2.0
+      # vecruntime's arm (task 202): its release, the Spark release it supports, and the Hadoop
+      # client that release needs on JDK 25 in place of the one it bundles.
+      VECRUNTIME_VERSION: 0.0.3
+      VECRUNTIME_SPARK_VERSION: 4.1.3
+      VECRUNTIME_HADOOP_CLIENT: 3.4.3
     steps:
     - name: Checkout Varka
       uses: actions/checkout@v6
@@ -354,6 +364,55 @@ jobs:
         path: ~/stock-spark
         key: stock-spark-${{ env.STOCK_VERSION }}-hadoop3
 
+    - name: Restore the vecruntime distribution
+      if: ${{ inputs.vecruntime }}
+      id: cache-vecruntime
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/vecruntime-spark
+        key: vecruntime-${{ env.VECRUNTIME_VERSION }}-spark-${{ env.VECRUNTIME_SPARK_VERSION }}-hadoop-client-${{ env.VECRUNTIME_HADOOP_CLIENT }}
+
+    # Two homes from one release: stock Spark 4.1.3 with the Hadoop client JDK 25 needs, the
+    # control, and the same with the plugin jar in its jars directory. Every file is checked
+    # against the checksum its publisher serves beside it.
+    - name: Assemble the vecruntime distribution
+      if: ${{ inputs.vecruntime && steps.cache-vecruntime.outputs.cache-hit != 'true' }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/vecruntime-spark && cd ~/vecruntime-spark
+        V="$VECRUNTIME_SPARK_VERSION"; TGZ="spark-${V}-bin-hadoop3.tgz"
+        # The mirror first, which is fast while the release is current; the archive keeps every
+        # release but serves slowly. The checksum comes from the archive either way.
+        curl -fsSLO "https://dlcdn.apache.org/spark/spark-${V}/$TGZ" \
+          || curl -fsSLO "https://archive.apache.org/dist/spark/spark-${V}/$TGZ"
+        curl -fsSLO "https://archive.apache.org/dist/spark/spark-${V}/$TGZ.sha512"
+        WANT="$(tr -d ' \n' < "$TGZ.sha512" | tr 'A-F' 'a-f' | grep -oE '[0-9a-f]{128}' | head -1)"
+        GOT="$(sha512sum "$TGZ" | cut -d' ' -f1)"
+        [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || { echo "::error::checksum mismatch for $TGZ"; exit 1; }
+        tar -xzf "$TGZ" && rm -f "$TGZ" "$TGZ.sha512"
+        STOCK="spark-${V}-bin-hadoop3"
+        H="$VECRUNTIME_HADOOP_CLIENT"
+        for a in hadoop-client-api hadoop-client-runtime; do
+          URL="https://repo1.maven.org/maven2/org/apache/hadoop/$a/$H/$a-$H.jar"
+          curl -fsSL -o "$a-$H.jar" "$URL"
+          [ "$(curl -fsSL "$URL.sha1")" = "$(sha1sum "$a-$H.jar" | cut -d' ' -f1)" ] \
+            || { echo "::error::checksum mismatch for $a-$H.jar"; exit 1; }
+          rm -f "$STOCK"/jars/$a-*.jar && mv "$a-$H.jar" "$STOCK/jars/"
+        done
+        cp -a "$STOCK" "vecruntime-${VECRUNTIME_VERSION}"
+        R="https://github.com/vecruntime/vecruntime/releases/download/v${VECRUNTIME_VERSION}"
+        JAR="vecruntime-spark_2.13-${VECRUNTIME_VERSION}.jar"
+        curl -fsSLO "$R/$JAR" && curl -fsSLO "$R/SHA256SUMS"
+        grep " $JAR\$" SHA256SUMS | sha256sum -c - || { echo "::error::checksum mismatch for $JAR"; exit 1; }
+        mv "$JAR" "vecruntime-${VECRUNTIME_VERSION}/jars/" && rm -f SHA256SUMS
+
+    - name: Save the vecruntime distribution
+      if: ${{ inputs.vecruntime && steps.cache-vecruntime.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: ~/vecruntime-spark
+        key: vecruntime-${{ env.VECRUNTIME_VERSION }}-spark-${{ env.VECRUNTIME_SPARK_VERSION }}-hadoop-client-${{ env.VECRUNTIME_HADOOP_CLIENT }}
+
     - name: Run the surface
       env:
         ROWS: ${{ inputs.rows }}
@@ -365,6 +424,7 @@ jobs:
         INPUT: ${{ inputs.input }}
         EXTRA_CONFS: ${{ inputs.extra-confs }}
         MAX_FIXED_SHARE: ${{ inputs.max-fixed-share }}
+        VECRUNTIME: ${{ inputs.vecruntime }}
       run: |
         set -euo pipefail
         STOCK="$HOME/stock-spark/spark-${STOCK_VERSION}-bin-hadoop3"
@@ -386,10 +446,20 @@ jobs:
         # An arm's third field is a comma list of confs, `varka` among them: extra confs open
         # that field on the arms that have none and extend it on the one that does.
         OPEN="${EXTRA_CONFS:+:$EXTRA_CONFS}"; MORE="${EXTRA_CONFS:+,$EXTRA_CONFS}"
+        # vecruntime's two arms when asked for, on the Parquet input it reads (task 202).
+        OTHERS=()
+        if [ "$VECRUNTIME" = true ]; then
+          [ "$INPUT" = parquet ] \
+            || { echo "::error::the vecruntime arms read Parquet only; dispatch with input parquet"; exit 1; }
+          VR="$HOME/vecruntime-spark"
+          OTHERS=("spark-${VECRUNTIME_SPARK_VERSION}-jdk25=$VR/spark-${VECRUNTIME_SPARK_VERSION}-bin-hadoop3:$J25$OPEN"
+            "vecruntime-${VECRUNTIME_VERSION}-jdk25=$VR/vecruntime-${VECRUNTIME_VERSION}:$J25:vecruntime$MORE")
+        fi
         # Varka last: the comparison table's ratios are the last file against the others.
         dev/varka_bench_surface.sh "${ARGS[@]}" \
           "spark-${STOCK_VERSION}-jdk17=$STOCK:$J17$OPEN" \
           "spark-${STOCK_VERSION}-jdk25=$STOCK:$J25$OPEN" \
+          "${OTHERS[@]}" \
           "varka-off-jdk25=$PWD:$J25$OPEN" \
           "varka-jdk25=$PWD:$J25:varka$MORE"
 

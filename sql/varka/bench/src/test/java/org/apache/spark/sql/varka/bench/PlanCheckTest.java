@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.varka.bench;
 
+import java.util.regex.Pattern;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,7 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * The three plan shapes the laptop's first full run produced (PLAN_TASK_62.md 9), as
  * {@code EXPLAIN} prints them: the check must tell a fused filter from one with a row-engine
- * operator above it, since all three contain a Varka node.
+ * operator above it, since all three contain a Varka node. And the same check against another
+ * engine's node, vecruntime's, as its arm runs it (task 202).
  */
 public class PlanCheckTest {
 
@@ -89,5 +92,36 @@ public class PlanCheckTest {
   @Test
   public void noVarkaNodeIsPlain() {
     assertEquals(DateSurfaceBenchmark.Fusion.PLAIN, DateSurfaceBenchmark.classifyPlan(PLAIN));
+  }
+
+  /** vecruntime's projection over a Parquet scan, as its 0.0.3 plugin plans the ladder. */
+  private static final String VECRUNTIME = String.join("\n",
+      "== Physical Plan ==",
+      "*(1) ColumnarToRow",
+      "+- VectorProject [greatest(add_months(d#22, 1), date_add(d#22, 1), last_day(d#22)) "
+          + "AS c1#2], false",
+      "   +- FileScan parquet spark_catalog.default.dates[d#22] Batched: true");
+
+  private static final String VECRUNTIME_UNDER_A_ROW_PROJECT = String.join("\n",
+      "== Physical Plan ==",
+      "*(1) Project [c1#2]",
+      "+- *(1) ColumnarToRow",
+      "   +- VectorProject [year(d#22) AS c1#2], false",
+      "      +- FileScan parquet spark_catalog.default.dates[d#22] Batched: true");
+
+  private static final Pattern VECRUNTIME_NODE = Pattern.compile("Vector(Project|Filter)");
+
+  @Test
+  public void anotherEnginesNodeIsReadByItsOwnMarker() {
+    assertEquals(DateSurfaceBenchmark.Fusion.FUSED,
+        DateSurfaceBenchmark.classifyPlan(VECRUNTIME, VECRUNTIME_NODE));
+    assertEquals(DateSurfaceBenchmark.Fusion.PARTIAL,
+        DateSurfaceBenchmark.classifyPlan(VECRUNTIME_UNDER_A_ROW_PROJECT, VECRUNTIME_NODE));
+    // Varka's marker sees no Varka node in it, and vecruntime's none in a Varka plan.
+    assertEquals(DateSurfaceBenchmark.Fusion.PLAIN, DateSurfaceBenchmark.classifyPlan(VECRUNTIME));
+    assertEquals(DateSurfaceBenchmark.Fusion.PLAIN,
+        DateSurfaceBenchmark.classifyPlan(FUSED, VECRUNTIME_NODE));
+    assertEquals("VectorProject", DateSurfaceBenchmark.nodeFound(VECRUNTIME, VECRUNTIME_NODE));
+    assertEquals("plain", DateSurfaceBenchmark.nodeFound(PLAIN, VECRUNTIME_NODE));
   }
 }

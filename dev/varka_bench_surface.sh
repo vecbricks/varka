@@ -108,7 +108,10 @@
 # `build/sbt package` (its bin/spark-submit runs the assembled jars). The third
 # field is a comma-separated list of extra `--conf` settings; the word `varka`
 # stands for what the fork needs: Varka on, the Arrow cache serializer, the
-# The conf field's two bare tokens name what a distribution switches on. `varka`
+# The conf field's bare tokens name what a distribution switches on. `vecruntime` turns on the
+# vecruntime plugin, whose jar the distribution carries in its jars directory, and holds every
+# case to the plugin's own nodes (task 202); it reads Parquet only, since the plugin leaves a
+# cached table to Spark. `varka`
 # is the engine *and* the Arrow columnar cache the engine reads through, which the
 # kernels need to run at all; `arrow-cache` is that cache alone, with the row
 # engine above it. The pair is what separates the cache format's share of a
@@ -298,6 +301,18 @@ for spec in "${dists[@]}"; do
           --conf "spark.sql.cache.serializer=$arrow_serializer"
           --driver-class-path "$(engine_jar)")
         driver+=(--expect-fused --max-fixed-share "$share") ;;
+      vecruntime)
+        # vecruntime, another engine's arm (task 202): the plugin on, its fallback reasons in
+        # the log, the Vector API module the plugin needs, and every case held to the plugin's
+        # own projection or filter node, so that no rung it left to Spark is timed under its
+        # name. The plugin jar is the distribution's: it goes in SPARK_HOME/jars.
+        [ "$input" = parquet ] \
+          || { echo "$label: vecruntime leaves a cached table to Spark; pass --input parquet" >&2
+               exit 1; }
+        submit+=(--conf spark.plugins=io.vecruntime.spark.VectorPlugin
+          --conf spark.vecruntime.explainFallback.enabled=true
+          --conf "spark.driver.extraJavaOptions=--add-modules=jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow")
+        driver+=(--expect-operator 'Vector(Project|Filter)') ;;
       arrow-cache)
         # The cache format without the engine: the control that separates what the
         # columnar cache is worth from what the kernels are worth. No --expect-fused,

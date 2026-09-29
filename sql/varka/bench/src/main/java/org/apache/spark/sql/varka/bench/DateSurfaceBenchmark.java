@@ -58,6 +58,7 @@ import scala.jdk.javaapi.CollectionConverters;
  *     [--warmup-seconds 2] [--min-seconds 2] [--only REGEX] [--shard I/N]
  *     [--provenance key=value]... [--expect-fused] [--max-fixed-share PERCENT]
  *     [--allow-nonresident-cache] [--storage-level MEMORY_ONLY] [--table-columns all]
+ *     [--expect-operator REGEX]
  * </pre>
  *
  * <p>The same driver runs the date chains ({@link DateChainBenchmark}) and the {@code TIME}
@@ -68,6 +69,12 @@ import scala.jdk.javaapi.CollectionConverters;
  * entry the surface marks as fused planned without a Varka node; {@code --max-fixed-share}
  * fails it when a Varka-planned row's fixed share, {@code (wall - executor) / wall}, is over the
  * given percent - the job-size rule, checked from the numbers the file carries.
+ *
+ * <p>{@code --expect-operator REGEX} is the same check for another engine's arm: every case must
+ * plan with a node whose line matches the pattern and with no row-engine {@code Filter} or
+ * {@code Project} above it, or the run fails after writing the file; the {@code # plan:} line
+ * then names the node it found. vecruntime's arm passes {@code Vector(Project|Filter)} (task 202),
+ * so a rung the plugin left to Spark is never timed under its name.
  *
  * The row count and the partition count are the job-size rule of PLAN_MILESTONE_4.md 2.29:
  * enough rows in few enough tasks that the job's fixed cost is under 5% of every Varka row's
@@ -178,6 +185,8 @@ public final class DateSurfaceBenchmark {
     double maxFixedShare = Double.NaN;
     /** Where the table's rows come from: the cache (the default) or a Parquet file. */
     String input = "cache";
+    /** Another engine's node every case must plan with, in place of Varka's; null for none. */
+    Pattern expectOperator = null;
     final Map<String, String> provenance = new LinkedHashMap<>();
 
     static Args parse(String[] argv, int entryCount, TableShape shape) {
@@ -215,6 +224,7 @@ public final class DateSurfaceBenchmark {
             i--;
           }
           case "--max-fixed-share" -> a.maxFixedShare = Double.parseDouble(need(k, v));
+          case "--expect-operator" -> a.expectOperator = Pattern.compile(need(k, v));
           case "--input" -> {
             a.input = need(k, v);
             if (!a.input.equals("cache") && !a.input.equals("parquet")) {
@@ -712,10 +722,29 @@ public final class DateSurfaceBenchmark {
   /** What the physical plan says about a shape: see {@link #classifyPlan}. */
   enum Fusion { FUSED, PARTIAL, PLAIN }
 
+  /** What marks a Varka node in a plan: the default marker of {@link #classifyPlan}. */
+  static final Pattern VARKA_NODE = Pattern.compile("Varka");
+
   /** The plan's verdict for {@code query}, read through EXPLAIN. */
   static Fusion plansVarka(SparkSession spark, String query) {
+    return plansWith(spark, query, VARKA_NODE);
+  }
+
+  /** The plan's verdict for {@code query} against the node {@code marker} matches. */
+  static Fusion plansWith(SparkSession spark, String query, Pattern marker) {
+    String explain = explainOf(spark, query);
+    return explain.isEmpty() ? Fusion.PLAIN : classifyPlan(explain, marker);
+  }
+
+  private static String explainOf(SparkSession spark, String query) {
     List<Row> rows = spark.sql("EXPLAIN " + query).collectAsList();
-    return rows.isEmpty() ? Fusion.PLAIN : classifyPlan(rows.get(0).getString(0));
+    return rows.isEmpty() ? "" : rows.get(0).getString(0);
+  }
+
+  /** The first text in {@code explain} that {@code marker} matches, or {@code "plain"}. */
+  static String nodeFound(String explain, Pattern marker) {
+    java.util.regex.Matcher m = marker.matcher(explain);
+    return m.find() ? m.group() : "plain";
   }
 
   private static final Pattern RESIDUAL_ABOVE = Pattern.compile(
@@ -732,10 +761,15 @@ public final class DateSurfaceBenchmark {
    * three cases, which is why a boolean was not enough.
    */
   static Fusion classifyPlan(String explain) {
+    return classifyPlan(explain, VARKA_NODE);
+  }
+
+  /** {@link #classifyPlan(String)} for the node {@code marker} matches in place of Varka's. */
+  static Fusion classifyPlan(String explain, Pattern marker) {
     String[] lines = explain.split("\\n");
     int varkaAt = -1;
     for (int i = 0; i < lines.length; i++) {
-      if (lines[i].contains("Varka")) {
+      if (marker.matcher(lines[i]).find()) {
         varkaAt = i;
         break;
       }
@@ -810,6 +844,20 @@ public final class DateSurfaceBenchmark {
       String caseName, String query, Runnable body, Args args, long warmup, long min,
       List<Harness.Case> wall, List<Harness.Case> exec, List<String> plans, List<String> shares,
       PrintStream log, Surface.Entry entry, List<String> violations) {
+    if (args.expectOperator != null) {
+      // Another engine's arm: its node, not Varka's, is what every case must plan with.
+      String explain = explainOf(spark, query);
+      Fusion other = explain.isEmpty() ? Fusion.PLAIN : classifyPlan(explain, args.expectOperator);
+      String node = nodeFound(explain, args.expectOperator);
+      if (other == Fusion.PLAIN) {
+        violations.add("expected " + args.expectOperator + ", planned without it: " + query);
+      } else if (other == Fusion.PARTIAL) {
+        violations.add("expected " + args.expectOperator + ", but a row-engine Filter or "
+            + "Project sits above " + node + ": " + query);
+      }
+      plans.add(caseName + " " + node + (other == Fusion.PARTIAL
+          ? ", residual Filter/Project above" : ""));
+    }
     Fusion fusion = plansVarka(spark, query);
     boolean varka = fusion != Fusion.PLAIN;
     if (args.expectFused && entry.expectFused() && fusion == Fusion.PLAIN) {
@@ -852,11 +900,13 @@ public final class DateSurfaceBenchmark {
     wall.add(new Harness.Case(caseName, w));
     exec.add(new Harness.Case(caseName, x));
     String shape = caseName;
-    plans.add(shape + (varka
-        ? String.format(Locale.ROOT, " Varka%s (kernel %d batches, fallback %d)",
-            fusion == Fusion.PARTIAL ? ", residual Filter/Project above" : "",
-            kernelBatches, fallbackBatches)
-        : " plain"));
+    if (args.expectOperator == null) {
+      plans.add(shape + (varka
+          ? String.format(Locale.ROOT, " Varka%s (kernel %d batches, fallback %d)",
+              fusion == Fusion.PARTIAL ? ", residual Filter/Project above" : "",
+              kernelBatches, fallbackBatches)
+          : " plain"));
+    }
     double share = 100.0 * (w.bestMs() - x.bestMs()) / w.bestMs();
     shares.add(String.format(Locale.ROOT, "%s %.1f%%", shape, share));
     if (varka && !Double.isNaN(args.maxFixedShare) && share > args.maxFixedShare) {
