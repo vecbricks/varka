@@ -3932,6 +3932,34 @@ with the thread through a cleaner. Small either way.
 **Done when** the form's contract is stated in `VarkaFusedKernel`'s doc and enforced by a test,
 one way or the other.
 
+### Item 69. One species per lane type in the shared test JVM
+
+*Added 29 September 2026 from the diagnosis of the warm-up suite's order-dependent failure
+(`PLAN_TASK_209.md` 13.2).*
+
+`vector-api-and-width.md` records that a second species of one lane type in a JVM makes the
+Vector API's shared templates bimorphic, so that every kernel compiled afterwards can box its
+vectors where the two species' paths merge, and its rule is never to run one in a JVM shared with
+anything else. The catalyst test JVM breaks the rule. The budget, validity, composition-fuzz and
+division suites run kernels at a lanes override - the int lane at 128 bits beside the preferred
+512, the long lane at two lanes beside eight - in the JVM every Varka suite shares. Their answers
+stay right, since a box is slow rather than wrong; what it costs is every kernel compiled after
+them, which may run boxed, and any test whose verdict is a JIT outcome, which then fails by the
+suites' order. The warm-up suite's compile tests did, about one full Varka run in three, until
+they moved into a JVM of their own - a fix for that suite, not for the JVM.
+
+**What to do.** A census of the in-process tests that run a second species - a lanes override, a
+species constant other than the preferred, a width-dependent path - since the four suites above
+are what a search for a lanes override finds, not a proof there are no others. Then move each
+second-width arm out of the shared JVM, into forked children as the assembly and cliff suites
+do, or into the 128-bit gate's own JVM under `MaxVectorSize=16`, without losing the coverage it
+gives; and a guard in the emitter's test base that fails an in-process emission at a lanes
+override other than the preferred width's, so that the next such test cannot land unseen.
+
+**Done when** no Varka suite runs a second species of a lane type in the shared test JVM, the
+guard is in place, and the full Varka run's time is read before and after, since the boxed
+kernels it no longer runs are its measurable gain.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

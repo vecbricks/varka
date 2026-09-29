@@ -17,128 +17,88 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
+import java.io.{BufferedReader, File, InputStreamReader}
+import java.lang.foreign.{Arena, ValueLayout}
 import java.lang.management.ManagementFactory
+import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 import javax.management.ObjectName
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth.State
-import org.apache.spark.util.Utils
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupProbe._
 
 /**
  * The kernel warm-up (`PLAN_TASK_212.md` 10): the copy of a batch it runs on, its verdict on a
  * real emitted kernel - which must cover both of the kernel's drivers, whichever kind of batch
  * claimed the warm-up - its release when the shape leaves the cache, and the compiler directive
  * that keeps C1 off the warmed kernel classes so the verdict can arrive at all.
+ *
+ * The four tests of the verdict run each warm-up in a JVM of its own, through
+ * [[VarkaKernelWarmupProbe]]: a verdict is a JIT outcome, and a kernel compiled late in the
+ * shared test JVM - after a suite has run a kernel of a second vector species there - boxes every
+ * operation and never earns it. The rest of the suite runs in the shared JVM, since nothing it
+ * asserts depends on what the JIT made of a kernel.
  */
 class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  /**
-   * A shape with enough calendar work that its uncompiled calls allocate unmistakably, emitted
-   * to be warmed, so that the C1-exclusion directive reaches its class.
-   */
-  private def shape: VarkaShapeKey = {
-    val d = new VarkaVectorIR.ColumnRef(0)
-    val k = new VarkaVectorIR.LiteralSlot(0)
-    val roots = java.util.List.of[VarkaVectorIR](
-      new VarkaVectorIR.AddMonths(d, k), new VarkaVectorIR.LastDay(d),
-      new VarkaVectorIR.AddDays(d, k))
-    new VarkaShapeKey(roots, 1, 1, VarkaEmitOptions.DEFAULTS, true)
+  /** The lines a probe printed after `prefix`, one per such line. */
+  private def marked(lines: Seq[String], prefix: String): Seq[String] =
+    lines.flatMap(VarkaProbeOutput.after(_, prefix)).map(_.trim)
+
+  /** `key=value` fields of a marker line, where a field named `outcome` takes the rest. */
+  private def fields(line: String): Map[String, String] = {
+    val at = line.indexOf("outcome=")
+    val (head, rest) =
+      if (at < 0) (line, None) else (line.substring(0, at), Some(line.substring(at)))
+    (head.trim.split("\\s+").toSeq ++ rest).filter(_.contains("=")).map { kv =>
+      val i = kv.indexOf('=')
+      kv.substring(0, i) -> kv.substring(i + 1)
+    }.toMap
   }
 
-  private val numOutputs = 3
-
-  /** Where a batch of [[dates]] has its nulls. */
-  private sealed abstract class Nulls(val label: String) {
-    override def toString: String = label
-  }
-  private case object NoNulls extends Nulls("no nulls")
-  private case object SomeNulls extends Nulls("some nulls")
-  private case object AllNull extends Nulls("only nulls")
+  private def testClasspath: String =
+    Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
+      .getOrElse(System.getProperty("java.class.path"))
 
   /**
-   * `rows` dates around 2020 in memory the arena owns, with nulls as `nulls` says - for some
-   * nulls, every seventh row - and the batch's null count.
+   * What one warm-up claimed by a batch with `claimed` nulls came to, in a JVM of its own: the
+   * probe's support line and outcome line as fields, and the allocation of the calls it measured
+   * after the verdict, by the batch served.
    */
-  private def dates(
-      arena: Arena,
-      rows: Int,
-      nulls: Nulls = SomeNulls): (MemorySegment, MemorySegment, Int) = {
-    val data = arena.allocate(rows * 4L, 64)
-    val validity = arena.allocate(((rows + 63) / 64) * 8L, 64)
-    var nullCount = 0
-    (0 until rows).foreach { r =>
-      data.setAtIndex(ValueLayout.JAVA_INT, r, 18262 + r % 1460)
-      val isNull = nulls match {
-        case NoNulls => false
-        case SomeNulls => r % 7 == 3
-        case AllNull => true
-      }
-      if (isNull) {
-        nullCount += 1
-      } else {
-        val b = r / 8
-        validity.set(ValueLayout.JAVA_BYTE, b,
-          (validity.get(ValueLayout.JAVA_BYTE, b) | (1 << (r % 8))).toByte)
-      }
-    }
-    (data, validity, nullCount)
-  }
+  private case class Forked(support: Map[String, String], outcome: Map[String, String],
+      allocated: Map[String, Long])
 
-  /**
-   * Queues a warm-up of the cache's kernel for `shape` on a batch of `rows` dates with nulls as
-   * `nulls` says, its one input declared nullable.
-   */
-  private def warm(
-      cache: VarkaShapeCacheImpl,
-      rows: Int,
-      nulls: Nulls = SomeNulls): VarkaShapeEntry = {
-    val entry = cache.getOrEmit(Utils.getContextOrSparkClassLoader, shape, "warmup-suite").entry
-    assert(entry.warmth().tryClaim())
-    val arena = Arena.ofConfined()
+  private def warmUpInFork(claimed: Nulls): Forked = {
+    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
+    val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
+      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-cp", testClasspath,
+      VarkaKernelWarmupProbe.getClass.getName.stripSuffix("$"), claimed.word)
+    val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
+    val reader = new BufferedReader(
+      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val lines = mutable.ArrayBuffer.empty[String]
     try {
-      val (data, validity, nullCount) = dates(arena, rows, nulls)
-      val validityAddress = if (nullCount == 0) 0L else validity.address()
-      val queued = VarkaKernelWarmup.start(entry.warmth(), entry.shapeHash(), entry.newKernel(),
-        false, Array(data.address()), Array(validityAddress), Array(nullCount), Array(4),
-        true, rows, numOutputs, Array(2), Array.emptyLongArray)
-      assert(queued, "the warm-up was not queued")
-    } finally {
-      // The warm-up copies the batch before start returns, so the batch can go at once.
-      arena.close()
-    }
-    entry
-  }
-
-  /**
-   * What the kernel allocates over sixteen calls of 1024 rows with nulls as `nulls` says, after
-   * fifty calls to settle: the evidence of which of its drivers runs compiled code.
-   */
-  private def allocationOfCalls(kernel: VarkaFusedKernel, nulls: Nulls): Long = {
-    val rows = 1024
-    val arena = Arena.ofConfined()
-    try {
-      val (data, validity, nullCount) = dates(arena, rows, nulls)
-      val validityAddress = if (nullCount == 0) 0L else validity.address()
-      val dstData = Array.fill(numOutputs)(arena.allocate(rows * 4L, 64).address())
-      val dstValidity = Array.fill(numOutputs)(arena.allocate(rows / 8L + 8, 64).address())
-      def call(): Unit = kernel.run(Array(data.address()), Array(validityAddress),
-        Array(nullCount), dstData, dstValidity, Array(2), rows)
-      (1 to 50).foreach(_ => call())
-      // A plain loop: a lambda first created inside the window would count its own bootstrap,
-      // tens of kilobytes, against the kernel.
-      var k = 0
-      val before = VarkaAllocationSampler.allocatedBytes()
-      while (k < 16) {
-        call()
-        k += 1
+      var line = reader.readLine()
+      while (line != null) {
+        lines += line
+        line = reader.readLine()
       }
-      VarkaAllocationSampler.allocatedBytes() - before
     } finally {
-      arena.close()
+      reader.close()
     }
+    assert(process.waitFor(240, TimeUnit.SECONDS), "the warm-up probe did not finish")
+    val tail = lines.takeRight(40).mkString("\n")
+    assert(process.exitValue() == 0, s"the probe failed (exit ${process.exitValue()}):\n$tail")
+    assert(marked(lines.toSeq, DONE_PREFIX) == Seq("status=0"), tail)
+    val support = marked(lines.toSeq, SUPPORT_PREFIX)
+    assert(support.size == 1, tail)
+    Forked(fields(support.head), marked(lines.toSeq, OUTCOME_PREFIX).headOption.map(fields)
+      .getOrElse(Map.empty), marked(lines.toSeq, ALLOC_PREFIX).map(fields)
+      .map(f => f("served") -> f("bytes").toLong).toMap)
   }
 
   test("the copy repeats a short batch's rows and validity bits, bit offsets included") {
@@ -163,18 +123,16 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a warm-up runs a new kernel until it no longer allocates, and says it is compiled") {
-    assume(VarkaAllocationSampler.supported(), "thread allocation accounting unavailable")
-    val cache = new VarkaShapeCacheImpl(8)
-    val entry = warm(cache, 10000)
-    assert(VarkaKernelWarmup.awaitIdle(120000), "the warm-up did not finish in two minutes")
-    val outcome = VarkaKernelWarmup.recentOutcomes().asScala.last
-    assert(outcome.shapeHash() === entry.shapeHash())
-    assert(outcome.state() === State.COMPILED, outcome)
-    assert(entry.warmth().state() === State.COMPILED)
-    assert(entry.warmth().ready())
+    val run = warmUpInFork(SomeNulls)
+    assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
+    val o = run.outcome
+    assert(o("queued") == "true", "the warm-up was not queued")
+    assert(o("idle") == "true", "the warm-up did not finish in two minutes")
+    assert(o("matches") == "true", o("outcome"))
+    assert(o("state") == State.COMPILED.toString, o("outcome"))
+    assert(o("entryState") == State.COMPILED.toString && o("ready") == "true", o)
     // The verdict's evidence: the first probe boxed, the last one did not.
-    assert(outcome.lastProbeBytes() * VarkaKernelWarmup.COMPILED_DROP <= outcome.firstProbeBytes(),
-      outcome)
+    assert(o("last").toLong * VarkaKernelWarmup.COMPILED_DROP <= o("first").toLong, o("outcome"))
   }
 
   Seq(NoNulls, SomeNulls, AllNull).foreach { claimed =>
@@ -183,23 +141,22 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     // light group's loop was still interpreted, and these calls, 1024 rows each, boxed in it
     // (PLAN_TASK_221.md 2).
     test(s"a warm-up claimed by a batch with $claimed compiles both of the kernel's drivers") {
-      assume(VarkaAllocationSampler.supported(), "thread allocation accounting unavailable")
-      assume(VarkaKernelWarmup.canWarm(), "this JVM cannot warm kernels")
-      val entry = warm(new VarkaShapeCacheImpl(8), 10000, claimed)
-      assert(VarkaKernelWarmup.awaitIdle(120000), "the warm-up did not finish in two minutes")
-      val outcome = VarkaKernelWarmup.recentOutcomes().asScala.last
-      assert(outcome.shapeHash() === entry.shapeHash())
-      assert(outcome.state() === State.COMPILED, outcome)
+      val run = warmUpInFork(claimed)
+      assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
+      assume(run.support("canWarm") == "true", "this JVM cannot warm kernels")
+      val o = run.outcome
+      assert(o("queued") == "true" && o("idle") == "true", o)
+      assert(o("matches") == "true", o("outcome"))
+      assert(o("state") == State.COMPILED.toString, o("outcome"))
       // A compiled call allocates only its driver's memory segments, a few hundred bytes a
       // column; an interpreted one boxes every vector operation, tens of kilobytes a call.
       val limit = 16L * VarkaKernelWarmup.SEGMENT_BYTES_PER_COLUMN * (1 + numOutputs) +
         VarkaAllocationSampler.FIXED_ALLOWANCE_BYTES
-      val kernel = entry.newKernel()
       Seq(NoNulls, SomeNulls).foreach { served =>
-        val allocated = allocationOfCalls(kernel, served)
+        val allocated = run.allocated(served.word)
         assert(allocated <= limit,
           s"batches with $served allocated $allocated bytes after a warm-up claimed by a batch " +
-            s"with $claimed ($outcome)")
+            s"with $claimed (${o("outcome")})")
       }
     }
   }
@@ -222,7 +179,8 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("a shape that leaves the cache stops its warm-up and is ready for its tasks") {
     assume(VarkaAllocationSampler.supported(), "thread allocation accounting unavailable")
     val cache = new VarkaShapeCacheImpl(8)
-    val entry = warm(cache, 1000)
+    val (entry, queued) = warm(cache, 1000)
+    assert(queued, "the warm-up was not queued")
     cache.invalidateAll()
     assert(VarkaKernelWarmup.awaitIdle(120000), "the warm-up did not finish in two minutes")
     val outcome = VarkaKernelWarmup.recentOutcomes().asScala.last

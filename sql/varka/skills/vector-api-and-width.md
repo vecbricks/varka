@@ -427,9 +427,17 @@ only when the second species ran hot first, an index-map gather boxes under eith
 widths. The suite's positive self-test is the gather for that reason.
 
 What this means here. The emitter and every kernel use `SPECIES_PREFERRED` only, and the 128-bit
-gate is a separate JVM under `MaxVectorSize=16`, so production and the catalyst harness are safe by
-construction - keep them so: never introduce a second species of a lane type, not for a half-width
-load, not for a test, not for a benchmark that shares a JVM with anything else.
+gate is a separate JVM under `MaxVectorSize=16`, so production is safe by construction - keep it
+so: never introduce a second species of a lane type, not for a half-width load, not for a
+benchmark that shares a JVM with anything else. The catalyst test harness is not safe, whatever
+this note once said: the suites that check their answers at a lanes override - the budget,
+validity, composition-fuzz and division suites - run a second int or long species in the JVM every
+Varka suite shares, and any kernel compiled there afterwards can box every operation. Answers stay
+right, so only a test whose verdict is a JIT outcome notices, and such a test runs in a JVM of its
+own: the warm-up suite's compile tests failed one full run in three by the suites' order until
+they forked `VarkaKernelWarmupProbe`, as the assembly and cliff suites fork theirs
+(`PLAN_TASK_209.md` 13.2). Taking the second species out of the shared JVM is
+`SCOPE_MILESTONE_7.md` item 69.
 `VarkaMilestone4MeasurementsBenchmark` did exactly that with its half-width int species in a
 `forks = 0` JVM, which is one named cause of the engine harness's degraded state (the debt register
 in `PLAN_MILESTONE_4.md`). Two tells, either sufficient: an allocation inside a kernel loop body in
