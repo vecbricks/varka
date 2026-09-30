@@ -565,3 +565,36 @@ are a byte count. B's efficiency is where it cuts, and it cuts in projection ord
 what entries share; the better cut is a clustering of entries by shared columns and subtrees,
 the same problem as task 72's output order, recorded there in `SCOPE_MILESTONE_7.md`. An e-graph
 chooses among equivalent forms of an expression, which is item 11's question, not this one.
+
+### 11.6 The runner's measurement, 30 September 2026
+
+`VarkaWideKernelBenchmark`'s last two sections, from the benchmark workflow on an AMD EPYC 7763
+runner, best of the iterations. The file's earlier sections keep the machines they were measured
+on; each section names its own.
+
+| case | split driver, A' | several kernels, B | B against A' |
+|---|---:|---:|---:|
+| 800 entries, null-free | 1683.6 ns | 1640.6 ns | -2.6% |
+| 1200 entries, null-free | 2495.9 ns | 2453.0 ns | -1.7% |
+| 800 entries, every seventh row null | 1902.2 ns | 1880.4 ns | -1.1% |
+| 1200 entries, every seventh row null | 2882.2 ns | 2857.0 ns | -0.9% |
+
+| one emission | 800 entries | 1200 entries |
+|---|---:|---:|
+| split driver, one class | 427 ms, 3541652 bytes | 742 ms, 5245552 bytes |
+| several kernels, their classes alone | 197 ms, 3558607 bytes | 283 ms, 5342585 bytes |
+| several kernels with the compiler's search | 2712 ms | 4226 ms |
+
+1. **Holds.** A' costs 2.10 ns a row per entry at 800 entries and 2.08 at 1200, against 2.05 for
+   the 400-entry ladder on the same processor model in task 200's section: within 3%, linear.
+2. **Holds, the other way round.** B costs not up to 5% more than A' but 0.9 to 2.6% less, on
+   both bodies. The repeated input reads and the prefix computed once more per kernel cost less
+   than whatever one class of two stages costs over two smaller classes.
+3. **Holds.** A' plans in more time than B's classes alone and in far less than B with the
+   compiler's search: 6.4 times less at 800 entries, 5.7 at 1200.
+4. **Holds.** B's classes are 0.5 and 1.8% more bytes than A''s one.
+
+**The decision is reopened.** 11.5 made both options the default and said a runner showing B
+faster per row would reopen it: B is faster at both widths, by 0.9 to 2.6%. Against that, A'
+plans several times faster, since B finds its split by bisection, and task 236 is the planner
+that would remove the search. The owner decides between keeping both on and B alone.
