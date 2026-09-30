@@ -499,7 +499,11 @@ seventy date columns are served by two kernels, the second reading columns 64 to
 long-lane entry stays residual with its own reason. `VarkaKernelEvaluatorSuite`: two kernels'
 columns, with a forwarded and a residual entry between them, assembled in order, and every vector
 released. `VarkaSeveralKernelsSuite`: seventy nullable date columns and two hundred ladder
-entries on the unrolled driver answer as the row engine does from two kernels, end to end. The IR
+entries on the unrolled driver answer as the row engine does from two kernels, end to end. With
+both options on, as 11.5 set them, `VarkaExpressionCompilerSuite` plans eight hundred ladder
+entries as one kernel with stages in one emission, and with sixty-nine more date columns as two
+kernels of 863 and 6 entries, the first with stages; `VarkaSeveralKernelsSuite` runs that
+projection against the row engine under the default options. The IR
 fuzzer draws both options like every boolean; its shapes stay far below 180 groups, so the split
 driver is pinned by the suite rather than fuzzed.
 
@@ -519,7 +523,45 @@ two and three hundred groups, A' as one kernel with stages and B as the compiler
 4. **The bytes are within 10% of each other**: the same group methods, with stages on one side and
    a second driver and dispatcher on the other.
 
-### 11.5 What the measurement decides
+### 11.5 The default: both on, 30 September 2026
 
-Whether either option becomes the default, and which. The options and their costs are set out
-with the numbers, for the owner's decision.
+The owner's decision, from four options: B alone as built, both on, B alone with its split sized
+by measurement, and A' alone. **Both are on by default**, and each serves the ceiling it serves
+best.
+
+* **A' serves the driver's ceiling.** It stays one class: each batch reads the input once and
+  computes a shared prefix once, and the class is planned in one emission, the second build with
+  its stages sized from the first. B, as built, finds its split by the bisection task 169's
+  demotion uses - one emission per probe, and every prefix that fits loaded and held in the shape
+  cache - so at this ceiling it plans at the cost the demotion pays today, several emissions
+  where A' takes one, and its cut, in projection order, ignores what the entries share.
+* **B serves what A' cannot**: a projection past `MAX_INPUTS` columns, where no single class can
+  help, and a class past the class-file caps, which A' as one class keeps. With the split driver
+  on, a driver over the budget no longer declines, so B's bisection runs only for those.
+* **A' alone** was not enough, since it leaves the column limit to the row engine; **B alone** is
+  one mechanism for every ceiling, but pays the search and the sharing at the driver's ceiling,
+  which is the one wide projections meet first.
+
+The runner's measurement is still to come, and 11.4's predictions are scored against it. If it
+shows B faster per row than A' at 800 and 1200 entries, the decision is to be revisited, with B
+alone and its first kernel sized from the driver's measured bytes, which grow linearly with the
+groups, rather than bisected.
+
+Off, each option is kept as the reference it replaces: the driver that declines past its
+ceiling, and one kernel per projection whose set-aside entries are residual. The shape key
+renders the off states (`|wholeDriver`, `|oneKernel`), so the default key is unchanged.
+
+**What the default moved.** No committed byte: `emitted_bytes.json`, the cost audit and the price
+tables are regenerated unchanged, since no shape in them reaches either ceiling. Four compiler
+tests pinned task 169's demotion - the op cap's overflow entry in the form without a budget, the
+column limit's 33rd `datediff`, the driver's suffix under a 2000-byte budget and past the unrolled
+driver's ceiling - and now read one kernel per projection, the reference, by name; the first also
+asserts that under the default the column limit's entry is a second kernel's. The benchmark's
+arms name their forms, since each of B's kernels is one whose driver fits.
+
+Where the two options meet is the question the owner asked next: does using both well need an
+e-graph? No. A' has nothing to choose - one class keeps every output's sharing, and its stages
+are a byte count. B's efficiency is where it cuts, and it cuts in projection order, blind to
+what entries share; the better cut is a clustering of entries by shared columns and subtrees,
+the same problem as task 72's output order, recorded there in `SCOPE_MILESTONE_7.md`. An e-graph
+chooses among equivalent forms of an expression, which is item 11's question, not this one.

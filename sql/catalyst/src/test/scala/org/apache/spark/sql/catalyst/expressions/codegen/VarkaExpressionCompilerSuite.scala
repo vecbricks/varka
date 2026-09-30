@@ -1631,10 +1631,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // third entry's single op would be the 65th. Before task 20 this shape reached the
     // emitter and lost the whole kernel to a silent per-batch fallback; now the overflow
     // entry demotes to residual with a recorded reason. The op cap bounds the form without a
-    // byte budget; under the default the third entry fuses too (task 190).
+    // byte budget; under the default the third entry fuses too (task 190). Every case here is
+    // read with one kernel per projection: under the default `severalKernels` an entry that
+    // fits alone is another kernel's instead (PLAN_TASK_190.md 11).
+    val oneKernel = VarkaEmitOptions.DEFAULTS.withSeveralKernels(false)
     val threeEntries = Seq(inIf(0), inIf(1000), out(DateAdd(d, Literal(9999))))
     val partial = VarkaExpressionCompiler.compilePartial(threeEntries, childOutput,
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+      oneKernel.withMethodByteBudget(0)).get
     assert(partial.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
     assert(partial.declines(2).reason === "exceeds the emitter's fused budget")
     assert(VarkaExpressionCompiler.compilePartial(threeEntries, childOutput).get.specs ===
@@ -1653,10 +1656,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val wideEntries = (0 until 33).map { k =>
       out(DateDiff(wide(2 * k), wide(2 * k + 1)))
     }
-    val widePartial = VarkaExpressionCompiler.compilePartial(wideEntries, wide).get
+    val widePartial = VarkaExpressionCompiler.compilePartial(wideEntries, wide, oneKernel).get
     assert(widePartial.specs.count(_ == ResidualOutput) === 1)
     assert(widePartial.specs.last === ResidualOutput)
     assert(widePartial.declines(32).reason === "exceeds the emitter's fused budget")
+    // Under the default the 33rd entry is a second kernel's, and nothing is residual.
+    assert(VarkaExpressionCompiler.compilePartial(wideEntries, wide).get.specs.last ===
+      KernelOutput(1, 0))
   }
 
   test("compile is the all-entries-fused special case of compilePartial") {
@@ -2357,8 +2363,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(reason.startsWith("over the emitter's method budget (") &&
       reason.contains("HugeMethodLimit"), reason)
     assert(partial.fused.outputs.size === 2)
+    // Read with one kernel per projection: under the default the op cap's overflow entry fits
+    // alone and is a second kernel's (PLAN_TASK_190.md 11).
     val legacy = VarkaExpressionCompiler.compilePartial(list, childOutput,
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0).withSeveralKernels(false)).get
     assert(legacy.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
     assert(legacy.declines(2).reason === "exceeds the emitter's fused budget")
     // The heavy output alone: nothing is left to fuse, so the projection does not fuse at all,
@@ -2377,7 +2385,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val list = (1 to 60).map { k =>
       out(MakeDate(Year(d), Month(d), Literal((k - 1) % 28 + 1), failOnError = true))
     }
+    // One kernel per projection, the reference: under the default the demoted suffix is a second
+    // kernel's instead (PLAN_TASK_190.md 11).
     val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000).withDriverOutputTable(false)
+      .withSeveralKernels(false)
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, budget).get
     val fused = partial.specs.count(_.isInstanceOf[FusedOutput])
     assert(fused > 1 && fused < 60, s"$fused of 60 fused under a 2000-byte budget")
@@ -2470,7 +2481,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val tabled = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput).get
     assert(tabled.specs.forall(_.isInstanceOf[FusedOutput]))
     val wide = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
-      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)).get
+      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false).withSeveralKernels(false)).get
     val fused = wide.specs.count(_.isInstanceOf[FusedOutput])
     assert(fused > 100 && fused < 200, s"$fused of 200 fused")
     assert(wide.specs.drop(fused).forall(_ == ResidualOutput))
@@ -2484,7 +2495,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // others, so they are classified again as a kernel of their own.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
-    val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
+    val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false).withSeveralKernels(false)
     val one = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
       unrolled).get
     val first = one.specs.count(_.isInstanceOf[FusedOutput])
@@ -2511,7 +2522,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
     val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+ out(Add(longCol, Literal(1L)))
-    val one = VarkaExpressionCompiler.compilePartial(list, output).get
+    val one = VarkaExpressionCompiler.compilePartial(list, output,
+      VarkaEmitOptions.DEFAULTS.withSeveralKernels(false)).get
     assert(one.specs.count(_.isInstanceOf[FusedOutput]) === 64) // VarkaEmitBudget.MAX_INPUTS
     assert(one.declines(64).reason === "exceeds the emitter's fused budget")
     val two = VarkaExpressionCompiler.compilePartial(list, output,
@@ -2521,6 +2533,32 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(two.more.head.inputOrdinals === (64 until 70))
     assert(two.specs(70) === ResidualOutput && two.declines.keySet === Set(70))
     assert(two.declines(70).reason === one.declines(70).reason)
+  }
+
+  test("under the defaults the split driver serves the driver's ceiling in one kernel, planned " +
+      "in one emission, and several kernels serve only what one kernel cannot") {
+    // PLAN_TASK_190.md 11.5: both options on. Eight hundred ladder entries are past the driver
+    // from a table's ceiling of about 180 groups; with the split driver they are one kernel whose
+    // driver calls stages, found without the bisection several kernels would need. Sixty-nine
+    // more date columns then pass MAX_INPUTS, and only the entries over them are a second kernel.
+    def entry(k: Int, col: Attribute): NamedExpression =
+      out(Greatest(Seq(AddMonths(col, Literal(k)), DateAdd(col, Literal(k)), LastDay(col))))
+    def stages(plan: CompiledVarkaProjection): Int =
+      VarkaEmitterTestSupport.methodBodies(VarkaLoopEmitter.emit("VarkaStagesProbe",
+        plan.outputs.asJava, plan.inputOrdinals.size, plan.numLiterals, null, null,
+        VarkaEmitOptions.DEFAULTS)).keySet.asScala.count(_.startsWith("stageDense"))
+    val misses = VarkaShapeCache.missCount
+    val ladder = VarkaExpressionCompiler.compilePartial((1 to 800).map(entry(_, d)),
+      childOutput).get
+    assert(VarkaShapeCache.missCount - misses === 1, "planning took more than one emission")
+    assert(ladder.kernels.size === 1 && ladder.specs.forall(_.isInstanceOf[FusedOutput]))
+    assert(stages(ladder.fused) >= 2)
+    val columns = (1 until 70).map(c => AttributeReference(s"c$c", DateType)())
+    val list = (1 to 800).map(entry(_, d)) ++ columns.map(c => out(DateAdd(c, Literal(1))))
+    val both = VarkaExpressionCompiler.compilePartial(list, d +: columns).get
+    assert(both.kernels.map(_.outputs.size) === Seq(863, 6))
+    assert(both.declines.isEmpty && stages(both.fused) >= 2)
+    assert(both.more.head.inputOrdinals === (64 until 70))
   }
 
   test("a projection with a nondeterministic entry declines whole, with the reason on each entry") {

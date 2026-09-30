@@ -242,8 +242,10 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
 
       // The two forms past the driver from a table's ceiling. Stages only where the driver is
       // over the budget, and several kernels only where one kernel cannot serve them all.
+      // Both named: the split driver is the default since `PLAN_TASK_190.md` 11.5, and each of
+      // B's kernels is a kernel whose driver fits, which is what the compiler's split makes.
       val splitDriver = VarkaEmitOptions.DEFAULTS.withSplitDriver(true)
-      val oneKernel = VarkaEmitOptions.DEFAULTS
+      val oneKernel = VarkaEmitOptions.DEFAULTS.withSplitDriver(false)
       val forms = past.map { n =>
         val sizes = kernelSizes(n, oneKernel)
         require(sizes.size > 1, s"$n ladder entries fit one kernel: nothing to compare")

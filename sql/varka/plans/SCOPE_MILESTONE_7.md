@@ -1148,6 +1148,18 @@ because adjacent outputs share nothing and two fields with loaded prefixes are 2
 group budget's 16, with no reuse to open the wider bound; the fields of twelve dates take 12
 methods listed by date and 48 listed by field. The exact partition of task 200 cannot help
 there; only the order can.
+
+*30 September 2026, for task 72, from task 190 step 2 (`PLAN_TASK_190.md` 11.5):* the same
+problem one level up. Several kernels per projection (`severalKernels`, on by default) serve a
+projection past `MAX_INPUTS` columns, and they cut it in projection order: the first kernel takes
+entries until its sixty-four columns are taken, and a later entry that reads another column is
+left to a later kernel, formed the same way. That ignores what entries share - a column two
+kernels both read is read twice per batch, and a subtree both compute is computed twice. The
+better cut clusters the entries by the columns and subtrees they share before filling the
+kernels, which each entry's column bitset and the IR's interned DAG already expose, so one
+clustering could serve this task's order and the kernels' cut alike. It needs no e-graph: an
+e-graph chooses among equivalent forms of an expression (item 11), where this partitions a
+fixed one.
 | 82 | The mask-to-long disposal in a checked kernel | 2.12 | a micro-optimisation of the int32 checked path |
 | 87 | The epilogue is the one method no budget bounds | 2.18 | kept for a future fix at the owner's request; milestone 5's section 6 says when it would come back |
 | 98 | Two filter rows under 1.0x because the consumer counts | 2.33 | the read-back floor - this milestone's item 13, which is where it now belongs |

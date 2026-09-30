@@ -366,16 +366,23 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        splits: the unrolled driver grows with the outputs, which no stage takes from it. The
  *        split is decided by measurement - a class whose only methods over the budget are its
  *        drivers is built again with stages sized from the driver's measured bytes - so a class
- *        whose drivers fit is the same class, byte for byte. Off by default until measured
- *        against several kernels per projection ({@code PLAN_TASK_190.md} 11).
+ *        whose drivers fit is the same class, byte for byte. On by default beside
+ *        {@link #severalKernels}, on the owner's decision of 30 September 2026: past the driver's
+ *        ceiling one class with stages plans in one emission and keeps every output's sharing,
+ *        where several kernels search for their split and recompute what they share
+ *        ({@code PLAN_TASK_190.md} 11.5). Off is the driver that declines past its ceiling, kept
+ *        as the reference the suites and the benchmark compare against.
  * @param severalKernels whether the compiler serves a projection past what one kernel holds with
  *        several: the entries one kernel sets aside only for its own sake - the suffix a
  *        class-wide decline, such as a driver over the byte budget, demotes, and an entry that
  *        fits alone but not beside the rest, as past {@code MAX_INPUTS} columns - are compiled
  *        into a further kernel, and so on, and the evaluator runs the kernels in turn over each
  *        batch. A compiler option, like {@code rangeSets}: no kernel's bytes change, only how
- *        many a projection has. Off by default until measured against {@link #splitDriver}
- *        ({@code PLAN_TASK_190.md} 11).
+ *        many a projection has. On by default beside {@link #splitDriver}, which serves the
+ *        driver's ceiling first, so several kernels serve only what one kernel cannot: more than
+ *        {@code MAX_INPUTS} columns, or a class over the class-file caps
+ *        ({@code PLAN_TASK_190.md} 11.5). Off is one kernel per projection, whose set-aside
+ *        entries are residual, kept as the reference.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -522,7 +529,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true, false, false);
+          false, true, true, true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -1067,7 +1074,7 @@ public record VarkaEmitOptions(
         + (predictGrouping ? "|predictGrouping" : "")
         + (driverOutputTable ? "" : "|unrolledDriver")
         + (exactGrouping ? "" : "|greedyGrouping")
-        + (splitDriver ? "|splitDriver" : "")
-        + (severalKernels ? "|severalKernels" : "") + ')';
+        + (splitDriver ? "" : "|wholeDriver")
+        + (severalKernels ? "" : "|oneKernel") + ')';
   }
 }

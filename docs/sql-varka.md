@@ -594,7 +594,10 @@ class has a deliberate method anatomy:
   calls per loop-method group, 44 bytes, and not with the outputs, the columns
   or the literals: repeated per output it passed the 8000-byte
   `HugeMethodLimit` at about 140 outputs, which capped how wide one kernel
-  could be.
+  could be. Past about 180 groups even those calls pass the limit, and the
+  driver then moves them into *stage* methods, each calling a run of groups,
+  which it calls in turn; the stages are sized from the driver's measured
+  bytes, so the class is built once more and no width is capped by its driver.
 * Interned subtrees (DAG-CSE) are computed once per lane group and reused
   across outputs; literals are hoisted to broadcast vectors in the prologue.
 * Below the node level, the calendar extractions share their civil-from-days
@@ -610,9 +613,14 @@ class has a deliberate method anatomy:
   The epilogue, the one method every output shares, decomposes once per date
   as well, which is what keeps a wide date projection's epilogue small enough
   for HotSpot to compile at all.
-* Caps: chains up to `MAX_CHAIN_DEPTH` (16) deep, up to `MAX_FUSED_NODES`
-  (64) distinct ops and `MAX_INPUTS` (64) input columns per kernel; anything
-  beyond falls back.
+* Caps: chains up to `MAX_CHAIN_DEPTH` (16) deep, and up to `MAX_INPUTS` (64)
+  input columns per kernel. A projection over more columns is served by
+  several kernels, run in turn over each batch into one output batch: the
+  compiler compiles the entries one kernel sets aside into a further kernel,
+  and verbose `EXPLAIN` names the kernel of each such entry (task 190). A
+  kernel's size is bounded by the byte budget rather than by ops;
+  `MAX_FUSED_NODES` (64 ops) applies only with the budget off. A chain past
+  its depth falls back.
 
 Date arithmetic wraps on overflow, matching Spark's `DateAdd`/`DateSub`,
 which check nothing in any mode. The int arithmetic nodes task 63 added are

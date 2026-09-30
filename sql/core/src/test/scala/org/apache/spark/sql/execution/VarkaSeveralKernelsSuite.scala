@@ -82,6 +82,18 @@ class VarkaSeveralKernelsSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
+  test("under the defaults eight hundred greatest entries over one column and a date_add over " +
+      "each of the other sixty-nine answer from two kernels, the first with a split driver") {
+    // Both options on (PLAN_TASK_190.md 11.5): the split driver serves the driver's ceiling in
+    // the first kernel, and the entries past its sixty-four columns are the second kernel's.
+    withWideDates {
+      val outputs = (1 to 800).map { k =>
+        s"greatest(add_months(c0, $k), date_add(c0, $k), last_day(c0)) AS g$k"
+      } ++ (1 until columns).map(c => s"date_add(c$c, 1) AS a$c") :+ "i"
+      check(VarkaEmitOptions.DEFAULTS, s"SELECT ${outputs.mkString(", ")} FROM $view")
+    }
+  }
+
   test("two hundred greatest entries, past the unrolled driver's ceiling, answer from two " +
       "kernels") {
     withWideDates {

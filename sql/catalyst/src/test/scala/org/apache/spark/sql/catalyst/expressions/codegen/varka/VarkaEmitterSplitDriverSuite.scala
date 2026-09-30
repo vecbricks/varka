@@ -28,7 +28,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  */
 class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
 
-  private val whole = VarkaEmitOptions.DEFAULTS
+  // Both forms named: the split driver is the default since `PLAN_TASK_190.md` 11.5.
+  private val whole = VarkaEmitOptions.DEFAULTS.withSplitDriver(false)
   private val split = VarkaEmitOptions.DEFAULTS.withSplitDriver(true)
 
   /** One group per output: a group budget of one closes a group after every `date_add`. */
