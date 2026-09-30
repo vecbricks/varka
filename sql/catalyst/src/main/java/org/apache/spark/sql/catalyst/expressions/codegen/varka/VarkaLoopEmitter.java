@@ -240,7 +240,9 @@ public final class VarkaLoopEmitter {
 
   /**
    * {@link #emit} for the suites that count how many times the class was built before the one
-   * returned: {@code builds[0]} is set to that count, 1 when the first grouping was the last.
+   * returned: {@code builds[0]} is set to that count, 1 when the first grouping was the last, and
+   * {@code builds[1]}, where the array has it, to how many times a grouping switch was dropped
+   * because the class it made would decline - 0 unless the fallback ran.
    */
   static byte[] emitCountingBuilds(String className, List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options, int[] builds) {
@@ -325,7 +327,8 @@ public final class VarkaLoopEmitter {
     // once; the measurement above still decides, and a class the predicted grouping would make
     // decline is built again with the weights alone (see `PLAN_TASK_199.md`). Under
     // `exactGrouping` the first grouping is the best partition of the outputs under the same
-    // rule rather than the greedy walk's, and falls back the same way (see `PLAN_TASK_200.md`).
+    // rule rather than the greedy walk's; a class it would make decline is built again without
+    // it, keeping the prediction, before the prediction is dropped (see `PLAN_TASK_200.md`).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -345,8 +348,14 @@ public final class VarkaLoopEmitter {
     // would decline (see `PLAN_TASK_199.md`).
     VarkaEmitOptions grouping = options;
     builds[0] = 0;
+    if (builds.length > 1) {
+      builds[1] = 0;
+    }
+    // The exact grouping's runs, priced once per grouping options: between rebuilds only the
+    // forced starts change, and they cut the runs rather than change them.
+    ExactRuns exactRuns = new ExactRuns();
     while (true) {
-      List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, null);
+      List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, null, exactRuns);
       builds[0]++;
       // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
@@ -411,21 +420,27 @@ public final class VarkaLoopEmitter {
         grouping = grouping.withCallSiteBudget(0);
         continue;
       }
-      if ((grouping.predictGrouping() || grouping.exactGrouping()) && stuck.isEmpty()) {
-        // The predicted grouping closes groups the weights would not, and the exact grouping may
-        // take a group more where that saves ops; every group is a call more in the driver, so
-        // either can push the driver past the byte budget. Like the call-site splits above,
-        // neither may cost a kernel: the class is built again with the greedy weights alone,
-        // which is the emission the switches-off emitter makes, decline or not. A decline that
-        // names a single output over the budget is left alone: no grouping changes it.
+      // The grouping switches close groups the greedy weights would not: the exact grouping may
+      // take a group more where that saves ops, and the prediction closes groups on its budgets.
+      // Every group is a call more in the driver, so either can push the driver past the byte
+      // budget. Like the call-site splits above, neither may cost a kernel, so each is dropped in
+      // turn - the exact grouping first, keeping the prediction's grouping, then the prediction,
+      // which leaves the emission the switches-off emitter makes, decline or not. A decline that
+      // names a single output over the budget is left alone: no grouping changes it.
+      if (grouping.exactGrouping() && stuck.isEmpty()) {
+        grouping = options.withExactGrouping(false);
+      } else if (grouping.predictGrouping() && stuck.isEmpty()) {
         grouping = options.withPredictGrouping(false).withExactGrouping(false);
-        siteBudget = options.callSiteBudget();
-        forcedStarts.clear();
-        continue;
+      } else {
+        throw new VarkaEmitDeclined(String.join("; ", findings)
+            + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
+                + " cannot be regrouped smaller"), stuck);
       }
-      throw new VarkaEmitDeclined(String.join("; ", findings)
-          + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
-              + " cannot be regrouped smaller"), stuck);
+      if (builds.length > 1) {
+        builds[1]++;
+      }
+      siteBudget = options.callSiteBudget();
+      forcedStarts.clear();
     }
   }
 
@@ -669,7 +684,7 @@ public final class VarkaLoopEmitter {
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
-    return groupOutputs(outputs, options, Set.of(), null);
+    return groupOutputs(outputs, options, Set.of(), null, new ExactRuns());
   }
 
   /**
@@ -684,7 +699,7 @@ public final class VarkaLoopEmitter {
   /** As above, with {@code forcedStarts}: outputs that begin a group whatever the rule says. */
   static List<List<Integer>> groupsForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Set<Integer> forcedStarts) {
-    return groupOutputs(List.copyOf(outputs), options, forcedStarts, null);
+    return groupOutputs(List.copyOf(outputs), options, forcedStarts, null, new ExactRuns());
   }
 
   /**
@@ -695,7 +710,8 @@ public final class VarkaLoopEmitter {
   static List<VarkaEmitCost.Tally> talliesForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Map<String, double[]> prices) {
     List<VarkaEmitCost.Tally> tallies = new ArrayList<>();
-    groupOutputs(List.copyOf(outputs), options, Set.of(), new TallyRecord(prices, tallies));
+    groupOutputs(List.copyOf(outputs), options, Set.of(), new TallyRecord(prices, tallies),
+        new ExactRuns());
     return tallies;
   }
 
@@ -706,15 +722,22 @@ public final class VarkaLoopEmitter {
    * As above, with {@code forcedStarts}: outputs that begin a new group whatever the weights
    * say. The byte-budget regroup in {@link #emit} adds the middle output of a group whose
    * methods measured over the budget, so the split halves a group and never reorders one.
-   * {@code record}, null but in the suites, collects each group's tally.
+   * {@code record}, null but in the suites, collects each group's tally; {@code exactRuns}
+   * keeps the exact grouping's runs between calls with the same options.
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
-      VarkaEmitOptions options, Set<Integer> forcedStarts, TallyRecord record) {
+      VarkaEmitOptions options, Set<Integer> forcedStarts, TallyRecord record,
+      ExactRuns exactRuns) {
+    Set<Integer> exactStarts = null;
     if (options.exactGrouping()) {
       // The best partition's group starts, forced on the walk below. Every group of that
       // partition is one the rule admits, so the walk closes a group at each of its starts and
-      // at no other output, and so forms exactly that partition.
-      forcedStarts = bestPartitionStarts(outputs, options, forcedStarts);
+      // at no other output, and so forms exactly that partition - which is checked at the end.
+      // The runs are priced as the walk prices them, so the two cannot judge a step apart.
+      Map<String, double[]> prices = record != null ? record.prices() : VarkaEmitCostTable.PRICES;
+      exactStarts = bestPartitionStarts(outputs, options, forcedStarts,
+          exactRuns.of(outputs, options, prices));
+      forcedStarts = exactStarts;
     }
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
@@ -761,6 +784,11 @@ public final class VarkaLoopEmitter {
     if (record != null) {
       record.tallies().add(group.tally);
     }
+    if (exactStarts != null && groups.size() != exactStarts.size()) {
+      throw new IllegalStateException("the greedy walk formed " + groups.size() + " groups "
+          + "where the best partition has " + exactStarts.size() + ": the walk and the best "
+          + "partition judged a step apart");
+    }
     return groups;
   }
 
@@ -772,55 +800,26 @@ public final class VarkaLoopEmitter {
    * and so on. The last criterion is the greedy walk's own, so where the greedy partition is
    * already the best it is the one chosen, and the option changes only the shapes it improves.
    *
-   * <p>A group's ops depend on the outputs in it and on the dates the outputs before it
-   * decompose - some earlier group computes each, whatever the partition before it - and on
-   * nothing after it. So the best partition is a dynamic program over the starts. Each start's
-   * runs are grown once, output by output, until the rule refuses the next output or a forced
-   * start is reached; the best partition of the outputs from a start is then the best, over its
-   * runs, of the run plus the best partition of what follows it. The rule's budgets bound every
-   * run, so the work is the outputs times the longest group, not the outputs squared. See
+   * <p>{@code runs} holds the op total of every run the rule admits from each start
+   * ({@link ExactRuns}); a forced start only cuts them, since a run may not cross one. The best
+   * partition of the outputs from a start is the best, over its runs, of the run plus the best
+   * partition of what follows it, chosen from the last start backward. See
    * {@code PLAN_TASK_200.md}.
    */
   private static Set<Integer> bestPartitionStarts(List<VarkaVectorIR> outputs,
-      VarkaEmitOptions options, Set<Integer> forcedStarts) {
+      VarkaEmitOptions options, Set<Integer> forcedStarts, int[][] runs) {
     int n = outputs.size();
-    boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
-    boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
-    VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
-    // Every output before the current start, walked as one group: its prefixes are what a group
-    // starting there finds computed earlier.
-    GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
-        lane, null);
-    int[][] runOps = new int[n][];
-    int[] scratch = new int[n];
-    for (int i = 0; i < n; i++) {
-      Set<VarkaVectorIR> earlier = before.prefixes;
-      GroupOps run = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
-          predict ? new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false) : null);
-      int runs = 0;
-      for (int o = i; o < n; o++) {
-        if (o > i && forcedStarts.contains(o)) {
-          break;
-        }
-        Admission step = admit(run, outputs.get(o), o - i, options, predict, materialize,
-            earlier, lane);
-        // As in the greedy walk, an output that adds nothing joins whatever the budgets say.
-        if (o > i && step.marginal() > 0 && !step.fits()) {
-          break;
-        }
-        scratch[runs++] = run.ops;
-      }
-      runOps[i] = Arrays.copyOf(scratch, runs);
-      before.add(outputs.get(i));
-    }
     long[] bestOps = new long[n + 1];
     int[] bestGroups = new int[n + 1];
     int[] next = new int[n + 1];
+    // The first forced start after each output, which no run from it may reach.
+    int cut = n;
     for (int i = n - 1; i >= 0; i--) {
       bestOps[i] = Long.MAX_VALUE;
-      for (int k = 0; k < runOps[i].length; k++) {
+      int longest = Math.min(runs[i].length, cut - i);
+      for (int k = 0; k < longest; k++) {
         int j = i + k + 1;
-        long ops = runOps[i][k] + bestOps[j];
+        long ops = runs[i][k] + bestOps[j];
         int groups = 1 + bestGroups[j];
         // A tie goes to the longer run, which is the greedy walk's choice.
         if (ops < bestOps[i] || (ops == bestOps[i] && groups <= bestGroups[i])) {
@@ -829,12 +828,80 @@ public final class VarkaLoopEmitter {
           next[i] = j;
         }
       }
+      if (forcedStarts.contains(i)) {
+        cut = i;
+      }
     }
     Set<Integer> starts = new HashSet<>();
     for (int i = 0; i < n; i = next[i]) {
       starts.add(i);
     }
     return starts;
+  }
+
+  /**
+   * The runs the exact grouping chooses from: for each start, the op total of every run of
+   * outputs from it that the rule admits as one group ({@link #admit}), grown output by output
+   * until the rule refuses the next. Priced once and kept while the options and the prices stay
+   * the same, which they do across the regroups of one emission; only the forced starts change
+   * there, and they cut runs rather than change them.
+   *
+   * <p>A group's ops depend on the outputs in it and on the dates the outputs before it
+   * decompose - some earlier group computes each, whatever the partition before it - and on
+   * nothing after it, which is what makes one price per run right in every partition. The work
+   * is the outputs times the longest run. The rule's budgets bound a run's outputs that add ops;
+   * an output that adds nothing joins whatever the budgets say, so a stretch of such outputs
+   * lengthens every run that reaches it, and costs a step each.
+   */
+  private static final class ExactRuns {
+    private List<VarkaVectorIR> outputs;
+    private VarkaEmitOptions options;
+    private Map<String, double[]> prices;
+    private int[][] runs;
+
+    int[][] of(List<VarkaVectorIR> outputs, VarkaEmitOptions options,
+        Map<String, double[]> prices) {
+      if (runs == null || outputs != this.outputs || !options.equals(this.options)
+          || prices != this.prices) {
+        this.outputs = outputs;
+        this.options = options;
+        this.prices = prices;
+        this.runs = price(outputs, options, prices);
+      }
+      return runs;
+    }
+
+    private static int[][] price(List<VarkaVectorIR> outputs, VarkaEmitOptions options,
+        Map<String, double[]> prices) {
+      int n = outputs.size();
+      boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
+      boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
+      VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
+      // Every output before the current start, walked as one group: its prefixes are what a
+      // group starting there finds computed earlier.
+      GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
+          lane, null);
+      int[][] runs = new int[n][];
+      int[] scratch = new int[n];
+      for (int i = 0; i < n; i++) {
+        Set<VarkaVectorIR> earlier = before.prefixes;
+        GroupOps run = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+            predict ? new VarkaEmitCost.Tally(lane, prices, false) : null);
+        int length = 0;
+        for (int o = i; o < n; o++) {
+          Admission step = admit(run, outputs.get(o), o - i, options, predict, materialize,
+              earlier, lane);
+          // As in the greedy walk, an output that adds nothing joins whatever the budgets say.
+          if (o > i && step.marginal() > 0 && !step.fits()) {
+            break;
+          }
+          scratch[length++] = run.ops;
+        }
+        runs[i] = Arrays.copyOf(scratch, length);
+        before.add(outputs.get(i));
+      }
+      return runs;
+    }
   }
 
   /**
@@ -857,6 +924,10 @@ public final class VarkaLoopEmitter {
       Set<VarkaVectorIR> earlier, VarkaVectorIR.LaneType lane) {
     int before = withNext.ops;
     int marginal = withNext.add(output);
+    if (marginal == 0) {
+      // Every caller joins such an output whatever the budgets say, so it is not judged.
+      return new Admission(withNext, 0, true, true);
+    }
     // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
     // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
     // what this output would cost on its own less what it actually adds - which is the prefix

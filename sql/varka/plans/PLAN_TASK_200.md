@@ -216,15 +216,19 @@ addressed, and the answer to the fourth changed the verdict.
 with those starts forced: every group of the best partition is a run the rule admits, so the walk
 closes a group at each of its starts and nowhere else, and forms exactly that partition through
 the code that has always formed partitions. A start the measurement's regroup forces is one the
-best partition must begin a group at, so the halving works as before.
+best partition must begin a group at, so the halving works as before. The walk checks that it
+formed as many groups as the best partition has, and throws if not: a difference would mean the
+two judged a step apart, and it is cheaper to find that in a suite than as a slower kernel.
 
 `bestPartitionStarts` is the dynamic program of 3.1. From each start it grows one group, output
 by output, through `admit` - the one place the rule is written, which now adds the output in
 place and leaves copying to the greedy walk, the one caller that keeps the group as it was - and
-records the ops of every run the rule admits, stopping at the first output it refuses or the
-first forced start. The dates a group finds computed earlier are those of every output before
-its start, whatever the partition there, so the runs from a start are the same in every
-partition and each is priced once. The partition is then chosen from the end backward: the
+records the ops of every run the rule admits, stopping at the first output it refuses; the runs
+are priced with the walk's own prices. The dates a group finds computed earlier are those of
+every output before its start, whatever the partition there, so the runs from a start are the
+same in every partition and each is priced once - once per emission, too, since the regroups of
+one emission change only the forced starts, and a forced start cuts runs rather than changes
+them. The partition is then chosen from the end backward: the
 fewest ops, then the fewest groups, then the longest first group, the longest second group and
 so on. The last criterion is the greedy walk's own, and it makes the exact grouping the greedy
 partition itself wherever that is already the best, so the switch moves only the shapes it
@@ -235,8 +239,9 @@ improves - a property the suite tests byte for byte on the ladders.
 * **A fallback.** 3.1 did not give the switch one. The exact grouping may take a group more than
   the greedy walk where that saves ops, and a group more is a call more in the driver, so like
   `predictGrouping` it could in principle make a class decline that the greedy walk emits. A
-  class either switch would make decline is now built again with both off. No shape of the
-  check needs it.
+  class the exact grouping would make decline is built again without it, keeping the
+  prediction, and one the prediction would make decline is built again with both off. No shape
+  of the check takes the fallback, and the suite holds that, not only that nothing declines.
 * **The emission timing moved.** Section 4 put the partition's cost at plan time in
   `VarkaEmissionBenchmark`. It is a section of `VarkaWideKernelBenchmark` instead, beside the
   run-time sections, so that every number of this task comes from one runner's file:
@@ -251,13 +256,16 @@ name their forms, and `PLAN_TASK_190.md` 10.4 records the correction.
 **Tests.** `VarkaGroupingBoundSuite` gains the arms of section 4: on every shape of the check,
 with the prediction and without, the exact grouping has the best partition's ops and groups,
 every group it forms is a run the rule admits, and where the greedy walk is already at the best
-it is the greedy partition exactly; and no shape declines under it that the greedy walk emits.
+it is the greedy partition exactly; and no shape declines under it, or falls back from it, that
+the greedy walk emits.
 `VarkaExactGroupingSuite` holds the emitter to it on the mixed family - 20 loop methods at forty
 entries against 11, at the same ops - checks that the ladders, where greedy is at the best, emit
 byte for byte the same class, runs the mixed family at forty and two hundred entries against the
-reference evaluator on both bodies, holds a forced start to begin a group, and runs sixty-four
-cheap tails under a 1000-byte budget, where the measurement halves the groups of the exact
-grouping until every method fits. The composition fuzzer draws the switch on and off; the IR
+reference evaluator on both bodies, holds a forced start to begin a group, and runs forty mixed
+entries under a 2000-byte budget, which their best partition's masked groups exceed: the
+measurement regroups the exact grouping until every method fits, without falling back to the
+greedy one, and the kernel answers. The composition fuzzer draws the switch on and off, from a random stream of its own so that
+every composition it drew before is drawn again; the IR
 fuzzer draws it like every boolean; the option audit's inventory lists it.
 
 The check's table, with the exact grouping as its last column, and the loop methods as shipped
@@ -274,4 +282,4 @@ after the measurement's regroup:
 | the interleaved-date families | as greedy | 264, 264 |
 | coverage compositions | 2298, 2306, 2287, 2287 | 2313, 2295 |
 
-The time is 8.2's, from the runner.
+The time is pending the runner's measurement.

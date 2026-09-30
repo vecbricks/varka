@@ -355,8 +355,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        partition is already the best it is the partition chosen. What it changes is where the
  *        greedy walk strands a cheap output that shares nothing in a loop method of its own
  *        ({@code PLAN_TASK_200.md} 2). The measurement of the built class stays the last word,
- *        and a class the exact grouping would make decline is built again greedily. Off by
- *        default until measured.
+ *        and a class the exact grouping would make decline is built again greedily, keeping
+ *        {@link #predictGrouping}. Off by default until measured.
  */
 public record VarkaEmitOptions(
     int groupBudget,

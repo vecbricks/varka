@@ -66,10 +66,15 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
   private def width(rnd: Random, max: Int): Int =
     math.max(1, math.exp(rnd.nextDouble() * math.log(max)).toInt)
 
-  private def options(rnd: Random): VarkaEmitOptions = {
-    val width = if (rnd.nextBoolean()) VarkaEmitOptions.DEFAULTS
+  /**
+   * The emit options of an iteration. The exact grouping is drawn from a stream of its own, so
+   * adding it left every composition the main stream draws, and the seeds that found past bugs,
+   * as they were.
+   */
+  private def options(rnd: Random, iteration: Int): VarkaEmitOptions = {
+    val lanes = if (rnd.nextBoolean()) VarkaEmitOptions.DEFAULTS
       else VarkaEmitOptions.DEFAULTS.withLanesOverride(4)
-    width.withExactGrouping(rnd.nextBoolean())
+    lanes.withExactGrouping(new Random(~(seed * 1000003L + iteration)).nextBoolean())
   }
 
   /**
@@ -88,7 +93,7 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     val list: Seq[NamedExpression] = picked.zipWithIndex.map { case (row, i) =>
       Alias(resolve(row.executable), s"c$i")()
     }
-    val opts = options(rnd)
+    val opts = options(rnd, iteration)
     val where = s"seed $seed iteration $iteration, ${picked.size} entries, options " +
       s"${opts.canonical}:\n  ${picked.map(_.executable).mkString("\n  ")}"
     val (fused, declined) = try {
@@ -112,7 +117,7 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     val rnd = new Random(seed * 1000003L + 500000L + iteration)
     val picked = Seq.fill(width(rnd, 64))(predicates(rnd.nextInt(predicates.size)))
     val condition = picked.map(row => resolve(row.executable)).reduceLeft(And)
-    val opts = options(rnd)
+    val opts = options(rnd, iteration)
     val where = s"seed $seed iteration $iteration, ${picked.size} conjuncts, options " +
       s"${opts.canonical}:\n  ${picked.map(_.executable).mkString("\n  ")}"
     val specs = try {

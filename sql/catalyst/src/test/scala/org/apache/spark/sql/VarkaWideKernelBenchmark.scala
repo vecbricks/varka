@@ -168,9 +168,10 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
           "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))
         val shapes = Seq(100, 200).map(n => (s"$n mixed entries", (0 until n).map(mixedEntry))) :+
           (s"$widest ladder entries", (0 until widest).map(entry))
-        for ((shape, roots) <- shapes; withNulls <- Seq(false, true);
-            (label, options) <- groupings) {
-          val kernel = emit(roots, options, loader)
+        // Each kernel is emitted once and scanned with nulls and without.
+        val kernels = for ((shape, roots) <- shapes; (label, options) <- groupings)
+          yield (shape, roots, label, emit(roots, options, loader))
+        for (withNulls <- Seq(false, true); (shape, roots, label, kernel) <- kernels) {
           val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
           benchmark.addCase(s"$shape, $label (${loops(kernel)} loop methods), $nullsLabel") { _ =>
             scan(kernel, roots.size, withNulls)

@@ -28,8 +28,10 @@ import scala.jdk.CollectionConverters._
  */
 class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
 
-  private val greedy = VarkaEmitOptions.DEFAULTS
-  private val exact = VarkaEmitOptions.DEFAULTS.withExactGrouping(true)
+  // Pinned to sixteen lanes: the lane count changes the prefix's ops, and with them where the
+  // groups close, so the counts below hold on every machine only at one lane count.
+  private val greedy = VarkaEmitOptions.DEFAULTS.withLanesOverride(16)
+  private val exact = greedy.withExactGrouping(true)
 
   private def mixed(n: Int): Seq[VarkaVectorIR] = VarkaGroupingBound.mixed(n).asScala.toSeq
 
@@ -107,21 +109,30 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
       VarkaGroupingBound.of(runs, greedyGrouping).ops)
   }
 
-  test("under a byte budget the measurement still halves the groups of the exact grouping, every " +
-      "method fits, and the kernel answers") {
-    // Sixty-four cheap tails over one date, at a budget a single tail's methods fit under and a
-    // group of them does not: the build measures, forces starts, and the exact grouping rebuilds
-    // around them until every group fits.
-    val roots = (0 until 64).map(VarkaEmitCostCorpus.tailEntry)
-    val tight = exact.withMethodByteBudget(1000)
-    val measured = VarkaEmittedClass.measure(emitMulti(roots, 1, 64, tight)._2)
-    measured.codeLength.asScala.foreach { case (m, bytes) =>
+  test("under a byte budget the measurement regroups the exact grouping until every method " +
+      "fits, without falling back to the greedy grouping, and the kernel answers") {
+    // Forty mixed entries - the family where the exact grouping differs from the greedy walk -
+    // at a budget their best partition's masked groups, about 2040 bytes, do not fit: the
+    // build measures, forces starts, and the exact grouping rebuilds around them. The switch
+    // must survive that, so the class is the exact grouping's, not the greedy one the fallback
+    // would make.
+    val roots = mixed(40)
+    val budget = 2000
+    val tight = exact.withMethodByteBudget(budget)
+    val builds = new Array[Int](2)
+    val bytes = VarkaLoopEmitter.emitCountingBuilds(
+      "org.apache.spark.sql.varka.execution.VarkaExactGroupingTest", roots.asJava, 1, 40,
+      tight, builds)
+    assert(builds(0) > 1, "the budget never made the measurement regroup")
+    assert(builds(1) === 0, "the exact grouping was dropped to make the class fit")
+    VarkaEmittedClass.measure(bytes).codeLength.asScala.foreach { case (m, size) =>
       if (VarkaEmitBudget.groupOf(m) >= 0) {
-        assert(bytes <= 1000, s"$m is $bytes bytes")
+        assert(size <= budget, s"$m is $size bytes")
       }
     }
-    assert(loops(emitMulti(roots, 1, 64, tight)._2) > 1)
-    checkMatrix(roots, 1, (0 until 64).map(k => k * 3 - 90).toArray, Seq(1, 17, 129), combos(1),
-      options = tight, ctx = "cheap tails under a 1000-byte budget, exact grouping")
+    assert(loops(bytes) > VarkaGroupingBound.optimal(
+      VarkaGroupingBound.runs(roots.asJava, greedy)).groups)
+    checkMatrix(roots, 1, mixedLits(40), Seq(1, 17, 129), combos(1), options = tight,
+      ctx = s"40 mixed entries under a $budget-byte budget, exact grouping")
   }
 }

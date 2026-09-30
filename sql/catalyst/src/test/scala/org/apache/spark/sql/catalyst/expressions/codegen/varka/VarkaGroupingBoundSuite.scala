@@ -67,20 +67,28 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
       VarkaEmitCostCorpus.ladders().asScala ++ VarkaGroupingBound.interleaved().asScala ++
       compositions
 
-  /** The loop methods of the shape as it ships, after the measurement regroups it. */
-  private def shippedLoops(shape: VarkaEmitCostCorpus.Shape,
-      emitOptions: VarkaEmitOptions = options): Option[Int] = {
+  /**
+   * The loop methods of the shape as it ships, after the measurement regroups it, and how many
+   * times the emitter dropped a grouping switch to make it; None where it declines.
+   */
+  private def shipped(shape: VarkaEmitCostCorpus.Shape,
+      emitOptions: VarkaEmitOptions): Option[(Int, Int)] = {
     try {
+      val builds = new Array[Int](2)
       val bytes = VarkaLoopEmitter.emitCountingBuilds(
         "org.apache.spark.sql.varka.execution.VarkaGroupingBoundTest", shape.roots,
-        shape.numInputs, shape.numLiterals, emitOptions, new Array[Int](1))
+        shape.numInputs, shape.numLiterals, emitOptions, builds)
       val names = VarkaEmittedClass.measure(bytes).codeLength.keySet.asScala
-      Some(math.max(names.count(_.startsWith("loopDense")),
-        names.count(_.startsWith("loopMasked"))))
+      Some((math.max(names.count(_.startsWith("loopDense")),
+        names.count(_.startsWith("loopMasked"))), builds(1)))
     } catch {
       case _: VarkaEmitDeclined => None
     }
   }
+
+  /** The loop methods of the shape as it ships, after the measurement regroups it. */
+  private def shippedLoops(shape: VarkaEmitCostCorpus.Shape): Option[Int] =
+    shipped(shape, options).map(_._1)
 
   test("the greedy grouping is within half a percent of the best partition's ops on every " +
       "family, and never below it once the prediction closes groups") {
@@ -148,19 +156,24 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("under the exact grouping no shape declines that the greedy grouping emits") {
-    // A class the exact grouping would make decline is built again greedily, so the switch never
-    // costs a kernel; the loop methods each emits as shipped, after the measurement's regroup,
-    // are reported beside it.
+  test("under the exact grouping no shape declines, and none falls back to the greedy grouping") {
+    // A class the exact grouping would make decline is built again greedily, so a decline alone
+    // cannot show the switch costing a kernel: the fallback hides it. What the test holds is
+    // that the fallback never runs for the exact grouping - a shape drops no more switches under
+    // it than under the greedy grouping - and it reports the loop methods each emits as shipped,
+    // after the measurement's regroup.
     val exactOptions = options.withExactGrouping(true)
     val totals = scala.collection.mutable.LinkedHashMap[String, (Int, Int)]()
     for (shape <- shapes) {
-      val greedy = shippedLoops(shape)
-      val exact = shippedLoops(shape, exactOptions)
-      assert(greedy.isEmpty || exact.nonEmpty, s"${shape.family} ${shape.index} emits under " +
-        "the greedy grouping and declines under the exact one")
+      val greedy = shipped(shape, options)
+      val exact = shipped(shape, exactOptions)
+      val name = s"${shape.family} ${shape.index}"
+      assert(greedy.isEmpty || exact.nonEmpty,
+        s"$name emits under the greedy grouping and declines under the exact one")
+      assert(exact.map(_._2) === greedy.map(_._2),
+        s"$name falls back from the exact grouping to make a class that fits")
       val (g, e) = totals.getOrElse(shape.family, (0, 0))
-      totals(shape.family) = (g + greedy.getOrElse(0), e + exact.getOrElse(0))
+      totals(shape.family) = (g + greedy.map(_._1).getOrElse(0), e + exact.map(_._1).getOrElse(0))
     }
     totals.foreach { case (family, (g, e)) =>
       info(s"$family: $g loop methods as shipped greedily, $e under the exact grouping")
