@@ -199,6 +199,10 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
 
   test("a single-operator word tree of any depth is served through the chain entry " +
       "points; a mixed AND/OR tree is declined and keeps its per-group write") {
+    // The chain entry points are read off the unrolled driver, which calls them itself; the
+    // driver from a table calls them from the engine's plan helper, which
+    // VarkaVectorSupportOutputPlanTest runs step by step.
+    val bitmapOn = this.bitmapOn.withDriverOutputTable(false)
     val d = new ColumnRef(0)
     val d2 = new ColumnRef(1)
     val d3 = new ColumnRef(2)

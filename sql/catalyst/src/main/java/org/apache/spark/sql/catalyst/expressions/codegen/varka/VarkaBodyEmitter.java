@@ -78,8 +78,8 @@ final class VarkaBodyEmitter {
     List<Integer> bodyOutputs = group >= 0 ? groups.get(group) : all;
     // A group's method sets up only what its group writes and reads, so its size is the
     // group's and not the kernel's (task 87). The driver owns every output - it zeroes each
-    // validity bitmap and runs the bitmap pass - so it keeps the whole-kernel prologue
-    // whichever way the option is set.
+    // validity bitmap and runs the bitmap pass - so unrolled it keeps the whole-kernel prologue
+    // whichever way the option is set; from a table (below) it keeps none of it.
     boolean perGroup = mode != BodyMode.DRIVER && analysis.options.methodByteBudget() > 0;
     if (perGroup && group < 0) {
       throw new IllegalArgumentException(
@@ -88,6 +88,15 @@ final class VarkaBodyEmitter {
     Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup,
         group);
     List<Integer> prologueOutputs = perGroup ? bodyOutputs : all;
+    // Under `driverOutputTable` the driver's per-output work is one call reading a plan, in step
+    // (4b) below, and the driver keeps only what it reads: the empty-batch return, that call, the
+    // all-null shortcut and its calls to the groups. It maps no output or input segment, sizes
+    // nothing, hoists no literal and reads no species - the loop and epilogue methods do all of
+    // that for themselves - so its size is its calls' (see `PLAN_TASK_190.md` 10).
+    boolean driverTable = mode == BodyMode.DRIVER && analysis.options.driverOutputTable();
+    if (driverTable) {
+      prologueOutputs = List.of();
+    }
 
     // (1) if (length <= 0) return 0 - nothing ran, so there is nothing to report.
     Label nonEmpty = cb.newLabel();
@@ -98,18 +107,20 @@ final class VarkaBodyEmitter {
     cb.labelBinding(nonEmpty);
 
     // (2) Nominal sizes: dataBytes = (long) length * 4; validityBytes = (length + 7) / 8L.
-    cb.iload(analysis.lane.pLength);
-    cb.i2l();
-    cb.loadConstant(analysis.lane.byteStride);
-    cb.lmul();
-    cb.lstore(s.dataBytes);
-    cb.iload(analysis.lane.pLength);
-    cb.loadConstant(7);
-    cb.iadd();
-    cb.i2l();
-    cb.loadConstant(8L);
-    cb.ldiv();
-    cb.lstore(s.validityBytes);
+    if (!driverTable) {
+      cb.iload(analysis.lane.pLength);
+      cb.i2l();
+      cb.loadConstant(analysis.lane.byteStride);
+      cb.lmul();
+      cb.lstore(s.dataBytes);
+      cb.iload(analysis.lane.pLength);
+      cb.loadConstant(7);
+      cb.iadd();
+      cb.i2l();
+      cb.loadConstant(8L);
+      cb.ldiv();
+      cb.lstore(s.validityBytes);
+    }
 
     // A materialized prefix's scratch (task 198): one segment over all of it, regions times
     // SCRATCH_VECTORS times dataBytes, so the caller's scratch is laid out by the batch's own
@@ -188,8 +199,10 @@ final class VarkaBodyEmitter {
       // The driver still derives all of it, and most of that is dead there: `hasNulls[i]`,
       // `srcValSeg[i]` and `srcSeg[i]` are read only inside `emitLaneGroup` and `emitValue`, which
       // only a loop or epilogue body calls, so in the masked driver they are written and never
-      // read; `dead[i]` is read by the all-null shortcut alone, and is dead too on any shape that
-      // emits no shortcut - a `Cond` root, a null-skipping root, an output over no column. The
+      // read; `dead[i]` is read by the unrolled all-null shortcut alone, and is dead too on any
+      // shape that emits no shortcut - a `Cond` root, a null-skipping root, an output over no
+      // column. The driver from a table plans no input at all (Slots.plan), so none of this is
+      // emitted there. The
       // liveness pass this task added is what could remove it, but the driver is planned with `live
       // = null` (see Slots.plan) and this is deliberately not that change: it is the residue
       // PLAN_TASK_70.md 9.2 prediction 3 measures and leaves // to the driver.
@@ -246,7 +259,15 @@ final class VarkaBodyEmitter {
     // already have every served bitmap written, since nothing after (5) runs for it. The engine
     // resolves each operand's three states, so this is one call per node of the flattened
     // expression and no branch: arguments straight from the kernel's parameters.
-    if (!dense && mode == BodyMode.DRIVER) {
+    if (driverTable) {
+      // Step (3)'s zero or fill and this step's pass, for every output, in one call.
+      cb.aload(P_DST_VALIDITY);
+      cb.aload(P_SRC_VALIDITY);
+      cb.aload(P_NULL_COUNT);
+      cb.loadConstant(tableConstant(outputPlan(analysis, dense, outputs), "output plan"));
+      cb.iload(analysis.lane.pLength);
+      cb.invokestatic(SUPPORT, "prepareOutputValidity", PREPARE_OUTPUT_VALIDITY);
+    } else if (!dense && mode == BodyMode.DRIVER) {
       for (int o = 0; o < numOutputs; o++) {
         BitmapPass pass = analysis.served[o];
         if (pass != null) {
@@ -269,7 +290,17 @@ final class VarkaBodyEmitter {
       shortcutApplies &= analysis.columns.get(root) != 0L && !analysis.skipping.get(root)
           && !(root instanceof Cond);
     }
-    if (shortcutApplies) {
+    if (shortcutApplies && driverTable) {
+      Label live = cb.newLabel();
+      cb.aload(P_NULL_COUNT);
+      cb.loadConstant(tableConstant(shortcutColumns(analysis, outputs), "all-null shortcut"));
+      cb.iload(analysis.lane.pLength);
+      cb.invokestatic(SUPPORT, "everyOutputReadsAnAllNullColumn", EVERY_OUTPUT_ALL_NULL);
+      cb.ifeq(live);
+      cb.loadConstant(0);
+      cb.ireturn();
+      cb.labelBinding(live);
+    } else if (shortcutApplies) {
       Label live = cb.newLabel();
       boolean firstOutput = true;
       for (VarkaVectorIR root : outputs) {
@@ -302,20 +333,22 @@ final class VarkaBodyEmitter {
     // validity helpers are in use, so the class cannot disagree with the helper names beside it,
     // and the lane count is a bytecode constant rather than a call. Otherwise SPECIES_PREFERRED and
     // its length(), which is what a width with no specialised helpers does.
-    cb.getstatic(analysis.lane.vector, analysis.lane.speciesField(analysis.lanes),
-        VECTOR_SPECIES);
-    cb.astore(s.species);
-    if (analysis.lanes != 0) {
-      cb.loadConstant(analysis.lanes);
-    } else {
+    if (!driverTable) {
+      cb.getstatic(analysis.lane.vector, analysis.lane.speciesField(analysis.lanes),
+          VECTOR_SPECIES);
+      cb.astore(s.species);
+      if (analysis.lanes != 0) {
+        cb.loadConstant(analysis.lanes);
+      } else {
+        cb.aload(s.species);
+        cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+      }
+      cb.istore(s.lanes);
       cb.aload(s.species);
-      cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+      cb.iload(analysis.lane.pLength);
+      cb.invokeinterface(VECTOR_SPECIES, "loopBound", LOOP_BOUND);
+      cb.istore(s.loopBound);
     }
-    cb.istore(s.lanes);
-    cb.aload(s.species);
-    cb.iload(analysis.lane.pLength);
-    cb.invokeinterface(VECTOR_SPECIES, "loopBound", LOOP_BOUND);
-    cb.istore(s.loopBound);
     for (int j = 0; j < numLiterals; j++) {
       if (s.scalarArg[j] < 0) {
         continue; // a literal no output of this group reads (per-group planning, task 87)
@@ -934,6 +967,96 @@ final class VarkaBodyEmitter {
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, name + "Into", COLUMN_VALIDITY_INTO);
     }
+  }
+
+  /*
+   * The steps of the plan below, as {@code VarkaVectorSupport} names them. Catalyst reaches the
+   * engine only by class name at run time, so they are restated here, and
+   * {@code VarkaEmitterDriverTableSuite} pins the two sets equal.
+   */
+  static final char PLAN_ZERO = 'z';
+  static final char PLAN_ZERO_WORDS = 'Z';
+  static final char PLAN_FILL = 'f';
+  static final char PLAN_COPY = 'c';
+  static final char PLAN_AND = '&';
+  static final char PLAN_OR = '|';
+
+  /**
+   * The plan {@code VarkaVectorSupport.prepareOutputValidity} reads under
+   * {@code driverOutputTable}: per output, in order, the step the unrolled driver would emit for
+   * it - its bitmap pass where it is served, else a fill where {@link #fillsValidityOnce}, else a
+   * zero at the size step (3) maps its segment at. Decided by the same predicates as the
+   * unrolled form, so the two write the same bits.
+   */
+  private static String outputPlan(Analysis analysis, boolean dense, List<VarkaVectorIR> outputs) {
+    StringBuilder plan = new StringBuilder();
+    for (int o = 0; o < outputs.size(); o++) {
+      BitmapPass pass = servedByPass(analysis, dense, o) ? analysis.served[o] : null;
+      if (pass != null) {
+        int[] ords = pass.ordinals();
+        if (ords.length == 0) {
+          plan.append(PLAN_FILL);
+        } else if (ords.length == 1) {
+          plan.append(PLAN_COPY).append((char) ords[0]);
+        } else {
+          plan.append(pass.and() ? PLAN_AND : PLAN_OR)
+              .append((char) ords.length);
+          for (int ord : ords) {
+            plan.append((char) ord);
+          }
+        }
+      } else if (fillsValidityOnce(analysis, dense, outputs.get(o))) {
+        plan.append(PLAN_FILL);
+      } else if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
+        plan.append(PLAN_ZERO_WORDS);
+      } else {
+        plan.append(PLAN_ZERO);
+      }
+    }
+    return plan.toString();
+  }
+
+  /** The most bytes one {@code CONSTANT_Utf8} entry holds, in the class file's modified UTF-8. */
+  private static final int UTF8_CONSTANT_CAP = 65535;
+
+  /**
+   * {@code table} as it is baked into the class, one string constant, or a decline where it is
+   * past what one constant holds: a kernel wide enough for that - tens of thousands of outputs -
+   * is past every other limit too, and a decline with the reason is what a caller acts on,
+   * where the Class-File API's own refusal would not name it. Measured as the class file stores
+   * it: a char of 1 to 127 takes one byte, 0 and 128 to 2047 two, the rest three.
+   */
+  static String tableConstant(String table, String what) {
+    long bytes = 0;
+    for (int i = 0; i < table.length(); i++) {
+      char c = table.charAt(i);
+      bytes += c >= 1 && c <= 0x7F ? 1 : c <= 0x7FF ? 2 : 3;
+    }
+    if (bytes > UTF8_CONSTANT_CAP) {
+      throw new VarkaEmitDeclined("the driver's " + what + " table is " + bytes
+          + " bytes, over the " + UTF8_CONSTANT_CAP + " one class-file constant holds",
+          List.of());
+    }
+    return table;
+  }
+
+  /**
+   * The table {@code VarkaVectorSupport.everyOutputReadsAnAllNullColumn} reads under
+   * {@code driverOutputTable}: per output, the count of the columns it reads, then their
+   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of.
+   */
+  private static String shortcutColumns(Analysis analysis, List<VarkaVectorIR> outputs) {
+    StringBuilder table = new StringBuilder();
+    for (VarkaVectorIR root : outputs) {
+      long set = analysis.columns.get(root);
+      table.append((char) Long.bitCount(set));
+      for (int i = 0; i < Long.SIZE; i++) {
+        if ((set >>> i & 1L) != 0) {
+          table.append((char) i);
+        }
+      }
+    }
+    return table.toString();
   }
 
   /** Pushes input {@code i}'s validity address and null count, as the kernel received them. */

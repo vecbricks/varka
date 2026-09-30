@@ -238,3 +238,192 @@ kernels and so never meets it, depends on it.
 At the ladder's widths the cost is small against the query it serves - ten
 milliseconds at a hundred entries, once per shape per JVM - so step 1 unblocks
 task 171 as it stands.
+
+### 9.2 Step 2's admission check, 30 September 2026
+
+Tasks 191, 198, 209 and 219 changed the driver and the grouping since section 3.2 was
+written, so the ceiling was measured again on master at `a94e62e5f51`, through a scratch
+probe that was not committed: four families at seven widths, emitted at sixteen lanes once
+at the shipped options and once with the byte budget at the class-file cap and the call-site
+budget off, so the methods can be read past the point where the shipped options decline.
+
+| family | outputs | groups | `runDense` | `runMasked` | shipped options |
+|---|---:|---:|---:|---:|---|
+| `greatest` entry | 100 | 25 | 5278 | 5932 | emits |
+| `greatest` entry | 150 | 38 | 8268 | 9244 | declines on both drivers |
+| `greatest` entry | 400 | 100 | 23742 | 26218 | declines on both drivers |
+| `year(d) + k` | 100 | 1 | 4022 | 4980 | emits |
+| `year(d) + k` | 150 | 1 | 6334 | 8064 | declines on `runMasked` |
+| `make_date` | 100 | 17 | 4862 | 5020 | emits |
+| `make_date` | 150 | 26 | 7644 | 8174 | declines on `runMasked` |
+| `date_add(d, k)` | 100 | 7 | 4310 | 5268 | emits |
+| `date_add(d, k)` | 400 | 25 | 19736 | 24216 | declines on both drivers |
+
+**The ceiling is the same for every family, between 100 and 150 outputs, and it is set by the
+outputs, not by the groups.** The `year(d) + k` family has one group at every width up to 300
+and hits the ceiling at the same width as the `greatest` family with 38 groups. Read by
+difference across the table:
+
+* **Each output costs the driver about 41 bytes in `runDense` and 50 in `runMasked`.** Per
+  output the driver loads the output's data segment, loads its validity segment and zeroes or
+  fills that validity; the masked driver adds the bitmap pass's call for a served output and a
+  term of the all-null shortcut. The data segment is dead in the driver: only the loop and
+  epilogue methods write data, and each loads the segments it needs in its own prologue. That
+  is about a third of the per-output cost, more once the segments' slots pass 255 and each
+  store takes the wide form.
+* **Each group costs about 54 bytes**: two calls, to its loop and to its epilogue.
+
+**What this changes in 3.2.** A' and B were designed around a driver that grows with the
+groups. It grows mainly with the outputs, and its per-output work is the same few calls with
+a different output index each time, which is the shape of a loop rather than of unrolled code.
+That admits a smaller step before either:
+
+* **A0: the driver's per-output work as a loop over the outputs.** The driver runs one loop
+  over a per-class table of each output's treatment - zero or fill its validity, run the bitmap
+  pass or not - and drops the dead data segments. Its size then grows with the groups alone,
+  about 54 bytes each, so the ceiling moves from about 140 outputs to about 140 groups: roughly
+  560 `greatest` entries at four to a group, and more for families that pack more outputs into
+  a group. No class, kernel or evaluator contract changes, and the dead segments go whatever
+  else is decided.
+
+A0 does not remove the ceiling. It moves it from outputs to groups, and past about 140 groups
+A' or B is still needed, as is B for a projection wider than `MAX_INPUTS` columns. So the
+proposal is to build A0 first, since it is small, is contained in the driver's prologue and
+serves every design, and then to build and measure A' and B above its ceiling as 3.2 planned,
+where they are needed rather than at 150 outputs.
+
+Two things the check leaves to the design. Whether the all-null shortcut can be a loop too:
+it tests, per output, whether any of its columns is all-null, which a table of each output's
+column set answers. And what A0 costs at run time: the per-output work runs once per batch
+either way, so a loop in place of unrolled calls is expected to cost nothing measurable, and
+the step's benchmark is to say so.
+
+## 10. Step 2, A0: the driver from a table
+
+### 10.1 Built, 30 September 2026
+
+`VarkaEmitOptions.driverOutputTable`, off by default. Under it the driver's per-output work is
+two calls into the engine, whatever the width:
+
+* `VarkaVectorSupport.prepareOutputValidity` reads a plan string the emitter bakes into the
+  class, one step per output: zero the validity (at the nominal size, or to the last whole
+  word where validity is written a word at a time), fill it on a dense batch, or run the bitmap
+  pass's copy, AND or OR over the listed columns. Each step calls the same entry point the
+  unrolled driver calls for that output, so the bits are the same. The plan is decided by the
+  unrolled form's own predicates (`servedByPass`, `fillsValidityOnce`, `wordWrites`,
+  `keepsPerGroupWrite`), so the two forms cannot disagree about an output.
+* `VarkaVectorSupport.everyOutputReadsAnAllNullColumn` answers the masked driver's all-null
+  shortcut from a table of each output's columns.
+
+The driver then maps no output segment and hoists no literal: it read neither. The loop and
+epilogue methods are unchanged byte for byte, which a test checks over the first 400 fuzz
+shapes of each lane.
+
+**A correction to 9.2.** It priced a group at about 54 bytes and missed a second per-output
+cost. Measured on the table form, a group costs exactly its two calls, 44 bytes. The unrolled
+driver also hoists every literal into a local, about seven bytes each, and never reads one; the
+size ladder has a literal per entry, so this was part of what 9.2 counted as the per-output
+cost. With both gone the driver is linear in the groups alone - on the `greatest` family 247,
+643, 1171, 2271 and 4471 bytes dense at 16, 50, 100, 200 and 400 entries - and the ceiling is
+about 180 groups, some 720 entries of that family, where 9.2 estimated 140 groups.
+
+**Tests.** `VarkaEmitterDriverTableSuite`: the emitter's plan steps are the engine's; the driver
+grows by 44 bytes a group and not with the outputs; four hundred `greatest` entries emit under
+the shipped budget from a table and decline on both drivers without it; the loop and epilogue
+methods are the unrolled form's byte for byte; every step the plan can hold - zero, word zero,
+fill, copy, AND, OR, a three-column chain, a literal-only output, a selection - answers as the
+reference evaluator on both bodies at the host's width and at sixteen lanes, with the all-null
+shortcut taken; and two hundred `greatest` entries, a width the unrolled driver cannot emit,
+answer too. `VarkaVectorSupportOutputPlanTest`, in the engine, runs every plan step against the
+entry point it stands for over lengths either side of a byte and a word and over null-free,
+all-null and mixed columns, and checks the shortcut against the unrolled AND of ORs. The IR
+fuzzer draws the option like every boolean; eight fresh seeds at 20000 iterations on both
+lanes and the composition fuzzer passed.
+
+**The measurement.** `VarkaWideKernelBenchmark`, a class of its own for the wide-kernel family:
+the hundred-entry ladder with the driver unrolled and from a table, null-free and with every
+seventh row null, in 4096-row batches, and the table form alone at four hundred entries. Its
+results are 10.4's.
+
+### 10.2 Predictions, registered before the runner's run
+
+1. **The table costs nothing measurable at run time**: at a hundred entries its time per row
+   is within 3% of the unrolled driver's, on both bodies.
+2. **Four hundred entries run at a cost per entry within 1.5 times the hundred's**, the
+   difference being the wider class's compilation and cache footprint rather than the driver.
+3. **The warm-up gap is the JIT's, not the driver's**: if the averages stay far above the bests
+   on the runner, they do so for both forms alike.
+
+### 10.3 What follows
+
+The default flip, once 10.2 is scored (done: 10.4). Then A' and B of 3.2, for the widths past
+about 180 groups and for projections wider than `MAX_INPUTS` columns - the ceilings A0 leaves.
+
+### 10.4 The runner's measurement, and the default
+
+`VarkaWideKernelBenchmark-jdk25-results.txt`, generated by the benchmark workflow on an AMD EPYC
+9V45 runner - the machine the project's headline numbers come from - per row, best of the
+iterations:
+
+| case | unrolled driver | driver from a table |
+|---|---:|---:|
+| 100 entries, null-free | 52.3 ns | 50.5 ns |
+| 100 entries, every seventh row null | 61.7 ns | 56.6 ns |
+| 400 entries, null-free | cannot be emitted | 190.2 ns |
+| 400 entries, every seventh row null | cannot be emitted | 225.1 ns |
+
+1. **Held in substance, wrong in its band.** The table costs nothing; it is faster, by 3.4%
+   null-free and by 8% with nulls, where one engine call replaces the unrolled bitmap pass. Read
+   as "within 3%", the prediction is outside its band on both bodies, in the favourable
+   direction.
+2. **Held.** Four hundred entries cost 0.94 times the hundred's per entry null-free and 0.99
+   times with nulls: the wide kernel is linear in its entries.
+3. **Held.** The averages are 30 to 40 times the bests for both forms alike, with a standard
+   deviation near twice the average: the JIT compiling a hundred groups' methods inside the
+   two-second warm-up, not the driver. How long a wide kernel runs slowly before it is
+   compiled is a question of its own for the kernel warm-up (`VarkaKernelWarmup`), not A0's.
+
+**`driverOutputTable` is on by default**, on the owner's decision of 30 September 2026 after
+these numbers. Its rendering in the shape key now marks the unrolled form (`|unrolledDriver`),
+so the default key is unchanged.
+
+**What the default moved.** `emitted_bytes.json` is regenerated: every shape's two drivers move
+and no other method does, which `VarkaEmitterDriverTableSuite` pins over the fuzz corpus. In
+`emit_cost_audit.json` no held-out shape declines any more, where 47 wide int-lane shapes, 36
+wide long-lane shapes and the 200- and 400-entry size-ladder rungs did - every one of those
+declines was the driver - and the cheap tails still build once. The price tables were refitted
+on the shapes that now emit, which moved the audit's accuracy by at most 0.3 points (the
+fitted model's median error at 2000 bytes and over from 2.2% to 2.3%), no conclusion of
+`PLAN_TASK_199.md` 9 with it. Four wide long-lane shapes that used to decline now emit and gain
+one loop method under `predictGrouping`, by the greedy close `PLAN_TASK_199.md` 9.3 describes;
+the suite pins all six. Seven tests pinned mechanics of the unrolled driver - the bitmap pass's
+calls, the driver's growth with the outputs, the decline and demotion it caused past the
+budget, and the call-site budget's rebuild when the splits made it decline - and now read the
+unrolled form, the reference arm, by name; the compiler's hundred-entry test also asserts that
+two hundred entries fuse under the default.
+
+### 10.5 The review, 30 September 2026
+
+A code review of A0 found seven problems, none a wrong answer. All seven are addressed:
+
+1. **The driver still grew with the columns.** It kept each input's null state and segments,
+   the batch's two sizes and the species, lane count and loop bound, none of which it read once
+   its per-output work was a table. The driver from a table now plans no input and emits none of
+   them, so it is the empty-batch return, the plan call, the shortcut and its calls to the
+   groups: 20 bytes and 44 a group, on both sides - 196, 592, 1120, 2220 and 4420 bytes dense for
+   the `greatest` ladder at 16, 50, 100, 200 and 400 entries - and 1020 bytes for four hundred
+   `date_add` outputs over one column or over sixty-four alike. The ceiling is 181 groups. The
+   size test runs over one column and over sixty-four.
+2. **The plan quoted laptop timings no results file backs.** They are removed; 10.4 quotes the
+   runner's committed file.
+3. **A plan table had no length check.** One `CONSTANT_Utf8` holds 65535 bytes of modified
+   UTF-8, where a column ordinal of 0 takes two. A table past that now declines with the reason
+   instead of failing the class build.
+4. **The shortcut read its whole table on every masked batch.** It returns at the first output
+   with no all-null column, which is the common case.
+5. **The plan helper demanded a destination array of exactly the kernel's width.** The unrolled
+   driver accepted a longer one; the helper now counts outputs from the plan and refuses only a
+   shorter array.
+6. **Two comments in `VarkaBodyEmitter` described the unrolled driver as the only one.** Both
+   now say what the table form does.
+7. **The size test used one column.** It now runs over sixty-four as well.

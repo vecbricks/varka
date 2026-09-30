@@ -2372,11 +2372,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "(task 169)") {
     // The driver sets up every output and cannot be regrouped, so over a budget the
     // single-output groups meet it is the driver that declines, naming no output, and the
-    // compiler demotes from the end. Sixty make_date outputs put the driver past 2000 bytes.
+    // compiler demotes from the end. Sixty make_date outputs put the unrolled driver past 2000
+    // bytes; a driver from a table would fit, so the unrolled form is the one read here.
     val list = (1 to 60).map { k =>
       out(MakeDate(Year(d), Month(d), Literal((k - 1) % 28 + 1), failOnError = true))
     }
-    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000)
+    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000).withDriverOutputTable(false)
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, budget).get
     val fused = partial.specs.count(_.isInstanceOf[FusedOutput])
     assert(fused > 1 && fused < 60, s"$fused of 60 fused under a 2000-byte budget")
@@ -2452,12 +2453,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaShapeCache.missCount === misses, "a repeated compile emitted again")
   }
 
-  test("a hundred four-op entries all fuse under the byte budget, and past the driver's " +
-      "ceiling the last-admitted are demoted with its reason (task 190)") {
-    // PLAN_TASK_190.md 1 and 2: the op cap fused fifteen of these entries; the byte budget
-    // fuses the ladder's whole range. The driver sets up every output and grows with them, so
-    // past about a hundred and fifty it is over the budget, and task 169's plan-time decline
-    // demotes a suffix naming it, rather than any entry failing on the executor.
+  test("a hundred four-op entries all fuse under the byte budget, two hundred from a table, and " +
+      "past the unrolled driver's ceiling the last-admitted are demoted with its reason") {
+    // PLAN_TASK_190.md 1, 2 and 10: the op cap fused fifteen of these entries; the byte budget
+    // fuses the ladder's whole range. The unrolled driver sets up every output and grows with
+    // them, so past about a hundred and forty it is over the budget, and task 169's plan-time
+    // decline demotes a suffix naming it, rather than any entry failing on the executor. The
+    // driver from a table, the default, grows with the groups alone, and all two hundred fuse.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
     val hundred = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput).get
@@ -2465,7 +2467,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val capped = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput,
       VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)).get
     assert(capped.specs.count(_.isInstanceOf[FusedOutput]) === 15)
-    val wide = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput).get
+    val tabled = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput).get
+    assert(tabled.specs.forall(_.isInstanceOf[FusedOutput]))
+    val wide = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
+      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)).get
     val fused = wide.specs.count(_.isInstanceOf[FusedOutput])
     assert(fused > 100 && fused < 200, s"$fused of 200 fused")
     assert(wide.specs.drop(fused).forall(_ == ResidualOutput))

@@ -101,6 +101,19 @@ final class VarkaDescriptors {
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_int,
       ConstantDescs.CD_long, ConstantDescs.CD_int, ConstantDescs.CD_int);
   static final MethodTypeDesc COLUMN_VALIDITY_INTO = COPY_COLUMN_VALIDITY;
+  /**
+   * {@code void VarkaVectorSupport.prepareOutputValidity(long[], long[], int[], String, int)}: the
+   * driver's per-output work read from a plan, under {@code driverOutputTable}.
+   */
+  static final MethodTypeDesc PREPARE_OUTPUT_VALIDITY = MethodTypeDesc.of(
+      ConstantDescs.CD_void, LONG_ARRAY, LONG_ARRAY, INT_ARRAY, ConstantDescs.CD_String,
+      ConstantDescs.CD_int);
+  /**
+   * {@code boolean VarkaVectorSupport.everyOutputReadsAnAllNullColumn(int[], String, int)}: the
+   * masked driver's all-null shortcut read from a table, under {@code driverOutputTable}.
+   */
+  static final MethodTypeDesc EVERY_OUTPUT_ALL_NULL = MethodTypeDesc.of(
+      ConstantDescs.CD_boolean, INT_ARRAY, ConstantDescs.CD_String, ConstantDescs.CD_int);
   /** {@code long VarkaVectorSupport.validityBitsAt(MemorySegment, long, int)}. */
   static final MethodTypeDesc VALIDITY_BITS_AT = MethodTypeDesc.of(
       ConstantDescs.CD_long, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_int);

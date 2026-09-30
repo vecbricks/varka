@@ -526,6 +526,111 @@ public final class VarkaVectorSupport {
     orValidity(dst, dst, validityOf(bAddr, rows), rows);
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // The driver's per-output work, read from a plan the emitter bakes into the kernel
+  // ---------------------------------------------------------------------------------------------
+
+  /** Plan step: zero the output's validity, mapped at the bitmap's nominal size. */
+  public static final char PLAN_ZERO = 'z';
+  /** Plan step: zero the output's validity, mapped to its last whole 64-bit word. */
+  public static final char PLAN_ZERO_WORDS = 'Z';
+  /** Plan step: set exactly {@code rows} bits of the output's validity ({@link #setValid}). */
+  public static final char PLAN_FILL = 'f';
+  /** Plan step: copy one column's validity, the next char its ordinal. */
+  public static final char PLAN_COPY = 'c';
+  /** Plan step: AND of columns' validities, the next char their count, then the ordinals. */
+  public static final char PLAN_AND = '&';
+  /** Plan step: OR of columns' validities, the next char their count, then the ordinals. */
+  public static final char PLAN_OR = '|';
+
+  /**
+   * Writes every output's validity before the kernel's loops run, as a plan says: the work the
+   * emitted driver otherwise unrolls once per output. {@code plan} holds one step per output, in
+   * output order: {@link #PLAN_ZERO} or {@link #PLAN_ZERO_WORDS} for an output the loops write a
+   * lane group or a word at a time, which must read as all-null until they do; {@link #PLAN_FILL}
+   * for an output a dense batch makes valid on every row; and {@link #PLAN_COPY},
+   * {@link #PLAN_AND} or {@link #PLAN_OR} with their column ordinals for an output the whole-batch
+   * bitmap pass writes from its inputs' bitmaps, by the same entry points the unrolled pass calls.
+   * The arrays are the kernel's own parameters, so the result is the unrolled driver's bit for
+   * bit. The plan says how many outputs there are: {@code dstValidity} may be longer, as the
+   * unrolled driver allowed, and is refused only when it is shorter.
+   *
+   * <p>It exists for the driver's size: unrolled, this work is about forty bytes of bytecode an
+   * output, and the driver is the one method no regroup shrinks, so it was what capped a kernel's
+   * width. As a plan it is one call whatever the width. See {@code PLAN_TASK_190.md} 9.2.
+   */
+  public static void prepareOutputValidity(long[] dstValidity, long[] srcValidity,
+      int[] nullCounts, String plan, int rows) {
+    long nominal = (rows + 7) / 8;
+    int at = 0;
+    for (int o = 0; at < plan.length(); o++) {
+      if (o >= dstValidity.length) {
+        throw new IllegalArgumentException("output plan names output " + o + " and the kernel "
+            + "was given " + dstValidity.length + " destinations");
+      }
+      char step = plan.charAt(at++);
+      switch (step) {
+        case PLAN_ZERO -> zero(ofAddress(dstValidity[o], nominal));
+        case PLAN_ZERO_WORDS -> zero(ofAddress(dstValidity[o], ((rows + 63L) / 64) * 8));
+        case PLAN_FILL -> setValid(ofAddress(dstValidity[o], nominal), rows);
+        case PLAN_COPY -> {
+          int c = plan.charAt(at++);
+          copyColumnValidity(ofAddress(dstValidity[o], nominal), srcValidity[c], nullCounts[c],
+              rows);
+        }
+        case PLAN_AND, PLAN_OR -> {
+          int n = plan.charAt(at++);
+          int a = plan.charAt(at++);
+          int b = plan.charAt(at++);
+          MemorySegment dst = ofAddress(dstValidity[o], nominal);
+          if (step == PLAN_AND) {
+            andColumnValidity(dst, srcValidity[a], nullCounts[a], srcValidity[b], nullCounts[b],
+                rows);
+          } else {
+            orColumnValidity(dst, srcValidity[a], nullCounts[a], srcValidity[b], nullCounts[b],
+                rows);
+          }
+          for (int k = 2; k < n; k++) {
+            int c = plan.charAt(at++);
+            if (step == PLAN_AND) {
+              andColumnValidityInto(dst, srcValidity[c], nullCounts[c], rows);
+            } else {
+              orColumnValidityInto(dst, srcValidity[c], nullCounts[c], rows);
+            }
+          }
+        }
+        default -> throw new IllegalArgumentException(
+            "unknown output plan step '" + step + "' for output " + o);
+      }
+    }
+  }
+
+  /**
+   * Whether every output reads at least one all-null column - the masked driver's all-null
+   * shortcut, which then returns before any loop runs. {@code columns} holds, per output in
+   * order, the count of the columns it reads and then their ordinals; a column is all-null when
+   * its null count is the batch's length. The table form of the test the driver otherwise
+   * unrolls once per output; see {@link #prepareOutputValidity}.
+   */
+  public static boolean everyOutputReadsAnAllNullColumn(int[] nullCounts, String columns,
+      int rows) {
+    int at = 0;
+    while (at < columns.length()) {
+      int n = columns.charAt(at++);
+      boolean any = false;
+      for (int k = 0; k < n; k++) {
+        any |= nullCounts[columns.charAt(at + k)] == rows;
+      }
+      if (!any) {
+        // One output with no all-null column is enough: the shortcut is off for the batch, which
+        // is the common case, so it is answered without reading the rest of the table.
+        return false;
+      }
+      at += n;
+    }
+    return true;
+  }
+
   /** A column's validity bitmap at exactly the bytes {@code rows} bits occupy, and no more. */
   private static MemorySegment validityOf(long addr, int rows) {
     return ofAddress(addr, (rows + 7) / 8);

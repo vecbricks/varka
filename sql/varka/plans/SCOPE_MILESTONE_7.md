@@ -3990,6 +3990,31 @@ override other than the preferred width's, so that the next such test cannot lan
 guard is in place, and the full Varka run's time is read before and after, since the boxed
 kernels it no longer runs are its measurable gain.
 
+### Item 70. How long a wide kernel runs slowly before the JIT compiles it
+
+*Added 30 September 2026 from `VarkaWideKernelBenchmark` (`PLAN_TASK_190.md` 10.4), on the
+owner's decision to record it here rather than as a milestone 6 row.*
+
+Task 190's A0 let one kernel hold hundreds of outputs, and its benchmark read the same thing on
+every case: the best iteration fast, the average 30 to 40 times slower, the standard deviation
+near twice the average. On the EPYC runner the hundred-entry ladder's best was 50.5 ns a row and
+its average about 1.8 microseconds, for the unrolled driver and the table alike, so it is not the
+driver. The likely cause is the JIT compiling a hundred groups' loop and epilogue methods, each
+its own C2 compilation, while the benchmark's two-second warm-up has already ended; a query
+meets the same thing on its first batches. The kernel warm-up (`VarkaKernelWarmup`) exists for
+this and runs a new shape's kernel off the query's path until it stops allocating, but it was
+sized on kernels of a few groups, and whether it covers a hundred - how long it takes, whether
+its verdict waits for every group's method or for the first - has not been measured.
+
+**What to do.** Measure it before designing anything: for the ladder at 25, 100 and 400 entries,
+the time from the first call to the last group's tier-4 compilation, read from
+`-XX:+PrintCompilation` in a JVM of its own, and the per-row time over that window; then the
+same with the warm-up enabled, and what the node's row path costs meanwhile. Only then decide
+between warming the groups in parallel, compiling them in an order the first batches need, or
+nothing.
+
+**Done when** the window is committed as a measurement, and the warm-up's behaviour on a wide
+kernel is either shown adequate or changed and measured again.
 ### Item 71. Whether the first grouping should close groups on the cost model's prediction
 
 *Added 30 September 2026 from task 200's admission check (`PLAN_TASK_200.md` 3), which task

@@ -171,8 +171,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("under predictGrouping every wide shape gets the weights' verdict, and the two that " +
-      "gain a loop method are the greedy close the plan records") {
+  test("under predictGrouping every wide shape gets the weights' verdict, and those that gain " +
+      "a loop method are the greedy close the plan records") {
     // The predicted grouping closes groups the weights keep, and each group is a call more in
     // the driver, which on the widest shapes pushed the driver past the byte budget; such a class
     // is built again with the weights alone, so the switch never costs a kernel, and a shape the
@@ -195,7 +195,11 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
           assert(on.isEmpty, s"$where declines under the weights and emits predicted")
       }
     }
-    assert(gained.result() === Seq("wide int 120: 31 -> 32", "wide long 95: 40 -> 41"))
+    // The four long-lane entries after the first two are shapes that declined on the unrolled
+    // driver and emit from a table (PLAN_TASK_190.md 10), gaining their method the same way.
+    assert(gained.result() === Seq("wide int 120: 31 -> 32", "wide long 1: 83 -> 84",
+      "wide long 61: 95 -> 96", "wide long 92: 89 -> 90", "wide long 95: 40 -> 41",
+      "wide long 161: 81 -> 82"))
   }
 
   test("a decline no grouping can avoid is not built again under the weights") {

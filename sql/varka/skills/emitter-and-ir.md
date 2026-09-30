@@ -851,3 +851,21 @@ replacement for the grouping weights, has to be measured in the context it will 
 fitted there. The regression's training corpus has to reach the limits too: fitted only on fuzz
 shapes an order of magnitude below the budget, the same regression erred low on the largest
 methods (`PLAN_TASK_199.md` 2).
+
+## Measure what a method spends its bytes on before designing a split of it
+
+Task 190's step 2 was planned around a driver method that grows with the loop-method groups it
+calls, and designed two ways to split it. Measured by difference across four families
+(`PLAN_TASK_190.md` 9.2 and 10.1), the driver grew with the outputs instead: per output it loaded
+a data segment it never wrote, a validity segment and a zero or fill call, and it hoisted every
+literal into a local it never read. A family with one group hit the same ceiling as one with
+thirty-eight. The fix was not a split but a table: the per-output work is the same calls with a
+different index, so one engine call reading a plan string does it, and the driver fell to its
+calls alone, 44 bytes a group.
+
+Two habits follow. Before designing around a method's size, measure it by difference along each
+axis that could drive it - outputs, groups, literals, columns - and count the instructions of a
+wide instance; unrolled code that repeats one call per index is a loop or a table waiting to be
+written. And a method that only dispatches (the driver) inherits the prologue written for the
+methods that compute; audit it for work it does not read, since dead bytecode still counts
+against `HugeMethodLimit` even where C2 would remove it.

@@ -395,14 +395,22 @@ final class Slots {
     // kernel's columns are the kernel's, so its input slots are numbered exactly as before.
     boolean groupLocal = perGroup && analysis.options.groupLocalSlots();
     s.inputs = analysis.referencedColumns;
+    // A driver from a table reads no input (VarkaBodyEmitter step 4 is dead there), so it plans
+    // none; see the output segments and literals below.
+    boolean strippedDriver = mode == VarkaBodyEmitter.BodyMode.DRIVER
+        && analysis.options.driverOutputTable();
+    if (strippedDriver) {
+      s.inputs = 0L;
+    }
     if (groupLocal) {
       s.inputs = 0L;
       for (int o : outputIdx) {
         s.inputs |= analysis.columns.get(outputs.get(o));
       }
     }
+    // Under `driverOutputTable` the driver maps no output segment (VarkaBodyEmitter step 4b).
     for (int o = 0; o < outputs.size(); o++) {
-      if (perGroup && !planned.get(o)) {
+      if ((perGroup && !planned.get(o)) || strippedDriver) {
         s.dstSeg[o] = -1;
         s.dstValSeg[o] = -1;
         continue;
@@ -434,7 +442,9 @@ final class Slots {
       }
     }
     for (int j = 0; j < numLiterals; j++) {
-      if (usedLiterals != null && !usedLiterals.get(j)) {
+      // A driver reads no literal - only the loops and epilogues do - so under
+      // `driverOutputTable`, which strips the driver to what it reads, none is hoisted there.
+      if ((usedLiterals != null && !usedLiterals.get(j)) || strippedDriver) {
         s.scalarArg[j] = -1;
         continue;
       }
