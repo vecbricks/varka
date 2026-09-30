@@ -194,7 +194,10 @@ final class VarkaBodyEmitter {
       // = null` (see Slots.plan) and this is deliberately not that change: it is the residue
       // PLAN_TASK_70.md 9.2 prediction 3 measures and leaves // to the driver.
       if (dense || s.deadRefs.contains(s.word[i])) {
-        loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+        // A column only a skipped date reads, with its word dead too, is read by nothing here.
+        if ((s.skippedColumns >>> i & 1L) == 0) {
+          loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+        }
         continue;
       }
       cb.aload(P_NULL_COUNT);

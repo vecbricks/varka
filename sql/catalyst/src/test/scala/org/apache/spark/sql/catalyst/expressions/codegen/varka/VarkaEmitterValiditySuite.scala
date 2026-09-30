@@ -310,10 +310,13 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
     val guarded = new GuardedDay(c1)
-    // A guard over day arithmetic owns its word, which the second group's tails alias, so that
-    // date is still visited there for the word, and its guard with it.
+    // A guard over day arithmetic owns its word, which the second group's tails alias: that date
+    // is visited there when the tails' writes read the word, as they do with the bitmap pass off,
+    // and skipped with its guard when the pass serves them.
     val sum = new GuardedDay(new AddDays(c1, new ColumnRef(2)))
-    val defaults = VarkaEmitOptions.DEFAULTS
+    // Set rather than inherited, so that a change of the default cannot leave this test passing
+    // without a loaded prefix to test.
+    val defaults = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
     val shapes = Seq(
       // Under every default: last_day(c0) between the two keeps them in different groups.
       ("year, last_day and month of a guarded column",
@@ -330,8 +333,16 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     for ((name, roots, inputs, base) <- shapes; bitmap <- Seq(true, false); lanes <- Seq(4, 16)) {
       val options = base.withValidityByBitmap(bitmap).withLanesOverride(lanes)
       val ctx = s"$name, bitmap pass $bitmap, $lanes lanes"
-      // More than one group, so the prefix really is stored by one and loaded by another.
-      assert(loops(emitMulti(roots, inputs, 0, options)._2) >= 2, ctx)
+      // More than one group, and a scratch region, so the prefix really is stored by one group
+      // and loaded by another.
+      val named = emitMulti(roots, inputs, 0, options)
+      assert(loops(named._2) >= 2, ctx)
+      val (kernel, loader) = load(named)
+      try {
+        assert(kernel.scratchBytesPerRow() > 0, s"$ctx: no prefix is materialized")
+      } finally {
+        loader.release()
+      }
       val combos = Seq(
         Seq.fill(inputs)((_: Int) => false),
         Seq.tabulate(inputs)(c => (i: Int) => (i + c) % 5 == 0),

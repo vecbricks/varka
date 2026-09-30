@@ -184,3 +184,51 @@ The same night found two problems outside this task, both from task 226's per-te
 nightly's sweep step hangs, because the ten-minute cap halts the exhaustive multiply-high sweep
 (13 minutes 26 seconds on 26 September), and sbt then waits on the halted fork instead of failing.
 They are reported to the owner for rows of their own.
+
+### 9.4 The review, 30 September 2026
+
+The owner ran `/code-review high` on the pull request and asked for every finding to be addressed.
+Nine findings; what each changed:
+
+1. **The trial kept a guarded date whose word is its own, so its range check ran again in every
+   group that loads the prefix.** 9.1's rule counted the date's own guard as a reader of its word.
+   The rule is now the one the old comment stated: a loaded date is visited only when something
+   the body emits outside it reads its word - a tail's root write, a comparison above the tails -
+   and the walk enters it only once that is so, in rounds. No trial copies are made, which also
+   answers finding 5. This moves bytes, which 3.2 had kept on purpose; the owner's request
+   overrides that choice.
+2. **The deferral matched every child identical to the date.** Both walks now defer only the
+   date's own position, so an operand that is the same node - an `add_months` whose count is its
+   date - is walked, as the lowering emits it.
+3. **Under `misdescribeWordLiveness` the record followed the true liveness while the slots followed
+   the inverted one.** The record is now taken on the verdict the slots are planned from.
+4. **Slot planning still counted nodes under a skipped date.** `Slots.plan` now decides the body's
+   emitted node set first - its trees less the subtree of each loaded date it does not visit - and
+   takes the guard flags, the per-node scratch locals, the `Cond` slots and the literals from it.
+   A column only such a subtree reads keeps its input slots, since the word algebra tells inputs
+   apart by slot number, but when its word is dead the body no longer sets up its segment
+   (`Slots.skippedColumns`).
+5. **The trial copied the whole walk per date.** Gone with finding 1.
+6. **The bitmap-off path walked every body.** The emitted set is computed only when the kernel
+   materializes a prefix, by one walk, and the bitmap-off record is read off it.
+7. **The lowering restated "this group loads the prefix".** It asks `Slots.loadedPrefixDate`, as
+   both planning walks do.
+8. **The regression test did not prove a prefix was materialized.** It sets
+   `materializeChronoPrefix` explicitly and asserts the kernel asks for scratch.
+9. **New comments cited bare task numbers.** They point to `PLAN_TASK_198.md` instead.
+
+**What moved.** The regenerated `emitted_bytes.json` moves 59 of the 100 int-lane fuzz blocks at
+each width and the option-arm digests, and no coverage row and no long-lane block. A per-shape dump
+of the 10000 int-lane shapes against master's names 100 moved shapes, the same at both widths, each
+with a group that loads a materialized prefix. None grew: their loop methods lost 0 to 20 bytes,
+median 12, the column segment such a group no longer sets up, and the rest of the change is locals
+renumbered or an epilogue's. One existing test pinned an incidental fact the change moves: under a
+300-byte budget, `VarkaEmitterBudgetSuite`'s declined 22-tail shape now names one output where it
+named all 22, since the groups that load the prefix read no column and fit; it still names what the
+budget-off emitter names, which is the test's point, and now asserts the one.
+
+**The predictions, rescored for the final form.** Prediction 1 held for the first version and does
+not for the final one: the bytes move, as finding 1 and 4 intend. Predictions 2 and 3 are rechecked
+on the final form below. On the final form all 154 failing
+seeds and the 20 fresh ones replay clean again at 200,000 iterations, 174 runs of 174, and every
+catalyst Varka suite passes, 460 tests.

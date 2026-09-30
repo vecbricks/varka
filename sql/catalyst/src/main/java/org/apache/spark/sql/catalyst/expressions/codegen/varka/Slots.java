@@ -22,7 +22,6 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVecto
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.WORD_DEAD;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.childrenOf;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.chronoChild;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.reaches;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.tailReadsMarchMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaBodyEmitter.BodyMode;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
@@ -266,13 +265,21 @@ final class Slots {
    * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
   final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
   /**
-   * The dates whose materialized prefix this body loads (task 198) and which it visits all the
-   * same, for a validity word that is their own and live. Decided with the word liveness in
-   * {@link #liveWords} and read by {@code VarkaChronoLowering.emitChronoPrefixOnce}, so the walk
-   * that decides which words are live and the emission that loads them answer the question once.
+   * The dates whose materialized prefix this body loads (see {@code PLAN_TASK_198.md}) and which it
+   * visits all the same, for a validity word that is their own and read by something it emits.
+   * Decided with the word liveness in {@link #liveWords} and read by
+   * {@code VarkaChronoLowering.emitChronoPrefixOnce}, so the walk that decides which words are
+   * live and the emission that loads them answer the question once.
    * Empty in a dense body, which has no words.
    */
   final Set<VarkaVectorIR> visitedMaterializedDates = new HashSet<>();
+  /**
+   * The inputs only a skipped date's subtree reads: columns this body's trees reference and its
+   * emission does not (see {@link #visitedMaterializedDates}). They keep their slots, since the
+   * word algebra tells inputs apart by slot, but a body sets up no segment for one whose word it
+   * does not read.
+   */
+  long skippedColumns;
 
   Slots(int numInputs, int numOutputs) {
     srcSeg = new int[numInputs];
@@ -284,16 +291,6 @@ final class Slots {
     dstValSeg = new int[numOutputs];
   }
 
-  /** The literal slots the trees of the outputs in {@code outputIdx} read, as a set of indices. */
-  static java.util.BitSet referencedLiterals(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
-      int numLiterals) {
-    java.util.BitSet used = new java.util.BitSet(numLiterals);
-    for (int o : outputIdx) {
-      collectLiterals(outputs.get(o), used);
-    }
-    return used;
-  }
-
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
   private static void collectNodes(VarkaVectorIR root, Set<VarkaVectorIR> into) {
     if (!into.add(root)) {
@@ -301,15 +298,6 @@ final class Slots {
     }
     for (VarkaVectorIR child : childrenOf(root)) {
       collectNodes(child, into);
-    }
-  }
-
-  private static void collectLiterals(VarkaVectorIR node, java.util.BitSet into) {
-    if (node instanceof VarkaVectorIR.LiteralSlot l) {
-      into.set(l.index());
-    }
-    for (VarkaVectorIR child : childrenOf(node)) {
-      collectLiterals(child, into);
     }
   }
 
@@ -346,6 +334,53 @@ final class Slots {
     int numInputs = analysis.numInputs;
     Slots s = new Slots(numInputs, outputs.size());
     s.group = group;
+    // What this body emits, decided before any slot is numbered: its outputs' subtrees, less the
+    // subtree of a date whose materialized prefix it loads and does not visit (see liveWords).
+    // Everything planned below - the guard accumulator, the per-node scratch locals, the literals,
+    // the input segments - follows the emitted set, so a node the emission skips costs nothing.
+    Set<VarkaVectorIR> tree = new HashSet<>();
+    for (int o : outputIdx) {
+      collectNodes(outputs.get(o), tree);
+    }
+    // Which words this body still reads, or null for "all of them" - the pass off, or a dense
+    // body, which has no words. The guard flags it reads are taken over the whole tree: a
+    // guarded node the walk never reaches demands nothing, so they decide nothing more there.
+    Set<WordOwner> live = !dense && mode != BodyMode.DRIVER && analysis.options.validityByBitmap()
+        ? liveWords(outputs, outputIdx, analysis, group,
+            guardFlag(analysis, mode, tree, Guard.PRODUCERS),
+            guardFlag(analysis, mode, tree, Guard.SELF),
+            guardFlag(analysis, mode, tree, Guard.CHECKED_ARITH), s.visitedMaterializedDates)
+        : null;
+    Set<VarkaVectorIR> emitted = tree;
+    if (!analysis.materialized.isEmpty() && mode != BodyMode.DRIVER) {
+      // Without the liveness pass every own word is live, so a loaded date is visited exactly
+      // when its word is its own: the rule liveWords states, with nothing dead. A dense body has
+      // no words and visits none.
+      java.util.function.Predicate<VarkaVectorIR> visits = dense ? date -> false
+          : live == null ? date -> analysis.wordOwner.get(date) instanceof WordOwner.Own
+          : s.visitedMaterializedDates::contains;
+      emitted = emittedNodes(outputs, outputIdx, analysis, group, visits);
+      if (live == null && !dense) {
+        for (VarkaVectorIR node : emitted) {
+          VarkaVectorIR date = loadedPrefixDate(analysis, group, node);
+          if (date != null && visits.test(date)) {
+            s.visitedMaterializedDates.add(date);
+          }
+        }
+      }
+    }
+    final Set<VarkaVectorIR> body = emitted;
+    long treeColumns = 0L;
+    long bodyColumns = 0L;
+    for (VarkaVectorIR node : tree) {
+      if (node instanceof ColumnRef c) {
+        treeColumns |= 1L << c.ordinal();
+        if (body.contains(node)) {
+          bodyColumns |= 1L << c.ordinal();
+        }
+      }
+    }
+    s.skippedColumns = treeColumns & ~bodyColumns;
     int slot = analysis.firstLocal();
     s.dataBytes = slot;
     slot += 2;
@@ -390,8 +425,14 @@ final class Slots {
     s.lanes = slot++;
     s.loopBound = slot++;
     s.scalarArg = new int[numLiterals];
-    java.util.BitSet usedLiterals = perGroup
-        ? referencedLiterals(outputs, outputIdx, numLiterals) : null;
+    java.util.BitSet usedLiterals = perGroup ? new java.util.BitSet(numLiterals) : null;
+    if (usedLiterals != null) {
+      for (VarkaVectorIR node : body) {
+        if (node instanceof VarkaVectorIR.LiteralSlot l) {
+          usedLiterals.set(l.index());
+        }
+      }
+    }
     for (int j = 0; j < numLiterals; j++) {
       if (usedLiterals != null && !usedLiterals.get(j)) {
         s.scalarArg[j] = -1;
@@ -434,41 +475,19 @@ final class Slots {
     Set<VarkaVectorIR> bodyNodes = null;
     List<VarkaVectorIR> order = analysis.topoOrder;
     if (groupLocal) {
-      bodyNodes = new HashSet<>();
-      for (int o : outputIdx) {
-        collectNodes(outputs.get(o), bodyNodes);
-      }
+      bodyNodes = tree;
       List<VarkaVectorIR> sorted = new ArrayList<>(bodyNodes);
       sorted.sort(java.util.Comparator.comparingInt(analysis.lineNumbers::get));
       order = sorted;
     }
-    final Set<VarkaVectorIR> emitted = bodyNodes;
-    // One accumulator per body, and only in a body that emits a guarded producer: the caller acts
-    // on the batch, not the lane, and a body with nothing to guard keeps the slot numbering - and
-    // so the bytes - unchanged, whichever way the option is set. With the body's node set known,
-    // each question is a pass over it rather than a walk of the kernel's trees.
-    boolean producersGuarding = analysis.options.guardDayProducers() && mode != BodyMode.DRIVER
-        && !analysis.guardedProducers.isEmpty()
-        && (emitted != null ? emitted.stream().anyMatch(analysis.guardedProducers::contains)
-            : outputs.stream().anyMatch(o -> reaches(o, analysis.guardedProducers)));
-    // A self-guarding node needs the accumulator whatever the option says.
-    boolean selfGuarding = mode != BodyMode.DRIVER && !analysis.selfGuarding.isEmpty()
-        && (emitted != null ? emitted.stream().anyMatch(analysis.selfGuarding::contains)
-            : outputs.stream().anyMatch(o -> reaches(o, analysis.selfGuarding)));
-    // a checked int operation condemns the batch through the same accumulator, so a body holding
-    // one needs it allocated whether or not anything else is guarded. The scratch slots for the
-    // check itself are allocated in the node loop below; this is the accumulator they fold into,
-    // and missing it is an emit-time failure rather than a wrong answer - which is how it was
-    // found.
-    boolean checkedArith = mode != BodyMode.DRIVER && analysis.options.checkIntOverflow()
-        && (emitted != null ? emitted.stream().anyMatch(analysis.checkedArith::contains)
-            : outputs.stream().anyMatch(o -> reaches(o, analysis.checkedArith)));
-    // The re-armed range check folds into the same accumulator and is behind no option, so a body
-    // holding one needs it allocated on that ground alone.
-    boolean rearmed = mode != BodyMode.DRIVER
-        && (emitted != null
-            ? emitted.stream().anyMatch(n -> n instanceof GuardedDay || n instanceof GuardedRange)
-            : outputs.stream().anyMatch(o -> reachesGuardedDay(o, new HashSet<>())));
+    // One accumulator per body, and only in a body that emits a guarded producer, a self-guarding
+    // node, a checked int operation or a re-armed range check: the caller acts on the batch, not
+    // the lane, and a body with nothing to guard keeps the slot numbering - and so the bytes -
+    // unchanged, whichever way the options are set. Taken over the nodes the body emits.
+    boolean producersGuarding = guardFlag(analysis, mode, body, Guard.PRODUCERS);
+    boolean selfGuarding = guardFlag(analysis, mode, body, Guard.SELF);
+    boolean checkedArith = guardFlag(analysis, mode, body, Guard.CHECKED_ARITH);
+    boolean rearmed = guardFlag(analysis, mode, body, Guard.REARMED);
     boolean guarding = producersGuarding || selfGuarding || checkedArith || rearmed;
     if (guarding) {
       s.guardAcc = slot++;
@@ -485,35 +504,6 @@ final class Slots {
           }
           s.validityAcc[o] = slot;
           slot += 2;
-        }
-      }
-    }
-    // which words this body still reads, or null for "all of them" - the pass off, or a dense body,
-    // which has no words. Decided before the allocation loop because it decides what the loop
-    // allocates.
-    Set<WordOwner> live = !dense && mode != BodyMode.DRIVER && analysis.options.validityByBitmap()
-        ? liveWords(outputs, outputIdx, analysis, s.group, producersGuarding, selfGuarding,
-            checkedArith, s.visitedMaterializedDates)
-        : null;
-    if (live == null && !dense && mode != BodyMode.DRIVER) {
-      // Without the liveness pass every own word is live, so a date whose prefix this body loads
-      // is visited exactly when its word is its own: the rule liveWords states, with nothing dead.
-      java.util.ArrayDeque<VarkaVectorIR> walk = new java.util.ArrayDeque<>();
-      Set<VarkaVectorIR> seen = new HashSet<>();
-      for (int o : outputIdx) {
-        walk.add(outputs.get(o));
-      }
-      while (!walk.isEmpty()) {
-        VarkaVectorIR n = walk.poll();
-        if (!seen.add(n)) {
-          continue;
-        }
-        VarkaVectorIR date = loadedPrefixDate(analysis, s.group, n);
-        if (date != null && analysis.wordOwner.get(date) instanceof WordOwner.Own) {
-          s.visitedMaterializedDates.add(date);
-        }
-        for (VarkaVectorIR child : childrenOf(n)) {
-          walk.add(child);
         }
       }
     }
@@ -536,6 +526,9 @@ final class Slots {
     boolean shareChronoPrefix = analysis.options.shareChronoPrefix();
     for (VarkaVectorIR node : order) {
       if (vectorWalk) {
+        if (node instanceof Cond && tree.contains(node) && !body.contains(node)) {
+          continue;
+        }
         // Vector-walk slots. Children precede parents in the topo order, so a word reference
         // computed here always sees concrete child references - the aliasing depends on it.
         if (!(node instanceof Cond)) {
@@ -557,6 +550,12 @@ final class Slots {
             if (ref != WORD_DEAD) {
               assertWordAlgebraAgrees(node, ref, s, analysis);
             }
+          }
+          // A node under a date this body loads and does not visit is never emitted. Its word
+          // reference is planned above all the same, since the calendar node over the date
+          // aliases it; nothing else is.
+          if (tree.contains(node) && !body.contains(node)) {
+            continue;
           }
           if (cse && analysis.useCount.get(node) > 1 && !(node instanceof LiteralSlot)) {
             s.sharedSlot.put(node, slot++);
@@ -805,22 +804,6 @@ final class Slots {
         || (checkedArith && analysis.checkedArith.contains(node));
   }
 
-  /** Whether any node under {@code root} is a {@link GuardedDay}, memoised against sharing. */
-  private static boolean reachesGuardedDay(VarkaVectorIR root, Set<VarkaVectorIR> seen) {
-    if (!seen.add(root)) {
-      return false;
-    }
-    if (root instanceof GuardedDay || root instanceof GuardedRange) {
-      return true;
-    }
-    for (VarkaVectorIR child : childrenOf(root)) {
-      if (reachesGuardedDay(child, seen)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /**
    * Whether {@code node} needs {@link Slots#guardTmp}, the scratch local a guard parks its value in
    * before testing it. A subset of {@link #guardedWord}, and deliberately not the same question: a
@@ -878,38 +861,25 @@ final class Slots {
       }
     }
     w.run();
-    // A date whose materialized prefix this body loads (task 198) is not emitted by the calendar
-    // node that reaches it: the producing group ran it, and its range checks with it. The lowering
-    // still visits it when its validity word is its own and live, since that word is stored as a
-    // side effect of the visit and the node's tails alias it. Whether the word is live can turn on
-    // the date's own subtree - a guard over the date demands it - so each such date is walked on a
-    // copy, kept if its word comes out live and dropped otherwise. A dropped date demands nothing,
-    // which is the point: a guard's word over a bare column would otherwise be stored at the top of
-    // the lane group for a check the body never emits. Rounds repeat until one keeps nothing, since
-    // a kept date's subtree can make another date's word live.
-    boolean kept = true;
-    while (kept) {
-      kept = false;
-      for (VarkaVectorIR date : List.copyOf(w.deferred)) {
-        if (w.reached.contains(date)
-            || !(analysis.wordOwner.get(date) instanceof WordOwner.Own own)) {
-          continue;
-        }
-        WordWalk trial = w.copy();
-        trial.walk.add(date);
-        trial.run();
-        if (trial.live.contains(own)) {
-          w = trial;
-          kept = true;
+    // A date whose materialized prefix this body loads (see PLAN_TASK_198.md) is not emitted by
+    // the calendar node that reaches it: the producing group ran it, and its range checks with
+    // it. The lowering visits such a date only when its validity word is its own and something
+    // this body emits reads that word - a tail's root write, a comparison above the tails - since
+    // the word is stored as a side effect of the visit. So the walk enters a deferred date only
+    // once its word is live without it, and repeats until no date turns live, since an entered
+    // date can make another's word live. A date never entered demands nothing, and a guard over
+    // a bare column keeps no word alive for a check the body never emits.
+    boolean entered = true;
+    while (entered) {
+      entered = false;
+      for (VarkaVectorIR date : w.deferred) {
+        if (!w.reached.contains(date) && analysis.wordOwner.get(date) instanceof WordOwner.Own own
+            && w.live.contains(own)) {
+          w.walk.add(date);
+          entered = true;
         }
       }
-    }
-    // The dates the lowering visits, by the rule above, stated here once. A date some other node
-    // reaches is emitted there anyway, and is visited on the same terms.
-    for (VarkaVectorIR date : w.deferred) {
-      if (analysis.wordOwner.get(date) instanceof WordOwner.Own own && w.live.contains(own)) {
-        visitedDates.add(date);
-      }
+      w.run();
     }
     Set<WordOwner> live = w.live;
     if (analysis.options.misdescribeWordLiveness()) {
@@ -919,16 +889,25 @@ final class Slots {
           inverted.add(owner);
         }
       }
-      return inverted;
+      live = inverted;
+    }
+    // The dates the lowering visits, by the rule above, on the verdict the slots are planned
+    // from, so the lowering never asks for a word the plan left without a slot. A date some other
+    // node reaches is emitted there anyway, and is visited on the same terms.
+    for (VarkaVectorIR date : w.deferred) {
+      if (analysis.wordOwner.get(date) instanceof WordOwner.Own own && live.contains(own)) {
+        visitedDates.add(date);
+      }
     }
     return live;
   }
 
   /**
-   * The date whose materialized prefix a body of {@code group} loads when it emits {@code node}
-   * (task 198): the date a calendar node decomposes, when another group computes its prefix.
-   * Null for every other node. {@code VarkaChronoLowering.emitChronoPrefixOnce} emits such a date
-   * only when {@link #visitedMaterializedDates} names it.
+   * The date whose materialized prefix a body of {@code group} loads when it emits {@code node}:
+   * the date a calendar node decomposes, when another group computes its prefix (see
+   * {@code PLAN_TASK_198.md}). Null for every other node. The planning walks and
+   * {@code VarkaChronoLowering.emitChronoPrefixOnce} all ask this, and the lowering emits such a
+   * date only when {@link #visitedMaterializedDates} names it.
    */
   static VarkaVectorIR loadedPrefixDate(Analysis analysis, int group, VarkaVectorIR node) {
     if (!isChrono(node)) {
@@ -939,11 +918,70 @@ final class Slots {
     return mat != null && mat.producer() != group ? date : null;
   }
 
+  /** The kinds of node that fold into the guard accumulator; see {@link #guardFlag}. */
+  private enum Guard { PRODUCERS, SELF, CHECKED_ARITH, REARMED }
+
+  /**
+   * Whether {@code nodes}, a body's, hold a node of {@code kind}: a guarded day producer under
+   * {@link VarkaEmitOptions#guardDayProducers}, a self-guarding node, a checked int operation, or
+   * a re-armed range check. Each needs the accumulator; the driver guards nothing.
+   */
+  private static boolean guardFlag(Analysis analysis, BodyMode mode, Set<VarkaVectorIR> nodes,
+      Guard kind) {
+    if (mode == BodyMode.DRIVER) {
+      return false;
+    }
+    return switch (kind) {
+      case PRODUCERS -> analysis.options.guardDayProducers()
+          && !analysis.guardedProducers.isEmpty()
+          && nodes.stream().anyMatch(analysis.guardedProducers::contains);
+      case SELF -> !analysis.selfGuarding.isEmpty()
+          && nodes.stream().anyMatch(analysis.selfGuarding::contains);
+      case CHECKED_ARITH -> analysis.options.checkIntOverflow()
+          && nodes.stream().anyMatch(analysis.checkedArith::contains);
+      case REARMED -> nodes.stream()
+          .anyMatch(n -> n instanceof GuardedDay || n instanceof GuardedRange);
+    };
+  }
+
+  /**
+   * The nodes a body of {@code group} emits: its outputs' subtrees, except that the date of a
+   * calendar node whose materialized prefix the group loads is entered only when {@code visits}
+   * says the lowering visits it. Only the date's own position is skipped, and another path into
+   * the same date still reaches it, as the emission does.
+   */
+  private static Set<VarkaVectorIR> emittedNodes(List<VarkaVectorIR> outputs,
+      List<Integer> outputIdx, Analysis analysis, int group,
+      java.util.function.Predicate<VarkaVectorIR> visits) {
+    Set<VarkaVectorIR> nodes = new HashSet<>();
+    java.util.ArrayDeque<VarkaVectorIR> walk = new java.util.ArrayDeque<>();
+    for (int o : outputIdx) {
+      walk.add(outputs.get(o));
+    }
+    while (!walk.isEmpty()) {
+      VarkaVectorIR n = walk.poll();
+      if (!nodes.add(n)) {
+        continue;
+      }
+      VarkaVectorIR loaded = loadedPrefixDate(analysis, group, n);
+      if (loaded != null && visits.test(loaded)) {
+        loaded = null;
+      }
+      for (VarkaVectorIR child : childrenOf(n)) {
+        if (child == loaded) {
+          loaded = null;
+        } else {
+          walk.add(child);
+        }
+      }
+    }
+    return nodes;
+  }
+
   /**
    * One body's word-liveness walk, for {@link #liveWords}: the words live so far, the nodes walked,
    * the two work queues, and the dates a calendar node reached whose materialized prefix the body
-   * loads, which are not walked from there. A value rather than locals so that one such date can be
-   * walked on a copy and the copy kept or dropped.
+   * loads, which are not walked from there until their word is live.
    */
   private static final class WordWalk {
     final Analysis analysis;
@@ -964,16 +1002,6 @@ final class Slots {
       this.producersGuarding = producersGuarding;
       this.selfGuarding = selfGuarding;
       this.checkedArith = checkedArith;
-    }
-
-    WordWalk copy() {
-      WordWalk c = new WordWalk(analysis, group, producersGuarding, selfGuarding, checkedArith);
-      c.live.addAll(live);
-      c.reached.addAll(reached);
-      c.walk.addAll(walk);
-      c.work.addAll(work);
-      c.deferred.addAll(deferred);
-      return c;
     }
 
     /** Marks {@code owner} live, queueing an own word for the propagation to its operands. */
@@ -1003,10 +1031,13 @@ final class Slots {
       if (!reached.add(n)) {
         return;
       }
+      // Only the date's own position is deferred: an operand that is the same node - an
+      // add_months whose count is its date - is emitted by the lowering, so it is walked.
       VarkaVectorIR loaded = loadedPrefixDate(analysis, group, n);
       for (VarkaVectorIR child : childrenOf(n)) {
         if (child == loaded) {
           deferred.add(child);
+          loaded = null;
         } else {
           walk.add(child);
         }

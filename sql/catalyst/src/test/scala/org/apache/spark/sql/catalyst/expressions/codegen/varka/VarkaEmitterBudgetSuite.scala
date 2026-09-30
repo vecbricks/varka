@@ -1112,15 +1112,16 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
     checkMatrix(tails(22), 1, lits, Seq(1, 1024, 1031), patterns, options = atLimit,
       ctx = "built again without the call-site budget")
-    // A decline the budget-off emitter makes is still made, naming the same outputs: under a
-    // byte budget no single output fits, every output is stuck either way.
+    // A decline the budget-off emitter makes is still made, naming the same outputs. Under this
+    // byte budget only the group that computes the shared prefix is stuck: the others load it,
+    // and read no column, so their methods fit (PLAN_TASK_234.md 9).
     val tiny = everyGroup.withMethodByteBudget(300)
     val on = intercept[VarkaEmitDeclined] { emitMulti(tails(22), 1, 22, tiny) }
     val offDecline = intercept[VarkaEmitDeclined] {
       emitMulti(tails(22), 1, 22, tiny.withCallSiteBudget(0))
     }
-    assert(on.outputs.asScala === offDecline.outputs.asScala && on.outputs.size === 22,
-      on.getMessage)
+    assert(on.outputs.asScala === offDecline.outputs.asScala, on.getMessage)
+    assert(on.outputs.asScala === Seq(0), on.getMessage)
   }
 
   test("on the long lane a wide group over the call-site budget is split too, and answers the " +
