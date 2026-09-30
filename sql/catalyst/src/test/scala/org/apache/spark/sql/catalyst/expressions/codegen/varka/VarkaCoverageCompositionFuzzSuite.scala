@@ -24,6 +24,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, FusedOutput, KernelOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
 /**
  * Random compositions of the coverage table, through the compiler to the emitter.
@@ -176,13 +177,14 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     sys.props.get("varka.fuzz.wideCompositions").map(_.toInt).getOrElse(20)
 
   /**
-   * Runs one compiled kernel against the reference evaluator where the check can: an int-lane
-   * kernel with no derived input and no input bound, over columns drawn without their domains, so
-   * a batch a guard declines is counted rather than compared. Returns whether rows were compared.
+   * Runs one compiled int-lane kernel against the reference evaluator, each input drawn from its
+   * own domain: a derived input from its kind's codes, a bounded input inside its bound, any other
+   * within thirty thousand either side of zero. A batch a guard still declines is counted rather
+   * than compared. Returns whether rows were compared.
    */
   private def checkKernel(plan: CompiledVarkaProjection, opts: VarkaEmitOptions, rnd: Random,
       where: String): Boolean = {
-    if (plan.lane != LaneType.INT || plan.derivedInputs.nonEmpty || plan.inputBounds.nonEmpty) {
+    if (plan.lane != LaneType.INT) {
       return false
     }
     val numInputs = plan.inputOrdinals.size
@@ -200,7 +202,22 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
           (i: Int) => bits(i)
       }
     }
-    val data = Array.fill(numInputs, length)(rnd.nextInt(60001) - 30000)
+    val data = Array.tabulate(numInputs) { i =>
+      val bound = plan.inputBounds.find(_.inputIndex == i)
+      Array.fill(length) {
+        plan.derivedAt(i).map(_.kind) match {
+          case Some(VarkaDerivedKind.TRUNC_LEVEL) =>
+            DateTimeUtils.TRUNC_TO_WEEK +
+              rnd.nextInt(DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
+          case Some(_) => rnd.nextInt(7)
+          case None => bound match {
+            case Some(b) =>
+              (b.lo + (rnd.nextLong() & Long.MaxValue) % (b.hi.toLong - b.lo + 1)).toInt
+            case None => rnd.nextInt(60001) - 30000
+          }
+        }
+      }
+    }
     VarkaKernelCheck.runAndCompare(s"$where, kernel of ${plan.outputs.size}", className, bytes,
       plan.outputs, numInputs, plan.literals.toArray,
       VarkaKernelCheck.Batch(length, patterns, data, forceMasked = length > 1 && rnd.nextBoolean()),
@@ -248,7 +265,9 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     }
     info(s"$severalKernels of $wideIterations projections served by several kernels, " +
       s"$compared kernels compared row by row, the widest first kernel reading $widest columns")
-    assert(severalKernels > 0 && compared > 0, s"$severalKernels projections reached several " +
+    // From the default count up: a handful of projections can all be of the long lane.
+    assert(severalKernels > 0 && (compared > 0 || wideIterations < 20),
+      s"$severalKernels projections reached several " +
       s"kernels and $compared kernels were compared; the widest first kernel read $widest columns")
   }
 
