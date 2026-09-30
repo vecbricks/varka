@@ -65,9 +65,17 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * option draws apply, which is what puts `useAVX` under the constant division and so fuzzes
  * both of its lowerings on one machine.
  *
- * Budget: `-Dvarka.fuzz.iterations` (default 300, a few seconds); `-Dvarka.fuzz.seed` (default
- * fixed, so the committed run is reproducible and a nightly can vary it). Both apply to both
- * lanes.
+ * Past the ceilings (task 238): the byte budget is drawn small as well as off and 8000, so the
+ * regroup and the declines happen at the widths drawn here, and a third test composes
+ * `drawWideShape`'s roots into kernels of at least 250 outputs, past the driver's ceiling of about
+ * 180 groups, under option variants that reach every size mechanism - the regroup, the call-site
+ * splits and their rollback, the split driver's stages, both grouping switches dropped, and the
+ * decline. Every composition is checked row by row, under the defaults where its variant
+ * declines, and a run that reaches no instance of some mechanism fails (`VarkaEmitTrace`).
+ *
+ * Budget: `-Dvarka.fuzz.iterations` (default 300, a few seconds); `-Dvarka.fuzz.wide` (default
+ * 10 compositions, a few seconds); `-Dvarka.fuzz.seed` (default fixed, so the committed run is
+ * reproducible and a nightly can vary it). The iterations and the seed apply to both lanes.
  */
 class VarkaIrFuzzSuite extends SparkFunSuite {
 
@@ -77,6 +85,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val classCounter = new AtomicInteger(0)
   private val skippedPastTheCap = new AtomicInteger(0)
+  // What the random shapes' emissions did about size, reported after each run (task 238).
+  private val randomTrace = new VarkaEmitTrace
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
   /** A random variant of the options record, through its own `with*` methods. */
@@ -106,9 +116,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
             Some(Integer.valueOf(
               Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 2, 3)(rnd.nextInt(4))))
           } else if (m.getName == "withMethodByteBudget") {
-            // Task 87's switch: off, or the limit HotSpot enforces. A small number here would
-            // mean "every method is over budget", which is a decline, not a variant.
-            Some(Integer.valueOf(Seq(0, 8000)(rnd.nextInt(2))))
+            // Task 87's switch: off, the limit HotSpot enforces, or a smaller budget that brings
+            // the size machinery - the regroup, the stages, the declines - down to the widths
+            // drawn here (task 238). A single output over a small budget declines, and
+            // `emitOrSkip` then runs the shape without the budget, so its answers are still
+            // checked. One draw whatever the list's length, so the stream is not moved.
+            Some(Integer.valueOf(Seq(0, 8000, 1000, 2000, 4000)(rnd.nextInt(5))))
           } else {
             Some(Integer.valueOf(Seq(8, 24, 32)(rnd.nextInt(3))))
           }
@@ -214,83 +227,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     val className =
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzz${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] =
-      VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
+      VarkaLoopEmitter.emitTraced(className, roots.asJava, numInputs, numLiterals, o, randomTrace)
     val bytes = emitOrSkip(context, options)(emitWith) match {
       case Some(b) => b
       case None => return
     }
-    val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
-    loader.defineGeneratedClass(className, bytes)
-    val kernel = loader.loadClass(className).getConstructor().newInstance()
-      .asInstanceOf[VarkaFusedKernel]
-    val arena = Arena.ofConfined()
-    try {
-      val srcData = new Array[Long](numInputs)
-      val srcValidity = new Array[Long](numInputs)
-      val nullCounts = new Array[Int](numInputs)
-      for (c <- 0 until numInputs) {
-        val d = alloc(arena, length * 4L)
-        val v = alloc(arena, (length + 7) / 8L)
-        v.fill(0.toByte)
-        var nulls = 0
-        for (i <- 0 until length) {
-          if (patterns(c)(i)) {
-            // Poisoned, not left at the drawn value (task 70's harness rule, the same one
-            // VarkaEmitterTestBase.poison states). `data` is drawn inside `columnBound` and
-            // `MONTH_ARITH_MAX_MONTHS`, so a null lane holding its drawn value is in range by
-            // construction and can never reach a guard's condemning comparison - which is the
-            // one thing the fuzzer is here to reach. Alternating on the null ordinal puts each
-            // extreme on both sides of every bound whatever the null pattern is.
-            d.set(ValueLayout.JAVA_INT, i * 4L,
-              if ((nulls & 1) == 0) Int.MinValue else Int.MaxValue)
-            nulls += 1
-          } else {
-            d.set(ValueLayout.JAVA_INT, i * 4L, data(c)(i))
-            val off = i / 8L
-            v.set(ValueLayout.JAVA_BYTE, off,
-              (v.get(ValueLayout.JAVA_BYTE, off) | (1 << (i % 8))).toByte)
-          }
-        }
-        srcData(c) = d.address()
-        nullCounts(c) = if (forceMasked && nulls == 0) 1 else nulls
-        srcValidity(c) =
-          if (nullCounts(c) == 0 || nulls == length) 0L else v.address()
-      }
-      val outs = roots.map { r =>
-        val d = alloc(arena, length * 4L)
-        for (i <- 0 until length) d.set(ValueLayout.JAVA_INT, i * 4L, 0xDEADBEEF)
-        val v = alloc(arena, (length + 7) / 8L)
-        v.fill(0xFF.toByte)
-        (if (r.isInstanceOf[Cond]) 0L else d.address(), d, v)
-      }
-      val status = kernel.run(srcData, srcValidity, nullCounts, outs.map(_._1).toArray,
-        outs.map(_._3.address()).toArray, lits, length,
-        VarkaEmitterTestSupport.scratch(kernel, length))
-      assert(status === 0, s"$context: the kernel declined the batch (status $status)")
-      for (i <- 0 until length) {
-        val row = (0 until numInputs).map(c => if (patterns(c)(i)) None else Some(data(c)(i)))
-        for ((root, o) <- roots.zipWithIndex) {
-          val bit = (outs(o)._3.get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0
-          root match {
-            case c: Cond =>
-              val want = VarkaReferenceEvaluator.evalCond(c, row, lits).contains(true)
-              assert(bit === want, s"$context: selection row $i differs (want $want)")
-            case _ =>
-              val want = VarkaReferenceEvaluator.evalValue(root, row, lits)
-              assert(bit === want.isDefined,
-                s"$context: validity of output $o row $i differs (want $want)")
-              want.foreach { v =>
-                assert(outs(o)._2.get(ValueLayout.JAVA_INT, i * 4L) === v,
-                  s"$context: output $o row $i differs (want $v)")
-              }
-          }
-        }
-      }
-    } finally {
-      arena.close()
-      loader.release()
-    }
+    VarkaKernelCheck.runAndCompare(context, className, bytes, roots, numInputs, lits,
+      VarkaKernelCheck.Batch(length, patterns, data, forceMasked))
   }
+
 
 
   /**
@@ -324,7 +269,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     val className =
       s"org.apache.spark.sql.varka.execution.VarkaFusedFuzzLong${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] =
-      VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, o)
+      VarkaLoopEmitter.emitTraced(className, roots.asJava, numInputs, numLiterals, o, randomTrace)
     val bytes = emitOrSkip(context, options)(emitWith) match {
       case Some(b) => b
       case None => return
@@ -512,6 +457,119 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Wide compositions: past the ceilings the one-to-three-root draw never reaches (task 238).
+  // ---------------------------------------------------------------------------------------------
+
+  private val wideIterations = sys.props.get("varka.fuzz.wide").map(_.toInt).getOrElse(10)
+
+  /**
+   * The options the wide compositions cycle through, each aimed at mechanisms that only a kernel
+   * past the driver's ceiling of about 180 groups reaches: the stages, the grouping switches
+   * dropped before a decline, the call-site splits and their rollback, the regroup under a small
+   * budget, and the declines themselves.
+   */
+  private val wideVariants: Seq[(String, VarkaEmitOptions)] = {
+    val d = VarkaEmitOptions.DEFAULTS
+    Seq(
+      "split driver" -> d.withSplitDriver(true),
+      "whole driver" -> d.withSplitDriver(false),
+      "whole driver, predicted grouping" -> d.withSplitDriver(false).withPredictGrouping(true),
+      "whole driver, call sites split" ->
+        d.withSplitDriver(false).withCallSiteBudget(8).withHeavyGroupOutputs(2),
+      "split driver, 2000-byte budget" -> d.withSplitDriver(true).withMethodByteBudget(2000))
+  }
+
+  private var wideDeclines = 0
+  private var wideChecked = 0
+
+  /**
+   * One wide composition: `drawWideShape`'s value roots, drawn until there are at least 250, over
+   * the draws' shared column layout. A column keeps the narrowest domain any draw gives it - trunc
+   * levels, then month counts, then days - since each is inside the next. The kernel it emits is
+   * checked row by row like a drawn shape's; a decline must name a size.
+   */
+  private def runWide(iteration: Int, trace: VarkaEmitTrace): Unit = {
+    val rnd = shapeRandom(seed ^ 0x57494445L, iteration)
+    val (label, options) = wideVariants(iteration % wideVariants.size)
+    val draws = scala.collection.mutable.ArrayBuffer.empty[Drawn]
+    while (draws.map(_.roots.size).sum < 250 && draws.size < 12) {
+      draws += drawWideShape(rnd)
+    }
+    val roots = draws.flatMap(_.roots).distinct.toSeq
+    val numInputs = draws.map(_.numInputs).max
+    val numLiterals = draws.map(_.numLiterals).max
+    val levels = draws.map(_.levelOrdinal).filter(_ >= 0).toSet
+    val small = draws.map(_.smallOrdinal).filter(_ >= 0).toSet
+    val lits = Array.fill(numLiterals)(rnd.nextInt(2 * literalBound + 1) - literalBound)
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    def draw(bound: Long): Int =
+      (rnd.nextLong() % (2 * bound + 1) - bound).toInt.max(-bound.toInt).min(bound.toInt)
+    val data = Array.tabulate(numInputs, length) { (c, _) =>
+      if (levels(c)) {
+        DateTimeUtils.TRUNC_TO_WEEK + rnd.nextInt(
+          DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
+      } else {
+        draw(if (small(c)) VarkaChrono.MONTH_ARITH_MAX_MONTHS.toLong else columnBound)
+      }
+    }
+    val context = s"wide seed=$seed iteration=$iteration ($label) roots=${roots.size} " +
+      s"inputs=$numInputs length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked"
+    val className =
+      s"org.apache.spark.sql.varka.execution.VarkaFusedFuzzWide${classCounter.addAndGet(1)}"
+    def emitWith(o: VarkaEmitOptions, into: VarkaEmitTrace): Option[Array[Byte]] =
+      try {
+        Some(VarkaLoopEmitter.emitTraced(className, roots.asJava, numInputs, numLiterals, o,
+          into))
+      } catch {
+        case d: VarkaEmitDeclined =>
+          assert(d.getMessage.contains("bytes"), s"$context: a decline names no size: " +
+            d.getMessage)
+          None
+      }
+    // A variant that declines is the answer it gives, counted; the composition's answers are
+    // then checked under the defaults, where the split driver serves it, on a trace of its own
+    // so the retry does not count as the variant reaching a mechanism.
+    val bytes = emitWith(options, trace).orElse {
+      wideDeclines += 1
+      emitWith(VarkaEmitOptions.DEFAULTS, new VarkaEmitTrace)
+    }
+    bytes.foreach { b =>
+      VarkaKernelCheck.runAndCompare(context, className, b, roots, numInputs, lits,
+        VarkaKernelCheck.Batch(length, patterns, data, forceMasked))
+      wideChecked += 1
+    }
+  }
+
+  test(s"wide compositions past the driver's ceiling match the reference evaluator, and reach " +
+      s"every size mechanism (seed $seed, $wideIterations compositions)") {
+    val trace = new VarkaEmitTrace
+    wideDeclines = 0
+    wideChecked = 0
+    (0 until wideIterations).foreach(runWide(_, trace))
+    // Under the defaults nothing of this width declines: the split driver serves every one.
+    assert(wideChecked === wideIterations,
+      s"$wideChecked of $wideIterations compositions ran against the reference evaluator")
+    val reached = Seq(
+      "a group halved on bytes" -> trace.byteRegroups,
+      "a group split on call sites" -> trace.siteSplits,
+      "the call-site splits rolled back" -> trace.siteRollbacks,
+      "a driver split into stages" -> trace.stageSplits,
+      "the exact grouping dropped" -> trace.exactFallbacks,
+      "the prediction dropped" -> trace.predictFallbacks,
+      "a decline" -> wideDeclines)
+    reached.foreach { case (mechanism, n) => info(s"$mechanism: $n") }
+    // Every variant runs at least once only from a full cycle up.
+    if (wideIterations >= wideVariants.size) {
+      val missed = reached.collect { case (mechanism, 0) => mechanism }
+      assert(missed.isEmpty, s"no wide composition reached: ${missed.mkString(", ")}")
+    }
+  }
+
   test(s"random IR trees match the reference evaluator (seed $seed, $iterations iterations)") {
     only match {
       case Some(k) => runOne(k)
@@ -536,6 +594,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
    * build, and neither may pass quietly.
    */
   private def reportSkipped(): Unit = {
+    info(s"size control over the run: ${randomTrace.builds} builds, " +
+      s"${randomTrace.byteRegroups} regroups on bytes, ${randomTrace.siteSplits} call-site " +
+      s"splits, ${randomTrace.siteRollbacks} rolled back, ${randomTrace.stageSplits} stage " +
+      s"splits, ${randomTrace.fallbacks()} grouping switches dropped")
     val skipped = skippedPastTheCap.getAndSet(0)
     if (skipped > 0) {
       info(s"$skipped shape(s) past the class-file cap on a method in every form the emitter " +

@@ -17,11 +17,13 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import scala.jdk.CollectionConverters._
 import scala.util.Random
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{FusedOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, FusedOutput, KernelOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
 
 /**
  * Random compositions of the coverage table, through the compiler to the emitter.
@@ -42,6 +44,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{FusedOutput, VarkaExpr
  * alternate between the default width and four lanes, the two the emitted-bytes oracle pins,
  * and the exact grouping (`PLAN_TASK_200.md`) is on or off at random, since the wide projections
  * drawn here are where it changes the partition.
+ *
+ * Past the columns one kernel reads (task 238): a third test spreads each of 150 to 300 rows over
+ * eighty renamed copies of the table's columns, so the compiler serves the projection with
+ * several kernels (`VarkaEmitOptions.severalKernels`), holds the same property, and runs every
+ * int-lane kernel without derived inputs or bounds against the reference evaluator
+ * (`VarkaKernelCheck`); a batch a guard declines, over columns drawn without their domains, is
+ * counted rather than compared. `-Dvarka.fuzz.wideCompositions` sets its count (default 20).
  *
  * Budget: `-Dvarka.fuzz.compositions` (default 40, under a minute); `-Dvarka.fuzz.seed` (default
  * fixed, shared with the IR fuzzer so a nightly varies both with one property). A failure names
@@ -97,8 +106,12 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     val where = s"seed $seed iteration $iteration, ${picked.size} entries, options " +
       s"${opts.canonical}:\n  ${picked.map(_.executable).mkString("\n  ")}"
     val (fused, declined) = try {
+      // A further kernel's entry is fused too (task 190's `severalKernels`, on by default).
       val fused = VarkaExpressionCompiler.compilePartial(list, columns, opts)
-        .map(_.specs.zipWithIndex.collect { case (_: FusedOutput, i) => i }.toSet)
+        .map(_.specs.zipWithIndex.collect {
+          case (_: FusedOutput, i) => i
+          case (_: KernelOutput, i) => i
+        }.toSet)
         .getOrElse(Set.empty[Int])
       (fused, VarkaExpressionCompiler.declines(list, columns, opts))
     } catch {
@@ -136,6 +149,107 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
           s"conjunct $i, which fuses alone, declined for '${d.reason}' on $where")
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Past the columns one kernel reads (task 238).
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The table's columns eighty times over, renamed. Most rows read the one date column, so a
+   * projection reaches past the 64 columns a kernel reads only when that column alone has more
+   * copies than a kernel holds.
+   */
+  private lazy val copies: Seq[Seq[Attribute]] = (0 until 80).map { k =>
+    columns.map(a => AttributeReference(s"${a.name}_$k", a.dataType, a.nullable)())
+  }
+
+  /** `e`, resolved against the table's columns, moved onto copy `k`. */
+  private def onCopy(e: Expression, k: Int): Expression = {
+    val byId = columns.map(_.exprId).zip(copies(k)).toMap
+    e.transform { case a: AttributeReference if byId.contains(a.exprId) => byId(a.exprId) }
+  }
+
+  private var kernelCounter = 0
+
+  private val wideIterations =
+    sys.props.get("varka.fuzz.wideCompositions").map(_.toInt).getOrElse(20)
+
+  /**
+   * Runs one compiled kernel against the reference evaluator where the check can: an int-lane
+   * kernel with no derived input and no input bound, over columns drawn without their domains, so
+   * a batch a guard declines is counted rather than compared. Returns whether rows were compared.
+   */
+  private def checkKernel(plan: CompiledVarkaProjection, opts: VarkaEmitOptions, rnd: Random,
+      where: String): Boolean = {
+    if (plan.lane != LaneType.INT || plan.derivedInputs.nonEmpty || plan.inputBounds.nonEmpty) {
+      return false
+    }
+    val numInputs = plan.inputOrdinals.size
+    kernelCounter += 1
+    val className = s"org.apache.spark.sql.varka.execution.VarkaCompositionWide$kernelCounter"
+    val bytes = VarkaLoopEmitter.emit(className, plan.outputs.asJava, numInputs,
+      plan.numLiterals, null, null, opts)
+    val length = Seq(1, 7, 64, 100, 257, 1000)(rnd.nextInt(6))
+    val patterns: Seq[Int => Boolean] = Seq.fill(numInputs) {
+      rnd.nextInt(3) match {
+        case 0 => (_: Int) => false
+        case 1 => (i: Int) => i % 5 == 0
+        case _ =>
+          val bits = Array.fill(length)(rnd.nextInt(3) == 0)
+          (i: Int) => bits(i)
+      }
+    }
+    val data = Array.fill(numInputs, length)(rnd.nextInt(60001) - 30000)
+    VarkaKernelCheck.runAndCompare(s"$where, kernel of ${plan.outputs.size}", className, bytes,
+      plan.outputs, numInputs, plan.literals.toArray,
+      VarkaKernelCheck.Batch(length, patterns, data, forceMasked = length > 1 && rnd.nextBoolean()),
+      declineAllowed = true)
+  }
+
+  test("random projections over more columns than a kernel reads are fused or declined, and " +
+      "their kernels answer as the reference evaluator does") {
+    var severalKernels = 0
+    var compared = 0
+    var widest = 0
+    for (iteration <- 0 until wideIterations) {
+      val rnd = new Random(seed * 1000003L + 900000L + iteration)
+      val picked = Seq.fill(150 + rnd.nextInt(151))(projections(rnd.nextInt(projections.size)))
+      val list: Seq[NamedExpression] = picked.zipWithIndex.map { case (row, i) =>
+        Alias(onCopy(resolve(row.executable), rnd.nextInt(copies.size)), s"c$i")()
+      }
+      val wide = copies.flatten
+      val opts = options(rnd, iteration)
+      val where = s"seed $seed wide iteration $iteration, ${picked.size} entries, options " +
+        s"${opts.canonical}"
+      val partial = try {
+        VarkaExpressionCompiler.compilePartial(list, wide, opts)
+      } catch {
+        case e: Exception => fail(s"the compiler threw on $where", e)
+      }
+      val declined = VarkaExpressionCompiler.declines(list, wide, opts)
+      val fused = partial.toSeq.flatMap(_.specs.zipWithIndex.collect {
+        case (_: FusedOutput, i) => i
+        case (_: KernelOutput, i) => i
+      }).toSet
+      assert(fused.size + declined.size == list.size && (fused & declined.keySet).isEmpty,
+        s"entries neither fused nor declined, or both, on $where")
+      declined.foreach { case (i, d) =>
+        assert(isCompositionDecline(d.reason),
+          s"entry $i, which fuses alone, declined for '${d.reason}' on $where")
+      }
+      partial.foreach { p =>
+        widest = math.max(widest, p.fused.inputOrdinals.size)
+        if (p.kernels.size > 1) {
+          severalKernels += 1
+        }
+        p.kernels.foreach(k => if (checkKernel(k, opts, rnd, where)) compared += 1)
+      }
+    }
+    info(s"$severalKernels of $wideIterations projections served by several kernels, " +
+      s"$compared kernels compared row by row, the widest first kernel reading $widest columns")
+    assert(severalKernels > 0 && compared > 0, s"$severalKernels projections reached several " +
+      s"kernels and $compared kernels were compared; the widest first kernel read $widest columns")
   }
 
   test("random projections of coverage rows are fused or declined in bytes, never thrown") {

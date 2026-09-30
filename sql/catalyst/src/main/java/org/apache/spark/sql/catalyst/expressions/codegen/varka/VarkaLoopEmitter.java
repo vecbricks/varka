@@ -235,7 +235,7 @@ public final class VarkaLoopEmitter {
       String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       String sourceFile, String planFragment, VarkaEmitOptions options) {
     return emit(className, outputs, numInputs, numLiterals, sourceFile, planFragment, options,
-        new int[1]);
+        new VarkaEmitTrace());
   }
 
   /**
@@ -246,12 +246,29 @@ public final class VarkaLoopEmitter {
    */
   static byte[] emitCountingBuilds(String className, List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options, int[] builds) {
-    return emit(className, outputs, numInputs, numLiterals, null, null, options, builds);
+    VarkaEmitTrace trace = new VarkaEmitTrace();
+    try {
+      return emit(className, outputs, numInputs, numLiterals, null, null, options, trace);
+    } finally {
+      builds[0] = trace.builds;
+      if (builds.length > 1) {
+        builds[1] = trace.fallbacks();
+      }
+    }
+  }
+
+  /**
+   * {@link #emit} for the fuzzers, which add up what every emission's size control did
+   * ({@link VarkaEmitTrace}) into {@code trace}, declined or not.
+   */
+  static byte[] emitTraced(String className, List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options, VarkaEmitTrace trace) {
+    return emit(className, outputs, numInputs, numLiterals, null, null, options, trace);
   }
 
   private static byte[] emit(
       String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
-      String sourceFile, String planFragment, VarkaEmitOptions options, int[] builds) {
+      String sourceFile, String planFragment, VarkaEmitOptions options, VarkaEmitTrace trace) {
     if (outputs.isEmpty()) {
       throw new IllegalArgumentException("no output chains to emit");
     }
@@ -347,10 +364,6 @@ public final class VarkaLoopEmitter {
     // loop drops it, and without the prediction once a class the predicted grouping produced
     // would decline (see `PLAN_TASK_199.md`).
     VarkaEmitOptions grouping = options;
-    builds[0] = 0;
-    if (builds.length > 1) {
-      builds[1] = 0;
-    }
     // The exact grouping's runs, priced once per grouping options: between rebuilds only the
     // forced starts change, and they cut the runs rather than change them.
     ExactRuns exactRuns = new ExactRuns();
@@ -358,7 +371,7 @@ public final class VarkaLoopEmitter {
     int stageGroups = 0;
     while (true) {
       List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, null, exactRuns);
-      builds[0]++;
+      trace.builds++;
       // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
       // address as an eighth argument (task 198).
@@ -399,12 +412,16 @@ public final class VarkaLoopEmitter {
       List<Integer> stuck = new ArrayList<>();
       boolean split = halveGroups(groupsOver(measured, limit).keySet(), groups, 1, forcedStarts,
           stuck);
+      if (split) {
+        trace.byteRegroups++;
+      }
       // Only a built class has call-site counts: a refusal's measurement is one method's bytes.
       if (bytes != null && siteBudget > 0 && stuck.isEmpty()
           && halveGroups(groupsOverCallSites(measured, siteBudget).keySet(), groups, narrowest,
               forcedStarts, null)) {
         siteSplit = true;
         split = true;
+        trace.siteSplits++;
       }
       if (split) {
         continue;
@@ -426,10 +443,12 @@ public final class VarkaLoopEmitter {
             stageGroups);
         if (next > 0) {
           stageGroups = next;
+          trace.stageSplits++;
           continue;
         }
       }
       if (siteSplit) {
+        trace.siteRollbacks++;
         siteBudget = 0;
         siteSplit = false;
         forcedStarts.clear();
@@ -448,15 +467,14 @@ public final class VarkaLoopEmitter {
       // names a single output over the budget is left alone: no grouping changes it.
       if (grouping.exactGrouping() && stuck.isEmpty()) {
         grouping = options.withExactGrouping(false);
+        trace.exactFallbacks++;
       } else if (grouping.predictGrouping() && stuck.isEmpty()) {
         grouping = options.withPredictGrouping(false).withExactGrouping(false);
+        trace.predictFallbacks++;
       } else {
         throw new VarkaEmitDeclined(String.join("; ", findings)
             + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
                 + " cannot be regrouped smaller"), stuck);
-      }
-      if (builds.length > 1) {
-        builds[1]++;
       }
       siteBudget = options.callSiteBudget();
       forcedStarts.clear();
