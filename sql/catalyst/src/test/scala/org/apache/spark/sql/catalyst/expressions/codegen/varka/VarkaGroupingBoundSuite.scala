@@ -34,7 +34,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
  */
 class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
 
+  // The greedy walk, the baseline every arm below is held against.
   private val options = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
+    .withExactGrouping(false)
 
   private lazy val table =
     VarkaCoverageRows.read(getWorkspaceFilePath("sql", "varka", "coverage.json"))

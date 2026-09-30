@@ -180,13 +180,16 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // `emit_cost_audit.json`. A shape can still
     // gain a loop method where the measurement halves a group and the greedy close fills one
     // and leaves the rest in two (PLAN_TASK_199.md 9): that list is pinned, so a new entry is
-    // seen rather than averaged away.
+    // seen rather than averaged away. The greedy walk's, as the plan records it: under the exact
+    // grouping, the default since `PLAN_TASK_200.md` 8.2, `VarkaGroupingBoundSuite` holds the
+    // same wide shapes to no decline and no fallback.
+    val greedy = VarkaEmitOptions.DEFAULTS.withExactGrouping(false)
     val gained = Seq.newBuilder[String]
     for (shape <- VarkaEmitCostCorpus.wide().asScala) {
       val where = s"${shape.family} ${shape.index}"
       val roots = shape.roots.asScala.toSeq
-      val off = emitted(roots, shape.numInputs, shape.numLiterals, predict = false)._1
-      val on = emitted(roots, shape.numInputs, shape.numLiterals, predict = true)._1
+      val off = emitted(roots, shape.numInputs, shape.numLiterals, predict = false, greedy)._1
+      val on = emitted(roots, shape.numInputs, shape.numLiterals, predict = true, greedy)._1
       off match {
         case Some(o) =>
           val p = on.getOrElse(fail(s"$where emits under the weights and declines predicted"))

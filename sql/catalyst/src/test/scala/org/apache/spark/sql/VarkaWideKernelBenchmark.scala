@@ -63,6 +63,11 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       new AddDays(col, new LiteralSlot(k))), new LastDay(col))
   }
 
+  /** The two groupings the exact grouping's sections compare, each named for its form. */
+  private val groupings = Seq(
+    "greedy grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(false),
+    "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))
+
   /**
    * The mixed family's entry `k`: the size ladder's entry, `make_date(year(d), month(d), k)`, the
    * cheap tail `year(d) + k` and `date_add(d, k)`, in rotation over one date. The same shapes as
@@ -164,8 +169,6 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       runBenchmark("the exact grouping against the greedy walk") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        val groupings = Seq("greedy grouping" -> VarkaEmitOptions.DEFAULTS,
-          "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))
         val shapes = Seq(100, 200).map(n => (s"$n mixed entries", (0 until n).map(mixedEntry))) :+
           (s"$widest ladder entries", (0 until widest).map(entry))
         // Each kernel is emitted once and scanned with nulls and without.
@@ -186,8 +189,7 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val roots = java.util.List.of((0 until 200).map(mixedEntry): _*)
         var sink = 0
-        for ((label, options) <- Seq("greedy grouping" -> VarkaEmitOptions.DEFAULTS,
-            "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))) {
+        for ((label, options) <- groupings) {
           benchmark.addCase(s"200 mixed entries, $label") { _ =>
             sink += VarkaLoopEmitter.emit("VarkaWideBenchEmission", roots, 1, 200, null, null,
               options).length

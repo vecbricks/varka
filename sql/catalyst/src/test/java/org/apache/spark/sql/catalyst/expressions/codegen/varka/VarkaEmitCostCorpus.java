@@ -65,9 +65,14 @@ final class VarkaEmitCostCorpus {
         .withCallSiteBudget(0);
   }
 
-  /** The measuring options at the shipped ones. */
+  /**
+   * The measuring options at the shipped ones, but for the greedy walk: the price tables were
+   * fitted on its groups (`PLAN_TASK_199.md`), and a model of a method's bytes from its features
+   * does not change with which groups the grouping picks, so the exact grouping's default
+   * (`PLAN_TASK_200.md` 8.2) leaves the fit's sample as it was.
+   */
   static VarkaEmitOptions measuring() {
-    return measuring(VarkaEmitOptions.DEFAULTS);
+    return measuring(VarkaEmitOptions.DEFAULTS.withExactGrouping(false));
   }
 
   /** The measuring options with every output in one group, for the register's probes. */

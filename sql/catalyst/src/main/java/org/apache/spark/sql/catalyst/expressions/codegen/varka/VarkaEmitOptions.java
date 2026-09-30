@@ -356,7 +356,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        greedy walk strands a cheap output that shares nothing in a loop method of its own
  *        ({@code PLAN_TASK_200.md} 2). The measurement of the built class stays the last word,
  *        and a class the exact grouping would make decline is built again greedily, keeping
- *        {@link #predictGrouping}. Off by default until measured.
+ *        {@link #predictGrouping}. On by default since measured, when the mixed family ran 5 to
+ *        13 percent faster a row and emitted faster too ({@code PLAN_TASK_200.md} 8.2); off is
+ *        the greedy walk, kept as the reference the suites and the benchmark compare against.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -501,7 +503,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, false);
+          false, true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -1022,6 +1024,6 @@ public record VarkaEmitOptions(
             ? "" : "|heavy=" + heavyGroupOutputs)
         + (predictGrouping ? "|predictGrouping" : "")
         + (driverOutputTable ? "" : "|unrolledDriver")
-        + (exactGrouping ? "|exactGrouping" : "") + ')';
+        + (exactGrouping ? "" : "|greedyGrouping") + ')';
   }
 }

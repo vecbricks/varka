@@ -450,7 +450,7 @@
       "declined, predicted" : 0,
       "builds spent on shapes both decline, weights" : 0,
       "builds spent on shapes both decline, predicted" : 0,
-      "predicted first groupings, digest" : "eba7e701e7b4bcc3"
+      "predicted first groupings, digest" : "557ca8310cf6ee47"
     },
     "fuzz long" : {
       "shapes" : 1000,
@@ -469,27 +469,27 @@
       "shapes" : 100,
       "emitted in one build, weights" : 98,
       "emitted in one build, predicted" : 100,
-      "loop methods, weights" : 8897,
-      "loop methods, predicted" : 8894,
+      "loop methods, weights" : 8889,
+      "loop methods, predicted" : 8886,
       "shapes with more loop methods, predicted" : [ ],
       "declined, weights" : 0,
       "declined, predicted" : 0,
       "builds spent on shapes both decline, weights" : 0,
       "builds spent on shapes both decline, predicted" : 0,
-      "predicted first groupings, digest" : "1c647fddbcd1214c"
+      "predicted first groupings, digest" : "83e4d5d746f78e63"
     },
     "wide long" : {
       "shapes" : 100,
-      "emitted in one build, weights" : 82,
-      "emitted in one build, predicted" : 97,
-      "loop methods, weights" : 6533,
-      "loop methods, predicted" : 6512,
-      "shapes with more loop methods, predicted" : [ "1: 83 -> 84", "61: 95 -> 96", "95: 40 -> 41", "161: 81 -> 82" ],
+      "emitted in one build, weights" : 81,
+      "emitted in one build, predicted" : 96,
+      "loop methods, weights" : 6483,
+      "loop methods, predicted" : 6458,
+      "shapes with more loop methods, predicted" : [ "1: 83 -> 84", "95: 40 -> 41", "161: 81 -> 82" ],
       "declined, weights" : 0,
       "declined, predicted" : 0,
       "builds spent on shapes both decline, weights" : 0,
       "builds spent on shapes both decline, predicted" : 0,
-      "predicted first groupings, digest" : "43e6bd4b266f5b9a"
+      "predicted first groupings, digest" : "c801d7780306c375"
     },
     "size ladder" : {
       "shapes" : 5,

@@ -282,4 +282,50 @@ after the measurement's regroup:
 | the interleaved-date families | as greedy | 264, 264 |
 | coverage compositions | 2298, 2306, 2287, 2287 | 2313, 2295 |
 
-The time is pending the runner's measurement.
+The time is 8.2's.
+
+### 8.2 Measured, and the default, 30 September 2026
+
+`VarkaWideKernelBenchmark` on a GitHub runner, an AMD EPYC 7763, JDK 25, a million rows in
+4096-row batches; the best of at least five iterations, in nanoseconds a row. The runs' averages
+sit far above their bests, as every section of this file does on a runner, so the bests are the
+reading. The two sections are added to the committed file beside task 190's, which keep their
+EPYC 9V45 numbers; each section names its machine.
+
+| shape | body | greedy | exact | change |
+|---|---|---:|---:|---:|
+| 100 mixed entries, 50 against 26 loop methods | null-free | 115.8 | 107.6 | -7.1% |
+| | every seventh row null | 145.9 | 127.9 | -12.3% |
+| 200 mixed entries, 100 against 51 loop methods | null-free | 225.6 | 214.3 | -5.0% |
+| | every seventh row null | 282.9 | 244.9 | -13.4% |
+| 400 ladder entries, 100 loop methods each | null-free | 821.0 | 827.4 | +0.8% |
+| | every seventh row null | 951.8 | 949.5 | -0.2% |
+
+One emission of the mixed family at two hundred entries took 83 ms greedily and 24 ms exactly.
+
+The predictions of 4.1, scored:
+
+1. **Holds.** The mixed family runs 5.0 to 13.4% faster a row, on both bodies, against the 3%
+   predicted, and more with nulls than without.
+2. **Holds.** The size ladder moves by +0.8% and -0.2%, within the run's noise, and its classes
+   are byte for byte the same.
+3. **Holds, the other way round.** The exact grouping emits faster, not up to 10% slower: both
+   switches build the class once, and the exact one builds 51 loop methods and their epilogues
+   where the greedy walk builds 100, which costs more than the dynamic program saves. The runner's
+   ratio of 3.5 overstates it - the greedy case runs first and carries more of the emitter's
+   warm-up - and on the laptop, over fifteen emissions each, it is between 1.5 and 2.
+4. **Holds.** Eight IR fuzz seeds at twenty thousand iterations and two thousand compositions
+   answer as the reference does with the switch drawn on and off, and the formability test finds
+   no group the rule would not form.
+
+**The default.** 1 to 3 hold, so `exactGrouping` is on by default and `canonical()` renders only
+its off state, `greedyGrouping`. The oracle moves where the grouping does: one block of fuzz shapes
+at each lane count, and the `useAVX` arms. The cost audit's grouping section loses
+eight loop methods on the wide int shapes and fifty on the wide long ones, and one wide long
+shape, which built once under the greedy walk, now takes a regroup under the weights and under
+the prediction alike; the prediction no longer gains a loop method on one of them. The price
+tables stay task 199's: the fit samples the greedy walk's groups, since a model of a method's bytes
+from its features does not change with which groups are chosen, so its accuracy section is as it
+was. The suites that compare the two name the greedy walk explicitly, as does task 199's list of
+wide shapes the prediction gives a loop method more, and the check's greedy and predicted columns
+ignore the switch.

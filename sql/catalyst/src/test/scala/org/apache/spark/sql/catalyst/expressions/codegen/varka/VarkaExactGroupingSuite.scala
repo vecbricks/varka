@@ -30,7 +30,7 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
 
   // Pinned to sixteen lanes: the lane count changes the prefix's ops, and with them where the
   // groups close, so the counts below hold on every machine only at one lane count.
-  private val greedy = VarkaEmitOptions.DEFAULTS.withLanesOverride(16)
+  private val greedy = VarkaEmitOptions.DEFAULTS.withLanesOverride(16).withExactGrouping(false)
   private val exact = greedy.withExactGrouping(true)
 
   private def mixed(n: Int): Seq[VarkaVectorIR] = VarkaGroupingBound.mixed(n).asScala.toSeq

@@ -133,9 +133,13 @@ final class VarkaGroupingBound {
     return new Partition(grouping.size(), ops, grouping);
   }
 
-  /** The account of one shape under {@code options}. */
+  /**
+   * The account of one shape under {@code options}, whose own {@code exactGrouping} is ignored:
+   * the greedy and predicted columns are the greedy walk's, and the exact column the switch's.
+   */
   static Account account(String family, int index, List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {
+    options = options.withExactGrouping(false);
     VarkaEmitOptions predicting = options.withPredictGrouping(true);
     List<List<RunForTest>> runs = runs(roots, predicting);
     Partition greedy = of(runs,
