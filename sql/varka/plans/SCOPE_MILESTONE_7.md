@@ -4043,6 +4043,26 @@ numbers.
 **Done when** the section's results are committed and the default is set, either way, with the
 reason.
 
+### Item 72. Regenerate one benchmark section, not the whole file
+
+*Added 30 September 2026 from the review of size control after task 190 step 2 (#529); the owner
+postponed it to this milestone.*
+
+A runner regeneration of a benchmark class rewrites its whole results file on whichever CPU the
+pool assigns, so a PR that adds one section replaces every other section's numbers with that
+machine's. It happened on 30 September 2026: task 200's run on an EPYC 7763 rewrote
+`VarkaWideKernelBenchmark`'s task 190 sections, measured on an EPYC 9V45, and they were spliced
+back by hand; the run for task 190 step 2 regenerates the whole file again. Each section already
+names its CPU, so the file can hold several machines; what it cannot do is keep them.
+
+**What to do.** A section filter that the benchmark classes take as an argument and the benchmark
+workflow passes through, so that a run regenerates only the sections a PR adds or changes and
+splices them into the committed file; or one results file per section. Either keeps each
+section's machine its own and ends the hand splicing.
+
+**Done when** a runner run of one section leaves every other section of its file byte for byte as
+committed.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
