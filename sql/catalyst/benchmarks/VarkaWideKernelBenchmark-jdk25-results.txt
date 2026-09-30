@@ -1,0 +1,16 @@
+================================================================================================
+the driver from a table against the driver unrolled
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V45 96-Core Processor
+1000000 rows in 4096-row batches:                         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------
+100 entries, unrolled driver, null-free                              52           1856        3581         19.1          52.3       1.0X
+100 entries, driver from a table, null-free                          51           1794        3412         19.8          50.5       1.0X
+100 entries, unrolled driver, every seventh row null                 62           1987        3936         16.2          61.7       0.8X
+100 entries, driver from a table, every seventh row null             57           1991        3999         17.7          56.6       0.9X
+400 entries, driver from a table, null-free                         190           6597       13595          5.3         190.2       0.3X
+400 entries, driver from a table, every seventh row null            225           7644       14876          4.4         225.1       0.2X
+
+
