@@ -102,6 +102,18 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
     assert(named(m, "stageDense") > 10)
   }
 
+  test("a driver past the class-file cap is split into stages under the byte budget in one " +
+      "rebuild") {
+    // Fifteen hundred one-output groups: the driver is past 64KB, so the Class-File API refuses it
+    // while the class is assembled. The stages are sized for the byte budget, not for the cap
+    // that found the driver over, so the next build fits (the review of #529).
+    val roots = dateAdds(1500)
+    val (_, builds, m) = emitted(roots, 1500, oneEach(split))
+    assert(builds === 2, s"$builds builds")
+    assert(VarkaEmitBudget.overLimits(m).isEmpty, VarkaEmitBudget.overLimits(m))
+    assert(named(m, "stageDense") > 1)
+  }
+
   test("a split driver answers as the reference evaluator does, on both bodies") {
     val roots = dateAdds(300)
     for (masked <- Seq(false, true)) {

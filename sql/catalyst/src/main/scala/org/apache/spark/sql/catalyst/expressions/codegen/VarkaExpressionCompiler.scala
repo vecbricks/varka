@@ -442,12 +442,14 @@ private[sql] object VarkaExpressionCompiler extends Logging {
           specs(at) = KernelOutput(more.size, i)
           declines -= at
         }
-        // An entry this round left for good keeps this round's reason, not the first's.
-        aside.filterNot(at => fused.exists(_._1 == at) || nextAside(at)).foreach { at =>
-          nextDeclines.get(at).foreach(d => declines += at -> d)
-        }
-        aside = nextAside
       }
+      // Every entry this round classified and did not fuse carries this round's reason, the
+      // latest thing that kept it out, including when the round fused nothing and ends the loop.
+      val fusedNow = fused.map(_._1).toSet
+      aside.filterNot(fusedNow).foreach { at =>
+        nextDeclines.get(at).foreach(d => declines += at -> d)
+      }
+      aside = nextAside
     }
     (Some(first.get.copy(specs = specs.toSeq, declines = declines, more = more.toSeq)), declines)
   }
@@ -554,7 +556,15 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     // Entries over the budgets beside the others that fit them alone: another kernel's.
     val alone = Set.newBuilder[Int]
     var fusedCount = 0
-    val specs = projectList.zipWithIndex.map { case (named, position) =>
+    // Whether an entry over the budgets beside the others fits them by itself, counted with its
+    // own columns: compiled alone into tables of its own, which the shared ones never see.
+    def fitsAlone(e: Expression): Boolean = {
+      val own = mutable.LinkedHashMap.empty[Int, Int]
+      compileRoot(e, own, mutable.LinkedHashMap.empty[Int, Int],
+        new DeclineSink(childOutput, options.rangeSets))
+        .exists(ir => VarkaLoopEmitter.fitsBudgets(java.util.List.of(ir), own.size, options))
+    }
+    def classifyEntry(named: NamedExpression, position: Int): VarkaOutputSpec = {
       // Bound at Expression, not NamedExpression: a bare column entry binds to a
       // BoundReference, which is not a NamedExpression, and the cast inside bindReference
       // would throw instead of letting the match below classify it.
@@ -622,7 +632,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               if (compiled.isDefined) {
                 sink.take() // an over-budget entry compiled clean; its reason is the budget
                 sink.note("exceeds the emitter's fused budget", e)
-                if (VarkaLoopEmitter.fitsBudgets(java.util.List.of(compiled.get), 1, options)) {
+                if (fitsAlone(e)) {
                   alone += position
                 }
               }
@@ -631,6 +641,12 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               ResidualOutput
           }
       }
+    }
+    val specs = projectList.zipWithIndex.map { case (named, position) =>
+      // Another kernel's entry in a round of `classifyKernels`: neither bound nor noted, so a
+      // round costs the entries it classifies rather than the whole projection.
+      if (demoted.get(position).contains(OtherKernel)) ResidualOutput
+      else classifyEntry(named, position)
     }
     val reasons = declines.result()
     if (fusedCount > 0 && inputs.nonEmpty) {

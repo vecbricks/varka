@@ -120,9 +120,27 @@ private[sql] class VarkaKernelEvaluator(
   // `PLAN_TASK_190.md` 11), each an evaluator of its own for its runner, warm-up and scratch; this
   // evaluator runs the first kernel and asks every one of them before a batch takes the kernels.
   // Empty for a projection one kernel serves, which then runs exactly as before.
-  private lazy val parts: Seq[VarkaKernelPart] = compiled.toSeq.flatMap(_.more).map { plan =>
-    new VarkaKernelPart(plan, projectList, childOutput, operatorName, classDumpDirectory,
-      metrics, emitUseAVX, warmupEnabled)
+  private lazy val parts: Seq[VarkaKernelPart] = {
+    partsBuilt = true
+    compiled.toSeq.flatMap { partial =>
+      partial.more.zipWithIndex.map { case (plan, k) =>
+        // Its identity renders the entries it computes, not the projection's first ones.
+        val entries = partial.specs.zip(projectList).collect {
+          case (KernelOutput(kernel, _), named) if kernel == k + 1 => named
+        }
+        new VarkaKernelPart(plan, entries, childOutput, operatorName, classDumpDirectory,
+          metrics, emitUseAVX, warmupEnabled, () => taskAllocator())
+      }
+    }
+  }
+  private var partsBuilt = false
+
+  // A further kernel allocates from this evaluator's allocator and has no listener of its own,
+  // so its scratch is released here, before the base's cleanup closes that allocator.
+  override protected def onTaskCleanup(): Unit = {
+    if (partsBuilt) {
+      parts.foreach(_.releaseTaskScratch())
+    }
   }
 
   /** Every kernel can serve the batch: the first one, as ever, and each further one. */
@@ -135,7 +153,22 @@ private[sql] class VarkaKernelEvaluator(
    */
   override private[execution] def kernelReady(input: ColumnarBatch): Boolean = {
     val first = super.kernelReady(input)
-    parts.map(_.kernelReady(input)).forall(identity) && first
+    parts.map(part => blamed(part)(part.kernelReady(input))).forall(identity) && first
+  }
+
+  /**
+   * Runs `body` for a further kernel, naming that kernel in a decline or failure it raises, so the
+   * fallback's log line and event name the kernel that declined rather than the first one.
+   */
+  private def blamed[T](part: VarkaKernelPart)(body: => T): T = {
+    try {
+      body
+    } catch {
+      case d: VarkaBatchDeclined if d.kernel == null =>
+        throw new VarkaBatchDeclined(d.status, part.kernelIdentity)
+      case f: VarkaKernelFailure if f.kernel == null =>
+        throw new VarkaKernelFailure(f.getCause, part.kernelIdentity)
+    }
   }
 
   override private[execution] def emissionFailed: Boolean =
@@ -231,7 +264,8 @@ private[sql] class VarkaKernelEvaluator(
       owned: mutable.ArrayBuffer[ColumnVector]): Array[Array[ColumnVector]] = {
     val alloc = taskAllocator()
     (runKernel(input, len, owned, alloc, allocateVector) +:
-      parts.map(_.runKernel(input, len, owned, alloc, allocateVector))).toArray
+      parts.map(part => blamed(part)(part.runKernel(input, len, owned, alloc, allocateVector))))
+      .toArray
   }
 
   /**

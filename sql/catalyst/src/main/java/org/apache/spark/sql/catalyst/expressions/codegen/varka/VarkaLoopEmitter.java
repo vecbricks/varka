@@ -418,9 +418,12 @@ public final class VarkaLoopEmitter {
       // Under `splitDriver` a class whose only methods over the limit are its drivers - the
       // driver from a table is 20 bytes and 44 a group, so past about 180 groups - is built again
       // with the calls to its groups moved into stages. The stage size is read off the measured
-      // driver, so one rebuild settles it; a stage still over the limit halves it.
-      if (stuck.isEmpty() && options.splitDriver() && options.driverOutputTable()) {
-        int next = stageSize(measured, limit, findings.size(), groups.size(), stageGroups);
+      // driver, so one rebuild settles it, and a stage still over is resized off its own
+      // measurement. Stages are sized for the byte budget even where the refusal of a driver
+      // past the class-file cap is what found them over, so the next build fits the budget.
+      if (stuck.isEmpty() && budget > 0 && options.splitDriver() && options.driverOutputTable()) {
+        int next = stageSize(measured, limit, budget, findings.size(), groups.size(),
+            stageGroups);
         if (next > 0) {
           stageGroups = next;
           continue;
@@ -430,6 +433,8 @@ public final class VarkaLoopEmitter {
         siteBudget = 0;
         siteSplit = false;
         forcedStarts.clear();
+        // A new grouping: its stages are sized again from its own driver.
+        stageGroups = 0;
         // The prediction closes groups on call sites too, so it drops the budget with the loop.
         grouping = grouping.withCallSiteBudget(0);
         continue;
@@ -455,6 +460,7 @@ public final class VarkaLoopEmitter {
       }
       siteBudget = options.callSiteBudget();
       forcedStarts.clear();
+      stageGroups = 0;
     }
   }
 
@@ -462,14 +468,16 @@ public final class VarkaLoopEmitter {
    * The groups per stage the next build of a split driver should take, or 0 where no stage size
    * helps: where a method other than a driver or a stage is over {@code limit}, or a class-wide
    * cap is ({@code findings} counts more than the methods over the limit), or a stage of one group
-   * is already over. From an unsplit driver the size is its groups scaled by the limit over the
-   * driver's bytes, less a margin for the stage's own few bytes; a stage over the limit halves it.
+   * is already over. Sizes are for {@code budget}, the byte budget, whatever {@code limit} found
+   * the methods over. From an unsplit driver the size is its groups scaled by the budget over the
+   * driver's bytes, less a margin for the stage's own few bytes; a stage over is resized the same
+   * way off the widest stage, and always shrinks.
    */
-  private static int stageSize(VarkaEmittedClass measured, int limit, int findings, int groups,
-      int stageGroups) {
+  private static int stageSize(VarkaEmittedClass measured, int limit, int budget, int findings,
+      int groups, int stageGroups) {
     int over = 0;
     int widestDriver = 0;
-    boolean stageOver = false;
+    int widestStage = 0;
     for (Map.Entry<String, Integer> e : measured.codeLength().entrySet()) {
       if (e.getValue() <= limit) {
         continue;
@@ -479,23 +487,27 @@ public final class VarkaLoopEmitter {
       if (name.equals("runDense") || name.equals("runMasked")) {
         widestDriver = Math.max(widestDriver, e.getValue());
       } else if (name.startsWith("stage")) {
-        stageOver = true;
+        widestStage = Math.max(widestStage, e.getValue());
       } else {
         return 0;
       }
     }
-    if (over == 0 || over != findings) {
+    if (over == 0 || over != findings || budget <= STAGE_MARGIN) {
       return 0;
     }
-    if (stageOver) {
-      return stageGroups > 1 ? stageGroups / 2 : 0;
+    if (widestStage > 0) {
+      if (stageGroups <= 1) {
+        return 0;
+      }
+      int resized = (int) ((long) stageGroups * (budget - STAGE_MARGIN) / widestStage);
+      return Math.max(1, Math.min(stageGroups - 1, resized));
     }
     if (stageGroups > 0) {
       // The driver of a split class is over the limit: its stages are too many, so they must be
       // wider - which only happens past some 180 stages of 180 groups, beyond any class cap.
       return 0;
     }
-    return Math.max(1, (int) ((long) groups * (limit - STAGE_MARGIN) / widestDriver));
+    return Math.max(1, (int) ((long) groups * (budget - STAGE_MARGIN) / widestDriver));
   }
 
   /** The bytes a stage size leaves for a stage's own code beside its calls. */
