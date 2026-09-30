@@ -129,14 +129,30 @@ public class VarkaVectorSupportOutputPlanTest {
 
   @Test
   public void planOutOfStepWithTheOutputsIsRefused() {
-    // A plan and an output array out of step would write one output's bitmap by another's rule,
-    // so both a short plan's unknown step and a long plan's leftover chars are errors.
+    // A plan and an output array out of step would write one output's bitmap by another's rule:
+    // an unknown step, and a plan naming more outputs than the kernel was given destinations,
+    // are errors.
     try (Arena arena = Arena.ofConfined()) {
       long[] dst = {destination(arena, 8).address()};
       assertThrows(IllegalArgumentException.class, () -> VarkaVectorSupport
           .prepareOutputValidity(dst, new long[0], new int[0], "q", 8));
       assertThrows(IllegalArgumentException.class, () -> VarkaVectorSupport
           .prepareOutputValidity(dst, new long[0], new int[0], "zz", 8));
+    }
+  }
+
+  @Test
+  public void destinationsPastThePlanAreLeftAlone() {
+    // A caller may pass a longer destination array than the kernel writes, as the unrolled
+    // driver allowed; the plan's outputs are written and the rest untouched.
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment written = destination(arena, 8);
+      MemorySegment spare = destination(arena, 8);
+      byte[] before = bytes(spare);
+      VarkaVectorSupport.prepareOutputValidity(new long[] {written.address(), spare.address()},
+          new long[0], new int[0], "" + VarkaVectorSupport.PLAN_FILL, 8);
+      assertEquals((byte) 0xFF, written.get(ValueLayout.JAVA_BYTE, 0));
+      assertArrayEquals(before, bytes(spare));
     }
   }
 

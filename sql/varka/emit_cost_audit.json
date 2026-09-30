@@ -7,11 +7,11 @@
       "fitted (VarkaEmitCostTable)" : {
         "bytes" : {
           "under 500 bytes" : {
-            "methods" : 18942,
+            "methods" : 18943,
             "median error %" : 7.9,
             "90th percentile %" : 24.2,
             "99th percentile %" : 66.4,
-            "worst %" : 194.5,
+            "worst %" : 194.6,
             "under-predicted %" : 56.1,
             "within 10% share" : 59.5
           },
@@ -25,12 +25,12 @@
             "within 10% share" : 89.7
           },
           "2000 to 7999 bytes" : {
-            "methods" : 7132,
-            "median error %" : 2.2,
+            "methods" : 7131,
+            "median error %" : 2.3,
             "90th percentile %" : 10.4,
             "99th percentile %" : 12.4,
-            "worst %" : 33.8,
-            "under-predicted %" : 44.0,
+            "worst %" : 34.1,
+            "under-predicted %" : 43.9,
             "within 10% share" : 88.0
           },
           "8000 bytes and over" : {
@@ -43,18 +43,18 @@
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
-            "methods" : 7293,
+            "methods" : 7292,
             "median error %" : 2.2,
             "90th percentile %" : 10.4,
             "99th percentile %" : 12.4,
-            "worst %" : 33.8,
-            "under-predicted %" : 45.0,
-            "within 10% share" : 88.2
+            "worst %" : 34.1,
+            "under-predicted %" : 44.9,
+            "within 10% share" : 88.3
           }
         },
         "call sites" : {
           "under 500 bytes" : {
-            "methods" : 18430,
+            "methods" : 18431,
             "median error %" : 4.8,
             "90th percentile %" : 22.0,
             "99th percentile %" : 60.8,
@@ -72,7 +72,7 @@
             "within 10% share" : 92.5
           },
           "2000 to 7999 bytes" : {
-            "methods" : 7132,
+            "methods" : 7131,
             "median error %" : 1.7,
             "90th percentile %" : 4.3,
             "99th percentile %" : 8.8,
@@ -90,7 +90,7 @@
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
-            "methods" : 7293,
+            "methods" : 7292,
             "median error %" : 1.7,
             "90th percentile %" : 4.4,
             "99th percentile %" : 8.7,
@@ -103,7 +103,7 @@
       "register (VarkaEmitCostRegister)" : {
         "bytes" : {
           "under 500 bytes" : {
-            "methods" : 18942,
+            "methods" : 18943,
             "median error %" : 3.3,
             "90th percentile %" : 27.6,
             "99th percentile %" : 84.7,
@@ -121,13 +121,13 @@
             "within 10% share" : 51.2
           },
           "2000 to 7999 bytes" : {
-            "methods" : 7132,
+            "methods" : 7131,
             "median error %" : 7.8,
             "90th percentile %" : 54.2,
             "99th percentile %" : 69.5,
             "worst %" : 98.0,
-            "under-predicted %" : 14.4,
-            "within 10% share" : 57.4
+            "under-predicted %" : 14.2,
+            "within 10% share" : 57.3
           },
           "8000 bytes and over" : {
             "methods" : 161,
@@ -139,18 +139,18 @@
             "within 10% share" : 0.0
           },
           "2000 bytes and over" : {
-            "methods" : 7293,
+            "methods" : 7292,
             "median error %" : 8.1,
             "90th percentile %" : 54.2,
             "99th percentile %" : 69.5,
             "worst %" : 98.0,
-            "under-predicted %" : 14.1,
-            "within 10% share" : 56.1
+            "under-predicted %" : 13.9,
+            "within 10% share" : 56.0
           }
         },
         "call sites" : {
           "under 500 bytes" : {
-            "methods" : 18430,
+            "methods" : 18431,
             "median error %" : 0.0,
             "90th percentile %" : 11.1,
             "99th percentile %" : 73.9,
@@ -168,12 +168,12 @@
             "within 10% share" : 90.2
           },
           "2000 to 7999 bytes" : {
-            "methods" : 7132,
+            "methods" : 7131,
             "median error %" : 2.4,
             "90th percentile %" : 32.0,
             "99th percentile %" : 32.0,
             "worst %" : 51.9,
-            "under-predicted %" : 41.2,
+            "under-predicted %" : 41.1,
             "within 10% share" : 81.6
           },
           "8000 bytes and over" : {
@@ -186,12 +186,12 @@
             "within 10% share" : 94.4
           },
           "2000 bytes and over" : {
-            "methods" : 7293,
+            "methods" : 7292,
             "median error %" : 2.5,
             "90th percentile %" : 32.0,
             "99th percentile %" : 32.0,
             "worst %" : 51.9,
-            "under-predicted %" : 42.1,
+            "under-predicted %" : 42.0,
             "within 10% share" : 81.9
           }
         }
@@ -212,12 +212,12 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 4029,
+          "methods" : 4028,
           "median error %" : 2.2,
           "90th percentile %" : 5.9,
           "99th percentile %" : 10.7,
-          "worst %" : 24.7,
-          "under-predicted %" : 51.4,
+          "worst %" : 24.6,
+          "under-predicted %" : 51.1,
           "within 10% share" : 98.5
         },
         "wide long" : {
@@ -242,17 +242,17 @@
           "methods" : 96,
           "median error %" : 1.5,
           "90th percentile %" : 3.2,
-          "99th percentile %" : 3.3,
-          "worst %" : 3.3,
+          "99th percentile %" : 3.2,
+          "worst %" : 3.2,
           "under-predicted %" : 8.3,
           "within 10% share" : 100.0
         },
         "cheap tails" : {
           "methods" : 8,
-          "median error %" : 32.9,
-          "90th percentile %" : 33.8,
-          "99th percentile %" : 33.8,
-          "worst %" : 33.8,
+          "median error %" : 33.2,
+          "90th percentile %" : 34.1,
+          "99th percentile %" : 34.1,
+          "worst %" : 34.1,
           "under-predicted %" : 100.0,
           "within 10% share" : 50.0
         }
@@ -271,13 +271,13 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 4029,
+          "methods" : 4028,
           "median error %" : 6.9,
-          "90th percentile %" : 17.1,
+          "90th percentile %" : 17.2,
           "99th percentile %" : 26.6,
           "worst %" : 46.0,
-          "under-predicted %" : 20.5,
-          "within 10% share" : 66.7
+          "under-predicted %" : 20.0,
+          "within 10% share" : 66.5
         },
         "wide long" : {
           "methods" : 803,
@@ -332,8 +332,8 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 4029,
-          "median error %" : 1.5,
+          "methods" : 4028,
+          "median error %" : 1.6,
           "90th percentile %" : 4.5,
           "99th percentile %" : 9.2,
           "worst %" : 30.2,
@@ -391,12 +391,12 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 4029,
+          "methods" : 4028,
           "median error %" : 2.8,
           "90th percentile %" : 10.2,
           "99th percentile %" : 19.0,
           "worst %" : 51.9,
-          "under-predicted %" : 53.9,
+          "under-predicted %" : 53.8,
           "within 10% share" : 89.6
         },
         "wide long" : {
@@ -467,41 +467,41 @@
     },
     "wide int" : {
       "shapes" : 100,
-      "emitted in one build, weights" : 51,
-      "emitted in one build, predicted" : 53,
-      "loop methods, weights" : 2873,
-      "loop methods, predicted" : 2870,
+      "emitted in one build, weights" : 98,
+      "emitted in one build, predicted" : 100,
+      "loop methods, weights" : 8897,
+      "loop methods, predicted" : 8894,
       "shapes with more loop methods, predicted" : [ ],
-      "declined, weights" : 47,
-      "declined, predicted" : 47,
-      "builds spent on shapes both decline, weights" : 47,
-      "builds spent on shapes both decline, predicted" : 94,
+      "declined, weights" : 0,
+      "declined, predicted" : 0,
+      "builds spent on shapes both decline, weights" : 0,
+      "builds spent on shapes both decline, predicted" : 0,
       "predicted first groupings, digest" : "1c647fddbcd1214c"
     },
     "wide long" : {
       "shapes" : 100,
-      "emitted in one build, weights" : 55,
-      "emitted in one build, predicted" : 62,
-      "loop methods, weights" : 2848,
-      "loop methods, predicted" : 2839,
-      "shapes with more loop methods, predicted" : [ "95: 40 -> 41" ],
-      "declined, weights" : 36,
-      "declined, predicted" : 36,
-      "builds spent on shapes both decline, weights" : 55,
-      "builds spent on shapes both decline, predicted" : 95,
+      "emitted in one build, weights" : 82,
+      "emitted in one build, predicted" : 97,
+      "loop methods, weights" : 6533,
+      "loop methods, predicted" : 6512,
+      "shapes with more loop methods, predicted" : [ "1: 83 -> 84", "61: 95 -> 96", "95: 40 -> 41", "161: 81 -> 82" ],
+      "declined, weights" : 0,
+      "declined, predicted" : 0,
+      "builds spent on shapes both decline, weights" : 0,
+      "builds spent on shapes both decline, predicted" : 0,
       "predicted first groupings, digest" : "43e6bd4b266f5b9a"
     },
     "size ladder" : {
       "shapes" : 5,
-      "emitted in one build, weights" : 3,
-      "emitted in one build, predicted" : 3,
-      "loop methods, weights" : 43,
-      "loop methods, predicted" : 43,
+      "emitted in one build, weights" : 5,
+      "emitted in one build, predicted" : 5,
+      "loop methods, weights" : 193,
+      "loop methods, predicted" : 193,
       "shapes with more loop methods, predicted" : [ ],
-      "declined, weights" : 2,
-      "declined, predicted" : 2,
-      "builds spent on shapes both decline, weights" : 2,
-      "builds spent on shapes both decline, predicted" : 4,
+      "declined, weights" : 0,
+      "declined, predicted" : 0,
+      "builds spent on shapes both decline, weights" : 0,
+      "builds spent on shapes both decline, predicted" : 0,
       "predicted first groupings, digest" : "8c9d38342ffb2fbb"
     },
     "make_date ladder" : {

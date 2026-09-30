@@ -457,22 +457,27 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // one method every batch runs. Measured before the work: 2409 bytes at 44 outputs against
     // the epilogue's 8058, 2624 at 48 (PLAN_TASK_70.md 6.1). The pass adds about ten bytes
     // per served single-input output - one call with its operand pushes, less the zero it
-    // replaces - so the 48-output driver was predicted under 500 bytes larger.
+    // replaces - so the 48-output driver was predicted under 500 bytes larger. These are the
+    // unrolled driver's sizes; the driver from a table (the default since task 190) is its
+    // calls alone and passes nothing per output.
     def fields(dates: Int): Seq[VarkaVectorIR] = (0 until dates).flatMap { c =>
       val col = new ColumnRef(c)
       Seq[VarkaVectorIR](new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
     }
     for (dates <- Seq(5, 11, 12); (base, layout) <- Seq((sharing, "shared"),
         (unshared, "unshared")); on <- Seq(true, false)) {
-      val bytes = emitMulti(fields(dates), dates, 0, base.withValidityByBitmap(on))._2
+      val bytes = emitMulti(fields(dates), dates, 0,
+        base.withValidityByBitmap(on).withDriverOutputTable(false))._2
       val driver = VarkaEmitterTestSupport.codeSize(bytes, "runMasked")
       assert(driver < VarkaEmitBudget.HUGE_METHOD_LIMIT,
         s"$layout, $dates dates, pass=$on: runMasked is $driver bytes")
     }
     val off = VarkaEmitterTestSupport.codeSize(
-      emitMulti(fields(12), 12, 0, sharing.withValidityByBitmap(false))._2, "runMasked")
+      emitMulti(fields(12), 12, 0,
+        sharing.withValidityByBitmap(false).withDriverOutputTable(false))._2, "runMasked")
     val on = VarkaEmitterTestSupport.codeSize(
-      emitMulti(fields(12), 12, 0, sharing.withValidityByBitmap(true))._2, "runMasked")
+      emitMulti(fields(12), 12, 0,
+        sharing.withValidityByBitmap(true).withDriverOutputTable(false))._2, "runMasked")
     assert(on > off && on - off < 600,
       s"48 outputs: the driver went from $off to $on bytes; prediction 6 said under 500 more")
   }
@@ -723,7 +728,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // out of any shape the IR caps admit, so the reading is pinned on a measurement built by
     // hand rather than claimed covered by a shape.
     val roots = VarkaHugeMethodProbe.ladder(60)
-    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000)
+    // The unrolled driver, which grows with the outputs; a driver from a table would fit.
+    val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000).withDriverOutputTable(false)
     val driver = intercept[VarkaEmitDeclined] { emitMulti(roots, 1, 60, budget) }
     assert(driver.outputs.isEmpty && driver.getMessage.startsWith("runDense is ") &&
       !driver.getMessage.contains("loop"), driver.getMessage)
@@ -1094,16 +1100,19 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // the census's shape: with the budget off the shape emits in one group; with it splitting
     // every group, the class would decline on its driver, and the emitter builds it again
     // without the budget instead - the budget-off emission, byte for byte.
+    // Read on the unrolled driver, whose per-output work puts it past the one-group form's widest
+    // method; a driver from a table is its calls alone.
+    val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
     val oneGroup = VarkaEmittedClass.measure(
-      emitMulti(tails(22), 1, 22, VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0))._2)
+      emitMulti(tails(22), 1, 22, unrolled.withCallSiteBudget(0))._2)
     val widest: Int = oneGroup.largestMethod().getValue
-    val everyGroup = VarkaEmitOptions.DEFAULTS.withCallSiteBudget(1).withHeavyGroupOutputs(0)
+    val everyGroup = unrolled.withCallSiteBudget(1).withHeavyGroupOutputs(0)
     val split = VarkaEmittedClass.measure(emitMulti(tails(22), 1, 22, everyGroup)._2)
     val driver: Int = math.max(split.codeLength.get("runDense"), split.codeLength.get("runMasked"))
     assert(driver > widest, s"the one-output-a-group driver is $driver bytes and the one-group " +
       s"form's widest method $widest: no byte budget separates them")
     val reference =
-      emitMulti(tails(22), 1, 22, VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0)
+      emitMulti(tails(22), 1, 22, unrolled.withCallSiteBudget(0)
         .withMethodByteBudget(widest))._2
     val atLimit = everyGroup.withMethodByteBudget(widest)
     val built = emitMulti(tails(22), 1, 22, atLimit)._2

@@ -344,8 +344,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        call reading a table baked into the class, rather than unrolled once per output. Unrolled
  *        it is about forty bytes an output, which made the driver, the one method no regroup
  *        shrinks, the cap on a kernel's width; as a table the driver grows with the groups alone.
- *        Changes no result and no loop or epilogue method. Off by default until measured
- *        ({@code PLAN_TASK_190.md} 9.2 and 10).
+ *        Changes no result and no loop or epilogue method. On by default since measured, when it
+ *        also ran faster ({@code PLAN_TASK_190.md} 10); off is the unrolled form, kept as the
+ *        reference the differential tests and {@code VarkaWideKernelBenchmark} compare against.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -488,7 +489,7 @@ public record VarkaEmitOptions(
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
-          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false, false);
+          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -997,6 +998,6 @@ public record VarkaEmitOptions(
         + (heavyGroupOutputs == VarkaEmitBudget.HEAVY_GROUP_OUTPUTS
             ? "" : "|heavy=" + heavyGroupOutputs)
         + (predictGrouping ? "|predictGrouping" : "")
-        + (driverOutputTable ? "|driverOutputTable" : "") + ')';
+        + (driverOutputTable ? "" : "|unrolledDriver") + ')';
   }
 }

@@ -587,6 +587,14 @@ class has a deliberate method anatomy:
   measured 3-4x on exactly that cliff, and task 24 measured the same cliff
   from the other side when it tried leaving the epilogue inline in a kernel's
   loop method.
+* Each body's *driver* - the method that prepares every output's validity,
+  takes the all-null shortcut and calls the loop and epilogue methods in turn -
+  does its per-output work in one call reading a table baked into the class,
+  rather than as code repeated for each output (task 190). So it grows by two
+  calls per loop-method group, 44 bytes, and not with the outputs, the columns
+  or the literals: repeated per output it passed the 8000-byte
+  `HugeMethodLimit` at about 140 outputs, which capped how wide one kernel
+  could be.
 * Interned subtrees (DAG-CSE) are computed once per lane group and reused
   across outputs; literals are hoisted to broadcast vectors in the prologue.
 * Below the node level, the calendar extractions share their civil-from-days

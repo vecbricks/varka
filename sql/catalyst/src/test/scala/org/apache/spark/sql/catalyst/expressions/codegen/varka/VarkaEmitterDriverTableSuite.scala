@@ -32,6 +32,7 @@ import org.apache.spark.sql.varka.vector.VarkaVectorSupport
 class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
 
   private val table = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(true)
+  private val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
 
   test("the emitter's plan steps are the engine's") {
     // Catalyst names the engine's support class by string and cannot import its constants, so
@@ -51,32 +52,45 @@ class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
   }
 
   private def measured(roots: Seq[VarkaVectorIR], lits: Int,
-      options: VarkaEmitOptions): VarkaEmittedClass =
-    VarkaEmittedClass.measure(emitMulti(roots, 1, lits, options)._2)
+      options: VarkaEmitOptions, inputs: Int = 1): VarkaEmittedClass =
+    VarkaEmittedClass.measure(emitMulti(roots, inputs, lits, options)._2)
 
   private def groups(m: VarkaEmittedClass): Int =
     m.codeLength.keySet.asScala.count(_.startsWith("loopDense"))
 
-  test("the driver grows with the groups and not with the outputs") {
-    // One `date_add(d, k)` family at four widths, the budget out of reach so the unrolled form
-    // can be read past its ceiling too. Unrolled, each output adds about forty bytes to either
-    // driver, and each literal it hoists and never reads about seven more; from a table the
-    // driver's size is a constant plus its two calls per group, 44 bytes.
+  test("the driver grows with the groups and not with the outputs or the columns") {
+    // One `date_add(d, k)` family at four widths, over one column and over the sixty-four
+    // columns a kernel may read, the budget out of reach so the unrolled form can be read past
+    // its ceiling too. Unrolled, each output adds about forty bytes to either driver, each literal
+    // it hoists and never reads about seven more, and each column its null state and segments;
+    // from a table the driver's size is a constant plus its two calls per group, 44 bytes.
     val wide = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(VarkaEmitBudget.METHOD_CODE_CAP)
-    for (n <- Seq(50, 100, 200, 400)) {
-      val roots = (0 until n).map(k => new AddDays(new ColumnRef(0), new LiteralSlot(k)))
-      val unrolled = measured(roots, n, wide)
-      val tabled = measured(roots, n, wide.withDriverOutputTable(true))
-      assert(groups(tabled) === groups(unrolled))
+    for (inputs <- Seq(1, VarkaEmitBudget.MAX_INPUTS); n <- Seq(64, 100, 200, 400)) {
+      val roots = (0 until n).map(k => new AddDays(new ColumnRef(k % inputs), new LiteralSlot(k)))
+      val before = measured(roots, n, wide.withDriverOutputTable(false), inputs)
+      val tabled = measured(roots, n, wide.withDriverOutputTable(true), inputs)
+      assert(groups(tabled) === groups(before))
       for (driver <- Seq("runDense", "runMasked")) {
         val bytes = tabled.codeLength.get(driver).toInt
-        assert(bytes <= 200 + 44 * groups(tabled), s"$n outputs: $driver is $bytes bytes over " +
-          s"${groups(tabled)} groups")
-        assert(unrolled.codeLength.get(driver) - bytes >= 35 * n,
-          s"$n outputs: $driver is $bytes bytes from the table and " +
-            s"${unrolled.codeLength.get(driver)} unrolled")
+        assert(bytes <= 100 + 44 * groups(tabled), s"$n outputs over $inputs columns: $driver " +
+          s"is $bytes bytes over ${groups(tabled)} groups")
+        assert(before.codeLength.get(driver) - bytes >= 35 * n,
+          s"$n outputs over $inputs columns: $driver is $bytes bytes from the table and " +
+            s"${before.codeLength.get(driver)} unrolled")
       }
     }
+  }
+
+  test("a table past what one class-file constant holds declines with the reason") {
+    // A plan string is one CONSTANT_Utf8, capped at 65535 bytes in the class file's modified
+    // UTF-8, where column ordinal 0 takes two bytes. A kernel that wide is past every other limit
+    // too; the point is that it declines naming the table rather than failing the class build.
+    val fits = "z" * 65535
+    assert(VarkaBodyEmitter.tableConstant(fits, "output plan") eq fits)
+    val declined = intercept[VarkaEmitDeclined](
+      VarkaBodyEmitter.tableConstant("\u0000" * 32768, "all-null shortcut"))
+    assert(declined.getMessage.contains("all-null shortcut table is 65536 bytes"))
+    assert(declined.outputs().isEmpty)
   }
 
   test("four hundred greatest entries emit under the shipped budget from a table, and decline " +
@@ -85,7 +99,7 @@ class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
     // entries whatever the grouping; from a table the driver is 44 bytes a group, and a
     // hundred groups fit.
     val roots = (0 until 400).map(ladderEntry)
-    val declined = intercept[VarkaEmitDeclined](emitMulti(roots, 1, 400))
+    val declined = intercept[VarkaEmitDeclined](emitMulti(roots, 1, 400, unrolled))
     assert(declined.getMessage.contains("runDense") && declined.getMessage.contains("runMasked"))
     val m = measured(roots, 400, table)
     assert(VarkaEmitBudget.overLimits(m).isEmpty, VarkaEmitBudget.overLimits(m))

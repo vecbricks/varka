@@ -552,7 +552,8 @@ public final class VarkaVectorSupport {
    * {@link #PLAN_AND} or {@link #PLAN_OR} with their column ordinals for an output the whole-batch
    * bitmap pass writes from its inputs' bitmaps, by the same entry points the unrolled pass calls.
    * The arrays are the kernel's own parameters, so the result is the unrolled driver's bit for
-   * bit.
+   * bit. The plan says how many outputs there are: {@code dstValidity} may be longer, as the
+   * unrolled driver allowed, and is refused only when it is shorter.
    *
    * <p>It exists for the driver's size: unrolled, this work is about forty bytes of bytecode an
    * output, and the driver is the one method no regroup shrinks, so it was what capped a kernel's
@@ -562,7 +563,11 @@ public final class VarkaVectorSupport {
       int[] nullCounts, String plan, int rows) {
     long nominal = (rows + 7) / 8;
     int at = 0;
-    for (int o = 0; o < dstValidity.length; o++) {
+    for (int o = 0; at < plan.length(); o++) {
+      if (o >= dstValidity.length) {
+        throw new IllegalArgumentException("output plan names output " + o + " and the kernel "
+            + "was given " + dstValidity.length + " destinations");
+      }
       char step = plan.charAt(at++);
       switch (step) {
         case PLAN_ZERO -> zero(ofAddress(dstValidity[o], nominal));
@@ -598,10 +603,6 @@ public final class VarkaVectorSupport {
             "unknown output plan step '" + step + "' for output " + o);
       }
     }
-    if (at != plan.length()) {
-      throw new IllegalArgumentException("output plan has " + (plan.length() - at)
-          + " chars past its " + dstValidity.length + " outputs");
-    }
   }
 
   /**
@@ -614,16 +615,20 @@ public final class VarkaVectorSupport {
   public static boolean everyOutputReadsAnAllNullColumn(int[] nullCounts, String columns,
       int rows) {
     int at = 0;
-    boolean every = true;
     while (at < columns.length()) {
       int n = columns.charAt(at++);
       boolean any = false;
       for (int k = 0; k < n; k++) {
-        any |= nullCounts[columns.charAt(at++)] == rows;
+        any |= nullCounts[columns.charAt(at + k)] == rows;
       }
-      every &= any;
+      if (!any) {
+        // One output with no all-null column is enough: the shortcut is off for the batch, which
+        // is the common case, so it is answered without reading the rest of the table.
+        return false;
+      }
+      at += n;
     }
-    return every;
+    return true;
   }
 
   /** A column's validity bitmap at exactly the bytes {@code rows} bits occupy, and no more. */
