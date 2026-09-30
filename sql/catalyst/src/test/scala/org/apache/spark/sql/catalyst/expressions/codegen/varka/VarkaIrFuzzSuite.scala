@@ -163,10 +163,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           case e: IllegalArgumentException =>
             fail(s"$context: the emitter rejected the shape without the budget: " +
               e.getMessage, e)
+          case e: IllegalStateException =>
+            fail(s"$context: the emitter failed its own check without the budget: " +
+              e.getMessage, e)
         }
       case d: VarkaEmitDeclined => pastTheCap(d)
       case e: IllegalArgumentException =>
         fail(s"$context: the emitter rejected the shape: ${e.getMessage}", e)
+      // One of the emitter's own invariants, such as the word check: named with the shape, so
+      // a failure found at a high iteration count says which iteration to replay.
+      case e: IllegalStateException =>
+        fail(s"$context: the emitter failed its own check: ${e.getMessage}", e)
     }
   }
 

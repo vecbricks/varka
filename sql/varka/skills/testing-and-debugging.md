@@ -593,3 +593,18 @@ not have ended it either: a CPU-bound loop checks no interrupt.
 * **Test the mechanism with its effects as parameters.** `VarkaTestWatchdogSuite` passes a
   report sink and a halt stub, so the three outcomes take under a second each and the JVM stays.
 
+## A fuzz campaign finds what the gate's count cannot, once every failure names its shape
+
+The IR fuzzer runs 300 iterations in the gate and 10,000 in the nightly. On the night of 29 to 30
+September 2026 twenty workers ran it at 200,000 iterations a run, and three runs in four failed on
+one emitter self-check that the default counts meet about once in 150,000 shapes (task 234). Two
+habits follow:
+
+* **After a change to grouping, liveness or a shared fragment, fuzz at campaign scale** before
+  trusting the gate. Twenty workers on one laptop run it as plain `java` processes on the test
+  classpath exported once from sbt, each with a 1 GB heap, a seed of its own, and the per-test
+  watchdog raised past the run's length; twenty sbt invocations in one worktree contend on its
+  lock.
+* **Every way a fuzz case can fail must print its context.** The suite named its seed and iteration
+  for a rejection or a decline but not for an `IllegalStateException` from one of the emitter's own
+  checks, so the first failing shape had to be found with a local patch. `emitOrSkip` now names it.

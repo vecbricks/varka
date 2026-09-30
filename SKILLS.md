@@ -78,6 +78,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so](sql/varka/skills/emitter-and-ir.md#the-single-epilogue-form-is-a-reference-variant-at-methodbytebudget-0-and-the-tests-that-pin-its-facts-say-so)
 * [A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else](sql/varka/skills/emitter-and-ir.md#a-columnar-row-path-writes-primitive-entries-through-mutablecolumnarrow-and-nothing-else)
 * [One kernel a node, written out as columns, loses to Spark's own row code](sql/varka/skills/emitter-and-ir.md#one-kernel-a-node-written-out-as-columns-loses-to-sparks-own-row-code)
+* [When the emission skips part of a tree, the planning walk has to skip it too](sql/varka/skills/emitter-and-ir.md#when-the-emission-skips-part-of-a-tree-the-planning-walk-has-to-skip-it-too)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)
@@ -103,6 +104,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A Scala `List` handed to Java through `asJava` is not random access](sql/varka/skills/testing-and-debugging.md#a-scala-list-handed-to-java-through-asjava-is-not-random-access)
 * [A probe's marker can share a line with a compiler thread's output](sql/varka/skills/testing-and-debugging.md#a-probes-marker-can-share-a-line-with-a-compiler-threads-output)
 * [`failAfter` without a signaler cannot stop a test, so a hang holds the CI slot](sql/varka/skills/testing-and-debugging.md#failafter-without-a-signaler-cannot-stop-a-test-so-a-hang-holds-the-ci-slot)
+* [A fuzz campaign finds what the gate's count cannot, once every failure names its shape](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-finds-what-the-gates-count-cannot-once-every-failure-names-its-shape)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)

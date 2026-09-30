@@ -300,6 +300,49 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
       bitmapOff.withMisdescribeWordLiveness(true))._2.nonEmpty)
   }
 
+  test("a group that loads a materialized prefix keeps no word for a guard it does not emit") {
+    // Two outputs that decompose one guarded date in different loop-method groups: the first
+    // computes the prefix and stores it for the second, which loads it and emits neither the date
+    // nor the range check of the guard over it - the first group ran that check over the same
+    // lane groups. Over a bare column the guard's word is the column's, and the liveness walk kept
+    // it live for the check, so the lane group stored a word nothing loaded and the emitter's own
+    // check refused the body (PLAN_TASK_234.md 2).
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    val guarded = new GuardedDay(c1)
+    // A guard over day arithmetic owns its word, which the second group's tails alias, so that
+    // date is still visited there for the word, and its guard with it.
+    val sum = new GuardedDay(new AddDays(c1, new ColumnRef(2)))
+    val defaults = VarkaEmitOptions.DEFAULTS
+    val shapes = Seq(
+      // Under every default: last_day(c0) between the two keeps them in different groups.
+      ("year, last_day and month of a guarded column",
+        Seq[VarkaVectorIR](new Year(guarded), new LastDay(c0), new Month(guarded)), 2, defaults),
+      // The pair the fuzzer found, with whole-node sharing off so that nothing joins them.
+      ("day of month, and its month, of a guarded column",
+        Seq[VarkaVectorIR](new DayOfMonth(guarded), new Month(new DayOfMonth(guarded))), 2,
+        defaults.withShareWholeNodes(false)),
+      ("day of month, last_day and month of a guarded sum",
+        Seq[VarkaVectorIR](new DayOfMonth(sum), new LastDay(c0), new Month(new DayOfMonth(sum))),
+        3, defaults))
+    def loops(bytes: Array[Byte]): Int =
+      VarkaEmitterTestSupport.methodNames(bytes).asScala.count(_.startsWith("loopDense"))
+    for ((name, roots, inputs, base) <- shapes; bitmap <- Seq(true, false); lanes <- Seq(4, 16)) {
+      val options = base.withValidityByBitmap(bitmap).withLanesOverride(lanes)
+      val ctx = s"$name, bitmap pass $bitmap, $lanes lanes"
+      // More than one group, so the prefix really is stored by one and loaded by another.
+      assert(loops(emitMulti(roots, inputs, 0, options)._2) >= 2, ctx)
+      val combos = Seq(
+        Seq.fill(inputs)((_: Int) => false),
+        Seq.tabulate(inputs)(c => (i: Int) => (i + c) % 5 == 0),
+        Seq.tabulate(inputs)(c => (i: Int) => c == 1 && i % 2 == 1))
+      checkMatrix(roots, inputs, Array.empty[Int], Seq(1, 17, 1031), combos, ctx = ctx,
+        options = options)
+      checkMatrix(roots, inputs, Array.empty[Int], Seq(17, 1031), combos, forceMasked = true,
+        ctx = s"$ctx, masked", options = options)
+    }
+  }
+
   test("a masked method whose every word is dead is its dense twin's bytes - one " +
       "body, not two") {
     // No per-group read, no per-group write, no null-state prologue, no own-word slot: what is

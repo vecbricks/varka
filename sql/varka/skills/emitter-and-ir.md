@@ -819,3 +819,18 @@ node-at-a-time evaluation, and on the JVM node-at-a-time evaluation is slower
 than either of Spark's own escapes. Varka's factor over Spark comes from fusion,
 the values staying in registers across nodes; its fused kernel runs the same
 hundred entries 59 times faster than vecruntime.
+
+## When the emission skips part of a tree, the planning walk has to skip it too
+
+Task 198's materialized prefix lets a later group load a date's decomposition instead of computing
+it, and so skip the date underneath. The word-liveness walk (`Slots.liveWords`) still walked that
+date and kept a guard's validity word live for a range check the body no longer emitted; over a
+bare column the word was an input's, stored at the top of each lane group and never read, and the
+emitter's word check refused the body (task 234).
+
+The walk and the emission had each answered "is this date emitted here?" on its own, one from the
+tree and one from the slots. The fix gives the question one answer: the planner decides it where
+the liveness is computed, records it in `Slots.visitedMaterializedDates`, and the lowering reads
+the record. Any later optimization that stops emitting a node should start by listing the planning
+passes that read the tree, the liveness walk and the node set above all, and route them through the
+same decision.

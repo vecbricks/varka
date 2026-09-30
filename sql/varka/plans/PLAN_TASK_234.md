@@ -148,3 +148,39 @@ seeds replayed at 200,000 iterations, and fresh seeds beside them.
 2. The fix, the tests, the fuzz suite's report, the fuzz replay and section 9, in one commit.
 
 ## 9. Outcome
+
+### 9.1 Built, 30 September 2026
+
+`Slots.liveWords` walks a body through a `WordWalk` that defers a date a calendar node reaches when
+the group loads that date's materialized prefix. At the end each deferred date is walked on a copy,
+kept when its own word comes out live and dropped otherwise, in rounds until one keeps nothing. The
+kept dates, and any such date another node reaches whose own word is live, are recorded in
+`Slots.visitedMaterializedDates`; with the bitmap pass off the planner records every such date whose
+word is its own. `emitChronoPrefixOnce` reads the record. `VarkaIrFuzzSuite` names the iteration of
+an emitter self-check. `VarkaEmitterValiditySuite` gains the regression test - the three shapes of
+section 5, the bitmap pass on and off, 4 and 16 lanes, both bodies against the reference evaluator,
+each asserted to emit more than one loop method - which fails on the unfixed emitter with the word
+check's message and passes with the fix.
+
+**A correction to 3.1, made while building.** It said a deferred date is walked once "its word is
+its own and live". Liveness measured without the date's subtree is not enough: in a shape that
+emits today the guard over such a date can be what makes its word live, and the lowering visits the
+date because of it, so a walk that never looked inside would stop visiting it and move bytes. The
+trial walk therefore counts the date's own subtree, which reproduces the decision the old walk and
+the lowering reached wherever they agreed.
+
+### 9.2 The predictions, scored
+
+1. **Held.** `emitted_bytes.json` did not move: `VarkaEmittedBytesSuite` passes against the
+   committed file.
+2. **Held.** All 154 seeds that failed during the night, and 20 fresh ones, replay clean at 200,000
+   iterations of the int-lane test, the one every failure was in: 174 runs of 174.
+3. **Held.** No existing test moved: every catalyst Varka suite passes, 460 tests, with the 27
+   opt-in ones cancelled as always.
+
+### 9.3 What the task leaves
+
+The same night found two problems outside this task, both from task 226's per-test watchdog: the
+nightly's sweep step hangs, because the ten-minute cap halts the exhaustive multiply-high sweep
+(13 minutes 26 seconds on 26 September), and sbt then waits on the halted fork instead of failing.
+They are reported to the owner for rows of their own.
