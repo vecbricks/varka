@@ -3,14 +3,48 @@ the driver from a table against the driver unrolled
 ================================================================================================
 
 OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
-AMD EPYC 9V45 96-Core Processor
+AMD EPYC 7763 64-Core Processor
 1000000 rows in 4096-row batches:                         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-100 entries, unrolled driver, null-free                              52           1856        3581         19.1          52.3       1.0X
-100 entries, driver from a table, null-free                          51           1794        3412         19.8          50.5       1.0X
-100 entries, unrolled driver, every seventh row null                 62           1987        3936         16.2          61.7       0.8X
-100 entries, driver from a table, every seventh row null             57           1991        3999         17.7          56.6       0.9X
-400 entries, driver from a table, null-free                         190           6597       13595          5.3         190.2       0.3X
-400 entries, driver from a table, every seventh row null            225           7644       14876          4.4         225.1       0.2X
+100 entries, unrolled driver, null-free                             232           1378        2560          4.3         232.5       1.0X
+100 entries, driver from a table, null-free                         212           1414        2683          4.7         211.9       1.1X
+100 entries, unrolled driver, every seventh row null                253           1149        2004          4.0         252.6       0.9X
+100 entries, driver from a table, every seventh row null            250           1204        2120          4.0         249.7       0.9X
+400 entries, driver from a table, null-free                         847           5691       10829          1.2         846.9       0.3X
+400 entries, driver from a table, every seventh row null           1037           6069       11245          1.0        1037.1       0.2X
+
+
+================================================================================================
+the exact grouping against the greedy walk
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+1000000 rows in 4096-row batches:                                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+100 mixed entries, greedy grouping (50 loop methods), null-free                           116            681        1263          8.6         115.8       1.0X
+100 mixed entries, exact grouping (26 loop methods), null-free                            108            585        1068          9.3         107.6       1.1X
+100 mixed entries, greedy grouping (50 loop methods), every seventh row null              146            750        1349          6.9         145.9       0.8X
+100 mixed entries, exact grouping (26 loop methods), every seventh row null               128            488         804          7.8         127.9       0.9X
+200 mixed entries, greedy grouping (100 loop methods), null-free                          226           1361        2536          4.4         225.6       0.5X
+200 mixed entries, exact grouping (51 loop methods), null-free                            214           1327        2487          4.7         214.3       0.5X
+200 mixed entries, greedy grouping (100 loop methods), every seventh row null             283           1487        2689          3.5         282.9       0.4X
+200 mixed entries, exact grouping (51 loop methods), every seventh row null               245           1455        2701          4.1         244.9       0.5X
+400 ladder entries, greedy grouping (100 loop methods), null-free                         821           5275        9954          1.2         821.0       0.1X
+400 ladder entries, exact grouping (100 loop methods), null-free                          827           4884        9070          1.2         827.4       0.1X
+400 ladder entries, greedy grouping (100 loop methods), every seventh row null            952           5601       10391          1.1         951.8       0.1X
+400 ladder entries, exact grouping (100 loop methods), every seventh row null             949           5314        9756          1.1         949.5       0.1X
+
+
+================================================================================================
+emitting the mixed family: the exact grouping's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+200 mixed entries, greedy grouping                   83             88           4          0.0    82650798.0       1.0X
+200 mixed entries, exact grouping                    24             24           1          0.0    23764229.0       3.5X
 
 
