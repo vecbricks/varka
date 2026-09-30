@@ -97,7 +97,7 @@ jobs:
       image_pyspark_url_link: ${{ steps.infra-image-link.outputs.image_pyspark_url_link }}
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       id: checkout
       uses: ./.github/actions/checkout-and-sync
@@ -107,11 +107,11 @@ jobs:
       id: set-outputs
       run: |
         if [ -z "${{ inputs.jobs }}" ]; then
-          pyspark_modules=`cd dev && python -c "import sparktestsupport.modules as m; print(','.join(m.name for m in m.all_modules if m.name.startswith('pyspark') and not m.name.startswith('pyspark-pandas') and not m.name == 'pyspark-install'))"`
+          pyspark_modules=`cd dev && python -c "import sparktestsupport.modules as m; print(','.join(m.name for m in m.all_modules if m.name.startswith('pyspark') and not m.name.startswith('pyspark-pandas') and not m.name == 'pyspark-periodic'))"`
           pyspark_pandas_modules=`cd dev && python -c "import sparktestsupport.modules as m; print(','.join(m.name for m in m.all_modules if m.name.startswith('pyspark-pandas')))"`
           pyspark=`./dev/is-changed.py -m $pyspark_modules`
           pandas=`./dev/is-changed.py -m $pyspark_pandas_modules`
-          pyspark_install=`./dev/is-changed.py -m pyspark-install`
+          pyspark_periodic=`./dev/is-changed.py -m pyspark-periodic`
           pyspark_connect_old_client="$pyspark"
           if [[ "${{ github.repository }}" != 'apache/spark' ]]; then
             yarn=`./dev/is-changed.py -m yarn`
@@ -189,7 +189,7 @@ jobs:
             docs=true
             java25=true
           else
-            pyspark_install=false
+            pyspark_periodic=false
             pyspark_connect_old_client=false
             pandas=false
             yarn=false
@@ -292,7 +292,7 @@ jobs:
               \"varka-scoped\": \"$varka_scoped\",
               \"pyspark\": \"$pyspark\",
               \"pyspark-pandas\": \"$pandas\",
-              \"pyspark-install\": \"$pyspark_install\",
+              \"pyspark-periodic\": \"$pyspark_periodic\",
               \"pyspark-connect-old-client\": \"$pyspark_connect_old_client\",
               \"sparkr\": \"$sparkr\",
               \"tpcds-1g\": \"$tpcds\",
@@ -473,42 +473,16 @@ jobs:
       SKIP_PACKAGING: true
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
-    # Cache local repositories. Note that GitHub Actions cache has a 10G limit.
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ matrix.java }}-${{ matrix.hadoop }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-${{ matrix.java }}-${{ matrix.hadoop }}-
-          coursier-${{ runner.os }}-
-    - name: Free up disk space
-      timeout-minutes: 10
-      continue-on-error: true
-      run: |
-        if [ -f ./dev/free_disk_space ]; then
-          ./dev/free_disk_space
-        fi
-    - name: Install Java ${{ matrix.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ matrix.java }}
+        free-disk-space: host
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: Install Python 3.12
@@ -594,19 +568,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Bootstrap composite actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Checkout and sync Spark repository
         uses: ./.github/actions/checkout-and-sync
         with:
           ref: ${{ needs.precondition.outputs.head_sha }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - name: Build and push (Documentation)
         if: ${{ fromJson(needs.precondition.outputs.required).docs == 'true' && hashFiles('dev/spark-test-image/docs/Dockerfile') != '' }}
         id: docker_build_docs
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: ./dev/spark-test-image/docs/
           build-contexts: |
@@ -619,7 +593,7 @@ jobs:
       - name: Build and push (Linter)
         if: ${{ fromJson(needs.precondition.outputs.required).lint == 'true' && hashFiles('dev/spark-test-image/lint/Dockerfile') != '' }}
         id: docker_build_lint
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: ./dev/spark-test-image/lint/
           build-contexts: |
@@ -632,7 +606,7 @@ jobs:
       - name: Build and push (SparkR)
         if: ${{ fromJson(needs.precondition.outputs.required).sparkr == 'true' && hashFiles('dev/spark-test-image/sparkr/Dockerfile') != '' }}
         id: docker_build_sparkr
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: ./dev/spark-test-image/sparkr/
           push: true
@@ -644,7 +618,7 @@ jobs:
         if: ${{ (fromJson(needs.precondition.outputs.required).pyspark == 'true' || fromJson(needs.precondition.outputs.required).pyspark-pandas == 'true') && env.PYSPARK_IMAGE_TO_TEST != '' }}
         id: docker_build_pyspark
         env: ${{ fromJSON(inputs.envs) }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: ./dev/spark-test-image/${{ env.PYSPARK_IMAGE_TO_TEST }}/
           build-contexts: |
@@ -663,7 +637,7 @@ jobs:
         fromJson(needs.precondition.outputs.required).build == 'true' ||
         fromJson(needs.precondition.outputs.required).pyspark == 'true' ||
         fromJson(needs.precondition.outputs.required).pyspark-pandas == 'true' ||
-        fromJson(needs.precondition.outputs.required).pyspark-install == 'true' ||
+        fromJson(needs.precondition.outputs.required).pyspark-periodic == 'true' ||
         fromJson(needs.precondition.outputs.required).sparkr == 'true' ||
         fromJson(needs.precondition.outputs.required).docker-integration-tests == 'true' ||
         fromJson(needs.precondition.outputs.required).k8s-integration-tests == 'true' ||
@@ -678,33 +652,16 @@ jobs:
       GITHUB_PREV_SHA: ${{ github.event.before }}
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Cache Coursier local repository
-      uses: actions/cache@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
+        coursier: cache
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: Build Spark
@@ -757,7 +714,7 @@ jobs:
           - >-
             pyspark-connect-old-client
           - >-
-            pyspark-install
+            pyspark-periodic
           - >-
             pyspark-pandas
           - >-
@@ -772,8 +729,8 @@ jobs:
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark != 'true' && 'pyspark-streaming, pyspark-structured-streaming, pyspark-structured-streaming-connect' }}
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark != 'true' && 'pyspark-connect' }}
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-connect-old-client != 'true' &&  'pyspark-connect-old-client'}}
-          # pyspark-install is very slow so we only run it when it's changed or explicity requested
-          - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-install != 'true' && 'pyspark-install' }}
+          # pyspark-periodic will only run on pre-merge and scheduled CIs, it contains tests that are not sensitive to pyspark code changes.
+          - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-periodic != 'true' && 'pyspark-periodic' }}
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-pandas != 'true' && 'pyspark-pandas' }}
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-pandas != 'true' && 'pyspark-pandas-slow' }}
           - modules: ${{ fromJson(needs.precondition.outputs.required).pyspark-pandas != 'true' && 'pyspark-pandas-connect' }}
@@ -797,40 +754,17 @@ jobs:
       RUN_HYPOTHESIS_MAX_EXAMPLES: 50
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
         set-safe-directory: 'true'
-    # Cache local repositories. Note that GitHub Actions cache has a 10G limit.
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Free up disk space
-      timeout-minutes: 10
-      continue-on-error: true
-      shell: 'script -q -e -c "bash {0}"'
-      run: ./dev/free_disk_space_container
-    - name: Install Java ${{ matrix.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ matrix.java }}
+        free-disk-space: container
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: List Python packages (${{ env.PYTHON_TO_TEST }})
@@ -861,7 +795,7 @@ jobs:
       run: |
         export SKIP_SCALA_BUILD=true
         echo "Reusing precompiled artifact, skipping local SBT build."
-        if [[ "$MODULES_TO_TEST" == *"pyspark-install"* ]]; then
+        if [[ "$MODULES_TO_TEST" == *"pyspark-periodic"* ]]; then
           export SKIP_PACKAGING=false
           echo "Python Packaging Tests Enabled!"
         fi
@@ -956,39 +890,17 @@ jobs:
       SKIP_PACKAGING: true
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
         set-safe-directory: 'true'
-    # Cache local repositories. Note that GitHub Actions cache has a 10G limit.
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Free up disk space
-      timeout-minutes: 10
-      continue-on-error: true
-      run: ./dev/free_disk_space_container
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
+        free-disk-space: container
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: Download precompiled artifact
@@ -1032,7 +944,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
@@ -1077,46 +989,17 @@ jobs:
       image: ${{ needs.precondition.outputs.image_lint_url_link }}
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
         set-safe-directory: 'true'
-    # Cache local repositories. Note that GitHub Actions cache has a 10G limit.
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Cache Maven local repository
-      uses: actions/cache@v5
-      with:
-        path: ~/.m2/repository
-        key: docs-maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          docs-maven-${{ runner.os }}-
-    - name: Free up disk space
-      timeout-minutes: 10
-      continue-on-error: true
-      run: ./dev/free_disk_space_container
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
+        free-disk-space: container
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: License test
@@ -1197,7 +1080,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: actions/setup-java@v6
       with:
         distribution: zulu
@@ -1457,46 +1340,17 @@ jobs:
       image: ${{ needs.precondition.outputs.image_docs_url_link }}
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
         set-safe-directory: 'true'
-    # Cache local repositories. Note that GitHub Actions cache has a 10G limit.
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Cache Maven local repository
-      uses: actions/cache@v5
-      with:
-        path: ~/.m2/repository
-        key: docs-maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          docs-maven-${{ runner.os }}-
-    - name: Free up disk space
-      timeout-minutes: 10
-      continue-on-error: true
-      run: ./dev/free_disk_space_container
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
+        free-disk-space: container
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
     - name: List Python packages
@@ -1548,32 +1402,14 @@ jobs:
       SPARK_LOCAL_IP: localhost
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
@@ -1587,13 +1423,13 @@ jobs:
         rm compile-artifact.tar.zst
     - name: Cache TPC-DS generated data
       id: cache-tpcds-sf-1
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ./tpcds-sf-1
         key: tpcds-${{ runner.os }}-${{ hashFiles('.github/workflows/build_and_test.yml', 'sql/core/src/test/scala/org/apache/spark/sql/TPCDSSchema.scala') }}
     - name: Checkout tpcds-kit repository
       if: steps.cache-tpcds-sf-1.outputs.cache-hit != 'true'
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         repository: databricks/tpcds-kit
         ref: 1b7fb7529edae091684201fab142d956d6afd881
@@ -1673,32 +1509,14 @@ jobs:
       SKIP_PACKAGING: true
     steps:
     - name: Bootstrap composite actions
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Checkout and sync Spark repository
       uses: ./.github/actions/checkout-and-sync
       with:
         ref: ${{ needs.precondition.outputs.head_sha }}
-    - name: Cache SBT and Maven
-      uses: actions/cache@v5
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
       with:
-        path: |
-          build/apache-maven-*
-          build/*.jar
-          ~/.sbt
-        key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-        restore-keys: |
-          build-${{ runner.os }}-
-    - name: Restore Coursier local repository
-      uses: actions/cache/restore@v5
-      with:
-        path: ~/.cache/coursier
-        key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-        restore-keys: |
-          coursier-${{ runner.os }}-
-    - name: Install Java ${{ inputs.java }}
-      uses: actions/setup-java@v6
-      with:
-        distribution: zulu
         java-version: ${{ inputs.java }}
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
@@ -1746,40 +1564,16 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Bootstrap composite actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Checkout and sync Spark repository
         uses: ./.github/actions/checkout-and-sync
         with:
           ref: ${{ needs.precondition.outputs.head_sha }}
-      - name: Cache SBT and Maven
-        uses: actions/cache@v5
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          path: |
-            build/apache-maven-*
-            build/*.jar
-            ~/.sbt
-          key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-          restore-keys: |
-            build-${{ runner.os }}-
-      - name: Restore Coursier local repository
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.cache/coursier
-          key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-          restore-keys: |
-            coursier-${{ runner.os }}-
-      - name: Free up disk space
-        timeout-minutes: 10
-        continue-on-error: true
-        run: |
-          if [ -f ./dev/free_disk_space ]; then
-            ./dev/free_disk_space
-          fi
-      - name: Install Java ${{ inputs.java }}
-        uses: actions/setup-java@v6
-        with:
-          distribution: zulu
           java-version: ${{ inputs.java }}
+          free-disk-space: host
       - name: Install the Varka engine
         uses: ./.github/actions/install-varka-engine
       - name: Download precompiled artifact
@@ -1836,40 +1630,16 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Bootstrap composite actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Checkout and sync Spark repository
         uses: ./.github/actions/checkout-and-sync
         with:
           ref: ${{ needs.precondition.outputs.head_sha }}
-      - name: Cache SBT and Maven
-        uses: actions/cache@v5
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          path: |
-            build/apache-maven-*
-            build/*.jar
-            ~/.sbt
-          key: build-${{ runner.os }}-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
-          restore-keys: |
-            build-${{ runner.os }}-
-      - name: Restore Coursier local repository
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.cache/coursier
-          key: coursier-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
-          restore-keys: |
-            coursier-${{ runner.os }}-
-      - name: Free up disk space
-        timeout-minutes: 10
-        continue-on-error: true
-        run: |
-          if [ -f ./dev/free_disk_space ]; then
-            ./dev/free_disk_space
-          fi
-      - name: Install Java ${{ inputs.java }}
-        uses: actions/setup-java@v6
-        with:
-          distribution: zulu
           java-version: ${{ inputs.java }}
+          free-disk-space: host
       - name: Download precompiled artifact
         uses: actions/download-artifact@v8
         with:
@@ -2006,9 +1776,9 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Use Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
           cache: 'npm'
