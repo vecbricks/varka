@@ -597,4 +597,8 @@ on; each section names its own.
 **The decision is reopened.** 11.5 made both options the default and said a runner showing B
 faster per row would reopen it: B is faster at both widths, by 0.9 to 2.6%. Against that, A'
 plans several times faster, since B finds its split by bisection, and task 236 is the planner
-that would remove the search. The owner decides between keeping both on and B alone.
+that would remove the search.
+
+**Both stay on**, on the owner's decision of 30 September 2026: B's lead per row is 0.9 to 2.6%,
+and A' plans five to six times faster while B's split is found by bisection. The question comes
+back once task 236 plans B's split without the search.
