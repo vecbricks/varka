@@ -269,11 +269,15 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    *
    * A level the emitter treats as the default is pinned anyway. It costs a line and it is the
    * only way the file can show that `useAVX=3` and an unstated level really do emit alike.
+   *
+   * `predictGrouping` has no configuration, and is pinned because it is the grouping the exact
+   * partition is to be built on (`PLAN_TASK_199.md`): a change to the cost model's tables that
+   * moves which outputs share a method shows up here rather than only in that task's numbers.
    */
   private def pinnedArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
     Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 1, 2, 3).map { level =>
       s"useAVX=$level" -> ((o: VarkaEmitOptions) => o.withUseAVX(level))
-    }
+    } :+ ("predictGrouping=true" -> ((o: VarkaEmitOptions) => o.withPredictGrouping(true)))
 
   /** One hash over every shape the oracle holds, emitted under `arm` at `lanes`. */
   private def armDigest(arm: VarkaEmitOptions => VarkaEmitOptions, lanes: Int): String = {
@@ -479,6 +483,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       "validityByWord" -> (_.withValidityByWord(_)),
       "mulHiDivide" -> (_.withMulHiDivide(_)),
       "narrowHalfSpecies" -> (_.withNarrowHalfSpecies(_)),
+      "predictGrouping" -> (_.withPredictGrouping(_)),
       "misdescribeAdd" -> (_.withMisdescribeAdd(_)),
       "misdescribeWordLiveness" -> (_.withMisdescribeWordLiveness(_)))
     val flags = booleans.flatMap { case (name, set) =>

@@ -834,3 +834,20 @@ the liveness is computed, records it in `Slots.visitedMaterializedDates`, and th
 the record. Any later optimization that stops emitting a node should start by listing the planning
 passes that read the tree, the liveness walk and the node set above all, and route them through the
 same decision.
+
+## A cost read off one node alone over-prices a wide group; fit it over groups of every width
+
+Task 199 priced a loop-method group's bytes and call sites two ways over the same features. The
+register measured each node kind by emitting it beside only its own children; the regression
+fitted every price by least squares over groups of every width. The plan predicted the register
+would win because each entry is exact. The regression won instead: at 2000 bytes and over its
+99th-percentile error is 12.4% and the register's 69.5%, and the register over-predicts groups of
+8000 bytes and over by about half (`sql/varka/emit_cost_audit.json`).
+
+The entries are exact; their sum is not. A node emitted near the start of a group pays for
+validity and mask code that a wide group shares between its nodes, and in a masked loop that code
+is most of a comparison's price. Any additive cost of emitted code, including a future
+replacement for the grouping weights, has to be measured in the context it will be summed in, or
+fitted there. The regression's training corpus has to reach the limits too: fitted only on fuzz
+shapes an order of magnitude below the budget, the same regression erred low on the largest
+methods (`PLAN_TASK_199.md` 2).

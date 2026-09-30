@@ -298,6 +298,11 @@ public final class VarkaLoopEmitter {
     // the one the budget-off emitter makes, decline or not. Halving at the middle output
     // settles any group in two or three builds, since the fused ceiling keeps a group's count
     // near 180 at most.
+    //
+    // Under `predictGrouping` the first grouping also asks the emit cost model (VarkaEmitCost)
+    // whether each candidate group would measure over either budget, so the common case is built
+    // once; the measurement above still decides, and a class the predicted grouping would make
+    // decline is built again with the weights alone (see `PLAN_TASK_199.md`).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -312,8 +317,11 @@ public final class VarkaLoopEmitter {
     int narrowest = Math.max(1, options.heavyGroupOutputs());
     boolean siteSplit = false;
     Set<Integer> forcedStarts = new HashSet<>();
+    // The options the grouping reads: the caller's, until a class the predicted grouping
+    // produced declines, and then the same without the prediction (see `PLAN_TASK_199.md`).
+    VarkaEmitOptions grouping = options;
     while (true) {
-      List<List<Integer>> groups = groupOutputs(outputs, options, forcedStarts);
+      List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts);
       // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
       // address as an eighth argument (task 198).
@@ -372,6 +380,16 @@ public final class VarkaLoopEmitter {
       if (siteSplit) {
         siteBudget = 0;
         siteSplit = false;
+        forcedStarts.clear();
+        continue;
+      }
+      if (grouping.predictGrouping()) {
+        // The predicted grouping closes groups the weights would not, and every group is a call
+        // more in the driver, so it can push the driver past the byte budget. Like the call-site
+        // splits above, it must never cost a kernel: the class is built again with the weights
+        // alone, which is the emission the switch-off emitter makes, decline or not.
+        grouping = options.withPredictGrouping(false);
+        siteBudget = options.callSiteBudget();
         forcedStarts.clear();
         continue;
       }
@@ -618,6 +636,15 @@ public final class VarkaLoopEmitter {
   }
 
   /**
+   * The first grouping {@link #emit} builds, before any measurement regroups it: what the cost
+   * model's suites compare their predictions against, method by method.
+   */
+  static List<List<Integer>> groupsForTest(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options) {
+    return groupOutputs(List.copyOf(outputs), options);
+  }
+
+  /**
    * As above, with {@code forcedStarts}: outputs that begin a new group whatever the weights
    * say. The byte-budget regroup in {@link #emit} adds the middle output of a group whose
    * methods measured over the budget, so the split halves a group and never reorders one.
@@ -631,7 +658,12 @@ public final class VarkaLoopEmitter {
     // shared by every GroupOps of this partition and grows as groups close.
     Set<VarkaVectorIR> earlier = new HashSet<>();
     boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
-    GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
+    // Under `predictGrouping` each candidate group is also priced by the emit cost model, in the
+    // units the byte and call-site budgets are read in after the build (see `PLAN_TASK_199.md`).
+    VarkaVectorIR.LaneType lane =
+        options.predictGrouping() && options.methodByteBudget() > 0
+            ? VarkaVectorIR.emissionLane(outputs.get(0)) : null;
+    GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane);
     for (int o = 0; o < outputs.size(); o++) {
       GroupOps withNext = group.copy();
       int marginal = withNext.add(outputs.get(o));
@@ -642,11 +674,12 @@ public final class VarkaLoopEmitter {
       // opens the wider bound, its size does not.
       int reuse = withNext.saved;
       if (options.shareWholeNodes()) {
-        GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
+        GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier, null);
         reuse = alone.add(outputs.get(o)) - marginal;
       }
-      boolean fits = group.ops + marginal <= options.groupBudget()
-          || (reuse > 0 && group.ops + marginal <= options.fusedCeiling());
+      boolean fits = (group.ops + marginal <= options.groupBudget()
+          || (reuse > 0 && group.ops + marginal <= options.fusedCeiling()))
+          && withNext.predictedWithin(options, current.size() + 1);
       // marginal == 0 means this output adds no node the group does not already have - it
       // is structurally the same tree - so splitting it off cannot reduce the method's op
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
@@ -656,7 +689,7 @@ public final class VarkaLoopEmitter {
         groups.add(current);
         current = new ArrayList<>();
         earlier.addAll(group.prefixes);
-        withNext = new GroupOps(options.shareChronoPrefix(), materialize, earlier);
+        withNext = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane);
         withNext.add(outputs.get(o));
       }
       current.add(o);
@@ -692,24 +725,52 @@ public final class VarkaLoopEmitter {
     /** How many ops the last {@link #add} skipped by reusing prefixes the group already
      * computed; zero for an output that reuses none. */
     int saved;
+    /** The group's features for the emit cost model, or null when no prediction is asked. */
+    private final VarkaEmitCost.Tally tally;
 
-    GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier) {
-      this(sharePrefix, materialize, earlier, new HashSet<>(), new HashSet<>(), 0);
+    /** A new group; {@code lane} is the kernel's under {@code predictGrouping}, else null. */
+    GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier,
+        VarkaVectorIR.LaneType lane) {
+      this(sharePrefix, materialize, earlier, new HashSet<>(), new HashSet<>(), 0,
+          lane == null ? null : new VarkaEmitCost.Tally(lane, materialize, earlier));
     }
 
     private GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier,
-        Set<VarkaVectorIR> nodes, Set<VarkaVectorIR> prefixes, int ops) {
+        Set<VarkaVectorIR> nodes, Set<VarkaVectorIR> prefixes, int ops,
+        VarkaEmitCost.Tally tally) {
       this.sharePrefix = sharePrefix;
       this.materialize = materialize;
       this.earlier = earlier;
       this.nodes = nodes;
       this.prefixes = prefixes;
       this.ops = ops;
+      this.tally = tally;
     }
 
     GroupOps copy() {
       return new GroupOps(sharePrefix, materialize, earlier, new HashSet<>(nodes),
-          new HashSet<>(prefixes), ops);
+          new HashSet<>(prefixes), ops, tally == null ? null : tally.copy());
+    }
+
+    /**
+     * Whether the cost model predicts every method of this group of {@code outputs} outputs
+     * within the budgets the built class will be measured against: the byte budget always, the
+     * call-site budget only for a group wider than {@code heavyGroupOutputs}, as the regroup
+     * applies them. True when no prediction is asked, or when the model cannot price a feature.
+     */
+    boolean predictedWithin(VarkaEmitOptions options, int outputs) {
+      if (tally == null) {
+        return true;
+      }
+      double[] predicted = tally.predict(VarkaEmitCost.CHOSEN);
+      if (predicted == null) {
+        return true;
+      }
+      if (VarkaEmitCost.maxBytes(predicted) > options.methodByteBudget()) {
+        return false;
+      }
+      return options.callSiteBudget() == 0 || outputs <= Math.max(1, options.heavyGroupOutputs())
+          || VarkaEmitCost.maxSites(predicted) <= options.callSiteBudget();
     }
 
     /**
@@ -726,6 +787,9 @@ public final class VarkaLoopEmitter {
     int add(VarkaVectorIR root) {
       saved = 0;
       int before = ops;
+      if (tally != null) {
+        tally.add(root);
+      }
       walk(root);
       return ops - before;
     }

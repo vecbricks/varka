@@ -186,3 +186,126 @@ laptop A/B for the plan's record, not a published number.
 5. Section 9, and the chosen model handed to task 200 and item 63.
 
 ## 9. Outcome
+### 9.1 Built, 30 September 2026
+
+`VarkaEmitCost` describes a candidate group by counts of features: a fixed cost per method and per
+output, a price for every distinct node keyed by its kind together with whatever chooses its
+lowering (lane, operator, overflow mode, divisor sign, truncation level, `make_date`'s failure
+mode), and the calendar prefix counted once per date, once more when a tail reads the month, or as
+a load where an earlier group materializes it. It is the accounting `GroupOps` does in weights,
+done in the units the limits are read in. Both models price the same features, so the audit
+compares two ways of pricing them rather than two feature sets:
+
+* **B, the register**, is read off emitted classes one feature at a time: a shape is emitted as one
+  group, then again with one root added whose new features all have prices but one. The
+  difference, less the priced features' share, is that one feature's price. Each node kind is
+  added over its own children at up to nine of its occurrences in the fuzz sequences, and its
+  price is the median reading.
+* **A, the regression**, is a least-squares fit of the same features over the even-numbered fuzz
+  and wide shapes. It uses a small ridge, and the register's probes are added as rows so that a
+  kind the corpus rarely draws still gets a price.
+
+`VarkaEmitCostTable` is generated Java holding both tables, 86 features each. `VarkaEmitCostSuite`
+derives both from emitted classes and fails when the committed file differs, so a lowering change
+that moves a price names the feature, the way the weights' register does. Catalyst has no main
+resources directory, which is why the tables are Java source rather than a data file.
+`VarkaIrGrammar` gains a wide draw of 20 to 200 roots per shape on seeds of its own, so no
+committed corpus moves. `VarkaEmitCostCorpus` holds the corpus of 3.2. `VarkaEmitCostAuditSuite`
+writes `sql/varka/emit_cost_audit.json`. That file scores both models on shapes neither was derived
+from (the odd-numbered fuzz and wide shapes and every ladder), each under its default grouping and
+under groups up to the fused ceiling, at sixteen int lanes.
+
+`VarkaEmitOptions.predictGrouping`, off by default, makes `groupOutputs` also close a group where
+the chosen model predicts the next output would put a method over the byte budget, or, for a group
+wider than `HEAVY_GROUP_OUTPUTS`, over the call-site budget. The emit loop is unchanged except for
+one fallback: a class the predicted grouping would make decline is built again with the weights
+alone. `emitted_bytes.json` gains the `predictGrouping=true` arm, and nothing else in it moves.
+
+**Three departures from section 3, made while building.**
+
+* 3.4 said the prediction closes groups "instead of" the weights. It closes them *as well as* the
+  weights. `GROUP_BUDGET` bounds a group for register residency and C2's budgets, which is a speed
+  question and not a size one. Replacing it would make every group as wide as 8000 bytes and
+  change steady-state speed, which 3.5 holds unchanged.
+* The fallback is new. Without it the switch made two wide long-lane shapes decline that the
+  weights emit: the predicted grouping closes groups the weights keep, each group is one more call
+  in the driver, and on those shapes the driver went past the byte budget. The call-site budget
+  already had the same rebuild for the same reason.
+* The audit is a suite that writes a committed file, not a separate tool, so the file cannot drift
+  from the code; `VarkaEmitCostAudit.scala` in section 4 became `VarkaEmitCostAuditSuite.scala`.
+
+### 9.2 The audit
+
+From `sql/varka/emit_cost_audit.json`: the error of each method's predicted bytes against its
+measured bytes, as a percentage of the measured, over 53550 held-out group methods.
+
+| model | methods | median | 90th percentile | 99th percentile | worst | under-predicted |
+|---|---|---|---|---|---|---|
+| A, 2000 to 7999 bytes | 7132 | 2.2% | 10.4% | 12.4% | 33.8% | 44% |
+| A, 8000 bytes and over | 161 | 1.8% | 3.6% | 4.3% | 4.5% | 90% |
+| B, 2000 to 7999 bytes | 7132 | 7.8% | 54.2% | 69.5% | 98.0% | 14% |
+| B, 8000 bytes and over | 161 | 51.2% | 57.5% | 63.7% | 64.3% | 0% |
+
+For call sites on methods of 2000 bytes or more, A is 1.7% at the median and 8.7% at the 99th
+percentile, and B is 2.5% and 32.0%. **A is the chosen model** (`VarkaEmitCost.CHOSEN`).
+
+**Why the register fails where it is needed.** B over-predicts large groups by about half, and the
+size ladder, a group of many calendar outputs over one date, shows it most (45.8% at the median).
+A node priced beside only its own children pays for validity and mask code that a wide group
+shares between its nodes. The comparisons show it: across its operators and lanes, a `Compare` is
+priced at 15 to 21 bytes in a dense loop and at 45 to 220 in a masked one. Every price in the
+register is therefore a node's cost at the start of a group, and a wide group is not at its start.
+The regression is fitted on groups of every width, so it prices each feature at its average share.
+Its worst errors are on small methods, under 500 bytes, where no limit binds.
+
+### 9.3 The predictions, scored
+
+1. **Wrong, and the other way round.** B does not beat A. On methods of 2000 bytes or more, A's
+   99th percentile is 12.4% and B's is 69.5%. The plan expected the register to be exact because
+   each entry is measured exactly, and the entries are exact; it is their sum over a wide group
+   that is not (9.2).
+2. **Wrong for A; also wrong for B.** A is not biased low once its training corpus reaches the
+   limits: it under-predicts 44% of the methods from 2000 to 7999 bytes. Above 8000 bytes it
+   under-predicts 90% of them, but by 1.8% at the median. The bias section 2 found came from
+   fitting on methods an order of magnitude below the budget. B errs high, not within its fixed
+   cost: it under-predicts none of the methods of 8000 bytes or more.
+3. **Held for builds, with two exceptions for methods.** Under the switch with A, every shape the
+   emitter keeps emits in one build: 2000 of 2000 fuzz shapes, all ladders, and the cheap tails at
+   22 and 64 (one build where the weights took two and three, and 5 loop methods where they took
+   6). The fuzz shapes are the held-out 1000 of each lane. The exceptions are the two wide long-lane shapes of 9.1, which the fallback rebuilds.
+   Loop methods fall overall (2839 against 2848 on the held-out wide long-lane shapes, 2870 against
+   2873 on the int ones). Two wide shapes gain one each, wide int 120 (31 to 32) and wide long 95
+   (40 to 41), for one reason. Under the weights one group measured over the call-site budget and
+   the regroup halved it: 9 outputs into 4 and 5, and 11 into 5 and 6. The greedy close fills the
+   first group to the heavy-group limit of 6, and the outputs left over then break into two groups,
+   because the prefix they shared was in the group they left. Halving happens to split nearer the
+   middle than greedy filling does. `VarkaEmitCostSuite` pins both shapes, so a third is noticed.
+4. **Held.** On the 400-entry size ladder with the byte budget out of reach, where the model is
+   asked at every output and never closes a group, one emission took 41.2 ms against 40.9 ms with
+   the weights alone (best of 47 and 49 iterations), 0.8% more. The cheap tails at 64, which the
+   switch builds once where the weights built three times, took 0.69 ms against 1.85 ms. These are
+   laptop readings from the new section of `VarkaEmissionBenchmark`, "grouping by prediction",
+   taken on this plan's day with the fuzz campaign finished (AMD Ryzen AI 9 HX PRO 370, JDK 25).
+   They are for this record, not a published number, and the committed results file gains the
+   section at its next regeneration on a runner.
+
+**Fuzzed.** `VarkaIrFuzzSuite` draws the switch like every boolean option. Eight fresh seeds
+(19930001 to 19930008) at 20000 iterations on both lanes passed, and so did
+`VarkaCoverageCompositionFuzzSuite` at 2000 compositions. The fuzz shapes are too narrow for a
+prediction to close a group, and `VarkaEmitCostSuite` shows it: under the switch the first 400
+shapes of each lane emit byte for byte as without it. So the suite also checks the switch against
+the reference evaluator where it does bind: the 64 cheap tails at the int lane, and forty outputs
+over one long-lane division that the call-site budget splits.
+
+### 9.4 What the task leaves
+
+* **For task 200:** A is the cost to use. It prices a candidate group from its features alone,
+  so the dynamic program can ask for every contiguous run of outputs. It also removes the greedy
+  close of 9.3, which is task 200's own subject: an exact partition would have found the halving.
+* **For `SCOPE_MILESTONE_7.md` item 63:** a register of per-node costs measured alone does not
+  predict a wide group (9.2). If the weights are to be replaced by measured costs, the register
+  should be read in context or fitted, as A is.
+* **Not done:** the switch stays off. It changes no default and no emitted byte, and flipping it
+  is a decision for task 200, which will use the same prediction. A producer group does not know
+  at grouping time whether a later group will load its prefix, so the six vector stores that
+  materialize a prefix are not counted in the producer's cost.

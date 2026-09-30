@@ -331,6 +331,14 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        output for good if split (see the constant). {@code 0} and {@code 1} alike split every
  *        group over the budget down to single outputs, the arm the exemption is measured
  *        against.
+ * @param predictGrouping whether the first grouping also closes a group where the emit cost
+ *        model ({@code VarkaEmitCost}) predicts that adding the next output would put one of the
+ *        group's methods over {@link #methodByteBudget}, or, for a group of more than
+ *        {@link #heavyGroupOutputs} outputs, over {@link #callSiteBudget} - so a group the
+ *        measurement would split is split before the class is built, and the common case builds
+ *        once. The weights still close groups as before; the prediction only adds closes, and the
+ *        measurement of the built class stays the last word. Off by default, and with
+ *        {@link #methodByteBudget} 0 it changes nothing ({@code PLAN_TASK_199.md}).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -364,7 +372,8 @@ public record VarkaEmitOptions(
     boolean groupLocalSlots,
     boolean materializeChronoPrefix,
     int callSiteBudget,
-    int heavyGroupOutputs) {
+    int heavyGroupOutputs,
+    boolean predictGrouping) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -471,7 +480,7 @@ public record VarkaEmitOptions(
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
-          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS);
+          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -550,6 +559,7 @@ public record VarkaEmitOptions(
       b.materializeChronoPrefix = materializeChronoPrefix;
       b.callSiteBudget = callSiteBudget;
       b.heavyGroupOutputs = heavyGroupOutputs;
+      b.predictGrouping = predictGrouping;
     return b;
   }
 
@@ -587,6 +597,7 @@ public record VarkaEmitOptions(
     private boolean materializeChronoPrefix;
     private int callSiteBudget;
     private int heavyGroupOutputs;
+    private boolean predictGrouping;
 
     private Builder() {
     }
@@ -751,6 +762,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder predictGrouping(boolean predictGrouping) {
+      this.predictGrouping = predictGrouping;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -759,7 +775,8 @@ public record VarkaEmitOptions(
           lanesOverride, truncDate, floorMod7, division, useAVX, misdescribeAdd,
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
-          groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs);
+          groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
+          predictGrouping);
     }
   }
 
@@ -782,6 +799,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withHeavyGroupOutputs(int outputs) {
     return toBuilder().heavyGroupOutputs(outputs).build();
+  }
+
+  public VarkaEmitOptions withPredictGrouping(boolean enabled) {
+    return toBuilder().predictGrouping(enabled).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -934,7 +955,8 @@ public record VarkaEmitOptions(
    * <p>The two compiler options, {@code rangeSets} and {@code splitConditions}, render only when
    * they differ from their defaults, so every variant's rendering from before they existed is
    * unchanged; so do the fields added since ({@code groupLocalSlots},
-   * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs}).
+   * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
+   * {@code predictGrouping}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -954,6 +976,7 @@ public record VarkaEmitOptions(
         + (callSiteBudget == VarkaEmitBudget.CALL_SITE_BUDGET
             ? "" : "|callSites=" + callSiteBudget)
         + (heavyGroupOutputs == VarkaEmitBudget.HEAVY_GROUP_OUTPUTS
-            ? "" : "|heavy=" + heavyGroupOutputs) + ')';
+            ? "" : "|heavy=" + heavyGroupOutputs)
+        + (predictGrouping ? "|predictGrouping" : "") + ')';
   }
 }

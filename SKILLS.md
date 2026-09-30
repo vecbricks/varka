@@ -79,6 +79,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else](sql/varka/skills/emitter-and-ir.md#a-columnar-row-path-writes-primitive-entries-through-mutablecolumnarrow-and-nothing-else)
 * [One kernel a node, written out as columns, loses to Spark's own row code](sql/varka/skills/emitter-and-ir.md#one-kernel-a-node-written-out-as-columns-loses-to-sparks-own-row-code)
 * [When the emission skips part of a tree, the planning walk has to skip it too](sql/varka/skills/emitter-and-ir.md#when-the-emission-skips-part-of-a-tree-the-planning-walk-has-to-skip-it-too)
+* [A cost read off one node alone over-prices a wide group; fit it over groups of every width](sql/varka/skills/emitter-and-ir.md#a-cost-read-off-one-node-alone-over-prices-a-wide-group-fit-it-over-groups-of-every-width)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)

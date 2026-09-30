@@ -224,6 +224,25 @@ object VarkaIrGrammar {
     Drawn(roots, numInputs, numLiterals, smallOrdinal, levelOrdinal)
   }
 
+  /**
+   * A wide shape: 20 to 200 value roots over one to three columns, each root drawn by a
+   * generator of its own so every root gets the whole node budget. The fuzz draw's one to three
+   * roots never make a group method of more than a few thousand bytes; these reach the byte and
+   * call-site budgets, which is where the cost model's predictions are asked
+   * (`VarkaEmitCostCorpus`). A sequence of its own, so drawing it moves no committed corpus.
+   */
+  def drawWideShape(rnd: Random): Drawn = {
+    val numInputs = 1 + rnd.nextInt(3)
+    val numLiterals = rnd.nextInt(3)
+    val smallOrdinal = if (numInputs > 1) numInputs - 1 else -1
+    val levelOrdinal = if (numInputs > 2) numInputs - 2 else -1
+    val roots = Seq.fill(20 + rnd.nextInt(181)) {
+      new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal)
+        .value(1 + rnd.nextInt(4)).node
+    }.distinct
+    Drawn(roots, numInputs, numLiterals, smallOrdinal, levelOrdinal)
+  }
+
   /** One iteration's shape generator; keeps a node budget so trees stay well inside the
    *  emitter's `MAX_FUSED_NODES` and `MAX_CHAIN_DEPTH`.
    *
@@ -543,6 +562,16 @@ object VarkaIrGrammar {
     val roots: Seq[VarkaVectorIR] =
       if (rnd.nextInt(5) == 0) Seq(shapes.cond(depth))
       else Seq.fill(1 + rnd.nextInt(3))(shapes.value(depth).node).distinct
+    DrawnLong(roots, numInputs, numLiterals)
+  }
+
+  /** `drawWideShape`'s twin at the long lane. */
+  def drawWideLongShape(rnd: Random): DrawnLong = {
+    val numInputs = 1 + rnd.nextInt(3)
+    val numLiterals = rnd.nextInt(3)
+    val roots = Seq.fill(20 + rnd.nextInt(181)) {
+      new LongShapes(rnd, numInputs, numLiterals).value(1 + rnd.nextInt(4)).node
+    }.distinct
     DrawnLong(roots, numInputs, numLiterals)
   }
 

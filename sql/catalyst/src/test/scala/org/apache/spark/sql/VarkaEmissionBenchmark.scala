@@ -39,7 +39,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * what makes "the refactor costs nothing at emit time" a claim that can be checked rather than
  * asserted.
  *
- * Two sections.
+ * Two sections, and two for wide kernels: the task 190 ladder, and the grouping priced by the
+ * emit cost model (see `PLAN_TASK_199.md`).
  *
  * **Emission alone** calls `VarkaLoopEmitter.emit` and throws the bytes away. It isolates the
  * emitter: the IR walk, the analysis pass, the loop and epilogue bodies, the constant pool. The
@@ -152,6 +153,33 @@ object VarkaEmissionBenchmark extends BenchmarkBase {
               sink += VarkaLoopEmitter.emit("VarkaEmissionBenchmarkWide", roots, 1, n, null,
                 null, arm).length
             }
+        }
+      }
+      benchmark.run()
+    }
+
+    // The first grouping priced by the emit cost model against the weights alone. The
+    // four-hundred-entry ladder with the budget out of reach asks the model at every output and
+    // never acts on it, which is the model's own cost; the cheap tails are the shape the
+    // call-site budget rebuilds under the weights and the prediction builds once.
+    runBenchmark("grouping by prediction") {
+      val benchmark = new Benchmark("one emission", 1,
+        minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+      def entry(k: Int): VarkaVectorIR = new Greatest(new Greatest(
+        new AddMonths(col, new LiteralSlot(k)), new AddDays(col, new LiteralSlot(k))),
+        new LastDay(col))
+      def tail(k: Int): VarkaVectorIR =
+        new IntArith(IntOp.ADD, Overflow.WRAP, new Year(col), new LiteralSlot(k))
+      val cases = Seq(
+        ("400-entry ladder, budget out of reach", (0 until 400).map(entry),
+          options.withMethodByteBudget(1 << 20)),
+        ("64 cheap tails", (0 until 64).map(tail), options))
+      for ((name, roots, base) <- cases; predict <- Seq(false, true)) {
+        val arm = base.withPredictGrouping(predict)
+        val rootList = java.util.List.of(roots: _*)
+        benchmark.addCase(s"$name, ${if (predict) "predicted" else "weights"}") { _ =>
+          sink += VarkaLoopEmitter.emit("VarkaEmissionBenchmarkPredicted", rootList, 1,
+            roots.size, null, null, arm).length
         }
       }
       benchmark.run()
