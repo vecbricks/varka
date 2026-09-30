@@ -669,13 +669,16 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * from every task on the executor to the plan, where EXPLAIN shows it (`PLAN_TASK_169.md`).
    *
    * The question goes through the shape cache with the key the evaluator will build, so a
-   * shape is emitted once per JVM whoever asks first: the compiler runs at planning, for
+   * shape is built once per JVM whoever asks first: the compiler runs at planning, for
    * EXPLAIN and once per task on the executor, and a direct emission here would put a class
-   * build on every one of those. A decline names the outputs whose own group cannot fit; a
-   * class-wide one names none, and the caller demotes outputs from the end, since the driver
-   * it leaves over the budget grows with their number ([[classify]] bisects). Any other
-   * failure admits the shape as before, and is logged once per JVM: the executor meets it
-   * where it always has, behind the ghost fallback.
+   * build on every one of those. It is answered without defining a class (task 237): the cache
+   * builds and measures the shape and holds its bytes, and the evaluator's first lookup defines
+   * the class from them, so planning on the Spark driver loads nothing, and a bisection's probes
+   * leave no class behind but the one that runs. A decline names the outputs whose own group
+   * cannot fit; a class-wide one names none, and the caller demotes outputs from the end,
+   * since the driver it leaves over the budget grows with their number ([[classify]] bisects).
+   * Any other failure admits the shape as before, and is logged once per JVM: the executor
+   * meets it where it always has, behind the ghost fallback.
    */
   private def admitBySize(
       fused: CompiledVarkaProjection,
@@ -687,7 +690,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options,
       VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
     try {
-      VarkaShapeCache.getOrEmit(key, "plan-time admission")
+      VarkaShapeCache.admit(key)
       None
     } catch {
       case d: VarkaEmitDeclined =>

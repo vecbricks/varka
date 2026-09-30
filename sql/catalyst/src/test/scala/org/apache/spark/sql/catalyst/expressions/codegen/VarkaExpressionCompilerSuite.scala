@@ -24,12 +24,14 @@ import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolv
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaShapeCache, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
@@ -2458,10 +2460,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // executor, so the question goes through the shape cache with the key the evaluator builds.
     val list = Seq(out(Year(d)), out(DayOfMonth(DateAdd(d, Literal(4321)))))
     VarkaExpressionCompiler.compilePartial(list, childOutput)
-    val misses = VarkaShapeCache.missCount
+    val builds = VarkaShapeCache.buildCount
     VarkaExpressionCompiler.compilePartial(list, childOutput)
     VarkaExpressionCompiler.compilePartial(list, childOutput)
-    assert(VarkaShapeCache.missCount === misses, "a repeated compile emitted again")
+    assert(VarkaShapeCache.buildCount === builds, "a repeated compile built again")
   }
 
   test("a hundred four-op entries all fuse under the byte budget, two hundred from a table, and " +
@@ -2547,10 +2549,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       VarkaEmitterTestSupport.methodBodies(VarkaLoopEmitter.emit("VarkaStagesProbe",
         plan.outputs.asJava, plan.inputOrdinals.size, plan.numLiterals, null, null,
         VarkaEmitOptions.DEFAULTS)).keySet.asScala.count(_.startsWith("stageDense"))
-    val misses = VarkaShapeCache.missCount
+    val builds = VarkaShapeCache.buildCount
     val ladder = VarkaExpressionCompiler.compilePartial((1 to 800).map(entry(_, d)),
       childOutput).get
-    assert(VarkaShapeCache.missCount - misses === 1, "planning took more than one emission")
+    assert(VarkaShapeCache.buildCount - builds === 1, "planning took more than one build")
     assert(ladder.kernels.size === 1 && ladder.specs.forall(_.isInstanceOf[FusedOutput]))
     assert(stages(ladder.fused) >= 2)
     val columns = (1 until 70).map(c => AttributeReference(s"c$c", DateType)())
@@ -2559,6 +2561,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(both.kernels.map(_.outputs.size) === Seq(863, 6))
     assert(both.declines.isEmpty && stages(both.fused) >= 2)
     assert(both.more.head.inputOrdinals === (64 until 70))
+  }
+
+  test("admission loads no class: a projection that bisects leaves none defined, and the kept " +
+      "kernel's first lookup defines it without building it again (task 237)") {
+    // Two hundred entries past the unrolled driver's ceiling, one kernel per projection: the
+    // compiler bisects, asking the emitter about several prefixes, and keeps the largest that
+    // fits. Each probe is built and measured; none is defined.
+    def entry(k: Int): NamedExpression =
+      out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k + 1)), LastDay(d2))))
+    val oneKernel =
+      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false).withSeveralKernels(false)
+    VarkaShapeCache.invalidateAll()
+    val before = VarkaShapeCache.buildCount
+    val partial = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
+      oneKernel).get
+    val probes = VarkaShapeCache.buildCount - before
+    assert(probes > 2, s"$probes builds: the projection did not bisect")
+    assert(VarkaShapeCache.size === 0, "admission defined a class")
+    val kept = partial.fused
+    val key = new VarkaShapeKey(kept.outputs.asJava, kept.inputOrdinals.size, kept.numLiterals,
+      oneKernel, VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
+    VarkaShapeCache.getOrEmit(key, "the kernel's first batch")
+    assert(VarkaShapeCache.size === 1)
+    assert(VarkaShapeCache.buildCount - before === probes, "the kept kernel was built again")
   }
 
   test("a projection with a nondeterministic entry declines whole, with the reason on each entry") {

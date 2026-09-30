@@ -121,11 +121,18 @@ private[sql] object VarkaShapeCache {
     instance.getOrEmit(Utils.getContextOrSparkClassLoader, key, execution)
   }
 
+  /**
+   * Whether the emitter serves the shape, answered without defining a class; throws the
+   * decline if not. The compiler's plan-time question (task 237).
+   */
+  def admit(key: VarkaShapeKey): Unit = instance.admit(key)
+
   def executionsFor(shapeHash: String): Seq[String] =
     instance.executionsFor(shapeHash).asScala.toSeq
 
   def hitCount: Long = instance.hitCount()
   def missCount: Long = instance.missCount()
+  def buildCount: Long = instance.buildCount()
   def size: Long = instance.size()
 
   /** Test hook, mirroring `CodeGenerator.invalidateCodegenCache`. */
