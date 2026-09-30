@@ -27,7 +27,7 @@ import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntervalYea
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, DateAddYMInterval, If, In, LessThan, Literal, NamedExpression, NextDay, Remainder, TruncDate, Year}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaEmitOptions, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
@@ -115,6 +115,42 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       assert(actual === expected)
       kernels.release(out)
       completeTask()
+    }
+  }
+
+  test("under severalKernels a projection past one kernel assembles every kernel's columns in " +
+      "order, and release closes each of them") {
+    // Two hundred entries are past the unrolled driver's ceiling, so the compiler serves them with
+    // two kernels (PLAN_TASK_190.md 11); the forwarded and residual entries sit between them.
+    val adds = (0 until 200).map(k => Alias(DateAdd(attrD, Literal(k)), s"a$k")())
+    val projectList = (adds.take(100) :+ intAttr) ++ adds.drop(100) :+
+      Alias(Remainder(intAttr, Literal(7)), "inc")()
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(
+      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false).withSeveralKernels(true))
+    try {
+      withTask { (input, completeTask) =>
+        val kernels = evaluator(projectList)
+        assert(kernels.partialPlan.get.kernels.size === 2)
+        assert(kernels.canRun(input))
+        val out = kernels.project(input)
+        assert(out.numCols() === 202)
+        assert(out.column(100) eq input.column(1), "the forwarded column was copied")
+        for (r <- dates.indices; c <- 0 until 202) {
+          val expected: java.lang.Integer = c match {
+            case 100 => ints(r)
+            case 201 => if (ints(r) == null) null else Int.box(ints(r) % 7)
+            case _ =>
+              val k = if (c < 100) c else c - 1
+              if (dates(r) == null) null else Int.box(dates(r) + k)
+          }
+          val actual = if (out.column(c).isNullAt(r)) null else Int.box(out.column(c).getInt(r))
+          assert(actual === expected, s"row $r column $c")
+        }
+        kernels.release(out)
+        completeTask()
+      }
+    } finally {
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaEmitOptions.DEFAULTS)
     }
   }
 

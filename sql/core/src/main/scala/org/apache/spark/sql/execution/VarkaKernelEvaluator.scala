@@ -24,7 +24,7 @@ import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntervalYea
   ValueVector}
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, ForwardedOutput, FusedOutput, KernelOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAllocationSampler,
   VarkaEmitOptions, VarkaFallbackEvent, VarkaKernelAllocationEvent}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
@@ -116,6 +116,31 @@ private[sql] class VarkaKernelEvaluator(
 
   override protected def fusedPlan: Option[CompiledVarkaProjection] = compiled.map(_.fused)
 
+  // The further kernels of a projection several kernels serve (`VarkaEmitOptions.severalKernels`,
+  // `PLAN_TASK_190.md` 11), each an evaluator of its own for its runner, warm-up and scratch; this
+  // evaluator runs the first kernel and asks every one of them before a batch takes the kernels.
+  // Empty for a projection one kernel serves, which then runs exactly as before.
+  private lazy val parts: Seq[VarkaKernelPart] = compiled.toSeq.flatMap(_.more).map { plan =>
+    new VarkaKernelPart(plan, projectList, childOutput, operatorName, classDumpDirectory,
+      metrics, emitUseAVX, warmupEnabled)
+  }
+
+  /** Every kernel can serve the batch: the first one, as ever, and each further one. */
+  override def canRun(input: ColumnarBatch): Boolean =
+    super.canRun(input) && parts.forall(_.canRun(input))
+
+  /**
+   * Every kernel is ready. Each one is asked, so each claims its own warm-up on the batch that
+   * finds it cold, and the batch takes the kernels only once all of them are compiled.
+   */
+  override private[execution] def kernelReady(input: ColumnarBatch): Boolean = {
+    val first = super.kernelReady(input)
+    parts.map(_.kernelReady(input)).forall(identity) && first
+  }
+
+  override private[execution] def emissionFailed: Boolean =
+    super.emissionFailed || parts.exists(_.emissionFailed)
+
   override protected def identityEntries: Iterator[String] = projectList.iterator.map(_.toString)
 
   // The residual entries and their per-row machinery. All lazy: a // kernel-only projection has no
@@ -152,7 +177,8 @@ private[sql] class VarkaKernelEvaluator(
       owned ++= residualColumns
       var residual = 0
       val columns = partial.specs.map {
-        case FusedOutput(index) => fusedColumns(index)
+        case FusedOutput(index) => fusedColumns(0)(index)
+        case KernelOutput(kernel, index) => fusedColumns(kernel)(index)
         case ForwardedOutput(ordinal) => input.column(ordinal)
         case ResidualOutput =>
           residual += 1
@@ -180,7 +206,7 @@ private[sql] class VarkaKernelEvaluator(
     val len = input.numRows()
     val owned = mutable.ArrayBuffer.empty[ColumnVector]
     try {
-      val fusedColumns = computeFused(input, len, owned)
+      val fusedColumns = computeFused(input, len, owned).flatten
       val batch = new ColumnarBatch(fusedColumns)
       batch.setNumRows(len)
       trackOwned(batch, owned.toSeq)
@@ -193,33 +219,19 @@ private[sql] class VarkaKernelEvaluator(
   }
 
   /**
-   * Runs the fused kernel over the input batch into freshly allocated Arrow vectors, appending
-   * them to `owned` as they are created (the caller closes `owned` on failure). Returns the
-   * fused columns by fused index.
+   * Runs every kernel over the input batch, in turn, into freshly allocated Arrow vectors from
+   * this task's one allocator, appending them to `owned` as they are created (the caller closes
+   * `owned` on failure). Returns each kernel's columns by its fused index, the first kernel's
+   * first. A kernel that declines the batch throws, and the whole batch falls back, as it does
+   * with one kernel: the kernels are one projection, answered whole or not at all.
    */
   private def computeFused(
       input: ColumnarBatch,
       len: Int,
-      owned: mutable.ArrayBuffer[ColumnVector]): Array[ColumnVector] = {
-    val plan = compiled.get.fused
-    val runner = fusedRunner.get
+      owned: mutable.ArrayBuffer[ColumnVector]): Array[Array[ColumnVector]] = {
     val alloc = taskAllocator()
-    fillSources(runner, input, len)
-    val fixed = new Array[BaseFixedWidthVector](plan.outputs.size)
-    val fusedColumns = new Array[ColumnVector](plan.outputs.size)
-    var o = 0
-    plan.outputTypes.foreach { dataType =>
-      val vector = allocateVector(dataType, o, len, alloc)
-      fixed(o) = vector
-      fusedColumns(o) = new VarkaOwnedArrowColumnVector(vector)
-      owned += fusedColumns(o)
-      runner.dstData(o) = vector.getDataBuffer().memoryAddress()
-      runner.dstValidity(o) = vector.getValidityBuffer().memoryAddress()
-      o += 1
-    }
-    invokeFused(runner, len)
-    fixed.foreach(_.setValueCount(len))
-    fusedColumns
+    (runKernel(input, len, owned, alloc, allocateVector) +:
+      parts.map(_.runKernel(input, len, owned, alloc, allocateVector))).toArray
   }
 
   /**

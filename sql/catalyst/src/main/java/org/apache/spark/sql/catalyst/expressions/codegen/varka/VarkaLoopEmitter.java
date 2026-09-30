@@ -354,6 +354,8 @@ public final class VarkaLoopEmitter {
     // The exact grouping's runs, priced once per grouping options: between rebuilds only the
     // forced starts change, and they cut the runs rather than change them.
     ExactRuns exactRuns = new ExactRuns();
+    // Groups per stage under `splitDriver`, 0 until a build's drivers alone are over the budget.
+    int stageGroups = 0;
     while (true) {
       List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, null, exactRuns);
       builds[0]++;
@@ -361,6 +363,7 @@ public final class VarkaLoopEmitter {
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
       // address as an eighth argument (task 198).
       analysis.planMaterialized(outputs, groups);
+      analysis.stageGroups = stageGroups;
       byte[] bytes;
       VarkaEmittedClass measured;
       int limit = budget;
@@ -412,6 +415,17 @@ public final class VarkaLoopEmitter {
         // construction, so it always has a finding.
         return bytes;
       }
+      // Under `splitDriver` a class whose only methods over the limit are its drivers - the
+      // driver from a table is 20 bytes and 44 a group, so past about 180 groups - is built again
+      // with the calls to its groups moved into stages. The stage size is read off the measured
+      // driver, so one rebuild settles it; a stage still over the limit halves it.
+      if (stuck.isEmpty() && options.splitDriver() && options.driverOutputTable()) {
+        int next = stageSize(measured, limit, findings.size(), groups.size(), stageGroups);
+        if (next > 0) {
+          stageGroups = next;
+          continue;
+        }
+      }
       if (siteSplit) {
         siteBudget = 0;
         siteSplit = false;
@@ -443,6 +457,49 @@ public final class VarkaLoopEmitter {
       forcedStarts.clear();
     }
   }
+
+  /**
+   * The groups per stage the next build of a split driver should take, or 0 where no stage size
+   * helps: where a method other than a driver or a stage is over {@code limit}, or a class-wide
+   * cap is ({@code findings} counts more than the methods over the limit), or a stage of one group
+   * is already over. From an unsplit driver the size is its groups scaled by the limit over the
+   * driver's bytes, less a margin for the stage's own few bytes; a stage over the limit halves it.
+   */
+  private static int stageSize(VarkaEmittedClass measured, int limit, int findings, int groups,
+      int stageGroups) {
+    int over = 0;
+    int widestDriver = 0;
+    boolean stageOver = false;
+    for (Map.Entry<String, Integer> e : measured.codeLength().entrySet()) {
+      if (e.getValue() <= limit) {
+        continue;
+      }
+      over++;
+      String name = e.getKey();
+      if (name.equals("runDense") || name.equals("runMasked")) {
+        widestDriver = Math.max(widestDriver, e.getValue());
+      } else if (name.startsWith("stage")) {
+        stageOver = true;
+      } else {
+        return 0;
+      }
+    }
+    if (over == 0 || over != findings) {
+      return 0;
+    }
+    if (stageOver) {
+      return stageGroups > 1 ? stageGroups / 2 : 0;
+    }
+    if (stageGroups > 0) {
+      // The driver of a split class is over the limit: its stages are too many, so they must be
+      // wider - which only happens past some 180 stages of 180 groups, beyond any class cap.
+      return 0;
+    }
+    return Math.max(1, (int) ((long) groups * (limit - STAGE_MARGIN) / widestDriver));
+  }
+
+  /** The bytes a stage size leaves for a stage's own code beside its calls. */
+  private static final int STAGE_MARGIN = 64;
 
   /**
    * Adds a forced start at the middle output of each of the groups {@code over} names that
@@ -578,6 +635,12 @@ public final class VarkaLoopEmitter {
     b.withMethodBody("run" + side, desc, AccessFlag.PRIVATE.mask(),
         (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.DRIVER, -1,
             classDesc, outputs, analysis, numLiterals, groups));
+    for (int k = 0; analysis.stageGroups > 0 && k * analysis.stageGroups < groups.size(); k++) {
+      final int stage = k;
+      b.withMethodBody("stage" + side + k, desc, AccessFlag.PRIVATE.mask(),
+          (CodeBuilder cb) -> VarkaBodyEmitter.emitStage(cb, dense, stage, classDesc, analysis,
+              groups));
+    }
     if (!epiloguePerGroup) {
       b.withMethodBody("epilogue" + side, desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, -1,

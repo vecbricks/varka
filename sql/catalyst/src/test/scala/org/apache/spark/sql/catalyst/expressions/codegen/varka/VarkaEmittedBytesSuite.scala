@@ -481,6 +481,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       "narrowHalfSpecies" -> (_.withNarrowHalfSpecies(_)),
       "predictGrouping" -> (_.withPredictGrouping(_)),
       "exactGrouping" -> (_.withExactGrouping(_)),
+      "splitDriver" -> (_.withSplitDriver(_)),
+      "severalKernels" -> (_.withSeveralKernels(_)),
       "driverOutputTable" -> (_.withDriverOutputTable(_)),
       "misdescribeAdd" -> (_.withMisdescribeAdd(_)),
       "misdescribeWordLiveness" -> (_.withMisdescribeWordLiveness(_)))

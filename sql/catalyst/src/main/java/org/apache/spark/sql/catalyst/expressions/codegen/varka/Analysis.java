@@ -329,6 +329,14 @@ final class Analysis {
   Map<VarkaVectorIR, Materialized> materialized = Map.of();
 
   /**
+   * How many consecutive groups each sub-driver ("stage") calls under
+   * {@link VarkaEmitOptions#splitDriver}, or 0 where the driver calls every group itself. Set per
+   * build by {@code VarkaLoopEmitter.emit}, from the measured driver of a build before, and 0 for
+   * every emission whose drivers fit, whose bytes are then unchanged (`PLAN_TASK_190.md` 11).
+   */
+  int stageGroups = 0;
+
+  /**
    * One materialized prefix: the group that computes and stores it, its region in the scratch,
    * whether any group's tail reads the March month (so the producer keeps that step where
    * {@code elideChronoMonth} would drop it), and every group that touches the region.

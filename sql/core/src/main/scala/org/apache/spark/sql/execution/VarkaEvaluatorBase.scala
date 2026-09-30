@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{IntRangeOps, Tru
   VarkaFusedKernel, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache, VarkaShapeKey,
   VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
+import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 
@@ -236,6 +237,41 @@ private[sql] abstract class VarkaEvaluatorBase(
   private[execution] def emittedClassBytes: Option[Array[Byte]] = fusedRunner.map(_.classBytes)
 
   /**
+   * Runs this evaluator's kernel over the input batch into vectors `allocate` makes from
+   * `allocator`, appending each to `owned` as it is created (the caller closes `owned` on
+   * failure), and returns them by the kernel's output index. The projection evaluator calls it
+   * on itself and on each further kernel of a projection several kernels serve
+   * (`VarkaEmitOptions.severalKernels`), so every kernel's columns come from the one allocator
+   * and join the one output batch. Callers must have asked [[canRun]] first.
+   */
+  private[execution] def runKernel(
+      input: ColumnarBatch,
+      len: Int,
+      owned: mutable.ArrayBuffer[ColumnVector],
+      allocator: BufferAllocator,
+      allocate: (DataType, Int, Int, BufferAllocator) => BaseFixedWidthVector)
+      : Array[ColumnVector] = {
+    val plan = fusedPlan.get
+    val runner = fusedRunner.get
+    fillSources(runner, input, len)
+    val fixed = new Array[BaseFixedWidthVector](plan.outputs.size)
+    val columns = new Array[ColumnVector](plan.outputs.size)
+    var o = 0
+    plan.outputTypes.foreach { dataType =>
+      val vector = allocate(dataType, o, len, allocator)
+      fixed(o) = vector
+      columns(o) = new VarkaOwnedArrowColumnVector(vector)
+      owned += columns(o)
+      runner.dstData(o) = vector.getDataBuffer().memoryAddress()
+      runner.dstValidity(o) = vector.getValidityBuffer().memoryAddress()
+      o += 1
+    }
+    invokeFused(runner, len)
+    fixed.foreach(_.setValueCount(len))
+    columns
+  }
+
+  /**
    * Whether the kernel can serve this batch, or the caller has to fall back. The Arrow check
    * covers only the columns the fused sub-plan references: other entries put no constraint on
    * the input format beyond what `rowIterator` needs.
@@ -317,7 +353,7 @@ private[sql] abstract class VarkaEvaluatorBase(
    * row path. A volatile read per batch once the shape is ready. Throws the
    * [[VarkaBatchDeclined]] the copy met, having handed the claim back.
    */
-  private def kernelReady(input: ColumnarBatch): Boolean = {
+  private[execution] def kernelReady(input: ColumnarBatch): Boolean = {
     if (!warmed) {
       true
     } else {

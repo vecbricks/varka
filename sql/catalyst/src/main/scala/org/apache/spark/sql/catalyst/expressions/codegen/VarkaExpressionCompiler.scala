@@ -142,6 +142,15 @@ private[sql] sealed trait VarkaOutputSpec
 private[sql] case class FusedOutput(fusedIndex: Int) extends VarkaOutputSpec
 
 /**
+ * A column of a further kernel under `VarkaEmitOptions.severalKernels`: output `fusedIndex` of
+ * `PartialVarkaProjection.more(kernel - 1)`. Kernel 0 is the first one, whose outputs stay
+ * [[FusedOutput]], so a projection that fits one kernel is classified as it always was.
+ */
+private[sql] case class KernelOutput(kernel: Int, fusedIndex: Int) extends VarkaOutputSpec {
+  require(kernel >= 1, s"kernel 0's outputs are FusedOutput, not KernelOutput($kernel, ...)")
+}
+
+/**
  * A bare column reference, forwarded zero-copy from child output ordinal `childOrdinal`. Any
  * type, not just dates: forwarding never reads the values, so it does not care about lanes.
  */
@@ -250,7 +259,27 @@ private final class DeclineSink(childOutput: Seq[Attribute], val rangeSets: Bool
 private[sql] case class PartialVarkaProjection(
     specs: Seq[VarkaOutputSpec],
     fused: CompiledVarkaProjection,
-    declines: Map[Int, VarkaDecline] = Map.empty)
+    declines: Map[Int, VarkaDecline] = Map.empty,
+    more: Seq[CompiledVarkaProjection] = Nil) {
+
+  /**
+   * Every kernel the projection runs, the first one first: one unless the entries were over
+   * what one kernel serves and `VarkaEmitOptions.severalKernels` split them (`PLAN_TASK_190.md`
+   * 11).
+   */
+  def kernels: Seq[CompiledVarkaProjection] = fused +: more
+
+  /**
+   * The position of a kernel column among every kernel's columns laid end to end, kernel by
+   * kernel - how the row node's merge and `projectFused` number them - or None for an entry no
+   * kernel computes.
+   */
+  def columnIndex(spec: VarkaOutputSpec): Option[Int] = spec match {
+    case FusedOutput(i) => Some(i)
+    case KernelOutput(k, i) => Some(kernels.take(k).map(_.outputs.size).sum + i)
+    case _ => None
+  }
+}
 
 /**
  * One conjunct of a filter predicate under the task-21 split: the original (unbound)
@@ -364,7 +393,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[PartialVarkaProjection] = {
-    classify(projectList, childOutput, options)._1
+    classifyKernels(projectList, childOutput, options)._1
   }
 
   /**
@@ -376,8 +405,55 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Map[Int, VarkaDecline] = {
-    classify(projectList, childOutput, options)._2
+    classifyKernels(projectList, childOutput, options)._2
   }
+
+  /**
+   * [[classify]], and under `VarkaEmitOptions.severalKernels` the entries it set aside only for
+   * the kernel's sake - the suffix a class-wide decline demoted, an entry that fits alone but not
+   * beside the rest - classified again as a kernel of their own, round after round, until a round
+   * fuses nothing or nothing is left aside. Each round is [[classify]] over the whole projection
+   * with every other entry demoted, so it sees the same entries in the same order and the kernels
+   * are deterministic in the projection alone. See `PLAN_TASK_190.md` 11.
+   */
+  private def classifyKernels(
+      projectList: Seq[NamedExpression],
+      childOutput: Seq[Attribute],
+      options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+    val (first, firstDeclines, firstAside) = classify(projectList, childOutput, options)
+    if (!options.severalKernels || first.isEmpty) {
+      return (first, firstDeclines)
+    }
+    val specs = first.get.specs.toArray
+    var declines = firstDeclines
+    val more = mutable.ArrayBuffer.empty[CompiledVarkaProjection]
+    var aside = firstAside
+    var progress = true
+    while (aside.nonEmpty && progress) {
+      val others = projectList.indices.filterNot(aside).map(_ -> OtherKernel).toMap
+      val (next, nextDeclines, nextAside) = classify(projectList, childOutput, options, others)
+      val fused = next.toSeq.flatMap(_.specs.zipWithIndex.collect {
+        case (FusedOutput(i), at) => at -> i
+      })
+      progress = fused.nonEmpty
+      if (progress) {
+        more += next.get.fused
+        fused.foreach { case (at, i) =>
+          specs(at) = KernelOutput(more.size, i)
+          declines -= at
+        }
+        // An entry this round left for good keeps this round's reason, not the first's.
+        aside.filterNot(at => fused.exists(_._1 == at) || nextAside(at)).foreach { at =>
+          nextDeclines.get(at).foreach(d => declines += at -> d)
+        }
+        aside = nextAside
+      }
+    }
+    (Some(first.get.copy(specs = specs.toSeq, declines = declines, more = more.toSeq)), declines)
+  }
+
+  /** The reason a round of [[classifyKernels]] demotes an entry another kernel serves. */
+  private val OtherKernel = "served by another kernel of this projection"
 
   /**
    * The per-entry classification, then the size admission: the entries the weight caps admit
@@ -397,7 +473,9 @@ private[sql] object VarkaExpressionCompiler extends Logging {
   private def classify(
       projectList: Seq[NamedExpression],
       childOutput: Seq[Attribute],
-      options: VarkaEmitOptions): (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+      options: VarkaEmitOptions,
+      initial: Map[Int, String] = Map.empty)
+      : (Option[PartialVarkaProjection], Map[Int, VarkaDecline], Set[Int]) = {
     // A nondeterministic entry declines the whole projection, as a nondeterministic conjunct
     // declines a predicate. A Varka node evaluates its residual entries row by row, on its row
     // path and beside its kernel, through projections of its own; vanilla's `Project` draws a
@@ -410,7 +488,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       return (None, projectList.zipWithIndex.flatMap { case (named, position) =>
         sink.note(why, BindReferences.bindReference[Expression](named, childOutput))
         sink.take().map(position -> _)
-      }.toMap)
+      }.toMap, Set.empty)
     }
     // The projection positions of a partial's fused entries, in the order the kernel numbers
     // them; a decline's named outputs index this.
@@ -424,11 +502,14 @@ private[sql] object VarkaExpressionCompiler extends Logging {
         }
       }
     }
-    var demoted = Map.empty[Int, String]
+    var demoted = initial
+    // The entries a class-wide decline demoted: they fit, only not in this kernel.
+    var bisected = Set.empty[Int]
     while (true) {
       ask(demoted) match {
         case None =>
-          return classifyOnce(projectList, childOutput, demoted, options)
+          val (partial, declines, alone) = classifyOnce(projectList, childOutput, demoted, options)
+          return (partial, declines, bisected ++ alone)
         case Some((partial, named, reason)) if named.nonEmpty =>
           val at = positions(partial)
           demoted ++= named.map(at).map(_ -> reason)
@@ -450,6 +531,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
             }
           }
           demoted ++= at.drop(lo).map(_ -> reasonAtHi)
+          bisected ++= at.drop(lo)
       }
     }
     throw new IllegalStateException("unreachable")
@@ -460,7 +542,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       childOutput: Seq[Attribute],
       demoted: Map[Int, String],
       options: VarkaEmitOptions)
-      : (Option[PartialVarkaProjection], Map[Int, VarkaDecline]) = {
+      : (Option[PartialVarkaProjection], Map[Int, VarkaDecline], Set[Int]) = {
     // Both tables assign dense indices in first-occurrence order, which makes the compiled
     // shape deterministic in the projection alone.
     val inputs = mutable.LinkedHashMap.empty[Int, Int]
@@ -469,6 +551,8 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     val outputTypes = Seq.newBuilder[DataType]
     val sink = new DeclineSink(childOutput, options.rangeSets)
     val declines = Map.newBuilder[Int, VarkaDecline]
+    // Entries over the budgets beside the others that fit them alone: another kernel's.
+    val alone = Set.newBuilder[Int]
     var fusedCount = 0
     val specs = projectList.zipWithIndex.map { case (named, position) =>
       // Bound at Expression, not NamedExpression: a bare column entry binds to a
@@ -538,6 +622,9 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               if (compiled.isDefined) {
                 sink.take() // an over-budget entry compiled clean; its reason is the budget
                 sink.note("exceeds the emitter's fused budget", e)
+                if (VarkaLoopEmitter.fitsBudgets(java.util.List.of(compiled.get), 1, options)) {
+                  alone += position
+                }
               }
               // A declining entry always leaves a reason: every `None` below notes one.
               sink.take().foreach(decline => declines += position -> decline)
@@ -551,9 +638,9 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       (Some(PartialVarkaProjection(specs, CompiledVarkaProjection(
         outputs.toSeq, outputTypes.result(), ordinals, literals.keys.toSeq,
         sink.inputBounds(inputs), derived, sink.longLiteralValues),
-        reasons)), reasons)
+        reasons)), reasons, alone.result())
     } else {
-      (None, reasons)
+      (None, reasons, alone.result())
     }
   }
 

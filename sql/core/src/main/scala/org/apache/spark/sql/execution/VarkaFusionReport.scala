@@ -18,7 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, KernelOutput, PartialVarkaProjection, ResidualOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 
 /**
@@ -47,6 +47,8 @@ private[sql] object VarkaFusionReport {
       spec match {
         case FusedOutput(_) =>
           s"$name: fused"
+        case KernelOutput(kernel, _) =>
+          s"$name: fused, kernel ${kernel + 1} of ${partial.kernels.size}"
         case ForwardedOutput(ordinal) =>
           s"$name: forwarded from ${childOutput(ordinal).name}"
         case ResidualOutput =>

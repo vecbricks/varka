@@ -24,7 +24,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, JoinedRow, NamedExpression, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, ResidualOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, KernelOutput, ResidualOutput, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -291,14 +291,18 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // None when every entry fuses: the fused batch is then the output and `toRow` suffices.
     private lazy val mergeProjection: Option[UnsafeProjection] = kernels.partialPlan.flatMap {
       partial =>
+        // Every entry the one kernel's, in order: the fused batch is the output. Several kernels
+        // lay their columns end to end, kernel by kernel, which is not the projection's order, so
+        // they always merge.
         if (partial.specs.forall(_.isInstanceOf[FusedOutput])) {
           None
         } else {
-          val fusedAttrs = partial.fused.outputTypes.zipWithIndex.map { case (dataType, i) =>
-            AttributeReference(s"_varkaFused$i", dataType)()
+          val fusedAttrs = partial.kernels.flatMap(_.outputTypes).zipWithIndex.map {
+            case (dataType, i) => AttributeReference(s"_varkaFused$i", dataType)()
           }
           val merged = partial.specs.zip(projectList).map {
-            case (FusedOutput(index), _) => fusedAttrs(index)
+            case (spec @ (FusedOutput(_) | KernelOutput(_, _)), _) =>
+              fusedAttrs(partial.columnIndex(spec).get)
             case (ForwardedOutput(ordinal), _) => childOutput(ordinal)
             case (ResidualOutput, named) => named
           }

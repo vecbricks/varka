@@ -377,6 +377,18 @@ final class VarkaBodyEmitter {
       case DRIVER -> {
         // Every callee returns a status; the batch's is their union, so one out-of-range lane
         // anywhere condemns the whole batch - which is what the caller acts on.
+        if (analysis.stageGroups > 0) {
+          // Under `splitDriver` the calls to the groups sit in the stages, a run of consecutive
+          // groups each, and the driver calls the stages in order; the status is still the
+          // union of every group's, since each stage returns its own groups' union.
+          cb.loadConstant(0);
+          for (int k = 0; k * analysis.stageGroups < groups.size(); k++) {
+            invokeCall(cb, classDesc, (dense ? "stageDense" : "stageMasked") + k, analysis);
+            cb.ior();
+          }
+          cb.ireturn();
+          return;
+        }
         cb.loadConstant(0);
         cb.istore(s.status);
         for (int g = 0; g < groups.size(); g++) {
@@ -423,6 +435,31 @@ final class VarkaBodyEmitter {
         emitStatusReturn(cb, s);
       }
     }
+  }
+
+  /**
+   * Stage {@code k} of a split driver (see {@link VarkaEmitOptions#splitDriver}): the loop methods
+   * of its run of groups and then their epilogues, returning the union of their statuses. It
+   * needs no prologue - the driver has taken the empty batch, prepared every output's validity
+   * and taken the all-null shortcut before calling it - and keeps the status on the operand stack,
+   * so it has no locals beyond the parameters it forwards. The groups keep their order across the
+   * stages, so a group that reads a prefix an earlier group materialized (task 198) still runs
+   * after it, loop after loop and epilogue after epilogue.
+   */
+  static void emitStage(CodeBuilder cb, boolean dense, int k, ClassDesc classDesc,
+      Analysis analysis, List<List<Integer>> groups) {
+    int from = k * analysis.stageGroups;
+    int to = Math.min(groups.size(), from + analysis.stageGroups);
+    cb.loadConstant(0);
+    for (int g = from; g < to; g++) {
+      invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g, analysis);
+      cb.ior();
+    }
+    for (int g = from; g < to; g++) {
+      invokeCall(cb, classDesc, (dense ? "epilogueDense" : "epilogueMasked") + g, analysis);
+      cb.ior();
+    }
+    cb.ireturn();
   }
 
   /**

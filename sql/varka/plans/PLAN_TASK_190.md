@@ -433,3 +433,93 @@ A code review of A0 found seven problems, none a wrong answer. All seven are add
 6. **Two comments in `VarkaBodyEmitter` described the unrolled driver as the only one.** Both
    now say what the table form does.
 7. **The size test used one column.** It now runs over sixty-four as well.
+
+## 11. Step 2, A' and B: past the driver from a table
+
+### 11.1 The ceilings A0 left
+
+The driver from a table is 20 bytes and 44 a group (10.5), so under the 8000-byte budget it holds
+about 180 groups - some 720 entries of the `greatest` ladder at four to a group, fewer for a
+family whose groups hold fewer outputs. Past that the class declines on its drivers and task
+169's bisection demotes a suffix of the projection to the row engine. The second ceiling is
+`MAX_INPUTS`: a kernel reads at most 64 columns, a bitset in a long, and an entry past them is
+residual with "exceeds the emitter's fused budget". 3.2's two designs are built for these two,
+each behind an option, off.
+
+### 11.2 Built, 30 September 2026
+
+**A': `VarkaEmitOptions.splitDriver`.** A class whose only methods over the budget are its
+drivers is built again with the calls to its groups moved into stages, `stageDense<k>` and
+`stageMasked<k>`, each calling the loop methods of a run of consecutive groups and then their
+epilogues; the driver keeps its table call and the all-null shortcut and calls the stages in
+order. The stage size is read off the measured driver - its groups scaled by the budget over its
+bytes, less a margin - so one rebuild settles it, and a stage still over the budget halves it.
+A stage has no prologue and keeps the status on the operand stack. The groups keep their order
+across the stages, so a group that loads a prefix an earlier group materialized (task 198) still
+runs after it. Only the driver from a table splits: the unrolled driver grows with the outputs,
+which no stage takes from it. A class whose drivers fit is the same class, byte for byte.
+
+A' is smaller than 3.2 drew it. 3.2 partitioned the driver's per-output work as well; A0 made
+that one engine call whatever the width, so only the calls are left to move.
+
+**B: `VarkaEmitOptions.severalKernels`.** A compiler option, like `rangeSets`: no kernel's bytes
+change, only how many a projection has.
+
+* *The compiler.* `classify` now reports the entries it set aside only for the kernel's sake:
+  the suffix a class-wide decline demotes, and an entry over the budgets beside the others that
+  fits them alone - the column limit's case. Under the option those entries are classified again,
+  with every other entry demoted, as a kernel of their own, and so on until a round fuses nothing
+  or nothing is left aside. The first kernel's outputs stay `FusedOutput`; a further kernel's are
+  `KernelOutput(kernel, index)`, and `PartialVarkaProjection.more` holds its plan. A projection one
+  kernel serves is classified exactly as before. An entry residual for another reason - an
+  unsupported expression, the other lane - keeps its reason.
+* *The evaluator.* Each further kernel is a `VarkaKernelPart`, the evaluator base's machinery
+  for that kernel alone: its shape-cached runner, its warm-up, its scratch. The projection's
+  evaluator asks every kernel whether it can run and whether it is ready - each claims its own
+  warm-up - and runs them in turn into the one output batch from the task's one allocator. A
+  kernel that declines a batch sends the whole batch to the fallback, as with one kernel: the
+  kernels are one projection, answered whole or not at all. The row node's merge numbers the
+  kernels' columns end to end; the columnar node assembles them by spec. Verbose EXPLAIN names
+  the kernel of each entry after the first.
+* *What B does not cover.* A filter's predicate is still one kernel, and an entry of the other
+  lane is still residual: both are the one-lane and one-mask rules, not a size.
+
+3.2's C, a shared prefix computed once, shipped as task 198's `materializeChronoPrefix`, on by
+default, so in B each kernel computes the ladder's prefix once and its other groups load it.
+
+### 11.3 Tests
+
+`VarkaEmitterSplitDriverSuite`: three hundred one-output groups decline on the driver and under
+the option emit in one rebuild with every method under the budget; a class whose drivers fit is
+the same class byte for byte; under a 1000-byte budget every stage and the driver fit; the split
+driver answers as the reference evaluator on both bodies, over three hundred groups and over
+eight hundred ladder entries whose groups share one prefix. `VarkaExpressionCompilerSuite`: under
+the option the unrolled driver's demoted suffix is a second kernel and every entry fuses, and
+seventy date columns are served by two kernels, the second reading columns 64 to 69, while a
+long-lane entry stays residual with its own reason. `VarkaKernelEvaluatorSuite`: two kernels'
+columns, with a forwarded and a residual entry between them, assembled in order, and every vector
+released. `VarkaSeveralKernelsSuite`: seventy nullable date columns and two hundred ladder
+entries on the unrolled driver answer as the row engine does from two kernels, end to end. The IR
+fuzzer draws both options like every boolean; its shapes stay far below 180 groups, so the split
+driver is pinned by the suite rather than fuzzed.
+
+### 11.4 Predictions, registered before the runner's run
+
+`VarkaWideKernelBenchmark`'s last two sections: eight hundred and twelve hundred ladder entries,
+two and three hundred groups, A' as one kernel with stages and B as the compiler splits them.
+
+1. **A' is linear in its entries**: its time per row per entry at 800 and 1200 is within 10% of
+   the 400-entry kernel's in the first section. A stage adds one call per batch per 180 groups.
+2. **B costs at most 5% more per row than A'**, on both bodies. Each further kernel reads the
+   date column again and computes the prefix once more, against hundreds of outputs' work; 6.1's
+   factor of two predates the materialized prefix.
+3. **At plan time A' costs more than B's classes alone and less than B with the compiler's
+   search.** A' builds its class twice, the second time with stages; B builds each kernel once,
+   but the compiler first asks the emitter for about ten halving prefixes, each built whole.
+4. **The bytes are within 10% of each other**: the same group methods, with stages on one side and
+   a second driver and dispatcher on the other.
+
+### 11.5 What the measurement decides
+
+Whether either option becomes the default, and which. The options and their costs are set out
+with the numbers, for the owner's decision.

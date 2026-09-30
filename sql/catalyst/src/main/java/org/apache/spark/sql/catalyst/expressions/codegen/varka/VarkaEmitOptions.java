@@ -359,6 +359,23 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@link #predictGrouping}. On by default since measured, when the mixed family ran 5 to
  *        13 percent faster a row and emitted faster too ({@code PLAN_TASK_200.md} 8.2); off is
  *        the greedy walk, kept as the reference the suites and the benchmark compare against.
+ * @param splitDriver whether a driver over the byte budget moves its calls to the groups into
+ *        sub-driver methods, {@code stageDense<k>} and {@code stageMasked<k>}, each calling a run
+ *        of consecutive groups' loop and epilogue methods, so the driver calls the stages and no
+ *        longer grows with the groups. Only the driver from a table ({@link #driverOutputTable})
+ *        splits: the unrolled driver grows with the outputs, which no stage takes from it. The
+ *        split is decided by measurement - a class whose only methods over the budget are its
+ *        drivers is built again with stages sized from the driver's measured bytes - so a class
+ *        whose drivers fit is the same class, byte for byte. Off by default until measured
+ *        against several kernels per projection ({@code PLAN_TASK_190.md} 11).
+ * @param severalKernels whether the compiler serves a projection past what one kernel holds with
+ *        several: the entries one kernel sets aside only for its own sake - the suffix a
+ *        class-wide decline, such as a driver over the byte budget, demotes, and an entry that
+ *        fits alone but not beside the rest, as past {@code MAX_INPUTS} columns - are compiled
+ *        into a further kernel, and so on, and the evaluator runs the kernels in turn over each
+ *        batch. A compiler option, like {@code rangeSets}: no kernel's bytes change, only how
+ *        many a projection has. Off by default until measured against {@link #splitDriver}
+ *        ({@code PLAN_TASK_190.md} 11).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -395,7 +412,9 @@ public record VarkaEmitOptions(
     int heavyGroupOutputs,
     boolean predictGrouping,
     boolean driverOutputTable,
-    boolean exactGrouping) {
+    boolean exactGrouping,
+    boolean splitDriver,
+    boolean severalKernels) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -503,7 +522,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true);
+          false, true, true, false, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -585,6 +604,8 @@ public record VarkaEmitOptions(
       b.predictGrouping = predictGrouping;
       b.driverOutputTable = driverOutputTable;
       b.exactGrouping = exactGrouping;
+      b.splitDriver = splitDriver;
+      b.severalKernels = severalKernels;
     return b;
   }
 
@@ -625,6 +646,8 @@ public record VarkaEmitOptions(
     private boolean predictGrouping;
     private boolean driverOutputTable;
     private boolean exactGrouping;
+    private boolean splitDriver;
+    private boolean severalKernels;
 
     private Builder() {
     }
@@ -804,6 +827,16 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder splitDriver(boolean splitDriver) {
+      this.splitDriver = splitDriver;
+      return this;
+    }
+
+    public Builder severalKernels(boolean severalKernels) {
+      this.severalKernels = severalKernels;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -813,7 +846,7 @@ public record VarkaEmitOptions(
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
           groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
-          predictGrouping, driverOutputTable, exactGrouping);
+          predictGrouping, driverOutputTable, exactGrouping, splitDriver, severalKernels);
     }
   }
 
@@ -848,6 +881,14 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withExactGrouping(boolean enabled) {
     return toBuilder().exactGrouping(enabled).build();
+  }
+
+  public VarkaEmitOptions withSplitDriver(boolean enabled) {
+    return toBuilder().splitDriver(enabled).build();
+  }
+
+  public VarkaEmitOptions withSeveralKernels(boolean enabled) {
+    return toBuilder().severalKernels(enabled).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -1001,7 +1042,8 @@ public record VarkaEmitOptions(
    * they differ from their defaults, so every variant's rendering from before they existed is
    * unchanged; so do the fields added since ({@code groupLocalSlots},
    * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
-   * {@code predictGrouping}, {@code driverOutputTable}, {@code exactGrouping}).
+   * {@code predictGrouping}, {@code driverOutputTable}, {@code exactGrouping},
+   * {@code splitDriver}, {@code severalKernels}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -1024,6 +1066,8 @@ public record VarkaEmitOptions(
             ? "" : "|heavy=" + heavyGroupOutputs)
         + (predictGrouping ? "|predictGrouping" : "")
         + (driverOutputTable ? "" : "|unrolledDriver")
-        + (exactGrouping ? "" : "|greedyGrouping") + ')';
+        + (exactGrouping ? "" : "|greedyGrouping")
+        + (splitDriver ? "|splitDriver" : "")
+        + (severalKernels ? "|severalKernels" : "") + ')';
   }
 }

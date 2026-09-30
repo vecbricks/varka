@@ -2478,6 +2478,51 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       wide.declines(fused).reason)
   }
 
+  test("under severalKernels the suffix the unrolled driver's ceiling demotes is a second " +
+      "kernel, and every entry fuses") {
+    // PLAN_TASK_190.md 11: the entries task 169's bisection demotes fit, only not beside the
+    // others, so they are classified again as a kernel of their own.
+    def entry(k: Int): NamedExpression =
+      out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
+    val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
+    val one = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
+      unrolled).get
+    val first = one.specs.count(_.isInstanceOf[FusedOutput])
+    val two = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
+      unrolled.withSeveralKernels(true)).get
+    assert(two.kernels.size === 2 && two.declines.isEmpty)
+    assert(two.specs.take(first) === one.specs.take(first))
+    assert(two.specs.drop(first) === (0 until 200 - first).map(KernelOutput(1, _)))
+    assert(two.kernels.map(_.outputs.size) === Seq(first, 200 - first))
+    assert(two.columnIndex(KernelOutput(1, 3)) === Some(first + 3))
+    // A projection one kernel serves is classified exactly as without the option.
+    val hundred = (1 to 100).map(entry)
+    assert(VarkaExpressionCompiler.compilePartial(hundred, childOutput,
+      unrolled.withSeveralKernels(true)) ===
+      VarkaExpressionCompiler.compilePartial(hundred, childOutput, unrolled))
+  }
+
+  test("under severalKernels a projection over more columns than a kernel reads is served by " +
+      "two kernels, and an entry no kernel serves keeps its own reason") {
+    // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
+    // not beside the others, which is another kernel's entry. A lane mismatch is not a size, so it
+    // stays residual whatever the option.
+    val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
+    val longCol = AttributeReference("l", LongType)()
+    val output = columns :+ longCol
+    val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+ out(Add(longCol, Literal(1L)))
+    val one = VarkaExpressionCompiler.compilePartial(list, output).get
+    assert(one.specs.count(_.isInstanceOf[FusedOutput]) === 64) // VarkaEmitBudget.MAX_INPUTS
+    assert(one.declines(64).reason === "exceeds the emitter's fused budget")
+    val two = VarkaExpressionCompiler.compilePartial(list, output,
+      VarkaEmitOptions.DEFAULTS.withSeveralKernels(true)).get
+    assert(two.kernels.size === 2)
+    assert(two.specs.slice(64, 70) === (0 until 6).map(KernelOutput(1, _)))
+    assert(two.more.head.inputOrdinals === (64 until 70))
+    assert(two.specs(70) === ResidualOutput && two.declines.keySet === Set(70))
+    assert(two.declines(70).reason === one.declines(70).reason)
+  }
+
   test("a projection with a nondeterministic entry declines whole, with the reason on each entry") {
     // A Varka node evaluates residual entries through projections of its own, on its row path
     // and beside its kernel, where vanilla's Project draws `rand` from one generator per
