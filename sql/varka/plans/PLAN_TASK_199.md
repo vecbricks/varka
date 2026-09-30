@@ -205,10 +205,13 @@ compares two ways of pricing them rather than two feature sets:
   and wide shapes. It uses a small ridge, and the register's probes are added as rows so that a
   kind the corpus rarely draws still gets a price.
 
-`VarkaEmitCostTable` is generated Java holding both tables, 86 features each. `VarkaEmitCostSuite`
-derives both from emitted classes and fails when the committed file differs, so a lowering change
-that moves a price names the feature, the way the weights' register does. Catalyst has no main
-resources directory, which is why the tables are Java source rather than a data file.
+Both tables are generated Java. `VarkaEmitCostTable`, in the emitter, holds the chosen prices;
+`VarkaEmitCostRegister`, beside the suites, holds the other, which only the audit reads.
+`VarkaEmitCostSuite` derives both from emitted classes and fails when either committed file
+differs, so a lowering change that moves a price names the feature, the way the weights' register
+does. Catalyst has no main resources directory, which is why the tables are Java source rather than
+a data file. (As first built both tables sat in the emitter, 86 features each; 9.5 says what the
+review changed.)
 `VarkaIrGrammar` gains a wide draw of 20 to 200 roots per shape on seeds of its own, so no
 committed corpus moves. `VarkaEmitCostCorpus` holds the corpus of 3.2. `VarkaEmitCostAuditSuite`
 writes `sql/varka/emit_cost_audit.json`. That file scores both models on shapes neither was derived
@@ -219,7 +222,8 @@ under groups up to the fused ceiling, at sixteen int lanes.
 the chosen model predicts the next output would put a method over the byte budget, or, for a group
 wider than `HEAVY_GROUP_OUTPUTS`, over the call-site budget. The emit loop is unchanged except for
 one fallback: a class the predicted grouping would make decline is built again with the weights
-alone. `emitted_bytes.json` gains the `predictGrouping=true` arm, and nothing else in it moves.
+alone. (As first built `emitted_bytes.json` also gained a `predictGrouping=true` arm; 9.5 says why
+the review removed it.)
 
 **Three departures from section 3, made while building.**
 
@@ -247,7 +251,8 @@ measured bytes, as a percentage of the measured, over 53550 held-out group metho
 | B, 8000 bytes and over | 161 | 51.2% | 57.5% | 63.7% | 64.3% | 0% |
 
 For call sites on methods of 2000 bytes or more, A is 1.7% at the median and 8.7% at the 99th
-percentile, and B is 2.5% and 32.0%. **A is the chosen model** (`VarkaEmitCost.CHOSEN`).
+percentile, and B is 2.5% and 32.0%. **A is the chosen model**: its prices are
+`VarkaEmitCostTable`, and B's moved to `VarkaEmitCostRegister` for the audit alone (9.5).
 
 **Why the register fails where it is needed.** B over-predicts large groups by about half, and the
 size ladder, a group of many calendar outputs over one date, shows it most (45.8% at the median).
@@ -309,3 +314,42 @@ over one long-lane division that the call-site budget splits.
   is a decision for task 200, which will use the same prediction. A producer group does not know
   at grouping time whether a later group will load its prefix, so the six vector stores that
   materialize a prefix are not counted in the producer's cost.
+
+### 9.5 The review, 30 September 2026
+
+A code review of the first build found ten problems. The owner asked for all of them to be
+addressed, and asked separately why the test helpers were Scala: new Varka code is Java unless a
+ScalaTest base forces Scala. The corpus, the fit and the audit are now Java under
+`sql/catalyst/src/test/java` (`VarkaEmitCostCorpus`, `VarkaEmitCostFit`, `VarkaEmitCostAudit`, the
+last the name section 4 planned), and the two suites are thin Scala over them. No figure in 9.2 or
+9.3 moved.
+
+1. **`NarrowLane` had no price.** It sits at the root of every TIME kernel, the fuzz grammar never
+   draws it, and the coverage test trusted the grammar, so TIME kernels were silently unpredicted.
+   It is priced on its root form, and the test now enumerates every feature from the IR's own
+   enums, keeps the variants the emitter accepts, and fails for any IR record type no feature
+   names. The grammar's own gap is milestone 6 row 235.
+2. **The prediction checked call sites after the emit loop had dropped the call-site budget.** The
+   grouping now reads the budget in force.
+3. **A decline naming one output over the budget was rebuilt under the weights**, which cannot
+   change it. The fallback now skips it. A decline of the driver is still rebuilt, since only the
+   weights' grouping can tell whether fewer groups fit, and the audit now pins what that costs: of
+   the held-out wide shapes that decline either way, the int ones take 94 builds under the switch
+   against 47, and the long ones 95 against 55.
+4. **The oracle's `predictGrouping` arm could never move**, since no oracle shape nears a budget.
+   It is removed, and `emit_cost_audit.json` instead carries a digest of the first groupings the
+   prediction forms per shape family, which moves whenever the prices regroup a shape.
+5. **The audit assumed the build kept the first grouping.** The emitter now counts its builds
+   (`emitCountingBuilds`); a shape built more than once is left out of the fit and the audit rather
+   than paired with the wrong group, and only a decline is caught, so an emitter bug on a corpus
+   shape fails the suite.
+6. **The audit's "one build" was inferred from loop counts.** It is now the build count.
+7. **The features were counted by a second walk beside the grouping's, and the audit rebuilt the
+   groups a third way.** The counting is now fed by `GroupOps`' own walk, so it follows the
+   grouping's sharing exactly - which also corrects an unshared prefix, now counted per calendar
+   node as the emitter emits it - and the suites read those very tallies (`talliesForTest`).
+8. **The prediction was re-summed over every feature at each output.** It is a running total.
+9. **The suites' cost** was estimated at minutes. Measured, the table derivation takes 6 s and the
+   audit 12 s, so both stay in the default run.
+10. **The class doc named a class that did not exist.** `VarkaEmitCostAudit` now exists.
+

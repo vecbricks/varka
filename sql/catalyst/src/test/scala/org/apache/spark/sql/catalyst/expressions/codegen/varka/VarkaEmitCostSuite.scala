@@ -18,95 +18,118 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file.{Files, Path}
 
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
- * The emit cost model (`VarkaEmitCost`): its tables against the classes the emitter builds, its
- * reach over the IR, how it counts a group's features, and the grouping it drives under
- * `VarkaEmitOptions.predictGrouping`. How well it predicts is `VarkaEmitCostAuditSuite`'s.
+ * The emit cost model (`VarkaEmitCost`): its price tables against the classes the emitter
+ * builds, its reach over the IR, how the grouping counts a group's features, and the grouping
+ * it drives under `VarkaEmitOptions.predictGrouping`. How well it predicts is
+ * `VarkaEmitCostAuditSuite`'s. The corpus, the fit and the audit are Java
+ * (`VarkaEmitCostCorpus`, `VarkaEmitCostFit`, `VarkaEmitCostAudit`); this suite drives them.
  */
 class VarkaEmitCostSuite extends VarkaEmitterTestBase {
 
-  private val tablePath = getWorkspaceFilePath("sql", "catalyst", "src", "main", "java", "org",
-    "apache", "spark", "sql", "catalyst", "expressions", "codegen", "varka",
-    "VarkaEmitCostTable.java")
+  private def varkaDir(tree: String): Path = getWorkspaceFilePath("sql", "catalyst", "src", tree,
+    "java", "org", "apache", "spark", "sql", "catalyst", "expressions", "codegen", "varka")
+
+  private val sources = Seq(varkaDir("main").resolve("VarkaEmitCostTable.java"),
+    varkaDir("test").resolve("VarkaEmitCostRegister.java"))
 
   test("the committed price tables are the ones the emitted classes give") {
-    // The register is read off emitted classes feature by feature, and the regression is fitted
-    // to emitted classes, so a lowering change that moves any method's bytes or call sites moves
-    // a price. Failing here names the features that moved, which is what keeps the tables from
-    // drifting the way the grouping weights once did.
-    val derived = VarkaEmitCostFit.derive()
-    if (sys.env.get("VARKA_COST_REGEN").contains("true")) {
-      Files.write(tablePath, derived.getBytes(StandardCharsets.UTF_8))
-      logInfo(s"regenerated $tablePath")
-    } else {
-      val committed = new String(Files.readAllBytes(tablePath), StandardCharsets.UTF_8)
-      if (committed != derived) {
-        val was = committed.linesIterator.toSet
-        val moved = derived.linesIterator.filterNot(was.contains).take(20).toSeq
-        fail("VarkaEmitCostTable.java differs from what the emitter's classes give; regenerate " +
-          "with VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostSuite' and say " +
-          "in the plan what moved. First lines that differ:\n  " + moved.mkString("\n  "))
+    // The register is read off emitted classes feature by feature, and the fitted prices are
+    // fitted to emitted classes, so a lowering change that moves any method's bytes or call
+    // sites moves a price. Failing here names the lines that moved, which is what keeps the
+    // tables from drifting the way the grouping weights once did.
+    val derived = VarkaEmitCostFit.derive().asScala
+    for ((path, text) <- sources.zip(derived)) {
+      if (sys.env.get("VARKA_COST_REGEN").contains("true")) {
+        Files.write(path, text.getBytes(StandardCharsets.UTF_8))
+        logInfo(s"regenerated $path")
+      } else {
+        val committed = new String(Files.readAllBytes(path), StandardCharsets.UTF_8)
+        if (committed != text) {
+          val was = committed.linesIterator.toSet
+          val moved = text.linesIterator.filterNot(was.contains).take(20).toSeq
+          fail(s"${path.getFileName} differs from what the emitter's classes give; regenerate " +
+            "with VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostSuite' and " +
+            "say in the plan what moved. First lines that differ:\n  " + moved.mkString("\n  "))
+        }
       }
     }
   }
 
-  test("every node kind the fuzz grammar draws has a price in both tables") {
-    // A kind absent from a table would make every group holding it unpredictable, and the switch
-    // would quietly fall back to the weights for it; the grammar reaches every IR node type, so
-    // its kinds are the set to hold the tables to.
-    val kinds = VarkaEmitCostFit.occurrences().keySet ++
-      LaneType.values.toSeq.flatMap(l => Seq(VarkaEmitCost.FIXED + l, VarkaEmitCost.OUTPUT + l,
-        VarkaEmitCost.SELECTION + l)) ++
-      Seq(VarkaEmitCost.PREFIX, VarkaEmitCost.PREFIX_MONTH, VarkaEmitCost.PREFIX_LOAD)
-    for (model <- VarkaEmitCost.Model.values) {
-      val missing = kinds.filterNot(VarkaEmitCostTable.table(model).containsKey)
-      assert(missing.isEmpty, s"$model has no price for ${missing.toSeq.sorted.mkString(", ")}")
+  /** Every record type of the IR's sealed hierarchy, by simple name. */
+  private def irTypes(c: Class[_] = classOf[VarkaVectorIR]): Set[String] =
+    Option(c.getPermittedSubclasses).map(_.toSet.flatMap((k: Class[_]) => irTypes(k)))
+      .getOrElse(Set(c.getSimpleName))
+
+  test("every feature the IR can produce has a price in both tables") {
+    // A feature missing from a table makes every group holding it unpredictable, and the switch
+    // then falls back to the weights for that group without a word. The expected set is
+    // enumerated from the IR's own enums, not from what the fuzz grammar draws - the grammar
+    // never draws NarrowLane, the root of every TIME kernel - and every record type of the IR
+    // must be named in it, so a node type added later fails here until it is priced.
+    val expected = VarkaEmitCostFit.expectedFeatures().asScala.toSet
+    val unnamed = irTypes().filterNot(t => expected.exists(f => f == t || f.startsWith(t + "/")))
+    assert(unnamed.isEmpty, s"IR types with no expected feature: ${unnamed.toSeq.sorted}")
+    for ((name, prices) <- Seq("VarkaEmitCostTable" -> VarkaEmitCostTable.PRICES,
+        "VarkaEmitCostRegister" -> VarkaEmitCostRegister.PRICES)) {
+      val missing = expected.filterNot(prices.containsKey)
+      assert(missing.isEmpty, s"$name has no price for ${missing.toSeq.sorted.mkString(", ")}")
     }
   }
 
-  test("a tally counts what the emitter emits once, once") {
-    // The features mirror the emitter's sharing: a repeated root is one more store and nothing
-    // else, a node two outputs hold is counted once, a prefix is counted once per date and its
-    // month step once, and a later group counts a materialized prefix as a load.
+  /** The feature counts of each group of the first grouping of `roots` under `options`. */
+  private def counts(options: VarkaEmitOptions, roots: VarkaVectorIR*): Seq[Map[String, Int]] =
+    VarkaLoopEmitter.talliesForTest(roots.asJava, options, VarkaEmitCostTable.PRICES).asScala
+      .map(_.counts().asScala.map { case (k, v) => k -> v.toInt }.toMap).toSeq
+
+  test("the grouping counts what the emitter emits once, once") {
+    // The features are fed by the grouping's own walk, so they follow its sharing: a repeated
+    // root is one more store and nothing else, a node two outputs hold is counted once, a
+    // shared prefix is counted once per date and its month step once, an unshared one once per
+    // calendar node, and a later group counts a materialized prefix as a load.
     val d = new ColumnRef(0)
-    val materialize = true
-    def counts(roots: VarkaVectorIR*): Map[String, Int] = {
-      val t = new VarkaEmitCost.Tally(LaneType.INT, materialize, new java.util.HashSet())
-      roots.foreach(t.add)
-      t.counts().asScala.map { case (k, v) => k -> v.toInt }.toMap
-    }
     val year = new Year(d)
-    assert(counts(year) === Map("fixed/INT" -> 1, "out/INT" -> 1, "Year" -> 1,
-      "ColumnRef/INT" -> 1, "prefix" -> 1))
-    assert(counts(year, year) === counts(year) + ("out/INT" -> 2))
-    assert(counts(year, new Month(d)) === counts(year) + ("out/INT" -> 2) + ("Month" -> 1) +
-      ("prefix/month" -> 1))
-    assert(counts(new Month(d), new DayOfMonth(d))("prefix/month") === 1)
-    val groups = VarkaEmitCost.tallies(Seq[VarkaVectorIR](new Month(d), year).asJava,
-      Seq(Seq(0), Seq(1)).map(_.map(Integer.valueOf).asJava).asJava,
-      VarkaEmitOptions.DEFAULTS).asScala
-    assert(groups(1).counts().asScala.toMap.map { case (k, v) => k -> v.toInt } ===
+    val month = new Month(d)
+    val defaults = VarkaEmitOptions.DEFAULTS
+    val one = Map("fixed/INT" -> 1, "out/INT" -> 1, "Year" -> 1, "ColumnRef/INT" -> 1,
+      "prefix" -> 1)
+    assert(counts(defaults, year) === Seq(one))
+    assert(counts(defaults, year, year) === Seq(one + ("out/INT" -> 2)))
+    assert(counts(defaults, year, month) ===
+      Seq(one + ("out/INT" -> 2) + ("Month" -> 1) + ("prefix/month" -> 1)))
+    assert(counts(defaults.withShareChronoPrefix(false).withGroupBudget(400), year, month) ===
+      Seq(one + ("out/INT" -> 2) + ("Month" -> 1) + ("prefix" -> 2) + ("prefix/month" -> 1)))
+    val apart = defaults.withGroupBudget(1).withFusedCeiling(1)
+    assert(counts(apart, month, year)(1) ===
       Map("fixed/INT" -> 1, "out/INT" -> 1, "Year" -> 1, "ColumnRef/INT" -> 1,
         "prefix/load" -> 1))
-    assert(counts(new Compare(CompareOp.LT, d, new ColumnRef(1)))("out/cond/INT") === 1)
+    assert(counts(defaults, new Compare(CompareOp.LT, d, new ColumnRef(1))).head(
+      "out/cond/INT") === 1)
+    val long = new IntNeg(Overflow.WRAP, new ColumnRef(0, LaneType.LONG))
+    assert(counts(defaults, new NarrowLane(long)).head ===
+      Map("fixed/LONG" -> 1, "out/LONG" -> 1, "NarrowLane" -> 1, "IntNeg/WRAP/LONG" -> 1,
+        "ColumnRef/LONG" -> 1))
   }
 
-  /** `roots` at the shipped options and sixteen lanes, with the prediction on or off. */
+  /** `roots` at the shipped options and the audit's width: the bytes and the builds taken. */
   private def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
-      predict: Boolean): Option[Array[Byte]] = {
-    try {
-      Some(VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaEmitCostTest",
-        roots.asJava, inputs, lits, null, null, VarkaEmitOptions.DEFAULTS
-          .withLanesOverride(VarkaEmitCostCorpus.Lanes).withPredictGrouping(predict)))
+      predict: Boolean, base: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS)
+      : (Option[Array[Byte]], Int) = {
+    val builds = new Array[Int](1)
+    val bytes = try {
+      Some(VarkaLoopEmitter.emitCountingBuilds(
+        "org.apache.spark.sql.varka.execution.VarkaEmitCostTest", roots.asJava, inputs, lits,
+        base.withLanesOverride(VarkaEmitCostCorpus.LANES).withPredictGrouping(predict), builds))
     } catch {
       case _: VarkaEmitDeclined => None
     }
+    (bytes, builds(0))
   }
 
   /** The loop methods of an emitted class: its groups. */
@@ -120,16 +143,11 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // at most HEAVY_GROUP_OUTPUTS outputs is exempt from the call-site budget - so a prediction
     // that closed a group on one of them would be a prediction wrong by a factor, and the bytes
     // are the sharpest way to see it.
-    for (k <- 0 until 400) {
-      val d = VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(VarkaIrGrammar.fuzzSeed, k))
-      val l = VarkaIrGrammar.drawLongShape(
-        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.longFuzzSeed, k))
-      for ((lane, roots, inputs, lits) <- Seq(("int", d.roots, d.numInputs, d.numLiterals),
-          ("long", l.roots, l.numInputs, l.numLiterals))) {
-        val off = emitted(roots, inputs, lits, predict = false)
-        val on = emitted(roots, inputs, lits, predict = true)
-        assert(off.map(_.toSeq) === on.map(_.toSeq), s"$lane shape $k: $roots")
-      }
+    for (shape <- VarkaEmitCostCorpus.fuzz(400).asScala) {
+      val roots = shape.roots.asScala.toSeq
+      val off = emitted(roots, shape.numInputs, shape.numLiterals, predict = false)._1
+      val on = emitted(roots, shape.numInputs, shape.numLiterals, predict = true)._1
+      assert(off.map(_.toSeq) === on.map(_.toSeq), s"${shape.family} ${shape.index}: $roots")
     }
   }
 
@@ -140,15 +158,12 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // measurement would, so the first grouping is the last.
     for (n <- Seq(22, 64)) {
       val roots = (0 until n).map(VarkaEmitCostCorpus.tailEntry)
-      val options = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.Lanes)
-        .withPredictGrouping(true)
-      val on = emitted(roots, 1, n, predict = true).get
-      val off = emitted(roots, 1, n, predict = false).get
-      assert(loops(on) === VarkaLoopEmitter.groupsForTest(roots.asJava, options).size,
-        s"$n tails: the predicted grouping was regrouped after the build")
-      assert(loops(on) <= loops(off), s"$n tails: ${loops(on)} loop methods predicted, " +
-        s"${loops(off)} under the weights")
-      VarkaEmittedClass.measure(on).vectorCallSites.asScala.foreach { case (m, sites) =>
+      val (on, onBuilds) = emitted(roots, 1, n, predict = true)
+      val (off, offBuilds) = emitted(roots, 1, n, predict = false)
+      assert(onBuilds === 1 && offBuilds > 1, s"$n tails: $onBuilds and $offBuilds builds")
+      assert(loops(on.get) <= loops(off.get), s"$n tails: ${loops(on.get)} loop methods " +
+        s"predicted, ${loops(off.get)} under the weights")
+      VarkaEmittedClass.measure(on.get).vectorCallSites.asScala.foreach { case (m, sites) =>
         if (VarkaEmitBudget.groupOf(m) >= 0) {
           assert(sites <= VarkaEmitBudget.CALL_SITE_BUDGET, s"$n tails: $m carries $sites")
         }
@@ -156,24 +171,45 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("under predictGrouping no wide shape declines that the weights emit, and the two that " +
+  test("under predictGrouping every wide shape gets the weights' verdict, and the two that " +
       "gain a loop method are the greedy close the plan records") {
     // The predicted grouping closes groups the weights keep, and each group is a call more in
     // the driver, which on the widest shapes pushed the driver past the byte budget; such a class
-    // is built again with the weights alone, so the switch never costs a kernel. A shape can
-    // still gain a loop method where the measurement halves a group and the greedy close fills
-    // one and leaves the rest in two (PLAN_TASK_199.md 9): that list is pinned, so a new entry
-    // is seen rather than averaged away.
+    // is built again with the weights alone, so the switch never costs a kernel, and a shape the
+    // weights decline declines under it too; what those declines cost in builds is pinned in
+    // `emit_cost_audit.json`. A shape can still
+    // gain a loop method where the measurement halves a group and the greedy close fills one
+    // and leaves the rest in two (PLAN_TASK_199.md 9): that list is pinned, so a new entry is
+    // seen rather than averaged away.
     val gained = Seq.newBuilder[String]
-    for (shape <- VarkaEmitCostCorpus.wide) {
+    for (shape <- VarkaEmitCostCorpus.wide().asScala) {
       val where = s"${shape.family} ${shape.index}"
-      emitted(shape.roots, shape.numInputs, shape.numLiterals, predict = false).foreach { off =>
-        val on = emitted(shape.roots, shape.numInputs, shape.numLiterals, predict = true)
-          .getOrElse(fail(s"$where emits under the weights and declines predicted"))
-        if (loops(on) > loops(off)) gained += s"$where: ${loops(off)} -> ${loops(on)}"
+      val roots = shape.roots.asScala.toSeq
+      val off = emitted(roots, shape.numInputs, shape.numLiterals, predict = false)._1
+      val on = emitted(roots, shape.numInputs, shape.numLiterals, predict = true)._1
+      off match {
+        case Some(o) =>
+          val p = on.getOrElse(fail(s"$where emits under the weights and declines predicted"))
+          if (loops(p) > loops(o)) gained += s"$where: ${loops(o)} -> ${loops(p)}"
+        case None =>
+          assert(on.isEmpty, s"$where declines under the weights and emits predicted")
       }
     }
     assert(gained.result() === Seq("wide int 120: 31 -> 32", "wide long 95: 40 -> 41"))
+  }
+
+  test("a decline no grouping can avoid is not built again under the weights") {
+    // One make_date output alone over a byte budget of a few hundred bytes: the predicted
+    // grouping and the weights both leave it a group of its own, the class declines naming it,
+    // and the fallback that rebuilds a predicted grouping's decline is skipped.
+    val col = new ColumnRef(0)
+    val roots = Seq(new MakeDate(new Year(col), new Month(col), new LiteralSlot(0), true),
+      new Year(col))
+    val tight = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(300)
+    val (off, offBuilds) = emitted(roots, 1, 1, predict = false, tight)
+    val (on, onBuilds) = emitted(roots, 1, 1, predict = true, tight)
+    assert(off.isEmpty && on.isEmpty)
+    assert(onBuilds <= offBuilds, s"$onBuilds builds predicted, $offBuilds under the weights")
   }
 
   test("under predictGrouping the shapes it regroups answer as the reference evaluator does") {
@@ -186,10 +222,11 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     val tails = (0 until 64).map(VarkaEmitCostCorpus.tailEntry)
     assert(VarkaLoopEmitter.groupsForTest(tails.asJava, predicted) !=
       VarkaLoopEmitter.groupsForTest(tails.asJava, VarkaEmitOptions.DEFAULTS))
-    checkMatrix(tails, 1, (0 until 64).map(k => k * 3 - 90).toArray, Seq(1, 7, 17, 64, 129),
-      combos(1), options = predicted, ctx = "cheap tails, predicted")
-    checkMatrix(tails, 1, (0 until 64).map(k => k * 3 - 90).toArray, Seq(17, 129),
-      combos(1), forceMasked = true, options = predicted, ctx = "cheap tails, predicted, masked")
+    val lits = (0 until 64).map(k => k * 3 - 90).toArray
+    checkMatrix(tails, 1, lits, Seq(1, 7, 17, 64, 129), combos(1), options = predicted,
+      ctx = "cheap tails, predicted")
+    checkMatrix(tails, 1, lits, Seq(17, 129), combos(1), forceMasked = true,
+      options = predicted, ctx = "cheap tails, predicted, masked")
 
     val col = new ColumnRef(0, LaneType.LONG)
     val hours = new ConstDivide(col, 3_600_000_000_000L, ConstDivide.EXACT_DIVIDEND_BOUND)

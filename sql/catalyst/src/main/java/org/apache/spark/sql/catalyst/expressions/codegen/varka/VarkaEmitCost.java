@@ -17,11 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.chronoChild;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.tailReadsMarchMonth;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.isChrono;
-import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.childrenOf;
-
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -36,6 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
@@ -51,41 +47,35 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
  * whether a candidate group fits has been to emit it, and a grouping that asks about many
  * candidates - an exact partition asks about every contiguous run of outputs - cannot afford an
  * emission per question. This class answers the same question in the same units for the cost of
- * a walk over the group's nodes. The built class stays the last word: a prediction decides where
- * the first grouping closes a group ({@link VarkaEmitOptions#predictGrouping}), and a group that
- * still measures over a limit is split exactly as before.
+ * the walk the grouping already does. The built class stays the last word: a prediction decides
+ * where the first grouping closes a group ({@link VarkaEmitOptions#predictGrouping}), and a group
+ * that still measures over a limit is split exactly as before.
  *
- * <p><b>The features.</b> A group is described by counts of features, and each model prices a
- * feature per method. The features follow what the emitter emits once per group, per output and
- * per distinct node, which is why the counting mirrors {@code VarkaLoopEmitter}'s grouping
- * accounting: every method carries a fixed prologue and loop ({@code fixed}); every output a
- * store ({@code out}, or {@code out/cond} for a selection's condition); every distinct node,
- * its leaves included, its own code, keyed by {@link #kindOf}, since two nodes of one kind but
- * different modes or lanes lower differently; and a calendar node is priced as its tail alone,
- * with the civil-from-days prefix counted once per date the group decomposes
- * ({@code prefix}), once more per such date whose tails read the month step
- * ({@code prefix/month}), or as a load of an earlier group's prefix where the emitter
- * materializes it ({@code prefix/load}).
+ * <p><b>The features.</b> A group is described by counts of features, and each is priced per
+ * method. The grouping's own walk ({@code VarkaLoopEmitter.GroupOps}) feeds them, so they follow
+ * its sharing exactly: every method carries a fixed prologue and loop ({@code fixed}); every
+ * output a store ({@code out}, or {@code out/cond} for a selection's condition); every distinct
+ * node, its leaves included, its own code, keyed by {@link #kindOf}, since two nodes of one kind
+ * but different modes or lanes lower differently; and a calendar node is priced as its tail
+ * alone, with the civil-from-days prefix counted where the emitter computes one - once per date
+ * the group decomposes when prefixes are shared, once per calendar node when they are not
+ * ({@code prefix}) - once more where a tail reads the month step ({@code prefix/month}), or as
+ * a load of an earlier group's prefix where the emitter materializes it ({@code prefix/load}).
  *
- * <p><b>The two models.</b> {@link Model#REGISTER} prices each feature with what it measures when
- * emitted, by difference, beside a fixed partner; {@link Model#REGRESSION} with coefficients
- * fitted by least squares on a corpus of emitted groups. Both tables are
- * {@link VarkaEmitCostTable}, generated and pinned by {@code VarkaEmitCostSuite}, and
- * {@code VarkaEmitCostAudit} measures both against emitted classes. See {@code PLAN_TASK_199.md}.
+ * <p><b>The prices.</b> {@link VarkaEmitCostTable} holds one price per feature, fitted by least
+ * squares over emitted groups of every width, generated and pinned by {@code VarkaEmitCostSuite}.
+ * A second pricing, each feature measured alone beside its own children, was built beside it and
+ * lost: it over-prices a wide group by about half, because it charges every node for validity
+ * code a wide group shares. {@code VarkaEmitCostAuditSuite} scores both against emitted classes
+ * in {@code sql/varka/emit_cost_audit.json}. See {@code PLAN_TASK_199.md}.
  *
- * <p><b>What it assumes.</b> The tables are read at the default lowering options and at sixteen
+ * <p><b>What it assumes.</b> The prices are read at the default lowering options and at sixteen
  * int lanes. Other options and widths change a lowering here and there; the prediction is then a
  * little off, which the measurement after the build corrects.
  */
 final class VarkaEmitCost {
 
   private VarkaEmitCost() {}
-
-  /** The two ways a feature is priced; see the class doc. */
-  enum Model { REGISTER, REGRESSION }
-
-  /** The model {@link VarkaEmitOptions#predictGrouping} asks; chosen by the audit. */
-  static final Model CHOSEN = Model.REGRESSION;
 
   /**
    * The eight quantities a prediction has: the bytes, then the call sites, of the dense loop, the
@@ -144,104 +134,103 @@ final class VarkaEmitCost {
   }
 
   /**
-   * The feature counts of one group as it is formed, output by output: the distinct nodes it
-   * holds, the dates whose prefix it decomposes or loads, and the counts. Adding an output that
-   * repeats nodes the group already holds counts only what is new, as the emitter's common
-   * subexpression elimination emits only what is new.
+   * The features of one group as it is formed, output by output, and what they cost at
+   * {@code prices}. {@code GroupOps} calls it for each node the group does not yet hold and for
+   * each prefix it does not yet compute, so the tally counts what the emitter emits once, once.
+   * The prediction is a running sum, so asking for it costs nothing per output.
    */
   static final class Tally {
-    /** The kernel's lane, which every fixed and per-output feature is keyed by. */
-    private final VarkaVectorIR.LaneType lane;
-    /** Whether a prefix an earlier group computes is loaded here rather than recomputed. */
-    private final boolean materialize;
-    /** The prefixes the earlier groups compute; shared with them, read here. */
-    private final Set<VarkaVectorIR> earlier;
-    private final Set<VarkaVectorIR> nodes;
-    private final Set<VarkaVectorIR> dates;
-    private final Set<VarkaVectorIR> monthDates;
+    private final Map<String, double[]> prices;
+    private final double[] total;
+    /** Whether a feature was counted that {@link #prices} has no price for. */
+    private boolean unpriced;
+    /** Where the month step has been counted: a date, or a node when prefixes are not shared. */
+    private final Set<Object> months;
+    /** The counts by feature, kept only for the suites that fit and audit the prices. */
     private final Map<String, Integer> counts;
 
-    Tally(VarkaVectorIR.LaneType lane, boolean materialize, Set<VarkaVectorIR> earlier) {
-      this(lane, materialize, earlier, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-          new HashMap<>());
-      counts.put(FIXED + lane, 1);
+    /**
+     * A new group of a kernel on {@code lane}, priced at {@code prices}; {@code keepCounts}
+     * keeps the feature counts too.
+     */
+    Tally(LaneType lane, Map<String, double[]> prices, boolean keepCounts) {
+      this(prices, new double[QUANTITIES], false, new HashSet<>(),
+          keepCounts ? new HashMap<>() : null);
+      count(FIXED + lane);
     }
 
-    private Tally(VarkaVectorIR.LaneType lane, boolean materialize, Set<VarkaVectorIR> earlier,
-        Set<VarkaVectorIR> nodes, Set<VarkaVectorIR> dates, Set<VarkaVectorIR> monthDates,
-        Map<String, Integer> counts) {
-      this.lane = lane;
-      this.materialize = materialize;
-      this.earlier = earlier;
-      this.nodes = nodes;
-      this.dates = dates;
-      this.monthDates = monthDates;
+    private Tally(Map<String, double[]> prices, double[] total, boolean unpriced,
+        Set<Object> months, Map<String, Integer> counts) {
+      this.prices = prices;
+      this.total = total;
+      this.unpriced = unpriced;
+      this.months = months;
       this.counts = counts;
     }
 
     Tally copy() {
-      return new Tally(lane, materialize, earlier, new HashSet<>(nodes), new HashSet<>(dates),
-          new HashSet<>(monthDates), new HashMap<>(counts));
+      return new Tally(prices, total.clone(), unpriced, new HashSet<>(months),
+          counts == null ? null : new HashMap<>(counts));
     }
 
-    /** Counts {@code root} as one more output of the group. */
-    void add(VarkaVectorIR root) {
-      bump((root instanceof Cond ? SELECTION : OUTPUT) + lane);
-      walk(root);
+    /** One more output: its store, and the lane its value is stored in. */
+    void output(VarkaVectorIR root, LaneType lane) {
+      count((root instanceof Cond ? SELECTION : OUTPUT) + lane);
     }
 
-    /** What {@code model} predicts for the group so far; see {@link VarkaEmitCost#predict}. */
-    double[] predict(Model model) {
-      return VarkaEmitCost.predict(model, counts);
+    /** A node the group did not hold before. */
+    void node(VarkaVectorIR node) {
+      count(kindOf(node));
     }
 
-    /** The dates this group decomposes itself: the prefixes a later group may load. */
-    Set<VarkaVectorIR> decomposedDates() {
-      Set<VarkaVectorIR> own = new HashSet<>(dates);
-      own.removeIf(d -> materialize && earlier.contains(d));
-      return own;
+    /** A prefix the group computes, or loads when {@code loaded}. */
+    void prefix(boolean loaded) {
+      count(loaded ? PREFIX_LOAD : PREFIX);
     }
 
-    /** The counts so far, by feature, in feature order. */
+    /** A tail that reads the month step of the prefix {@code key} names. */
+    void month(Object key) {
+      if (months.add(key)) {
+        count(PREFIX_MONTH);
+      }
+    }
+
+    /**
+     * The eight predicted quantities, in {@link #METHODS} order, bytes then call sites; null when
+     * a feature has no price, which a caller must read as "unknown" rather than as zero.
+     */
+    double[] predicted() {
+      return unpriced ? null : total.clone();
+    }
+
+    /** The counts by feature, in feature order; empty unless the tally keeps them. */
     TreeMap<String, Integer> counts() {
-      return new TreeMap<>(counts);
+      return counts == null ? new TreeMap<>() : new TreeMap<>(counts);
     }
 
-    private void bump(String feature) {
-      counts.merge(feature, 1, Integer::sum);
-    }
-
-    private void walk(VarkaVectorIR node) {
-      if (!nodes.add(node)) {
+    private void count(String feature) {
+      if (counts != null) {
+        counts.merge(feature, 1, Integer::sum);
+      }
+      double[] price = prices.get(feature);
+      if (price == null) {
+        unpriced = true;
         return;
       }
-      bump(kindOf(node));
-      if (isChrono(node)) {
-        VarkaVectorIR date = chronoChild(node);
-        boolean loaded = materialize && earlier.contains(date);
-        if (dates.add(date)) {
-          bump(loaded ? PREFIX_LOAD : PREFIX);
-        }
-        if (!loaded && tailReadsMarchMonth(node) && monthDates.add(date)) {
-          bump(PREFIX_MONTH);
-        }
-      }
-      for (VarkaVectorIR child : childrenOf(node)) {
-        walk(child);
+      for (int q = 0; q < QUANTITIES; q++) {
+        total[q] += price[q];
       }
     }
   }
 
   /**
-   * The eight quantities {@code model} predicts for a group with {@code counts}, in
-   * {@link #METHODS} order, bytes then call sites; null when a feature has no price in the
-   * model's table, which a caller must read as "unknown" rather than as zero.
+   * What {@code prices} predict for a group with {@code counts}, as {@link Tally#predicted}; for
+   * the audit, which prices one group's counts under more than one table.
    */
-  static double[] predict(Model model, Map<String, Integer> counts) {
-    Map<String, double[]> table = VarkaEmitCostTable.table(model);
+  static double[] predict(Map<String, double[]> prices, Map<String, Integer> counts) {
     double[] total = new double[QUANTITIES];
     for (Map.Entry<String, Integer> e : counts.entrySet()) {
-      double[] price = table.get(e.getKey());
+      double[] price = prices.get(e.getKey());
       if (price == null) {
         return null;
       }
@@ -260,27 +249,5 @@ final class VarkaEmitCost {
   /** The largest predicted call-site count among the four methods of {@code prediction}. */
   static double maxSites(double[] prediction) {
     return Math.max(Math.max(prediction[4], prediction[5]), Math.max(prediction[6], prediction[7]));
-  }
-
-  /**
-   * The tally of each group of {@code groups} over {@code outputs}, formed as
-   * {@code VarkaLoopEmitter} forms them: in order, each group seeing the prefixes the groups
-   * before it decompose. What the audit and the suite compare against the emitted class.
-   */
-  static List<Tally> tallies(List<VarkaVectorIR> outputs, List<List<Integer>> groups,
-      VarkaEmitOptions options) {
-    boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
-    VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
-    Set<VarkaVectorIR> earlier = new HashSet<>();
-    List<Tally> result = new java.util.ArrayList<>();
-    for (List<Integer> group : groups) {
-      Tally t = new Tally(lane, materialize, earlier);
-      for (int o : group) {
-        t.add(outputs.get(o));
-      }
-      result.add(t);
-      earlier.addAll(t.decomposedDates());
-    }
-    return result;
   }
 }
