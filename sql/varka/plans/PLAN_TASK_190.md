@@ -238,3 +238,62 @@ kernels and so never meets it, depends on it.
 At the ladder's widths the cost is small against the query it serves - ten
 milliseconds at a hundred entries, once per shape per JVM - so step 1 unblocks
 task 171 as it stands.
+
+### 9.2 Step 2's admission check, 30 September 2026
+
+Tasks 191, 198, 209 and 219 changed the driver and the grouping since section 3.2 was
+written, so the ceiling was measured again on master at `a94e62e5f51`, through a scratch
+probe that was not committed: four families at seven widths, emitted at sixteen lanes once
+at the shipped options and once with the byte budget at the class-file cap and the call-site
+budget off, so the methods can be read past the point where the shipped options decline.
+
+| family | outputs | groups | `runDense` | `runMasked` | shipped options |
+|---|---:|---:|---:|---:|---|
+| `greatest` entry | 100 | 25 | 5278 | 5932 | emits |
+| `greatest` entry | 150 | 38 | 8268 | 9244 | declines on both drivers |
+| `greatest` entry | 400 | 100 | 23742 | 26218 | declines on both drivers |
+| `year(d) + k` | 100 | 1 | 4022 | 4980 | emits |
+| `year(d) + k` | 150 | 1 | 6334 | 8064 | declines on `runMasked` |
+| `make_date` | 100 | 17 | 4862 | 5020 | emits |
+| `make_date` | 150 | 26 | 7644 | 8174 | declines on `runMasked` |
+| `date_add(d, k)` | 100 | 7 | 4310 | 5268 | emits |
+| `date_add(d, k)` | 400 | 25 | 19736 | 24216 | declines on both drivers |
+
+**The ceiling is the same for every family, between 100 and 150 outputs, and it is set by the
+outputs, not by the groups.** The `year(d) + k` family has one group at every width up to 300
+and hits the ceiling at the same width as the `greatest` family with 38 groups. Read by
+difference across the table:
+
+* **Each output costs the driver about 41 bytes in `runDense` and 50 in `runMasked`.** Per
+  output the driver loads the output's data segment, loads its validity segment and zeroes or
+  fills that validity; the masked driver adds the bitmap pass's call for a served output and a
+  term of the all-null shortcut. The data segment is dead in the driver: only the loop and
+  epilogue methods write data, and each loads the segments it needs in its own prologue. That
+  is about a third of the per-output cost, more once the segments' slots pass 255 and each
+  store takes the wide form.
+* **Each group costs about 54 bytes**: two calls, to its loop and to its epilogue.
+
+**What this changes in 3.2.** A' and B were designed around a driver that grows with the
+groups. It grows mainly with the outputs, and its per-output work is the same few calls with
+a different output index each time, which is the shape of a loop rather than of unrolled code.
+That admits a smaller step before either:
+
+* **A0: the driver's per-output work as a loop over the outputs.** The driver runs one loop
+  over a per-class table of each output's treatment - zero or fill its validity, run the bitmap
+  pass or not - and drops the dead data segments. Its size then grows with the groups alone,
+  about 54 bytes each, so the ceiling moves from about 140 outputs to about 140 groups: roughly
+  560 `greatest` entries at four to a group, and more for families that pack more outputs into
+  a group. No class, kernel or evaluator contract changes, and the dead segments go whatever
+  else is decided.
+
+A0 does not remove the ceiling. It moves it from outputs to groups, and past about 140 groups
+A' or B is still needed, as is B for a projection wider than `MAX_INPUTS` columns. So the
+proposal is to build A0 first, since it is small, is contained in the driver's prologue and
+serves every design, and then to build and measure A' and B above its ceiling as 3.2 planned,
+where they are needed rather than at 150 outputs.
+
+Two things the check leaves to the design. Whether the all-null shortcut can be a loop too:
+it tests, per output, whether any of its columns is all-null, which a table of each output's
+column set answers. And what A0 costs at run time: the per-output work runs once per batch
+either way, so a loop in place of unrolled calls is expected to cost nothing measurable, and
+the step's benchmark is to say so.
