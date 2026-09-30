@@ -48,6 +48,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Python's 100-column rule is a convention here, not a check](sql/varka/skills/build-and-environment.md#pythons-100-column-rule-is-a-convention-here-not-a-check)
 * [A git hook's nested git commands act on the repository being committed to](sql/varka/skills/build-and-environment.md#a-git-hooks-nested-git-commands-act-on-the-repository-being-committed-to)
 * [The Maven build CI runs takes about fifteen minutes here, and it is the only place three failures appear](sql/varka/skills/build-and-environment.md#the-maven-build-ci-runs-takes-about-fifteen-minutes-here-and-it-is-the-only-place-three-failures-appear)
+* [A committed file outside every module runs the whole CI matrix](sql/varka/skills/build-and-environment.md#a-committed-file-outside-every-module-runs-the-whole-ci-matrix)
 
 #### [Calendar algorithms](sql/varka/skills/calendar-algorithms.md)
 * [Reading a paper into the repo](sql/varka/skills/calendar-algorithms.md#reading-a-paper-into-the-repo)

@@ -283,3 +283,27 @@ The full Maven *test* run is a different matter and is not worth an idle night:
 CI shards it across about ten parallel jobs of one to two hours each, so a
 single machine is looking at six to twelve hours, nearly all of it exercising
 code Varka never touches.
+
+## A committed file outside every module runs the whole CI matrix
+
+CI decides which jobs a pull request needs from `dev/sparktestsupport/modules.py`: each changed
+file is mapped to a module, and a file that matches no module counts as every module changed.
+So one unmapped file in a pull request switches on every module-gated job, including ones that
+have nothing to do with Varka - the Kubernetes integration tests and the OIDC end-to-end job
+built Minikube clusters for #520 and #525 because `sql/varka/emit_cost_audit.json` was new and
+in no module's list. The benchmark results, the bytes oracle and the coverage table had been
+mapped one by one as each fell through the same hole.
+
+The rule is that every committed file Varka adds gets a module, or a place in the ignored
+patterns when no check reads it, in the same change that adds it. The check is one command:
+
+    git ls-files sql/varka dev docs SKILLS.md | python3 -c "
+    import sys; sys.path.insert(0, 'dev'); from sparktestsupport import modules
+    for f in (l.strip() for l in sys.stdin):
+        if f and not modules.is_ignored_file(f) and not any(
+            m.contains_file(f) for m in modules.all_modules if m is not modules.root): print(f)"
+
+A file this prints is one the next pull request touching it will pay the full matrix for. The
+jobs that can never be Varka's are also gated on their own source directories in
+`build_and_test.yml`, as SparkR's, buf's and the UI job's are, so the fallback cannot reach
+them however the map drifts.

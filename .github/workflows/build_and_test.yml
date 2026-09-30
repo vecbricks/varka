@@ -177,6 +177,19 @@ jobs:
             if ! echo "$changed_files" | grep -qE '^ui-test/|/resources/.*/static/'; then
               ui=false
             fi
+            # The Kubernetes integration tests and the OIDC E2E job build a Minikube cluster to
+            # test resource-managers/kubernetes and connector/credential-aws end to end, and this
+            # fork develops neither. Their module gates reached Varka pull requests through the
+            # detector's fallback: a changed file outside every module counts as every module
+            # changed, and several of Varka's committed results and tools were outside them. Run
+            # them when their own sources change, as the SparkR gate above does; the kubernetes
+            # module has no dependencies, so that is what its gate covered anyway.
+            if ! echo "$changed_files" | grep -qE '^resource-managers/kubernetes/'; then
+              kubernetes=false
+            fi
+            if ! echo "$changed_files" | grep -qE '^(resource-managers/kubernetes/|connector/credential-aws)'; then
+              oidc_e2e=false
+            fi
             if [ "$static_only" = "true" ]; then
               pyspark=false
               pandas=false
