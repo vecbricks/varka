@@ -19,14 +19,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.util.Random
 
-import org.json4s.{DefaultFormats, JString}
-import org.json4s.jackson.JsonMethods.parse
-
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference,
-  Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{FusedOutput, VarkaExpressionCompiler}
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 
 /**
  * Random compositions of the coverage table, through the compiler to the emitter.
@@ -56,30 +51,14 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
   private val iterations = sys.props.get("varka.fuzz.compositions").map(_.toInt).getOrElse(40)
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
 
-  private case class Row(executable: String, predicate: Boolean)
-
   /** The coverage table's columns and rows, from the committed file the coverage suite keeps. */
-  private lazy val (columns: Seq[Attribute], projections: Seq[Row], predicates: Seq[Row]) = {
-    implicit val formats: DefaultFormats.type = DefaultFormats
-    val json = parse(new String(java.nio.file.Files.readAllBytes(
-      getWorkspaceFilePath("sql", "varka", "coverage.json")), "UTF-8"))
-    val columns = (json \ "columns").extract[Map[String, String]].toSeq.map { case (name, t) =>
-      AttributeReference(name, CatalystSqlParser.parseDataType(t))()
-    }
-    val rows = (json \ "expressions").children.map { row =>
-      val executable = (row \ "executable") match {
-        case JString(s) if s.nonEmpty => s
-        case _ => (row \ "sql").extract[String]
-      }
-      Row(executable, (row \ "form").extract[String] == "predicate")
-    }
-    val (predicates, projections) = rows.partition(_.predicate)
-    assert(projections.size > 40 && predicates.size > 10, s"${rows.size} rows read")
-    (columns, projections, predicates)
-  }
+  private lazy val table =
+    VarkaCoverageRows.read(getWorkspaceFilePath("sql", "varka", "coverage.json"))
+  private def columns = table.columns
+  private def projections = table.projections
+  private def predicates = table.predicates
 
-  private def resolve(sql: String): Expression =
-    VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(sql), columns)
+  private def resolve(sql: String): Expression = VarkaCoverageRows.resolve(sql, columns)
 
   /** One to `max`, log-uniform, so most compositions are small and some are very wide. */
   private def width(rnd: Random, max: Int): Int =

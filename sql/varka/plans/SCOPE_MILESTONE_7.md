@@ -1140,6 +1140,14 @@ argument, and the reason it left is the start of that argument.
 | 74 | The validity-word algebra's missing axioms | 2.9 | an optimisation of the existing validity pass |
 | 75 | Zero-copy validity for leaf words | 2.10 | an optimisation whose bound moved below its own decline line |
 | 80 | String-column compaction keeping the Arrow layout | 2.27 | strings, sized for this milestone's item 3 |
+
+*30 September 2026, for task 72, from task 200's admission check (`PLAN_TASK_200.md` 2):* the
+case it names, measured. The fields of two dates interleaved take a loop method per output under
+every partition that keeps the order - 24 methods for 24 fields, each loading its prefix -
+because adjacent outputs share nothing and two fields with loaded prefixes are 26 ops, over the
+group budget's 16, with no reuse to open the wider bound; the fields of twelve dates take 12
+methods listed by date and 48 listed by field. The exact partition of task 200 cannot help
+there; only the order can.
 | 82 | The mask-to-long disposal in a checked kernel | 2.12 | a micro-optimisation of the int32 checked path |
 | 87 | The epilogue is the one method no budget bounds | 2.18 | kept for a future fix at the owner's request; milestone 5's section 6 says when it would come back |
 | 98 | Two filter rows under 1.0x because the consumer counts | 2.33 | the read-back floor - this milestone's item 13, which is where it now belongs |
@@ -3981,6 +3989,34 @@ override other than the preferred width's, so that the next such test cannot lan
 **Done when** no Varka suite runs a second species of a lane type in the shared test JVM, the
 guard is in place, and the full Varka run's time is read before and after, since the boxed
 kernels it no longer runs are its measurable gain.
+
+### Item 71. Whether the first grouping should close groups on the cost model's prediction
+
+*Added 30 September 2026 from task 200's admission check (`PLAN_TASK_200.md` 3), which task
+199 had left the decision to.*
+
+`VarkaEmitOptions.predictGrouping` (task 199) makes the first grouping close a group where the
+fitted cost model predicts that the next output would put a method over the byte budget or the
+call-site budget, so a shape the measurement would otherwise split builds once. It is off by
+default. Task 200 found the greedy grouping with the prediction within 0.12% of the best
+partition's ops on every family, so the exact partition it builds does not decide this; what is
+not measured is run time. The prediction changes which outputs share a method on
+the shapes where the measurement would have halved a group - the cheap tails and about a tenth
+of the wide shapes - and a group closed earlier by prediction is not the group the halving would
+have made. The check also found one shape where the prediction misses: an output that adds no
+node to its group joins it whatever the budgets say, since it costs the group nothing but a
+store, and that seventh output takes a group past the six-output exemption from the call-site
+budget with its predicted call sites already over it, so the class is built twice.
+
+**What to do.** A section of `VarkaWideKernelBenchmark` over the cheap tails and the wide
+shapes that the two groupings split differently, predicted and not, at both bodies - the section
+task 200's `exactGrouping` is measured in, since both are questions about the first grouping;
+and a decision on the duplicate output - whether one that adds nothing should count toward a
+group's width for the call-site exemption - read off the same run. The default follows the
+numbers.
+
+**Done when** the section's results are committed and the default is set, either way, with the
+reason.
 
 ## 5. Ordering
 

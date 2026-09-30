@@ -670,6 +670,12 @@ public final class VarkaLoopEmitter {
     return groupOutputs(List.copyOf(outputs), options);
   }
 
+  /** As above, with {@code forcedStarts}: outputs that begin a group whatever the rule says. */
+  static List<List<Integer>> groupsForTest(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options, Set<Integer> forcedStarts) {
+    return groupOutputs(List.copyOf(outputs), options, forcedStarts, null);
+  }
+
   /**
    * The cost model's tally of each group of that first grouping, with its feature counts kept,
    * priced at {@code prices}: the very tallies the grouping forms, so what the suites fit and
@@ -712,28 +718,16 @@ public final class VarkaLoopEmitter {
         earlier, lane, newTally == null ? null : newTally.apply(lane));
     GroupOps group = newGroup.get();
     for (int o = 0; o < outputs.size(); o++) {
-      GroupOps withNext = group.copy();
-      int marginal = withNext.add(outputs.get(o));
-      // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
-      // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
-      // what this output would cost on its own less what it actually adds - which is the prefix
-      // accounting generalised, since a reused prefix is reused nodes. The gate stays `> 0`: reuse
-      // opens the wider bound, its size does not.
-      int reuse = withNext.saved;
-      if (options.shareWholeNodes()) {
-        GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
-            null);
-        reuse = alone.add(outputs.get(o)) - marginal;
-      }
-      boolean fits = (group.ops + marginal <= options.groupBudget()
-          || (reuse > 0 && group.ops + marginal <= options.fusedCeiling()))
-          && (!predict || withNext.predictedWithin(options, current.size() + 1));
+      Admission step = admit(group, outputs.get(o), current.size(), options, predict,
+          materialize, earlier, lane);
+      GroupOps withNext = step.withNext();
       // marginal == 0 means this output adds no node the group does not already have - it
       // is structurally the same tree - so splitting it off cannot reduce the method's op
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
       // its own: after one calendar output `ops` already exceeds it, so without this test
       // `SELECT year(d) AS a, year(d) AS b` would emit the decomposition twice.
-      if (!current.isEmpty() && ((marginal > 0 && !fits) || forcedStarts.contains(o))) {
+      if (!current.isEmpty()
+          && ((step.marginal() > 0 && !step.fits()) || forcedStarts.contains(o))) {
         groups.add(current);
         if (record != null) {
           record.tallies().add(group.tally);
@@ -751,6 +745,91 @@ public final class VarkaLoopEmitter {
       record.tallies().add(group.tally);
     }
     return groups;
+  }
+
+  /**
+   * One step of the greedy grouping: {@code group} with {@code output} added, how many ops the
+   * output added, whether the weights' two clauses of {@link #groupOutputs} admit it
+   * ({@code fitsWeights}), and whether the rule as a whole does ({@code fits}: the weights, and
+   * under {@code predict} the cost model's prediction as well). The one place the rule is
+   * written, so the grouping and the test that holds it to the best partition
+   * ({@link #runsForTest}) decide admission alike.
+   */
+  private record Admission(GroupOps withNext, int marginal, boolean fitsWeights, boolean fits) {}
+
+  private static Admission admit(GroupOps group, VarkaVectorIR output, int groupSize,
+      VarkaEmitOptions options, boolean predict, boolean materialize,
+      Set<VarkaVectorIR> earlier, VarkaVectorIR.LaneType lane) {
+    GroupOps withNext = group.copy();
+    int marginal = withNext.add(output);
+    // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
+    // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
+    // what this output would cost on its own less what it actually adds - which is the prefix
+    // accounting generalised, since a reused prefix is reused nodes. The gate stays `> 0`: reuse
+    // opens the wider bound, its size does not.
+    int reuse = withNext.saved;
+    if (options.shareWholeNodes()) {
+      GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+          null);
+      reuse = alone.add(output) - marginal;
+    }
+    boolean fitsWeights = group.ops + marginal <= options.groupBudget()
+        || (reuse > 0 && group.ops + marginal <= options.fusedCeiling());
+    boolean fits = fitsWeights && (!predict || withNext.predictedWithin(options, groupSize + 1));
+    return new Admission(withNext, marginal, fitsWeights, fits);
+  }
+
+  /**
+   * One run of outputs as {@link #runsForTest} reports it: its op total in the weights' units,
+   * whether the greedy rule admitted every output of it into one group, and the cost model's
+   * prediction of its widest method's bytes and Vector API call sites.
+   */
+  record RunForTest(int ops, boolean admitted, double bytes, double sites) {}
+
+  /**
+   * The runs of outputs that start at {@code from}, each one output longer than the last, with
+   * what the grouping knows of each. {@code admitted} is decided through the same
+   * {@link #admit} as the grouping under {@code options}, so a test that prices every
+   * contiguous run to find the best partition, and holds the greedy grouping to it
+   * ({@code VarkaGroupingBoundSuite}), searches a space the greedy partition is in. The runs
+   * stop where the weights' clauses alone stop admitting outputs, so every group the grouping
+   * forms with or without the prediction is among them; the first run, one output, is always
+   * reported. The groups before {@code from} are taken to have decomposed every date the
+   * outputs before it decompose, which is so under any partition of them.
+   */
+  static List<RunForTest> runsForTest(List<VarkaVectorIR> outputs, int from,
+      VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
+    boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
+    VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
+    GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
+        lane, null);
+    for (int o = 0; o < from; o++) {
+      before.add(outputs.get(o));
+    }
+    Set<VarkaVectorIR> earlier = new HashSet<>(before.prefixes);
+    GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+        new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false));
+    List<RunForTest> runs = new ArrayList<>();
+    boolean admitted = true;
+    for (int o = from; o < outputs.size(); o++) {
+      Admission step = admit(group, outputs.get(o), o - from, options, predict, materialize,
+          earlier, lane);
+      // An output that adds nothing joins whatever the budgets say, as in groupOutputs.
+      if (o > from && step.marginal() > 0) {
+        if (!step.fitsWeights()) {
+          break;
+        }
+        admitted &= step.fits();
+      }
+      group = step.withNext();
+      double[] predicted = group.tally.predicted();
+      runs.add(new RunForTest(group.ops, admitted,
+          predicted == null ? Double.NaN : VarkaEmitCost.maxBytes(predicted),
+          predicted == null ? Double.NaN : VarkaEmitCost.maxSites(predicted)));
+    }
+    return runs;
   }
 
   /**
