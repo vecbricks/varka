@@ -4063,6 +4063,51 @@ section's machine its own and ends the hand splicing.
 **Done when** a runner run of one section leaves every other section of its file byte for byte as
 committed.
 
+### Item 73. A default switcher for a new environment
+
+*Added 30 September 2026 on the owner's proposal, in place of retiring options once they win:
+many winners depend on the JDK and the machine, so they are measured where the code runs
+instead.*
+
+Several of `VarkaEmitOptions`' defaults were decided by a measurement on one machine and one JDK,
+and some are known to move with either. The 64-bit division's second lowering exists because the
+long-to-double converts do not intrinsify under `-XX:UseAVX=2` (task 88); the 512-bit datapath
+ratio read 1.99 on an EPYC 9V45 and 1.33 to 1.36 on Intel Xeons with the same flags (task 62); C1's
+call-site limit was read on JDK 25 at particular species (task 209, item 61). The losing arms are
+all kept and differentially tested, so a machine where another arm wins can use it without any
+answer changing - but nothing today measures that machine.
+
+**What to do.** A helper that runs in the new environment, measures the arms of every
+environment-dependent option, and writes a profile. It runs a minimal set, not the benchmark
+classes: per option, one small kernel that exercises the choice, taken from the A/B case that
+decided it, so a whole run takes minutes where a benchmark regeneration takes hours.
+
+* *Which options.* The plan classifies all the components: environment-dependent choices, which
+  the helper measures (the division lowerings, `useAVX`, `floorMod7`, `mulHiDivide`, the validity
+  forms, `narrowHalfSpecies` among them), structural ones, fixed, and test hooks, never. The
+  call-site budget is calibrated by task 209's probe, which answers item 61's question of whether
+  C1's limit travels.
+* *The decision.* Each arm is timed interleaved with the default's, several times, and switched
+  only when its win is outside the spread the helper measures between repeats of the same arm;
+  an inconclusive option keeps the default. The profile records each switch with its numbers and
+  the environment's fingerprint: JDK, CPU model, `UseAVX` level, preferred vector width.
+* *Not the defaults.* `VarkaEmitOptions.DEFAULTS` stays fixed: its documentation of `useAVX`
+  records why a host-dependent default would make the committed shape hashes and emitted bytes
+  describe one machine and fail on another. A profile is a session setting, its string surface a
+  conf key, bound once into the typed options at the moment the `useAVX` level is applied today.
+  Its switches render in the shape key as non-defaults, so every executor of a session emits the
+  same class names.
+* *Safety.* Every arm is already differentially tested in the suites. Before writing the
+  profile, the helper checks each kernel it measured against the reference evaluator under the
+  profile, which is the minimal check that the environment runs the switched arms as the suites
+  do.
+
+**Done when** a run takes under ten minutes on a four-core runner; the helper has written and
+committed profiles for the laptop (256-bit datapath) and the EPYC 9V45 runner (512-bit) with their
+measurements; a session under each profile answers the differential suites once, as the helper's
+own acceptance; and the record says which options switched on which machine - or that none did,
+which is a finding too.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
