@@ -624,3 +624,16 @@ its own on that line: vecruntime supports 4.1.x, so a stock 4.1.3 arm runs besid
 it. And it may leave Spark's cached table alone, which puts a different input
 under its number: vecruntime reads Parquet, so what bounds its ratio to Varka is
 task 194's measurement of Spark over both inputs.
+
+## An arm named for a form must set that form, not read it from the defaults
+
+A benchmark arm labelled "unrolled driver" was `VarkaEmitOptions.DEFAULTS`, which was the
+unrolled driver when the section was written. The next change made the table driver the default,
+and the arm silently became the table: the committed results were still right, because they
+predated the switch, but the next regeneration would have measured the table against itself
+under two labels (`PLAN_TASK_190.md` 10.4). Nothing failed, because nothing checks a label.
+
+So an arm whose name says which form it measures sets that form explicitly -
+`DEFAULTS.withDriverOutputTable(false)`, not `DEFAULTS` - even while the explicit value is the
+default, and a change that flips a default searches the benchmarks for arms that read it, as it
+searches the suites.

@@ -402,6 +402,12 @@ budget, and the call-site budget's rebuild when the splits made it decline - and
 unrolled form, the reference arm, by name; the compiler's hundred-entry test also asserts that
 two hundred entries fuse under the default.
 
+*Correction, 30 September 2026, found by task 200 (`PLAN_TASK_200.md` 8.1):* the section of
+`VarkaWideKernelBenchmark` this measurement came from named `VarkaEmitOptions.DEFAULTS` the
+unrolled driver, and once the table became the default above, that arm was the table as well, so
+a regeneration would have compared the table with itself. The results quoted above predate the
+switch and stand; the arms now name their forms.
+
 ### 10.5 The review, 30 September 2026
 
 A code review of A0 found seven problems, none a wrong answer. All seven are addressed:

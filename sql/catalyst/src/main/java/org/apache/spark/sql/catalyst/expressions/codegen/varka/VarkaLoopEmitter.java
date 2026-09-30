@@ -43,6 +43,7 @@ import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.lang.reflect.AccessFlag;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -322,7 +323,9 @@ public final class VarkaLoopEmitter {
     // Under `predictGrouping` the first grouping also asks the emit cost model (VarkaEmitCost)
     // whether each candidate group would measure over either budget, so the common case is built
     // once; the measurement above still decides, and a class the predicted grouping would make
-    // decline is built again with the weights alone (see `PLAN_TASK_199.md`).
+    // decline is built again with the weights alone (see `PLAN_TASK_199.md`). Under
+    // `exactGrouping` the first grouping is the best partition of the outputs under the same
+    // rule rather than the greedy walk's, and falls back the same way (see `PLAN_TASK_200.md`).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -408,13 +411,14 @@ public final class VarkaLoopEmitter {
         grouping = grouping.withCallSiteBudget(0);
         continue;
       }
-      if (grouping.predictGrouping() && stuck.isEmpty()) {
-        // The predicted grouping closes groups the weights would not, and every group is a call
-        // more in the driver, so it can push the driver past the byte budget. Like the call-site
-        // splits above, it must never cost a kernel: the class is built again with the weights
-        // alone, which is the emission the switch-off emitter makes, decline or not. A decline
-        // that names a single output over the budget is left alone: no grouping changes it.
-        grouping = options.withPredictGrouping(false);
+      if ((grouping.predictGrouping() || grouping.exactGrouping()) && stuck.isEmpty()) {
+        // The predicted grouping closes groups the weights would not, and the exact grouping may
+        // take a group more where that saves ops; every group is a call more in the driver, so
+        // either can push the driver past the byte budget. Like the call-site splits above,
+        // neither may cost a kernel: the class is built again with the greedy weights alone,
+        // which is the emission the switches-off emitter makes, decline or not. A decline that
+        // names a single output over the budget is left alone: no grouping changes it.
+        grouping = options.withPredictGrouping(false).withExactGrouping(false);
         siteBudget = options.callSiteBudget();
         forcedStarts.clear();
         continue;
@@ -655,6 +659,13 @@ public final class VarkaLoopEmitter {
    * pins that as a limitation; reordering outputs for prefix affinity is in the milestone's
    * debt register, because the evaluator's per-output vectors and the debug line map key on
    * the projection's order.
+   *
+   * <p>Greedy in where it closes a group is a second limitation, which
+   * {@link VarkaEmitOptions#exactGrouping} lifts: a cheap output that shares nothing can join a
+   * group only under clause 1, so where the walk has just filled a group it is left with a loop
+   * method of its own. Under the option the best partition of the outputs in their order
+   * ({@link #bestPartitionStarts}) decides where each group starts, and the walk below closes a
+   * group there and nowhere else; the rule that admits an output is the same either way.
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
@@ -699,6 +710,12 @@ public final class VarkaLoopEmitter {
    */
   private static List<List<Integer>> groupOutputs(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Set<Integer> forcedStarts, TallyRecord record) {
+    if (options.exactGrouping()) {
+      // The best partition's group starts, forced on the walk below. Every group of that
+      // partition is one the rule admits, so the walk closes a group at each of its starts and
+      // at no other output, and so forms exactly that partition.
+      forcedStarts = bestPartitionStarts(outputs, options, forcedStarts);
+    }
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
     // The prefixes the closed groups compute. Under `materializeChronoPrefix` a later group
@@ -718,7 +735,7 @@ public final class VarkaLoopEmitter {
         earlier, lane, newTally == null ? null : newTally.apply(lane));
     GroupOps group = newGroup.get();
     for (int o = 0; o < outputs.size(); o++) {
-      Admission step = admit(group, outputs.get(o), current.size(), options, predict,
+      Admission step = admit(group.copy(), outputs.get(o), current.size(), options, predict,
           materialize, earlier, lane);
       GroupOps withNext = step.withNext();
       // marginal == 0 means this output adds no node the group does not already have - it
@@ -748,19 +765,97 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * One step of the greedy grouping: {@code group} with {@code output} added, how many ops the
-   * output added, whether the weights' two clauses of {@link #groupOutputs} admit it
+   * The first output of each group of the best partition of {@code outputs} in their order, for
+   * {@link VarkaEmitOptions#exactGrouping}: of the partitions whose every group the rule admits
+   * ({@link #admit}) and in which each of {@code forcedStarts} begins a group, the one with the
+   * fewest ops, then the fewest groups, then the longest first group, the longest second group
+   * and so on. The last criterion is the greedy walk's own, so where the greedy partition is
+   * already the best it is the one chosen, and the option changes only the shapes it improves.
+   *
+   * <p>A group's ops depend on the outputs in it and on the dates the outputs before it
+   * decompose - some earlier group computes each, whatever the partition before it - and on
+   * nothing after it. So the best partition is a dynamic program over the starts. Each start's
+   * runs are grown once, output by output, until the rule refuses the next output or a forced
+   * start is reached; the best partition of the outputs from a start is then the best, over its
+   * runs, of the run plus the best partition of what follows it. The rule's budgets bound every
+   * run, so the work is the outputs times the longest group, not the outputs squared. See
+   * {@code PLAN_TASK_200.md}.
+   */
+  private static Set<Integer> bestPartitionStarts(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options, Set<Integer> forcedStarts) {
+    int n = outputs.size();
+    boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
+    boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
+    VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
+    // Every output before the current start, walked as one group: its prefixes are what a group
+    // starting there finds computed earlier.
+    GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
+        lane, null);
+    int[][] runOps = new int[n][];
+    int[] scratch = new int[n];
+    for (int i = 0; i < n; i++) {
+      Set<VarkaVectorIR> earlier = before.prefixes;
+      GroupOps run = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+          predict ? new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false) : null);
+      int runs = 0;
+      for (int o = i; o < n; o++) {
+        if (o > i && forcedStarts.contains(o)) {
+          break;
+        }
+        Admission step = admit(run, outputs.get(o), o - i, options, predict, materialize,
+            earlier, lane);
+        // As in the greedy walk, an output that adds nothing joins whatever the budgets say.
+        if (o > i && step.marginal() > 0 && !step.fits()) {
+          break;
+        }
+        scratch[runs++] = run.ops;
+      }
+      runOps[i] = Arrays.copyOf(scratch, runs);
+      before.add(outputs.get(i));
+    }
+    long[] bestOps = new long[n + 1];
+    int[] bestGroups = new int[n + 1];
+    int[] next = new int[n + 1];
+    for (int i = n - 1; i >= 0; i--) {
+      bestOps[i] = Long.MAX_VALUE;
+      for (int k = 0; k < runOps[i].length; k++) {
+        int j = i + k + 1;
+        long ops = runOps[i][k] + bestOps[j];
+        int groups = 1 + bestGroups[j];
+        // A tie goes to the longer run, which is the greedy walk's choice.
+        if (ops < bestOps[i] || (ops == bestOps[i] && groups <= bestGroups[i])) {
+          bestOps[i] = ops;
+          bestGroups[i] = groups;
+          next[i] = j;
+        }
+      }
+    }
+    Set<Integer> starts = new HashSet<>();
+    for (int i = 0; i < n; i = next[i]) {
+      starts.add(i);
+    }
+    return starts;
+  }
+
+  /**
+   * One step of the grouping: the group with {@code output} added, how many ops the output
+   * added, whether the weights' two clauses of {@link #groupOutputs} admit it
    * ({@code fitsWeights}), and whether the rule as a whole does ({@code fits}: the weights, and
    * under {@code predict} the cost model's prediction as well). The one place the rule is
-   * written, so the grouping and the test that holds it to the best partition
-   * ({@link #runsForTest}) decide admission alike.
+   * written, so the greedy walk, the best partition ({@link #bestPartitionStarts}) and the test
+   * that holds the one to the other ({@link #runsForTest}) decide admission alike.
    */
   private record Admission(GroupOps withNext, int marginal, boolean fitsWeights, boolean fits) {}
 
-  private static Admission admit(GroupOps group, VarkaVectorIR output, int groupSize,
+  /**
+   * Adds {@code output} to {@code withNext} - the group so far, or a copy of it where the caller
+   * keeps the group as it was, as the greedy walk does - and judges the step; see
+   * {@link Admission}.
+   */
+  private static Admission admit(GroupOps withNext, VarkaVectorIR output, int groupSize,
       VarkaEmitOptions options, boolean predict, boolean materialize,
       Set<VarkaVectorIR> earlier, VarkaVectorIR.LaneType lane) {
-    GroupOps withNext = group.copy();
+    int before = withNext.ops;
     int marginal = withNext.add(output);
     // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
     // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
@@ -773,8 +868,8 @@ public final class VarkaLoopEmitter {
           null);
       reuse = alone.add(output) - marginal;
     }
-    boolean fitsWeights = group.ops + marginal <= options.groupBudget()
-        || (reuse > 0 && group.ops + marginal <= options.fusedCeiling());
+    boolean fitsWeights = before + marginal <= options.groupBudget()
+        || (reuse > 0 && before + marginal <= options.fusedCeiling());
     boolean fits = fitsWeights && (!predict || withNext.predictedWithin(options, groupSize + 1));
     return new Admission(withNext, marginal, fitsWeights, fits);
   }

@@ -869,3 +869,17 @@ wide instance; unrolled code that repeats one call per index is a loop or a tabl
 written. And a method that only dispatches (the driver) inherits the prologue written for the
 methods that compute; audit it for work it does not read, since dead bytecode still counts
 against `HugeMethodLimit` even where C2 would remove it.
+
+## An exact search that replaces a heuristic should keep the heuristic's answer where it is already best
+
+The exact output grouping (`PLAN_TASK_200.md` 8.1) replaces a greedy walk with a dynamic program,
+and among the partitions with the fewest ops and groups it chooses by the greedy walk's own
+preference, the longest first group, then the longest second. That tie-break makes it the greedy
+partition exactly wherever greedy is already at the best, so switching it on changes the emitted
+bytes of only the shapes it improves: the ladders emit byte for byte the same class, and a test
+says so. Any other tie-break would have moved the bytes oracle for shapes it gains nothing on,
+and hidden the real changes in the noise of equal-cost reshuffles.
+
+The same holds for any exact replacement of a heuristic here - output reordering is the next
+one: order ties by what the heuristic would do, and test that the two agree where the heuristic
+is optimal.

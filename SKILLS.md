@@ -36,6 +36,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A rate printed with one decimal cannot read a cold case](sql/varka/skills/benchmarking.md#a-rate-printed-with-one-decimal-cannot-read-a-cold-case)
 * [Spark's codegen histograms are samples, and its TPC suites compile nothing under AQE](sql/varka/skills/benchmarking.md#sparks-codegen-histograms-are-samples-and-its-tpc-suites-compile-nothing-under-aqe)
 * [Another engine's number is timed only on the plan it actually took](sql/varka/skills/benchmarking.md#another-engines-number-is-timed-only-on-the-plan-it-actually-took)
+* [An arm named for a form must set that form, not read it from the defaults](sql/varka/skills/benchmarking.md#an-arm-named-for-a-form-must-set-that-form-not-read-it-from-the-defaults)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
@@ -81,6 +82,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [When the emission skips part of a tree, the planning walk has to skip it too](sql/varka/skills/emitter-and-ir.md#when-the-emission-skips-part-of-a-tree-the-planning-walk-has-to-skip-it-too)
 * [A cost read off one node alone over-prices a wide group; fit it over groups of every width](sql/varka/skills/emitter-and-ir.md#a-cost-read-off-one-node-alone-over-prices-a-wide-group-fit-it-over-groups-of-every-width)
 * [Measure what a method spends its bytes on before designing a split of it](sql/varka/skills/emitter-and-ir.md#measure-what-a-method-spends-its-bytes-on-before-designing-a-split-of-it)
+* [An exact search that replaces a heuristic should keep the heuristic's answer where it is already best](sql/varka/skills/emitter-and-ir.md#an-exact-search-that-replaces-a-heuristic-should-keep-the-heuristics-answer-where-it-is-already-best)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)

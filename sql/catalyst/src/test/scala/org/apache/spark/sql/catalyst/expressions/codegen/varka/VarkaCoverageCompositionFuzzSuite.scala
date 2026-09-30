@@ -39,7 +39,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{FusedOutput, VarkaExpr
  * milestone's (`PLAN_MILESTONE_6.md` 1.3): every entry is fused or declined with a reason, the
  * compiler throws nothing, and a decline of an entry the table says fuses alone is one of the
  * two the record knows, a size decline naming the budget or the one-lane rule. Emit options
- * alternate between the default width and four lanes, the two the emitted-bytes oracle pins.
+ * alternate between the default width and four lanes, the two the emitted-bytes oracle pins,
+ * and the exact grouping (`PLAN_TASK_200.md`) is on or off at random, since the wide projections
+ * drawn here are where it changes the partition.
  *
  * Budget: `-Dvarka.fuzz.compositions` (default 40, under a minute); `-Dvarka.fuzz.seed` (default
  * fixed, shared with the IR fuzzer so a nightly varies both with one property). A failure names
@@ -64,9 +66,11 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
   private def width(rnd: Random, max: Int): Int =
     math.max(1, math.exp(rnd.nextDouble() * math.log(max)).toInt)
 
-  private def options(rnd: Random): VarkaEmitOptions =
-    if (rnd.nextBoolean()) VarkaEmitOptions.DEFAULTS
-    else VarkaEmitOptions.DEFAULTS.withLanesOverride(4)
+  private def options(rnd: Random): VarkaEmitOptions = {
+    val width = if (rnd.nextBoolean()) VarkaEmitOptions.DEFAULTS
+      else VarkaEmitOptions.DEFAULTS.withLanesOverride(4)
+    width.withExactGrouping(rnd.nextBoolean())
+  }
 
   /**
    * The two reasons a composition may decline an entry that fuses alone: a size decline, whose

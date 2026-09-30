@@ -29,8 +29,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
  * corpus, shapes whose prefix-sharers are not adjacent, and projections composed of the coverage
  * table's rows. In ops the two are within a fraction of a percent on every family, and that is
  * the bound held here; in loop methods the greedy grouping strands cheap outputs that share
- * nothing, which is what task 200's exact partition is for, and this suite reports the methods
- * until it holds the shipped grouping to them too.
+ * nothing, which is what the emitter's exact grouping (`VarkaEmitOptions.exactGrouping`) is for,
+ * and the suite holds that grouping to the best partition shape by shape.
  */
 class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
 
@@ -61,12 +61,19 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     }
   }
 
+  /** Every shape the check reads: the cost model's corpus and the two families it lacked. */
+  private lazy val shapes: Seq[VarkaEmitCostCorpus.Shape] =
+    VarkaEmitCostCorpus.fuzz().asScala.toSeq ++ VarkaEmitCostCorpus.wide().asScala ++
+      VarkaEmitCostCorpus.ladders().asScala ++ VarkaGroupingBound.interleaved().asScala ++
+      compositions
+
   /** The loop methods of the shape as it ships, after the measurement regroups it. */
-  private def shippedLoops(shape: VarkaEmitCostCorpus.Shape): Option[Int] = {
+  private def shippedLoops(shape: VarkaEmitCostCorpus.Shape,
+      emitOptions: VarkaEmitOptions = options): Option[Int] = {
     try {
       val bytes = VarkaLoopEmitter.emitCountingBuilds(
         "org.apache.spark.sql.varka.execution.VarkaGroupingBoundTest", shape.roots,
-        shape.numInputs, shape.numLiterals, options, new Array[Int](1))
+        shape.numInputs, shape.numLiterals, emitOptions, new Array[Int](1))
       val names = VarkaEmittedClass.measure(bytes).codeLength.keySet.asScala
       Some(math.max(names.count(_.startsWith("loopDense")),
         names.count(_.startsWith("loopMasked"))))
@@ -77,9 +84,6 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
 
   test("the greedy grouping is within half a percent of the best partition's ops on every " +
       "family, and never below it once the prediction closes groups") {
-    val shapes = VarkaEmitCostCorpus.fuzz().asScala ++ VarkaEmitCostCorpus.wide().asScala ++
-      VarkaEmitCostCorpus.ladders().asScala ++ VarkaGroupingBound.interleaved().asScala ++
-      compositions
     val accounts = shapes.map { s =>
       VarkaGroupingBound.account(s.family, s.index, s.roots, options)
     }
@@ -94,7 +98,7 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     }
     val summaries = VarkaGroupingBound.summarize(accounts.asJava).asScala
     val shipped = shapes.groupBy(_.family).map { case (family, mine) =>
-      val loops = mine.map(shippedLoops)
+      val loops = mine.map(shippedLoops(_))
       family -> (loops.flatten.sum, loops.count(_.isEmpty))
     }
     VarkaGroupingBound.table(summaries.asJava).linesIterator.foreach(info(_))
@@ -110,6 +114,56 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     summaries.values.foreach { s =>
       assert(s.savedPercent <= 0.5, s"${s.family}: the best partition saves " +
         f"${s.savedPercent}%.2f%% of the ops, past the half percent PLAN_TASK_200.md 2 measured")
+    }
+  }
+
+  test("the exact grouping is the best partition of every shape, with the prediction and " +
+      "without, forms only groups the rule admits, and keeps the greedy partition wherever " +
+      "that is already the best") {
+    // The best partition here is this suite's own dynamic program over `runsForTest`; the exact
+    // grouping is the emitter's, under the same rule. On every shape they must agree in ops and
+    // groups, every group the emitter forms must be a run the rule admits - one the greedy walk
+    // could have formed from its first output - and where the greedy walk is already at the
+    // best the emitter must keep its partition as it is, so the switch moves only the shapes it
+    // improves (PLAN_TASK_200.md 3.1 and 4).
+    for (predict <- Seq(false, true); shape <- shapes) {
+      val opts = options.withPredictGrouping(predict)
+      val runs = VarkaGroupingBound.runs(shape.roots, opts)
+      val best = VarkaGroupingBound.optimal(runs)
+      val greedyGrouping = VarkaLoopEmitter.groupsForTest(shape.roots, opts)
+      val exactGrouping =
+        VarkaLoopEmitter.groupsForTest(shape.roots, opts.withExactGrouping(true))
+      val greedy = VarkaGroupingBound.of(runs, greedyGrouping)
+      val exact = VarkaGroupingBound.of(runs, exactGrouping)
+      val where = s"${shape.family} ${shape.index}, prediction $predict"
+      Option(VarkaGroupingBound.unformable(runs, exactGrouping))
+        .foreach(why => fail(s"$where: $why"))
+      assert(exact.ops == best.ops && exact.groups == best.groups,
+        s"$where: the exact grouping has ${exact.ops} ops in ${exact.groups} groups, the best " +
+          s"partition ${best.ops} in ${best.groups}")
+      if (greedy.ops == best.ops && greedy.groups == best.groups) {
+        assert(exactGrouping == greedyGrouping, s"$where: the greedy partition is already the " +
+          s"best and the exact grouping moved it: $greedyGrouping to $exactGrouping")
+      }
+    }
+  }
+
+  test("under the exact grouping no shape declines that the greedy grouping emits") {
+    // A class the exact grouping would make decline is built again greedily, so the switch never
+    // costs a kernel; the loop methods each emits as shipped, after the measurement's regroup,
+    // are reported beside it.
+    val exactOptions = options.withExactGrouping(true)
+    val totals = scala.collection.mutable.LinkedHashMap[String, (Int, Int)]()
+    for (shape <- shapes) {
+      val greedy = shippedLoops(shape)
+      val exact = shippedLoops(shape, exactOptions)
+      assert(greedy.isEmpty || exact.nonEmpty, s"${shape.family} ${shape.index} emits under " +
+        "the greedy grouping and declines under the exact one")
+      val (g, e) = totals.getOrElse(shape.family, (0, 0))
+      totals(shape.family) = (g + greedy.getOrElse(0), e + exact.getOrElse(0))
+    }
+    totals.foreach { case (family, (g, e)) =>
+      info(s"$family: $g loop methods as shipped greedily, $e under the exact grouping")
     }
   }
 }

@@ -48,7 +48,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * and the gap between them is what greedy grouping costs. A run's cost is its op total in the
  * grouping's weights, which is what a group recomputes or loads of what it shares.
  * {@code VarkaGroupingBoundSuite} holds the gap to a bound over the cost model's corpus and the
- * shapes below; the measurement that set the bound is {@code PLAN_TASK_200.md} 2.
+ * shapes below, and holds the emitter's own exact grouping
+ * ({@code VarkaEmitOptions.exactGrouping}) to this partition; the measurement that set the
+ * bound is {@code PLAN_TASK_200.md} 2.
  */
 final class VarkaGroupingBound {
 
@@ -59,11 +61,11 @@ final class VarkaGroupingBound {
 
   /**
    * One shape's account: the greedy grouping under {@code options}, the same with the cost
-   * model's prediction closing groups too, and the best partition of the runs the prediction
-   * admits.
+   * model's prediction closing groups too, the best partition of the runs the prediction admits,
+   * and the emitter's exact grouping under the prediction, which should be that partition.
    */
   record Account(String family, int index, int outputs, Partition greedy, Partition predicted,
-      Partition best) {}
+      Partition best, Partition exact) {}
 
   /** {@code runs.get(i).get(k)}: the run of outputs {@code [i, i + k]}. */
   static List<List<RunForTest>> runs(List<VarkaVectorIR> roots, VarkaEmitOptions options) {
@@ -139,13 +141,30 @@ final class VarkaGroupingBound {
     Partition greedy = of(runs,
         VarkaLoopEmitter.groupsForTest(roots, options.withPredictGrouping(false)));
     Partition predicted = of(runs, VarkaLoopEmitter.groupsForTest(roots, predicting));
-    return new Account(family, index, roots.size(), greedy, predicted, optimal(runs));
+    Partition exact =
+        of(runs, VarkaLoopEmitter.groupsForTest(roots, predicting.withExactGrouping(true)));
+    return new Account(family, index, roots.size(), greedy, predicted, optimal(runs), exact);
+  }
+
+  /**
+   * Whether every group of {@code grouping} is a run the rule admits - one the greedy walk could
+   * have formed had it started a group at the group's first output - or else the first group
+   * that is not.
+   */
+  static String unformable(List<List<RunForTest>> runs, List<List<Integer>> grouping) {
+    for (List<Integer> group : grouping) {
+      List<RunForTest> from = runs.get(group.get(0));
+      if (group.size() > from.size() || !from.get(group.size() - 1).admitted()) {
+        return "the group " + group + " is not a run the rule admits";
+      }
+    }
+    return null;
   }
 
   /** One family's accounts summed, with the shapes where the best partition differs. */
   record Summary(String family, int shapes, long greedyGroups, long predictedGroups,
-      long bestGroups, long predictedOps, long bestOps, int bestFewerGroups, int bestMoreGroups,
-      int bestMoreOps, double largestSavingPercent, String largestSavingAt) {
+      long bestGroups, long exactGroups, long predictedOps, long bestOps, int bestFewerGroups,
+      int bestMoreGroups, int bestMoreOps, double largestSavingPercent, String largestSavingAt) {
 
     /** The ops the best partition saves against the predicted greedy one, in percent. */
     double savedPercent() {
@@ -163,6 +182,7 @@ final class VarkaGroupingBound {
       long greedyGroups = 0;
       long predictedGroups = 0;
       long bestGroups = 0;
+      long exactGroups = 0;
       long predictedOps = 0;
       long bestOps = 0;
       int fewer = 0;
@@ -174,6 +194,7 @@ final class VarkaGroupingBound {
         greedyGroups += a.greedy().groups();
         predictedGroups += a.predicted().groups();
         bestGroups += a.best().groups();
+        exactGroups += a.exact().groups();
         predictedOps += a.predicted().ops();
         bestOps += a.best().ops();
         if (a.best().groups() < a.predicted().groups()) {
@@ -194,7 +215,7 @@ final class VarkaGroupingBound {
         }
       }
       out.put(family, new Summary(family, list.size(), greedyGroups, predictedGroups, bestGroups,
-          predictedOps, bestOps, fewer, more, moreOps, largest, at));
+          exactGroups, predictedOps, bestOps, fewer, more, moreOps, largest, at));
     });
     return out;
   }
@@ -202,13 +223,14 @@ final class VarkaGroupingBound {
   /** The summaries as the markdown table the plan quotes, one row per family. */
   static String table(Map<String, Summary> summaries) {
     StringBuilder sb = new StringBuilder();
-    sb.append("| family | shapes | groups: greedy, predicted, best | ops saved by the best | "
-        + "shapes where the best has fewer groups | largest saving on one shape |\n");
+    sb.append("| family | shapes | groups: greedy, predicted, best, exact "
+        + "| ops saved by the best | shapes where the best has fewer groups "
+        + "| largest saving on one shape |\n");
     sb.append("|---|---:|---:|---:|---:|---:|\n");
     summaries.values().forEach(s -> sb.append(String.format(
-        "| %s | %d | %d, %d, %d | %.2f%% | %d | %.2f%% at %s |%n", s.family(), s.shapes(),
-        s.greedyGroups(), s.predictedGroups(), s.bestGroups(), s.savedPercent(),
-        s.bestFewerGroups(), s.largestSavingPercent(), s.largestSavingAt())));
+        "| %s | %d | %d, %d, %d, %d | %.2f%% | %d | %.2f%% at %s |%n", s.family(), s.shapes(),
+        s.greedyGroups(), s.predictedGroups(), s.bestGroups(), s.exactGroups(),
+        s.savedPercent(), s.bestFewerGroups(), s.largestSavingPercent(), s.largestSavingAt())));
     return sb.toString();
   }
 
@@ -224,18 +246,8 @@ final class VarkaGroupingBound {
    */
   static List<Shape> interleaved() {
     List<Shape> shapes = new ArrayList<>();
-    ColumnRef d = new ColumnRef(0);
     for (int n : new int[] {40, 100, 200}) {
-      List<VarkaVectorIR> roots = new ArrayList<>();
-      for (int k = 0; k < n; k++) {
-        roots.add(switch (k % 4) {
-          case 0 -> VarkaEmitCostCorpus.ladderEntry(k);
-          case 1 -> VarkaEmitCostCorpus.makeDateEntry(k);
-          case 2 -> VarkaEmitCostCorpus.tailEntry(k);
-          default -> new AddDays(d, new LiteralSlot(k));
-        });
-      }
-      shapes.add(new Shape("mixed families, one date", n, roots, 1, n));
+      shapes.add(new Shape("mixed families, one date", n, mixed(n), 1, n));
     }
     for (int n : new int[] {24, 60, 120}) {
       List<VarkaVectorIR> roots = new ArrayList<>();
@@ -265,6 +277,26 @@ final class VarkaGroupingBound {
     shapes.add(new Shape("twelve dates, by date", 48, byDate, 12, 0));
     shapes.add(new Shape("twelve dates, by field", 48, byField, 12, 0));
     return shapes;
+  }
+
+  /**
+   * The mixed family at {@code n} entries: a size-ladder entry, a {@code make_date}, a cheap tail
+   * {@code year(d) + k} and a {@code date_add(d, k)} over one date, in rotation, each over the
+   * literal slot of its own index. The greedy walk leaves every {@code date_add} in a loop method
+   * of its own here, which the best partition does not ({@code PLAN_TASK_200.md} 2).
+   */
+  static List<VarkaVectorIR> mixed(int n) {
+    ColumnRef d = new ColumnRef(0);
+    List<VarkaVectorIR> roots = new ArrayList<>();
+    for (int k = 0; k < n; k++) {
+      roots.add(switch (k % 4) {
+        case 0 -> VarkaEmitCostCorpus.ladderEntry(k);
+        case 1 -> VarkaEmitCostCorpus.makeDateEntry(k);
+        case 2 -> VarkaEmitCostCorpus.tailEntry(k);
+        default -> new AddDays(d, new LiteralSlot(k));
+      });
+    }
+    return roots;
   }
 
   private static List<VarkaVectorIR> fields(ColumnRef c) {

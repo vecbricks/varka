@@ -347,6 +347,16 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        Changes no result and no loop or epilogue method. On by default since measured, when it
  *        also ran faster ({@code PLAN_TASK_190.md} 10); off is the unrolled form, kept as the
  *        reference the differential tests and {@code VarkaWideKernelBenchmark} compare against.
+ * @param exactGrouping whether the first grouping is the best partition of the outputs in their
+ *        order rather than the greedy walk's: of the partitions whose every group the greedy
+ *        rule admits, the one with the fewest ops, then the fewest loop methods. The rule is the
+ *        same - the weights' two clauses, and the prediction under {@link #predictGrouping} -
+ *        so every group it forms is one the greedy walk could have formed, and where the greedy
+ *        partition is already the best it is the partition chosen. What it changes is where the
+ *        greedy walk strands a cheap output that shares nothing in a loop method of its own
+ *        ({@code PLAN_TASK_200.md} 2). The measurement of the built class stays the last word,
+ *        and a class the exact grouping would make decline is built again greedily. Off by
+ *        default until measured.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -382,7 +392,8 @@ public record VarkaEmitOptions(
     int callSiteBudget,
     int heavyGroupOutputs,
     boolean predictGrouping,
-    boolean driverOutputTable) {
+    boolean driverOutputTable,
+    boolean exactGrouping) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -489,7 +500,8 @@ public record VarkaEmitOptions(
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
-          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false, true);
+          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
+          false, true, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -570,6 +582,7 @@ public record VarkaEmitOptions(
       b.heavyGroupOutputs = heavyGroupOutputs;
       b.predictGrouping = predictGrouping;
       b.driverOutputTable = driverOutputTable;
+      b.exactGrouping = exactGrouping;
     return b;
   }
 
@@ -609,6 +622,7 @@ public record VarkaEmitOptions(
     private int heavyGroupOutputs;
     private boolean predictGrouping;
     private boolean driverOutputTable;
+    private boolean exactGrouping;
 
     private Builder() {
     }
@@ -783,6 +797,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder exactGrouping(boolean exactGrouping) {
+      this.exactGrouping = exactGrouping;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -792,7 +811,7 @@ public record VarkaEmitOptions(
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
           groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
-          predictGrouping, driverOutputTable);
+          predictGrouping, driverOutputTable, exactGrouping);
     }
   }
 
@@ -823,6 +842,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withDriverOutputTable(boolean enabled) {
     return toBuilder().driverOutputTable(enabled).build();
+  }
+
+  public VarkaEmitOptions withExactGrouping(boolean enabled) {
+    return toBuilder().exactGrouping(enabled).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -976,7 +999,7 @@ public record VarkaEmitOptions(
    * they differ from their defaults, so every variant's rendering from before they existed is
    * unchanged; so do the fields added since ({@code groupLocalSlots},
    * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
-   * {@code predictGrouping}, {@code driverOutputTable}).
+   * {@code predictGrouping}, {@code driverOutputTable}, {@code exactGrouping}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -998,6 +1021,7 @@ public record VarkaEmitOptions(
         + (heavyGroupOutputs == VarkaEmitBudget.HEAVY_GROUP_OUTPUTS
             ? "" : "|heavy=" + heavyGroupOutputs)
         + (predictGrouping ? "|predictGrouping" : "")
-        + (driverOutputTable ? "" : "|unrolledDriver") + ')';
+        + (driverOutputTable ? "" : "|unrolledDriver")
+        + (exactGrouping ? "|exactGrouping" : "") + ')';
   }
 }

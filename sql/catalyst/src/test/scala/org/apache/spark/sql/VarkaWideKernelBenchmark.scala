@@ -39,6 +39,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * a kernel, over a million-row date column, null-free and with every seventh row null - the
  * dense body and the masked body with its bitmap pass. See `PLAN_TASK_190.md` 9.2 and 10.
  *
+ * The second section prices the exact grouping (`VarkaEmitOptions.exactGrouping`) against the
+ * greedy walk on the mixed family, where the greedy walk leaves every `date_add` in a loop method
+ * of its own and the exact partition does not, at a hundred and two hundred entries, with the
+ * four-hundred-entry ladder as the control, whose grouping the switch leaves as it is. The third
+ * times one emission of the mixed family under each, for the partition's cost at plan time. See
+ * `PLAN_TASK_200.md` 4.
+ *
  * {{{
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaWideKernelBenchmark"
  *   SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt \
@@ -56,6 +63,21 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       new AddDays(col, new LiteralSlot(k))), new LastDay(col))
   }
 
+  /**
+   * The mixed family's entry `k`: the size ladder's entry, `make_date(year(d), month(d), k)`, the
+   * cheap tail `year(d) + k` and `date_add(d, k)`, in rotation over one date. The same shapes as
+   * the catalyst suites' `VarkaGroupingBound.mixed`, which is not visible from this package.
+   */
+  private def mixedEntry(k: Int): VarkaVectorIR = {
+    val col = new ColumnRef(0)
+    k % 4 match {
+      case 0 => entry(k)
+      case 1 => new MakeDate(new Year(col), new Month(col), new LiteralSlot(k), true)
+      case 2 => new IntArith(IntOp.ADD, Overflow.WRAP, new Year(col), new LiteralSlot(k))
+      case _ => new AddDays(col, new LiteralSlot(k))
+    }
+  }
+
   private var nextId = 0
 
   private def emit(roots: Seq[VarkaVectorIR], options: VarkaEmitOptions,
@@ -66,6 +88,10 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       java.util.List.of(roots: _*), 1, roots.size, null, null, options))
     loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
   }
+
+  /** The loop methods of an emitted kernel: its groups. */
+  private def loops(kernel: VarkaFusedKernel): Int =
+    kernel.getClass.getDeclaredMethods.count(_.getName.startsWith("loopDense"))
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     val arena = Arena.ofConfined()
@@ -113,8 +139,9 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       runBenchmark("the driver from a table against the driver unrolled") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        val unrolled = VarkaEmitOptions.DEFAULTS
-        val table = unrolled.withDriverOutputTable(true)
+        // Both forms named: the table is the default since this section's measurement.
+        val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
+        val table = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(true)
         val hundred = (0 until 100).map(entry)
         val forms = Seq("unrolled driver" -> emit(hundred, unrolled, loader),
           "driver from a table" -> emit(hundred, table, loader))
@@ -132,6 +159,41 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
           }
         }
         benchmark.run()
+      }
+
+      runBenchmark("the exact grouping against the greedy walk") {
+        val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val groupings = Seq("greedy grouping" -> VarkaEmitOptions.DEFAULTS,
+          "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))
+        val shapes = Seq(100, 200).map(n => (s"$n mixed entries", (0 until n).map(mixedEntry))) :+
+          (s"$widest ladder entries", (0 until widest).map(entry))
+        for ((shape, roots) <- shapes; withNulls <- Seq(false, true);
+            (label, options) <- groupings) {
+          val kernel = emit(roots, options, loader)
+          val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
+          benchmark.addCase(s"$shape, $label (${loops(kernel)} loop methods), $nullsLabel") { _ =>
+            scan(kernel, roots.size, withNulls)
+          }
+        }
+        benchmark.run()
+      }
+
+      runBenchmark("emitting the mixed family: the exact grouping's cost at plan time") {
+        // One emission per iteration, the class built and measured but not defined.
+        val benchmark = new Benchmark("one emission", 1,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val roots = java.util.List.of((0 until 200).map(mixedEntry): _*)
+        var sink = 0
+        for ((label, options) <- Seq("greedy grouping" -> VarkaEmitOptions.DEFAULTS,
+            "exact grouping" -> VarkaEmitOptions.DEFAULTS.withExactGrouping(true))) {
+          benchmark.addCase(s"200 mixed entries, $label") { _ =>
+            sink += VarkaLoopEmitter.emit("VarkaWideBenchEmission", roots, 1, 200, null, null,
+              options).length
+          }
+        }
+        benchmark.run()
+        require(sink != Int.MinValue)
       }
     } finally {
       arena.close()
