@@ -401,8 +401,11 @@ final class Slots {
         s.inputs |= analysis.columns.get(outputs.get(o));
       }
     }
+    // Under `driverOutputTable` the driver maps no output segment (VarkaBodyEmitter step 4b).
+    boolean strippedDriver = mode == VarkaBodyEmitter.BodyMode.DRIVER
+        && analysis.options.driverOutputTable();
     for (int o = 0; o < outputs.size(); o++) {
-      if (perGroup && !planned.get(o)) {
+      if ((perGroup && !planned.get(o)) || strippedDriver) {
         s.dstSeg[o] = -1;
         s.dstValSeg[o] = -1;
         continue;
@@ -434,7 +437,9 @@ final class Slots {
       }
     }
     for (int j = 0; j < numLiterals; j++) {
-      if (usedLiterals != null && !usedLiterals.get(j)) {
+      // A driver reads no literal - only the loops and epilogues do - so under
+      // `driverOutputTable`, which strips the driver to what it reads, none is hoisted there.
+      if ((usedLiterals != null && !usedLiterals.get(j)) || strippedDriver) {
         s.scalarArg[j] = -1;
         continue;
       }

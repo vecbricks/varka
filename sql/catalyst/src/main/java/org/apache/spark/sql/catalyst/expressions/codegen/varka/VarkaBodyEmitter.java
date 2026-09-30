@@ -88,6 +88,13 @@ final class VarkaBodyEmitter {
     Slots s = Slots.plan(dense, mode, outputs, bodyOutputs, analysis, numLiterals, perGroup,
         group);
     List<Integer> prologueOutputs = perGroup ? bodyOutputs : all;
+    // Under `driverOutputTable` the driver's per-output work is one call reading a plan, in step
+    // (4b) below, so the driver loads no output segment at all: it writes no data, and the plan's
+    // helper maps each validity bitmap itself (see `PLAN_TASK_190.md` 9.2).
+    boolean driverTable = mode == BodyMode.DRIVER && analysis.options.driverOutputTable();
+    if (driverTable) {
+      prologueOutputs = List.of();
+    }
 
     // (1) if (length <= 0) return 0 - nothing ran, so there is nothing to report.
     Label nonEmpty = cb.newLabel();
@@ -246,7 +253,15 @@ final class VarkaBodyEmitter {
     // already have every served bitmap written, since nothing after (5) runs for it. The engine
     // resolves each operand's three states, so this is one call per node of the flattened
     // expression and no branch: arguments straight from the kernel's parameters.
-    if (!dense && mode == BodyMode.DRIVER) {
+    if (driverTable) {
+      // Step (3)'s zero or fill and this step's pass, for every output, in one call.
+      cb.aload(P_DST_VALIDITY);
+      cb.aload(P_SRC_VALIDITY);
+      cb.aload(P_NULL_COUNT);
+      cb.loadConstant(outputPlan(analysis, dense, outputs));
+      cb.iload(analysis.lane.pLength);
+      cb.invokestatic(SUPPORT, "prepareOutputValidity", PREPARE_OUTPUT_VALIDITY);
+    } else if (!dense && mode == BodyMode.DRIVER) {
       for (int o = 0; o < numOutputs; o++) {
         BitmapPass pass = analysis.served[o];
         if (pass != null) {
@@ -269,7 +284,17 @@ final class VarkaBodyEmitter {
       shortcutApplies &= analysis.columns.get(root) != 0L && !analysis.skipping.get(root)
           && !(root instanceof Cond);
     }
-    if (shortcutApplies) {
+    if (shortcutApplies && driverTable) {
+      Label live = cb.newLabel();
+      cb.aload(P_NULL_COUNT);
+      cb.loadConstant(shortcutColumns(analysis, outputs));
+      cb.iload(analysis.lane.pLength);
+      cb.invokestatic(SUPPORT, "everyOutputReadsAnAllNullColumn", EVERY_OUTPUT_ALL_NULL);
+      cb.ifeq(live);
+      cb.loadConstant(0);
+      cb.ireturn();
+      cb.labelBinding(live);
+    } else if (shortcutApplies) {
       Label live = cb.newLabel();
       boolean firstOutput = true;
       for (VarkaVectorIR root : outputs) {
@@ -934,6 +959,72 @@ final class VarkaBodyEmitter {
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, name + "Into", COLUMN_VALIDITY_INTO);
     }
+  }
+
+  /*
+   * The steps of the plan below, as {@code VarkaVectorSupport} names them. Catalyst reaches the
+   * engine only by class name at run time, so they are restated here, and
+   * {@code VarkaEmitterDriverTableSuite} pins the two sets equal.
+   */
+  static final char PLAN_ZERO = 'z';
+  static final char PLAN_ZERO_WORDS = 'Z';
+  static final char PLAN_FILL = 'f';
+  static final char PLAN_COPY = 'c';
+  static final char PLAN_AND = '&';
+  static final char PLAN_OR = '|';
+
+  /**
+   * The plan {@code VarkaVectorSupport.prepareOutputValidity} reads under
+   * {@code driverOutputTable}: per output, in order, the step the unrolled driver would emit for
+   * it - its bitmap pass where it is served, else a fill where {@link #fillsValidityOnce}, else a
+   * zero at the size step (3) maps its segment at. Decided by the same predicates as the
+   * unrolled form, so the two write the same bits.
+   */
+  private static String outputPlan(Analysis analysis, boolean dense, List<VarkaVectorIR> outputs) {
+    StringBuilder plan = new StringBuilder();
+    for (int o = 0; o < outputs.size(); o++) {
+      BitmapPass pass = servedByPass(analysis, dense, o) ? analysis.served[o] : null;
+      if (pass != null) {
+        int[] ords = pass.ordinals();
+        if (ords.length == 0) {
+          plan.append(PLAN_FILL);
+        } else if (ords.length == 1) {
+          plan.append(PLAN_COPY).append((char) ords[0]);
+        } else {
+          plan.append(pass.and() ? PLAN_AND : PLAN_OR)
+              .append((char) ords.length);
+          for (int ord : ords) {
+            plan.append((char) ord);
+          }
+        }
+      } else if (fillsValidityOnce(analysis, dense, outputs.get(o))) {
+        plan.append(PLAN_FILL);
+      } else if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
+        plan.append(PLAN_ZERO_WORDS);
+      } else {
+        plan.append(PLAN_ZERO);
+      }
+    }
+    return plan.toString();
+  }
+
+  /**
+   * The table {@code VarkaVectorSupport.everyOutputReadsAnAllNullColumn} reads under
+   * {@code driverOutputTable}: per output, the count of the columns it reads, then their
+   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of.
+   */
+  private static String shortcutColumns(Analysis analysis, List<VarkaVectorIR> outputs) {
+    StringBuilder table = new StringBuilder();
+    for (VarkaVectorIR root : outputs) {
+      long set = analysis.columns.get(root);
+      table.append((char) Long.bitCount(set));
+      for (int i = 0; i < Long.SIZE; i++) {
+        if ((set >>> i & 1L) != 0) {
+          table.append((char) i);
+        }
+      }
+    }
+    return table.toString();
   }
 
   /** Pushes input {@code i}'s validity address and null count, as the kernel received them. */

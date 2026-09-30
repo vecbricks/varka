@@ -339,6 +339,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        once. The weights still close groups as before; the prediction only adds closes, and the
  *        measurement of the built class stays the last word. Off by default, and with
  *        {@link #methodByteBudget} 0 it changes nothing ({@code PLAN_TASK_199.md}).
+ * @param driverOutputTable whether the driver's per-output work - each output's validity
+ *        zeroed, filled or written by the bitmap pass, and the all-null shortcut's test - is one
+ *        call reading a table baked into the class, rather than unrolled once per output. Unrolled
+ *        it is about forty bytes an output, which made the driver, the one method no regroup
+ *        shrinks, the cap on a kernel's width; as a table the driver grows with the groups alone.
+ *        Changes no result and no loop or epilogue method. Off by default until measured
+ *        ({@code PLAN_TASK_190.md} 9.2 and 10).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -373,7 +380,8 @@ public record VarkaEmitOptions(
     boolean materializeChronoPrefix,
     int callSiteBudget,
     int heavyGroupOutputs,
-    boolean predictGrouping) {
+    boolean predictGrouping,
+    boolean driverOutputTable) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -480,7 +488,7 @@ public record VarkaEmitOptions(
           false, false, true, true, false, true, false,
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
-          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false);
+          VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS, false, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -560,6 +568,7 @@ public record VarkaEmitOptions(
       b.callSiteBudget = callSiteBudget;
       b.heavyGroupOutputs = heavyGroupOutputs;
       b.predictGrouping = predictGrouping;
+      b.driverOutputTable = driverOutputTable;
     return b;
   }
 
@@ -598,6 +607,7 @@ public record VarkaEmitOptions(
     private int callSiteBudget;
     private int heavyGroupOutputs;
     private boolean predictGrouping;
+    private boolean driverOutputTable;
 
     private Builder() {
     }
@@ -767,6 +777,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder driverOutputTable(boolean driverOutputTable) {
+      this.driverOutputTable = driverOutputTable;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -776,7 +791,7 @@ public record VarkaEmitOptions(
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
           groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
-          predictGrouping);
+          predictGrouping, driverOutputTable);
     }
   }
 
@@ -803,6 +818,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withPredictGrouping(boolean enabled) {
     return toBuilder().predictGrouping(enabled).build();
+  }
+
+  public VarkaEmitOptions withDriverOutputTable(boolean enabled) {
+    return toBuilder().driverOutputTable(enabled).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -956,7 +975,7 @@ public record VarkaEmitOptions(
    * they differ from their defaults, so every variant's rendering from before they existed is
    * unchanged; so do the fields added since ({@code groupLocalSlots},
    * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
-   * {@code predictGrouping}).
+   * {@code predictGrouping}, {@code driverOutputTable}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -977,6 +996,7 @@ public record VarkaEmitOptions(
             ? "" : "|callSites=" + callSiteBudget)
         + (heavyGroupOutputs == VarkaEmitBudget.HEAVY_GROUP_OUTPUTS
             ? "" : "|heavy=" + heavyGroupOutputs)
-        + (predictGrouping ? "|predictGrouping" : "") + ')';
+        + (predictGrouping ? "|predictGrouping" : "")
+        + (driverOutputTable ? "|driverOutputTable" : "") + ')';
   }
 }

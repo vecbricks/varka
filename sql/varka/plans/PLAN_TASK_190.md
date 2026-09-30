@@ -297,3 +297,68 @@ it tests, per output, whether any of its columns is all-null, which a table of e
 column set answers. And what A0 costs at run time: the per-output work runs once per batch
 either way, so a loop in place of unrolled calls is expected to cost nothing measurable, and
 the step's benchmark is to say so.
+
+## 10. Step 2, A0: the driver from a table
+
+### 10.1 Built, 30 September 2026
+
+`VarkaEmitOptions.driverOutputTable`, off by default. Under it the driver's per-output work is
+two calls into the engine, whatever the width:
+
+* `VarkaVectorSupport.prepareOutputValidity` reads a plan string the emitter bakes into the
+  class, one step per output: zero the validity (at the nominal size, or to the last whole
+  word where validity is written a word at a time), fill it on a dense batch, or run the bitmap
+  pass's copy, AND or OR over the listed columns. Each step calls the same entry point the
+  unrolled driver calls for that output, so the bits are the same. The plan is decided by the
+  unrolled form's own predicates (`servedByPass`, `fillsValidityOnce`, `wordWrites`,
+  `keepsPerGroupWrite`), so the two forms cannot disagree about an output.
+* `VarkaVectorSupport.everyOutputReadsAnAllNullColumn` answers the masked driver's all-null
+  shortcut from a table of each output's columns.
+
+The driver then maps no output segment and hoists no literal: it read neither. The loop and
+epilogue methods are unchanged byte for byte, which a test checks over the first 400 fuzz
+shapes of each lane.
+
+**A correction to 9.2.** It priced a group at about 54 bytes and missed a second per-output
+cost. Measured on the table form, a group costs exactly its two calls, 44 bytes. The unrolled
+driver also hoists every literal into a local, about seven bytes each, and never reads one; the
+size ladder has a literal per entry, so this was part of what 9.2 counted as the per-output
+cost. With both gone the driver is linear in the groups alone - on the `greatest` family 247,
+643, 1171, 2271 and 4471 bytes dense at 16, 50, 100, 200 and 400 entries - and the ceiling is
+about 180 groups, some 720 entries of that family, where 9.2 estimated 140 groups.
+
+**Tests.** `VarkaEmitterDriverTableSuite`: the emitter's plan steps are the engine's; the driver
+grows by 44 bytes a group and not with the outputs; four hundred `greatest` entries emit under
+the shipped budget from a table and decline on both drivers without it; the loop and epilogue
+methods are the unrolled form's byte for byte; every step the plan can hold - zero, word zero,
+fill, copy, AND, OR, a three-column chain, a literal-only output, a selection - answers as the
+reference evaluator on both bodies at the host's width and at sixteen lanes, with the all-null
+shortcut taken; and two hundred `greatest` entries, a width the unrolled driver cannot emit,
+answer too. `VarkaVectorSupportOutputPlanTest`, in the engine, runs every plan step against the
+entry point it stands for over lengths either side of a byte and a word and over null-free,
+all-null and mixed columns, and checks the shortcut against the unrolled AND of ORs. The IR
+fuzzer draws the option like every boolean; eight fresh seeds at 20000 iterations on both
+lanes and the composition fuzzer passed.
+
+**The measurement.** `VarkaWideKernelBenchmark`, a class of its own for the wide-kernel family:
+the hundred-entry ladder with the driver unrolled and from a table, null-free and with every
+seventh row null, in 4096-row batches, and the table form alone at four hundred entries. A
+laptop run the same day, a sanity check and not a result, read the table form's best time at
+or under the unrolled form's on both bodies (72 against 74 ms null-free, 85 against 88 with
+nulls); its averages were several times its bests on every case, which reads as the JIT still
+compiling a hundred groups' methods inside the two-second warm-up. The committed results come
+from a runner.
+
+### 10.2 Predictions, registered before the runner's run
+
+1. **The table costs nothing measurable at run time**: at a hundred entries its time per row
+   is within 3% of the unrolled driver's, on both bodies.
+2. **Four hundred entries run at a cost per entry within 1.5 times the hundred's**, the
+   difference being the wider class's compilation and cache footprint rather than the driver.
+3. **The warm-up gap is the JIT's, not the driver's**: if the averages stay far above the bests
+   on the runner, they do so for both forms alike.
+
+### 10.3 What follows
+
+The default flip, once 10.2 is scored. Then A' and B of 3.2, for the widths past about 180
+groups and for projections wider than `MAX_INPUTS` columns - the ceilings A0 leaves.
