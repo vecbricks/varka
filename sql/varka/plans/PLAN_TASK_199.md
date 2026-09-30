@@ -65,10 +65,11 @@ low is the direction that makes a method measure over the limit and rebuild anyw
 
 **What it admits.** The model's second use, the one task 200 and `SCOPE_MILESTONE_7.md` item 63
 need: a cost for a candidate group that is cheaper to ask than an emission, in the units the limits
-are read in. Task 200's dynamic program asks for the cost of every contiguous run of outputs, about
-n * n / 2 of them, which at 400 outputs is 80000 emissions and out of reach at any emission speed. So the
-task is re-scoped: a cost model of bytes and call sites per group, measured for accuracy where the
-limits bind, and used first where it is cheapest to check - to form the first grouping.
+are read in. Task 200's dynamic program asks for the cost of every contiguous run of outputs,
+about n * n / 2 of them, which at 400 outputs is 80000 emissions and out of reach at any emission
+speed. So the task is re-scoped: a cost model of bytes and call sites per group, measured for
+accuracy where the limits bind, and used first where it is cheapest to check - to form the first
+grouping.
 
 ## 3. The design
 
