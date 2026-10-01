@@ -378,11 +378,16 @@ drew an AMD EPYC 9V74 (`CodegenFallbackCostBenchmark-jdk25-runner-9v74-inlining-
 150-entry stage's consume method (5749 bytes on both: 9.2's 5747 with this section's larger
 column offsets), every one of the
 150 calls to `UnsafeRowWriter.write` is refused, `failed to inline: size > DesiredMethodLimit`, on
-both; the method has spent C2's inlining budget, the 8000 bytes of `DesiredMethodLimit` post 2
-described, before the writes are reached. So each row of the stage makes 150 calls that the same
+both. The runner's tree, committed beside its results file
+(`CodegenFallbackCostBenchmark-jdk25-runner-9v74-inlining-c2-tree.txt`), says where the budget
+went: C2 inlines the `addExact` of the first twelve entries, each with its overflow check and
+boxing, and refuses the other 138 and all 150 writes; the 8000 bytes of `DesiredMethodLimit` post
+2 described are spent a dozen entries in. So each row of the stage makes 288 calls that the same
 projection outside a stage does not make: there the projection is split into small `writeFields`
-methods, each compiled with its writes inlined. What differs between the machines is what those
-calls cost: under the logging the 9V74's stage settles at 748 ms against 493 outside, 1.52 times,
+methods, each compiled with its calls inlined. The same log dates the compile: C2 took the method
+13.6 seconds after the JVM started and printed its tree at 33.1, so the compile itself took about
+twenty seconds, which is the wait of 9.2 and 11.3 seen from the compiler's side. What differs
+between the machines is what those calls cost: under the logging the 9V74's stage settles at 748 ms against 493 outside, 1.52 times,
 in the same range as the 7763's 1.57 of 9.2, and the laptop's Zen 5 shows a smaller gap in an
 uncommitted run. 11.1's projections are the same mechanism at smaller widths: a stage's method
 past a few thousand bytes stops inlining its writes.

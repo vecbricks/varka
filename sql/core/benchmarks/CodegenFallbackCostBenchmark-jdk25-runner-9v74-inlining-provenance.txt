@@ -10,7 +10,8 @@ inputs:      class=*CodegenFallbackCostBenchmark jdk=25 scala=2.13 num-splits=1 
              -XX:CompileCommand=PrintInlining,*GeneratedIteratorForCodegenStage*::*
 jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
-cpu:         AMD EPYC 9V74 80-Core Processor (not pinned; the inlining log is in the run's job log)
+cpu:         AMD EPYC 9V74 80-Core Processor (not pinned; the inlining log is in the run's job log,
+             and C2's tree for the consume method is excerpted in the -c2-tree.txt file beside this one)
 purpose:     task 233's fourth investigation (PLAN_TASK_233.md 10.2): C2's inlining decisions for the
              wide stage's consume method, and the times they were taken under; the logging slows
              both arms, so the times are for the ratio, not to quote alone
