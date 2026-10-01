@@ -46,6 +46,17 @@ NOTE = "#6741d9"
 # The fills are drawn as thin diagonal strokes rather than solid areas, so a pale colour
 # reads as almost nothing on a page - these sit a few steps up the scale, bright enough to
 # carry the hatching while leaving near-black label text legible on top of it.
+# Pale tints for the fill styles that lay colour under the text rather than across it.
+LIGHT = dict(
+    blue="#d0ebff",
+    green="#d3f9d8",
+    yellow="#fff3bf",
+    red="#ffe3e3",
+    violet="#e5dbff",
+    orange="#ffe8cc",
+    grey="#f1f3f5",
+    white="#ffffff",
+)
 PALETTE = dict(
     blue="#4dabf7",
     green="#51cf66",
@@ -59,13 +70,31 @@ PALETTE = dict(
 
 
 class Rough:
-    def __init__(self, width, height, seed=1, roughness=1.0, bg="#ffffff"):
+    def __init__(
+        self,
+        width,
+        height,
+        seed=1,
+        roughness=1.0,
+        bg="#ffffff",
+        sketchy=False,
+        fill_style="hachure",
+    ):
         self.w, self.h = width, height
         self.rnd = random.Random(seed)
         self.r = roughness
         self.bg = bg
         self.parts = []
         self.font_file = None
+        # Sketchy: rectangles drawn as a quick pencil sketch - each box tilted by up to a degree,
+        # its edges overshooting the corners, its fill a bolder marker-like hachure at an angle of
+        # its own. Off, a rectangle is the tidy double stroke every figure before had.
+        self.sketchy = sketchy
+        # How a rectangle's fill is laid: "hachure" (the diagonal lines every figure before
+        # had), "solid" (a pale tint), "sparse" (thin lines far apart), "drop" (a white box
+        # over a hatched shadow), "tint-hatch" (a pale tint with thin lines over it), or
+        # "outline" (no fill; the box's line takes the colour).
+        self.fill_style = fill_style
 
     # -- strokes ---------------------------------------------------------------------------
     def _o(self, k=1.0):
@@ -205,20 +234,79 @@ class Rough:
         solid=False,
     ):
         poly = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
-        if fill:
-            col = PALETTE.get(fill, fill)
-            if solid:
+        if self.sketchy:
+            self._sketchy_rect(poly, fill, color, width)
+        else:
+            outline = None
+            if fill and solid:
+                col = PALETTE.get(fill, fill)
                 pts = " ".join(
                     "%.1f,%.1f" % (px + self._o(0.5), py + self._o(0.5)) for px, py in poly
                 )
                 self.parts.append('<polygon points="%s" fill="%s" stroke="none"/>' % (pts, col))
-            else:
-                self._hachure(poly, col)
-        for i in range(4):
-            (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % 4]
-            self.line(x1, y1, x2, y2, color, width)
+            elif fill:
+                outline = self._fill_rect(poly, fill)
+            stroke, w = (outline, width * 1.6) if outline else (color, width)
+            for i in range(4):
+                (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % 4]
+                self.line(x1, y1, x2, y2, stroke, w)
         if label:
             self.text(x + w / 2, y + h / 2, label, size=size, anchor="middle", color=label_color)
+
+    def _fill_rect(self, poly, fill, sketchy=False):
+        """Lay the fill of a box in the figure's style; returns the outline colour to use."""
+        col = PALETTE.get(fill, fill)
+        tint = LIGHT.get(fill, "#f1f3f5")
+        cx = sum(px for px, _ in poly) / 4
+        cy = sum(py for _, py in poly) / 4
+        style = self.fill_style
+
+        def flat(points, colour):
+            pts = " ".join(
+                "%.1f,%.1f" % (px + self._o(0.4), py + self._o(0.4)) for px, py in points
+            )
+            self.parts.append('<polygon points="%s" fill="%s" stroke="none"/>' % (pts, colour))
+
+        inset = [(cx + (px - cx) * 0.96, cy + (py - cy) * 0.96) for px, py in poly]
+        angle = -41.0 + ((self.rnd.random() * 2 - 1) * 9.0 if sketchy else 0.0)
+        if style == "solid":
+            flat(poly, tint)
+        elif style == "sparse":
+            self._hachure(inset, col, gap=13.0, angle=angle, width=1.3)
+        elif style == "drop":
+            shadow = [(px + 7, py + 7) for px, py in poly]
+            self._hachure(shadow, col, gap=6.0, angle=angle, width=2.0)
+            flat(poly, "#ffffff")
+        elif style == "tint-hatch":
+            flat(poly, tint)
+            self._hachure(inset, col, gap=15.0, angle=angle, width=1.1)
+        elif style == "outline":
+            return col
+        elif sketchy:
+            self._hachure(inset, col, gap=8.0, angle=angle, width=2.3)
+        else:
+            self._hachure(poly, col)
+        return None
+
+    def _sketchy_rect(self, poly, fill, color, width):
+        """A box as a quick sketch: tilted a little, edges run past the corners, bold hachure."""
+        cx = sum(px for px, _ in poly) / 4
+        cy = sum(py for _, py in poly) / 4
+        a = math.radians((self.rnd.random() * 2 - 1) * 0.9)
+        ca, sa = math.cos(a), math.sin(a)
+        tilted = [
+            (cx + (px - cx) * ca - (py - cy) * sa, cy + (px - cx) * sa + (py - cy) * ca)
+            for px, py in poly
+        ]
+        outline = self._fill_rect(tilted, fill, sketchy=True) if fill else None
+        stroke, w = (outline, width * 1.6) if outline else (color, width * 1.15)
+        for i in range(4):
+            (x1, y1), (x2, y2) = tilted[i], tilted[(i + 1) % 4]
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy) or 1.0
+            ux, uy = dx / length, dy / length
+            o1, o2 = 3 + self.rnd.random() * 5, 3 + self.rnd.random() * 5
+            self.line(x1 - ux * o1, y1 - uy * o1, x2 + ux * o2, y2 + uy * o2, stroke, w)
 
     def ellipse(self, cx, cy, rx, ry, fill=None, color=STROKE, width=1.6, label=None, size=20):
         if fill:

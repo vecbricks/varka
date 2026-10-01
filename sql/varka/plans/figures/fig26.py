@@ -28,7 +28,7 @@ from rough import Rough, finish
 GREY = "#5c5f66"
 RED = "#e03131"
 
-r = Rough(1000, 860, seed=2601)
+r = Rough(1000, 860, seed=2601, roughness=1.3, sketchy=True, fill_style="outline")
 r.text(40, 44, "One query's journey through Varka", size=32)
 
 LW, LX = 290, 40  # plan time, left column

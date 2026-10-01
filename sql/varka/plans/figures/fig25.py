@@ -28,7 +28,7 @@ GREY = "#5c5f66"
 RED = "#e03131"
 GREEN = "#2f9e44"
 
-r = Rough(1000, 640, seed=2501)
+r = Rough(1000, 640, seed=2501, roughness=1.3, sketchy=True, fill_style="drop")
 r.text(40, 44, "Two generators, one measurement", size=32)
 r.text(
     40,

@@ -702,3 +702,17 @@ were added to section 2, in the house style, and one reused:
 The charts became Figures 7 to 9. The anatomy paragraph shrank to what the figures do not say,
 "lane group" became "vector of rows", and the post is 3840 words with nine figures, as the first
 post had.
+
+*Later the same day, the drawings' look.* The owner found the three drawings' hachure fills hard
+to read under the text and asked for rectangles that look hand-drawn, with other fills. Two things
+were added to `rough.py` and chosen from: a `sketchy` mode - each box tilted by up to a degree, its
+pencil line overshooting the corners, its hachure at an angle of its own - and a `fill_style`,
+shown on the journey figure in five forms (a pale tint; thin lines far apart; a white box over a
+hatched shadow; tint with thin lines; no fill, the colour on the outline). A first round with
+other shapes - documents, diamonds, hexagons, cylinders, pills on tinted panels - was rejected as
+ugly and removed. The owner liked three fills and asked for one per figure: the two generators
+take the hatched shadow (`drop`), the journey the coloured outline (`outline`), the kernel class
+the sparse lines (`sparse`), all on the sketchy outline. The charts keep the tidy lines: a tilted
+bar would misstate a value. Off, both switches draw what every figure before drew, byte for byte;
+the nine milestone 5 figures differ when regenerated today only because the helper gained the
+text halo and an ellipse fix after they were committed, and their committed copies stand.

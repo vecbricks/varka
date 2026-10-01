@@ -55,7 +55,7 @@ def kb(name):
     return "{:,} bytes".format(sizes[name])
 
 
-r = Rough(1000, 720, seed=2701)
+r = Rough(1000, 720, seed=2701, roughness=1.3, sketchy=True, fill_style="sparse")
 r.text(40, 44, "One kernel class, and one batch's path through it", size=32)
 r.text(
     40,
