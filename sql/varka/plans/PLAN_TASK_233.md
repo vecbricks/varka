@@ -3,8 +3,9 @@
 *Row 233 of `PLAN_MILESTONE_6.md`, opened 30 September 2026. Planned 1 October 2026, after the
 owner asked whether the post had everything it needed: it had its list and not its numbers. This
 plan registers the two investigations that supply them before a word of the post is drafted
-(sections 10 and 11 add five more, the same day), in the order of the milestone's other posts (`PLAN_TASK_210.md`, `PLAN_TASK_181.md`): the question,
-what the record holds, the measurements with their predictions, the outline, and done-when.*
+(sections 10 and 11 add five more, the same day), in the order of the milestone's other posts
+(`PLAN_TASK_210.md`, `PLAN_TASK_181.md`): the question, what the record holds, the measurements with
+their predictions, the outline, and done-when.*
 
 ## 1. The question
 
@@ -254,10 +255,10 @@ projection costs 2.5 times for the first twenty-odd seconds of every executor JV
 times after, on this processor. The first post warned only of the 8000-byte case.
 
 **What it means for the post.** The silent section's numbers are reassuring for the fallback
-expression - at most a fifth of a microsecond a row - and the opposite for the setting a user reaches for
-to keep a wide projection in its stage: a method well under the limit can wait twenty seconds for
-C2 and stay slower after it. That is the post's strongest new finding, and the one the first post
-did not have.
+expression - at most a fifth of a microsecond a row - and the opposite for the setting a user
+reaches for to keep a wide projection in its stage: a method well under the limit can wait twenty
+seconds for C2 and stay slower after it. That is the post's strongest new finding, and the one the
+first post did not have.
 
 ## 10. Five more investigations, registered 1 October 2026
 
@@ -301,9 +302,9 @@ decisions for the 5747-byte consume method are compared.
 ### 10.3 Investigation 5: the wait on released Spark and three JDKs
 
 Everything so far is the fork's master on JDK 25. A spark-shell script,
-`sql/varka/demo/silent-giveups/compile_wait.scala`, times the first minute of a new stage the way 9.2 does, with
-`maxFields` raised and at the default, and the 60-sum aggregate, on stock Spark 4.2.0 under JDK 17,
-21 and 25 through a workflow modelled on `varka-demo.yml`.
+`sql/varka/demo/silent-giveups/compile_wait.scala`, times the first minute of a new stage the way
+9.2 does, with `maxFields` raised and at the default, and the 60-sum aggregate, on stock Spark 4.2.0
+under JDK 17, 21 and 25 through a workflow modelled on `varka-demo.yml`.
 
 11. The wait exists on all three JDKs, within a factor of two of each other, longest on JDK 17.
 
