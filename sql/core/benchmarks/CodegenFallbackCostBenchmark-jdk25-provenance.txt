@@ -1,7 +1,7 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.CodegenFallbackCostBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
-run:         https://github.com/MaxGekk/spark/actions/runs/36886940829
-commit:      bfde959bf24 (varka-task-233-cost: master 795e7eb4aa3 and the benchmark)
+run:         https://github.com/MaxGekk/spark/actions/runs/36890882924
+commit:      dc8bb430e08 (varka-task-233-cost: master 795e7eb4aa3 and the benchmark with its first-minute section)
 date:        2026-10-01
 inputs:      class=*CodegenFallbackCostBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
              generate-tpcds=false

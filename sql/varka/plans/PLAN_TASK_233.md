@@ -208,3 +208,44 @@ expressions (153); the rest are columnar scans.
 silent section is not about frequency in analytic SQL. It is about the specific constructs that
 cause it, which a user's query may have and the benchmark suites do not: an object aggregate, a
 Python UDF, a window, a JSON function, a higher-order function over maps.
+
+### 9.2 Investigation 2: what the silent ones cost, 1 October 2026
+
+`CodegenFallbackCostBenchmark` on a GitHub-hosted runner, an AMD EPYC 7763, JDK 25
+(`CodegenFallbackCostBenchmark-jdk25-results.txt`, run 36890882924, with its provenance). A first
+run of the same code on the same CPU model (36886940829) gave the same shape; the committed one
+adds the first-minute section that run's finding called for.
+
+**Prediction 5 was wrong.** Losing the stage costs no per-entry multiple. The slope from 16 to 48
+entries is 38.6 ns a row per entry with the entries alone in a stage, 40.4 with one `from_json`
+taking them out of it and 37.6 with one `get_json_object` keeping them in: within 7% of one
+another, not 1.1 to 1.4 times. Outside a stage `ProjectExec` still compiles its projection, so
+what leaving costs is the row boundary, once a row, not anything per expression.
+
+**Prediction 6 was half right.** Either JSON function costs about a microsecond a row, under the
+two predicted; but the stage's loss is the constant difference between the two arms, 135 to 224
+ns a row, and never the larger part, at 48 entries as at 16. The silent give-up of the census's
+most frequent fallback expression costs a fifth of a microsecond a row; the expression itself
+costs five times that.
+
+**Prediction 7 was wrong three ways.** A hundred and fifty cheap `id + k` entries at
+`maxFields=200` are a stage whose largest method is 5747 bytes, under the limit, and run 2.4 times
+slower than outside a stage (1902.5 against 779.1 ns a row), not faster. The date entries' method
+is 5454 bytes, not past 8000, and their stage ties the projection outside one (857.8 against
+847.3).
+
+**Why the cheap stage is slower: the wait for C2, and after it.** A probe on the laptop under
+`-XX:+PrintCompilation` showed the stage's 5747-byte consume method compiled by C1 at once and
+queued for C2, whose compile took about seventeen seconds; until it lands the stage runs C1's
+profiled code. The first-minute section measures it on the runner: a stage new to the JVM runs
+its first eleven queries at 1961 to 2145 ms, about twenty-two seconds, then drops to 1230 to 1280
+when C2's code arrives - and stays 1.57 times the 783 to 809 ms the projection takes outside a
+stage, where on the laptop the two met after C2. So raising `maxFields` for a wide cheap
+projection costs 2.5 times for the first twenty-odd seconds of every executor JVM and about 1.6
+times after, on this processor. The first post warned only of the 8000-byte case.
+
+**What it means for the post.** The silent section's numbers are reassuring for the fallback
+expression - a fifth of a microsecond a row - and the opposite for the setting a user reaches for
+to keep a wide projection in its stage: a method well under the limit can wait twenty seconds for
+C2 and stay slower after it. That is the post's strongest new finding, and the one the first post
+did not have.
