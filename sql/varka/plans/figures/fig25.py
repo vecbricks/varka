@@ -104,8 +104,8 @@ outcomes = [
     (TOP_B + 40, "a group is over", "split at its middle\nand built again", "orange"),
     (
         TOP_B + 120,
-        "an output alone is over",
-        "declined, the reason in\nEXPLAIN; Spark runs it",
+        "one output is over by itself",
+        "declined, the reason in\nEXPLAIN; Spark computes it",
         "grey",
     ),
 ]

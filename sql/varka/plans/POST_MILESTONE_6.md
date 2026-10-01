@@ -138,8 +138,9 @@ and one realistic filter rather than a sweep of suites.
 
 *Figure 3. Both generators read every method's size off the class file. Spark's
 one check on the number defaults to a size no compiled method reaches, so the
-method is logged and run; Varka splits a group and builds again, or declines an
-output with its reason, before the class runs anywhere.*
+method is logged and run. Varka splits a group and builds again; a single output
+too big for any method is declined with its reason, and Spark computes that one
+entry; all of it before the class runs anywhere.*
 
 Varka's emitter never sees Java. It walks an IR of vector operations and writes
 bytecode through `java.lang.classfile`, the Class-File API that became final in
