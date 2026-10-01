@@ -637,3 +637,23 @@ So an arm whose name says which form it measures sets that form explicitly -
 `DEFAULTS.withDriverOutputTable(false)`, not `DEFAULTS` - even while the explicit value is the
 default, and a change that flips a default searches the benchmarks for arms that read it, as it
 searches the suites.
+
+## A drawing of an emitted class is a measurement at a commit, and the timing beside it has one too
+
+The second milestone 6 post's first figure draws the class Varka emits for the size ladder's
+hundred entries, dumped with `dev/varka_emit.sh` on the day the post was drafted, and the post's
+section 4 called it the class the committed ladder ran. The ladder had run two days earlier, and
+in between the driver from a table had replaced the unrolled driver: a dump at the ladder's
+commit, from a worktree checked out there, showed 102 of the class's 104 methods byte for byte
+the same and the two drivers at 5278 and 5932 bytes against 1120 and 1121
+(`PLAN_TASK_181.md` 14.1). The text now says which methods are the figure's and which were not.
+
+Emitted bytes are a measurement at a commit as much as a rate is, and the emitter moves faster
+than a ladder is rerun on the machine the post quotes. So a figure that draws a class beside a
+timing is dumped at the timing's commit, the one its provenance file names, or the post says
+which commit it shows and what moved between; and the dump is committed beside the figure's
+script with the command and the commit that produced it, so the figure cannot drift from it.
+Whether the methods a change touched are the ones a quoted number ran is answered the same way:
+`git worktree add --detach <path> <commit>`, `build/sbt catalyst/Test/compile`, the dump, and a
+diff of its method table against today's - a quarter of an hour, against a sentence a reader
+can falsify.

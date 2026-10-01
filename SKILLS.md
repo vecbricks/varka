@@ -37,6 +37,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Spark's codegen histograms are samples, and its TPC suites compile nothing under AQE](sql/varka/skills/benchmarking.md#sparks-codegen-histograms-are-samples-and-its-tpc-suites-compile-nothing-under-aqe)
 * [Another engine's number is timed only on the plan it actually took](sql/varka/skills/benchmarking.md#another-engines-number-is-timed-only-on-the-plan-it-actually-took)
 * [An arm named for a form must set that form, not read it from the defaults](sql/varka/skills/benchmarking.md#an-arm-named-for-a-form-must-set-that-form-not-read-it-from-the-defaults)
+* [A drawing of an emitted class is a measurement at a commit, and the timing beside it has one too](sql/varka/skills/benchmarking.md#a-drawing-of-an-emitted-class-is-a-measurement-at-a-commit-and-the-timing-beside-it-has-one-too)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
