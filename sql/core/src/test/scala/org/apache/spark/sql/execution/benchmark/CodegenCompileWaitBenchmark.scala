@@ -40,7 +40,8 @@ import org.apache.spark.sql.internal.SQLConf
  * class is generated, compiled and JIT-compiled from cold. Every query of one shape runs back to
  * back for a fixed time with whole-stage codegen on, and again with it off, and the benchmark
  * prints each query's milliseconds, the stage's largest method in bytes, and the time to steady
- * state: the end of the last query more than 10% slower than the median of the last ten.
+ * state: the time before the first five queries in a row whose median is within 10% of the median
+ * of the last ten.
  *
  * Not a `Benchmark` table: what it measures is a time series, and a table of best and average
  * times would hide the wait it exists to show. Run it under `-XX:+PrintCompilation` to see when
