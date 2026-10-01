@@ -19,13 +19,22 @@
 #
 #   dev/varka_bench_repeat.sh catalyst VarkaEmitterParityBenchmark 3
 #   dev/varka_bench_repeat.sh catalyst VarkaEmitterParityBenchmark 10 --narrow
+#   dev/varka_bench_repeat.sh core VarkaThroughputBenchmark 10 --band
 #   dev/varka_bench_repeat.sh core VarkaThroughputBenchmark 4 --band <file>
 #
 # Runs the benchmark N times, pinned exactly as dev/varka_bench_regen.sh pins it,
 # writes nothing to the committed results files, and hands the runs to
 # dev/varka_bench_band.py, which reports the per-case spread: the median, the
 # p90, how many cases exceed 3, 10 and 20 percent, and the worst few. With
-# --band it also writes the committed band file the diff reads.
+# --band it also writes the committed band file the diff reads: by default
+# beside the results, sql/<module>/benchmarks/<Class>-jdk25-band.txt, or the
+# -128bit-band.txt companion under --narrow, which is where
+# dev/varka_bench_regen.sh looks for it; a path after --band writes elsewhere.
+#
+# This is how a family gets its band (sql/varka/AGENTS.md, "Measurements, not
+# adjectives"): the first time someone has to read a move in it, ten runs with
+# --band, committed with the results they band. Not before - banding every
+# family against a day that may never come costs a quiet machine for nothing.
 #
 # --narrow runs under -XX:MaxVectorSize=16, the width the committed 128-bit
 # companion files are measured at. The two widths need separate bands and are
@@ -70,7 +79,13 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
     --narrow) narrow=1; shift ;;
-    --band) band="$2"; shift 2 ;;
+    --band)
+      # A path if one follows, else the committed band file for this family and width.
+      if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then
+        band="$2"; shift 2
+      else
+        band="default"; shift
+      fi ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -83,6 +98,19 @@ case "$klass" in
     [ -n "$file" ] || { echo "no $klass.scala under $src" >&2; exit 2; }
     fqcn="$(sed -n 's/^package \(.*\)$/\1/p' "$file" | head -1).$klass" ;;
 esac
+
+if [ "$band" = "default" ]; then
+  case "$src_module" in
+    catalyst) bdir="sql/catalyst/benchmarks" ;;
+    *) bdir="sql/core/benchmarks" ;;
+  esac
+  if [ "$narrow" -eq 1 ]; then
+    band="$bdir/$klass-jdk25-128bit-band.txt"
+  else
+    band="$bdir/$klass-jdk25-band.txt"
+  fi
+fi
+[ -z "$band" ] || echo "band file: $band"
 
 # The same fast-CCX pin dev/varka_bench_regen.sh uses, for the same reasons.
 maxf=0

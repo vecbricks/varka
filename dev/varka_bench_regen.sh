@@ -212,7 +212,9 @@ echo
 echo "== what moved against the committed wide file =="
 # The band, where one has been measured for this file, turns "moved 14.2%" into
 # a verdict: a case's own tier says whether a move that size means anything. See
-# dev/varka_bench_band.py. Without one the flat threshold applies, as before.
+# dev/varka_bench_band.py. Without one the flat threshold applies, as before; a
+# family gets its band the first time a move in it has to be read, with
+# `dev/varka_bench_repeat.sh <module> <Class> 10 --band`, which writes it here.
 band="${wide%-results.txt}-band.txt"
 band_arg=()
 if [ -f "$band" ]; then

@@ -88,6 +88,18 @@ Read the controls before anything else: a run whose scalar anchors are flat but
 whose earliest sections all dropped was started on a machine still hot from a
 test suite, and its numbers are the machine's, not the code's.
 
+A diff's "moved 14.2%" means nothing on its own, because an unchanged file moves
+too, and by a different amount per case: over ten runs the parity file's median
+case moves 5%, its worst 227%. So a family's moves are read against its *band*,
+a committed per-case tier (`<Class>-jdk25-band.txt` beside the results, from
+`dev/varka_bench_band.py`) that the regen script's diff picks up by itself.
+The rule for when a family gets one: **the first time someone has to read a
+move in it**, not before. Then `dev/varka_bench_repeat.sh <module> <Class> 10
+--band` runs the unchanged benchmark ten times on the quiet machine and writes
+the band, `--narrow` the same for the 128-bit companion, and both are committed
+with the results they band. Until a family has one the flat threshold applies,
+and a move read against it is read with that said.
+
 Two more guards. `dev/varka_bench_canary.sh` runs three fixed loops - a
 compute-bound control, a cache-resident vector add, a memory-bound one - and
 compares them with the committed baseline for this host; the regen script runs
