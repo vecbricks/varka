@@ -679,3 +679,26 @@ Neither scratch file is committed; both listings are reproducible from the suite
 told apart only by a dash. `fig24.py` now draws two panels on one scale - the first query, Spark
 against Varka, and the second query with the compiled kernel beside it - in three colours and no
 dashes; the caption says so.
+
+### 14.3 The drawings, 1 October 2026
+
+The owner asked for diagrams: readers should see Varka's architecture and ideas, not only its
+numbers, and the second draft had five figures of which four were charts. Three concept drawings
+were added to section 2, in the house style, and one reused:
+
+* `fig25.py`, two generators and one measurement: Spark's pipeline and Varka's side by side,
+  sharing the station where every method's size is read off the class file, and parting after
+  it - logged and run interpreted, against split and built again or declined with a reason.
+* `fig26.py`, one query's journey: `docs/sql-varka.md`'s ASCII diagram drawn - plan time once
+  per shape (the rule, the compiler and its declines, the IR with literals as slots, the emitter,
+  the shape cache) and run time once per batch (morsels, the kernel, the warm-up thread, the
+  trapdoor), with its one property: every arrow marked declined or refused leads to Spark's code.
+* `fig27.py`, one kernel class and a batch's path through it: the entry point, the two drivers,
+  the groups' loop methods and epilogues with their sizes read from the committed dump, and the
+  notes on stages and the second kernel.
+* Milestone 5's Figure 6, the shared subtree and the loop it becomes, placed where the post says
+  outputs that share work go in one group, with a caption that ties it to Figure 5.
+
+The charts became Figures 7 to 9. The anatomy paragraph shrank to what the figures do not say,
+"lane group" became "vector of rows", and the post is 3840 words with nine figures, as the first
+post had.

@@ -134,20 +134,58 @@ and one realistic filter rather than a sweep of suites.
 
 ## 2. Measure the class, then decide
 
+![Two generators, one measurement](figures/svg/fig25-two-generators-one-measurement.svg)
+
+*Figure 3. Both generators read every method's size off the class file. Spark's
+one check on the number defaults to a size no compiled method reaches, so the
+method is logged and run; Varka splits a group and builds again, or declines an
+output with its reason, before the class runs anywhere.*
+
 Varka's emitter never sees Java. It walks an IR of vector operations and writes
 bytecode through `java.lang.classfile`, the Class-File API that became final in
 JDK 24, so the length of every method's code is a number it reads off the class
-it just built.
+it just built. Where that sits in a query's life is the next figure: plan time
+decides what Varka runs and builds a class for it, once per shape; run time
+executes that class over Arrow batches.
 
-A kernel is one class. The projection's outputs are partitioned into groups,
-and each group gets a loop method, which runs the group over every full lane
-group of a batch, and an epilogue, which runs it over the rows that remain under
-a mask; a batch with nulls takes a second pair of the same shape. Outputs that
-share work go in one group, so a prefix such as the civil-from-days
-decomposition several date fields need is computed once a lane group. A driver
-calls the groups in turn, once per batch. This is Figure 1's right half, as
-`dev/varka_emit.sh` prints it for the same hundred entries, trimmed to its
-first columns:
+![One query's journey through Varka](figures/svg/fig26-one-querys-journey.svg)
+
+*Figure 4. Plan time, left: the rule that finds an eligible node, the compiler
+that translates each entry to the IR or declines it with a reason, the emitter,
+and the shape cache every task shares; a literal is a slot in the IR, so one
+class serves every query of its shape. Run time, right: Arrow buffers mapped as
+memory segments, the kernel, the warm-up thread that compiles a new kernel while
+its batches take Spark's row path, and the trapdoor under a batch the kernel
+refuses. Every arrow marked declined or refused leads to Spark's own code.*
+
+A kernel is one class, and Figure 5 is the one the hundred entries emit. Its
+outputs are partitioned into groups; each group has a loop method, which runs
+the group over every full vector of rows, and an epilogue, which runs it over
+the rows left at the end under a mask, in a dense twin for batches without
+nulls and a masked twin for batches with them. A driver calls the groups in
+turn, once per batch.
+
+![One kernel class, and one batch's path through it](figures/svg/fig27-one-kernel-class.svg)
+
+*Figure 5. The class of Figure 1, method by method: the entry point picks the
+dense or the masked driver, the driver prepares every output's validity from a
+table and calls the 25 groups in turn, and each group is a loop method and an
+epilogue. Every size is read off the class.*
+
+Outputs that share work go in one group, so a prefix such as the civil-from-days
+decomposition several date fields need is computed once per vector of rows and
+kept in registers. That is also why an output is never split inside: it is
+fused so that its intermediates never touch memory.
+
+![Two outputs sharing a subtree, and the loop they become](figures/svg/fig6-fusion-shared-subtree.svg)
+
+*Figure 6. From the milestone 5 post: two outputs over the same guarded sum,
+and the one loop the emitter writes for them, with one load per input column,
+the shared subtree once, and one store per output. The groups of Figure 5 are
+this, four entries at a time.*
+
+Here is Figure 5 again as `dev/varka_emit.sh` prints it for the hundred
+entries, trimmed to its first columns:
 
 ```
 method              bytes  IntVector
@@ -167,10 +205,9 @@ The last two lines are the point. After the class is built, every method is
 measured against 8000 bytes and the class against the class-file caps. A group
 with a method over the budget is split at its middle output and the class built
 again, until it fits. An output over the budget on its own is declined, with a
-reason that names the method, its bytes and the budget; splitting inside one
-output is deliberately not done, because an output is fused so that its
-intermediates stay in registers, and a call inside it would spill them. The
-compiler asks the question at plan time, through a shape cache that builds and
+reason that names the method, its bytes and the budget, and is never split
+inside, for the reason Figure 6 shows. The compiler asks the question at plan
+time, through a shape cache that builds and
 measures the class without defining it, so a declined output never reaches an
 executor: it stays on Spark's path as a residual entry of the same node, the
 rest of the projection fuses, and `EXPLAIN` says why. Here one output is a
@@ -241,7 +278,7 @@ kind.*
 
 ![The size ladder, defaults and tuned](figures/svg/fig11-the-size-ladder.svg)
 
-*Figure 3. Time per row against the number of entries, on a log scale: Spark
+*Figure 7. Time per row against the number of entries, on a log scale: Spark
 under its defaults and with `hugeMethodLimit=8000`, and Varka, on an AMD EPYC
 9V45, one core.*
 
@@ -262,7 +299,7 @@ does is bound a method in bytes.
 
 ![The filter of modified-q3, defaults and Varka](figures/svg/fig23-the-range-filter.svg)
 
-*Figure 4. A filter of `n` date ranges joined by `or`, over two million cached
+*Figure 8. A filter of `n` date ranges joined by `or`, over two million cached
 rows on the same machine: Spark and Varka's two designs.*
 
 The one TPC-DS query past the line is `modified-q3`, and its predicate is two
@@ -298,7 +335,7 @@ out of memory, as whole-stage code does, without its limit.
 
 ![The first query of a new shape](figures/svg/fig24-the-first-query.svg)
 
-*Figure 5. A new shape's first query, left, and its second, right, with the
+*Figure 9. A new shape's first query, left, and its second, right, with the
 kernel once compiled beside it: Spark against Varka with its warm-up, over a
 hundred thousand cached rows on a four-core Intel Xeon Platinum 8370C runner.*
 
