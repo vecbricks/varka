@@ -25,7 +25,8 @@ spark.range(0, 1000)
   .createOrReplaceTempView("t")
 
 def show(title: String, df: DataFrame): Unit = {
-  df.write.format("noop").mode("overwrite").save()
+  // collect() runs the DataFrame's own plan, so that explain() shows the stages it ran with.
+  df.collect()
   println(s"### $title")
   df.explain()
 }

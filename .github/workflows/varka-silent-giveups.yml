@@ -101,7 +101,8 @@ jobs:
         for script in *.scala; do
           name="${script%.scala}"
           "$SPARK/bin/spark-shell" --master 'local[1]' --driver-memory 2g \
-            --conf spark.ui.enabled=false -i "$script" > "$name.log" 2>&1 < /dev/null || true
+            --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
+            -i "$script" > "$name.log" 2>&1 < /dev/null || true
           out="$name-jdk${{ matrix.java }}-output.txt"
           {
             echo "Output of $script on a GitHub-hosted runner, by varka-silent-giveups.yml."

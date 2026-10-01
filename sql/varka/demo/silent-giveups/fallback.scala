@@ -31,8 +31,11 @@ println(s"### the query answered ${rows3000.length} rows in $ms3000 ms")
 println("### 1000 entries outside a stage with method splitting off: past 64 KB")
 spark.conf.set("spark.sql.codegen.wholeStage", "false")
 spark.conf.set("spark.sql.codegen.methodSplitThreshold", Int.MaxValue.toString)
+// Over a nullable column, so that every entry carries its null check: over `id`, which is never
+// null, the same 1000 entries stay under 64 KB.
 val (rows1000, ms1000) = time(spark.sql(
-  s"select ${(1 to 1000).map(k => s"id + $k AS c$k").mkString(", ")} from range(0, 10)").collect())
+  s"select ${(1 to 1000).map(k => s"x + $k AS c$k").mkString(", ")} " +
+  "from (select if(id % 7 = 0, null, id) AS x from range(0, 10))").collect())
 println(s"### the query answered ${rows1000.length} rows in $ms1000 ms")
 spark.conf.unset("spark.sql.codegen.wholeStage")
 spark.conf.unset("spark.sql.codegen.methodSplitThreshold")
