@@ -373,8 +373,7 @@ described, before the writes are reached. So each row of the stage makes 150 cal
 projection outside a stage does not make: there the projection is split into small `writeFields`
 methods, each compiled with its writes inlined. What differs between the machines is what those
 calls cost: under the logging the 9V74's stage settles at 748 ms against 493 outside, 1.52 times,
-in the same range as the 7763's 1.57 of 9.2, and the laptop's Zen 5 shows a smaller gap in an
-uncommitted run. 11.1's projections are the same mechanism at smaller widths: a stage's method
+in the same range as the 7763's 1.57 of 9.2. 11.1's projections are the same mechanism at smaller widths: a stage's method
 past a few thousand bytes stops inlining its writes.
 
 ### 11.3 Investigation 5: the wait on released Spark and three JDKs
@@ -437,3 +436,70 @@ beyond 64 KB` in the top-k's comparator, which has no fallback (`failing-*`). `s
 window and the object hash aggregate with no `*(n)` in the final adaptive plan, `from_json`
 taking its projection out of the stage while `get_json_object` keeps it, and the 101st column
 taking a projection out.
+
+## 12. Before the draft, registered 1 October 2026
+
+Reading section 4's outline against sections 9 and 11 left four gaps: the outline has no place
+for the post's strongest finding (11.1 and 11.2), and still advises raising `maxFields`, which 9.2
+and 11.3 show costs a wait and a lasting slowdown; its advice to move a fallback expression into a
+projection of its own was never run, and `CollapseProject` looks likely to undo it; its third
+section promises what the interpreter fallback costs, which nothing measured; and two of its
+version claims had no source in this plan. The last needs no run: SPARK-59774 makes the 8000-byte
+line a warning from 4.4.0, and the line's logger is `CodeCompiler` from 4.3.0 (`PLAN_TASK_210.md`
+and the first post, which quote both); 4.3.0 has a first release candidate and no release, so
+the post says "from 4.3.0" and "from 4.4.0" of releases to come, and since both changes are after
+4.2.0, no 4.1.3 run is needed (section 5).
+
+### 12.1 The rewrite, on stock Spark
+
+`sql/varka/demo/silent-giveups/rewrite.scala`, run by the workflow of 11.3: `from_json` in a
+projection of its own over the rest of the projection, `from_json` over an aggregate's output,
+and `get_json_object` over the same aggregate.
+
+14. Both rewrites are undone: the split projection is one `Project` again, without `*(n)`, and
+    the projection over the aggregate is merged into the final `HashAggregate`, which leaves its
+    stage while the partial aggregate stays in one; with `get_json_object` every operator is in a
+    stage.
+
+### 12.2 The log level, for one logger
+
+`log_level.scala` provokes 11.5's four INFO give-ups with no appender, under the distribution's
+`log4j2.properties.template` plus `log_level.log4j2.properties`, which raises the `codegen`
+package and `HashAggregateExec` to INFO.
+
+15. The shell prints all four give-ups, together with one `Code generated in` line per compiled
+    class from the same package, and no other INFO line of Spark's.
+
+### 12.3 What the interpreter fallback costs
+
+`CodegenInterpreterFallbackBenchmark`, on a runner: 100, 300 and 1000 entries `x + k` over a
+nullable column, outside a stage, compiled and interpreted (the object `NO_CODEGEN` builds, which
+is the one a failed compile falls back to).
+
+16. Interpreted is 5 to 15 times slower per row than compiled at every width.
+
+### 12.4 The outline, revised
+
+Section 4's four sections stay in the order a user meets them, with two changes: the first post's
+advice on `maxFields` is corrected, and the finding that a stage can be slower is its own
+section, since it is neither silent in the census's sense nor logged.
+
+1. **Silent.** A `from_json`, a window, an object hash aggregate, a schema past a hundred
+   fields: the operator leaves its stage and only `EXPLAIN` shows it. What it costs: a fifth of
+   a microsecond a row for the fallback expression (9.2), less than the expression itself. What
+   not to do: move it into a projection of its own (12.1). What to do: a function that generates
+   code where one exists (`get_json_object`), or nothing.
+2. **In a stage and slower.** A projection of 50 or more columns runs up to 1.65 times slower
+   inside a stage than outside one under the defaults (11.1), because C2 stops inlining the row
+   writes in a method past a few thousand bytes (11.2); raised past `maxFields`, it waits 17 to
+   22 seconds for C2 first on released Spark (11.3). Aggregates win in a stage (11.1). The
+   corrected advice: do not raise `maxFields` for a wide projection.
+3. **Hidden in the log.** The method past 8000 bytes (the first post, one paragraph), the split
+   refusals, the fast hash map: two lines of `log4j2.properties` (12.2), and the 4.3.0 and 4.4.0
+   changes.
+4. **Logged, with a fallback.** The 64 KB stage that runs its operators one by one (the first
+   post's ladder) and the projection that runs interpreted (12.3).
+5. **Failing the query.** The top-k over a 1200-branch `CASE WHEN` (11.5).
+
+Closing: how you'd know, over your own history - `dev/varka_codegen_report.py` over event logs
+(11.4) - and what Spark could add, as a proposal, not a claim.
