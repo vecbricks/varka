@@ -1,0 +1,13 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenFallbackCostBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36886940829
+commit:      bfde959bf24 (varka-task-233-cost: master 795e7eb4aa3 and the benchmark)
+date:        2026-10-01
+inputs:      class=*CodegenFallbackCostBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+             generate-tpcds=false
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 64-Core Processor (the runner is not pinned; the file is the workflow's
+             artifact unchanged)
+purpose:     task 233's second investigation (PLAN_TASK_233.md 3): what the silent give-ups of
+             whole-stage codegen cost; vanilla Spark only, Varka off

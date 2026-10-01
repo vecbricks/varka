@@ -1,0 +1,61 @@
+================================================================================================
+one CodegenFallback expression in a projection: from_json
+================================================================================================
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+16 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                              534            541           8          1.9         534.4       1.0X
+the entries and one from_json: outside a stage            1552           1569          14          0.6        1551.7       0.3X
+the entries and one get_json_object: in a stage           1459           1470           9          0.7        1458.8       0.4X
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+32 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                             1065           1072           7          0.9        1065.2       1.0X
+the entries and one from_json: outside a stage            2066           2079           9          0.5        2066.3       0.5X
+the entries and one get_json_object: in a stage           2021           2049          51          0.5        2020.8       0.5X
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+48 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                             1586           1594           8          0.6        1586.2       1.0X
+the entries and one from_json: outside a stage            2562           2571          10          0.4        2562.1       0.6X
+the entries and one get_json_object: in a stage           2513           2572         121          0.4        2513.0       0.6X
+
+
+================================================================================================
+a projection past maxFields
+================================================================================================
+
+maxFields=100: the projection runs outside any stage; largest method: no stage
+maxFields=200: the projection runs inside a whole-stage codegen stage; largest method: 5747 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+cheap entries, id + k, 150 entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+maxFields=100, the default: outside a stage                            800            812          13          1.2         800.1       1.0X
+maxFields=200: in a stage                                             1923           2059         168          0.5        1922.6       0.4X
+
+maxFields=100: the projection runs outside any stage; largest method: no stage
+maxFields=200: the projection runs inside a whole-stage codegen stage; largest method: 5454 bytes
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+date entries, date_add(d, k), 150 entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------
+maxFields=100, the default: outside a stage                                   871            898          27          1.1         870.7       1.0X
+maxFields=200: in a stage                                                     884            894           8          1.1         884.0       1.0X
+
+
