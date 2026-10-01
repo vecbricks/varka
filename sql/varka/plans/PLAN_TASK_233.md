@@ -506,6 +506,17 @@ Closing: how you'd know, over your own history - `dev/varka_codegen_report.py` o
 
 ## 13. Outcome of section 12, 1 October 2026
 
+### 13.1 The rewrite, on stock Spark
+
+`rewrite-jdk{17,21,25}-output.txt`, run 36919500989. **Prediction 14 held** on all three JDKs. The
+projection split in two is one `Project` again in the executed plan, with `from_json` in it and
+no `*(n)`, over a `*(1) Range`. Over an aggregate the projection is merged into the final
+`HashAggregate`'s result expressions, and that aggregate leaves its stage while the partial
+aggregate below it keeps its `*(1)`; with `get_json_object` in its place every operator is in a
+stage. A first version of the snippet aggregated a string, `max(js)`, which makes a sort
+aggregate that is outside a stage either way and tests nothing; the committed one aggregates
+`sum(id)` by a key and builds the JSON from the key.
+
 ### 13.2 The log level, for one logger
 
 `log_level-jdk{17,21,25}-output.txt`, run 36917213523. **Prediction 15 held** on all three JDKs,
