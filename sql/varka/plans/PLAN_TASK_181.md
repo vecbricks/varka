@@ -674,3 +674,8 @@ inlined 11 split methods and refused 90 with `size > DesiredMethodLimit`, sectio
 Neither scratch file is committed; both listings are reproducible from the suites named.
 
 **Still owed:** as section 14's table, with the owner's read of this draft in place of the first.
+
+*Later the same day*: the owner found Figure 5 hard to read, four of its five lines being two reds
+told apart only by a dash. `fig24.py` now draws two panels on one scale - the first query, Spark
+against Varka, and the second query with the compiled kernel beside it - in three colours and no
+dashes; the caption says so.

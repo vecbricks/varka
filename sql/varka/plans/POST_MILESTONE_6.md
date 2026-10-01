@@ -298,9 +298,9 @@ out of memory, as whole-stage code does, without its limit.
 
 ![The first query of a new shape](figures/svg/fig24-the-first-query.svg)
 
-*Figure 5. A new shape's first, second and later queries over a hundred thousand
-cached rows, Spark against Varka with its warm-up, on a four-core Intel Xeon
-Platinum 8370C runner.*
+*Figure 5. A new shape's first query, left, and its second, right, with the
+kernel once compiled beside it: Spark against Varka with its warm-up, over a
+hundred thousand cached rows on a four-core Intel Xeon Platinum 8370C runner.*
 
 **The first query.** Everything above is steady state, and a new shape pays for
 its kernel once: Varka plans it, emits the class, and the JIT has to compile it
