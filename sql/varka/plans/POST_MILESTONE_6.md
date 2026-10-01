@@ -24,8 +24,7 @@ The first post in this pair,
 was for people who run Spark: where the step is, how to see it on your own
 cluster, what to set. This one is for people who read `CodeGenerator.scala`,
 and it answers three questions. Why can't Spark just split the method? What
-does measuring the class look like, and what did we get wrong doing it? What
-does it buy, and what does it cost?
+does measuring the class look like? What does it buy, and what does it cost?
 
 Two facts frame the answers. The cliff is rare in Spark's own queries: of the
 350,384 methods Spark generates for its golden-file suite and its TPC-DS, TPC-H
@@ -275,28 +274,20 @@ Varka [2]: [h: residual (over the emitter's method budget (loopDense0 is 23505
   ...), a: fused]
 ```
 
-**We had the cliff too.** Until 24 September the epilogue was one method over
-every output, a decision from when kernels were narrow. On a projection of
-`make_date(year(d), month(d), k)` entries it passed 8000 bytes at 13 outputs and
-reached 41,338 at sixty, while the loop methods, one per group, stayed under the
-limit. Nothing in our tests noticed, because the answers were right. The JVM's
-compile log did: read in a forked JVM under `-XX:+PrintCompilation`, it showed
-every loop method reaching C2 and the single epilogue at no tier. A bytecode
-emitter is not immune to the limit; it is only able to see it. An epilogue per
-group fixed it, and a test reads the same compile log to keep it fixed.
-
-**Then the limit moved to the caller.** The driver used to set up each output's
-validity and literals in code repeated per output, and passed 8000 bytes at
-about 140 outputs. It now does that work in two calls that read tables baked
-into the class, so it grows by 44 bytes a group and holds about 180 groups; past
-that, its calls move into stage methods, each calling a run of groups, sized
-from the driver's measured bytes. Past 64 input columns, a second kernel takes
-the entries the first set aside. Spark met the same displacement outside a
-stage: its splitter puts the branches of a wide `CASE WHEN` into small methods,
-about three to a method, and the method holding the calls grows with them, 2141
-bytes at 300 branches and 8060 at 1000, where it stops being compiled.
-SPARK-59783, in 4.4.0, groups those calls into methods of their own, which is
-the fix Varka's stages make.
+**Two things measuring taught us.** Emitting bytecode buys the measurement, not
+immunity: for months Varka's own epilogue, one method over every output, was
+past 8000 bytes from thirteen outputs up, with every answer right and nothing
+in the tests noticing; only the JVM's compile log, read in a forked JVM under
+`-XX:+PrintCompilation`, showed it at no tier. A test reads that log now, and
+the epilogue is one method per group. And bounding the methods moves the bytes
+to whatever calls them: the driver grew by a few bytes per output and passed
+the limit near 140 outputs, so it now reads tables baked into the class and
+grows only per group; past about 180 groups its calls move into stage methods,
+and past 64 input columns a second kernel takes the rest. Spark met the same
+displacement outside a stage, where the method holding the calls to the split
+`CASE WHEN` branches crossed 8000 bytes near a thousand branches; SPARK-59783,
+in 4.4.0, groups those calls into methods of their own, which is the fix
+Varka's stages make.
 
 **Compiled is not the same as inlined.** Splitting has a cost no size check
 sees. Run a `CASE WHEN` of 300 `WHEN v = k THEN v * k` branches outside a stage
