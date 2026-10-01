@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution.benchmark
 
+import java.nio.charset.StandardCharsets
+
 import scala.util.control.NonFatal
 
 import org.apache.spark.benchmark.Benchmark
@@ -42,6 +44,12 @@ import org.apache.spark.sql.internal.SQLConf
  * leave their operator out of a stage at the default of 100 and put it in one at 200, and the
  * stage's method may then pass 8000 bytes, which the first post warned of without a number:
  * the cheap entries `id + k` stay under it, `date_add(d, k)` entries do not.
+ *
+ * The second case has a third section, from what the first runs found: the 150 cheap entries in
+ * a stage ran 2.4 times slower than outside one with a method of 5747 bytes, under the limit,
+ * because C2 took about seventeen seconds to compile it and until then the stage ran C1's
+ * profiled code. So each arm also runs a projection new to the JVM back to back for a minute,
+ * and prints every query's time, which shows when C2's code arrives.
  *
  * The table is cached with Spark's own cache, and every arm reads the same cache. Above each
  * rung the benchmark prints where the projection landed, in a stage or outside one, and for the
@@ -152,6 +160,29 @@ object CodegenFallbackCostBenchmark extends SqlBasedBenchmark {
     benchmark.run()
   }
 
+  /**
+   * Each query's time, back to back for `seconds`, of a projection whose generated class is new
+   * to this JVM: the offset makes its source unlike any compiled before, so the class is
+   * generated, compiled and JIT-compiled from cold, as on a fresh executor.
+   */
+  private def firstMinute(label: String, offset: Int, maxFields: String, seconds: Int): Unit = {
+    val entries = (1 to 150).map(k => s"id + ${k + offset} AS c$k")
+    val times = scala.collection.mutable.ArrayBuffer.empty[Long]
+    withSQLConf(SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> maxFields) {
+      val start = System.nanoTime()
+      while (System.nanoTime() - start < seconds * 1000000000L) {
+        val t = System.nanoTime()
+        wide(entries).noop()
+        times += (System.nanoTime() - t) / 1000000
+      }
+    }
+    // scalastyle:off println
+    output.foreach(_.write(s"$label, ms per query: ${times.mkString(" ")}\n"
+      .getBytes(StandardCharsets.UTF_8)))
+    println(s"$label, ms per query: ${times.mkString(" ")}")
+    // scalastyle:on println
+  }
+
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     cacheTable()
     // The JVM's first queries also compile Spark's own code paths; the smallest rung runs once
@@ -163,6 +194,10 @@ object CodegenFallbackCostBenchmark extends SqlBasedBenchmark {
     }
     runBenchmark("one CodegenFallback expression in a projection: from_json") {
       Seq(16, 32, 48).foreach(fallbackLadder)
+    }
+    runBenchmark("the first minute of a new stage: 150 entries id + k, queries back to back") {
+      firstMinute("maxFields=200, in a stage", 1000, "200", 60)
+      firstMinute("maxFields=100, the default, outside a stage", 2000, "100", 60)
     }
     runBenchmark("a projection past maxFields") {
       maxFieldsRung("cheap entries, id + k", (1 to 150).map(k => s"id + $k AS c$k"))
