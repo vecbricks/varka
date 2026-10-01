@@ -65,6 +65,7 @@ RESULT_GLOBS = [
     "sql/varka/bench/benchmarks/*.txt",
     # The reader's demos print their own tables; their committed outputs are results files too.
     "sql/varka/demo/*-output.txt",
+    "sql/varka/demo/*/*-output.txt",
 ]
 ALLOWLIST = "dev/varka_quote_allowlist.txt"
 QUOTE = re.compile(r"(?<![\w.\-])(\d{2,}\.\d{1,3})(?![\w.%]|\s*x\b|\s*x\)|\s*x,|\s*x\.)")

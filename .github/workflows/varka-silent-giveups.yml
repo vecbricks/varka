@@ -17,29 +17,28 @@
 # under the License.
 #
 
-# Runs sql/varka/demo/method_size_cliff.scala, the reader's demo of Spark's method-size cliff,
-# on the stock Spark distribution under each JDK Spark supports, and uploads what it prints.
-# The demo needs no build of this repository: it is a spark-shell script, run the way a reader
-# runs it. The outputs committed beside the script come from here, with the runner's CPU named.
+# Runs the spark-shell scripts under sql/varka/demo/silent-giveups/ - the snippets of the post on
+# where Spark gives up whole-stage codegen (PLAN_TASK_233.md 10.3 and 10.5) - on the stock Spark
+# distribution under each JDK Spark supports, and uploads what each prints. Like varka-demo.yml it
+# needs no build of this repository: the scripts run the way a reader runs them. Each output keeps
+# the script's own lines, from its first "###" on, with the runner's CPU and the versions above.
 #
-# It runs when a push changes the demo, and by hand. A hand dispatch needs the workflow on the
-# repository's default branch; a push needs only the branch it is pushed to.
+# It runs when a push changes the scripts, and by hand.
 
-name: Varka demo
+name: Varka silent give-ups
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'sql/varka/demo/**'
-      - '!sql/varka/demo/silent-giveups/**'
-      - '.github/workflows/varka-demo.yml'
+      - 'sql/varka/demo/silent-giveups/*.scala'
+      - '.github/workflows/varka-silent-giveups.yml'
 
 permissions:
   contents: read
 
 jobs:
-  demo:
+  scripts:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -93,41 +92,37 @@ jobs:
         path: ~/stock-spark
         key: stock-spark-${{ env.STOCK_VERSION }}-hadoop3
 
-    # The demo, then the demo again under -XX:+PrintCompilation for the JVM's side. The output
-    # file is what is committed: the runner's CPU, the Java version, and the demo's table.
-    - name: Run the demo
+    - name: Run the scripts
       run: |
-        set -euo pipefail
+        set -uo pipefail
         SPARK="$HOME/stock-spark/spark-${STOCK_VERSION}-bin-hadoop3"
-        cd sql/varka/demo
-        "$SPARK/bin/spark-shell" --master 'local[1]' --conf spark.ui.enabled=false \
-          -i method_size_cliff.scala > run.log 2>&1
-        "$SPARK/bin/spark-shell" --master 'local[1]' --conf spark.ui.enabled=false \
-          --driver-java-options "-XX:+PrintCompilation" \
-          -i method_size_cliff.scala > compile.log 2>&1
-        out="method_size_cliff-jdk${{ matrix.java }}-output.txt"
-        {
-          echo "Output of method_size_cliff.scala on a GitHub-hosted runner, by varka-demo.yml."
-          echo "run:     ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          echo "commit:  ${GITHUB_SHA::11}"
-          echo "cpu:     $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
-          echo "java:    $(java -version 2>&1 | head -1)"
-          echo "spark:   ${STOCK_VERSION}"
-          echo
-          sed -n '/^entries/,/^\* past/p' run.log
-          echo
-          echo "Sizes of project_doConsume the JIT compiled (-XX:+PrintCompilation), with counts:"
-          grep 'project_doConsume' compile.log | grep -oE '\([0-9]+ bytes\)' | sort | uniq -c
-        } > "$out"
-        cat "$out"
-        grep -q '^\* past' "$out"
+        cd sql/varka/demo/silent-giveups
+        status=0
+        for script in *.scala; do
+          name="${script%.scala}"
+          "$SPARK/bin/spark-shell" --master 'local[1]' --driver-memory 2g \
+            --conf spark.ui.enabled=false -i "$script" > "$name.log" 2>&1 < /dev/null || true
+          out="$name-jdk${{ matrix.java }}-output.txt"
+          {
+            echo "Output of $script on a GitHub-hosted runner, by varka-silent-giveups.yml."
+            echo "run:     ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "commit:  ${GITHUB_SHA::11}"
+            echo "cpu:     $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
+            echo "java:    $(java -version 2>&1 | head -1)"
+            echo "spark:   ${STOCK_VERSION}"
+            echo
+            sed -n '/^###/,$p' "$name.log" | cut -c1-300
+          } > "$out"
+          cat "$out"
+          grep -q '^### Spark' "$out" || { echo "::error::$script did not finish"; status=1; }
+        done
+        exit $status
 
-    - name: Upload the output
+    - name: Upload the outputs
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: varka-demo-jdk${{ matrix.java }}
+        name: varka-silent-giveups-jdk${{ matrix.java }}
         path: |
-          sql/varka/demo/method_size_cliff-jdk${{ matrix.java }}-output.txt
-          sql/varka/demo/run.log
-          sql/varka/demo/compile.log
+          sql/varka/demo/silent-giveups/*-output.txt
+          sql/varka/demo/silent-giveups/*.log
