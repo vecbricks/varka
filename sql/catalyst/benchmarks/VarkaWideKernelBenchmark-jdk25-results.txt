@@ -48,3 +48,37 @@ one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(m
 200 mixed entries, exact grouping                    24             24           1          0.0    23764229.0       3.5X
 
 
+================================================================================================
+past the driver's ceiling: a split driver against several kernels
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+1000000 rows in 4096-row batches:                                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+800 entries, split driver (one kernel, 2 stages), null-free                         1684          12326       23792          0.6        1683.6       1.0X
+800 entries, several kernels (724 + 76), null-free                                  1641          11718       22503          0.6        1640.6       1.0X
+1200 entries, split driver (one kernel, 2 stages), null-free                        2496          20413       40040          0.4        2495.9       0.7X
+1200 entries, several kernels (724 + 476), null-free                                2453          16345       31041          0.4        2453.0       0.7X
+800 entries, split driver (one kernel, 2 stages), every seventh row null            1902          13951       26931          0.5        1902.2       0.9X
+800 entries, several kernels (724 + 76), every seventh row null                     1880          13016       24896          0.5        1880.4       0.9X
+1200 entries, split driver (one kernel, 2 stages), every seventh row null           2882          21573       41763          0.3        2882.2       0.6X
+1200 entries, several kernels (724 + 476), every seventh row null                   2857          18469       34894          0.4        2857.0       0.6X
+
+
+================================================================================================
+past the driver's ceiling: each form's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+one emission:                                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+800 entries, split driver (3541652 bytes)                             427            432           8          0.0   426776530.0       1.0X
+800 entries, several kernels (3558607 bytes in 2 classes)             197            199           2          0.0   196691258.0       2.2X
+800 entries, several kernels with the compiler's search              2712           2728           9          0.0  2712400028.0       0.2X
+1200 entries, split driver (5245552 bytes)                            742            749           6          0.0   742273051.0       0.6X
+1200 entries, several kernels (5342585 bytes in 2 classes)            283            289           4          0.0   282709278.0       1.5X
+1200 entries, several kernels with the compiler's search             4226           4243          12          0.0  4225548227.0       0.1X
+
+
