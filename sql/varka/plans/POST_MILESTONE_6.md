@@ -145,8 +145,10 @@ entry; all of it before the class runs anywhere.*
 Varka's emitter never sees Java. It walks an IR of vector operations and writes
 bytecode through `java.lang.classfile`, the Class-File API that became final in
 JDK 24, so the length of every method's code is a number it reads off the class
-it just built. Where that sits in a query's life is the next figure: plan time
-decides what Varka runs and builds a class for it, once per shape; run time
+it just built. Where that sits in a query's life is the next figure. Plan time
+decides what Varka runs and builds a class for it, once per *shape*: the
+expression tree with its constants taken out as slots, so that two queries
+differing only in their constants are one shape and share one class. Run time
 executes that class over Arrow batches.
 
 ![One query's journey through Varka](figures/svg/fig26-one-querys-journey.svg)
@@ -222,10 +224,11 @@ again, until it fits. An output over the budget on its own is declined, with a
 reason that names the method, its bytes and the budget, and is not split inside,
 for the reason Figure 6 shows: not yet, that is, since a spill inside the
 output, one intermediate written to a scratch column and read back, is the next
-milestone's work. The compiler asks the question at plan time, through a shape cache that builds and
-measures the class without defining it, so a declined output never reaches an
-executor: it stays on Spark's path as a residual entry of the same node, the
-rest of the projection fuses, and `EXPLAIN` says why. Here one output is a
+milestone's work. The compiler asks the question at plan time, through a cache
+of classes by shape that builds and measures the class without defining it, so
+a declined output never reaches an executor: it stays on Spark's path as a
+residual entry of the same node, the rest of the projection fuses, and
+`EXPLAIN` says why. Here one output is a
 balanced `greatest` over thirty-two `add_months`, too heavy for any method, and
 the other a `date_add`:
 

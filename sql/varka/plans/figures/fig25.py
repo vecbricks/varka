@@ -100,7 +100,7 @@ lane(
 # Three outcomes, fanned out from the measurement.
 OUT_X, OUT_W, OUT_H = 770, 200, 62
 outcomes = [
-    (TOP_B - 40, "fits", "one class per shape,\nkept for every task, run", "green"),
+    (TOP_B - 40, "fits", "one class, kept for\nevery task, run", "green"),
     (TOP_B + 40, "a group is over", "split at its middle\nand built again", "orange"),
     (
         TOP_B + 120,
