@@ -526,9 +526,9 @@ cache; the third paragraph's bound on the input covers it as it covers Varka's 9
 Every row of section 4 was done by 29 September (197 in `PLAN_TASK_197.md` 7, 170 in section 12,
 202 in section 13), so the draft was written: `POST_MILESTONE_6.md`, in the first post's form -
 a title, a lede, numbered sections each opening with its figure, a closing paragraph and a
-measurement note - at 3937 words against the first post's 3239 and the milestone 5 post's 4392,
-the ceiling `varka-public-writing-stays-short` sets. Every number in it is from a committed results
-file, the quote checker reads it at zero orphans, and it is ASCII.
+measurement note - at 4023 words after 14.1, against the first post's 3239 and the milestone 5
+post's 4392, the ceiling `varka-public-writing-stays-short` sets. Every number in it is from a
+committed results file, the quote checker reads it at zero orphans, and it is ASCII.
 
 **Where each outline section went.**
 
@@ -590,3 +590,49 @@ and its expression cut where the plan's own rendering cuts it; the test asserts 
 | The trailer's last read, and where its link goes | `POST_MILESTONE_6_SHORT.md` | drafted with this draft, from the post's numbers; reread once the post's text settles |
 | The tickets' states: SPARK-33301 in review, SPARK-59764 and SPARK-59783 in 4.4.0 | 1, 3 | reread on the day of publication |
 | The page, and the link in the first post's closing | `dev/varka_post_page.py`, `POST_MILESTONE_6_SPARK.md` | on publication (section 8) |
+
+### 14.1 The review of the draft, 1 October 2026
+
+The owner asked for the draft to be reviewed for consistency and correctness before anything
+else. Every number was traced to its committed file, every mechanism claim to the plan that
+recorded it, the five tickets to the tracker on the day (SPARK-59764, 59774 and 59783 fixed in
+4.4.0, 59765 in 4.4.0 and 5.0.0, SPARK-33301 open with apache/spark#59069 unmerged), and
+Figure 1's class to its dump method by method. Seven errors and five inconsistencies, each
+corrected in the same pull request:
+
+1. *"The grouped loop methods stayed under 5,400"* in section 3 was false: in the legacy form
+   `loopMasked3` read 5597 bytes at sixty outputs (`PLAN_TASK_87.md` 9.2; 2.2's table, which
+   section 3.1 of that plan summarized as "under 5400", lists `loopMasked0` alone). The post
+   now says the loop methods stayed under the limit, with no number.
+2. *"Puts each branch of a wide `CASE WHEN` into a method of its own"* was false: 300 branches
+   make 101 split methods, about three to a method (section 10's table). Reworded.
+3. *"Its class at a hundred entries is Figure 1's"* was not quite so. The ladder ran on
+   29 September at `4cedebc4719`, before the driver from a table (`PLAN_TASK_190.md` 10, 30
+   September). The class was dumped again at that commit
+   (`figures/data/size-ladder-class-100-at-ladder-run.txt`): 102 of 104 methods are byte for
+   byte today's, and the two drivers were 5278 and 5932 bytes against 1120 and 1121 now. The
+   post says so, and that the table form ran the hundred entries 3 to 8% faster on the same
+   runner (`PLAN_TASK_190.md` 10.4), so the committed ladder number is conservative.
+4. Figure 1's caption said two drivers of 1,120 bytes; they are 1,120 and 1,121.
+5. *"Every timing before section 7 is steady state"* was contradicted by section 5's last
+   sentence, which quotes planning and warm-up times. Now "every time per row".
+6. Section 1's closing claimed every claim of the section is a test; the limit's history and the
+   five years of the unhooked check are the tracker's and the source's. Reworded.
+7. *"Errs far on the safe side, as its documentation says it means to"*: the splitter's comment
+   names 8K and also warns against methods too small, so "means to" was a reading. Now a fact.
+8. The post never named which Spark its Spark arm is; section 4 now says a September 2026
+   build of master, this fork with Varka off, as the first post does.
+9. The 8000-byte line is a warning once from 4.4.0 (first post, SPARK-59774); section 1 says so.
+10. The lede's "no method-size fallback to take" read against section 3's residual entry on
+    Spark's path. Now: no method Varka runs is one the JIT never compiles, and the decision is
+    taken before the class runs anywhere.
+11. Two sentences said "the same reading" with no antecedent, a late edit. Fixed.
+12. Section 7's "that path has no cliff either" holds at these widths; the caller of the split
+    methods has its own cliff further out (first post, section 5). Qualified.
+
+What the review verified and left standing: all ladder, tuning, filter, cold-start, census and
+vecruntime numbers; the drift between the tuned run and the ladder run, 6.3% at most at a
+hundred entries; 25 groups of exactly four entries, read off the 22 line-map entries of every
+group method; the census's four groups (11, 12, 8 and 3) and its 23 reproducers; `sql/testOnly`
+for the two suites, which live in sql/core; `d` as a default column of `dev/varka_emit.sh`;
+`CodegenMetrics`' histogram as Dropwizard's decaying reservoir of 1028 samples.

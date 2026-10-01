@@ -18,9 +18,10 @@ rather than as Java source, reads the length of every method from the class it
 built, and holds each one to 8000 bytes before anything runs. A group of outputs
 whose method is over the line is split and the class built again; an output that
 cannot fit on its own is declined at plan time, with a reason `EXPLAIN` prints,
-and stays on Spark's own path. So no method Varka emits is past the limit, and
-there is no method-size fallback to take. That is the claim of this post: not a
-speed-up, but a property Spark's generator cannot have.
+and stays on Spark's own path. So no method Varka runs is one the JIT never
+compiles, and the decision is taken before the class runs anywhere. That is the
+claim of this post: not a speed-up, but a property Spark's generator cannot
+have.
 
 Two facts bound how much it matters, and they come first. The cliff is rare in
 Spark's own queries: of 350,384 methods Spark generates for its golden-file
@@ -29,9 +30,9 @@ TPC-DS query Spark's suite already exempts from its size check. And it is common
 in the shapes people write: a projection of date arithmetic crosses between 52
 and 54 entries, and a filter of date ranges somewhere between 49 ranges and a
 hundred. A third fact bounds the comparison: tuned, Spark gets most of the way
-off the cliff, and section 4 puts the tuned numbers beside Varka's. Every timing
-before section 7 is steady state; section 7 prices the first query of a new
-shape, which costs more.
+off the cliff, and section 4 puts the tuned numbers beside Varka's. Every time
+per row below is steady state; section 7 prices the first query of a new shape,
+which costs more.
 
 ![The same hundred expressions as one method of Spark's and as one class of Varka's](figures/svg/fig21-one-method-or-a-class.svg)
 
@@ -39,7 +40,7 @@ shape, which costs more.
 one method of 17,132 bytes that every row runs through, past the line, and the
 JIT never compiles it.
 Varka emits one class: 25 groups of four entries, each with four methods of
-3,128 to 3,856 bytes, and two drivers of 1,120 bytes that call them.*
+3,128 to 3,856 bytes, and two drivers of 1,120 and 1,121 bytes that call them.*
 
 ## 1. Why a generator of source cannot know
 
@@ -52,7 +53,8 @@ way.
   directly, such as the lazily generated ordering of a top-k sort, there is no
   fallback and the query fails.
 * **8000 bytes**, HotSpot's `HugeMethodLimit`. Past it a method is never
-  compiled at any tier. Spark logs it at INFO and runs it.
+  compiled at any tier. Spark logs it at INFO, a warning once from 4.4.0, and
+  runs it.
 * **65535 constant-pool entries** a class. `EXPLAIN CODEGEN` prints the pool's
   size, and nothing compares it with anything; a class past it fails to compile
   like a long method.
@@ -66,14 +68,15 @@ will be generated, so use the code length as metric." On a projection of forty
 `x + k` outside a stage the ratio comes to about seven characters of source to
 a byte: the default makes methods of 235 bytes, a threshold of 8000 characters
 makes methods of 1,435, and the forty unsplit are one method of 3,208. The
-heuristic errs far on the safe side, as its documentation says it means to.
-What it never does is measure the result, and inside a stage it does not run at
-all: `splitExpressionsWithCurrentInputs` concatenates every expression's code
+heuristic keeps methods far under the 8000 bytes its own comment names. What it
+never does is measure the result, and inside a stage it does not run at all:
+`splitExpressionsWithCurrentInputs` concatenates every expression's code
 into one method whenever `ctx.currentVars` is set, which is the whole-stage
 case, at all 26 of its call sites, and the row writer of a projection stays
 unsplit there for the same reason.
 
-Two more findings from the same reading, each pinned by a test.
+Two more findings from reading `CodeGenerator.scala` and the suites around it,
+each pinned by a test.
 
 **The check that measures bytecode cannot fire.** After Janino compiles a
 stage, Spark parses the class file and reads every method's length, and
@@ -100,8 +103,8 @@ Each has its own history, and both come from the same place: a generator of
 source learns the size of its methods from the compiler, after the fact, and
 every limit above is checked, where it is checked at all, on the way back.
 
-Each claim in this section is a test that provokes the behaviour on vanilla
-Spark and asserts it, with the revision named:
+Each behaviour of Spark's this section describes is provoked on vanilla Spark
+and asserted by a test; the dates are the tracker's:
 
 ```
 build/sbt "sql/testOnly *VarkaCodegenGiveUpSuite *VarkaCodegenCliffLogSuite"
@@ -123,8 +126,8 @@ The test queries are not where the cliff is. It is where wide expressions are,
 which is why the evidence below is a ladder of widths and one realistic filter
 rather than a sweep of suites.
 
-The same reading of the source found every place Spark's code generation gives
-up: 34 of them, in four groups. Eleven are at plan time, where an operator, a
+Reading Spark's generator from end to end found every place its code generation
+gives up: 34 of them, in four groups. Eleven are at plan time, where an operator, a
 schema or a setting keeps a stage from forming. Twelve are while generating,
 where the splitter is off or refuses. Eight are at compile time, the four
 limits above among them. Three are outside a stage, in the
@@ -184,9 +187,9 @@ Varka [2]: [h: residual (over the emitter's method budget (loopDense0 is 23505
 **Varka had the cliff too.** Until 24 September 2026 the epilogue was one method
 over every output, a decision from when kernels were narrow. On a projection of
 `make_date(year(d), month(d), k)` entries the masked epilogue passed 8000 bytes
-at 13 outputs and reached 41,338 bytes at sixty, while the grouped loop methods
-stayed under 5,400. The JVM's compile log, read in a forked JVM, showed every
-loop method reaching C2 and the single epilogue at no tier. A bytecode emitter
+at 13 outputs and reached 41,338 bytes at sixty, while the loop methods, one per
+group, stayed under the limit. The JVM's compile log, read in a forked JVM,
+showed every loop method reaching C2 and the single epilogue at no tier. A bytecode emitter
 is not immune to the limit; it is only able to see it. An epilogue per group
 fixed it, and a test reads the same compile log to keep it fixed.
 
@@ -204,11 +207,11 @@ and more under five configurations of these options and checks every row
 against a reference evaluator, and a run that does not reach every one of the
 emitter's seven reactions to size fails.
 
-Spark met the same displacement outside a stage. Its splitter puts each branch
-of a wide `CASE WHEN` into a method of its own, and the method holding the calls
-grows with the branches: 2141 bytes at 300 branches, 8060 at 1000, where it stops
-being compiled. SPARK-59783, in 4.4.0, groups the calls into methods of their
-own, which is the fix Varka's stages make.
+Spark met the same displacement outside a stage. Its splitter puts the branches
+of a wide `CASE WHEN` into small methods, about three to a method, and the
+method holding the calls grows with the branches: 2141 bytes at 300 branches,
+8060 at 1000, where it stops being compiled. SPARK-59783, in 4.4.0, groups the
+calls into methods of their own, which is the fix Varka's stages make.
 
 **Compiled is not the same as inlined.** Splitting has a cost no size check
 sees. `VarkaSplitInliningSuite` runs a `CASE WHEN` of `WHEN v = k THEN v * k`
@@ -249,14 +252,18 @@ under its defaults and with `hugeMethodLimit=8000`, and Varka, on an AMD EPYC
 The ladder is the first post's shape: `n` entries of
 `greatest(add_months(d, k), date_add(d, k), last_day(d))` over two million
 Arrow-cached dates, here on the runner pool's full-width 512-bit machine, an AMD
-EPYC 9V45, with JDK 25.
+EPYC 9V45, with JDK 25. Spark here, and in sections 5 and 7, is a September 2026
+build of Spark master: this fork with Varka off.
 
 Spark's largest method is 7,868 bytes at 52 entries and 8,254 at 54, and the
 time per row goes from 876.0 to 4,671.8 ns, 5.3 times, and stays up: 9,722.5 ns
 at a hundred. Varka runs the same rungs at 55.9, 59.1 and 97.1 ns a row: 16
 times faster than Spark at 52 entries, where both are compiled, 79 times at 54
-and a hundred times at a hundred. Its class at a hundred entries is Figure 1's,
-with no method over 3,856 bytes.
+and a hundred times at a hundred. Its group methods at a hundred entries are
+Figure 1's, none over 3,856 bytes; its drivers were still generated per output
+when the ladder ran, 5,278 and 5,932 bytes, and the table form in the figure, which
+replaced them on 30 September, runs the hundred entries 3 to 8% faster on the
+same runner.
 
 Tuned, Spark does much better. With `hugeMethodLimit=8000` a stage past the
 limit runs its operators separately and the step becomes a slope, 1,122.7 ns a
@@ -267,8 +274,9 @@ times at a hundred. Most of that is the gap Varka has below the line, where
 nothing is interpreted: tuning removes the cliff, and what is left is a vector
 loop against a row loop. What no setting does is bound a method in bytes.
 
-The ladder runs on one core. On a four-vCPU runner, an EPYC 7763, the ratio
-past the step is 30 to 34 times with every core busy against 53 to 59 on one:
+The ladder runs on one core. On a four-vCPU runner, an EPYC 7763, the ladder's
+ratio past the step is 30 to 34 times with every core busy against 53 to 59 on
+one core of that machine:
 Spark's interpreter divides its time by 2.9 over four threads and Varka's
 kernels by 1.7, since a core's two threads share one vector unit. And the 9V45
 is one runner in about nine: four of thirty-six dispatches drew it, and this
@@ -349,7 +357,7 @@ emits the class, and the JIT has to compile it before it is fast. Planning
 takes 25 ms against Spark's 12 at 54 entries. By default a background thread
 warms the kernel while the shape's batches run on Spark's own projection,
 outside a stage, and the kernel takes over when the JIT has compiled it. Outside
-a stage Spark's splitter does work, so that path has no cliff either: on a
+a stage Spark's splitter does work, so at these widths that path has no cliff: on a
 four-core runner, past the cliff, Varka's first query is already a little faster
 than Spark's, 665 ms against 713 at 54 entries, and its second much faster, 255
 against 686. Below the cliff the compiled stage wins until the kernel is ready:

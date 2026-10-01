@@ -1,0 +1,117 @@
+# The same class as size-ladder-class-100.txt, dumped at the commit the committed 9V45 size
+# ladder ran on: 4cedebc4719 (varka-task-198-outcome, 29 September 2026; see
+# sql/core/benchmarks/VarkaSizeLadderBenchmark-jdk25-runner-provenance.txt), with the same
+# command, options and species. Dumped on 1 October 2026 for the post's section 4.
+#
+# Against master 146fdeb5446: every loop and epilogue method is byte for byte the same, and
+# only the two drivers differ - runDense 5278 and runMasked 5932 bytes here, generated per
+# output, against 1120 and 1121 from a table since task 190 A0 (30 September 2026).
+#
+method              bytes IntVector LongVector DoubleVector convert VectorMask validity lines
+epilogueDense0       3422       408          0            0       0          0        0    22
+epilogueDense1       3163       378          0            0       0          0        0    22
+epilogueDense10      3169       378          0            0       0          0        0    22
+epilogueDense11      3169       378          0            0       0          0        0    22
+epilogueDense12      3169       378          0            0       0          0        0    22
+epilogueDense13      3169       378          0            0       0          0        0    22
+epilogueDense14      3169       378          0            0       0          0        0    22
+epilogueDense15      3169       378          0            0       0          0        0    22
+epilogueDense16      3169       378          0            0       0          0        0    22
+epilogueDense17      3169       378          0            0       0          0        0    22
+epilogueDense18      3169       378          0            0       0          0        0    22
+epilogueDense19      3169       378          0            0       0          0        0    22
+epilogueDense2       3169       378          0            0       0          0        0    22
+epilogueDense20      3169       378          0            0       0          0        0    22
+epilogueDense21      3169       378          0            0       0          0        0    22
+epilogueDense22      3169       378          0            0       0          0        0    22
+epilogueDense23      3169       378          0            0       0          0        0    22
+epilogueDense24      3169       378          0            0       0          0        0    22
+epilogueDense3       3169       378          0            0       0          0        0    22
+epilogueDense4       3169       378          0            0       0          0        0    22
+epilogueDense5       3169       378          0            0       0          0        0    22
+epilogueDense6       3169       378          0            0       0          0        0    22
+epilogueDense7       3169       378          0            0       0          0        0    22
+epilogueDense8       3169       378          0            0       0          0        0    22
+epilogueDense9       3169       378          0            0       0          0        0    22
+epilogueMasked0      3856       424          0            0       0         16        1    22
+epilogueMasked1      3597       394          0            0       0         16        1    22
+epilogueMasked10     3603       394          0            0       0         16        1    22
+epilogueMasked11     3603       394          0            0       0         16        1    22
+epilogueMasked12     3603       394          0            0       0         16        1    22
+epilogueMasked13     3603       394          0            0       0         16        1    22
+epilogueMasked14     3603       394          0            0       0         16        1    22
+epilogueMasked15     3603       394          0            0       0         16        1    22
+epilogueMasked16     3603       394          0            0       0         16        1    22
+epilogueMasked17     3603       394          0            0       0         16        1    22
+epilogueMasked18     3603       394          0            0       0         16        1    22
+epilogueMasked19     3603       394          0            0       0         16        1    22
+epilogueMasked2      3603       394          0            0       0         16        1    22
+epilogueMasked20     3603       394          0            0       0         16        1    22
+epilogueMasked21     3603       394          0            0       0         16        1    22
+epilogueMasked22     3603       394          0            0       0         16        1    22
+epilogueMasked23     3603       394          0            0       0         16        1    22
+epilogueMasked24     3603       394          0            0       0         16        1    22
+epilogueMasked3      3603       394          0            0       0         16        1    22
+epilogueMasked4      3603       394          0            0       0         16        1    22
+epilogueMasked5      3603       394          0            0       0         16        1    22
+epilogueMasked6      3603       394          0            0       0         16        1    22
+epilogueMasked7      3603       394          0            0       0         16        1    22
+epilogueMasked8      3603       394          0            0       0         16        1    22
+epilogueMasked9      3603       394          0            0       0         16        1    22
+loopDense0           3387       408          0            0       0          0        0    22
+loopDense1           3128       378          0            0       0          0        0    22
+loopDense10          3134       378          0            0       0          0        0    22
+loopDense11          3134       378          0            0       0          0        0    22
+loopDense12          3134       378          0            0       0          0        0    22
+loopDense13          3134       378          0            0       0          0        0    22
+loopDense14          3134       378          0            0       0          0        0    22
+loopDense15          3134       378          0            0       0          0        0    22
+loopDense16          3134       378          0            0       0          0        0    22
+loopDense17          3134       378          0            0       0          0        0    22
+loopDense18          3134       378          0            0       0          0        0    22
+loopDense19          3134       378          0            0       0          0        0    22
+loopDense2           3134       378          0            0       0          0        0    22
+loopDense20          3134       378          0            0       0          0        0    22
+loopDense21          3134       378          0            0       0          0        0    22
+loopDense22          3134       378          0            0       0          0        0    22
+loopDense23          3134       378          0            0       0          0        0    22
+loopDense24          3134       378          0            0       0          0        0    22
+loopDense3           3134       378          0            0       0          0        0    22
+loopDense4           3134       378          0            0       0          0        0    22
+loopDense5           3134       378          0            0       0          0        0    22
+loopDense6           3134       378          0            0       0          0        0    22
+loopDense7           3134       378          0            0       0          0        0    22
+loopDense8           3134       378          0            0       0          0        0    22
+loopDense9           3134       378          0            0       0          0        0    22
+loopMasked0          3819       424          0            0       0         16        1    22
+loopMasked1          3560       394          0            0       0         16        1    22
+loopMasked10         3566       394          0            0       0         16        1    22
+loopMasked11         3566       394          0            0       0         16        1    22
+loopMasked12         3566       394          0            0       0         16        1    22
+loopMasked13         3566       394          0            0       0         16        1    22
+loopMasked14         3566       394          0            0       0         16        1    22
+loopMasked15         3566       394          0            0       0         16        1    22
+loopMasked16         3566       394          0            0       0         16        1    22
+loopMasked17         3566       394          0            0       0         16        1    22
+loopMasked18         3566       394          0            0       0         16        1    22
+loopMasked19         3566       394          0            0       0         16        1    22
+loopMasked2          3566       394          0            0       0         16        1    22
+loopMasked20         3566       394          0            0       0         16        1    22
+loopMasked21         3566       394          0            0       0         16        1    22
+loopMasked22         3566       394          0            0       0         16        1    22
+loopMasked23         3566       394          0            0       0         16        1    22
+loopMasked24         3566       394          0            0       0         16        1    22
+loopMasked3          3566       394          0            0       0         16        1    22
+loopMasked4          3566       394          0            0       0         16        1    22
+loopMasked5          3566       394          0            0       0         16        1    22
+loopMasked6          3566       394          0            0       0         16        1    22
+loopMasked7          3566       394          0            0       0         16        1    22
+loopMasked8          3566       394          0            0       0         16        1    22
+loopMasked9          3566       394          0            0       0         16        1    22
+run                    66         0          0            0       0          0        0     0
+run                    66         0          0            0       0          0        0     0
+runDense             5278         0          0            0       0          0      100     0
+runMasked            5932         0          0            0       0          0      100     0
+scratchBytesPerRow      3         0          0            0       0          0        0     0
+class: constant pool 510 of 65535 entries; widest signature runDense at 10 of 255 parameter slots
+every method is under HugeMethodLimit (8000)

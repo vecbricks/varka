@@ -28,7 +28,7 @@ Every number in it is the post's, and the post's are from committed results file
 > faster than Spark tuned to step around the cliff.
 >
 > The second post of the pair is about how: every place Spark's code generation gives up, the
-> class Varka emits instead, what the first query costs, and how it compares with Comet, Gluten
+> class Varka emits instead, what the first query costs, and where it stands beside Comet, Gluten
 > and an interpreted vector engine.
 
 **Image:** Figure 1 of the post, the hundred expressions as one method of Spark's and as Varka's
