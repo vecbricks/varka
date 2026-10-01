@@ -20,28 +20,27 @@
 //   bin/spark-shell --master local[1] --driver-memory 2g -i hidden_log.scala
 
 import org.apache.logging.log4j.{Level, LogManager}
-import org.apache.logging.log4j.core.{Filter, LoggerContext}
-import org.apache.logging.log4j.core.appender.ConsoleAppender
-import org.apache.logging.log4j.core.config.LoggerConfig
-import org.apache.logging.log4j.core.filter.RegexFilter
-import org.apache.logging.log4j.core.layout.PatternLayout
+import org.apache.logging.log4j.core.{LogEvent, LoggerContext}
+import org.apache.logging.log4j.core.appender.AbstractAppender
+import org.apache.logging.log4j.core.config.{LoggerConfig, Property}
 import org.apache.spark.sql.DataFrame
 
+// An appender that prints Spark's code generation give-up lines, at any level, and nothing else.
+val giveUps = "(?s).*(too long|Failed to split|fast hashmap|Found too long).*".r
+val appender = new AbstractAppender("codegen-give-ups", null, null, true, Property.EMPTY_ARRAY) {
+  override def append(event: LogEvent): Unit = {
+    val message = event.getMessage.getFormattedMessage
+    if (giveUps.matches(message)) {
+      println(s"LOGGED ${event.getLevel} ${event.getLoggerName.split('.').last}: $message")
+    }
+  }
+}
+appender.start()
 val ctx = LogManager.getContext(false).asInstanceOf[LoggerContext]
 val config = ctx.getConfiguration
-val appender = ConsoleAppender.newBuilder()
-  .setName("codegen-give-ups")
-  .setTarget(ConsoleAppender.Target.SYSTEM_OUT)
-  .setLayout(PatternLayout.newBuilder().withPattern("LOGGED %p %c{1}: %m%n").build())
-  .setFilter(RegexFilter.createFilter(
-    "(?s).*(too long|Failed to split|fast hashmap|Found too long).*",
-    Array.empty[String], false, Filter.Result.ACCEPT, Filter.Result.DENY))
-  .build()
-appender.start()
-config.addAppender(appender)
-val spark_ = new LoggerConfig("org.apache.spark.sql", Level.INFO, true)
-spark_.addAppender(appender, Level.INFO, null)
-config.addLogger("org.apache.spark.sql", spark_)
+val sqlLoggers = new LoggerConfig("org.apache.spark.sql", Level.INFO, true)
+sqlLoggers.addAppender(appender, Level.INFO, null)
+config.addLogger("org.apache.spark.sql", sqlLoggers)
 ctx.updateLoggers()
 
 def run(df: DataFrame): Unit = df.write.format("noop").mode("overwrite").save()
