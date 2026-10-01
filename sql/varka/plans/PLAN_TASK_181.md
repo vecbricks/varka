@@ -520,3 +520,73 @@ times faster than vecruntime at every rung (`PLAN_TASK_202.md` 7): vecruntime is
 Spark only under Spark's defaults. The clause's 2.7 is vecruntime at 100 entries over tuned
 vanilla's 2155.6 on the 9V45 (`VarkaSizeLadderTuningBenchmark-jdk25-runner`), which reads the
 cache; the third paragraph's bound on the input covers it as it covers Varka's 97.1.
+
+## 14. The first draft, 1 October 2026
+
+Every row of section 4 was done by 29 September (197 in `PLAN_TASK_197.md` 7, 170 in section 12,
+202 in section 13), so the draft was written: `POST_MILESTONE_6.md`, in the first post's form -
+a title, a lede, numbered sections each opening with its figure, a closing paragraph and a
+measurement note - at 3937 words against the first post's 3239 and the milestone 5 post's 4392,
+the ceiling `varka-public-writing-stays-short` sets. Every number in it is from a committed results
+file, the quote checker reads it at zero orphans, and it is ASCII.
+
+**Where each outline section went.**
+
+| Post | Outline | What it carries |
+| :-- | :-- | :-- |
+| lede | 2 | the claim; bounds 1 and 2; bound 3 and bound 4 named before the numbers they bound, as section 5 asks |
+| 1 | 3.2 as section 7 amended it | the four limits and how Spark meets each; the splitter's characters, with G15's measured sizes; G12 and G14; the first two surprises, G25 and SPARK-59764 |
+| 2 | 3.3 | the size distribution (section 11) opening it; the census's four groups and three rows (G15, G25, G26); the whole table a link |
+| 3 | 3.4 | the emitted class, the budget, the regroup and the plan-time decline; Varka's own epilogue cliff (`PLAN_TASK_87.md` 2.3, 9.3), in bytes and the compile log only; the driver from a table, the stages and several kernels (`PLAN_TASK_190.md` 10, 11); the fuzzer past the ceilings (row 238); the last two surprises, SPARK-59783 and the inlining evidence (section 10); section 12's footnote |
+| 4 | 3.5 | the 9V45 ladder, tuned Spark beside it, task 197's sentence, the spread of the four 9V45 runs |
+| 5 | 3.6 | `modified-q3`'s filter on the 9V45 (`PLAN_TASK_172.md` 9.10), both designs, why the range set stays (9.12) |
+| 6 | 3.7 | section 13's text, one phrase changed: "the figure above" is "section 4's figure" |
+| 7 | 3.8 | the first query from the runner's file (section 9.1), and the measurement note |
+
+**What moved since the outline, and what the draft quotes instead.**
+
+* **The ladder's Varka numbers.** Task 198's 9V45 run of 29 September replaced the ladder file, so
+  Varka reads 59.1 ns a row at 54 entries and 97.1 at a hundred, where 3.5 took 69.6 and 111.4 from
+  `PLAN_TASK_192.md` 9.5. Against tuned Spark that is 19 and 22 times, not 16 and 19. The tuned
+  numbers are another run (24 September, run 36045946987) on the same CPU model; its defaults are
+  within 7% of the ladder file's at every rung, and both the post and Figure 11 say so.
+* **The warm-up's verdict at 16 entries.** The runner's file reads 3482 to 4506 ms, where 9.1 said
+  4.2 to 4.5 s; the post quotes the file.
+* **The splitter's documentation.** 3.2 attributed "we cannot know how many bytecode will be
+  generated" to `hugeMethodLimit`. It is `methodSplitThreshold`'s text, as the first post has it.
+* **The warm-up's path.** While a projection's kernel warms, its batches run Spark's projection
+  outside a stage, split into compiled methods (`PLAN_TASK_212.md` 10), which is why Varka's
+  first query past the cliff already beats Spark's interpreted stage. The post says so; a filter's
+  row path is the stage itself (`PLAN_TASK_172.md` 9.12), and the post makes no first-query claim
+  for the filter beyond planning and the verdict.
+
+**Decisions the draft took, for review.**
+
+1. **The title**, "Under 8000 bytes by construction": the claim, with the first post's number.
+2. **Five figures, one per claim.** `fig21.py` (new): the hundred entries as Spark's one method of
+   17132 bytes and as Varka's class, from a class dump committed under `figures/data/` with the
+   command and commit that produced it. `fig22.py` (new): section 11's census. `fig11.py`
+   (rewritten): tuned Spark beside the defaults and Varka. `fig23.py` (new): the filter.
+   `fig24.py` (new): the first query.
+3. **No band drawn on the ladder figure.** 3.5 asked for the bands in the figure. The `*-band.txt`
+   files are the laptop's, and of the four 9V45 ladder runs only one is a committed results file,
+   so the figure draws that run and the text gives the four runs' spread from its provenance.
+4. **No vecruntime figure.** Its numbers are another run, over Parquet; section 6's text carries
+   them with that bound.
+5. **Ratios round to whole numbers**, as in the first post: the quote checker cannot trace a
+   two-digit ratio with a decimal, since results files print ratios with an `X`.
+
+**The line from a run.** Section 3 quotes `EXPLAIN`'s fusion report for a declined output as
+`VarkaProjectExecSuite`'s task 169 test printed it on 1 October (`PLAN_TASK_169.md` 5): a
+balanced `greatest` over thirty-two `add_months` residual, with `loopDense0 is 23505 bytes, over
+the method budget of 8000`, beside a fused `date_add`. The line is wrapped at the post's width
+and its expression cut where the plan's own rendering cuts it; the test asserts its start.
+
+**What the draft still owes:**
+
+| Owed | Where | Comes from |
+| :-- | :-- | :-- |
+| The owner's review of the draft | all of it | this commit |
+| The trailer's last read, and where its link goes | `POST_MILESTONE_6_SHORT.md` | drafted with this draft, from the post's numbers; reread once the post's text settles |
+| The tickets' states: SPARK-33301 in review, SPARK-59764 and SPARK-59783 in 4.4.0 | 1, 3 | reread on the day of publication |
+| The page, and the link in the first post's closing | `dev/varka_post_page.py`, `POST_MILESTONE_6_SPARK.md` | on publication (section 8) |

@@ -16,11 +16,14 @@
 #
 
 """Figure 11: the size ladder - time per row against the number of expressions in one
-projection, stock Spark against Varka. Stock Spark steps where its generated method passes
-HotSpot's 8000-byte limit and is never compiled again; Varka is a line through the same rungs.
+projection: Spark under its defaults, Spark with hugeMethodLimit=8000, and Varka. Under the
+defaults Spark steps where its generated method passes HotSpot's 8000-byte limit and is never
+compiled again; tuned, the step is a slope; Varka is a line through the same rungs.
 
-Every value is read from the committed results file of the published machine when the script
-runs, so the figure cannot drift from the file (PLAN_TASK_171.md 9.3)."""
+Every value is read from the committed results files of the published machine when the script
+runs, so the figure cannot drift from them (PLAN_TASK_171.md 9.3). Spark's defaults and Varka
+come from one run; the tuned line from a run on the same CPU model, and the note under the
+legend gives how far that run's defaults are from this one's (PLAN_TASK_181.md 14)."""
 
 import math
 import os
@@ -32,9 +35,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.join(HERE, "..", "..", "..", "core", "benchmarks")
 RESULTS = os.path.join(BENCH, "VarkaSizeLadderBenchmark-jdk25-runner-results.txt")
 PROVENANCE = os.path.join(BENCH, "VarkaSizeLadderBenchmark-jdk25-runner-provenance.txt")
+TUNING = os.path.join(BENCH, "VarkaSizeLadderTuningBenchmark-jdk25-runner-results.txt")
 
 VANILLA = "vanilla Spark (whole-stage codegen)"
 VARKA = "Varka"
+DEFAULTS = "vanilla Spark, defaults"
+TUNED = "vanilla Spark, hugeMethodLimit=8000"
 
 
 def read_ladder(path):
@@ -68,17 +74,20 @@ def read_provenance(path):
 
 
 rows, method = read_ladder(RESULTS)
+tuning, _ = read_ladder(TUNING)
 prov = read_provenance(PROVENANCE)
 cpu = prov["cpu"].split(",")[0]
 jdk = prov["jdk"].replace("OpenJDK 64-Bit Server VM ", "JDK ")
-rungs = sorted(rows)
+rungs = sorted(n for n in rows if n in tuning)
+# How far the tuned run's defaults are from this run's, at the rung where they differ most.
+drift = max(abs(float(tuning[n][DEFAULTS][0]) / float(rows[n][VANILLA][0]) - 1) for n in rungs)
 # The step: the last rung whose method is under the limit and the first past it.
 below = max(n for n in rungs if method[n] <= 8000)
 above = min(n for n in rungs if method[n] > 8000)
 
 r = Rough(900, 700, seed=113)
 r.text(40, 40, "n date expressions in one projection, 2 million Arrow-cached rows", size=24)
-r.text(40, 74, "time per row, log scale; %s, %s" % (cpu, jdk), size=17, color="#5c5f66")
+r.text(40, 74, "time per row, log scale; %s, %s, one core" % (cpu, jdk), size=17, color="#5c5f66")
 
 # The axes: entries on x, nanoseconds a row on a log scale on y.
 X0, X1, Y0, Y1 = 120, 830, 560, 120
@@ -95,7 +104,7 @@ def py(ns):
 
 r.line(X0, Y0, X1 + 20, Y0)
 r.line(X0, Y0, X0, Y1 - 20)
-for ns, label in [(10, "10 ns"), (100, "100 ns"), (1000, "1 000 ns"), (10000, "10 000 ns")]:
+for ns, label in [(10, "10 ns"), (100, "100 ns"), (1000, "1,000 ns"), (10000, "10,000 ns")]:
     r.line(X0 - 8, py(ns), X0, py(ns))
     r.text(X0 - 14, py(ns), label, size=16, anchor="end", color="#5c5f66")
 for n in (16, 32, 48, 64, 80, 100):
@@ -126,32 +135,49 @@ def series(case, color):
     return pts
 
 
-RED, GREEN = "#e03131", "#2f9e44"
+RED, BLUE, GREEN = "#e03131", "#1971c2", "#2f9e44"
 series(VANILLA, RED)
+pts = [(px(n), py(float(tuning[n][TUNED][0]))) for n in rungs]
+for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+    r.line(x1, y1, x2, y2, color=BLUE, width=2.4, dash="7 5")
+for x, y in pts:
+    r.ellipse(x, y, 4, 4, color=BLUE, width=2.0)
 series(VARKA, GREEN)
 last = rungs[-1]
-r.text(px(last) + 12, py(float(rows[last][VANILLA][0])), "stock Spark", size=20, color=RED)
+r.text(px(last) + 12, py(float(rows[last][VANILLA][0])), "Spark,\ndefaults", size=19, color=RED)
+r.text(px(last) + 12, py(float(tuning[last][TUNED][0])), "Spark,\ntuned", size=19, color=BLUE)
 r.text(px(last) + 12, py(float(rows[last][VARKA][0])), "Varka", size=20, color=GREEN)
+r.text(
+    X0,
+    Y0 + 96,
+    "tuned: hugeMethodLimit=8000, a run on the same CPU model whose defaults\n"
+    "are within %.0f%% of this run's at every rung" % math.ceil(100 * drift),
+    size=15,
+    color="#5c5f66",
+)
 
 # The two things the figure shows, kept apart: the step is Spark's alone, the gap is Varka's
 # at every width.
 r.note(
-    px(above) + 30,
-    py(float(rows[above][VANILLA][0])) + 70,
+    X0 + 20,
+    py(4000),
     "the step: %s to %s ns a row,\nand never compiled again"
     % (rows[below][VANILLA][0], rows[above][VANILLA][0]),
     size=18,
 )
 r.note(
-    px(16) + 10,
-    py(200),
-    "Varka through the same rungs: %s to %s ns,\n%sx faster at %d, %sx at %d"
+    px(above) + 14,
+    py(300),
+    "Varka: %.0fx faster than the defaults at %d,\n"
+    "%.0fx at %d; %.0fx faster than tuned\nat %d, %.0fx at %d"
     % (
-        rows[below][VARKA][0],
-        rows[above][VARKA][0],
-        rows[below][VARKA][1],
+        float(rows[below][VARKA][1]),
         below,
-        rows[last][VARKA][1],
+        float(rows[last][VARKA][1]),
+        last,
+        float(tuning[above][TUNED][0]) / float(rows[above][VARKA][0]),
+        above,
+        float(tuning[last][TUNED][0]) / float(rows[last][VARKA][0]),
         last,
     ),
     size=18,
