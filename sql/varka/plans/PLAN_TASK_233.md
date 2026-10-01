@@ -538,6 +538,32 @@ per compiled class.
 
 **Prediction 16 was wrong:** three to four and a half times, not five to fifteen. The interpreter's
 price per entry grows a little with width (34 ns an entry at 100, 40 at 1000) while the compiled
-projection's stays at 8 to 11, so the ratio widens slowly; the first post's thirty-four times was the
-interpreter against a stage, over `CASE WHEN`, where the generated code keeps the row's values in
-locals - here both arms are outside a stage, and the compiled one already pays the row boundary.
+projection's stays at 8 to 11, so the ratio widens slowly; the first post's thirty-four times was
+the interpreter against a stage, over `CASE WHEN`, where the generated code keeps the row's values
+in locals - here both arms are outside a stage, and the compiled one already pays the row boundary.
+
+### 13.4 C2's budget at 25 to 99 entries
+
+The review of this plan (1 October) found 11.2 extending its mechanism to 11.1's widths without a
+log for them, so `CodegenCompileWaitBenchmark` ran again under C2's inlining log, on a runner
+that drew an AMD EPYC 7763 (`CodegenCompileWaitBenchmark-jdk25-runner-inlining-results.txt`,
+run 36920247002, with its provenance, and the four trees in `-c2-trees.txt` beside it). No
+prediction was registered for it; 11.2's last sentence is the claim under test. C2's verdicts in
+each stage's consume method:
+
+| entries | method | `addExact` inlined / refused | `write` inlined / refused | in a stage / outside |
+|--:|--:|--:|--:|--:|
+| 25 | 936 bytes | 25 / 0 | 25 / 0 | 68 / 154 ms |
+| 50 | 1861 | 33 / 17 | 0 / 50 | 363 / 275 |
+| 75 | 2786 | 28 / 47 | 0 / 75 | 566 / 401 |
+| 99 | 3674 | 23 / 76 | 0 / 99 | 795 / 517 |
+| 150 (11.2) | 5749 | 12 / 138 | 0 / 150 | 748 / 493 |
+
+The claim holds, and the table says where the line is. At 25 entries every call is inlined and
+the stage wins by better than two to one; from 50 the writes are all refused and the stage loses,
+by the 1.3 to 1.6 of 11.1 under the logging too. The budget is spent sooner the wider the method,
+not later: `DesiredMethodLimit` bounds the caller's own bytes together with what it inlines, so
+the 1861-byte method has room for 33 of its additions and the 5749-byte one for 12. The
+aggregates' consume methods are 189 to 539 bytes at 10 to 60 sums, each sum's update in a small
+method of its own, and C2 inlines all of them, which is the other half of 11.1: the generated
+aggregate is already split the way the projection outside a stage is.
