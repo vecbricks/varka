@@ -103,19 +103,18 @@ object CodegenCompileWaitBenchmark extends SqlBasedBenchmark {
     output.foreach(_.write((line + "\n").getBytes(StandardCharsets.UTF_8)))
   }
 
+  private def upperMedian(xs: Seq[Long]): Long = { val sorted = xs.sorted; sorted(sorted.size / 2) }
+
   /** Runs `query` back to back for `seconds` and reports what each query took. */
   private def series(label: String, query: () => DataFrame, wholeStage: Boolean): Unit = {
     val times = mutable.ArrayBuffer.empty[Long]
-    val ends = mutable.ArrayBuffer.empty[Long]
     var sizes = ""
     withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> wholeStage.toString) {
       val start = System.nanoTime()
       while (System.nanoTime() - start < seconds * 1000000000L) {
         val t = System.nanoTime()
         query().noop()
-        val now = System.nanoTime()
-        times += (now - t) / 1000000
-        ends += (now - start) / 1000000
+        times += (System.nanoTime() - t) / 1000000
       }
       // `noop()` runs the query through a write command with a query execution of its own, so
       // `last`'s plan never ran and an adaptive plan has no stages yet. The same query planned
@@ -127,10 +126,15 @@ object CodegenCompileWaitBenchmark extends SqlBasedBenchmark {
         }
       }
     }
-    val tail = times.takeRight(10).sorted
-    val median = tail(tail.size / 2)
-    val lastSlow = times.indices.reverse.find(i => times(i) > median * 1.1)
-    val steady = lastSlow.map(i => ends(i)).getOrElse(0L)
+    // The median of the last ten queries is the steady state, and the wait is the time before
+    // the first five queries in a row whose median is within 10% of it. The last slow query would
+    // be a simpler mark, but one slow query late in a series, a collection most likely, puts it
+    // late in every series on a runner.
+    val median = upperMedian(times.takeRight(10).toSeq)
+    val settled = (0 to times.size - 5).find { i =>
+      upperMedian(times.slice(i, i + 5).toSeq) <= median * 1.1
+    }
+    val steady = settled.map(i => times.take(i).sum).getOrElse(times.sum)
     note(s"$label, whole-stage codegen ${if (wholeStage) "on" else "off"}" +
       (if (wholeStage) s", largest stage method: $sizes" else "") +
       s"; steady after $steady ms at a median of $median ms over ${times.size} queries")

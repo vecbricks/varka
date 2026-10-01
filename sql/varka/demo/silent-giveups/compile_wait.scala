@@ -40,6 +40,7 @@ def aggregate(n: Int, offset: Int): DataFrame = spark.sql(
 // Spark's own code paths compile on the first queries; a small shape runs first, unrecorded.
 (1 to 5).foreach { _ => run(projection(5, 1)); run(aggregate(5, 1)) }
 
+def upperMedian(xs: Seq[Long]): Long = { val sorted = xs.sorted; sorted(sorted.size / 2) }
 var offset = 1000
 val results = scala.collection.mutable.ArrayBuffer.empty[String]
 def series(label: String, settings: Seq[(String, String)], query: Int => DataFrame): Unit = {
@@ -47,19 +48,20 @@ def series(label: String, settings: Seq[(String, String)], query: Int => DataFra
   val o = offset
   settings.foreach { case (k, v) => spark.conf.set(k, v) }
   val times = scala.collection.mutable.ArrayBuffer.empty[Long]
-  val ends = scala.collection.mutable.ArrayBuffer.empty[Long]
   val start = System.nanoTime()
   while (System.nanoTime() - start < seconds * 1000000000L) {
     val t = System.nanoTime()
     run(query(o))
-    val now = System.nanoTime()
-    times += (now - t) / 1000000
-    ends += (now - start) / 1000000
+    times += (System.nanoTime() - t) / 1000000
   }
   settings.foreach { case (k, _) => spark.conf.unset(k) }
-  val tail = times.takeRight(10).sorted
-  val median = tail(tail.size / 2)
-  val steady = times.indices.reverse.find(i => times(i) > median * 1.1).map(ends(_)).getOrElse(0L)
+  // The median of the last ten queries is the steady state, and the wait is the time before the
+  // first five queries in a row whose median is within 10% of it.
+  val median = upperMedian(times.takeRight(10).toSeq)
+  val settled = (0 to times.size - 5).find { i =>
+    upperMedian(times.slice(i, i + 5).toSeq) <= median * 1.1
+  }
+  val steady = settled.map(i => times.take(i).sum).getOrElse(times.sum)
   results += s"### $label: steady after $steady ms at a median of $median ms " +
     s"over ${times.size} queries"
   results += s"ms per query: ${times.mkString(" ")}"

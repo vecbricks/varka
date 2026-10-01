@@ -1,0 +1,507 @@
+C2's inlining tree for the 150-entry stage's consume method, from the job log of run
+https://github.com/MaxGekk/spark/actions/runs/36908273868 (CodegenFallbackCostBenchmark, the
+first-minute section, AMD EPYC 9V74, JDK 25; see the provenance file beside this one). The first
+line is PrintCompilation's, printed when C2 took the method, in milliseconds since the JVM started;
+PrintInlining prints the tree when the compile ends, and the last line is the next compile's
+PrintCompilation line, which dates the end. The tree's lines are the JVM's own; PrintCompilation
+lines of other compiler threads that the log interleaved with them are left out.
+
+13574 11947       4       org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1::project_doConsume_0$ (5749 bytes)
+
+                              @ 18   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 41   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 64   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 87   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 110   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 133   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 157   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 181   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 205   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 229   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 253   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 277   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   inline (hot)
+                                @ 7   org.apache.spark.sql.catalyst.util.MathUtils$::addExact (19 bytes)   inline (hot)
+                                  @ 3   java.lang.invoke.Invokers$Holder::linkToTargetMethod (11 bytes)   force inline by annotation
+                                    @ 7   java.lang.invoke.LambdaForm$DMH/0x000000005b3d6000::newInvokeSpecial (27 bytes)   force inline by annotation
+                                      @ 1   java.lang.invoke.DirectMethodHandle::allocateInstance (16 bytes)   inline (hot)
+                                        @ 12   jdk.internal.misc.Unsafe::allocateInstance (0 bytes)   (intrinsic)
+                                      @ 7   java.lang.invoke.DirectMethodHandle::constructorMethod (10 bytes)   inline (hot)
+                                      @ 21   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::<init> (15 bytes)   inline (hot)
+                                        @ 1   java.lang.Object::<init> (1 bytes)   inline (hot)
+               !                  @ 12   org.apache.spark.sql.catalyst.util.MathUtils$::withOverflow (26 bytes)   inline (hot)
+                                    @ 1   scala.runtime.java8.JFunction0$mcJ$sp::apply (10 bytes)   inline (hot)
+                                      @ 1   org.apache.spark.sql.catalyst.util.MathUtils$$$Lambda/0x000000005c15dd98::apply$mcJ$sp (12 bytes)   inline (hot)
+                                        @ 8   org.apache.spark.sql.catalyst.util.MathUtils$::$anonfun$addExact$4 (6 bytes)   inline (hot)
+                                          @ 2   java.lang.Math::addExact (32 bytes)   (intrinsic)
+                                      @ 6   java.lang.Long::valueOf (40 bytes)   inline (hot)
+                                  @ 15   scala.runtime.BoxesRunTime::unboxToLong (16 bytes)   inline (hot)
+                                    @ 12   java.lang.Long::longValue (5 bytes)   accessor
+                              @ 301   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 325   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 349   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 373   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 397   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 421   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 445   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 469   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 493   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 517   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 541   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 565   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 589   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 613   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 637   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 661   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 685   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 709   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 733   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 757   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 781   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 805   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 829   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 853   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 877   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 901   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 925   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 949   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 973   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 997   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1021   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1045   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1069   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1093   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1117   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1141   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1165   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1189   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1213   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1237   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1261   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1285   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1309   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1333   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1357   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1381   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1405   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1429   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1453   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1477   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1501   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1525   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1549   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1573   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1597   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1621   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1645   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1669   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1693   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1717   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1741   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1765   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1789   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1813   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1837   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1861   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1885   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1909   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1933   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1957   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 1981   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2005   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2029   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2053   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2077   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2101   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2125   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2149   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2173   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2197   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2221   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2245   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2269   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2293   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2317   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2341   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2365   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2389   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2413   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2437   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2461   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2485   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2509   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2533   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2557   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2581   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2605   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2629   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2653   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2677   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2701   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2725   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2749   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2773   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2797   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2821   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2845   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2869   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2893   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2917   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2941   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2965   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 2989   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3013   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3039   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3067   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3096   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3125   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3154   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3183   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3212   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3241   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3270   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3299   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3328   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3357   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3386   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3415   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3444   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3473   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3502   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3531   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3560   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3589   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3618   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3647   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3676   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3705   org.apache.spark.sql.catalyst.util.MathUtils::addExact (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3718   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeWriter::reset (8 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3730   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3742   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3754   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3766   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3778   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3790   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3803   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3816   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3829   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3842   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3855   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3868   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3881   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3894   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3907   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3920   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3933   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3946   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3959   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3972   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3985   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 3998   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4011   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4024   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4037   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4050   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4063   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4076   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4089   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4102   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4115   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4128   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4141   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4154   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4167   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4180   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4193   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4206   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4219   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4232   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4245   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4258   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4271   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4284   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4297   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4310   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4323   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4336   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4349   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4362   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4375   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4388   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4401   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4414   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4427   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4440   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4453   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4466   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4479   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4492   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4505   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4518   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4531   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4544   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4557   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4570   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4583   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4596   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4609   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4622   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4635   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4648   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4661   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4674   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4687   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4700   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4713   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4726   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4739   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4752   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4765   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4778   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4791   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4804   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4817   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4830   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4843   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4856   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4869   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4882   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4895   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4908   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4921   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4934   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4947   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4960   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4973   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4986   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 4999   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5012   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5025   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5038   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5051   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5064   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5077   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5090   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5103   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5116   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5129   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5142   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5155   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5168   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5181   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5194   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5207   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5220   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5233   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5246   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5259   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5272   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5285   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5298   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5311   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5324   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5337   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5350   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5365   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5380   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5396   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5412   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5428   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5444   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5460   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5476   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5492   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5508   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5524   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5540   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5556   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5572   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5588   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5604   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5620   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5636   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5652   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5668   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5684   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5700   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5716   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5732   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::write (11 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5742   org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter::getRow (16 bytes)   failed to inline: size > DesiredMethodLimit
+                              @ 5745   org.apache.spark.sql.execution.BufferedRowIterator::append (12 bytes)   failed to inline: size > DesiredMethodLimit
+
+33053 14697       3       java.math.BigDecimal::checkScale (62 bytes)
