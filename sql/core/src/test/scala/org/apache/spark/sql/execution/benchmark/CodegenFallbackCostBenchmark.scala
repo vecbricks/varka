@@ -184,24 +184,35 @@ object CodegenFallbackCostBenchmark extends SqlBasedBenchmark {
   }
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
+    // `-Dcodegen.cost.sections=first-minute` runs one section alone, for a run under a JIT log
+    // whose output should hold that section's compiles and nothing else's (PLAN_TASK_233.md 10.2).
+    val sections = sys.props.get("codegen.cost.sections").map(_.split(",").toSet)
+    def wanted(name: String): Boolean = sections.forall(_.contains(name))
     cacheTable()
-    // The JVM's first queries also compile Spark's own code paths; the smallest rung runs once
-    // under each arm, unrecorded, before anything is timed.
-    (1 to 2).foreach { _ =>
-      ladder(16, None).noop()
-      ladder(16, Some("from_json(js, 'a INT').a AS j")).noop()
-      ladder(16, Some("get_json_object(js, '$.a') AS j")).noop()
+    if (wanted("fallback")) {
+      // The JVM's first queries also compile Spark's own code paths; the smallest rung runs once
+      // under each arm, unrecorded, before anything is timed.
+      (1 to 2).foreach { _ =>
+        ladder(16, None).noop()
+        ladder(16, Some("from_json(js, 'a INT').a AS j")).noop()
+        ladder(16, Some("get_json_object(js, '$.a') AS j")).noop()
+      }
+      runBenchmark("one CodegenFallback expression in a projection: from_json") {
+        Seq(16, 32, 48).foreach(fallbackLadder)
+      }
     }
-    runBenchmark("one CodegenFallback expression in a projection: from_json") {
-      Seq(16, 32, 48).foreach(fallbackLadder)
+    if (wanted("first-minute")) {
+      runBenchmark("the first minute of a new stage: 150 entries id + k, queries back to back") {
+        firstMinute("maxFields=200, in a stage", 1000, "200", 60)
+        firstMinute("maxFields=100, the default, outside a stage", 2000, "100", 60)
+      }
     }
-    runBenchmark("the first minute of a new stage: 150 entries id + k, queries back to back") {
-      firstMinute("maxFields=200, in a stage", 1000, "200", 60)
-      firstMinute("maxFields=100, the default, outside a stage", 2000, "100", 60)
-    }
-    runBenchmark("a projection past maxFields") {
-      maxFieldsRung("cheap entries, id + k", (1 to 150).map(k => s"id + $k AS c$k"))
-      maxFieldsRung("date entries, date_add(d, k)", (1 to 150).map(k => s"date_add(d, $k) AS c$k"))
+    if (wanted("max-fields")) {
+      runBenchmark("a projection past maxFields") {
+        maxFieldsRung("cheap entries, id + k", (1 to 150).map(k => s"id + $k AS c$k"))
+        maxFieldsRung("date entries, date_add(d, k)",
+          (1 to 150).map(k => s"date_add(d, $k) AS c$k"))
+      }
     }
   }
 }
