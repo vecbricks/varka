@@ -609,8 +609,8 @@ corrected in the same pull request:
 3. *"Its class at a hundred entries is Figure 1's"* was not quite so. The ladder ran on
    29 September at `4cedebc4719`, before the driver from a table (`PLAN_TASK_190.md` 10, 30
    September). The class was dumped again at that commit
-   (`figures/data/size-ladder-class-100-at-ladder-run.txt`): 102 of 104 methods are byte for
-   byte today's, and the two drivers were 5278 and 5932 bytes against 1120 and 1121 now. The
+   (`figures/data/size-ladder-class-100-at-ladder-run.txt`): every method but the two drivers
+   is byte for byte today's, and the drivers were 5278 and 5932 bytes against 1120 and 1121 now. The
    post says so, and that the table form ran the hundred entries 3 to 8% faster on the same
    runner (`PLAN_TASK_190.md` 10.4), so the committed ladder number is conservative.
 4. Figure 1's caption said two drivers of 1,120 bytes; they are 1,120 and 1,121.
@@ -636,3 +636,41 @@ hundred entries; 25 groups of exactly four entries, read off the 22 line-map ent
 group method; the census's four groups (11, 12, 8 and 3) and its 23 reproducers; `sql/testOnly`
 for the two suites, which live in sql/core; `d` as a default column of `dev/varka_emit.sh`;
 `CodegenMetrics`' histogram as Dropwizard's decaying reservoir of 1028 samples.
+
+### 14.2 The second draft, 1 October 2026
+
+The owner read the first draft and said it reads like a lab report, and asked how to make it
+readable; the diagnosis and the restructure were agreed the same afternoon, with the first draft
+kept in the branch's history (`e0c47936820`) in case the second is not liked.
+
+**The diagnosis.** The traceability standard had leaked into the voice: three numbers a sentence
+("7,868 bytes at 52 entries and 8,254 at 54, and the time per row goes from 876.0 to 4,671.8 ns,
+5.3 times"), provenance clauses in the argument ("whose defaults read within 7% of this run's at
+every rung"), tests described as prose (the fuzzer's "seven reactions"), and headings that name
+topics ("The census, and Varka's column") rather than points.
+
+**What changed.** Three questions instead of seven topics: why Spark cannot just split the
+method; what measuring the class looks like, and what we got wrong doing it; what it buys and
+costs. The lede opens on Figure 1 in words. Three listings carry the mechanism: Spark's generated
+`project_doConsume_0` for the hundred entries with its `maxMethodCodeSize:17132` header, the
+method table `dev/varka_emit.sh` prints for the same entries, and C2's inlining lines for the
+split `CASE WHEN` methods at 300 branches. One number a sentence, rounded; the decimals stay in
+the figures and the note. Every provenance clause moved to the measurement note: the Spark
+build, the pinning, the four-of-thirty-six, the tuned run's 7%, the 7763's four cores, the
+ladder's drivers at its commit, vecruntime's Parquet. Cut: the census's group arithmetic, the
+fuzzer sentence, the driver table's mechanics beyond one sentence, and the four limits as a
+bullet list, now one paragraph. The first person for what Varka got wrong. 3497 words, from 4023.
+
+**The listings' provenance.** The generated code was dumped at this commit with a scratch
+`runMain` in the benchmark package that uses `VarkaArrowSessions.createSession` and
+`VarkaSizeLadder.cacheDates`, the ladder benchmark's own vanilla session and cached table, under
+`spark.sql.adaptive.enabled=false`; its header reads `maxMethodCodeSize:17132`, the committed
+ladder's number, and the method runs from line 125 to 4140 of the generated source. A first
+attempt over an uncached `range`-derived column read 17015: the consume method's size depends
+on the input column's nullability, so a listing that is to match a benchmark's number is taken
+from the benchmark's own plan. The inlining lines are `VarkaSplitInliningProbe` at 300 branches
+on the laptop's JDK 25, under the suite's own flags; C2's compile of `CaseWhen_0$` (1441 bytes)
+inlined 11 split methods and refused 90 with `size > DesiredMethodLimit`, section 10's counts.
+Neither scratch file is committed; both listings are reproducible from the suites named.
+
+**Still owed:** as section 14's table, with the owner's read of this draft in place of the first.
