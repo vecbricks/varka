@@ -521,6 +521,28 @@ section, since it is neither silent in the census's sense nor logged.
 Closing: how you'd know, over your own history - `dev/varka_codegen_report.py` over event logs
 (11.4) - and what Spark could add, as a proposal, not a claim.
 
+### 12.5 Three more, registered 2 October 2026
+
+Reading the outline against sections 11 and 13 left the post's main finding with three gaps. Its
+evidence is all cheap entries, `id + k`, where 9.2's 150 `date_add` entries tied; it offers no
+remedy, and `hugeMethodLimit` cannot be one, since the 40 and 60-sum aggregates that win in a stage
+have larger methods (1746 and 2586 bytes) than the 50-entry projection that loses (1861); and on
+stock Spark, 11.3 timed the 99-entry stage without the same projection outside one.
+
+`CodegenWideProjectionBenchmark`, on a runner: projections of 50 and 99 entries, cheap (`id + k`)
+and a mix of six kinds of entry (an addition, `date_add`, a string `concat`, a division over a
+cast, a null test over a nullable column, `substr`), each under the defaults, with `maxFields`
+just below its width so that the projection alone leaves the stage, and with `wholeStage=false`;
+timed after fifteen seconds of warm-up, so that C2's code is in. And `compile_wait.scala` gains the
+99-entry projection under `wholeStage=false`.
+
+17. The mix loses in a stage at 99 entries by less than the cheap entries do, 1.1 to 1.3 times,
+    and ties at 50.
+18. Both remedies recover the time outside a stage, within 5% of each other, for every shape that
+    loses in a stage.
+19. On stock 4.2.0 the 99-entry projection is slower in a stage than with `wholeStage=false` on
+    all three JDKs.
+
 ## 13. Outcome of section 12, 1 October 2026
 
 ### 13.1 The rewrite, on stock Spark
