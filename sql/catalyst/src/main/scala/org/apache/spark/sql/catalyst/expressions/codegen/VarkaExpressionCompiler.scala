@@ -677,8 +677,11 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * leave no class behind but the one that runs. A decline names the outputs whose own group
    * cannot fit; a class-wide one names none, and the caller demotes outputs from the end,
    * since the driver it leaves over the budget grows with their number ([[classify]] bisects).
-   * Any other failure admits the shape as before, and is logged once per JVM: the executor
-   * meets it where it always has, behind the ghost fallback.
+   * Any other failure of the build admits the shape as before, and is logged once per JVM: the
+   * executor meets it where it always has, behind the ghost fallback. A class that builds but
+   * fails to define or link is no longer met here at all, since nothing is defined: the
+   * executors meet it on its first batch, the same fallback; the tests verify every admitted
+   * shape's bytes instead ([[VarkaShapeCache.admit]]).
    */
   private def admitBySize(
       fused: CompiledVarkaProjection,

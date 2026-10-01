@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.lang.classfile.ClassFile;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -132,6 +133,16 @@ public final class VarkaShapeCacheImpl {
   /** How many per-execution identities the side table keeps per shape, oldest evicted first. */
   private static final int MAX_EXECUTIONS_PER_SHAPE = 8;
 
+  /** The most bytes of admitted shapes held at once; see {@link #admitted}. */
+  private static final long ADMITTED_BYTES_CAP = 64L << 20;
+
+  /**
+   * How long an admitted shape's bytes wait for the lookup that runs it. On an executor that
+   * lookup follows within a task; on the Spark driver, which runs no kernel, it never comes, and
+   * the bytes would otherwise sit there until evicted.
+   */
+  private static final java.time.Duration ADMITTED_TTL = java.time.Duration.ofMinutes(10);
+
   /**
    * The full cache key: the shape, plus the identity of the class loader the entry's generated
    * loader parents. The parent loader is an input to how the class links (it resolves the engine's
@@ -182,12 +193,11 @@ public final class VarkaShapeCacheImpl {
   // defined, so that answering the compiler's question loads no class - on the Spark driver,
   // which runs no kernel, and for every probe of a bisection but the one the plan keeps. The first
   // lookup that runs the shape defines its class from these bytes rather than building it again,
-  // and takes them out. Bounded by bytes, since a wide shape is megabytes; a shape evicted from it
-  // is only built again when it runs.
+  // and takes them out. Bounded by bytes, since a wide shape is megabytes, in one segment so the
+  // bound is the whole table's rather than a quarter of it per segment; empty when the class cache
+  // retains nothing (maxEntries = 0); and expiring, for the bytes no lookup comes for. A shape
+  // evicted from it is only built again when it runs.
   private final Cache<VarkaShapeKey, byte[]> admitted;
-
-  /** The most bytes of admitted shapes held at once. */
-  private static final long ADMITTED_BYTES_CAP = 64L << 20;
 
   // Every build of a class through this cache, admission or definition: what a test counts to see
   // that a shape was built once between the compiler's question and the kernel's first batch.
@@ -216,49 +226,84 @@ public final class VarkaShapeCacheImpl {
         .build();
     this.declined = CacheBuilder.newBuilder().maximumSize(64).build();
     this.admitted = CacheBuilder.newBuilder()
-        .maximumWeight(ADMITTED_BYTES_CAP)
+        .concurrencyLevel(1)
+        .maximumWeight(maxEntries == 0 ? 0 : ADMITTED_BYTES_CAP)
         .<VarkaShapeKey, byte[]>weigher((key, bytes) -> bytes.length)
+        .expireAfterWrite(ADMITTED_TTL)
         .build();
   }
 
   /**
    * Answers the compiler's question - does the emitter serve this shape? - without defining a
    * class (task 237): returns if it does, and throws the {@link VarkaEmitDeclined} it gives if
-   * not, remembered like every decline. A shape already defined under some loader, or already
-   * admitted, is not built again; otherwise its bytes are built, measured and held for the first
-   * lookup that runs it ({@link #getOrEmit}).
+   * not, remembered like every decline. A shape defined or being defined under {@code parent},
+   * or already admitted, is not built again; otherwise its bytes are built, measured and held for
+   * the first lookup that runs it ({@link #getOrEmit}).
+   *
+   * <p>The build runs in the caller and its failure is the caller's own, as every failure is in
+   * {@link #loadOnce}: two tasks admitting one shape at once may each build it, which costs a
+   * build and never hands one task another's error.
+   *
+   * <p>Planning defines nothing, so a class that builds but would fail to define or link - an
+   * emitter bug the verifier rejects - is first met by the executors, which serve its batches from
+   * the row engine. Where {@code verify} is set, which the facade does under Spark's testing flag,
+   * the bytes are checked by the JDK's verifier here, without loading them, and a failure is
+   * thrown as the {@link VerifyError} it is: the tests then catch every admitted shape, run or
+   * not, and production pays nothing.
    */
-  public void admit(VarkaShapeKey key) {
+  public void admit(ClassLoader parent, VarkaShapeKey key, boolean verify) {
     VarkaEmitDeclined known = declined.getIfPresent(key);
     if (known != null) {
       throw known;
     }
-    if (admitted.getIfPresent(key) != null) {
+    LoaderShapeKey loaderKey = new LoaderShapeKey(parent, key);
+    if (admitted.getIfPresent(key) != null || cache.getIfPresent(loaderKey) != null
+        || inFlight.containsKey(loaderKey)) {
       return;
     }
-    for (LoaderShapeKey loaded : cache.asMap().keySet()) {
-      if (loaded.shape().equals(key)) {
-        return;
-      }
-    }
+    String hash = shapeHash(key);
+    VarkaEmissionEvent event = new VarkaEmissionEvent();
+    event.begin();
+    byte[] bytes;
     try {
-      admitted.get(key, () -> build(key));
-    } catch (Throwable t) {
-      Throwable cause = unwrapGuava(t);
-      if (cause instanceof VarkaEmitDeclined d) {
-        declined.put(key, d);
-      }
-      throw sneakyThrow(cause);
+      bytes = build(hash, key);
+    } catch (VarkaEmitDeclined d) {
+      declined.put(key, d);
+      throw d;
     }
+    event.end();
+    if (verify) {
+      List<VerifyError> errors = ClassFile.of().verify(bytes);
+      if (!errors.isEmpty()) {
+        throw errors.get(0);
+      }
+    }
+    admitted.put(key, bytes);
+    commitEmission(event, hash, key, bytes, false);
   }
 
-  /** The shape's class bytes, as {@link #emit} defines them. */
-  private byte[] build(VarkaShapeKey key) {
-    String hash = shapeHash(key);
+  /** The shape's class bytes, as {@link #emit} defines them; {@code hash} is the key's. */
+  private byte[] build(String hash, VarkaShapeKey key) {
     builds.increment();
     return VarkaLoopEmitter.emit(classNameFor(hash), key.outputs(), key.numInputs(),
         key.numLiterals(), sourceFileFor(hash), "shape " + hash, key.options());
   }
+
+  /** Commits an emission event when a recording wants it; see {@link VarkaEmissionEvent}. */
+  private static void commitEmission(VarkaEmissionEvent event, String hash, VarkaShapeKey key,
+      byte[] bytes, boolean defined) {
+    if (event.shouldCommit()) {
+      event.shapeHash = hash;
+      event.className = classNameFor(hash);
+      event.numOutputs = key.outputs().size();
+      event.numInputs = key.numInputs();
+      event.numLiterals = key.numLiterals();
+      event.byteCount = bytes.length;
+      event.defined = defined;
+      event.commit();
+    }
+  }
+
 
   public int maxEntries() {
     return maxEntries;
@@ -409,13 +454,13 @@ public final class VarkaShapeCacheImpl {
     return hits.sum();
   }
 
+  public long missCount() {
+    return misses.sum();
+  }
+
   /** Every class build through this cache, admissions included; see {@link #builds}. */
   public long buildCount() {
     return builds.sum();
-  }
-
-  public long missCount() {
-    return misses.sum();
   }
 
   public long size() {
@@ -488,8 +533,8 @@ public final class VarkaShapeCacheImpl {
     String hash = shapeHash(key);
     String className = classNameFor(hash);
     String sourceFile = sourceFileFor(hash);
-    // the emission event times the Class-File walk plus the define - the whole miss
-    // cost minus the lookup - identified by shape only (the class is shared).
+    // the emission event times the define, and the Class-File walk where this builds the bytes
+    // rather than defining an admitted shape's - identified by shape only (the class is shared).
     VarkaEmissionEvent emissionEvent = new VarkaEmissionEvent();
     emissionEvent.begin();
     // An admitted shape's bytes are the ones this would build, so they are defined as they are.
@@ -497,20 +542,12 @@ public final class VarkaShapeCacheImpl {
     if (bytes != null) {
       admitted.invalidate(key);
     } else {
-      bytes = build(key);
+      bytes = build(hash, key);
     }
     VarkaGeneratedClassLoader loader = new VarkaGeneratedClassLoader(loaderKey.parent());
     Class<?> klass = loader.defineGeneratedClass(className, bytes);
     emissionEvent.end();
-    if (emissionEvent.shouldCommit()) {
-      emissionEvent.shapeHash = hash;
-      emissionEvent.className = className;
-      emissionEvent.numOutputs = key.outputs().size();
-      emissionEvent.numInputs = key.numInputs();
-      emissionEvent.numLiterals = key.numLiterals();
-      emissionEvent.byteCount = bytes.length;
-      emissionEvent.commit();
-    }
+    commitEmission(emissionEvent, hash, key, bytes, true);
     LOG.debug("Emitted and defined {} for shape {}", className, hash);
     // Resolved once per shape rather than once per task: newKernel runs on every FusedRunner.
     Constructor<?> constructor;

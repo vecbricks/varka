@@ -18,13 +18,16 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import jdk.jfr.Category;
+import jdk.jfr.Description;
 import jdk.jfr.Event;
 import jdk.jfr.Label;
 import jdk.jfr.Name;
 
 /**
- * JFR event timing one fused-kernel emission: the Class-File walk plus the class
- * define, i.e. the whole miss path of {@code VarkaShapeCache} minus the lookup itself. Fires
+ * JFR event timing one fused-kernel emission. A defined emission ({@link #defined}) times the
+ * class define, plus the Class-File walk where the lookup builds the bytes itself - the whole miss
+ * path of {@code VarkaShapeCache} minus the lookup; an admission (task 237) times the walk alone,
+ * at planning, for a shape whose class a later lookup defines from those bytes. Fires
  * only while a JFR recording has the event enabled; every field names the shape, never a
  * per-execution identity, because the emitted class is shared - join back to
  * operators through {@code VarkaShapeCache.executionsFor} or the {@code VarkaCacheLookupEvent}
@@ -52,4 +55,8 @@ public final class VarkaEmissionEvent extends Event {
 
   @Label("Class Bytes")
   public int byteCount;
+
+  @Label("Defined")
+  @Description("Whether the class was defined; false for a plan-time admission, which only builds")
+  public boolean defined;
 }

@@ -593,6 +593,65 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     collected
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Plan-time admission without a class (task 237).
+  // ---------------------------------------------------------------------------------------------
+
+  test("admission builds once and defines nothing; the first lookup defines the class from the " +
+      "admitted bytes without building again") {
+    val cache = new VarkaShapeCacheImpl(8)
+    val key = keyOf(chain(bits = 3, depth = 3))
+    cache.admit(parent, key, true)
+    assert(cache.buildCount === 1 && cache.size === 0)
+    cache.admit(parent, key, true)
+    assert(cache.buildCount === 1, "an admitted shape was built again for the question")
+    val lookup = cache.getOrEmit(parent, key, "exec")
+    assert(!lookup.hit && cache.size === 1 && cache.buildCount === 1)
+  }
+
+  test("a shape already defined under the caller's loader is admitted without a build") {
+    val cache = new VarkaShapeCacheImpl(8)
+    val key = keyOf(chain(bits = 6, depth = 3))
+    cache.getOrEmit(parent, key, "exec")
+    val builds = cache.buildCount
+    cache.admit(parent, key, true)
+    assert(cache.buildCount === builds)
+  }
+
+  test("a declined admission is remembered: neither a second admission nor a lookup builds it") {
+    val cache = new VarkaShapeCacheImpl(8)
+    // A budget no group method fits: the single output declines, naming itself.
+    val key = new VarkaShapeKey(java.util.List.of(chain(bits = 5, depth = 6)), 1, 1,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(50))
+    intercept[VarkaEmitDeclined](cache.admit(parent, key, true))
+    val builds = cache.buildCount
+    intercept[VarkaEmitDeclined](cache.admit(parent, key, true))
+    intercept[VarkaEmitDeclined](cache.getOrEmit(parent, key, "exec"))
+    assert(cache.buildCount === builds)
+  }
+
+  test("a cache that retains nothing holds no admitted bytes either") {
+    val cache = new VarkaShapeCacheImpl(0)
+    val key = keyOf(chain(bits = 9, depth = 4))
+    cache.admit(parent, key, true)
+    cache.getOrEmit(parent, key, "exec")
+    assert(cache.buildCount === 2, "maxEntries = 0 kept an admitted shape's bytes")
+  }
+
+  test("admissions racing on one shape all succeed, and its class is defined once") {
+    val cache = new VarkaShapeCacheImpl(8)
+    val key = keyOf(chain(bits = 10, depth = 4))
+    val threads = (0 until 8).map { _ =>
+      new Thread(() => cache.admit(parent, key, true))
+    }
+    threads.foreach(_.start())
+    threads.foreach(_.join())
+    assert(cache.buildCount >= 1 && cache.size === 0)
+    cache.getOrEmit(parent, key, "exec")
+    assert(cache.size === 1)
+  }
+
 }
 
 /** A kernel whose constructor raises a fatal error; see the unwrap test above. */

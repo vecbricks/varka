@@ -123,9 +123,11 @@ private[sql] object VarkaShapeCache {
 
   /**
    * Whether the emitter serves the shape, answered without defining a class; throws the
-   * decline if not. The compiler's plan-time question (task 237).
+   * decline if not. The compiler's plan-time question (task 237). Under Spark's testing flag the
+   * built bytes are also verified, so the tests catch a class the executors could not define.
    */
-  def admit(key: VarkaShapeKey): Unit = instance.admit(key)
+  def admit(key: VarkaShapeKey): Unit =
+    instance.admit(Utils.getContextOrSparkClassLoader, key, Utils.isTesting)
 
   def executionsFor(shapeHash: String): Seq[String] =
     instance.executionsFor(shapeHash).asScala.toSeq
