@@ -4120,6 +4120,39 @@ measurements; a session under each profile answers the differential suites once,
 own acceptance; and the record says which options switched on which machine - or that none did,
 which is a finding too.
 
+### Item 74. Refactor the compiler's untidiest code
+
+*Added 30 September 2026 on the owner's decision, from a review of the code after task 190 step
+2.*
+
+Seven places, each a change of structure with no emitted byte moved, so `emitted_bytes.json` is
+the proof:
+
+1. **`VarkaEmitOptions`.** Thirty-nine switches in one positional record: a new option touches
+   about nine places, and the defaults are a list of bare booleans. Build the defaults by name,
+   and derive `canonical()`, the bytes suite's option inventory and the IR fuzzer's draws from
+   one table of options.
+2. **The size loop in `VarkaLoopEmitter.emit`.** About eight pieces of mutable state and a chain
+   of fallbacks whose order matters. Task 236's planner replaces it, so this item adds nothing to
+   it.
+3. **`VarkaBodyEmitter.emitBody`.** One 372-line method for three roles, both bodies and both
+   driver forms, the table driver threading through the unrolled driver's numbered steps as
+   guards. Split it into driver, loop and epilogue emitters sharing the prologue helpers.
+4. **`VarkaExpressionCompiler`.** 1346 lines of Scala doing classification, size admission,
+   bisection, several kernels and node compilation, with triples for results and shared tables
+   rolled back by hand. Port it to Java with a result type, the size admission apart from node
+   compilation.
+5. **`VarkaEvaluatorBase`.** 1079 lines holding the runner, the batch ledger, scratch, warm-up,
+   fallback accounting and class dumping, four of which task 190's further kernels needed hooks
+   into. Split it into components.
+6. **Method names as strings.** Names such as `loopDense` and `stageDense` are matched by prefix
+   in about a dozen places in main code and many in tests. One naming class owns them.
+7. **Comments that narrate history.** Notes on a change's history belong in the plans; the
+   comments are rewritten to explain the code as it is, for a new reader.
+
+**Done when** each of 1 and 3 to 7 has landed with `emitted_bytes.json` unchanged and the Varka
+suites passing, one PR per item, in that order of value.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
