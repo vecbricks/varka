@@ -1,0 +1,52 @@
+================================================================================================
+Operators outside whole-stage codegen, by reason, over Spark's own query suites
+================================================================================================
+
+JVM: OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+Every operator of every final plan, counted once per plan; exchanges apart, since they
+bound stages by design; the plumbing (stages, input adapters, columnar transitions,
+query stages) walked through. Commands are not plans and are skipped.
+
+SQL golden files (SQLQueryTestSuite): 22099 plans, 87711 operators, 15278 exchanges
+tests: 789 succeeded, 1 failed, 0 canceled; failed: udtf/udtf.sql - Python UDTFs
+in a stage: 60117 (68.5%); outside: 27594 (31.5%)
+reason                                     operators   share  plans  most often
+whole-stage codegen switched off by a setting     18947   21.6%   2768  ProjectExec 4907, LocalTableScanExec 3900, SortExec 2130, HashAggregateExec 2106, FilterExec 1360
+not a CodegenSupport operator                   3506    4.0%   1963  ObjectHashAggregateExec 1239, BatchEvalPythonExec 882, WindowExec 493, CollectLimitExec 249, FileSourceScanExec 244
+a columnar scan, read inside the stage          2386    2.7%   1940  FileSourceScanExec 2362, InMemoryTableScanExec 24
+structural: supports codegen, left out          1910    2.2%   1629  LocalTableScanExec 1712, EmptyRelationExec 196, DeserializeToObjectExec 2
+supportCodegen is false                          692    0.8%    524  GenerateExec 147, SortMergeAsOfJoinExec 140, SortAggregateExec 136, HashAggregateExec 125, UnionExec 83
+a CodegenFallback expression                     153    0.2%    153  JsonToStructs 32, MapZipWith 22, JsonValue 18, ZipWith 14, TransformValues 14
+CodegenFallback expressions met (operators taken out of a stage): JsonToStructs 32, MapZipWith 22, JsonValue 18, ZipWith 14, TransformValues 14, TupleSketchEstimateDouble 12, CallMethodViaReflection 7, TransformKeys 6, KllSketchToStringBigint 5, TupleSketchEstimateInteger 5, JsonArray 4, ArraySort 3, KllSketchToStringDouble 3, KllSketchToStringFloat 2, KllSketchGetQuantileBigint 2, KllSketchGetQuantileFloat 1, KllSketchGetQuantileDouble 1, ParseSql 1, ThetaSketchEstimate 1
+
+TPC-DS (TPCDSQuerySuite): 150 plans, 5439 operators, 1932 exchanges
+tests: 150 succeeded, 0 failed, 0 canceled
+in a stage: 4368 (80.3%); outside: 1071 (19.7%)
+reason                                     operators   share  plans  most often
+a columnar scan, read inside the stage           860   15.8%    150  FileSourceScanExec 860
+not a CodegenSupport operator                    187    3.4%    118  TakeOrderedAndProjectExec 115, WindowExec 62, WindowGroupLimitExec 10
+supportCodegen is false                           24    0.4%     16  UnionExec 24
+
+TPC-H (TPCHQuerySuite): 22 plans, 403 operators, 108 exchanges
+tests: 22 succeeded, 0 failed, 0 canceled
+in a stage: 315 (78.2%); outside: 88 (21.8%)
+reason                                     operators   share  plans  most often
+a columnar scan, read inside the stage            83   20.6%     21  FileSourceScanExec 83
+not a CodegenSupport operator                      5    1.2%      5  TakeOrderedAndProjectExec 5
+
+SSB (SSBQuerySuite): 13 plans, 234 operators, 59 exchanges
+tests: 13 succeeded, 0 failed, 0 canceled
+in a stage: 185 (79.1%); outside: 49 (20.9%)
+reason                                     operators   share  plans  most often
+a columnar scan, read inside the stage            49   20.9%     13  FileSourceScanExec 49
+
+all: 22284 plans, 93787 operators, 17377 exchanges
+in a stage: 64985 (69.3%); outside: 28802 (30.7%)
+reason                                     operators   share  plans  most often
+whole-stage codegen switched off by a setting     18947   20.2%   2768  ProjectExec 4907, LocalTableScanExec 3900, SortExec 2130, HashAggregateExec 2106, FilterExec 1360
+not a CodegenSupport operator                   3698    3.9%   2086  ObjectHashAggregateExec 1239, BatchEvalPythonExec 882, WindowExec 555, CollectLimitExec 249, FileSourceScanExec 244
+a columnar scan, read inside the stage          3378    3.6%   2124  FileSourceScanExec 3354, InMemoryTableScanExec 24
+structural: supports codegen, left out          1910    2.0%   1629  LocalTableScanExec 1712, EmptyRelationExec 196, DeserializeToObjectExec 2
+supportCodegen is false                          716    0.8%    540  GenerateExec 147, SortMergeAsOfJoinExec 140, SortAggregateExec 136, HashAggregateExec 125, UnionExec 107
+a CodegenFallback expression                     153    0.2%    153  JsonToStructs 32, MapZipWith 22, JsonValue 18, ZipWith 14, TransformValues 14
+CodegenFallback expressions met (operators taken out of a stage): JsonToStructs 32, MapZipWith 22, JsonValue 18, ZipWith 14, TransformValues 14, TupleSketchEstimateDouble 12, CallMethodViaReflection 7, TransformKeys 6, KllSketchToStringBigint 5, TupleSketchEstimateInteger 5, JsonArray 4, ArraySort 3, KllSketchToStringDouble 3, KllSketchToStringFloat 2, KllSketchGetQuantileBigint 2, KllSketchGetQuantileFloat 1, KllSketchGetQuantileDouble 1, ParseSql 1, ThetaSketchEstimate 1

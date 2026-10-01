@@ -1,0 +1,14 @@
+census:      org.apache.spark.sql.execution.VarkaCodegenGiveUpCensus (a suite, run only with
+             VARKA_CENSUS=1)
+command:     VARKA_CENSUS=1 build/sbt "sql/testOnly org.apache.spark.sql.execution.VarkaCodegenGiveUpCensus"
+where:       the owner's laptop; which operators sit in a stage does not depend on the machine
+commit:      795e7eb4aa3 (master) with the census uncommitted, as committed beside this file
+date:        2026-10-01
+jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+settings:    Varka off (its default); every suite's own configuration unchanged
+suites:      SQLQueryTestSuite, TPCDSQuerySuite, TPCHQuerySuite, SSBQuerySuite, in that order,
+             in one JVM; 974 tests, 973 passed; udtf/udtf.sql's Python UDTFs failed in the
+             Python worker, a local Python environment failure
+counting:    every operator of every final plan, once per plan: the golden files' plans through
+             each execution's end event, so each query file is counted once per codegen setting
+             the suite runs it under; the TPC suites' plans through checkGeneratedCode

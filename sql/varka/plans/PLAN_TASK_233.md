@@ -170,3 +170,41 @@ production behaviour, and the plan expects at least those two to read differentl
 * The upstream proposal of section 4's closing, if the census earns it: its own JIRA under row
   204's line, not this post's.
 * The 8000-byte cliff beyond one paragraph: the first post has it.
+
+## 9. Outcome
+
+### 9.1 Investigation 1: how often, 1 October 2026
+
+`VarkaCodegenGiveUpCensus` ran the golden-file, TPC-DS, TPC-H and SSB suites in one JVM on the
+laptop (`VarkaCodegenGiveUps-jdk25-results.txt`, with its provenance): 22284 final plans, 93787
+operators, and 17377 exchanges apart. A first run found the classifier counting two kinds of
+thing as give-ups that are not: the golden-file suite runs every query file under several codegen
+settings, so an operator planned under `wholeStage=false` was "structural", and the exchanges'
+plumbing - `AQEShuffleReadExec`, the reused exchange, `SubqueryBroadcastExec` - and the write
+commands' nodes were counted as operators. The committed run names the first apart and walks
+through the second.
+
+| | in a stage | a columnar scan | silent give-ups | switched off by a setting |
+|:--|--:|--:|--:|--:|
+| TPC-DS | 80.3% | 15.8% | 3.8% | - |
+| TPC-H | 78.2% | 20.6% | 1.2% | - |
+| SSB | 79.1% | 20.9% | 0 | - |
+| golden files | 68.5% | 2.7% | 7.2% | 21.6% |
+
+**Prediction 1 held.** TPC-DS runs 19.7% of its operators outside a stage, most of them columnar
+scans, which a stage reads through a conversion by design; the give-ups proper are 3.8%, led by
+operators that are not `CodegenSupport`: `TakeOrderedAndProjectExec` 115 and `WindowExec` 62.
+**Prediction 2 held.** No TPC query has a `CodegenFallback` expression; the golden files have 153
+operators taken out by one, `from_json` first with 32, then `map_zip_with`, `json_value`,
+`zip_with` and `transform_values`. **Prediction 3 held more strongly than written:** `maxFields`
+puts no operator outside a stage in any of the four suites. **Prediction 4 held:** of the golden
+files' 8647 operators outside a stage for a reason other than a setting, 6261, 72%, are there for a
+reason that logs nothing - an operator that is not `CodegenSupport` (3506: the object hash
+aggregate 1239, Python UDF evaluation 882, the window 493), a structural one (1910, almost all a
+`LocalTableScanExec` that is never a stage root), `supportCodegen` false (692) and the fallback
+expressions (153); the rest are columnar scans.
+
+**What it means for the post.** In the benchmark suites a stage loses almost nothing, so the
+silent section is not about frequency in analytic SQL. It is about the specific constructs that
+cause it, which a user's query may have and the benchmark suites do not: an object aggregate, a
+Python UDF, a window, a JSON function, a higher-order function over maps.
