@@ -151,6 +151,42 @@ expression tree with its constants taken out as slots, so that two queries
 differing only in their constants are one shape and share one class. Run time
 executes that class over Arrow batches.
 
+The smallest example that shows both words. Take `SELECT date_add(d, 7), year(d)
+FROM t`. The compiler turns the two entries into trees over the input columns
+and over slots for the constants, and that pair of trees is the shape:
+
+```
+output 0 IR: (addDays col:0 lit:0)      date_add(d, 7): column 0, plus slot 0
+output 1 IR: (year col:0)               year(d)
+literals (scalarArgs, in slot order): 7
+shape hash: 8e914ebf8b838ef3
+```
+
+The 7 is not in the tree; it is the value of slot 0, handed to the class when
+the query runs. So `date_add(d, 30), year(d)` has the same shape, the same
+hash, and runs the same class with 30 in the slot, and so does the same pair
+over any other date column, since the tree says "column 0", not `d`. Change the
+tree, say to `date_add(d, 7), month(d)`, and it is a different shape with a
+class of its own. The kernel is the class emitted for the shape, eleven methods
+here:
+
+```
+loopDense0            152 bytes     date_add(d, 7): 4 vector operations a step
+epilogueDense0        169 bytes
+loopDense1            423 bytes     year(d): 34, the calendar decomposition
+epilogueDense1        440 bytes
+loopMasked0 .. epilogueMasked1      the same four, for batches with nulls
+run, runDense, runMasked            38, 100 and 113 bytes
+```
+
+A batch enters at `run`, which picks the dense or the masked driver by whether
+the inputs hold nulls; the driver calls the first group's loop method over the
+batch's full vectors of rows and its epilogue over the rows left at the end,
+then the second group's. The two entries are two groups because they share
+nothing; `year(d)` and `month(d)` would be one, computing the decomposition
+once for both. `dev/varka_emit.sh "date_add(d,7)" "year(d)"` prints all of the
+above for any projection you give it.
+
 ![One query's journey through Varka](figures/svg/fig26-one-querys-journey.svg)
 
 *Figure 4. Plan time, left: the rule that finds an eligible node, the compiler
