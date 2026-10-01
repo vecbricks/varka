@@ -1,0 +1,67 @@
+Output of silent.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36911698296
+commit:  86568c80d94
+cpu:     INTEL(R) XEON(R) PLATINUM 8573C
+java:    openjdk version "17.0.20" 2026-07-21 LTS
+spark:   4.2.0
+
+### from_json has no generated code: its projection leaves the stage
+== Physical Plan ==
+Project [(id#0L + 1) AS a#3L, from_json(StructField(a,IntegerType,true), concat({"a":, cast((id#0L % 10) as string), }), Some(Etc/UTC), false).a AS j#4]
++- *(1) Range (0, 1000, step=1, splits=1)
+
+
+### get_json_object has: the same projection stays in the stage
+== Physical Plan ==
+*(1) Project [(id#0L + 1) AS a#10L, get_json_object(concat({"a":, cast((id#0L % 10) as string), }), $.a) AS j#11]
++- *(1) Range (0, 1000, step=1, splits=1)
+
+
+### a window is not part of any stage
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=true
++- == Final Plan ==
+   ResultQueryStage 0
+   +- *(2) Project [id#0L, running#17L]
+      +- Window [sum(id#0L) windowspecdefinition(g#1L, id#0L ASC NULLS FIRST, specifiedwindowframe(RangeFrame, unboundedpreceding$(), currentrow$())) AS running#17L], [g#1L], [id#0L ASC NULLS FIRST]
+         +- *(1) Sort [g#1L ASC NULLS FIRST, id#0L ASC NULLS FIRST], false, 0
+            +- *(1) Project [id#0L, (id#0L % 10) AS g#1L]
+               +- *(1) Range (0, 1000, step=1, splits=1)
++- == Initial Plan ==
+   Project [id#0L, running#17L]
+   +- Window [sum(id#0L) windowspecdefinition(g#1L, id#0L ASC NULLS FIRST, specifiedwindowframe(RangeFrame, unboundedpreceding$(), currentrow$())) AS running#17L], [g#1L], [id#0L ASC NULLS FIRST]
+      +- Sort [g#1L ASC NULLS FIRST, id#0L ASC NULLS FIRST], false, 0
+         +- Project [id#0L, (id#0L % 10) AS g#1L]
+            +- Range (0, 1000, step=1, splits=1)
+
+
+### collect_list makes an object hash aggregate, which is not part of any stage
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=true
++- == Final Plan ==
+   ResultQueryStage 0
+   +- ObjectHashAggregate(keys=[g#1L], functions=[collect_list(id#0L, 0, 0, true)])
+      +- ObjectHashAggregate(keys=[g#1L], functions=[partial_collect_list(id#0L, 0, 0, true)])
+         +- *(1) Project [id#0L, (id#0L % 10) AS g#1L]
+            +- *(1) Range (0, 1000, step=1, splits=1)
++- == Initial Plan ==
+   ObjectHashAggregate(keys=[g#1L], functions=[collect_list(id#0L, 0, 0, true)])
+   +- ObjectHashAggregate(keys=[g#1L], functions=[partial_collect_list(id#0L, 0, 0, true)])
+      +- Project [id#0L, (id#0L % 10) AS g#1L]
+         +- Range (0, 1000, step=1, splits=1)
+
+
+26/10/01 19:18:07 WARN SparkStringUtils: Truncated the string representation of a plan since it was too large. This behavior can be adjusted by setting 'spark.sql.debug.maxToStringFields'.
+### 100 output columns: in a stage
+== Physical Plan ==
+*(1) Project [(id#0L + 1) AS c1#41L, (id#0L + 2) AS c2#42L, (id#0L + 3) AS c3#43L, (id#0L + 4) AS c4#44L, (id#0L + 5) AS c5#45L, (id#0L + 6) AS c6#46L, (id#0L + 7) AS c7#47L, (id#0L + 8) AS c8#48L, (id#0L + 9) AS c9#49L, (id#0L + 10) AS c10#50L, (id#0L + 11) AS c11#51L, (id#0L + 12) AS c12#52L, (id#
++- *(1) Range (0, 1000, step=1, splits=1)
+
+
+### 101 output columns: past spark.sql.codegen.maxFields, out of the stage
+== Physical Plan ==
+Project [(id#0L + 1) AS c1#342L, (id#0L + 2) AS c2#343L, (id#0L + 3) AS c3#344L, (id#0L + 4) AS c4#345L, (id#0L + 5) AS c5#346L, (id#0L + 6) AS c6#347L, (id#0L + 7) AS c7#348L, (id#0L + 8) AS c8#349L, (id#0L + 9) AS c9#350L, (id#0L + 10) AS c10#351L, (id#0L + 11) AS c11#352L, (id#0L + 12) AS c12#353
++- *(1) Range (0, 1000, step=1, splits=1)
+
+
+### Spark 4.2.0, Java 17.0.20

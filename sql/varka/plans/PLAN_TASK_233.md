@@ -250,12 +250,12 @@ to keep a wide projection in its stage: a method well under the limit can wait t
 C2 and stay slower after it. That is the post's strongest new finding, and the one the first post
 did not have.
 
-## 10. Five more investigations, registered 2 October 2026
+## 10. Five more investigations, registered 1 October 2026
 
 The two investigations of sections 2 and 3 turned up a finding bigger than the post's plan
 expected - a stage under the 8000-byte limit that waits twenty seconds for C2 and stays slower
 after it (9.2) - and left the post's "how you'd know" without an answer a reader can run. The owner
-asked for all five of the follow-ups proposed on 1 October; they are registered here with their
+asked for all five of the follow-ups proposed the same day; they are registered here with their
 predictions before any of them runs, and each lands as its own pull request.
 
 ### 10.1 Investigation 3: does the wait for C2 hit stages under the default settings?
@@ -327,3 +327,113 @@ under `sql/varka/demo/`, run on stock 4.2.0 under the three JDKs, outputs commit
 10.3 and 10.5 share the new workflow, so it comes first; 10.1 and 10.2 run on the benchmark workflow
 meanwhile; 10.4 runs on the laptop. Each investigation's outcome is written under section 11 as it
 lands, and the post waits for all five.
+
+## 11. Outcome of the five, 1 October 2026
+
+### 11.1 Investigation 3: the wait for C2 under default settings
+
+`CodegenCompileWaitBenchmark` on a runner that drew an Intel Xeon Platinum 8573C, JDK 25
+(`CodegenCompileWaitBenchmark-jdk25-results.txt`, run 36908262583, with its provenance). The
+summary line's "steady after" turned out useless on a runner - one slow query near the end of a
+series, a collection most likely, puts the last slow query late in every series - so the time to
+steady state was read again from the printed times as the end of the first five queries whose
+median is within 10% of the median of the last ten.
+
+**Prediction 8 was wrong.** Under the default settings the wait is short: every shape in a stage
+settles within 2.6 seconds - 99 entries, the widest, after 2.6 - except the first one measured,
+25 entries at 9.6 seconds, which ran while the JVM was still compiling Spark's own code. The
+twenty-second wait of 9.2 belongs to stages wider than `maxFields` lets in by default.
+
+**Prediction 9 was wrong, and this is the finding.** Once compiled, a projection of 50 or more
+cheap entries runs slower inside a stage than outside one, with nothing raised. The medians of the
+last ten queries, in a stage and outside one:
+
+| entries | in a stage | outside | | sums | in a stage | outside |
+|--:|--:|--:|:-:|--:|--:|--:|
+| 25 | 67 ms | 79 ms | | 10 | 92 ms | 122 ms |
+| 50 | 167 ms | 130 ms | | 20 | 139 ms | 211 ms |
+| 75 | 279 ms | 180 ms | | 40 | 248 ms | 493 ms |
+| 99 | 400 ms | 242 ms | | 60 | 357 ms | 755 ms |
+
+So the stage is 1.28, 1.55 and 1.65 times slower at 50, 75 and 99 entries, and the aggregates are
+the other way round, the stage about twice as fast from 40 sums. 11.2 says why the projections lose.
+
+### 11.2 Investigation 4: why the wide stage stays slower after C2
+
+The first-minute section alone, under C2's inlining log for the stage's class, on a runner that
+drew an AMD EPYC 9V74 (`CodegenFallbackCostBenchmark-jdk25-runner-9v74-inlining-results.txt`, run
+36908273868, the log in its job log) and on the laptop.
+
+**Prediction 10 was wrong:** the two machines make the same decisions. In C2's compile of the
+150-entry stage's consume method (5749 bytes on both: 9.2's 5747 with this section's larger
+column offsets), every one of the
+150 calls to `UnsafeRowWriter.write` is refused, `failed to inline: size > DesiredMethodLimit`, on
+both; the method has spent C2's inlining budget, the 8000 bytes of `DesiredMethodLimit` post 2
+described, before the writes are reached. So each row of the stage makes 150 calls that the same
+projection outside a stage does not make: there the projection is split into small `writeFields`
+methods, each compiled with its writes inlined. What differs between the machines is what those
+calls cost: under the logging the 9V74's stage settles at 748 ms against 493 outside, 1.52 times,
+in the same range as the 7763's 1.57 of 9.2, and the laptop's Zen 5 shows a smaller gap in an
+uncommitted run. 11.1's projections are the same mechanism at smaller widths: a stage's method
+past a few thousand bytes stops inlining its writes.
+
+### 11.3 Investigation 5: the wait on released Spark and three JDKs
+
+The scripts of 10.3 and 10.5 live together in `sql/varka/demo/silent-giveups/`, run by
+`varka-silent-giveups.yml` on stock Spark 4.2.0 under JDK 17, 21 and 25, one runner per JDK; each
+`<script>-jdk<n>-output.txt` there is run 36911698296. `compile_wait.scala` times every query of a
+shape new to the JVM back to back for 45 seconds, and the wait is read from its printed series as
+in 11.1:
+
+| | JDK 17, Xeon 8573C | JDK 21, EPYC 9V74 | JDK 25, EPYC 7763 |
+|:--|--:|--:|--:|
+| 150 entries in a stage (`maxFields=200`): settles after | 19.0 s | 17.3 s | 21.8 s |
+| then, in a stage / outside one | 706 / 388 ms | 692 / 436 ms | 1212 / 698 ms |
+| 99 entries in a stage, the defaults: settles after | 2.7 s | 2.1 s | 2.9 s |
+| 60 sums, in a stage / `wholeStage=false` | 347 / 719 ms | 316 / 647 ms | 536 / 865 ms |
+
+**Prediction 11 held in what it could test:** the wait is on all three JDKs of released Spark, 17
+to 22 seconds, within a factor of 1.3; the first run (36908683124, whose other scripts still
+needed fixing) read 17.1 to 19.1. "Longest on JDK 17" cannot be scored: each JDK drew a different
+CPU, and the order changed between the two runs. Both of the earlier findings carry over to
+released Spark: the wide stage settles 1.6 to 1.8 times slower than outside, and under the
+defaults the wait is under three seconds, with the aggregate twice as fast in a stage.
+
+### 11.4 Investigation 6: how you'd know, from your own event logs
+
+`dev/varka_codegen_report.py` over the event log of a second run of the census's golden-file
+family with `spark.eventLog.enabled` (1.8 GB uncompressed, read in about three seconds), against
+the census's own table from that run:
+
+| reason | census | the script |
+|:--|--:|--:|
+| in a stage | 60121 | 60248 |
+| switched off by a setting | 18947 | 18950 |
+| not a CodegenSupport operator | 3506 | 3543 |
+| a columnar scan | 2386 | 2378 |
+| a CodegenSupport operator left out | 1909 + 692 | 2687 |
+| a CodegenFallback expression | 153 | 151 |
+
+**Prediction 12 held.** Every reason is within 2% of the census except the one the script cannot
+split, which it reports as one line 3.3% above the census's two; the plans are 22118 against
+22099, the event log recording a few executions the census's listener did not see. The first
+version missed the columnar scans, whose parent in a stage is the `InputAdapter` and not the
+`ColumnarToRow` above it; the adapter is now walked through, as the census does.
+
+### 11.5 Investigation 7: the snippets on stock Spark
+
+The same run, all three JDKs alike apart from timings. **Prediction 13 held.** A `CASE WHEN` of
+3000 branches inside a stage passes 64 KB, logs `ERROR CodeGenerator: Failed to compile` and
+`WARN WholeStageCodegenExec: Whole-stage codegen disabled for plan`, and answers
+(`fallback-*`); the two split refusals log `INFO CodegenContext: Failed to split subexpression
+code` and `INFO HashAggregateExec: Failed to split aggregate code` and answer, as do the method
+past 8000 bytes and the struct key the fast hash map turns down (`hidden_log-*`, which catches the
+INFO lines with an appender, since the shell's console shows WARN and above). Two more read as the
+post needs them: 1000 entries outside a stage with method splitting off fall back to the
+interpreter, `WARN UnsafeProjection: Expr codegen error and falling back to interpreter mode`,
+over a nullable column (over a non-nullable one the class compiled); and an `ORDER BY` of a
+1200-branch `CASE WHEN` under `LIMIT` fails the query, `InternalCompilerException: Code grows
+beyond 64 KB` in the top-k's comparator, which has no fallback (`failing-*`). `silent-*` shows the
+window and the object hash aggregate with no `*(n)` in the final adaptive plan, `from_json`
+taking its projection out of the stage while `get_json_object` keeps it, and the 101st column
+taking a projection out.

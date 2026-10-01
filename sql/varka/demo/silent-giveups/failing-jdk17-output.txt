@@ -1,0 +1,238 @@
+Output of failing.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36911698296
+commit:  86568c80d94
+cpu:     INTEL(R) XEON(R) PLATINUM 8573C
+java:    openjdk version "17.0.20" 2026-07-21 LTS
+spark:   4.2.0
+
+### ORDER BY a CASE WHEN of 1200 branches, LIMIT 5
+26/10/01 19:17:19 ERROR CodeGenerator: Failed to compile the generated Java code.
+org.codehaus.commons.compiler.InternalCompilerException: Compiling "GeneratedClass" in File 'generated.java', Line 1, Column 1: File 'generated.java', Line 17, Column 12: Compiling "compare(InternalRow a, InternalRow b)"
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:402)
+	at org.codehaus.janino.UnitCompiler.access$000(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$2.visitCompilationUnit(UnitCompiler.java:363)
+	at org.codehaus.janino.UnitCompiler$2.visitCompilationUnit(UnitCompiler.java:361)
+	at org.codehaus.janino.Java$CompilationUnit.accept(Java.java:371)
+	at org.codehaus.janino.UnitCompiler.compileUnit(UnitCompiler.java:361)
+	at org.codehaus.janino.SimpleCompiler.cook(SimpleCompiler.java:264)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:294)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:288)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:267)
+	at org.codehaus.commons.compiler.Cookable.cook(Cookable.java:82)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.doCompile(CodeGenerator.scala:1564)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.$anonfun$cache$1(CodeGenerator.scala:1653)
+	at org.apache.spark.util.NonFateSharingCache$$anon$1.load(NonFateSharingCache.scala:68)
+	at org.sparkproject.guava.cache.LocalCache$LoadingValueReference.loadFuture(LocalCache.java:3556)
+	at org.sparkproject.guava.cache.LocalCache$Segment.loadSync(LocalCache.java:2307)
+	at org.sparkproject.guava.cache.LocalCache$Segment.lockedGetOrLoad(LocalCache.java:2180)
+	at org.sparkproject.guava.cache.LocalCache$Segment.get(LocalCache.java:2071)
+	at org.sparkproject.guava.cache.LocalCache.get(LocalCache.java:3985)
+	at org.sparkproject.guava.cache.LocalCache.getOrLoad(LocalCache.java:4006)
+	at org.sparkproject.guava.cache.LocalCache$LocalLoadingCache.get(LocalCache.java:4946)
+	at org.apache.spark.util.NonFateSharingLoadingCache.$anonfun$get$2(NonFateSharingCache.scala:108)
+	at org.apache.spark.util.KeyLock.withLock(KeyLock.scala:64)
+	at org.apache.spark.util.NonFateSharingLoadingCache.get(NonFateSharingCache.scala:108)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.compile(CodeGenerator.scala:1506)
+	at org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering$.create(GenerateOrdering.scala:175)
+	at org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering$.create(GenerateOrdering.scala:37)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.generate(CodeGenerator.scala:1431)
+	at org.apache.spark.sql.catalyst.expressions.codegen.LazilyGeneratedOrdering.<init>(GenerateOrdering.scala:190)
+	at org.apache.spark.sql.catalyst.expressions.codegen.LazilyGeneratedOrdering.<init>(GenerateOrdering.scala:187)
+	at org.apache.spark.sql.execution.TakeOrderedAndProjectExec.$anonfun$executeCollect$1(limit.scala:323)
+	at org.apache.spark.sql.execution.SparkPlan.$anonfun$executeQuery$1(SparkPlan.scala:269)
+	at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:169)
+	at org.apache.spark.sql.execution.SparkPlan.executeQuery(SparkPlan.scala:266)
+	at org.apache.spark.sql.execution.TakeOrderedAndProjectExec.executeCollect(limit.scala:321)
+	at org.apache.spark.sql.classic.Dataset.collectFromPlan(Dataset.scala:2336)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$collect$1(Dataset.scala:1564)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$3(Dataset.scala:2325)
+	at org.apache.spark.sql.execution.QueryExecution$.withInternalError(QueryExecution.scala:872)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$2(Dataset.scala:2323)
+	at org.apache.spark.sql.execution.QueryExecution.withQueryExecutionId(QueryExecution.scala:429)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$1(Dataset.scala:2323)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$8(SQLExecution.scala:228)
+	at org.apache.spark.sql.execution.SQLExecution$.withSessionTagsApplied(SQLExecution.scala:352)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$7(SQLExecution.scala:189)
+	at org.apache.spark.JobArtifactSet$.withActiveJobArtifactState(JobArtifactSet.scala:94)
+	at org.apache.spark.sql.artifact.ArtifactManager.$anonfun$withResources$1(ArtifactManager.scala:112)
+	at org.apache.spark.sql.artifact.ArtifactManager.withClassLoaderIfNeeded(ArtifactManager.scala:106)
+	at org.apache.spark.sql.artifact.ArtifactManager.withResources(ArtifactManager.scala:111)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$6(SQLExecution.scala:189)
+	at org.apache.spark.sql.execution.SQLExecution$.withSQLConfPropagated(SQLExecution.scala:375)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$1(SQLExecution.scala:188)
+	at org.apache.spark.sql.SparkSession.withActive(SparkSession.scala:810)
+	at org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId0(SQLExecution.scala:130)
+	at org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId(SQLExecution.scala:317)
+	at org.apache.spark.sql.classic.Dataset.withAction(Dataset.scala:2322)
+	at org.apache.spark.sql.classic.Dataset.collect(Dataset.scala:1564)
+	at $line14.$read$$iw.<init>(failing.scala:26)
+	at $line14.$read.<init>(failing.scala:22)
+	at $line14.$read$.<clinit>(failing.scala:1)
+	at $line14.$eval$.$print$lzycompute(<synthetic>:6)
+	at $line14.$eval$.$print(<synthetic>:5)
+	at $line14.$eval.$print(<synthetic>)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at scala.tools.nsc.interpreter.IMain$ReadEvalPrint.call(IMain.scala:669)
+	at scala.tools.nsc.interpreter.IMain$Request.loadAndRun(IMain.scala:1029)
+	at scala.tools.nsc.interpreter.IMain.$anonfun$doInterpret$1(IMain.scala:507)
+	at scala.reflect.internal.util.ScalaClassLoader.asContext(ScalaClassLoader.scala:36)
+	at scala.reflect.internal.util.ScalaClassLoader.asContext$(ScalaClassLoader.scala:127)
+	at scala.reflect.internal.util.AbstractFileClassLoader.asContext(AbstractFileClassLoader.scala:43)
+	at scala.tools.nsc.interpreter.IMain.loadAndRunReq$1(IMain.scala:506)
+	at scala.tools.nsc.interpreter.IMain.$anonfun$doInterpret$3(IMain.scala:520)
+	at scala.tools.nsc.interpreter.IMain.doInterpret(IMain.scala:520)
+	at scala.tools.nsc.interpreter.IMain.interpret(IMain.scala:504)
+	at scala.tools.nsc.interpreter.IMain.interpret(IMain.scala:502)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$pasteCommand$13(ILoop.scala:809)
+	at scala.tools.nsc.interpreter.IMain.withLabel(IMain.scala:106)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$pasteCommand$14(ILoop.scala:809)
+	at scala.tools.nsc.interpreter.shell.ReplReporterImpl.indenting(Reporter.scala:50)
+	at scala.tools.nsc.interpreter.shell.ILoop.pasteCommand(ILoop.scala:843)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$interpretPreamble$5(ILoop.scala:963)
+	at scala.tools.nsc.interpreter.shell.ILoop.interpretPreamble(ILoop.scala:962)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$3(ILoop.scala:986)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.shell.ILoop.echoOff(ILoop.scala:92)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$2(ILoop.scala:986)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.IMain.withSuppressedSettings(IMain.scala:1423)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$1(ILoop.scala:977)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.shell.ReplReporterImpl.withoutPrintingResults(Reporter.scala:63)
+	at scala.tools.nsc.interpreter.shell.ILoop.run(ILoop.scala:977)
+	at org.apache.spark.repl.Main$.doMain(Main.scala:87)
+	at org.apache.spark.repl.Main$.main(Main.scala:62)
+	at org.apache.spark.repl.Main.main(Main.scala)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.apache.spark.deploy.JavaMainApplication.start(SparkApplication.scala:52)
+	at org.apache.spark.deploy.SparkSubmit.org$apache$spark$deploy$SparkSubmit$$runMain(SparkSubmit.scala:1033)
+	at org.apache.spark.deploy.SparkSubmit.doRunMain$1(SparkSubmit.scala:203)
+	at org.apache.spark.deploy.SparkSubmit.submit(SparkSubmit.scala:226)
+	at org.apache.spark.deploy.SparkSubmit.doSubmit(SparkSubmit.scala:95)
+	at org.apache.spark.deploy.SparkSubmit$$anon$2.doSubmit(SparkSubmit.scala:1171)
+	at org.apache.spark.deploy.SparkSubmit$.main(SparkSubmit.scala:1180)
+	at org.apache.spark.deploy.SparkSubmit.main(SparkSubmit.scala)
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: File 'generated.java', Line 17, Column 12: Compiling "compare(InternalRow a, InternalRow b)"
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:3333)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMethods(UnitCompiler.java:1447)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMethods(UnitCompiler.java:1420)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:829)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1026)
+	at org.codehaus.janino.UnitCompiler.access$700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$3.visitMemberClassDeclaration(UnitCompiler.java:425)
+	at org.codehaus.janino.UnitCompiler$3.visitMemberClassDeclaration(UnitCompiler.java:418)
+	at org.codehaus.janino.Java$MemberClassDeclaration.accept(Java.java:1533)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:418)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMemberTypes(UnitCompiler.java:1397)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:864)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:442)
+	at org.codehaus.janino.UnitCompiler.access$400(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$3.visitPackageMemberClassDeclaration(UnitCompiler.java:422)
+	at org.codehaus.janino.UnitCompiler$3.visitPackageMemberClassDeclaration(UnitCompiler.java:418)
+	at org.codehaus.janino.Java$PackageMemberClassDeclaration.accept(Java.java:1688)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:418)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:392)
+	... 109 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 20, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:3658)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:3329)
+	... 127 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 20, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 129 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 20, Column 4
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1691)
+	at org.codehaus.janino.UnitCompiler.access$2600(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitDoStatement(UnitCompiler.java:1588)
+	at org.codehaus.janino.UnitCompiler$6.visitDoStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$DoStatement.accept(Java.java:3794)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 130 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10222, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1646)
+	at org.codehaus.janino.UnitCompiler.access$1700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1579)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$Block.accept(Java.java:3115)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 136 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10222, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 142 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10222, Column 27
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2649)
+	at org.codehaus.janino.UnitCompiler.access$1900(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitIfStatement(UnitCompiler.java:1581)
+	at org.codehaus.janino.UnitCompiler$6.visitIfStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$IfStatement.accept(Java.java:3284)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 143 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10223, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1646)
+	at org.codehaus.janino.UnitCompiler.access$1700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1579)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$Block.accept(Java.java:3115)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 149 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10223, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 155 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10223, Column 6
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2745)
+	at org.codehaus.janino.UnitCompiler.access$2700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitLocalVariableDeclarationStatement(UnitCompiler.java:1589)
+	at org.codehaus.janino.UnitCompiler$6.visitLocalVariableDeclarationStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$LocalVariableDeclarationStatement.accept(Java.java:3842)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 156 more
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: File 'generated.java', Line 10223, Column 21: Compiling "a.getLong(0)"
+	at org.codehaus.janino.UnitCompiler.compileGetValue(UnitCompiler.java:5856)
+	at org.codehaus.janino.UnitCompiler.access$3800(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$7.visitRvalue(UnitCompiler.java:2766)
+	at org.codehaus.janino.UnitCompiler$7.visitRvalue(UnitCompiler.java:2754)
+	at org.codehaus.janino.Java$Rvalue.accept(Java.java:4498)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:2754)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2741)
+	... 161 more
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: Code grows beyond 64 KB
+	at org.codehaus.janino.CodeContext.makeSpace(CodeContext.java:699)
+	at org.codehaus.janino.CodeContext.write(CodeContext.java:558)
+	at org.codehaus.janino.UnitCompiler.write(UnitCompiler.java:13079)
+	at org.codehaus.janino.UnitCompiler.invoke(UnitCompiler.java:12471)
+	at org.codehaus.janino.UnitCompiler.invokeMethod(UnitCompiler.java:13146)
+	at org.codehaus.janino.UnitCompiler.compileGet2(UnitCompiler.java:5388)
+	at org.codehaus.janino.UnitCompiler.access$9300(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$16.visitMethodInvocation(UnitCompiler.java:4735)
+	at org.codehaus.janino.UnitCompiler$16.visitMethodInvocation(UnitCompiler.java:4711)
+	at org.codehaus.janino.Java$MethodInvocation.accept(Java.java:5470)
+	at org.codehaus.janino.UnitCompiler.compileGet(UnitCompiler.java:4711)
+	at org.codehaus.janino.UnitCompiler.compileGetValue(UnitCompiler.java:5854)
+	... 167 more
+### the query failed: org.codehaus.commons.compiler.InternalCompilerException
+    Failed to compile: org.codehaus.commons.compiler.InternalCompilerException: Compiling "GeneratedClass" in File 'generated.java', Line 1, Column 1: File 'generated.java', Line 17, Column 12: Compiling 
+    Compiling "GeneratedClass" in File 'generated.java', Line 1, Column 1: File 'generated.java', Line 17, Column 12: Compiling "compare(InternalRow a, InternalRow b)"
+    File 'generated.java', Line 17, Column 12: Compiling "compare(InternalRow a, InternalRow b)"
+    File 'generated.java', Line 20, Column 1
+    File 'generated.java', Line 20, Column 4
+    File 'generated.java', Line 10222, Column 1
+    File 'generated.java', Line 10222, Column 27
+    File 'generated.java', Line 10223, Column 1
+    File 'generated.java', Line 10223, Column 6
+    File 'generated.java', Line 10223, Column 21: Compiling "a.getLong(0)"
+    Code grows beyond 64 KB
+### Spark 4.2.0, Java 17.0.20

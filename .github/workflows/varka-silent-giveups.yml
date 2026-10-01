@@ -112,7 +112,10 @@ jobs:
             echo "java:    $(java -version 2>&1 | head -1)"
             echo "spark:   ${STOCK_VERSION}"
             echo
-            sed -n '/^###/,$p' "$name.log" | cut -c1-300
+            # Lines are cut at 300 characters, except the per-query series a reader recomputes
+            # the wait from.
+            sed -n '/^###/,$p' "$name.log" \
+              | awk '/^ms per query:/ || length <= 300 { print; next } { print substr($0, 1, 300) }'
           } > "$out"
           cat "$out"
           grep -q '^### Spark' "$out" || { echo "::error::$script did not finish"; status=1; }

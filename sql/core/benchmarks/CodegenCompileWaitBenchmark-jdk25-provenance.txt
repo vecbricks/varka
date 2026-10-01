@@ -1,0 +1,13 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenCompileWaitBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36908262583
+commit:      12e8c2fc0e4 (varka-task-233-more: #541's branch and the benchmark)
+date:        2026-10-01
+inputs:      class=*CodegenCompileWaitBenchmark jdk=25 scala=2.13 num-splits=1 create-commit=false
+             generate-tpcds=false extra-java-options=-XX:+PrintCompilation
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         Intel Xeon Platinum 8573C (the runner is not pinned; the file is the workflow's artifact
+             unchanged; the compile log is in the run's job log)
+purpose:     task 233's third investigation (PLAN_TASK_233.md 10.1): the wait for C2 under default
+             settings, and the stage against no stage once compiled; vanilla Spark only, Varka off

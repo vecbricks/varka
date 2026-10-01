@@ -1,0 +1,64 @@
+Output of hidden_log.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36911698296
+commit:  86568c80d94
+cpu:     INTEL(R) XEON(R) PLATINUM 8573C
+java:    openjdk version "17.0.20" 2026-07-21 LTS
+spark:   4.2.0
+
+### a method past 8000 bytes: 56 date entries in one projection
+26/10/01 19:17:49 INFO SharedState: Setting hive.metastore.warehouse.dir ('null') to the value of spark.sql.warehouse.dir.
+26/10/01 19:17:49 INFO SharedState: Warehouse path is 'file:/home/runner/work/spark/spark/sql/varka/demo/silent-giveups/spark-warehouse'.
+26/10/01 19:17:50 WARN SparkStringUtils: Truncated the string representation of a plan since it was too large. This behavior can be adjusted by setting 'spark.sql.debug.maxToStringFields'.
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:17:51 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:17:51 INFO CodeGenerator: Code generated in 367.782689 ms
+26/10/01 19:17:51 INFO OverwriteByExpressionExec: Start processing data source write support: NoopBatchWrite. The input RDD has 1 partitions.
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:17:51 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:17:51 INFO CodeGenerator: Code generated in 261.632778 ms
+26/10/01 19:17:51 INFO DataWritingSparkTask: Writer for partition 0 is committing.
+26/10/01 19:17:51 INFO DataWritingSparkTask: Committed partition 0 (task 0, attempt 0, stage 0.0)
+26/10/01 19:17:52 INFO OverwriteByExpressionExec: Data source write support NoopBatchWrite is committing.
+26/10/01 19:17:52 INFO OverwriteByExpressionExec: Data source write support NoopBatchWrite committed.
+### a common subexpression over 130 nullable columns: 260 parameter slots
+LOGGED INFO CodegenContext: Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+26/10/01 19:17:52 INFO CodegenContext: Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:17:52 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:17:52 INFO CodeGenerator: Code generated in 94.26751 ms
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Code generated in 153.483658 ms
+26/10/01 19:17:53 INFO OverwriteByExpressionExec: Start processing data source write support: NoopBatchWrite. The input RDD has 1 partitions.
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Code generated in 129.709836 ms
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:17:53 INFO CodeGenerator: Code generated in 109.499074 ms
+26/10/01 19:17:53 INFO DataWritingSparkTask: Writer for partition 0 is committing.
+26/10/01 19:17:53 INFO DataWritingSparkTask: Committed partition 0 (task 2, attempt 0, stage 2.0)
+26/10/01 19:17:53 INFO OverwriteByExpressionExec: Data source write support NoopBatchWrite is committing.
+26/10/01 19:17:53 INFO OverwriteByExpressionExec: Data source write support NoopBatchWrite committed.
+### an aggregate over 130 nullable columns
+LOGGED INFO HashAggregateExec: Failed to split aggregate code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+26/10/01 19:17:54 INFO HashAggregateExec: Failed to split aggregate code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:17:54 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 40.049938 ms
+LOGGED INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:17:54 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 50.544678 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 8.725903 ms
+### a struct key: the fast hash map does not support it
+LOGGED INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+26/10/01 19:17:54 INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+LOGGED INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+26/10/01 19:17:54 INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 33.042587 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 45.632089 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 6.749093 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 7.156873 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 7.552461 ms
+26/10/01 19:17:54 INFO CodeGenerator: Code generated in 11.569791 ms
+### Spark 4.2.0, Java 17.0.20
