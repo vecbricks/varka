@@ -74,5 +74,29 @@ to it alone skipped the job that renders it.
 
 ## 5. Outcome
 
-*To be written from the first `scoped` and `docs` runs after the merge, with
-their run ids, step times and wall time against section 1's.*
+*Written 1 October 2026 from the fork's runs since the merge, against section
+1's baseline, run 36295726808: the lint job 30m03s, documentation generation
+16m11s.*
+
+* **`scoped` without a Python file** (prediction 2): #533's run 36817976605, the
+  lint job 7m21s - checkout and setup 3m, the Scala linter 2m53s, the Java linter
+  24s - and no documentation job; #531's run 36812401605, 7m49s. The wall time was
+  21m00s and 27m23s, not the 17 predicted: the sql Varka suites took 18m32s, and
+  in #531's run the base image build took 17m27s with the lint job queued behind
+  it. #529's run 36776906174 ran a documentation job of 21m31s because the change
+  touched `docs/sql-varka.md`, as the rule says.
+* **`docs` only** (prediction 3): #532's run 36774538874, the lint job 3m56s,
+  setup and the cheap steps, no documentation job. Held; but the wall time was
+  22m17s, since the lint job starts after the base image build, which took 16m27s
+  on a cache miss. On a documents-only change the critical path is now that
+  build, not the linters.
+* **`scoped` with a Python file** (prediction 4): #534's run 36876306977, with
+  the figure scripts in the change, the lint job 11m16s, of which the Python
+  linter 6m56s; wall 14m50s. Held in direction, under the 15 predicted.
+* **Prediction 1** is unscored: the pull request's own run id was not kept.
+
+So the job that cost every Varka pull request a quarter of an hour past its own
+tests costs a scoped change 7 to 8 minutes, inside the suites' time, and a
+documents-only change 4; row 225 is done. What the readings surface instead is
+the base image build in front of the lint job on a documents-only run, a note
+under `SCOPE_MILESTONE_7.md` item 76.

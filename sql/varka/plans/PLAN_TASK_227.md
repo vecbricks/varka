@@ -77,3 +77,18 @@ stops when the laptop does.
   trigger is not yet on the default branch.
 * The wake-up path: the next time the laptop sleeps through a run, the runner's log
   shows the run's verdict after the wake rather than "timeout".
+
+## 5. Outcome, 1 October 2026
+
+Of section 4's three checks, two have run. The script's flags parse and `list` and
+`status` are unchanged, from the build. The dispatch is exercised: the runner asked for
+the sync after its reruns on 30 September, and on 1 October the Build check of #534
+followed each of eight dispatches of `update_build_status.yml` within a minute, where on
+27 September a check waited hours for the cron. The wake-up path has not been
+exercised, since no run has been slept through since the merge; it keeps section 2's
+rule, every wait keyed on a completed status and a deadline, and the first sleep that
+meets it will say.
+
+Row 227 is done on what it set out to build. Section 3's design, the queue as a
+workflow on the base repository that needs a token of the owner's, is
+`SCOPE_MILESTONE_7.md` item 76, so that the decision it needs has a place to be made.

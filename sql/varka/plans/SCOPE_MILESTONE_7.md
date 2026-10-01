@@ -4189,6 +4189,31 @@ against one spill's cost per row; and the decline for size is unreachable from a
 so that every projection either fuses whole or declines for a reason other than size. Size:
 medium.
 
+### Item 76. The CI queue as a workflow on the base repository
+
+*Added 1 October 2026 from `PLAN_TASK_227.md` 3, when row 227 closed on what it built.*
+
+The queue's dispatcher is a process on the owner's laptop, `dev/varka_ci_queue.sh run
+--while-open`, and it stops when the laptop does: on 28 September it slept through a run and
+the queue lost the day. The design that removes that, as `PLAN_TASK_227.md` 3 lays it out: a
+workflow on `vecbricks/varka`, on a five-minute cron and `workflow_dispatch`, with no queue
+file - every open pull request whose head has no passed Build and is not covered by the
+docs-only rule is the queue, in number order, and a label such as `ci-hold` takes one out;
+each tick waits on the first PR's run if one is in progress, cancels another's, reruns the
+first's newest run when none is, and writes the PR's check itself when a run completes.
+It needs what the base repository's token cannot do, cancelling and rerunning runs on
+`MaxGekk/spark`: a fine-grained personal access token on the fork with actions read and
+write, stored as a secret of `vecbricks/varka`. **The decision it needs** is the owner's,
+whether to create that token; without it the item does not start.
+
+*A finding from task 225's readings, 1 October 2026.* The lint job waits for the base image
+build, so on a documents-only pull request the critical path is that build, 16 minutes on a
+cache miss, in front of a lint job of 4. Whether the lint job needs the image at all, or the
+image can be cached across the docs-only runs, is a question for whoever takes this item.
+**Done when** a push to any open pull request reaches a Build verdict on the fork and a
+synced check on the pull request with no process running on a laptop, and `hold` and
+`drop` are gone from `dev/varka_ci_queue.sh`. Size: medium.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
