@@ -716,3 +716,10 @@ the sparse lines (`sparse`), all on the sketchy outline. The charts keep the tid
 bar would misstate a value. Off, both switches draw what every figure before drew, byte for byte;
 the nine milestone 5 figures differ when regenerated today only because the helper gained the
 text halo and an ellipse fix after they were committed, and their committed copies stand.
+
+*Later the same day.* Reviewing, the owner asked why Figure 1's methods stop at 3,856 bytes and not
+near 8000. The post had not said: the groups are sized in operations for C2 (`GROUP_BUDGET` 16,
+`FUSED_CEILING` 400 when the outputs share a calendar prefix, set by compile time in
+`PLAN_TASK_32.md` 7.6), and 8000 is the backstop measured after the build. A paragraph in section
+2 now says so, with the cost of ignoring it from `PLAN_TASK_209.md` 12: sixty-four cheap outputs in
+one 3763-byte method, 72613 instructions and no vector multiply, 243 to 266 ns a row against 3.3.

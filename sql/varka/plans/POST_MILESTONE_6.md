@@ -201,8 +201,21 @@ class: constant pool 510 of 65535 entries; widest signature runDense at 10 of 25
 every method is under HugeMethodLimit (8000)
 ```
 
-The last two lines are the point. After the class is built, every method is
-measured against 8000 bytes and the class against the class-file caps. A group
+Why so far under the line? Because 8000 is where HotSpot refuses a method,
+not where its compiler does well. C2 compiles a Vector API loop by inlining
+every vector call into one compilation, and its budgets for that run out long
+before 8000 bytes of bytecode; the calls that do not fit stay calls, into boxed
+scalar code. Sixty-four cheap outputs in one 3,763-byte method compiled to
+72,613 instructions with no vector multiply in them, at 243 to 266 ns a row
+against 3.3 for the same outputs in four methods: compiled, under the limit,
+and seventy times slower. So the groups are sized in operations, for C2:
+sixteen a method, or up to four hundred when the outputs share a prefix that is
+cheaper to compute once, a ceiling set by compile time. The ladder's entries all
+share one, so its groups fill to that ceiling, four entries each, which for this
+family is 3,100 to 3,900 bytes.
+
+The 8000-byte budget is the backstop behind that. After the class is built,
+every method is measured against it and the class against the class-file caps. A group
 with a method over the budget is split at its middle output and the class built
 again, until it fits. An output over the budget on its own is declined, with a
 reason that names the method, its bytes and the budget, and is never split
