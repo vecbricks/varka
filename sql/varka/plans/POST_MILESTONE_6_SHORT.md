@@ -30,6 +30,8 @@ Every number in it is the post's, and the post's are from committed results file
 > The second post of the pair is about how: every place Spark's code generation gives up, the
 > class Varka emits instead, what the first query costs, and where it stands beside Comet, Gluten
 > and an interpreted vector engine.
+>
+> https://vecbricks.github.io/under-8000-bytes-by-construction/
 
 **Image:** Figure 1 of the post, the hundred expressions as one method of Spark's and as Varka's
 class, rendered to a 1200x630 PNG as the page's link card.

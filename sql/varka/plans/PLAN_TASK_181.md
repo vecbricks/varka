@@ -731,3 +731,16 @@ The answer (Spark's row engine is the oracle the kernels are checked against; th
 scalar lowering was removed for a reason; per-row code would rebuild the problem) stands, and
 the case got its row: `SCOPE_MILESTONE_7.md` item 75, a spill inside the output. The post says
 "not yet" where it said the output is never split inside.
+
+### 14.4 Published, 1 October 2026
+
+The owner read the second draft with the drawings and approved it. The post is live at
+https://vecbricks.github.io/under-8000-bytes-by-construction/, beside the first post, and the site's index lists it first. It was
+rendered by `dev/varka_post_page.py` from `POST_MILESTONE_6.md` at `4ab3db80cce`; the site's commit
+is `d2391be` in `vecbricks/vecbricks.github.io`, and its link card is Figure 1 rendered to a 1200 by
+630 PNG by headless Chromium. The tickets were reread the same day: SPARK-59764, 59774 and 59783
+fixed in 4.4.0, 59765 in 4.4.0 and 5.0.0, SPARK-33301 open with apache/spark#59069 unmerged, as
+the post says. The first post's introduction and closing now carry this post's link
+(section 8), and its page was rebuilt from the same revision; the trailer in
+`POST_MILESTONE_6_SHORT.md` carries the link too. The milestone closes on both posts
+(`PLAN_MILESTONE_6.md` 1.3).

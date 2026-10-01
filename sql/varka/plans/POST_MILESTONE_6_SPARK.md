@@ -11,7 +11,9 @@ shell does not show.
 
 This post is about that step: where it is, how to see it on your own cluster,
 what to set, and which Spark release fixes which part. It is written for
-people who run Spark. A second post, to follow, covers the internals.
+people who run Spark. A second post,
+[Under 8000 bytes by construction](https://vecbricks.github.io/under-8000-bytes-by-construction/),
+covers the internals.
 
 ![One method per stage, and the two limits on its size](figures/svg/fig16-one-method-two-limits.svg)
 
@@ -339,8 +341,9 @@ writes source cannot know how many bytes a method will be until the compiler
 tells it, and by then the method exists. An engine that emits bytecode
 directly can measure the method in the unit the JVM enforces before anything
 runs, and split or refuse on the number rather than on a guess. The second
-post in this pair, still to come, is about one that does; its code is already
-public, in [vecbricks/varka](https://github.com/vecbricks/varka).
+post in this pair, [Under 8000 bytes by
+construction](https://vecbricks.github.io/under-8000-bytes-by-construction/), is about one that
+does; its code is public, in [vecbricks/varka](https://github.com/vecbricks/varka).
 
 *How this was measured.* Every timing here is from a results file committed
 beside the post: the demo's outputs on stock Spark 4.2.0 with JDK 17, 21 and

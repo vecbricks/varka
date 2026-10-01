@@ -676,5 +676,6 @@ SPARK-59765 merged (apache/spark#59020, #59042, #59017 and #59018), and
 SPARK-33301 still in review as apache/spark#59069. When that merges, the
 table's row and the `CASE WHEN` paragraph of section 5 change with it, and the
 page is rendered again. The closing still points to the repository; it gets
-the second post's link when task 181's post is published.
+the second post's link when task 181's post is published. *1 October 2026*: it has it, in the
+introduction and the closing, and the page was rebuilt (`PLAN_TASK_181.md` 14.4).
 
