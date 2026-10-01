@@ -723,3 +723,11 @@ near 8000. The post had not said: the groups are sized in operations for C2 (`GR
 `PLAN_TASK_32.md` 7.6), and 8000 is the backstop measured after the build. A paragraph in section
 2 now says so, with the cost of ignoring it from `PLAN_TASK_209.md` 12: sixty-four cheap outputs in
 one 3763-byte method, 72613 instructions and no vector multiply, 243 to 266 ns a row against 3.3.
+
+*Later the same day.* The owner asked why Varka falls back to Spark for a declined output rather
+than generating per-row code itself, and how rare the declined-for-size case is; and set the
+rule: Varka is to replace the Catalyst generator in time, so it must handle every case itself.
+The answer (Spark's row engine is the oracle the kernels are checked against; the emitter's own
+scalar lowering was removed for a reason; per-row code would rebuild the problem) stands, and
+the case got its row: `SCOPE_MILESTONE_7.md` item 75, a spill inside the output. The post says
+"not yet" where it said the output is never split inside.

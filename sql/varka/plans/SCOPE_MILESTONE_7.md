@@ -4153,6 +4153,42 @@ the proof:
 **Done when** each of 1 and 3 to 7 has landed with `emitted_bytes.json` unchanged and the Varka
 suites passing, one PR per item, in that order of value.
 
+### Item 75. A kernel for an output of any size: a spill inside the output
+
+*Added 1 October 2026 on the owner's decision, reviewing the second milestone 6 post.*
+
+The one case Varka's size control hands back to Spark: a single output whose loop method is over
+the byte budget when it is the only output of its group, so the regroup has nothing left to
+split. Today it is declined at plan time with its reason, and Spark's row path computes that
+entry (`PLAN_TASK_169.md`), because the emitter never splits inside an output: an output is fused
+so that its intermediates stay in registers, and a call in the middle of it would spill them.
+
+**How rare it is, and why that will not last.** No frequency is on record. On the current
+surface the case needs about twenty calendar-heavy calls or a few hundred light operations in one
+expression - the reproducer is a balanced `greatest` over thirty-two `add_months`, 63 operations
+and a 23,505-byte loop method - and no method in the 350,384 of Spark's own suites is that wide.
+The wide single expressions people write are predicates and conditionals: the predicates Varka
+already serves itself (the range set and the split predicate, `PLAN_TASK_172.md`), and the
+conditionals are item 55, after which a hundred-branch `CASE WHEN` over an int is one output of
+hundreds of operations. The owner's rule settles it either way: Varka is to replace the Catalyst
+generator, so no case may stay handed back; "rare" is not a reason, only a priority.
+
+**The design.** Split inside the output at a spill point: the output's tree is cut where its live
+values are fewest, the subtree below the cut is emitted as a loop method of its own that writes
+its value to a scratch column, and the rest reads it back. One store and one load per spill per
+row - what an interpreted vector engine pays at every node (vecruntime, about 58 ns a row an
+entry, `PLAN_TASK_202.md`), paid here at one node. The cut is chosen from the cost model's
+predicted bytes (task 199) so the first build fits, and the measurement after the build stays the
+last word. The scratch lives with the kernel's other per-batch scratch (item 68 decides its
+lifetime). Several spills make a chain of stages inside one output, as the split driver makes
+stages of groups.
+
+**Done when** the thirty-two-`add_months` output fuses with every method under the budget and
+answers as the row engine does; a benchmark prices it against the row path it displaces and
+against one spill's cost per row; and the decline for size is unreachable from any projection,
+so that every projection either fuses whole or declines for a reason other than size. Size:
+medium.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

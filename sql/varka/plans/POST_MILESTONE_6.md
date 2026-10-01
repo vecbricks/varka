@@ -219,9 +219,10 @@ The 8000-byte budget is the backstop behind that. After the class is built,
 every method is measured against it and the class against the class-file caps. A group
 with a method over the budget is split at its middle output and the class built
 again, until it fits. An output over the budget on its own is declined, with a
-reason that names the method, its bytes and the budget, and is never split
-inside, for the reason Figure 6 shows. The compiler asks the question at plan
-time, through a shape cache that builds and
+reason that names the method, its bytes and the budget, and is not split inside,
+for the reason Figure 6 shows: not yet, that is, since a spill inside the
+output, one intermediate written to a scratch column and read back, is the next
+milestone's work. The compiler asks the question at plan time, through a shape cache that builds and
 measures the class without defining it, so a declined output never reaches an
 executor: it stays on Spark's path as a residual entry of the same node, the
 rest of the projection fuses, and `EXPLAIN` says why. Here one output is a
