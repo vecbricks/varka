@@ -33,11 +33,13 @@ def show(title: String, df: DataFrame): Unit = {
 show("from_json in its own projection, after the rest: merged back into one",
   spark.table("t").selectExpr("id + 1 AS a", "js")
     .selectExpr("a", "from_json(js, 'a INT').a AS j"))
-show("from_json over an aggregate's output: merged into the aggregate",
-  spark.sql("select g, s, from_json(js, 'a INT').a AS j " +
-    "from (select g, sum(id) AS s, max(js) AS js from t group by g)"))
-show("get_json_object over the aggregate's output: everything in a stage",
-  spark.sql("select g, s, get_json_object(js, '$.a') AS j " +
-    "from (select g, sum(id) AS s, max(js) AS js from t group by g)"))
+// The aggregate has to be a hash aggregate for the question to arise: an aggregate with a string
+// buffer, max(js) say, is a sort aggregate, which is outside a stage either way.
+show("from_json over an aggregate's output: merged into the aggregate, which leaves its stage",
+  spark.sql("select g, s, from_json(concat('{\"a\":', cast(g as string), '}'), 'a INT').a AS j " +
+    "from (select id % 10 AS g, sum(id) AS s from t group by 1)"))
+show("get_json_object over the aggregate's output: merged too, and the aggregate stays in",
+  spark.sql("select g, s, get_json_object(concat('{\"a\":', cast(g as string), '}'), '$.a') AS j " +
+    "from (select id % 10 AS g, sum(id) AS s from t group by 1)"))
 println(s"### Spark ${spark.version}, Java ${System.getProperty("java.version")}")
 System.exit(0)

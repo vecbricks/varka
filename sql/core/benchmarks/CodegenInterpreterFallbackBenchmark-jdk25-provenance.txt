@@ -1,0 +1,13 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenInterpreterFallbackBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36917218645
+commit:      65ff1249d97 (varka-task-233-post: #542's branch and the benchmark)
+date:        2026-10-01
+inputs:      class=org.apache.spark.sql.execution.benchmark.CodegenInterpreterFallbackBenchmark jdk=25
+             scala=2.13 num-splits=1 create-commit=false generate-tpcds=false
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 (the runner is not pinned; the file is the workflow's artifact unchanged)
+purpose:     task 233 (PLAN_TASK_233.md 12.3): what a projection costs once its compile has failed
+             and the interpreter evaluates it, against the same projection compiled; vanilla Spark
+             only, Varka off

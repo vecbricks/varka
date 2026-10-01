@@ -135,5 +135,5 @@ jobs:
       with:
         name: varka-silent-giveups-jdk${{ matrix.java }}
         path: |
-          sql/varka/demo/silent-giveups/*-output.txt
+          sql/varka/demo/silent-giveups/*-jdk${{ matrix.java }}-output.txt
           sql/varka/demo/silent-giveups/*.log

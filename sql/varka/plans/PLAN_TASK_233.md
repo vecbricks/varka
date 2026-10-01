@@ -503,3 +503,30 @@ section, since it is neither silent in the census's sense nor logged.
 
 Closing: how you'd know, over your own history - `dev/varka_codegen_report.py` over event logs
 (11.4) - and what Spark could add, as a proposal, not a claim.
+
+## 13. Outcome of section 12, 1 October 2026
+
+### 13.2 The log level, for one logger
+
+`log_level-jdk{17,21,25}-output.txt`, run 36917213523. **Prediction 15 held** on all three JDKs,
+line for line: the twelve give-up lines of 11.5 appear in the shell with no appender, together
+with fifteen `Code generated in` lines from `CodeGenerator`, and no other INFO line of Spark's. So
+the post's advice is the two loggers of `log_level.log4j2.properties`, and the price is one line
+per compiled class.
+
+### 13.3 What the interpreter fallback costs
+
+`CodegenInterpreterFallbackBenchmark` on a runner that drew an AMD EPYC 7763
+(`CodegenInterpreterFallbackBenchmark-jdk25-results.txt`, run 36917218645, with its provenance).
+
+| entries | compiled | interpreted | times |
+|--:|--:|--:|--:|
+| 100 | 1080 ns a row | 3380 ns | 3.1 |
+| 300 | 2320 ns | 9548 ns | 4.1 |
+| 1000 | 9032 ns | 39526 ns | 4.4 |
+
+**Prediction 16 was wrong:** three to four and a half times, not five to fifteen. The interpreter's
+price per entry grows a little with width (34 ns an entry at 100, 40 at 1000) while the compiled
+projection's stays at 8 to 11, so the ratio widens slowly; the first post's thirty-four times was the
+interpreter against a stage, over `CASE WHEN`, where the generated code keeps the row's values in
+locals - here both arms are outside a stage, and the compiled one already pays the row boundary.
