@@ -46,24 +46,81 @@ golden files are the constructs a real query may well have: an object aggregate 
 
 ## 1. Silent: the operator that leaves its stage
 
-```
-show("a window is not part of any stage", spark.sql(
-  "select id, sum(id) over (partition by g order by id) as running from t"))
-```
+In a physical plan, `*(n)` in front of an operator means it runs inside whole-stage codegen
+stage `n` - a codegen stage, not the Spark stage the UI numbers. An operator without it runs on
+its own: it reads rows, does its work, and writes rows. Nothing is logged when that happens, at
+any level, so the plan is the only place to see it. Run the query before you explain it: with
+adaptive execution on, the final plan exists only once the query has run.
+
+**A window.** Window functions have no generated code; the operators around them do.
 
 ```
+SQL> select id, sum(id) over (partition by g order by id) as running from t
 +- *(2) Project [id#0L, running#17L]
    +- Window [sum(id#0L) windowspecdefinition(g#1L, id#0L ASC NULLS FIRST, ...
       +- *(1) Sort [g#1L ASC NULLS FIRST, id#0L ASC NULLS FIRST], false, 0
 ```
 
-The `*(1)` and `*(2)` are stage numbers; `Window` has none. No line is logged, at any level. The
-same happens to an `ObjectHashAggregate` (what `collect_list` and friends plan into), a Python
-UDF's evaluation, a top-k sort, a projection with more than a hundred output columns (the
-`maxFields` limit), and any operator holding a function that has no generated code. Of those
-functions, `from_json` is the one you are likeliest to have; `get_json_object`, `json_tuple` and
-`to_json` generate code, and so do `transform`, `filter` and `aggregate`. `zip_with`,
-`map_filter`, `map_zip_with`, `transform_keys` and `transform_values` do not.
+**A top-k sort.** `ORDER BY ... LIMIT` plans a `TakeOrderedAndProject`, which keeps the top
+rows of each partition in a heap and has no generated code. It is the most frequent give-up in
+TPC-DS.
+
+```
+SQL> select id, s from t order by s desc, id limit 5
+TakeOrderedAndProject(limit=5, orderBy=[s#2 DESC NULLS LAST,id#0L ASC NULLS FIRST], ...
++- *(1) Project [id#0L, concat(row-, cast((id#0L % 100) as string)) AS s#2]
+   +- *(1) Range (0, 1000, step=1, splits=1)
+```
+
+**An aggregate that keeps an object per group.** `collect_list`, `collect_set` and
+`percentile_approx` keep an object per group, not a row of fixed-width values, so Spark plans an
+`ObjectHashAggregate`, which is never in a stage; 1,239 of them run in the golden files.
+
+```
+SQL> select g, percentile_approx(id, 0.5) AS p50 from t group by g
++- ObjectHashAggregate(keys=[g#1L], functions=[percentile_approx(id#0L, 0.5, 10000, 0, 0)], ...
+   +- ObjectHashAggregate(keys=[g#1L], functions=[partial_percentile_approx(id#0L, ...
+      +- *(1) Project [id#0L, (id#0L % 10) AS g#1L]
+```
+
+**A `max` of a string.** A hash aggregate updates fixed-width values in place, and a string is
+not one, so `max(s)` per group sorts the rows and aggregates them in order. In Spark 4.2 a sort
+aggregate with grouping keys has no generated code; 4.3.0 adds it (section 6).
+
+```
+SQL> select g, max(s) AS last_s from t group by g
++- SortAggregate(key=[g#1L], functions=[max(s#2)], output=[g#1L, last_s#25])
+   +- SortAggregate(key=[g#1L], functions=[partial_max(s#2)], output=[g#1L, max#28])
+      +- *(1) Sort [g#1L ASC NULLS FIRST], false, 0
+```
+
+**A function without generated code.** One such function takes its whole operator out of the
+stage. `from_json` is the one you are likeliest to have; `get_json_object` over the same string
+generates code and keeps it:
+
+```
+SQL> select id + 1 AS a, from_json(js, 'a INT').a AS j from t
+Project [(id#0L + 1) AS a#3L, from_json(StructField(a,IntegerType,true), concat(...
++- *(1) Range (0, 1000, step=1, splits=1)
+
+SQL> select id + 1 AS a, get_json_object(js, '$.a') AS j from t
+*(1) Project [(id#0L + 1) AS a#10L, get_json_object(concat({"a":, cast((id#0L % 10) as ...
++- *(1) Range (0, 1000, step=1, splits=1)
+```
+
+`json_tuple` and `to_json` generate code too. In Spark 4.2 no higher-order function does - not
+`transform`, `filter`, `exists`, `forall` or `aggregate`, and not the ones over maps or
+`zip_with`:
+
+```
+SQL> select id, transform(array(id, id + 1), x -> x * 2) AS twice from t
+Project [id#0L, transform(array(id#0L, (id#0L + 1)), lambdafunction((lambda x#43L * 2), ...
++- *(1) Range (0, 1000, step=1, splits=1)
+```
+
+From 4.3.0 the five over arrays generate code (section 6). The others that leave a stage
+silently are a Python UDF's evaluation and a projection with more than a hundred output columns,
+the `maxFields` limit of section 2.
 
 **What it costs.** Less than you might fear. An operator outside a stage still compiles its own
 expressions; what it loses is the stage, the passing of values in locals, so it pays to write a
@@ -88,11 +145,11 @@ which then leaves its stage too:
 leave it; a fifth of a microsecond a row is rarely the problem.
 
 **See it yourself:**
+[`examples.scala`](https://github.com/vecbricks/varka/blob/master/sql/varka/demo/silent-giveups/examples.scala),
 [`silent.scala`](https://github.com/vecbricks/varka/blob/master/sql/varka/demo/silent-giveups/silent.scala)
 and
-[`rewrite.scala`](https://github.com/vecbricks/varka/blob/master/sql/varka/demo/silent-giveups/rewrite.scala).
-Run the query before you explain it: with adaptive execution on, the stages exist only once the
-query has run.
+[`rewrite.scala`](https://github.com/vecbricks/varka/blob/master/sql/varka/demo/silent-giveups/rewrite.scala)
+print every plan in this section.
 
 ## 2. In a stage, and slower
 
@@ -117,7 +174,17 @@ under the default settings, once everything is compiled:
 columns, on a GitHub-hosted runner and a laptop. Above the dashed line the stage is slower.*
 
 On stock Spark 4.2.0 the same 99 cheap columns are 1.30, 1.45 and 1.37 times slower in a stage
-with JDK 17, 21 and 25.
+with JDK 17, 21 and 25. Nothing in the plan says so. It is one stage, as it should be, and
+`explain("codegen")` puts the stage's largest method at 3,670 bytes, under every limit the first
+post described:
+
+```
+SQL> select id + 1 AS c1, id + 2 AS c2, ..., id + 99 AS c99 from t
+*(1) Project [(id#0L + 1) AS c1#49L, (id#0L + 2) AS c2#50L, (id#0L + 3) AS c3#51L, ...
++- *(1) Range (0, 1000, step=1, splits=1)
+
+stage 1: maxMethodCodeSize 3670 bytes
+```
 
 **Why.** The JIT compiler that makes Java fast, C2, inlines small methods into the method that
 calls them, and it has a budget for how much: about 8000 bytes, counting the caller's own
@@ -131,16 +198,26 @@ projection still wins in a stage. How much the calls cost depends on the process
 chips we measured the loss is small, on Zen 3 and Zen 4 servers it is half again.
 
 **What to do.** For a query that is a wide projection of cheap columns, lower
-`spark.sql.codegen.maxFields` below the projection's width for that query; the projection leaves
-its stage and the rest of the plan stays in one. On the runner it took 99 cheap columns from 800
-to 521 nanoseconds a row. Do not do it for a projection that computes; there the stage wins.
+`spark.sql.codegen.maxFields` below the projection's width for that query. The projection leaves
+its stage, and the rest of the plan stays in one:
+
+```
+SQL> set spark.sql.codegen.maxFields=98;
+SQL> select id + 1 AS c1, id + 2 AS c2, ..., id + 99 AS c99 from t
+Project [(id#0L + 1) AS c1#446L, (id#0L + 2) AS c2#447L, (id#0L + 3) AS c3#448L, ...
++- *(1) Range (0, 1000, step=1, splits=1)
+```
+
+On the runner that took 99 cheap columns from 800 to 521 nanoseconds a row. Do not do it for a
+projection that computes; there the stage wins.
 
 **And do not raise `maxFields` to keep a wide projection in.** The first post said to raise it
 with care and check the method's size. The method's size is not the risk. A 150-column
 projection of cheap columns, let into one stage by `maxFields=200`, has a method of 5,747 bytes,
 well under any limit - and for its first 12 to 22 seconds it runs two and a half to three and a
 half times slower than outside a stage while C2 compiles it, on every JDK, and then stays 1.2 to
-1.8 times slower on the runners (1.06 on the laptop). Every executor pays those seconds again for every stage it compiles.
+1.8 times slower on the runners (1.06 on the laptop). Every executor pays those seconds again for
+every stage it compiles.
 
 ![The first minute of a new wide stage](figures/svg/fig30-first-minute.svg)
 
@@ -192,7 +269,16 @@ WARN WholeStageCodegenExec: Whole-stage codegen disabled for plan (id=1):
 ```
 
 and runs its operators one by one, each still compiled - what the first post measured as an
-eighth to a fifth slower on its shape. A projection outside a stage that fails is evaluated by
+eighth to a fifth slower on its shape. A `CASE WHEN` of 3,000 branches does it with the default
+code generation settings. Do not look for it in the plan, which still shows the stage it did not run:
+
+```
+SQL> select CASE WHEN id = 1 THEN id * 1 ... (3000 branches) ELSE 0 END AS v from range(0, 10)
+*(1) Project [CASE WHEN (id#745L = 1) THEN id#745L WHEN (id#745L = 2) THEN (id#745L * 2) ...
++- *(1) Range (0, 10, step=1, splits=1)
+```
+
+`EXPLAIN` shows the plan Spark made, not how it ran it; here the WARN line is the only sign. A projection outside a stage that fails is evaluated by
 the interpreter instead:
 
 ```
@@ -217,6 +303,18 @@ org.codehaus.commons.compiler.InternalCompilerException: ... Code grows beyond 6
 Again this takes an expression far larger than most queries have. The other case on our list, a
 compile on the executor with no fallback, we could not provoke at all; we mention it because it
 exists.
+
+## 6. Which release changes what
+
+Read from the tracker on 2 October 2026.
+
+| ticket | what changes for you | state |
+|--|--|--|
+| SPARK-37019 | `transform`, `filter`, `exists`, `forall` and `aggregate` generate code, so they keep their operator in its stage | fixed in 4.3.0 |
+| SPARK-32750 | a sort aggregate with grouping keys, such as a `max` of a string per group, runs in a stage | fixed in 4.3.0 |
+| SPARK-59774 | the method too long to be JIT compiled becomes a warning, once, naming the remedy | fixed in 4.4.0 |
+| SPARK-33301 | a large `CASE WHEN` in a stage is split into methods instead of passing 64 KB (section 4) | open; in review as [apache/spark#59069](https://github.com/apache/spark/pull/59069) |
+
 
 ## How you'd know, across your own history
 
@@ -246,7 +344,8 @@ shows; a count of the fallbacks beside the existing codegen metrics would do the
 
 *How this was measured.* Every number here is from a results file committed beside the post.
 The census and the classifier ran on the golden-file, TPC-DS, TPC-H and SSB suites of a build of
-Spark master from October 2026. The costs are from four Spark-style benchmarks on the same
+Spark master from October 2026, which has the 4.3.0 changes of section 6; on 4.2 the
+higher-order functions and the keyed sort aggregates would add to its silent share. The costs are from four Spark-style benchmarks on the same
 build, run on GitHub-hosted runners (an AMD EPYC 7763 and 9V74 and an Intel Xeon 8573C) and on a
 laptop with an AMD Ryzen AI 9 HX PRO 370, with JDK 25; the snippets' outputs are from stock
 Spark 4.2.0 with JDK 17, 21 and 25, on runners that drew an EPYC 7763, 9V74, 9V45 and a Xeon

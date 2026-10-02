@@ -1,0 +1,279 @@
+Output of examples.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36973845828
+commit:  7ecc0776bda
+cpu:     AMD EPYC 9V74 80-Core Processor
+java:    openjdk version "25.0.4" 2026-07-21 LTS
+spark:   4.2.0
+
+### ORDER BY ... LIMIT plans a top-k sort, which is never in a stage
+SQL> select id, s from t order by s desc, id limit 5
+TakeOrderedAndProject(limit=5, orderBy=[s#2 DESC NULLS LAST,id#0L ASC NULLS FIRST], output=[id#0L,s#2])
++- *(1) Project [id#0L, concat(row-, cast((id#0L % 100) as string)) AS s#2]
+   +- *(1) Range (0, 1000, step=1, splits=1)
+### percentile_approx is an object aggregate, which is never in a stage
+SQL> select g, percentile_approx(id, 0.5) AS p50 from t group by g
+ResultQueryStage 0
++- ObjectHashAggregate(keys=[g#1L], functions=[percentile_approx(id#0L, 0.5, 10000, 0, 0)], output=[g#1L, p50#9L])
+   +- ObjectHashAggregate(keys=[g#1L], functions=[partial_percentile_approx(id#0L, 0.5, 10000, 0, 0)], output=[g#1L, buf#12])
+      +- *(1) Project [id#0L, (id#0L % 10) AS g#1L]
+         +- *(1) Range (0, 1000, step=1, splits=1)
+### max of a string plans a sort aggregate, outside any stage
+SQL> select g, max(s) AS last_s from t group by g
+ResultQueryStage 0
++- SortAggregate(key=[g#1L], functions=[max(s#2)], output=[g#1L, last_s#25])
+   +- SortAggregate(key=[g#1L], functions=[partial_max(s#2)], output=[g#1L, max#28])
+      +- *(1) Sort [g#1L ASC NULLS FIRST], false, 0
+         +- *(1) Project [(id#0L % 10) AS g#1L, concat(row-, cast((id#0L % 100) as string)) AS s#2]
+            +- *(1) Range (0, 1000, step=1, splits=1)
+### map_filter has no generated code: its projection leaves the stage
+SQL> select id, map_filter(m, (k, v) -> v > 10) AS big from t
+Project [id#0L, map_filter(map((id#0L % 3), id#0L), lambdafunction((lambda v#36L > 10), lambda k#35L, lambda v#36L, false)) AS big#34]
++- *(1) Range (0, 1000, step=1, splits=1)
+### transform has none in 4.2 either (SPARK-37019 adds it in 4.3.0)
+SQL> select id, transform(array(id, id + 1), x -> x * 2) AS twice from t
+Project [id#0L, transform(array(id#0L, (id#0L + 1)), lambdafunction((lambda x#43L * 2), lambda x#43L, false)) AS twice#42]
++- *(1) Range (0, 1000, step=1, splits=1)
+26/10/02 06:43:49 WARN SparkStringUtils: Truncated the string representation of a plan since it was too large. This behavior can be adjusted by setting 'spark.sql.debug.maxToStringFields'.
+### 99 cheap columns under the defaults: one stage
+SQL> select id + 1 AS c1, id + 2 AS c2, id + 3 AS c3, id + 4 AS c4, id + 5 AS c5, id + 6 AS c6, id + 7 AS c7, id + 8 AS c8, id + 9 AS c9, id + 10 AS c10, id + 11 AS c11, id + 12 AS c12, id + 13 AS c13, id + 14 AS c14, id + 15 AS c15, id + 16 AS c16, id + 17 AS c17, id + 18 AS c18, id + 19 AS c19, id
+*(1) Project [(id#0L + 1) AS c1#49L, (id#0L + 2) AS c2#50L, (id#0L + 3) AS c3#51L, (id#0L + 4) AS c4#52L, (id#0L + 5) AS c5#53L, (id#0L + 6) AS c6#54L, (id#0L +
++- *(1) Range (0, 1000, step=1, splits=1)
+### the stage's largest generated method, from explain("codegen")
+stage 1: maxMethodCodeSize 3670 bytes
+### the same with spark.sql.codegen.maxFields=98: the projection runs on its own
+SQL> select id + 1 AS c1, id + 2 AS c2, id + 3 AS c3, id + 4 AS c4, id + 5 AS c5, id + 6 AS c6, id + 7 AS c7, id + 8 AS c8, id + 9 AS c9, id + 10 AS c10, id + 11 AS c11, id + 12 AS c12, id + 13 AS c13, id + 14 AS c14, id + 15 AS c15, id + 16 AS c16, id + 17 AS c17, id + 18 AS c18, id + 19 AS c19, id
+Project [(id#0L + 1) AS c1#446L, (id#0L + 2) AS c2#447L, (id#0L + 3) AS c3#448L, (id#0L + 4) AS c4#449L, (id#0L + 5) AS c5#450L, (id#0L + 6) AS c6#451L, (id#0L 
++- *(1) Range (0, 1000, step=1, splits=1)
+26/10/02 06:43:52 ERROR CodeGenerator: Failed to compile the generated Java code.
+org.codehaus.commons.compiler.InternalCompilerException: Compiling "GeneratedClass" in File 'generated.java', Line 1, Column 1: File 'generated.java', Line 72, Column 14: Compiling "project_doConsume_0(long project_expr_0_0)"
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:402)
+	at org.codehaus.janino.UnitCompiler.access$000(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$2.visitCompilationUnit(UnitCompiler.java:363)
+	at org.codehaus.janino.UnitCompiler$2.visitCompilationUnit(UnitCompiler.java:361)
+	at org.codehaus.janino.Java$CompilationUnit.accept(Java.java:371)
+	at org.codehaus.janino.UnitCompiler.compileUnit(UnitCompiler.java:361)
+	at org.codehaus.janino.SimpleCompiler.cook(SimpleCompiler.java:264)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:294)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:288)
+	at org.codehaus.janino.ClassBodyEvaluator.cook(ClassBodyEvaluator.java:267)
+	at org.codehaus.commons.compiler.Cookable.cook(Cookable.java:82)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.doCompile(CodeGenerator.scala:1564)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.$anonfun$cache$1(CodeGenerator.scala:1653)
+	at org.apache.spark.util.NonFateSharingCache$$anon$1.load(NonFateSharingCache.scala:68)
+	at org.sparkproject.guava.cache.LocalCache$LoadingValueReference.loadFuture(LocalCache.java:3556)
+	at org.sparkproject.guava.cache.LocalCache$Segment.loadSync(LocalCache.java:2307)
+	at org.sparkproject.guava.cache.LocalCache$Segment.lockedGetOrLoad(LocalCache.java:2180)
+	at org.sparkproject.guava.cache.LocalCache$Segment.get(LocalCache.java:2071)
+	at org.sparkproject.guava.cache.LocalCache.get(LocalCache.java:3985)
+	at org.sparkproject.guava.cache.LocalCache.getOrLoad(LocalCache.java:4006)
+	at org.sparkproject.guava.cache.LocalCache$LocalLoadingCache.get(LocalCache.java:4946)
+	at org.apache.spark.util.NonFateSharingLoadingCache.$anonfun$get$2(NonFateSharingCache.scala:108)
+	at org.apache.spark.util.KeyLock.withLock(KeyLock.scala:64)
+	at org.apache.spark.util.NonFateSharingLoadingCache.get(NonFateSharingCache.scala:108)
+	at org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator$.compile(CodeGenerator.scala:1506)
+	at org.apache.spark.sql.execution.WholeStageCodegenExec.liftedTree1$1(WholeStageCodegenExec.scala:742)
+	at org.apache.spark.sql.execution.WholeStageCodegenExec.doExecute(WholeStageCodegenExec.scala:741)
+	at org.apache.spark.sql.execution.SparkPlan.$anonfun$executeRDD$1(SparkPlan.scala:188)
+	at scala.util.Try$.apply(Try.scala:217)
+	at org.apache.spark.util.Utils$.doTryWithCallerStacktrace(Utils.scala:1407)
+	at org.apache.spark.util.LazyTry.tryT$lzycompute(LazyTry.scala:46)
+	at org.apache.spark.util.LazyTry.tryT(LazyTry.scala:46)
+	at org.apache.spark.util.LazyTry.get(LazyTry.scala:61)
+	at org.apache.spark.sql.execution.SparkPlan.$anonfun$execute$1(SparkPlan.scala:201)
+	at org.apache.spark.sql.execution.SparkPlan.$anonfun$executeQuery$1(SparkPlan.scala:269)
+	at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:169)
+	at org.apache.spark.sql.execution.SparkPlan.executeQuery(SparkPlan.scala:266)
+	at org.apache.spark.sql.execution.SparkPlan.execute(SparkPlan.scala:197)
+	at org.apache.spark.sql.execution.SparkPlan.$anonfun$getByteArrayRdd$1(SparkPlan.scala:394)
+	at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:169)
+	at org.apache.spark.sql.execution.SparkPlan.getByteArrayRdd(SparkPlan.scala:394)
+	at org.apache.spark.sql.execution.SparkPlan.executeCollect(SparkPlan.scala:477)
+	at org.apache.spark.sql.classic.Dataset.collectFromPlan(Dataset.scala:2336)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$collect$1(Dataset.scala:1564)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$3(Dataset.scala:2325)
+	at org.apache.spark.sql.execution.QueryExecution$.withInternalError(QueryExecution.scala:872)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$2(Dataset.scala:2323)
+	at org.apache.spark.sql.execution.QueryExecution.withQueryExecutionId(QueryExecution.scala:429)
+	at org.apache.spark.sql.classic.Dataset.$anonfun$withAction$1(Dataset.scala:2323)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$8(SQLExecution.scala:228)
+	at org.apache.spark.sql.execution.SQLExecution$.withSessionTagsApplied(SQLExecution.scala:352)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$7(SQLExecution.scala:189)
+	at org.apache.spark.JobArtifactSet$.withActiveJobArtifactState(JobArtifactSet.scala:94)
+	at org.apache.spark.sql.artifact.ArtifactManager.$anonfun$withResources$1(ArtifactManager.scala:112)
+	at org.apache.spark.sql.artifact.ArtifactManager.withClassLoaderIfNeeded(ArtifactManager.scala:106)
+	at org.apache.spark.sql.artifact.ArtifactManager.withResources(ArtifactManager.scala:111)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$6(SQLExecution.scala:189)
+	at org.apache.spark.sql.execution.SQLExecution$.withSQLConfPropagated(SQLExecution.scala:375)
+	at org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$1(SQLExecution.scala:188)
+	at org.apache.spark.sql.SparkSession.withActive(SparkSession.scala:810)
+	at org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId0(SQLExecution.scala:130)
+	at org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId(SQLExecution.scala:317)
+	at org.apache.spark.sql.classic.Dataset.withAction(Dataset.scala:2322)
+	at org.apache.spark.sql.classic.Dataset.collect(Dataset.scala:1564)
+	at $line14.$read$$iw.<init>(examples.scala:62)
+	at $line14.$read.<init>(examples.scala:22)
+	at $line14.$read$.<clinit>(examples.scala:1)
+	at $line14.$eval$.$print$lzycompute(<synthetic>:6)
+	at $line14.$eval$.$print(<synthetic>:5)
+	at $line14.$eval.$print(<synthetic>)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
+	at scala.tools.nsc.interpreter.IMain$ReadEvalPrint.call(IMain.scala:669)
+	at scala.tools.nsc.interpreter.IMain$Request.loadAndRun(IMain.scala:1029)
+	at scala.tools.nsc.interpreter.IMain.$anonfun$doInterpret$1(IMain.scala:507)
+	at scala.reflect.internal.util.ScalaClassLoader.asContext(ScalaClassLoader.scala:36)
+	at scala.reflect.internal.util.ScalaClassLoader.asContext$(ScalaClassLoader.scala:127)
+	at scala.reflect.internal.util.AbstractFileClassLoader.asContext(AbstractFileClassLoader.scala:43)
+	at scala.tools.nsc.interpreter.IMain.loadAndRunReq$1(IMain.scala:506)
+	at scala.tools.nsc.interpreter.IMain.$anonfun$doInterpret$3(IMain.scala:520)
+	at scala.tools.nsc.interpreter.IMain.doInterpret(IMain.scala:520)
+	at scala.tools.nsc.interpreter.IMain.interpret(IMain.scala:504)
+	at scala.tools.nsc.interpreter.IMain.interpret(IMain.scala:502)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$pasteCommand$13(ILoop.scala:809)
+	at scala.tools.nsc.interpreter.IMain.withLabel(IMain.scala:106)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$pasteCommand$14(ILoop.scala:809)
+	at scala.tools.nsc.interpreter.shell.ReplReporterImpl.indenting(Reporter.scala:50)
+	at scala.tools.nsc.interpreter.shell.ILoop.pasteCommand(ILoop.scala:843)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$interpretPreamble$5(ILoop.scala:963)
+	at scala.tools.nsc.interpreter.shell.ILoop.interpretPreamble(ILoop.scala:962)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$3(ILoop.scala:986)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.shell.ILoop.echoOff(ILoop.scala:92)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$2(ILoop.scala:986)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.IMain.withSuppressedSettings(IMain.scala:1423)
+	at scala.tools.nsc.interpreter.shell.ILoop.$anonfun$run$1(ILoop.scala:977)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+	at scala.tools.nsc.interpreter.shell.ReplReporterImpl.withoutPrintingResults(Reporter.scala:63)
+	at scala.tools.nsc.interpreter.shell.ILoop.run(ILoop.scala:977)
+	at org.apache.spark.repl.Main$.doMain(Main.scala:87)
+	at org.apache.spark.repl.Main$.main(Main.scala:62)
+	at org.apache.spark.repl.Main.main(Main.scala)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
+	at org.apache.spark.deploy.JavaMainApplication.start(SparkApplication.scala:52)
+	at org.apache.spark.deploy.SparkSubmit.org$apache$spark$deploy$SparkSubmit$$runMain(SparkSubmit.scala:1033)
+	at org.apache.spark.deploy.SparkSubmit.doRunMain$1(SparkSubmit.scala:203)
+	at org.apache.spark.deploy.SparkSubmit.submit(SparkSubmit.scala:226)
+	at org.apache.spark.deploy.SparkSubmit.doSubmit(SparkSubmit.scala:95)
+	at org.apache.spark.deploy.SparkSubmit$$anon$2.doSubmit(SparkSubmit.scala:1171)
+	at org.apache.spark.deploy.SparkSubmit$.main(SparkSubmit.scala:1180)
+	at org.apache.spark.deploy.SparkSubmit.main(SparkSubmit.scala)
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: File 'generated.java', Line 72, Column 14: Compiling "project_doConsume_0(long project_expr_0_0)"
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:3333)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMethods(UnitCompiler.java:1447)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMethods(UnitCompiler.java:1420)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:829)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1026)
+	at org.codehaus.janino.UnitCompiler.access$700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$3.visitMemberClassDeclaration(UnitCompiler.java:425)
+	at org.codehaus.janino.UnitCompiler$3.visitMemberClassDeclaration(UnitCompiler.java:418)
+	at org.codehaus.janino.Java$MemberClassDeclaration.accept(Java.java:1533)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:418)
+	at org.codehaus.janino.UnitCompiler.compileDeclaredMemberTypes(UnitCompiler.java:1397)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:864)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:442)
+	at org.codehaus.janino.UnitCompiler.access$400(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$3.visitPackageMemberClassDeclaration(UnitCompiler.java:422)
+	at org.codehaus.janino.UnitCompiler$3.visitPackageMemberClassDeclaration(UnitCompiler.java:418)
+	at org.codehaus.janino.Java$PackageMemberClassDeclaration.accept(Java.java:1688)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:418)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:392)
+	... 112 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 76, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:3658)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:3329)
+	... 130 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 76, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 132 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 76, Column 4
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1691)
+	at org.codehaus.janino.UnitCompiler.access$2600(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitDoStatement(UnitCompiler.java:1588)
+	at org.codehaus.janino.UnitCompiler$6.visitDoStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$DoStatement.accept(Java.java:3794)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 133 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10713, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1646)
+	at org.codehaus.janino.UnitCompiler.access$1700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1579)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$Block.accept(Java.java:3115)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 139 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10713, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 145 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10713, Column 35
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2649)
+	at org.codehaus.janino.UnitCompiler.access$1900(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitIfStatement(UnitCompiler.java:1581)
+	at org.codehaus.janino.UnitCompiler$6.visitIfStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$IfStatement.accept(Java.java:3284)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 146 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10716, Column 1
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1663)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:1646)
+	at org.codehaus.janino.UnitCompiler.access$1700(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1579)
+	at org.codehaus.janino.UnitCompiler$6.visitBlock(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$Block.accept(Java.java:3115)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 152 more
+Caused by: java.lang.RuntimeException: File 'generated.java', Line 10716, Column 1
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1604)
+	at org.codehaus.janino.UnitCompiler.compileStatements(UnitCompiler.java:1661)
+	... 158 more
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: File 'generated.java', Line 10716, Column 1
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2525)
+	at org.codehaus.janino.UnitCompiler.access$1800(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$6.visitExpressionStatement(UnitCompiler.java:1580)
+	at org.codehaus.janino.UnitCompiler$6.visitExpressionStatement(UnitCompiler.java:1575)
+	at org.codehaus.janino.Java$ExpressionStatement.accept(Java.java:3209)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:1575)
+	... 159 more
+Caused by: org.codehaus.commons.compiler.InternalCompilerException: Code grows beyond 64 KB
+	at org.codehaus.janino.CodeContext.makeSpace(CodeContext.java:699)
+	at org.codehaus.janino.CodeContext.write(CodeContext.java:558)
+	at org.codehaus.janino.UnitCompiler.write(UnitCompiler.java:13079)
+	at org.codehaus.janino.UnitCompiler.store(UnitCompiler.java:12752)
+	at org.codehaus.janino.UnitCompiler.store(UnitCompiler.java:12730)
+	at org.codehaus.janino.UnitCompiler.compileSet2(UnitCompiler.java:6646)
+	at org.codehaus.janino.UnitCompiler.access$14100(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$22.visitLocalVariableAccess(UnitCompiler.java:6636)
+	at org.codehaus.janino.UnitCompiler$22.visitLocalVariableAccess(UnitCompiler.java:6630)
+	at org.codehaus.janino.Java$LocalVariableAccess.accept(Java.java:4661)
+	at org.codehaus.janino.UnitCompiler.compileSet(UnitCompiler.java:6630)
+	at org.codehaus.janino.UnitCompiler.compileSet2(UnitCompiler.java:6642)
+	at org.codehaus.janino.UnitCompiler.access$13600(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$22.visitAmbiguousName(UnitCompiler.java:6631)
+	at org.codehaus.janino.UnitCompiler$22.visitAmbiguousName(UnitCompiler.java:6630)
+	at org.codehaus.janino.Java$AmbiguousName.accept(Java.java:4603)
+	at org.codehaus.janino.UnitCompiler.compileSet(UnitCompiler.java:6630)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:4105)
+	at org.codehaus.janino.UnitCompiler.access$6300(UnitCompiler.java:236)
+	at org.codehaus.janino.UnitCompiler$13.visitAssignment(UnitCompiler.java:4057)
+	at org.codehaus.janino.UnitCompiler$13.visitAssignment(UnitCompiler.java:4040)
+	at org.codehaus.janino.Java$Assignment.accept(Java.java:4864)
+	at org.codehaus.janino.UnitCompiler.compile(UnitCompiler.java:4040)
+	at org.codehaus.janino.UnitCompiler.compile2(UnitCompiler.java:2523)
+	... 164 more
+26/10/02 06:43:52 WARN WholeStageCodegenExec: Whole-stage codegen disabled for plan (id=1):
+ *(1) Project [CASE WHEN (id#745L = 1) THEN id#745L WHEN (id#745L = 2) THEN (id#745L * 2) WHEN (id#745L = 3) THEN (id#745L * 3) WHEN (id#745L = 4) THEN (id#745L * 4) WHEN (id#745L = 5) THEN (id#745L * 5) WHEN (id#745L = 6) THEN (id#745L * 6) WHEN (id#745L = 7) THEN (id#745L * 7) WHEN (id#745L = 8) T
++- *(1) Range (0, 10, step=1, splits=1)
+
+26/10/02 06:43:52 WARN DAGScheduler: Broadcasting large task binary with size 1071.4 KiB
+### a CASE WHEN of 3000 branches: the plan after the stage failed to compile
+SQL> select CASE WHEN id = 1 THEN id * 1 ... (3000 branches) ELSE 0 END AS v from range(0, 10)
+*(1) Project [CASE WHEN (id#745L = 1) THEN id#745L WHEN (id#745L = 2) THEN (id#745L * 2) WHEN (id#745L = 3) THEN (id#745L * 3) WHEN (id#745L = 4) THEN (id#745L 
++- *(1) Range (0, 10, step=1, splits=1)
+### Spark 4.2.0, Java 25.0.4

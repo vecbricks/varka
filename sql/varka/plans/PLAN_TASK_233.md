@@ -717,3 +717,15 @@ script runs:
 | 1, `fig28-where-operators-run` | per suite, the share of operators in a stage, outside one by design, and outside one for a reason | `VarkaCodegenGiveUps-jdk25-results.txt` |
 | 2, `fig29-wide-projection-in-and-out` | in-stage time over out-of-stage time, cheap and mixed, 50 and 99 columns, runner and laptop | `CodegenWideProjectionBenchmark-jdk25-*`, `CodegenCompileWaitBenchmark-jdk25-results.txt` |
 | 3, `fig30-first-minute` | each query's time for a minute, the 150-column projection in a stage and out | `compile_wait-jdk*-output.txt`, `CodegenFallbackCostBenchmark-jdk25-results.txt` |
+
+**The examples, 2 October 2026.** The owner asked for more SQL in the post, each with its plan
+and why. `examples.scala` prints them on stock 4.2.0 (`examples-jdk{17,21,25}-output.txt`, run
+36973845828, the plans the same on all three JDKs): a top-k sort, an object aggregate, a sort
+aggregate over a string, `map_filter` and `transform`, the 99-column projection with its method
+size (3,670 bytes) and with `maxFields=98`, and the plan of the 3,000-branch stage after its
+compile failed, which still shows `*(1)` - `EXPLAIN` gives the plan Spark made, not how it ran,
+so the WARN line is that fallback's only sign. Two of them correct section 2's reading of the
+source, which was master's: on 4.2.0 `transform` has no generated code - SPARK-37019 gives the
+five array higher-order functions code in 4.3.0 - and a sort aggregate with grouping keys has
+none either, SPARK-32750, also 4.3.0. The census ran on master, so on 4.2 its silent share
+would be larger by those operators; the post says so, and its section 6 lists the two tickets.
