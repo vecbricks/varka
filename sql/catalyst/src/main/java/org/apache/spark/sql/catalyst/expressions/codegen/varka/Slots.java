@@ -130,7 +130,7 @@ final class Slots {
   final Set<VarkaVectorIR> ownCond = new HashSet<>();
   /** Per condition node, dense body: the single mask local. */
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
-  /** Per node used more than once: the local its first vector lands in (DAG-CSE). */
+  /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
   final Map<VarkaVectorIR, int[]> pairTmp = new HashMap<>();
@@ -370,6 +370,21 @@ final class Slots {
       }
     }
     final Set<VarkaVectorIR> body = emitted;
+    // How often this body uses each node: once per parent edge from a node it emits, and once per
+    // output root it serves. A shared slot is decided on this count rather than the kernel's
+    // (task 223): a node shared across groups and used once here is computed in place at its one
+    // visit, where a slot would cost a dup and a store that nothing reads. It is the count the
+    // walk's `computed` set sees, since a shared parent is computed once and loaded after, so its
+    // children are visited once for it.
+    final Map<VarkaVectorIR, Integer> bodyUses = new HashMap<>();
+    for (VarkaVectorIR n : body) {
+      for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) {
+        bodyUses.merge(c, 1, Integer::sum);
+      }
+    }
+    for (int o : outputIdx) {
+      bodyUses.merge(outputs.get(o), 1, Integer::sum);
+    }
     long treeColumns = 0L;
     long bodyColumns = 0L;
     for (VarkaVectorIR node : tree) {
@@ -567,7 +582,7 @@ final class Slots {
           if (tree.contains(node) && !body.contains(node)) {
             continue;
           }
-          if (cse && analysis.useCount.get(node) > 1 && !(node instanceof LiteralSlot)) {
+          if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)) {
             s.sharedSlot.put(node, slot++);
           }
           if (!dense && (node instanceof Greatest || node instanceof Least)) {
