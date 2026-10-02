@@ -739,3 +739,15 @@ second where it introduces the first. What remains is the publication itself, on
 the page rendered by `dev/varka_post_page.py` into the site, the site's index listing it first, a
 link card from Figure 1, and the first two posts' pages rebuilt with the new links; then the site's
 commit is recorded here and row 233 is marked done.
+
+## 16. Published, 2 October 2026
+
+The post is live at https://vecbricks.github.io/when-spark-stops-compiling-your-query/, beside the
+first two, and the site's index lists it first. It was rendered by `dev/varka_post_page.py` from
+`POST_MILESTONE_6_GIVEUPS.md` at `02a9e559057`; the site's commit is `89851f1` in
+`vecbricks/vecbricks.github.io`, and its link card is Figure 1 rendered to a 1200 by 630 PNG by
+headless Chromium. The first two posts' pages were rebuilt from the same revision and differ from
+what was live only by their link to this one. The post's section 6 was reread against the tracker
+at publication and needed no change: SPARK-37019 and SPARK-32750 fixed in 4.3.0, SPARK-59774 in
+4.4.0, SPARK-33301 open with apache/spark#59069 unmerged. Its spark-shell snippets ran on stock
+Spark 4.2.0 under JDK 17, 21 and 25 (11.5, 13.1, 13.2 and 14), so the row's done-when holds.
