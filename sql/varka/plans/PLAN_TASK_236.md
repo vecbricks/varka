@@ -49,13 +49,16 @@ below is a count; nothing is timed.
 | coverage compositions, not pinned | 60 | 50 | 55 | call sites |
 | size ladder at 800 and 1200 entries | 2 | 0 | 0 | stages |
 | wide compositions, int | 20 | 0 | 0 | stages; one shape call sites too, prediction off |
-| wide compositions, long | 20 | 1 | 4 | stages and call sites; one shape bytes too, prediction off |
+| wide compositions, long | 20 | 1 | 4 | stages and call sites; one shape bytes too, prediction off, until task 223's review |
 
 At the shipped options, where the prediction is off, 72 of 2319 shapes build more than once: 44
 on call sites, 37 on stages, 9 of them on both, and 2 on bytes. With the prediction on, 45, and
 two reactions account for all of them: the stage split, on all 37 shapes past the driver's
 ceiling, and the call-site split of task 209, on 9, one of them also staged. The byte regroup did
-not fire with the prediction on, and nothing declined. Without the coverage compositions, as the
+not fire with the prediction on, and nothing declined.
+*Since task 223's review (#547, merged after this check): its count removes bytes from long
+composition 5, whose one byte regroup with the prediction off no longer fires, so the audit now
+reads 1 shape on bytes rather than 2; every other figure above stands.* Without the coverage compositions, as the
 audit pins it, 62 of 2259 rebuild with the prediction off and 40 with it on.
 
 ### 2.2 The driver and its stages are known before the build
