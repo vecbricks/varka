@@ -4032,6 +4032,9 @@ kernel is either shown adequate or changed and measured again.
 *Added 30 September 2026 from task 200's admission check (`PLAN_TASK_200.md` 3), which task
 199 had left the decision to.*
 
+*Moved into milestone 6 on 2 October 2026, on the owner's decision: task 236 answers it, since a
+shape builds once only where the prediction closes its groups (`PLAN_TASK_236.md` 3.5).*
+
 `VarkaEmitOptions.predictGrouping` (task 199) makes the first grouping close a group where the
 fitted cost model predicts that the next output would put a method over the byte budget or the
 call-site budget, so a shape the measurement would otherwise split builds once. It is off by
@@ -4133,8 +4136,8 @@ the proof:
    and derive `canonical()`, the bytes suite's option inventory and the IR fuzzer's draws from
    one table of options.
 2. **The size loop in `VarkaLoopEmitter.emit`.** About eight pieces of mutable state and a chain
-   of fallbacks whose order matters. Task 236's planner replaces it, so this item adds nothing to
-   it.
+   of fallbacks whose order matters. Task 236 puts a plan in front of it and keeps it, unchanged,
+   as the last resort (`PLAN_TASK_236.md` 3.2); restructuring it is still this item's.
 3. **`VarkaBodyEmitter.emitBody`.** One 372-line method for three roles, both bodies and both
    driver forms, the table driver threading through the unrolled driver's numbered steps as
    guards. Split it into driver, loop and epilogue emitters sharing the prologue helpers.

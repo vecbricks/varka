@@ -18,10 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
-import scala.util.Random
-
-import org.apache.spark.sql.catalyst.expressions.Alias
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 
 /**
  * How far the greedy output grouping is from the best partition of the outputs in their order
@@ -41,27 +37,9 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
   private lazy val table =
     VarkaCoverageRows.read(getWorkspaceFilePath("sql", "varka", "coverage.json"))
 
-  /**
-   * Projections of twenty to two hundred entries drawn from the coverage table's projection
-   * rows, through the compiler: entries of every family the compiler admits, over the table's
-   * columns, with the sharing a real projection has rather than a ladder's or a random tree's.
-   * The compiler fuses one lane and declines the rest; the kernel it makes is the shape.
-   */
-  private def compositions: Seq[VarkaEmitCostCorpus.Shape] = {
-    val rnd = new Random(20261001L)
-    (0 until 60).flatMap { i =>
-      val picked = Seq.fill(20 + rnd.nextInt(181))(
-        table.projections(rnd.nextInt(table.projections.size)))
-      val list = picked.zipWithIndex.map { case (row, k) =>
-        Alias(VarkaCoverageRows.resolve(row.executable, table.columns), s"c$k")()
-      }
-      VarkaExpressionCompiler.compilePartial(list, table.columns, options).map { partial =>
-        val fused = partial.fused
-        new VarkaEmitCostCorpus.Shape("coverage compositions", i, fused.outputs.asJava,
-          fused.inputOrdinals.size, math.max(fused.literals.size, fused.longLiterals.size))
-      }
-    }
-  }
+  /** `VarkaCoverageCompositions`' sixty projections, compiled under the greedy walk's options. */
+  private def compositions: Seq[VarkaEmitCostCorpus.Shape] =
+    VarkaCoverageCompositions.draw(table, options)
 
   /** Every shape the check reads: the cost model's corpus and the two families it lacked. */
   private lazy val shapes: Seq[VarkaEmitCostCorpus.Shape] =
