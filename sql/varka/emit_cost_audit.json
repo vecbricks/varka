@@ -882,7 +882,7 @@
       "builds, weights" : 53,
       "builds, predicted" : 37,
       "reactions, weights" : {
-        "byte regroups" : 1,
+        "byte regroups" : 0,
         "call-site splits" : 18,
         "call-site rollbacks" : 0,
         "stage splits" : 15,
@@ -897,7 +897,7 @@
         "exact grouping fallbacks" : 0,
         "prediction fallbacks" : 0
       },
-      "shapes built more than once, weights" : [ "0: 2 builds (1 stage splits)", "1: 3 builds (1 call-site splits, 1 stage splits)", "2: 2 builds (1 call-site splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 5 builds (1 byte regroups, 3 call-site splits, 1 stage splits)", "6: 4 builds (2 call-site splits, 1 stage splits)", "7: 2 builds (1 call-site splits)", "8: 2 builds (1 stage splits)", "9: 3 builds (1 call-site splits, 1 stage splits)", "10: 3 builds (1 call-site splits, 1 stage splits)", "11: 2 builds (1 stage splits)", "12: 3 builds (1 call-site splits, 1 stage splits)", "13: 2 builds (1 call-site splits)", "14: 5 builds (3 call-site splits, 1 stage splits)", "15: 2 builds (1 stage splits)", "16: 3 builds (2 call-site splits)", "17: 3 builds (1 call-site splits, 1 stage splits)", "19: 2 builds (1 stage splits)" ],
+      "shapes built more than once, weights" : [ "0: 2 builds (1 stage splits)", "1: 3 builds (1 call-site splits, 1 stage splits)", "2: 2 builds (1 call-site splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 5 builds (3 call-site splits, 1 stage splits)", "6: 4 builds (2 call-site splits, 1 stage splits)", "7: 2 builds (1 call-site splits)", "8: 2 builds (1 stage splits)", "9: 3 builds (1 call-site splits, 1 stage splits)", "10: 3 builds (1 call-site splits, 1 stage splits)", "11: 2 builds (1 stage splits)", "12: 3 builds (1 call-site splits, 1 stage splits)", "13: 2 builds (1 call-site splits)", "14: 5 builds (3 call-site splits, 1 stage splits)", "15: 2 builds (1 stage splits)", "16: 3 builds (2 call-site splits)", "17: 3 builds (1 call-site splits, 1 stage splits)", "19: 2 builds (1 stage splits)" ],
       "shapes built more than once, predicted" : [ "0: 2 builds (1 stage splits)", "1: 2 builds (1 stage splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 3 builds (1 call-site splits, 1 stage splits)", "6: 2 builds (1 stage splits)", "8: 2 builds (1 stage splits)", "9: 2 builds (1 stage splits)", "10: 2 builds (1 stage splits)", "11: 2 builds (1 stage splits)", "12: 2 builds (1 stage splits)", "13: 2 builds (1 call-site splits)", "14: 2 builds (1 stage splits)", "15: 2 builds (1 stage splits)", "17: 2 builds (1 stage splits)", "19: 2 builds (1 stage splits)" ],
       "predicted first groupings, digest" : "18e86f99f2097731"
     }
