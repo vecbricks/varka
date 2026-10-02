@@ -22,7 +22,10 @@ cannot.
 The first post in this pair,
 [The 8000-byte cliff in Spark SQL](https://vecbricks.github.io/the-8000-byte-cliff/),
 was for people who run Spark: where the step is, how to see it on your own
-cluster, what to set. This one is for people who read `CodeGenerator.scala`,
+cluster, what to set; a third,
+[When Spark stops compiling your query](https://vecbricks.github.io/when-spark-stops-compiling-your-query/),
+takes the same readers through the other places Spark gives up. This one is
+for people who read `CodeGenerator.scala`,
 and it answers three questions. Why can't Spark just split the method? What
 does measuring the class look like? What does it buy, and what does it cost?
 

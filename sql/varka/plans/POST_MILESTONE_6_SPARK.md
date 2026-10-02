@@ -13,7 +13,9 @@ This post is about that step: where it is, how to see it on your own cluster,
 what to set, and which Spark release fixes which part. It is written for
 people who run Spark. A second post,
 [Under 8000 bytes by construction](https://vecbricks.github.io/under-8000-bytes-by-construction/),
-covers the internals.
+covers the internals, and a third,
+[When Spark stops compiling your query](https://vecbricks.github.io/when-spark-stops-compiling-your-query/),
+the other places Spark's code generation gives up.
 
 ![One method per stage, and the two limits on its size](figures/svg/fig16-one-method-two-limits.svg)
 
