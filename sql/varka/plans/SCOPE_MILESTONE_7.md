@@ -4305,6 +4305,33 @@ the record already - the first and third posts, task 188's census and task 233's
 and each number is checked against 4.2.0's source or a stock run before it is printed. **Done
 when** the post is published with every number tracing. Size: small.
 
+### Item 81. Moved from milestone 6 on 2 October 2026
+
+The review of milestone 6's open rows before its close read each against the milestone's
+done-when list (`PLAN_MILESTONE_6.md` 1.3) and its size-control rows, the goal the owner set on
+30 September. Thirteen open rows bore on neither, and moved here on the owner's decision the same
+day, on the precedent of items 15 and 39: text and task numbers unchanged, each row still in
+`PLAN_MILESTONE_6.md` with a note at its head and under its design section's heading where it has
+one, so every citation resolves. Row 182 was this catalogue's item 8 and simply returns. None is
+ordered against this milestone's spine; each re-enters with its own argument, and the reason it
+left is the start of that argument.
+
+| task | what it is | where its design is | why it left milestone 6 |
+| ---: | :--- | :--- | :--- |
+| 180 | Promotion, continuously | `PLAN_MILESTONE_6.md` 2.9 | a cadence rather than a task the milestone could close - the cross-posts, a findings post every two weeks, a living benchmark page - carried as the owner decided on 1 October |
+| 182 | Extend Spark's own benchmarks, not only ours | item 8 | it was item 8, and returns to it |
+| 207 | Several accumulators in the range set's loop | `PLAN_TASK_172.md` | a measured micro-optimisation of the range-set kernel, on neither the done-when list nor the size-control rows |
+| 208 | One comparison per range | `PLAN_TASK_172.md` | the same |
+| 213 | The warm-up chooses which of a kernel's drivers to compile from statistics | `PLAN_TASK_212.md` | a refinement of the warm-up, on neither list |
+| 214 | Port `VarkaTimeCompiler` to Java | `PLAN_TASK_175.md` | the rest of the Java port, mechanical and meant for an agent |
+| 215 | Port `VarkaConditionCompiler` to Java | `PLAN_TASK_175.md` | the same |
+| 216 | Port `VarkaChronoCompiler` to Java | `PLAN_TASK_175.md` | the same |
+| 217 | Port the compiler's facade, `VarkaExpressionCompiler`, to Java | `PLAN_TASK_175.md` | the facade, which follows 214 to 216 |
+| 218 | Why the loop predicate cycles, and short calls cure it | `PLAN_TASK_189.md`, `PLAN_TASK_209.md` | optional research |
+| 222 | Structural hashing of IR nodes on every map lookup | the row | a compile-time cost, not a size-control row |
+| 224 | Benchmarks and tools in Java | `PLAN_TASK_191.md` | the Java port of the harness adapter and `VarkaEmitDump`, which goes with 214 to 217 |
+| 231 | The other row loops read each column through the batch's vectors | `PLAN_TASK_228.md` | the fallback path's row loops, on neither list |
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
