@@ -751,3 +751,48 @@ what was live only by their link to this one. The post's section 6 was reread ag
 at publication and needed no change: SPARK-37019 and SPARK-32750 fixed in 4.3.0, SPARK-59774 in
 4.4.0, SPARK-33301 open with apache/spark#59069 unmerged. Its spark-shell snippets ran on stock
 Spark 4.2.0 under JDK 17, 21 and 25 (11.5, 13.1, 13.2 and 14), so the row's done-when holds.
+
+## 17. The laptop runs, pinned and repeated, 2 October 2026
+
+Section 13.6's laptop runs, and 13.8's interpreter run, were not pinned: `build/sbt runMain`
+without `dev/varka_bench_regen.sh`, so the benchmark thread could move between the four Zen 5
+cores at 5.16 GHz and the eight Zen 5c at 3.29 GHz. In the owner's idle hour the four ran again,
+one at a time, pinned to the fast cores as that script pins them (`taskset -c 0-3,12-15`), from
+the classes as at #544's head, then were repeated where the post quotes them: the fallback-cost
+and interpreter benchmarks five times, the wide projection twice (its first run moved under 3% on
+every row), the compile wait once. Each `*-jdk25-laptop-pinned-results.txt` holds every run as
+printed, with its provenance. The pin is not only a choice of cores: on eight processors the JVM
+starts 4 C2 compiler threads and 8 parallel GC threads, against 12 and 18 unpinned. From the
+fallback-cost benchmark's third run on, other work ran on the other core complex, as its file
+says. The rule was set before the repeats: a published laptop number is corrected only where all
+five pinned runs fall outside it.
+
+| the post, for the laptop | unpinned | pinned | verdict |
+|:--|:--|:--|:--|
+| 50 and 99 cheap columns, slower in a stage | 1.16, 1.25 | 1.18 to 1.20, 1.24 to 1.27 (2 runs) | stands |
+| 50 and 99 mixed columns, faster in a stage | 12%, 16% | 11 to 17%, 16 to 18% (2 runs) | stands |
+| 150 columns in a stage after C2, against outside | 1.06 | 0.74 to 1.00 (5 runs) | corrected |
+| the interpreter at 100 to 1000 columns | 3.6 to 4.4 | 3.1 to 4.2 (5 runs) | corrected |
+| C2's code arrives (Figure 3) | 13 s | 13.0 to 14.4 s (5 runs) | stands |
+
+**The 150-column stage after C2.** In a stage the time settles at 406 to 423 ms in all five pinned
+runs (400 unpinned). Outside a stage is what moves: 407 to 564 ms pinned, 378 unpinned, and the
+same projection in the same runs' tables reads 385 to 440, run 1's table 385 against its own
+series' 564 - a JIT outcome per JVM, the lottery `dev/varka_bench_repeat.sh` documents, more than
+the pin. Over the six runs the stage ends at 0.7 to 1.1 times the time outside one, and the post
+now says that. Figure 3 keeps its laptop line, one of the six runs and inside that range.
+
+**The interpreter.** Interpreted over compiled, per row: 3.06 to 3.44 at 100 columns, 3.22 to
+3.36 at 300 and 3.61 to 4.20 at 1000 pinned; the unpinned 3.55, 3.56 and 4.36 are above all five
+at every width. The post now says 3.1 to 4.2 on the laptop, beside the runner's 3.1 to 4.4.
+
+**13.6's numbers, requoted from the pinned compile wait** (one run): the 99-entry stage still
+settles after 0.7 seconds (0.67); the 60-sum aggregate is 1.68 times faster in a stage (355
+against 597 ms; 1.63 unpinned); the 50 and 99-entry cheap projections are 1.17 and 1.08 times
+slower once compiled (125 against 107 ms, 251 against 232; 1.15 and 1.19 unpinned). The 99-entry
+ratio moving by a tenth in one pair of runs is the same lottery, and is why the post's table
+quotes the wide-projection benchmark, measured twice pinned, rather than this one.
+
+**Republished.** The page was rebuilt from `POST_MILESTONE_6_GIVEUPS.md` at `a05938dbfb4` and
+differs from what was live only in the two corrected sentences; the site's commit is `708fd21`
+in `vecbricks/vecbricks.github.io`.

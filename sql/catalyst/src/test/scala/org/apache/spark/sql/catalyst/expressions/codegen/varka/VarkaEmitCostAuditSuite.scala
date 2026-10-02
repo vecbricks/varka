@@ -20,9 +20,15 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
+import scala.jdk.CollectionConverters._
+
 /**
  * Pins `sql/varka/emit_cost_audit.json`, the emit cost model's accuracy and what its grouping
- * switch does, which `VarkaEmitCostAudit` renders. Regenerate with
+ * switch does, which `VarkaEmitCostAudit` renders, with the builds of the families task 236 added
+ * to its count: task 200's mixed and interleaved families and the wide shapes near and past the
+ * driver's ceiling. Not the coverage compositions `VarkaGroupingBoundSuite` draws: their
+ * draw indexes `coverage.json`, so a pinned file over them would move with every expression
+ * added. Regenerate with
  * `VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostAuditSuite'` after the price
  * tables (`VarkaEmitCostSuite`) have been regenerated and compiled.
  */
@@ -30,7 +36,9 @@ class VarkaEmitCostAuditSuite extends VarkaEmitterTestBase {
 
   test("sql/varka/emit_cost_audit.json is what the prices predict against what is emitted") {
     val path = getWorkspaceFilePath("sql", "varka", "emit_cost_audit.json")
-    val rendered = VarkaEmitCostAudit.render()
+    val extra = VarkaGroupingBound.interleaved().asScala.toSeq ++
+      VarkaEmitCostCorpus.pastCeiling().asScala
+    val rendered = VarkaEmitCostAudit.render(extra.asJava)
     if (sys.env.get("VARKA_COST_REGEN").contains("true")) {
       Files.write(path, rendered.getBytes(StandardCharsets.UTF_8))
       logInfo(s"regenerated $path")

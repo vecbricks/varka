@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -227,6 +228,61 @@ final class VarkaEmitCostCorpus {
       shapes.add(new Shape("wide long", k, roots(d.roots()), d.numInputs(), d.numLiterals()));
     }
     return shapes;
+  }
+
+  /** How many compositions of wide draws past the driver's ceiling the audit takes, per lane. */
+  static final int COMPOSITIONS = 20;
+  /** The compositions' seeds, apart from every other sequence's. */
+  static final long COMPOSITION_SEED = 20261002L;
+  static final long COMPOSITION_LONG_SEED = 20261003L;
+
+  /**
+   * Shapes near and past the driver from a table's ceiling of about 180 groups, where the split
+   * driver builds a class twice to size its stages ({@code PLAN_TASK_236.md} 2): the size ladder
+   * at 800 and 1200 entries, and twenty compositions of wide draws at each lane. A composition
+   * draws until 250 roots are drawn or twelve draws are made, as {@code VarkaIrFuzzSuite}'s wide
+   * test does, and then drops repeated roots, so it is not always past the ceiling: the audit's
+   * stage splits say which are. Only the audit's count of builds reads these shapes, which are
+   * too wide to fit prices on.
+   */
+  static List<Shape> pastCeiling() {
+    List<Shape> shapes = new ArrayList<>();
+    for (int n : new int[] {800, 1200}) {
+      shapes.add(new Shape("size ladder past the driver's ceiling", n,
+          entries(n, VarkaEmitCostCorpus::ladderEntry), 1, n));
+    }
+    for (int k = 0; k < COMPOSITIONS; k++) {
+      shapes.add(composition("wide compositions, int", k,
+          VarkaIrGrammar.shapeRandom(COMPOSITION_SEED, k), rnd -> {
+            VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(rnd);
+            return new Shape("", 0, roots(d.roots()), d.numInputs(), d.numLiterals());
+          }));
+    }
+    for (int k = 0; k < COMPOSITIONS; k++) {
+      shapes.add(composition("wide compositions, long", k,
+          VarkaIrGrammar.shapeRandom(COMPOSITION_LONG_SEED, k), rnd -> {
+            VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(rnd);
+            return new Shape("", 0, roots(d.roots()), d.numInputs(), d.numLiterals());
+          }));
+    }
+    return shapes;
+  }
+
+  /** Draws from {@code draw} until 250 roots or twelve draws, then keeps each root once. */
+  private static Shape composition(String family, int index, scala.util.Random rnd,
+      java.util.function.Function<scala.util.Random, Shape> draw) {
+    LinkedHashSet<VarkaVectorIR> roots = new LinkedHashSet<>();
+    int drawn = 0;
+    int inputs = 0;
+    int literals = 0;
+    for (int draws = 0; drawn < 250 && draws < 12; draws++) {
+      Shape d = draw.apply(rnd);
+      roots.addAll(d.roots());
+      drawn += d.roots().size();
+      inputs = Math.max(inputs, d.numInputs());
+      literals = Math.max(literals, d.numLiterals());
+    }
+    return new Shape(family, index, List.copyOf(roots), inputs, literals);
   }
 
   /**

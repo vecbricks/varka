@@ -163,24 +163,39 @@ final class VarkaEmitCostAudit {
   }
 
   /**
-   * One shape at the shipped options: how many builds it took, and its loop methods, or -1 when
-   * it declined.
+   * One shape at the shipped options: what the emitter's size control did to build it, and its
+   * loop methods, or -1 when it declined.
    */
-  private record Emitted(int builds, int loops) {}
+  private record Emitted(VarkaEmitTrace trace, int loops) {
+    int builds() {
+      return trace.builds;
+    }
+  }
 
   private static Emitted emitted(Shape shape, boolean predict) {
-    int[] builds = new int[1];
+    VarkaEmitTrace trace = new VarkaEmitTrace();
     try {
-      byte[] bytes = VarkaLoopEmitter.emitCountingBuilds(
+      byte[] bytes = VarkaLoopEmitter.emitTraced(
           "org.apache.spark.sql.varka.execution.VarkaEmitCostAudit", shape.roots(),
-          shape.numInputs(), shape.numLiterals(), shipped(predict), builds);
+          shape.numInputs(), shape.numLiterals(), shipped(predict), trace);
       var names = VarkaEmittedClass.measure(bytes).codeLength().keySet();
       int loops = (int) Math.max(names.stream().filter(n -> n.startsWith("loopDense")).count(),
           names.stream().filter(n -> n.startsWith("loopMasked")).count());
-      return new Emitted(builds[0], loops);
+      return new Emitted(trace, loops);
     } catch (VarkaEmitDeclined e) {
-      return new Emitted(builds[0], -1);
+      return new Emitted(trace, -1);
     }
+  }
+
+  /** A shape built more than once: its index, its builds, and the reactions that forced them. */
+  private static String rebuilt(Shape s, VarkaEmitTrace t) {
+    List<String> why = new ArrayList<>();
+    t.reactions().forEach((name, count) -> {
+      if (count > 0) {
+        why.add(count + " " + name);
+      }
+    });
+    return s.index() + ": " + t.builds + " builds (" + String.join(", ", why) + ")";
   }
 
   /** The shipped options at the audit's width, with the switch on or off. */
@@ -201,6 +216,12 @@ final class VarkaEmitCostAudit {
       int declinedOn = 0;
       int declineBuildsOff = 0;
       int declineBuildsOn = 0;
+      int buildsOff = 0;
+      int buildsOn = 0;
+      Map<String, Integer> reactionsOff = new LinkedHashMap<>();
+      Map<String, Integer> reactionsOn = new LinkedHashMap<>();
+      List<String> rebuiltOff = new ArrayList<>();
+      List<String> rebuiltOn = new ArrayList<>();
       List<String> gained = new ArrayList<>();
       StringBuilder groupings = new StringBuilder();
       for (Shape s : mine) {
@@ -210,6 +231,18 @@ final class VarkaEmitCostAudit {
             shipped(true)).stream().map(List::size).toList()).append('\n');
         declinedOff += off.loops() < 0 ? 1 : 0;
         declinedOn += on.loops() < 0 ? 1 : 0;
+        buildsOff += off.builds();
+        buildsOn += on.builds();
+        off.trace().reactions().forEach((name, count) -> reactionsOff.merge(name, count,
+            Integer::sum));
+        on.trace().reactions().forEach((name, count) -> reactionsOn.merge(name, count,
+            Integer::sum));
+        if (off.builds() > 1) {
+          rebuiltOff.add(rebuilt(s, off.trace()));
+        }
+        if (on.builds() > 1) {
+          rebuiltOn.add(rebuilt(s, on.trace()));
+        }
         if (off.loops() < 0 && on.loops() < 0) {
           declineBuildsOff += off.builds();
           declineBuildsOn += on.builds();
@@ -235,6 +268,12 @@ final class VarkaEmitCostAudit {
           "declined, predicted", declinedOn,
           "builds spent on shapes both decline, weights", declineBuildsOff,
           "builds spent on shapes both decline, predicted", declineBuildsOn,
+          "builds, weights", buildsOff,
+          "builds, predicted", buildsOn,
+          "reactions, weights", reactionsOff,
+          "reactions, predicted", reactionsOn,
+          "shapes built more than once, weights", rebuiltOff,
+          "shapes built more than once, predicted", rebuiltOn,
           "predicted first groupings, digest", digest(groupings.toString())));
     }
     return families;
@@ -250,9 +289,16 @@ final class VarkaEmitCostAudit {
     }
   }
 
-  /** The audit file's text. */
-  static String render() {
+  /**
+   * The audit file's text. {@code extra} are shapes only the count of builds reads, beside the
+   * held-out ones: the families {@code PLAN_TASK_236.md} 2 added. The count is of the emitter's
+   * builds; the compiler's admission emissions, several kernels' bisection among them, are not
+   * in it.
+   */
+  static String render(List<Shape> extra) {
     List<Shape> shapes = heldOut();
+    List<Shape> built = new ArrayList<>(shapes);
+    built.addAll(extra);
     Map<String, Object> doc = orderedOf(
         "generated_by", "VarkaEmitCostAuditSuite; regenerate with VARKA_COST_REGEN=true "
             + "build/sbt 'catalyst/testOnly *VarkaEmitCostAuditSuite'",
@@ -264,12 +310,16 @@ final class VarkaEmitCostAudit {
             + "fused ceiling. An error is |predicted - measured| / measured for one method of "
             + "one group. Then each shape at the shipped options with predictGrouping off and "
             + "on: how many builds it took, its loop methods, the builds spent on shapes that "
-            + "decline either way, and a digest of the first "
+            + "decline either way, every build and the reaction to a measurement that forced it, "
+            + "the shapes built more than once, and a digest of the first "
             + "groupings the prediction forms, which moves whenever the prices regroup a shape. "
-            + "See PLAN_TASK_199.md.",
+            + "The count of builds also reads task 200's mixed and interleaved families, and "
+            + "the size ladder past the driver's ceiling with compositions of wide draws near and "
+            + "past it; it counts the emitter's builds, not the compiler's admission emissions. "
+            + "See PLAN_TASK_199.md and PLAN_TASK_236.md.",
         "jdk", System.getProperty("java.specification.version"),
         "accuracy", accuracy(points(shapes)),
-        "grouping", grouping(shapes));
+        "grouping", grouping(built));
     try {
       return new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(doc) + "\n";
     } catch (JsonProcessingException e) {

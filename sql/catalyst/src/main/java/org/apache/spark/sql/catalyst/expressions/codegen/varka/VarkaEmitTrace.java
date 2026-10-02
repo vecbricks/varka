@@ -34,6 +34,21 @@ final class VarkaEmitTrace {
   int exactFallbacks;
   int predictFallbacks;
 
+  /**
+   * Each reaction's count, under the name the cost audit's file gives it, in a fixed order: the
+   * one place that names the counters, so a reaction added above is added here and nowhere else.
+   */
+  java.util.Map<String, Integer> reactions() {
+    java.util.Map<String, Integer> named = new java.util.LinkedHashMap<>();
+    named.put("byte regroups", byteRegroups);
+    named.put("call-site splits", siteSplits);
+    named.put("call-site rollbacks", siteRollbacks);
+    named.put("stage splits", stageSplits);
+    named.put("exact grouping fallbacks", exactFallbacks);
+    named.put("prediction fallbacks", predictFallbacks);
+    return named;
+  }
+
   /** The grouping switches dropped, the fallback {@code emitCountingBuilds} reports. */
   int fallbacks() {
     return exactFallbacks + predictFallbacks;
