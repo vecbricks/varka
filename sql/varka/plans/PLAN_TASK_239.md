@@ -280,3 +280,85 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
 2. The change behind `elideUnreadLocals`: the trims of 3.1 to 3.4, the check, the regenerated
    oracle, price tables and audit, and the benchmark section.
 3. The runner's run, the predictions scored, the default set, and row 239 marked done.
+
+## 9. Outcome
+
+### 9.1 Built, 2 October 2026
+
+`VarkaEmitOptions.elideUnreadLocals`, off by default until the runner measures it. Under it a
+loop or epilogue body builds only the reference locals it reads:
+
+* **An output's validity segment** only where `VarkaBodyEmitter.buildsValiditySegment` holds: the
+  driver always, and in a loop or epilogue body an output that writes its validity per lane
+  group, or a condition root, whose selection bitmap the lane group always writes. `Slots.plan`
+  plans the local and step (3) builds it from that one predicate.
+* **An input's data segment** only for a column the body reads for its value, the columns task
+  223's use count (`Slots.bodyUses`) reaches. That count now runs for every loop and epilogue body
+  under the switch, not only under CSE, and is still used for shared slots only under CSE.
+* **A materialized prefix's vectors** only as some tail of the fragment reads them.
+  `VarkaChronoLowering.prefixReads` states each tail's reads, and it depends on the options: the
+  Julian map leaves the century unread, the Neri-Schneider numerator gives the day of month
+  without the day of year, and `trunc` reads what its level and lowering form need.
+* **The epilogue's mask** only where `Slots.epilogueReadsMask` finds a reader. The body's
+  "this is an epilogue" signal is now a flag of its own, `Slots.epilogue`, and a reader of a mask
+  that was not built fails at emission instead of taking the unmasked form.
+
+**One departure from the plan.** Building the check found a month vector loaded and never read.
+`Slots.planFragmentsReadingMonth`, the walk that decides which fragments read the month, also
+walked into a date whose materialized prefix the group loads and does not visit, so a month
+reader under that date counted though it is never emitted. Under the switch the walk now follows
+the emission, as `emittedNodes` does. With the switch off it walks as before, so the default
+emission does not move.
+
+**The check.** `VarkaUnreadLocalsSuite`, which task 223's review added for shared slots, is
+widened: under the switch, no loop or epilogue method of the cost corpus stores a reference local
+it never reads, and with the switch off the census holds only the four kinds of 2.1. Getting to
+zero took the narrower read sets above. The first cut, with every trunc and last-day tail reading
+the whole prefix, left 5,138 reloads unread, then 2,754 once they were narrowed, then 138 (the
+month walk), then none.
+
+**The bytes** under the switch are, family by family, exactly the transformer's of 2.1. Over the
+corpus the loop and epilogue bytes fall from 55,498,350 to 53,645,834, 3.34%.
+
+**Answers.** All 504 catalyst Varka tests pass, the IR fuzzer drawing the switch like every
+boolean. The emitted-bytes oracle pins the defaults, which do not move, and the option audit's
+inventory lists the switch.
+
+**The measurement**: a section of `VarkaWideKernelBenchmark`, "the locals nothing reads, built
+and elided", with the size ladder at 100 and 400 entries and the mixed family at 100 and 200,
+each with the locals built, elided, and built again last. The runner's run and the default are
+step 3. The price tables and the cost audit are regenerated then, under the new default, since
+with the switch off nothing they read moves.
+
+### 9.2 The predictions, scored so far
+
+1. **Held.** The check finds no unread reference local under the switch.
+2. **Held, exactly.** 3.34%, and every family's figure is the transformer's.
+3. Waits for the default: the audit's builds and loop methods move only when the switch is on in
+   the shipped options.
+4. and 5. Wait for the runner.
+
+### 9.3 The review
+
+A code review of the built switch found no reader the predicates miss, and nine problems short of
+that; all are addressed.
+
+* **The option-dependent read sets were untested.** `prefixReads`'s arms for the Julian map off,
+  the Neri-Schneider month off and the recomposing `trunc` matter only where a later group loads a
+  prefix, and the census ran at the defaults alone. A new test puts every calendar tail alone in
+  the group after a producer, under each of those options and the defaults, and holds it to the
+  reference's answers and to no unread local. With the century dropped from the year's arm on
+  purpose, the first class fails verification.
+* **A missed reader failed obscurely**, as an unboxing `NullPointerException` for the mask or a
+  `CodeBuilder` complaint about local -1 for a segment. Readers now go through `Slots`
+  accessors that name the predicate that missed them.
+* **The four predicates restate their readers**, where a dead-store pass after emission would not
+  (3.7). They stay: the pass would rewrite every class and hide the bookkeeping errors the
+  accessors now report.
+* **The month and the other vectors were two maps.** `Slots.fragmentReads` now holds both, the
+  month as bit 5, and `emitPrefixTransfer` takes one mask of the vectors to move. Without the
+  switch the planner computes a fragment's key for month readers alone, as before.
+* **The suite emitted the corpus three times.** It now emits each options value once, and checks
+  shared slots with the switch on as well as off, and the census without CSE too.
+* Smaller: a stale `emitLaneGroup` comment, an empty branch in step (3), and an impossible
+  `key != null` guard, now a comment stating why the key is there.

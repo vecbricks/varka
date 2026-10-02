@@ -383,6 +383,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@code MAX_INPUTS} columns, or a class over the class-file caps
  *        ({@code PLAN_TASK_190.md} 11.5). Off is one kernel per projection, whose set-aside
  *        entries are residual, kept as the reference.
+ * @param elideUnreadLocals whether a loop or epilogue body builds only the reference locals it
+ *        reads (task 239): an output's validity segment only where the body writes that validity,
+ *        an input's data segment only where it reads the column's values, a materialized prefix's
+ *        vectors only where its tails read them, and the epilogue's mask only where something
+ *        loads or stores under it. Off is the body that builds them all, kept as the reference
+ *        the suites and the benchmark compare against; off by default until the runner measures
+ *        it ({@code PLAN_TASK_239.md} 6).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -421,7 +428,8 @@ public record VarkaEmitOptions(
     boolean driverOutputTable,
     boolean exactGrouping,
     boolean splitDriver,
-    boolean severalKernels) {
+    boolean severalKernels,
+    boolean elideUnreadLocals) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -529,7 +537,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true, true, true);
+          false, true, true, true, true, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -613,6 +621,7 @@ public record VarkaEmitOptions(
       b.exactGrouping = exactGrouping;
       b.splitDriver = splitDriver;
       b.severalKernels = severalKernels;
+      b.elideUnreadLocals = elideUnreadLocals;
     return b;
   }
 
@@ -655,6 +664,7 @@ public record VarkaEmitOptions(
     private boolean exactGrouping;
     private boolean splitDriver;
     private boolean severalKernels;
+    private boolean elideUnreadLocals;
 
     private Builder() {
     }
@@ -844,6 +854,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder elideUnreadLocals(boolean elideUnreadLocals) {
+      this.elideUnreadLocals = elideUnreadLocals;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -853,7 +868,8 @@ public record VarkaEmitOptions(
           misdescribeWordLiveness, guardUnderArm, shareWholeNodes, validityByWord,
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
           groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
-          predictGrouping, driverOutputTable, exactGrouping, splitDriver, severalKernels);
+          predictGrouping, driverOutputTable, exactGrouping, splitDriver, severalKernels,
+          elideUnreadLocals);
     }
   }
 
@@ -896,6 +912,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withSeveralKernels(boolean enabled) {
     return toBuilder().severalKernels(enabled).build();
+  }
+
+  public VarkaEmitOptions withElideUnreadLocals(boolean enabled) {
+    return toBuilder().elideUnreadLocals(enabled).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -1050,7 +1070,7 @@ public record VarkaEmitOptions(
    * unchanged; so do the fields added since ({@code groupLocalSlots},
    * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
    * {@code predictGrouping}, {@code driverOutputTable}, {@code exactGrouping},
-   * {@code splitDriver}, {@code severalKernels}).
+   * {@code splitDriver}, {@code severalKernels}, {@code elideUnreadLocals}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -1075,6 +1095,7 @@ public record VarkaEmitOptions(
         + (driverOutputTable ? "" : "|unrolledDriver")
         + (exactGrouping ? "" : "|greedyGrouping")
         + (splitDriver ? "" : "|wholeDriver")
-        + (severalKernels ? "" : "|oneKernel") + ')';
+        + (severalKernels ? "" : "|oneKernel")
+        + (elideUnreadLocals ? "|elideUnreadLocals" : "") + ')';
   }
 }

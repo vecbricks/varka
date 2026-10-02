@@ -423,7 +423,8 @@ final class VarkaChronoLowering {
     // with sharing off two nodes with equal keys name different locals, so it is per node and
     // year(d) does not pay for a month(d) it shares nothing with.
     boolean ownMonth = !analysis.options.elideChronoMonth()
-        || (shareChronoPrefix ? s.fragmentsReadingMonth.contains(key)
+        || (shareChronoPrefix
+            ? (s.fragmentReads.getOrDefault(key, 0) & Slots.READS_MONTH) != 0
             : tailReadsMarchMonth(node));
     // A prefix materialized across groups (task 198): the first group to decompose the date
     // stores the prefix's vectors into the caller's scratch after computing them, and every
@@ -444,7 +445,14 @@ final class VarkaChronoLowering {
         cb.pop();
       }
       line(cb, analysis, node);
-      emitPrefixTransfer(cb, analysis, s, t, mat, ownMonth, false);
+      // A loaded prefix is a materialized one, which planMaterialized allows only under
+      // shareChronoPrefix, so the key is here. Under elideUnreadLocals the group plan names the
+      // vectors its tails read; a fragment it missed loads every vector rather than too few.
+      int reads = analysis.options.elideUnreadLocals()
+          ? s.fragmentReads.getOrDefault(key, ALL_PREFIX_VECTORS) & ALL_PREFIX_VECTORS
+          : ALL_PREFIX_VECTORS;
+      emitPrefixTransfer(cb, analysis, s, t, mat, false,
+          reads | (ownMonth ? Slots.READS_MONTH : 0));
       return;
     }
     emitValue(cb, date, dense, analysis, s, computed);
@@ -452,31 +460,37 @@ final class VarkaChronoLowering {
     boolean emitMonth = ownMonth || (mat != null && mat.needsMonth());
     emitChronoPrefix(cb, node, dense, analysis, s, t, emitMonth);
     if (mat != null && s.storedPrefixes.add(date)) {
-      emitPrefixTransfer(cb, analysis, s, t, mat, mat.needsMonth(), true);
+      emitPrefixTransfer(cb, analysis, s, t, mat, true,
+          ALL_PREFIX_VECTORS | (mat.needsMonth() ? Slots.READS_MONTH : 0));
     }
   }
 
   /**
    * The prefix's vectors between the locals {@code t[0..5]} and the scratch region of a
-   * materialized prefix: {@code store} writes them, a consumer's load reads them. The month
-   * vector travels only when {@code withMonth}: a producer stores it when any group's tail
-   * reads it, a consumer loads it when its own tails do. Vector {@code k} of the region lives
-   * at {@code byteOffset + (region * SCRATCH_VECTORS + k) * dataBytes} of the body's one
-   * scratch segment, with the same mask as a column's load at this point of the body, so the
-   * epilogue's partial lane group stays inside its region.
+   * materialized prefix: {@code store} writes them, a consumer's load reads them. Vector
+   * {@code k} travels when bit {@code k} of {@code vectors} is set. The month in {@code t[5]}
+   * ({@link Slots#READS_MONTH}) travels when a producer's tails in any group read it, or a
+   * consumer's own tails do; a producer stores the other five always, and a consumer loads,
+   * under {@link VarkaEmitOptions#elideUnreadLocals}, only those its tails read
+   * ({@link #prefixReads}). Vector {@code k} of the region lives at
+   * {@code byteOffset + (region * SCRATCH_VECTORS + k) * dataBytes} of the body's one scratch
+   * segment, with the same mask as a column's load at this point of the body, so the epilogue's
+   * partial lane group stays inside its region.
    */
   private static void emitPrefixTransfer(CodeBuilder cb, Analysis analysis, Slots s, int[] t,
-      Analysis.Materialized mat, boolean withMonth, boolean store) {
-    int vectors = withMonth ? Analysis.SCRATCH_VECTORS : Analysis.SCRATCH_VECTORS - 1;
-    for (int k = 0; k < vectors; k++) {
+      Analysis.Materialized mat, boolean store, int vectors) {
+    for (int k = 0; k < Analysis.SCRATCH_VECTORS; k++) {
+      if ((vectors >>> k & 1) == 0) {
+        continue;
+      }
       long index = (long) mat.region() * Analysis.SCRATCH_VECTORS + k;
       if (store) {
         cb.aload(t[k]);
         cb.aload(s.scratchSeg);
         emitScratchOffset(cb, s, index);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-        if (s.epilogueMask != null) {
-          cb.aload(s.epilogueMask);
+        if (s.epilogue) {
+          cb.aload(s.epilogueMask());
           cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentMasked);
         } else {
           cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
@@ -486,8 +500,8 @@ final class VarkaChronoLowering {
         cb.aload(s.scratchSeg);
         emitScratchOffset(cb, s, index);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-        if (s.epilogueMask != null) {
-          cb.aload(s.epilogueMask);
+        if (s.epilogue) {
+          cb.aload(s.epilogueMask());
           cb.invokestatic(INT_VECTOR, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
         } else {
           cb.invokestatic(INT_VECTOR, "fromMemorySegment", Lane.INT.fromMemorySegmentDense);
@@ -1719,6 +1733,46 @@ final class VarkaChronoLowering {
       case TruncDate n -> n.days();
       case TruncDateDynamic n -> n.days();
       case WeekOfYear n -> n.days();
+      default -> throw new IllegalStateException("not a calendar node: " + node);
+    };
+  }
+
+  /** The bits of {@link #prefixReads} for all of the prefix's first five vectors. */
+  private static final int ALL_PREFIX_VECTORS = Slots.READS_MONTH - 1;
+
+  /**
+   * Which of the prefix's first five vectors {@code node}'s tail reads, as bits of {@code t[0..4]}
+   * - the days, the era, the day of year, the century and the year of century; the March month in
+   * {@code t[5]} is {@link #tailReadsMarchMonth}'s. Under
+   * {@link VarkaEmitOptions#elideUnreadLocals} a group that loads a materialized prefix loads only
+   * the vectors some tail of the fragment reads. An exhaustive switch over the family
+   * {@link #chronoChild} covers, as that one is: a tail that reads a vector it does not state
+   * reads an unassigned local, which the verifier rejects at the first emission, and one that
+   * states a vector it never reads leaves a load {@code VarkaUnreadLocalsSuite} finds.
+   */
+  static int prefixReads(VarkaVectorIR node, VarkaEmitOptions options) {
+    // emitChronoYear: the era, the year of century, the day of year for January, and the
+    // century unless the Julian map folded it into the year of era.
+    int year = 1 << 1 | 1 << 2 | 1 << 4 | (options.julianMap() ? 0 : 1 << 3);
+    int days = 1;
+    // emitZeroBasedDayOfMonth: the day of year, unless the Neri-Schneider numerator in t[5]
+    // carries the day of month as well.
+    int dayOfMonth = options.neriSchneiderMonth() ? 0 : 1 << 2;
+    return switch (node) {
+      case Year n -> year;
+      case DayOfYear n -> year;
+      case WeekOfYear n -> year;
+      case AddMonths n -> year;
+      case Month n -> 0;
+      case Quarter n -> 0;
+      case DayOfMonth n -> dayOfMonth;
+      // The year, the day of month and the days the last day is counted from.
+      case LastDay n -> year | days;
+      // Subtracting the day of year or of month from the days, or recomposing from the year.
+      case TruncDate n -> options.truncDate() == VarkaEmitOptions.TruncDateForm.RECOMPOSE ? year
+          : n.level() == TruncLevel.MONTH ? days | dayOfMonth : year | days;
+      // Every level's arm, chosen per lane.
+      case TruncDateDynamic n -> year | days;
       default -> throw new IllegalStateException("not a calendar node: " + node);
     };
   }

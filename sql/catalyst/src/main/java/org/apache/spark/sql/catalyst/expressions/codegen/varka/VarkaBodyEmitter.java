@@ -145,28 +145,32 @@ final class VarkaBodyEmitter {
       if (!(outputs.get(o) instanceof Cond)) {
         loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
       }
-      // an output this emission writes a word at a time needs the segment to own the whole last
-      // word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is short of it for
-      // every length not a multiple of 64. The Arrow buffer behind it carries that at every length
-      // (VarkaKernelEvaluatorSuite), and the driver's zero below then covers exactly the bytes the
-      // loop stores. Every other output keeps the nominal size, so an emission that word-writes
-      // nothing keeps its bytes.
-      if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
-        cb.aload(P_DST_VALIDITY);
-        cb.loadConstant(o);
-        cb.laload();
-        cb.iload(analysis.lane.pLength);
-        cb.loadConstant(63);
-        cb.iadd();
-        cb.i2l();
-        cb.loadConstant(64L);
-        cb.ldiv();
-        cb.loadConstant(3);
-        cb.lshl();
-        cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
-        cb.astore(s.dstValSeg[o]);
-      } else {
-        loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
+      // Under elideUnreadLocals a loop or epilogue body maps no validity segment for an output
+      // whose validity it never writes: the driver filled it or the bitmap pass wrote it.
+      if (buildsValiditySegment(analysis, dense, mode, outputs, o)) {
+        // an output this emission writes a word at a time needs the segment to own the whole last
+        // word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is short of it
+        // for every length not a multiple of 64. The Arrow buffer behind it carries that at every
+        // length (VarkaKernelEvaluatorSuite), and the driver's zero below then covers exactly the
+        // bytes the loop stores. Every other output keeps the nominal size, so an emission that
+        // word-writes nothing keeps its bytes.
+        if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
+          cb.aload(P_DST_VALIDITY);
+          cb.loadConstant(o);
+          cb.laload();
+          cb.iload(analysis.lane.pLength);
+          cb.loadConstant(63);
+          cb.iadd();
+          cb.i2l();
+          cb.loadConstant(64L);
+          cb.ldiv();
+          cb.loadConstant(3);
+          cb.lshl();
+          cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
+          cb.astore(s.dstValSeg[o]);
+        } else {
+          loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
+        }
       }
       // an output the bitmap pass serves is written whole between steps (4) and (5) below - after
       // the null state it reads exists and before the shortcut can return - and that write is what
@@ -208,7 +212,8 @@ final class VarkaBodyEmitter {
       // PLAN_TASK_70.md 9.2 prediction 3 measures and leaves // to the driver.
       if (dense || s.deadRefs.contains(s.word[i])) {
         // A column only a skipped date reads, with its word dead too, is read by nothing here.
-        if ((s.skippedColumns >>> i & 1L) == 0) {
+        // Nor one the body reads only for its validity, under elideUnreadLocals (Slots.plan).
+        if ((s.skippedColumns >>> i & 1L) == 0 && s.srcSeg[i] >= 0) {
           loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
         }
         continue;
@@ -250,7 +255,9 @@ final class VarkaBodyEmitter {
       cb.aconst_null();
       cb.astore(s.srcValSeg[i]);
       cb.labelBinding(stateDone);
-      loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+      if (s.srcSeg[i] >= 0) {
+        loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+      }
     }
 
     // (4b) The bitmap pass (see PLAN_TASK_70.md 3.1): for each served output, its validity written
@@ -563,11 +570,13 @@ final class VarkaBodyEmitter {
     cb.iload(s.loopBound);
     cb.isub();
     cb.istore(s.lanes);
-    cb.aload(s.species);
-    cb.iload(s.loopBound);
-    cb.iload(analysis.lane.pLength);
-    cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
-    cb.astore(s.epilogueMask);
+    if (s.epilogueMask != null) {
+      cb.aload(s.species);
+      cb.iload(s.loopBound);
+      cb.iload(analysis.lane.pLength);
+      cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
+      cb.astore(s.epilogueMask);
+    }
 
     emitLaneGroup(cb, dense, outputs, outputIdx, analysis, s);
   }
@@ -585,11 +594,11 @@ final class VarkaBodyEmitter {
    * epilogue and for any width with no specialised sibling.
    */
   private static String validityBits(Slots s) {
-    return s.epilogueMask != null ? "partialValidityBitsAt" : "validityBitsAt";
+    return s.epilogue ? "partialValidityBitsAt" : "validityBitsAt";
   }
 
   private static String orValidityBits(Slots s) {
-    return s.epilogueMask != null ? "orPartialValidityBitsAt" : "orValidityBitsAt";
+    return s.epilogue ? "orPartialValidityBitsAt" : "orValidityBitsAt";
   }
 
   /**
@@ -599,7 +608,7 @@ final class VarkaBodyEmitter {
    * nothing worth naming a method over.
    */
   private static boolean widthSpecialised(Analysis analysis, Slots s) {
-    return s.epilogueMask == null && analysis.lanes != 0;
+    return !s.epilogue && analysis.lanes != 0;
   }
 
   /**
@@ -665,7 +674,7 @@ final class VarkaBodyEmitter {
       cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
       // Whole in a loop body, under the remainder mask in an epilogue - the same split as the
       // wide store's, and in either null mode: `dense` names the validity path, not the body.
-      if (s.epilogueMask == null) {
+      if (!s.epilogue) {
         cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
       } else {
         cb.getstatic(INT_VECTOR, halfSpecies, VECTOR_SPECIES);
@@ -705,7 +714,7 @@ final class VarkaBodyEmitter {
   /**
    * One lane group: this group's validity words, then each output's vector walk and store.
    * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
-   * with {@code s.epilogueMask} set - the only difference between them inside here.
+   * with {@code s.epilogue} set - the only difference between them inside here.
    */
   private static void emitLaneGroup(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
@@ -802,8 +811,8 @@ final class VarkaBodyEmitter {
         cb.aload(s.dstSeg[o]);
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-        if (s.epilogueMask != null) {
-          cb.aload(s.epilogueMask);
+        if (s.epilogue) {
+          cb.aload(s.epilogueMask());
           cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
               analysis.lane.intoMemorySegmentMasked);
         } else {
@@ -881,7 +890,7 @@ final class VarkaBodyEmitter {
       Runnable pushBits) {
     int acc = s.validityAcc == null ? -1 : s.validityAcc[output];
     if (acc < 0) {
-      cb.aload(s.dstValSeg[output]);
+      cb.aload(s.dstValSeg(output));
       cb.iload(s.iVar);
       cb.i2l();
       pushBits.run();
@@ -908,7 +917,7 @@ final class VarkaBodyEmitter {
     cb.lshl();
     cb.lor();
     cb.lstore(acc);
-    cb.aload(s.dstValSeg[output]);
+    cb.aload(s.dstValSeg(output));
     cb.iload(s.iVar);
     cb.i2l();
     cb.lload(acc);
@@ -942,6 +951,21 @@ final class VarkaBodyEmitter {
    */
   private static boolean servedByPass(Analysis analysis, boolean dense, int o) {
     return !dense && analysis.served[o] != null;
+  }
+
+  /**
+   * Whether a body maps output {@code o}'s validity segment (step (3)). The driver always does, for
+   * its zero, fill or bitmap pass. Under {@link VarkaEmitOptions#elideUnreadLocals} a loop or
+   * epilogue body does only for an output whose validity it writes: one that
+   * {@link #keepsPerGroupWrite}, or a {@link Cond} root, whose selection bitmap the lane group
+   * always writes. Read by {@code Slots.plan}, which plans the segment's local, and by step (3),
+   * which builds it, so the two cannot disagree; a write through a segment never built fails at
+   * the first emission in {@code Slots.dstValSeg(int)}.
+   */
+  static boolean buildsValiditySegment(Analysis analysis, boolean dense, BodyMode mode,
+      List<VarkaVectorIR> outputs, int o) {
+    return !analysis.options.elideUnreadLocals() || mode == BodyMode.DRIVER
+        || outputs.get(o) instanceof Cond || keepsPerGroupWrite(analysis, dense, outputs, o);
   }
 
   /**
@@ -982,7 +1006,7 @@ final class VarkaBodyEmitter {
    */
   private static void emitBitmapPass(CodeBuilder cb, Slots s, int o, BitmapPass pass, Lane lane) {
     int[] ords = pass.ordinals();
-    cb.aload(s.dstValSeg[o]);
+    cb.aload(s.dstValSeg(o));
     if (ords.length == 0) {
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, "setValid", SET_VALID);
@@ -1000,7 +1024,7 @@ final class VarkaBodyEmitter {
     cb.iload(lane.pLength);
     cb.invokestatic(SUPPORT, name, COLUMN_VALIDITY_PAIR);
     for (int k = 2; k < ords.length; k++) {
-      cb.aload(s.dstValSeg[o]);
+      cb.aload(s.dstValSeg(o));
       emitColumnOperand(cb, ords[k]);
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, name + "Into", COLUMN_VALIDITY_INTO);

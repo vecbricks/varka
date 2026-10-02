@@ -159,11 +159,11 @@ final class VarkaVectorWalk {
       case ColumnRef c -> {
         line(cb, analysis, node);
         cb.aload(s.species);
-        cb.aload(s.srcSeg[c.ordinal()]);
+        cb.aload(s.srcSeg(c.ordinal()));
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-        if (s.epilogueMask != null) {
-          cb.aload(s.epilogueMask);
+        if (s.epilogue) {
+          cb.aload(s.epilogueMask());
           cb.invokestatic(analysis.lane.vector, "fromMemorySegment",
               analysis.lane.fromMemorySegmentMasked);
         } else {
@@ -667,8 +667,8 @@ final class VarkaVectorWalk {
       cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     emitArmContext(cb, node, dense, analysis, s);
-    if (s.epilogueMask != null) {
-      cb.aload(s.epilogueMask);
+    if (s.epilogue) {
+      cb.aload(s.epilogueMask());
       cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     cb.aload(s.guardAcc);
