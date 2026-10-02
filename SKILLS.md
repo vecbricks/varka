@@ -98,6 +98,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A fixture that fills undefined memory decides what its whole matrix can catch](sql/varka/skills/testing-and-debugging.md#a-fixture-that-fills-undefined-memory-decides-what-its-whole-matrix-can-catch)
 * [Testing Under AQE](sql/varka/skills/testing-and-debugging.md#testing-under-aqe)
 * [A closed `ArrowBuf` still answers `capacity()` and `memoryAddress()`](sql/varka/skills/testing-and-debugging.md#a-closed-arrowbuf-still-answers-capacity-and-memoryaddress)
+* [Arrow promises no padding: an IPC read slices a buffer to its exact length](sql/varka/skills/testing-and-debugging.md#arrow-promises-no-padding-an-ipc-read-slices-a-buffer-to-its-exact-length)
 * [A checklist for the next node type or mode, from what three reviews found in this one](sql/varka/skills/testing-and-debugging.md#a-checklist-for-the-next-node-type-or-mode-from-what-three-reviews-found-in-this-one)
 * [Check that the place a prediction blames actually exists](sql/varka/skills/testing-and-debugging.md#check-that-the-place-a-prediction-blames-actually-exists)
 * [The coverage suite compiles the analyzed form; the end-to-end suites run the optimized one](sql/varka/skills/testing-and-debugging.md#the-coverage-suite-compiles-the-analyzed-form-the-end-to-end-suites-run-the-optimized-one)
@@ -111,6 +112,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A probe's marker can share a line with a compiler thread's output](sql/varka/skills/testing-and-debugging.md#a-probes-marker-can-share-a-line-with-a-compiler-threads-output)
 * [`failAfter` without a signaler cannot stop a test, so a hang holds the CI slot](sql/varka/skills/testing-and-debugging.md#failafter-without-a-signaler-cannot-stop-a-test-so-a-hang-holds-the-ci-slot)
 * [A fuzz campaign finds what the gate's count cannot, once every failure names its shape](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-finds-what-the-gates-count-cannot-once-every-failure-names-its-shape)
+* [A skip list without reasons rots; a marker that fails when its claim stops being true cannot](sql/varka/skills/testing-and-debugging.md#a-skip-list-without-reasons-rots-a-marker-that-fails-when-its-claim-stops-being-true-cannot)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)
@@ -149,6 +151,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A refusal at a forced width is the back end's, not the lane count's](sql/varka/skills/vector-api-and-width.md#a-refusal-at-a-forced-width-is-the-back-ends-not-the-lane-counts)
 * [An intrinsic refusal line is not a verdict about this compile; the inlining decisions are](sql/varka/skills/vector-api-and-width.md#an-intrinsic-refusal-line-is-not-a-verdict-about-this-compile-the-inlining-decisions-are)
 * [A masked store through two lanes costs the loop, not the mask; a half species keeps the loop](sql/varka/skills/vector-api-and-width.md#a-masked-store-through-two-lanes-costs-the-loop-not-the-mask-a-half-species-keeps-the-loop)
+* [The Vector API's plain-Java fallback is a second implementation, sharing only its pre-dispatch checks](sql/varka/skills/vector-api-and-width.md#the-vector-apis-plain-java-fallback-is-a-second-implementation-sharing-only-its-pre-dispatch-checks)
 
 #### [Working in this repository](sql/varka/skills/working-in-this-repo.md)
 * [Repo Workflow (vecbricks/varka)](sql/varka/skills/working-in-this-repo.md#repo-workflow-vecbricksvarka)

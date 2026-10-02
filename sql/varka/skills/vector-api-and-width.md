@@ -1011,3 +1011,20 @@ The general lesson: when a narrower vector is needed for one instruction, prefer
 that is exactly as wide as the data over a wider species with a mask. The mask is not the
 expensive part; what it does to the loop around it is.
 
+## The Vector API's plain-Java fallback is a second implementation, sharing only its pre-dispatch checks
+
+Read for milestone 7's row 272 in the JDK 25 sources (`openjdk-build/jdk25`, 6c48f4ed7). Every
+Vector API operation dispatches through an intrinsic candidate in
+`jdk.internal.vm.vector.VectorSupport` whose Java body calls a default implementation, and the
+vector classes supply it as a plain per-lane loop (`res[i] = f.apply(i, vec1[i], vec2[i])` in
+`IntVector`). That loop is what runs in the interpreter, in C1, which has no vector intrinsics,
+and wherever C2 bails out of an intrinsic; `-XX:+UnlockExperimentalVMOptions
+-XX:-EnableVectorSupport` forces it everywhere, and `-XX:DisableIntrinsic=_VectorBinaryOp,...`
+per operation. It is therefore a second implementation of every lowering a kernel uses, and
+comparing a kernel's answers with it checks C2's code generation where no proof reaches. It is
+not independent everywhere: the divide-by-zero check, the shift-count masking and the AND_NOT
+rewrite run in Java before the dispatch, so both paths share them. No test in the JDK runs the
+Vector API's correctness suite with the intrinsics off; OpenJDK's `VectorizationTestRunner` does
+the analogous thing for auto-vectorized loops, comparing the interpreter's answer, got through
+WhiteBox, with C2's. On the performance side this is the same fallback `the-jit.md` warns about:
+a silent slow path when it runs in production, a reference when it runs on purpose.
