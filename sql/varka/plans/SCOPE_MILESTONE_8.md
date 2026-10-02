@@ -4228,6 +4228,13 @@ image can be cached across the docs-only runs, is a question for whoever takes t
 synced check on the pull request with no process running on a laptop, and `hold` and
 `drop` are gone from `dev/varka_ci_queue.sh`. Size: medium.
 
+*2 October 2026, for milestone 7's task 255 (`PLAN_MILESTONE_7.md` 2.4): the token is not
+needed and the owner declined it.* A repository secret is readable by any workflow on any branch
+of the repository holding it, and Actions write on the fork can dispatch workflows that push
+commits. Each repository acts on itself instead: the queue runs on the fork with its own
+`GITHUB_TOKEN`, and the check sync on the base repository with its own; both read the other's
+public state without a credential.
+
 ### Item 77. The warm-up's verdict under a slow compile queue
 
 *Added 2 October 2026 from `PLAN_TASK_233.md` 13.7, after #541's Build failed on it.*

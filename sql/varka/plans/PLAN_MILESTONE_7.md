@@ -105,9 +105,24 @@ its node emits alone, or retires the hand-written register so the grouping reads
 
 ### 2.4 Infrastructure (255 to 257)
 
-Task 255 moves the CI queue into a workflow on `vecbricks/varka`, as `PLAN_TASK_227.md` 3 lays
-it out. It needs the owner's decision on a fine-grained token on the fork; without that it does
-not start. Task 256 lets a benchmark run regenerate only the sections a PR adds or changes. Task
+Task 255 takes the CI queue off the laptop with no stored credential, splitting it so each
+repository acts only on itself. `PLAN_TASK_227.md` 3 put the whole queue on `vecbricks/varka`,
+which needs a personal access token on the fork with Actions write, kept as a secret there. The
+owner declined that on 2 October 2026: any workflow on any branch of the base repository can read
+a repository secret, and Actions write on the fork can dispatch workflows that push commits.
+Instead:
+
+* **The queue runs on the fork.** A workflow on `MaxGekk/spark`, on a five-minute cron and
+  `workflow_dispatch`, decides as 227 lays out - open pull requests without a passed Build, in
+  number order, a `ci-hold` label taking one out - and cancels and reruns the fork's own runs
+  with its built-in `GITHUB_TOKEN` (`permissions: actions: write`). It reads the base
+  repository's pull requests without a credential, since the repository is public.
+* **The check sync runs on the base repository**, as `update_build_status.yml` does now, on a
+  cron as well as on dispatch: it reads the fork's runs without a credential and writes its own
+  pull requests' checks with its own `GITHUB_TOKEN` (`checks: write`).
+
+GitHub runs a fork's scheduled workflows only after they are enabled once in its Actions tab,
+and only from its default branch; both are settled in the task (section 7). Task 256 lets a benchmark run regenerate only the sections a PR adds or changes. Task
 257 is item 62's probe: the slow mode a kernel meets after N other kernels, as a function of N,
 with one arm in the nightly.
 
@@ -155,7 +170,7 @@ milestones 5 and 6 keep theirs.
 | 253 | The fallback scratch's contract stated in `VarkaFusedKernel`'s doc and enforced by a test | item 68 | small |
 | 222 | Structural hashing of IR nodes cached rather than recomputed on every map lookup | item 81 | small |
 | 254 | The grouping weights against the emitted counts: each pinned by a test, or the register retired | item 63 | small to medium |
-| 255 | The CI queue as a workflow on the base repository. **Waits on the owner's token** | item 76 | medium |
+| 255 | The CI queue off the laptop with no stored credential: the queue on the fork with its own `GITHUB_TOKEN`, the check sync on the base repository with its own | item 76, redesigned (2.4) | medium |
 | 256 | Regenerate one benchmark section, not the whole file | item 72 | small |
 | 257 | A kernel after other kernels: the slow mode's frequency as a function of N, one arm in the nightly | item 62 | medium |
 | 180 | Promotion, continuously | item 81 | a cadence |
@@ -168,10 +183,10 @@ milestones 5 and 6 keep theirs.
 
 | wave | tasks | why they wait |
 | ---: | :--- | :--- |
-| 0 | 240, 246, 248, 249, 256, 81 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 256 ends hand splicing for every benchmark below; 81 needs nothing |
+| 0 | 240, 246, 248, 249, 255, 256, 81 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 255 and 256 end the laptop queue and the hand splicing for every PR below; 81 needs nothing |
 | 1 | 241, 243, 250, 251, 214, 215, 216, 138, 247, 222, 253 | after the tooling and the two cheap refactors; the three family ports run in parallel, by an agent |
 | 2 | 242, 244, 217, 224, 83, 254, 257 | 217 after the families it fronts; 83 after 250, which rewrites the same paths; 244 after 243 defines what a delta departs from |
-| 3 | 245, 86, 252, 255 | 86 after the ports, so the admission is written once in Java; 252 once the structure has settled; 255 when the token exists |
+| 3 | 245, 86, 252 | 86 after the ports, so the admission is written once in Java; 252 once the structure has settled |
 | 4 | 261 | last by definition |
 
 Tasks 180 and 258 to 260 run across the waves.
@@ -206,7 +221,9 @@ Tasks 180 and 258 to 260 run across the waves.
    Neither is on the laptop today.
 2. **Does 254 retune the weights or retire them?** Item 63 leaves it to the task; task 236's
    planner reads the same costs, so 254 takes its answer from 236's build.
-3. **The token for 255** is the owner's decision.
+3. **Where 255's queue workflow lives on the fork.** A scheduled workflow runs from the default
+   branch, and the fork's `master` follows `apache/spark`'s. Carrying one extra file there is
+   the simplest answer; the task weighs it against another default branch for the fork.
 
 ## 8. Explicitly out of milestone 7
 
