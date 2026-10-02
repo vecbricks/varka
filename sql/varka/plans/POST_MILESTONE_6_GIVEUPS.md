@@ -211,13 +211,13 @@ Project [(id#0L + 1) AS c1#446L, (id#0L + 2) AS c2#447L, (id#0L + 3) AS c3#448L,
 On the runner that took 99 cheap columns from 800 to 521 nanoseconds a row. Do not do it for a
 projection that computes; there the stage wins.
 
-**And do not raise `maxFields` to keep a wide projection in.** The first post said to raise it
-with care and check the method's size. The method's size is not the risk. A 150-column
-projection of cheap columns, let into one stage by `maxFields=200`, has a method of 5,747 bytes,
-well under any limit - and for its first 12 to 22 seconds it runs two and a half to three and a
-half times slower than outside a stage while C2 compiles it, on every JDK, and then stays 1.2 to
-1.8 times slower on the runners (1.06 on the laptop). Every executor pays those seconds again for
-every stage it compiles.
+**And do not raise `maxFields` to keep a wide projection in.** The first post said to raise it with
+care and check the method's size. The method's size is not the risk. A 150-column projection of
+cheap columns, let into one stage by `maxFields=200`, has a method of 5,747 bytes, well under any
+limit - and for its first 12 to 22 seconds it runs two and a half to three and a half times slower
+than outside a stage while C2 compiles it, on every JDK, and then stays 1.2 to 1.8 times slower on
+the runners (on the laptop, 0.7 to 1.1 times, depending on the run). Every executor pays those
+seconds again for every stage it compiles.
 
 ![The first minute of a new wide stage](figures/svg/fig30-first-minute.svg)
 
@@ -285,7 +285,7 @@ the interpreter instead:
 WARN UnsafeProjection: Expr codegen error and falling back to interpreter mode
 ```
 
-That costs more: 3.1 to 4.4 times the compiled projection's time on the runner, 3.6 to 4.4 on the
+That costs more: 3.1 to 4.4 times the compiled projection's time on the runner, 3.1 to 4.2 on the
 laptop, from 100 to 1000 columns. You are unlikely to hit it with the defaults, since Spark splits
 a projection's code into methods well before 64 KB; it takes one enormous expression, or method
 splitting turned off.

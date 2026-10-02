@@ -1,0 +1,117 @@
+Two pinned runs of CodegenWideProjectionBenchmark on the quiet laptop, after task 233's unpinned run
+(CodegenWideProjectionBenchmark-jdk25-laptop-results.txt, which the post quotes) and to check it:
+one benchmark at a time, pinned to the fast cores as dev/varka_bench_regen.sh pins them (taskset -c
+0-3,12-15, the four Zen 5 cores at 5.16 GHz and their SMT siblings). Under the pin the JVM sees 8
+processors and starts 4 C2 compiler threads and 8 parallel GC threads, against 12 and 18 unpinned.
+Each run is reproduced as the benchmark printed it (PLAN_TASK_233.md 17).
+
+commit:  0e038bdb4a2 (varka-task-233-more) with this class as at 18c2f12daef (#544's head);
+         Spark's main sources (core, catalyst, sql/core, sql/api, common) are identical
+date:    2026-10-02, runs from 10:59 to 11:22 CEST
+jdk:     OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+kernel:  7.0.0-34-generic
+cpu:     AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
+power:   governor=performance epp=performance profile=performance
+command: SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0-3,12-15 build/sbt \
+           "sql/Test/runMain <this class>", this class in
+           org.apache.spark.sql.execution.benchmark
+
+== run 1, started 10:59 CEST at a load average of 0.98
+
+================================================================================================
+a wide projection in a stage, and taking it out
+================================================================================================
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             129            130           1          7.8         128.7       1.0X
+maxFields=49: no stage in the plan                   112            114           2          8.9         112.2       1.1X
+wholeStage=false: no stage in the plan               108            109           1          9.3         107.7       1.2X
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             382            385           2          2.6         382.1       1.0X
+maxFields=49: no stage in the plan                   431            435           3          2.3         431.3       0.9X
+wholeStage=false: no stage in the plan               430            433           2          2.3         430.0       0.9X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             257            258           1          3.9         257.2       1.0X
+maxFields=98: no stage in the plan                   208            210           2          4.8         208.0       1.2X
+wholeStage=false: no stage in the plan               207            210           2          4.8         207.4       1.2X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             718            721           3          1.4         717.7       1.0X
+maxFields=98: no stage in the plan                   858            861           3          1.2         857.8       0.8X
+wholeStage=false: no stage in the plan               859            865           5          1.2         858.5       0.8X
+
+== run 2, started 11:22 CEST at a load average of 0.98
+
+================================================================================================
+a wide projection in a stage, and taking it out
+================================================================================================
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             129            130           1          7.8         128.7       1.0X
+maxFields=49: no stage in the plan                   111            113           1          9.0         111.3       1.2X
+wholeStage=false: no stage in the plan               109            115          11          9.1         109.3       1.2X
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             398            401           3          2.5         397.6       1.0X
+maxFields=49: no stage in the plan                   482            488          11          2.1         481.6       0.8X
+wholeStage=false: no stage in the plan               479            483           5          2.1         478.6       0.8X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             257            283          40          3.9         257.5       1.0X
+maxFields=98: no stage in the plan                   202            204           1          4.9         202.3       1.3X
+wholeStage=false: no stage in the plan               202            205           2          4.9         202.4       1.3X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             731            736           6          1.4         731.1       1.0X
+maxFields=98: no stage in the plan                   895            901          12          1.1         894.9       0.8X
+wholeStage=false: no stage in the plan               894            900           9          1.1         893.7       0.8X
