@@ -1,0 +1,14 @@
+suite:       org.apache.spark.sql.execution.VarkaWarmupEndToEndSuite, run with
+             org.scalatest.tools.Runner on sql's exported test classpath and test java options
+             (-Xmx3g), a fresh JVM and working directory for each run
+where:       the owner's laptop, a ThinkPad P16s Gen 4, overnight under systemd-inhibit; the levels
+             of 0, 16, 24, 32 and 48 busy processes (`while :; do :; done` shell loops) ran about an
+             hour each, back to back, from 01:05 to 06:40 CEST, with a gap from 02:11 to 02:42
+             while a fault in the study's script held it (an empty `wait` waited for the CI queue)
+commit:      b942f65c971 (varka-task-233-more), whose sql test classes were built
+date:        2026-10-02
+jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+kernel:      7.0.0-34-generic
+cpu:         AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
+purpose:     whether CPU contention reproduces the warm-up released at its 60-second deadline in
+             #541's Build of 1 October (PLAN_TASK_233.md 13.7, SCOPE_MILESTONE_7.md item 77)

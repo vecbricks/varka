@@ -1,0 +1,49 @@
+================================================================================================
+a wide projection in a stage, and taking it out
+================================================================================================
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+50 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             402            412          13          2.5         402.0       1.0X
+maxFields=49: no stage in the plan                   287            293           7          3.5         286.6       1.4X
+wholeStage=false: no stage in the plan               285            287           2          3.5         285.0       1.4X
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+50 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             876            911          25          1.1         875.9       1.0X
+maxFields=49: no stage in the plan                   940            945           4          1.1         940.1       0.9X
+wholeStage=false: no stage in the plan               943            949           6          1.1         942.8       0.9X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+99 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             800            808           5          1.3         799.7       1.0X
+maxFields=98: no stage in the plan                   521            528           5          1.9         521.2       1.5X
+wholeStage=false: no stage in the plan               521            536           9          1.9         520.9       1.5X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+99 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                            1534           1541           5          0.7        1533.7       1.0X
+maxFields=98: no stage in the plan                  1810           1818           8          0.6        1809.7       0.8X
+wholeStage=false: no stage in the plan              1814           1819           5          0.6        1813.8       0.8X
+
+

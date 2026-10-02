@@ -1,0 +1,20 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenCompileWaitBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks")
+run:         https://github.com/MaxGekk/spark/actions/runs/36920247002
+commit:      be9686fe267 (varka-task-233-post: #542's branch and section 12)
+date:        2026-10-01
+inputs:      class=org.apache.spark.sql.execution.benchmark.CodegenCompileWaitBenchmark jdk=25
+             scala=2.13 num-splits=1 create-commit=false generate-tpcds=false
+             extra-java-options=-XX:+PrintCompilation -XX:+UnlockDiagnosticVMOptions
+             -XX:CompileCommand=quiet
+             -XX:CompileCommand=PrintInlining,*GeneratedIteratorForCodegenStage*::*
+jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
+kernel:      6.17.0-1022-azure
+cpu:         AMD EPYC 7763 64-Core Processor (not pinned; the inlining log is in the run's job log,
+             and C2's trees for the four projection consume methods are excerpted in the
+             -c2-trees.txt file beside this one)
+purpose:     task 233 (PLAN_TASK_233.md 13.4): whether C2's inlining budget, which 11.2 found spent
+             in the 150-entry stage's consume method, is also spent at the 50 to 99 entries where
+             11.1's stages lose to no stage, and not at 25 where the stage wins; the logging slows
+             both arms, so the times are for the ratio, not to quote alone. The summary lines are
+             the benchmark's as it now prints them, from the series in this file.

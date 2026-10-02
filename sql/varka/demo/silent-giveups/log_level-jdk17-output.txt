@@ -1,0 +1,40 @@
+Output of log_level.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36917213523
+commit:  65ff1249d97
+cpu:     AMD EPYC 9V74 80-Core Processor
+java:    openjdk version "17.0.20" 2026-07-21 LTS
+spark:   4.2.0
+
+### a method past 8000 bytes: 56 date entries in one projection
+26/10/01 19:55:52 WARN SparkStringUtils: Truncated the string representation of a plan since it was too large. This behavior can be adjusted by setting 'spark.sql.debug.maxToStringFields'.
+26/10/01 19:55:53 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:55:53 INFO CodeGenerator: Code generated in 291.225739 ms
+26/10/01 19:55:53 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 9635 bytes
+26/10/01 19:55:53 INFO CodeGenerator: Code generated in 210.727859 ms
+### a common subexpression over 130 nullable columns: 260 parameter slots
+26/10/01 19:55:54 INFO CodegenContext: Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+26/10/01 19:55:54 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:55:54 INFO CodeGenerator: Code generated in 57.638686 ms
+26/10/01 19:55:54 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:55:54 INFO CodeGenerator: Code generated in 92.851196 ms
+26/10/01 19:55:54 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage1.project_doConsume_0$ is 19464 bytes
+26/10/01 19:55:54 INFO CodeGenerator: Code generated in 150.613112 ms
+26/10/01 19:55:55 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.processNext is 10454 bytes
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 54.218246 ms
+### an aggregate over 130 nullable columns
+26/10/01 19:55:55 INFO HashAggregateExec: Failed to split aggregate code into small functions because the parameter length of at least one split function went over the JVM limit: 255
+26/10/01 19:55:55 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 56.97634 ms
+26/10/01 19:55:55 INFO CodeGenerator: Generated method too long to be JIT compiled: org.apache.spark.sql.catalyst.expressions.GeneratedClass$GeneratedIteratorForCodegenStage2.hashAgg_doAggregateWithoutKey_1$ is 10490 bytes
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 39.837094 ms
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 8.125373 ms
+### a struct key: the fast hash map does not support it
+26/10/01 19:55:55 INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+26/10/01 19:55:55 INFO HashAggregateExec: spark.sql.codegen.aggregate.map.twolevel.enabled is set to true, but current version of codegened fast hashmap does not support this aggregate.
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 27.316784 ms
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 29.523937 ms
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 5.370454 ms
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 4.633788 ms
+26/10/01 19:55:55 INFO CodeGenerator: Code generated in 5.020248 ms
+26/10/01 19:55:56 INFO CodeGenerator: Code generated in 7.03026 ms
+### Spark 4.2.0, Java 17.0.20

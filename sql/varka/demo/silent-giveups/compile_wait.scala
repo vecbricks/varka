@@ -71,6 +71,8 @@ series("150 entries id + k, maxFields=200, in a stage",
   Seq("spark.sql.codegen.maxFields" -> "200"), projection(150, _))
 series("150 entries id + k, maxFields=100 (the default), outside a stage", Nil, projection(150, _))
 series("99 entries id + k, the defaults, in a stage", Nil, projection(99, _))
+series("99 entries id + k, wholeStage=false",
+  Seq("spark.sql.codegen.wholeStage" -> "false"), projection(99, _))
 series("60 sums by a key of ten values, the defaults, in a stage", Nil, aggregate(60, _))
 series("60 sums by a key of ten values, wholeStage=false",
   Seq("spark.sql.codegen.wholeStage" -> "false"), aggregate(60, _))
