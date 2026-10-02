@@ -145,31 +145,32 @@ final class VarkaBodyEmitter {
       if (!(outputs.get(o) instanceof Cond)) {
         loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
       }
-      // an output this emission writes a word at a time needs the segment to own the whole last
-      // word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is short of it for
-      // every length not a multiple of 64. The Arrow buffer behind it carries that at every length
-      // (VarkaKernelEvaluatorSuite), and the driver's zero below then covers exactly the bytes the
-      // loop stores. Every other output keeps the nominal size, so an emission that word-writes
-      // nothing keeps its bytes.
-      if (!buildsValiditySegment(analysis, dense, mode, outputs, o)) {
-        // Under elideUnreadLocals a loop or epilogue body maps no validity segment for an output
-        // whose validity it never writes: the driver filled it or the bitmap pass wrote it.
-      } else if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
-        cb.aload(P_DST_VALIDITY);
-        cb.loadConstant(o);
-        cb.laload();
-        cb.iload(analysis.lane.pLength);
-        cb.loadConstant(63);
-        cb.iadd();
-        cb.i2l();
-        cb.loadConstant(64L);
-        cb.ldiv();
-        cb.loadConstant(3);
-        cb.lshl();
-        cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
-        cb.astore(s.dstValSeg[o]);
-      } else {
-        loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
+      // Under elideUnreadLocals a loop or epilogue body maps no validity segment for an output
+      // whose validity it never writes: the driver filled it or the bitmap pass wrote it.
+      if (buildsValiditySegment(analysis, dense, mode, outputs, o)) {
+        // an output this emission writes a word at a time needs the segment to own the whole last
+        // word, ((length + 63) / 64) * 8 bytes, where the nominal (length + 7) / 8 is short of it
+        // for every length not a multiple of 64. The Arrow buffer behind it carries that at every
+        // length (VarkaKernelEvaluatorSuite), and the driver's zero below then covers exactly the
+        // bytes the loop stores. Every other output keeps the nominal size, so an emission that
+        // word-writes nothing keeps its bytes.
+        if (wordWrites(analysis) && keepsPerGroupWrite(analysis, dense, outputs, o)) {
+          cb.aload(P_DST_VALIDITY);
+          cb.loadConstant(o);
+          cb.laload();
+          cb.iload(analysis.lane.pLength);
+          cb.loadConstant(63);
+          cb.iadd();
+          cb.i2l();
+          cb.loadConstant(64L);
+          cb.ldiv();
+          cb.loadConstant(3);
+          cb.lshl();
+          cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
+          cb.astore(s.dstValSeg[o]);
+        } else {
+          loadSegment(cb, P_DST_VALIDITY, o, s.validityBytes, s.dstValSeg[o]);
+        }
       }
       // an output the bitmap pass serves is written whole between steps (4) and (5) below - after
       // the null state it reads exists and before the shortcut can return - and that write is what
@@ -713,7 +714,7 @@ final class VarkaBodyEmitter {
   /**
    * One lane group: this group's validity words, then each output's vector walk and store.
    * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
-   * with {@code s.epilogueMask} set - the only difference between them inside here.
+   * with {@code s.epilogue} set - the only difference between them inside here.
    */
   private static void emitLaneGroup(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
@@ -811,7 +812,7 @@ final class VarkaBodyEmitter {
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
-          cb.aload(s.epilogueMask);
+          cb.aload(s.epilogueMask());
           cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
               analysis.lane.intoMemorySegmentMasked);
         } else {
@@ -889,7 +890,7 @@ final class VarkaBodyEmitter {
       Runnable pushBits) {
     int acc = s.validityAcc == null ? -1 : s.validityAcc[output];
     if (acc < 0) {
-      cb.aload(s.dstValSeg[output]);
+      cb.aload(s.dstValSeg(output));
       cb.iload(s.iVar);
       cb.i2l();
       pushBits.run();
@@ -916,7 +917,7 @@ final class VarkaBodyEmitter {
     cb.lshl();
     cb.lor();
     cb.lstore(acc);
-    cb.aload(s.dstValSeg[output]);
+    cb.aload(s.dstValSeg(output));
     cb.iload(s.iVar);
     cb.i2l();
     cb.lload(acc);
@@ -958,8 +959,8 @@ final class VarkaBodyEmitter {
    * epilogue body does only for an output whose validity it writes: one that
    * {@link #keepsPerGroupWrite}, or a {@link Cond} root, whose selection bitmap the lane group
    * always writes. Read by {@code Slots.plan}, which plans the segment's local, and by step (3),
-   * which builds it, so the two cannot disagree; a write through a segment never built fails
-   * verification at the first emission.
+   * which builds it, so the two cannot disagree; a write through a segment never built fails at
+   * the first emission in {@code Slots.dstValSeg(int)}.
    */
   static boolean buildsValiditySegment(Analysis analysis, boolean dense, BodyMode mode,
       List<VarkaVectorIR> outputs, int o) {
@@ -1005,7 +1006,7 @@ final class VarkaBodyEmitter {
    */
   private static void emitBitmapPass(CodeBuilder cb, Slots s, int o, BitmapPass pass, Lane lane) {
     int[] ords = pass.ordinals();
-    cb.aload(s.dstValSeg[o]);
+    cb.aload(s.dstValSeg(o));
     if (ords.length == 0) {
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, "setValid", SET_VALID);
@@ -1023,7 +1024,7 @@ final class VarkaBodyEmitter {
     cb.iload(lane.pLength);
     cb.invokestatic(SUPPORT, name, COLUMN_VALIDITY_PAIR);
     for (int k = 2; k < ords.length; k++) {
-      cb.aload(s.dstValSeg[o]);
+      cb.aload(s.dstValSeg(o));
       emitColumnOperand(cb, ords[k]);
       cb.iload(lane.pLength);
       cb.invokestatic(SUPPORT, name + "Into", COLUMN_VALIDITY_INTO);

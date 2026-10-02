@@ -337,3 +337,28 @@ with the switch off nothing they read moves.
 3. Waits for the default: the audit's builds and loop methods move only when the switch is on in
    the shipped options.
 4. and 5. Wait for the runner.
+
+### 9.3 The review
+
+A code review of the built switch found no reader the predicates miss, and nine problems short of
+that; all are addressed.
+
+* **The option-dependent read sets were untested.** `prefixReads`'s arms for the Julian map off,
+  the Neri-Schneider month off and the recomposing `trunc` matter only where a later group loads a
+  prefix, and the census ran at the defaults alone. A new test puts every calendar tail alone in
+  the group after a producer, under each of those options and the defaults, and holds it to the
+  reference's answers and to no unread local. With the century dropped from the year's arm on
+  purpose, the first class fails verification.
+* **A missed reader failed obscurely**, as an unboxing `NullPointerException` for the mask or a
+  `CodeBuilder` complaint about local -1 for a segment. Readers now go through `Slots`
+  accessors that name the predicate that missed them.
+* **The four predicates restate their readers**, where a dead-store pass after emission would not
+  (3.7). They stay: the pass would rewrite every class and hide the bookkeeping errors the
+  accessors now report.
+* **The month and the other vectors were two maps.** `Slots.fragmentReads` now holds both, the
+  month as bit 5, and `emitPrefixTransfer` takes one mask of the vectors to move. Without the
+  switch the planner computes a fragment's key for month readers alone, as before.
+* **The suite emitted the corpus three times.** It now emits each options value once, and checks
+  shared slots with the switch on as well as off, and the census without CSE too.
+* Smaller: a stale `emitLaneGroup` comment, an empty branch in step (3), and an impossible
+  `key != null` guard, now a comment stating why the key is there.

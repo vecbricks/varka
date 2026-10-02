@@ -167,18 +167,18 @@ final class Slots {
    * month step in a {@code year(d)} loop method merely because {@code month(d)} is another
    * output emitted by a different method, which is the elision this task exists for.
    *
-   * <p>Reading the set rather than the node being emitted is what makes the decision
+   * <p>Reading the map rather than the node being emitted is what makes the decision
    * order-independent under sharing: whichever sibling emits the prefix first, it emits the
    * month if any sibling in the group will read it.
-   */
-  final Set<FragmentKey> fragmentsReadingMonth = new HashSet<>();
-  /**
-   * Per prefix fragment of the lane group being emitted now, which of the prefix's first five
-   * vectors its tails read ({@code VarkaChronoLowering.prefixReads}), filled with
-   * {@link #fragmentsReadingMonth} and for the same reason: a group that loads a materialized
-   * prefix loads, under {@link VarkaEmitOptions#elideUnreadLocals}, only what some tail reads.
+   *
+   * <p>The other bits, {@code t[0..4]}, are filled only under
+   * {@link VarkaEmitOptions#elideUnreadLocals} ({@code VarkaChronoLowering.prefixReads}), where
+   * a group that loads a materialized prefix loads only the vectors some tail reads; without the
+   * switch only month readers are entered, and a fragment absent from the map reads no month.
    */
   final Map<FragmentKey, Integer> fragmentReads = new HashMap<>();
+  /** The bit of {@link #fragmentReads} for the March-based month in {@code t[5]}. */
+  static final int READS_MONTH = 1 << (Analysis.SCRATCH_VECTORS - 1);
   /**
    * The prefix fragments already emitted in the lane group being emitted now. Emit-time
    * state rather than plan-time, cleared at the top of {@code emitLaneGroup} for exactly the
@@ -313,6 +313,38 @@ final class Slots {
     word = new int[numInputs];
     dstSeg = new int[numOutputs];
     dstValSeg = new int[numOutputs];
+  }
+
+  // Under elideUnreadLocals a body builds a segment or the epilogue's mask only where a predicate
+  // says something reads it. A reader the predicate missed reads a local never built; these
+  // accessors make that fail at the first emission naming the predicate, rather than as an
+  // unboxing NullPointerException or a CodeBuilder's complaint about local -1.
+
+  /** The epilogue's bounds mask local; see {@link #epilogueReadsMask}. */
+  int epilogueMask() {
+    if (epilogueMask == null) {
+      throw new IllegalStateException(
+          "the epilogue's mask is read but not built: Slots.epilogueReadsMask missed a reader");
+    }
+    return epilogueMask;
+  }
+
+  /** Input {@code i}'s data segment local; see the value columns in {@link #plan}. */
+  int srcSeg(int i) {
+    if (srcSeg[i] < 0) {
+      throw new IllegalStateException("input " + i + "'s data segment is read but not built: "
+          + "Slots.plan's value columns missed a reader");
+    }
+    return srcSeg[i];
+  }
+
+  /** Output {@code o}'s validity segment local; see {@code buildsValiditySegment}. */
+  int dstValSeg(int o) {
+    if (dstValSeg[o] < 0) {
+      throw new IllegalStateException("output " + o + "'s validity segment is read but not "
+          + "built: VarkaBodyEmitter.buildsValiditySegment missed a writer");
+    }
+    return dstValSeg[o];
   }
 
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
@@ -1015,8 +1047,8 @@ final class Slots {
    * prefix transfer - so the epilogue reads it where it reads a column for its value
    * ({@code valueColumns}), serves a root that is neither a condition (whose bitmap is written by
    * the validity helpers) nor a narrowing (whose store builds its own mask), folds a guard into
-   * the accumulator, or stores or loads a materialized prefix. A reader this misses reads the
-   * unbuilt mask, which fails at the first emission rather than quietly taking the unmasked form.
+   * the accumulator, or stores or loads a materialized prefix. A reader this misses fails at the
+   * first emission in {@link #epilogueMask()}, rather than quietly taking the unmasked form.
    */
   private static boolean epilogueReadsMask(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
       long valueColumns, Slots s, Analysis analysis, int group) {
@@ -1366,15 +1398,16 @@ final class Slots {
 
   /**
    * Which of this lane group's prefix fragments a tail in it reads the March-based month out
-   * of, over the union of the group's outputs' subtrees. The walk is the group's own
-   * because {@link Slots#fragmentsReadingMonth} is the group's own - see its doc for why the
+   * of - and, under {@link VarkaEmitOptions#elideUnreadLocals}, which of the prefix's other
+   * vectors - over the union of the group's outputs' subtrees. The walk is the group's own
+   * because {@link Slots#fragmentReads} is the group's own - see its doc for why the
    * body's whole output list would be too wide - and it precedes every emission in the group,
    * so no sibling's order can change what it decides.
    */
   static void planFragmentsReadingMonth(List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, boolean dense, Slots s, Analysis analysis) {
-    s.fragmentsReadingMonth.clear();
     s.fragmentReads.clear();
+    boolean elide = analysis.options.elideUnreadLocals();
     Set<VarkaVectorIR> seen = new HashSet<>();
     List<VarkaVectorIR> pending = new ArrayList<>();
     for (int o : outputIdx) {
@@ -1385,19 +1418,16 @@ final class Slots {
       if (!seen.add(node)) {
         continue;
       }
-      if (isChrono(node)) {
-        FragmentKey key = fragmentKey(node, dense, s, analysis);
-        if (tailReadsMarchMonth(node)) {
-          s.fragmentsReadingMonth.add(key);
-        }
-        s.fragmentReads.merge(key, VarkaChronoLowering.prefixReads(node,
-            analysis.options), (a, b) -> a | b);
+      // Without the switch the key is computed for month readers alone, as before task 239.
+      if (isChrono(node) && (elide || tailReadsMarchMonth(node))) {
+        int reads = (tailReadsMarchMonth(node) ? READS_MONTH : 0)
+            | (elide ? VarkaChronoLowering.prefixReads(node, analysis.options) : 0);
+        s.fragmentReads.merge(fragmentKey(node, dense, s, analysis), reads, (a, b) -> a | b);
       }
       // Under elideUnreadLocals the walk follows the emission, as emittedNodes does: a date
       // whose materialized prefix the group loads and does not visit is never emitted, so a tail
       // under it reads no month and no vector of any prefix here.
-      VarkaVectorIR skipped = analysis.options.elideUnreadLocals()
-          ? loadedPrefixDate(analysis, s.group, node) : null;
+      VarkaVectorIR skipped = elide ? loadedPrefixDate(analysis, s.group, node) : null;
       if (skipped != null && visitsLoadedDate(dense, s, skipped)) {
         skipped = null;
       }
