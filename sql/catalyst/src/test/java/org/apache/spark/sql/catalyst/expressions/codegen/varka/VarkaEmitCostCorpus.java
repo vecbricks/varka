@@ -237,11 +237,13 @@ final class VarkaEmitCostCorpus {
   static final long COMPOSITION_LONG_SEED = 20261003L;
 
   /**
-   * Shapes past the driver from a table's ceiling of about 180 groups, where the split driver
-   * builds a class twice to size its stages and several kernels find their split by bisection
-   * ({@code PLAN_TASK_236.md} 2): the size ladder at 800 and 1200 entries, and wide draws composed
-   * until they hold at least 250 roots, as {@code VarkaIrFuzzSuite}'s wide test composes them, at
-   * each lane. Only the audit's count of builds reads them; they are too wide to fit prices on.
+   * Shapes near and past the driver from a table's ceiling of about 180 groups, where the split
+   * driver builds a class twice to size its stages ({@code PLAN_TASK_236.md} 2): the size ladder
+   * at 800 and 1200 entries, and twenty compositions of wide draws at each lane. A composition
+   * draws until 250 roots are drawn or twelve draws are made, as {@code VarkaIrFuzzSuite}'s wide
+   * test does, and then drops repeated roots, so it is not always past the ceiling: the audit's
+   * stage splits say which are. Only the audit's count of builds reads these shapes, which are
+   * too wide to fit prices on.
    */
   static List<Shape> pastCeiling() {
     List<Shape> shapes = new ArrayList<>();
@@ -250,36 +252,37 @@ final class VarkaEmitCostCorpus {
           entries(n, VarkaEmitCostCorpus::ladderEntry), 1, n));
     }
     for (int k = 0; k < COMPOSITIONS; k++) {
-      scala.util.Random rnd = VarkaIrGrammar.shapeRandom(COMPOSITION_SEED, k);
-      LinkedHashSet<VarkaVectorIR> roots = new LinkedHashSet<>();
-      int drawn = 0;
-      int inputs = 0;
-      int literals = 0;
-      for (int draws = 0; drawn < 250 && draws < 12; draws++) {
-        VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(rnd);
-        roots.addAll(roots(d.roots()));
-        drawn += d.roots().size();
-        inputs = Math.max(inputs, d.numInputs());
-        literals = Math.max(literals, d.numLiterals());
-      }
-      shapes.add(new Shape("wide compositions, int", k, List.copyOf(roots), inputs, literals));
+      shapes.add(composition("wide compositions, int", k,
+          VarkaIrGrammar.shapeRandom(COMPOSITION_SEED, k), rnd -> {
+            VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(rnd);
+            return new Shape("", 0, roots(d.roots()), d.numInputs(), d.numLiterals());
+          }));
     }
     for (int k = 0; k < COMPOSITIONS; k++) {
-      scala.util.Random rnd = VarkaIrGrammar.shapeRandom(COMPOSITION_LONG_SEED, k);
-      LinkedHashSet<VarkaVectorIR> roots = new LinkedHashSet<>();
-      int drawn = 0;
-      int inputs = 0;
-      int literals = 0;
-      for (int draws = 0; drawn < 250 && draws < 12; draws++) {
-        VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(rnd);
-        roots.addAll(roots(d.roots()));
-        drawn += d.roots().size();
-        inputs = Math.max(inputs, d.numInputs());
-        literals = Math.max(literals, d.numLiterals());
-      }
-      shapes.add(new Shape("wide compositions, long", k, List.copyOf(roots), inputs, literals));
+      shapes.add(composition("wide compositions, long", k,
+          VarkaIrGrammar.shapeRandom(COMPOSITION_LONG_SEED, k), rnd -> {
+            VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(rnd);
+            return new Shape("", 0, roots(d.roots()), d.numInputs(), d.numLiterals());
+          }));
     }
     return shapes;
+  }
+
+  /** Draws from {@code draw} until 250 roots or twelve draws, then keeps each root once. */
+  private static Shape composition(String family, int index, scala.util.Random rnd,
+      java.util.function.Function<scala.util.Random, Shape> draw) {
+    LinkedHashSet<VarkaVectorIR> roots = new LinkedHashSet<>();
+    int drawn = 0;
+    int inputs = 0;
+    int literals = 0;
+    for (int draws = 0; drawn < 250 && draws < 12; draws++) {
+      Shape d = draw.apply(rnd);
+      roots.addAll(d.roots());
+      drawn += d.roots().size();
+      inputs = Math.max(inputs, d.numInputs());
+      literals = Math.max(literals, d.numLiterals());
+    }
+    return new Shape(family, index, List.copyOf(roots), inputs, literals);
   }
 
   /**

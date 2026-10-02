@@ -187,24 +187,14 @@ final class VarkaEmitCostAudit {
     }
   }
 
-  /** The reactions the emitter's loop ran, by the name the file gives each. */
-  private static final List<String> REACTIONS = List.of("byte regroups", "call-site splits",
-      "call-site rollbacks", "stage splits", "exact grouping fallbacks", "prediction fallbacks");
-
-  private static int[] reactions(VarkaEmitTrace t) {
-    return new int[] {t.byteRegroups, t.siteSplits, t.siteRollbacks, t.stageSplits,
-        t.exactFallbacks, t.predictFallbacks};
-  }
-
   /** A shape built more than once: its index, its builds, and the reactions that forced them. */
   private static String rebuilt(Shape s, VarkaEmitTrace t) {
-    int[] r = reactions(t);
     List<String> why = new ArrayList<>();
-    for (int i = 0; i < r.length; i++) {
-      if (r[i] > 0) {
-        why.add(r[i] + " " + REACTIONS.get(i));
+    t.reactions().forEach((name, count) -> {
+      if (count > 0) {
+        why.add(count + " " + name);
       }
-    }
+    });
     return s.index() + ": " + t.builds + " builds (" + String.join(", ", why) + ")";
   }
 
@@ -228,8 +218,8 @@ final class VarkaEmitCostAudit {
       int declineBuildsOn = 0;
       int buildsOff = 0;
       int buildsOn = 0;
-      int[] reactionsOff = new int[REACTIONS.size()];
-      int[] reactionsOn = new int[REACTIONS.size()];
+      Map<String, Integer> reactionsOff = new LinkedHashMap<>();
+      Map<String, Integer> reactionsOn = new LinkedHashMap<>();
       List<String> rebuiltOff = new ArrayList<>();
       List<String> rebuiltOn = new ArrayList<>();
       List<String> gained = new ArrayList<>();
@@ -243,10 +233,10 @@ final class VarkaEmitCostAudit {
         declinedOn += on.loops() < 0 ? 1 : 0;
         buildsOff += off.builds();
         buildsOn += on.builds();
-        for (int i = 0; i < REACTIONS.size(); i++) {
-          reactionsOff[i] += reactions(off.trace())[i];
-          reactionsOn[i] += reactions(on.trace())[i];
-        }
+        off.trace().reactions().forEach((name, count) -> reactionsOff.merge(name, count,
+            Integer::sum));
+        on.trace().reactions().forEach((name, count) -> reactionsOn.merge(name, count,
+            Integer::sum));
         if (off.builds() > 1) {
           rebuiltOff.add(rebuilt(s, off.trace()));
         }
@@ -280,21 +270,13 @@ final class VarkaEmitCostAudit {
           "builds spent on shapes both decline, predicted", declineBuildsOn,
           "builds, weights", buildsOff,
           "builds, predicted", buildsOn,
-          "reactions, weights", counted(reactionsOff),
-          "reactions, predicted", counted(reactionsOn),
+          "reactions, weights", reactionsOff,
+          "reactions, predicted", reactionsOn,
           "shapes built more than once, weights", rebuiltOff,
           "shapes built more than once, predicted", rebuiltOn,
           "predicted first groupings, digest", digest(groupings.toString())));
     }
     return families;
-  }
-
-  private static Map<String, Integer> counted(int[] totals) {
-    Map<String, Integer> named = new LinkedHashMap<>();
-    for (int i = 0; i < totals.length; i++) {
-      named.put(REACTIONS.get(i), totals[i]);
-    }
-    return named;
   }
 
   private static String digest(String text) {
@@ -309,8 +291,9 @@ final class VarkaEmitCostAudit {
 
   /**
    * The audit file's text. {@code extra} are shapes only the count of builds reads, beside the
-   * held-out ones: the families {@code PLAN_TASK_236.md} 2 added, the coverage compositions among
-   * them, which only a Scala suite can compile.
+   * held-out ones: the families {@code PLAN_TASK_236.md} 2 added. The count is of the emitter's
+   * builds; the compiler's admission emissions, several kernels' bisection among them, are not
+   * in it.
    */
   static String render(List<Shape> extra) {
     List<Shape> shapes = heldOut();
@@ -330,8 +313,9 @@ final class VarkaEmitCostAudit {
             + "decline either way, every build and the reaction to a measurement that forced it, "
             + "the shapes built more than once, and a digest of the first "
             + "groupings the prediction forms, which moves whenever the prices regroup a shape. "
-            + "The count of builds also reads task 200's mixed and interleaved families, sixty "
-            + "coverage compositions, and shapes past the driver's ceiling. "
+            + "The count of builds also reads task 200's mixed and interleaved families, and "
+            + "the size ladder past the driver's ceiling with compositions of wide draws near and "
+            + "past it; it counts the emitter's builds, not the compiler's admission emissions. "
             + "See PLAN_TASK_199.md and PLAN_TASK_236.md.",
         "jdk", System.getProperty("java.specification.version"),
         "accuracy", accuracy(points(shapes)),

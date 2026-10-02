@@ -23,13 +23,19 @@ reconsidered in this plan; section 3.6 does.
 
 ## 2. The admission check, done
 
-On master at `8afa3fe4bd3`. The builds of 2.1 are the cost audit's, whose count this plan's first
-step widens (`emit_cost_audit.json`, section `grouping`): every shape of its held-out corpus, task
-200's mixed and interleaved families, its sixty coverage compositions, the size ladder at 800 and
-1200 entries and forty compositions of wide draws past 250 outputs, twenty of each lane, composed
-as the IR fuzzer's wide test composes its int draws, each emitted with the emitter's trace
-(`VarkaEmitTrace`) counting builds and reactions. The readings of 2.2 to 2.4 come from a scratch
-suite over the same shapes, not committed. Everything below is a count; nothing is timed.
+On master at `8afa3fe4bd3`. Each shape below was emitted with the emitter's trace
+(`VarkaEmitTrace`) counting builds and reactions:
+* every shape of the cost audit's held-out corpus;
+* task 200's mixed and interleaved families, and its sixty coverage compositions;
+* the size ladder at 800 and 1200 entries;
+* forty compositions of wide draws, twenty of each lane, each drawn as the IR fuzzer's wide test
+  draws: until 250 roots are drawn or twelve draws are made, with repeated roots then dropped.
+
+This plan's first step pins the builds of 2.1 in the cost audit (`emit_cost_audit.json`, section
+`grouping`), except the coverage compositions. Their draw indexes `coverage.json`, so a pinned file
+over them would move with every expression added; they are this check's reading alone. The
+readings of 2.2 to 2.4 come from a scratch suite over the same shapes, not committed. Everything
+below is a count; nothing is timed.
 
 ### 2.1 What rebuilds at the defaults
 
@@ -40,7 +46,7 @@ suite over the same shapes, not committed. Everything below is a count; nothing 
 | wide long | 100 | 83 | 98 | call sites; one shape bytes too, prediction off |
 | size, `make_date` and cheap-tail ladders | 9 | 7 | 9 | call sites, the cheap tails |
 | mixed and interleaved families | 8 | 8 | 8 | - |
-| coverage compositions | 60 | 50 | 55 | call sites |
+| coverage compositions, not pinned | 60 | 50 | 55 | call sites |
 | size ladder at 800 and 1200 entries | 2 | 0 | 0 | stages |
 | wide compositions, int | 20 | 0 | 0 | stages; one shape call sites too, prediction off |
 | wide compositions, long | 20 | 1 | 4 | stages and call sites; one shape bytes too, prediction off |
@@ -49,7 +55,8 @@ At the shipped options, where the prediction is off, 72 of 2319 shapes build mor
 on call sites, 37 on stages, 9 of them on both, and 2 on bytes. With the prediction on, 45, and
 two reactions account for all of them: the stage split, on all 37 shapes past the driver's
 ceiling, and the call-site split of task 209, on 9, one of them also staged. The byte regroup did
-not fire with the prediction on, and nothing declined.
+not fire with the prediction on, and nothing declined. Without the coverage compositions, as the
+audit pins it, 62 of 2259 rebuild with the prediction off and 40 with it on.
 
 ### 2.2 The driver and its stages are known before the build
 
@@ -116,6 +123,24 @@ take; and the call-site splits already fall from 44 shapes to 9 when the predict
 which is the remainder a margin and one correction have to cover. What the check does not support is
 a new reaction: at the defaults the byte budget almost never binds, so a correction mechanism is
 exercised only under the small budgets the fuzzer draws.
+
+### 2.6 The review of this plan's first step, 2 October 2026
+
+A code review of the pull request found ten problems with the first step's audit code, none in
+the plan's figures. The fixes:
+* **Coverage compositions out of the pinned audit.** They had made the file depend on
+  `coverage.json`, been admitted by the compiler under one arm's options, and been drawn by a
+  shared Scala object against the rule that new Varka code is Java. The draw is
+  `VarkaGroupingBoundSuite`'s own again.
+* **Docs no longer claim what the corpus does not do.** `pastCeiling` does not guarantee 250 roots
+  or a shape past the ceiling, and the audit counts the emitter's builds, not the compiler's
+  bisection. Step 2's tests, not this file, give the before-count of several kernels' emissions.
+* **The reaction names live in `VarkaEmitTrace.reactions()`**, one list instead of two parallel
+  ones.
+* **The two composition loops are one helper.** The fuzzer's own composition, which wants its
+  draws' column domains as well, keeps its loop.
+* **The cost of the extra families**: the audit's suite runs in about 20 seconds where it took
+  about 12, which it keeps paying, since a file checked only at regeneration would not be checked.
 
 ## 3. The design
 

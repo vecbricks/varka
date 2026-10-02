@@ -1,6 +1,6 @@
 {
   "generated_by" : "VarkaEmitCostAuditSuite; regenerate with VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostAuditSuite'",
-  "description" : "The emit cost model's two pricings - the fitted prices the grouping uses (VarkaEmitCostTable) and the measured register (VarkaEmitCostRegister) - scored against the classes the emitter builds, at sixteen int lanes, over the odd-numbered fuzz and wide shapes and every ladder, none of which either was derived from, each emitted under its default grouping and under groups up to the fused ceiling. An error is |predicted - measured| / measured for one method of one group. Then each shape at the shipped options with predictGrouping off and on: how many builds it took, its loop methods, the builds spent on shapes that decline either way, every build and the reaction to a measurement that forced it, the shapes built more than once, and a digest of the first groupings the prediction forms, which moves whenever the prices regroup a shape. The count of builds also reads task 200's mixed and interleaved families, sixty coverage compositions, and shapes past the driver's ceiling. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
+  "description" : "The emit cost model's two pricings - the fitted prices the grouping uses (VarkaEmitCostTable) and the measured register (VarkaEmitCostRegister) - scored against the classes the emitter builds, at sixteen int lanes, over the odd-numbered fuzz and wide shapes and every ladder, none of which either was derived from, each emitted under its default grouping and under groups up to the fused ceiling. An error is |predicted - measured| / measured for one method of one group. Then each shape at the shipped options with predictGrouping off and on: how many builds it took, its loop methods, the builds spent on shapes that decline either way, every build and the reaction to a measurement that forced it, the shapes built more than once, and a digest of the first groupings the prediction forms, which moves whenever the prices regroup a shape. The count of builds also reads task 200's mixed and interleaved families, and the size ladder past the driver's ceiling with compositions of wide draws near and past it; it counts the emitter's builds, not the compiler's admission emissions. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
   "jdk" : "25",
   "accuracy" : {
     "by pricing, quantity and size band" : {
@@ -801,39 +801,6 @@
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
       "predicted first groupings, digest" : "1a87fa61ed89038f"
-    },
-    "coverage compositions" : {
-      "shapes" : 60,
-      "emitted in one build, weights" : 50,
-      "emitted in one build, predicted" : 55,
-      "loop methods, weights" : 2295,
-      "loop methods, predicted" : 2293,
-      "shapes with more loop methods, predicted" : [ "21: 59 -> 60" ],
-      "declined, weights" : 0,
-      "declined, predicted" : 0,
-      "builds spent on shapes both decline, weights" : 0,
-      "builds spent on shapes both decline, predicted" : 0,
-      "builds, weights" : 70,
-      "builds, predicted" : 65,
-      "reactions, weights" : {
-        "byte regroups" : 0,
-        "call-site splits" : 10,
-        "call-site rollbacks" : 0,
-        "stage splits" : 0,
-        "exact grouping fallbacks" : 0,
-        "prediction fallbacks" : 0
-      },
-      "reactions, predicted" : {
-        "byte regroups" : 0,
-        "call-site splits" : 5,
-        "call-site rollbacks" : 0,
-        "stage splits" : 0,
-        "exact grouping fallbacks" : 0,
-        "prediction fallbacks" : 0
-      },
-      "shapes built more than once, weights" : [ "0: 2 builds (1 call-site splits)", "19: 2 builds (1 call-site splits)", "21: 2 builds (1 call-site splits)", "33: 2 builds (1 call-site splits)", "45: 2 builds (1 call-site splits)", "46: 2 builds (1 call-site splits)", "50: 2 builds (1 call-site splits)", "54: 2 builds (1 call-site splits)", "55: 2 builds (1 call-site splits)", "56: 2 builds (1 call-site splits)" ],
-      "shapes built more than once, predicted" : [ "21: 2 builds (1 call-site splits)", "46: 2 builds (1 call-site splits)", "50: 2 builds (1 call-site splits)", "55: 2 builds (1 call-site splits)", "56: 2 builds (1 call-site splits)" ],
-      "predicted first groupings, digest" : "09cc73bb97e50452"
     },
     "size ladder past the driver's ceiling" : {
       "shapes" : 2,
