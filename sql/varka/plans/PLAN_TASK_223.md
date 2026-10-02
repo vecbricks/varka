@@ -129,9 +129,11 @@ the kernel-wide count restored.
 | size ladder | 1544, unchanged | 2602528, unchanged | 0 | 5, unchanged | 193, unchanged |
 | cheap tails | 40, unchanged | 26092, unchanged | 0 | 5, unchanged | 6, unchanged |
 
-Each family loses exactly the shared slots section 2 counted as used once, at three bytes each in
-the int families and a little under in the wide long one, where more of the removed slots had an
-index under four and a one-byte store.
+The table was counted before task 235 gave the long draws a `NarrowLane` root, so its two long-lane
+rows describe the corpus as it was then; the int-lane rows and the ladders are unchanged by it. Each
+family loses exactly the shared slots section 2 counted as used once, at three bytes each in the int
+families and a little under in the wide long one, where more of the removed slots had an index under
+four and a one-byte store.
 
 ### 9.2 The predictions, scored
 
@@ -150,8 +152,8 @@ index under four and a one-byte store.
 
 **The audit, requoted.** No conclusion of `PLAN_TASK_199.md` 9 moves: the refitted prices' error at
 2000 bytes and over is 2.2% at the median and 11.9% at the 99th percentile, against 12.4% before.
-The methods of 8000 bytes and over number 139, against 161: the removed stores take 22 of them
-under the line.
+The methods of 8000 bytes and over number 155, against 169 on master since task 235 widened the
+long corpus (139 against 161 before it): the removed stores take 14 of them under the line.
 
 ### 9.3 What the count does not see, and a finding beyond the row
 

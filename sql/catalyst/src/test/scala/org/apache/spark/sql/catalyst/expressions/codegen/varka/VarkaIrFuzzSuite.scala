@@ -61,7 +61,9 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * The long lane has a corpus of its own, drawn from `VarkaIrGrammar.LongShapes` over 64-bit
  * columns and literals and run through the kernel's eight-argument entry point against
  * `evalLong`. It is a second sequence with a second seed rather than long shapes mixed into the
- * first, because the first is also the emitted-bytes oracle's committed corpus. The same
+ * first, because the first is also the emitted-bytes oracle's committed corpus. Its value roots
+ * are narrowed to an int column where their bound fits (`LongShapes.root`, task 235), and a
+ * narrowing root's output is read at the store's four bytes a row. The same
  * option draws apply, which is what puts `useAVX` under the constant division and so fuzzes
  * both of its lowerings on one machine.
  *
@@ -328,9 +330,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
               val want = VarkaReferenceEvaluator.evalLong(root, row, lits)
               assert(bit === want.isDefined,
                 s"$context: validity of output $o row $i differs (want $want)")
+              // A narrowing root stores four bytes a row; read at that width and sign-extended,
+              // a value that did not fit 32 bits differs from the evaluator's 64-bit answer
+              // instead of being truncated on both sides.
+              val got: Long = root match {
+                case _: NarrowLane => outs(o)._2.get(ValueLayout.JAVA_INT, i * 4L).toLong
+                case _ => outs(o)._2.get(ValueLayout.JAVA_LONG, i * 8L)
+              }
               want.foreach { v =>
-                assert(outs(o)._2.get(ValueLayout.JAVA_LONG, i * 8L) === v,
-                  s"$context: output $o row $i differs (want $v)")
+                assert(got === v, s"$context: output $o row $i differs (want $v)")
               }
           }
         }
@@ -419,9 +427,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       val root: AnyRef = if (rnd.nextInt(5) == 0) shapes.cond(depth) else shapes.value(depth).node
       collectNodeTypes(root, seen)
     }
-    // Deliberately out of reach: `NarrowLane` is admitted at an output root only, and the
-    // generator composes nodes under other nodes, so a shape holding one is not a shape to fuzz
-    // until task 28 lets a narrowing sit inside a tree; its root form is the emitter suite's.
+    // Deliberately out of this generator's reach: `NarrowLane` takes a long child, nothing in
+    // the IR widens an int lane, and this grammar builds int trees only, so no int shape can
+    // hold one. The long-lane generator draws it at a root, and the test below asserts that.
     val missing = permitted -- seen - "NarrowLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
@@ -446,12 +454,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
       val numLiterals = rnd.nextInt(3)
       val shapes = new LongShapes(rnd, numInputs, numLiterals)
       val depth = 1 + rnd.nextInt(4)
-      val root: AnyRef = if (rnd.nextInt(5) == 0) shapes.cond(depth) else shapes.value(depth).node
+      // Through `root`, as `drawLongShape` draws, so the narrowing an output root may carry is
+      // asked for with the rest: it constructs over long leaves, so it counts as lane-generic.
+      val root: AnyRef = if (rnd.nextInt(5) == 0) shapes.cond(depth) else shapes.root(depth)
       collectNodeTypes(root, seen)
     }
-    // `NarrowLane` constructs over long leaves and so counts as lane-generic here, and is out
-    // of reach for the reason the int test states: a root-only node has no place in a tree.
-    val missing = laneGeneric.map(_.getSimpleName) -- seen - "NarrowLane"
+    val missing = laneGeneric.map(_.getSimpleName) -- seen
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")
