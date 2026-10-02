@@ -729,3 +729,13 @@ source, which was master's: on 4.2.0 `transform` has no generated code - SPARK-3
 five array higher-order functions code in 4.3.0 - and a sort aggregate with grouping keys has
 none either, SPARK-32750, also 4.3.0. The census ran on master, so on 4.2 its silent share
 would be larger by those operators; the post says so, and its section 6 lists the two tickets.
+
+## 15. Approved, 2 October 2026
+
+The owner read the rendered draft, with its figures and the examples of section 14, and approved
+it. The post is to live at https://vecbricks.github.io/when-spark-stops-compiling-your-query/, and
+the first two posts now link it - the first in its introduction, beside the second post's link, the
+second where it introduces the first. What remains is the publication itself, on the owner's go:
+the page rendered by `dev/varka_post_page.py` into the site, the site's index listing it first, a
+link card from Figure 1, and the first two posts' pages rebuilt with the new links; then the site's
+commit is recorded here and row 233 is marked done.
