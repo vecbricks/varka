@@ -42,14 +42,14 @@ way, a class can be timed against the class as emitted before the emitter change
 | **total** | **116,266** | |
 
 Nothing else: no store the census could not attribute. Against the row's count, made before task 235
-changed the long draws, the segments are the same (66,034 against 66,024), the reloads exactly so,
-and the masks have moved with the long corpus (212 against 145). The row's 5,708 shared slots are
-gone. On the census's first run, before task 223's review, they numbered 5,722. The review made that
-task's count follow the walk (`PLAN_TASK_223.md` 9.4), and its new `VarkaUnreadLocalsSuite` holds
-the corpus to none. Two smaller kinds are new as kinds. An input's data segment is unread where the
-body reads the column only through its validity, as `isNotNull(col)` does. The mask is unread where
-the epilogue loads no column value and stores no value, as for a condition over literals or a lone
-`isNotNull`.
+changed the long draws, the segments are nearly the same, ten more (66,034 against 66,024), the
+reloads exactly so, and the masks have moved with the long corpus (212 against 145). The row's 5,708
+shared slots are gone. On the census's first run, before task 223's review, they numbered 5,722. The
+review made that task's count follow the walk (`PLAN_TASK_223.md` 9.4), and its new
+`VarkaUnreadLocalsSuite` holds the corpus to none. Two smaller kinds are new as kinds. An input's
+data segment is unread where the body reads the column only through its validity, as
+`isNotNull(col)` does. The mask is unread where the epilogue loads no column value and stores no
+value, as for a condition over literals or a lone `isNotNull`.
 
 Trimmed of all of them, the loop and epilogue bytes fall 3.34% over the corpus:
 
@@ -67,51 +67,55 @@ Every trimmed class of the corpus verifies. Trimmed, the size ladder at 100 and 
 mixed family at 100 and 200 answer as the reference evaluator does on both bodies, at lengths 1,
 17, 129 and 4096.
 
-### 2.2 What the JIT makes of them
+### 2.2 Run time and allocation, on the laptop
 
-Allocated bytes per 4096-row batch, read from the JVM's per-thread counter over 2000 batches after
-20,000 to warm up:
+`VarkaUnreadLocalsBenchmark`, committed with its results
+(`sql/catalyst/benchmarks/VarkaUnreadLocalsBenchmark-jdk25-results.txt`, AMD Ryzen AI 9 HX PRO 370,
+JDK 25), runs the size ladder and the mixed family as `VarkaWideKernelBenchmark` does, a million
+rows in 4096-row batches. Each kernel runs as emitted, stripped of every kind by
+`VarkaUnreadLocalsTrim`, stripped of the segments alone and of the reloads alone at the widest
+size, and as emitted again last as a control for the order of the cases. The figures are the best
+of at least five iterations, in nanoseconds a row:
 
-| kernel | body | as emitted | trimmed |
-|---|---|---:|---:|
-| size ladder, 400 entries | null-free | 173.5 | 83.1 |
-| | every seventh row null | 32,152 | 16,088 |
-| mixed family, 200 entries | null-free | 72.0 | 72.0 |
-| | every seventh row null | 10,192 | 10,072 |
-
-The row expected a dead segment's allocation to be dead to C2 as well. In the masked body it is not:
-the masked ladder allocates half its bytes a batch for segments nothing reads.
-
-### 2.3 Run time, on the laptop
-
-The size ladder and the mixed family as `VarkaWideKernelBenchmark` runs them, a million rows in
-4096-row batches, from a scratch copy of its setup. Each kernel was run as emitted, trimmed, and as
-emitted again last as a control for the order of the cases. The figures are the best of at least
-five iterations, in nanoseconds a row, on the AMD Ryzen AI 9 HX PRO 370 with JDK 25:
-
-| shape | body | as emitted | trimmed | as emitted, again | segments trimmed | reloads trimmed |
+| shape | body | as emitted | stripped | as emitted, again | segments stripped | reloads stripped |
 |---|---|---:|---:|---:|---:|---:|
-| ladder, 100 entries | null-free | 72.1 | 72.3 | 72.1 | | |
-| ladder, 400 entries | null-free | 294.8 | 291.2 | 286.0 | 286.3 | 284.5 |
-| ladder, 100 entries | every seventh row null | 87.8 | 76.9 | 85.1 | | |
-| ladder, 400 entries | every seventh row null | 347.0 | 304.5 | 346.7 | 312.5 | 346.3 |
-| mixed, 100 entries | null-free | 40.4 | 40.2 | 38.2 | | |
-| mixed, 200 entries | null-free | 81.4 | 106.3, then 80.2 | 79.8 | 79.9 | 80.7 |
-| mixed, 100 entries | every seventh row null | 46.3 | 42.4 | 41.6 | | |
-| mixed, 200 entries | every seventh row null | 95.1 | 95.8 | 95.4 | 94.5 | 94.6 |
+| ladder, 100 entries | null-free | 69.6 | 67.7 | 71.0 | | |
+| ladder, 400 entries | null-free | 285.9 | 281.1 | 281.5 | 281.9 | 282.7 |
+| ladder, 100 entries | every seventh row null | 84.2 | 76.1 | 77.3 | | |
+| ladder, 400 entries | every seventh row null | 337.9 | 308.8 | 338.4 | 306.0 | 340.8 |
+| mixed, 100 entries | null-free | 40.0 | 38.7 | 40.1 | | |
+| mixed, 200 entries | null-free | 79.3 | 78.3 | 77.9 | 78.3 | 78.5 |
+| mixed, 100 entries | every seventh row null | 46.9 | 47.9 | 43.4 | | |
+| mixed, 200 entries | every seventh row null | 93.6 | 93.0 | 93.7 | 92.4 | 95.4 |
 
-The masked ladder runs 12% faster trimmed at 400 entries, against a control 0.1% from the first
-run. At 100 entries it runs 10 to 12% faster. Nearly all of it is the segments: with only the
-segments trimmed it is 10% faster, with only the reloads trimmed not at all. Every other case is
-within its control's spread.
+The masked ladder at 400 entries runs 8.6% faster stripped, against a control 0.1% from the first
+run, and nearly all of it is the segments: with only the segments stripped it is 9.4% faster, with
+only the reloads stripped not at all. Every other case is within its control's spread, the masked
+ladder at 100 entries included (84.2 against a control of 77.3). A scratch run of the same setup
+before this benchmark was committed read 12% at 400 entries; a single case on this machine moves
+by up to 15 to 30% now and then, which is why the control is in every section.
 
-One case misread once. The trimmed mixed family at 200 entries, null-free, read 106.3 in the first
-run. A rerun gave 80.2 and 79.6 for the two trimmed arms, and 79.9 to 81.5 with each kind trimmed
-alone, while its own as-emitted control read 93.0. A single case jumping by 15 to 30% is this
-machine's noise, not the trim. The timings predate task 223's review, so the trimmed arm also
-stripped the shared slots that review has since removed. Stripped alone, they moved nothing (80.4
-against 80.6 on the mixed family's rerun). These are laptop numbers, from a 256-bit datapath, for
-this plan's record; the runner measures the change (section 6).
+What one batch allocates, from the JVM's per-thread counter over 1000 batches once the timed runs
+have compiled the kernels:
+
+| kernel | body | as emitted | stripped |
+|---|---|---:|---:|
+| size ladder, 400 entries | null-free | 40,084 | 24,000 |
+| | every seventh row null | 52,040 | 28,000 |
+| mixed family, 200 entries | null-free | 22,560 | 14,520 |
+| | every seventh row null | 28,640 | 22,520 |
+
+The row expected a dead segment's allocation to be dead to C2 as well. It is not: in a JVM that has
+run many kernels the dead segments are allocated a batch in both bodies, 16 to 24 KB on the
+ladder. (A scratch test of one kernel alone found the dense body's allocation nearly gone, 174
+bytes, so how much escape analysis removes depends on what else the JVM has compiled.)
+
+### 2.3 The timings and the review
+
+The timings were first taken by a scratch copy of the benchmark's setup, and the plan quoted them
+with no committed results file, against `sql/varka/AGENTS.md`'s rule that a performance claim
+traces to one. The review of this pull request found that; the benchmark above replaces them.
+The shared slots that task 223's review has since removed were never part of it.
 
 ### 2.4 What the check admits
 
@@ -144,18 +148,31 @@ what it stores now, since a later group may read any of it.
 
 Step (4) maps a column's data where the body emits that column's value. A column the body reads
 only through its validity word, as under `isNotNull`, keeps its null state and maps no data.
-`Slots` decides it from the walk it already makes to find `skippedColumns`, the columns only a
-loaded prefix's date reads.
+`skippedColumns` cannot tell the two apart: it holds the columns outside the emitted set, and a
+column under `isNotNull` is inside it. The rule that can is task 223's use count
+(`Slots.bodyUses`), which follows no edge from an `isNotNull` to its column: a column is read for
+its value when the body serves it as a root or reaches it by an edge that count follows. That
+walk runs today only for a loop or epilogue body under CSE, since only there do its counts decide
+anything. It is split so that the edge rule runs for every loop and epilogue body, and the counts
+are used only under CSE, so the two questions are answered by one rule.
 
-### 3.4 The epilogue's mask, at its first reader
+### 3.4 The epilogue's mask, where the body has a reader of it
 
-The mask is read by four things: a column's masked load, a value root's masked store, a guard's
-condemnation and a prefix transfer, which live in three classes. Rather than restate all four as
-one predicate, the epilogue builds its mask at the first of them and stores it for the rest; an
-epilogue none of them reaches builds none. The epilogue is one lane group with no back edge, so
-the first reader comes before the others on every path that reaches them, and the verifier rejects
-the class if that ever stops being true. The slot also stands in today for "this body is an
-epilogue" in four places, which read a flag of their own instead.
+The mask is read by four things, in three classes: a column's masked load, a value root's masked
+store, a guard's condemnation and a prefix transfer. Building it at its first reader would rest on
+that reader dominating the rest, and it does not: `emitInRanges` loops inside the lane group, and
+a reader can sit after the loop. So `Slots` decides from the body whether any of the four is
+there:
+* a column read for its value, the set of 3.3;
+* a root that is neither a condition nor a narrowing, whose store takes the epilogue's mask (a
+  narrowing builds its own);
+* a guarded node, which ANDs its condemnation with the mask;
+* a materialized prefix the group stores or loads.
+
+An epilogue with none of them builds no mask. A reader the predicate misses fails verification at
+the first emission, as an unassigned local, so a new reader cannot be missed quietly. The slot also
+stands in today for "this body is an epilogue" in four places, which read a flag of their own
+instead.
 
 ### 3.5 The shared slots, already gone
 
@@ -200,7 +217,7 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
 
 | file | what |
 |---|---|
-| `VarkaBodyEmitter.java` | steps (3) and (4) build the segments 3.1 and 3.3 keep; the epilogue's mask at its first reader |
+| `VarkaBodyEmitter.java` | steps (3) and (4) build the segments 3.1 and 3.3 keep; the epilogue's mask where the body has a reader of it |
 | `Slots.java` | no local for an unread segment; the columns whose values a body reads; the prefix vectors a fragment's consumers read |
 | `VarkaChronoLowering.java`, `VarkaVectorWalk.java` | the reload of 3.2; the mask's readers |
 | `VarkaEmitOptions.java` | `elideUnreadLocals` |
@@ -239,17 +256,18 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
    budget it was split for, but none rises above one. No shape of the audit gains a build or a
    loop method, and some lose a call-site split.
 4. **Run time**: on the runner the masked ladder runs at least 5% faster at 400 entries, where the
-   laptop gave 12%. Every other case stays within its control's spread.
-5. **Allocation**: the masked ladder at 400 entries allocates half what it does now a batch, as on
-   the laptop.
+   laptop gave 8.6%. Every other case stays within its control's spread.
+5. **Allocation**: the ladder at 400 entries allocates 16 to 24 KB less a batch, as on the
+   laptop.
 
 ## 7. Risks
 
 1. **The tails' stated reads go wrong when a tail changes.** A tail that reads a vector it did not
    state fails verification at its first emission. One that states a vector it never reads leaves
    a dead load the check finds.
-2. **The mask's first reader does not dominate a later one**, if a lane group ever branches around
-   a reader. The verifier says so at the first emission. The fallback is the predicate 3.4 avoids.
+2. **A mask reader the predicate of 3.4 does not list.** A future reader of the epilogue's mask
+   that the predicate misses reads an unassigned local, which the verifier rejects at the first
+   emission, in the suites.
 3. **The masked ladder's gain is the laptop's**: allocation and inlining differ across JDKs and
    processors, which is why the runner measures it and the default waits for that.
 4. **The price tables move** with every method's bytes, so the cost model's fit is regenerated with
