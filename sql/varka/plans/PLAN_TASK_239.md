@@ -1,7 +1,8 @@
 # Task 239: locals a loop method stores and never reads
 
-*Planned 2 October 2026 (milestone 6 row 239), with its admission check run the same day on task
-223's branch at `49c1aac9c20`, which is master at `8afa3fe4bd3` with task 223's change.*
+*Planned 2 October 2026 (milestone 6 row 239). Its admission check ran the same day on task 223's
+branch, which is master at `8afa3fe4bd3` with task 223's change: the timings at `49c1aac9c20`, and
+the census again at `5a17a4ab18f`, after that task's review.*
 
 ## 1. Where this came from
 
@@ -15,7 +16,7 @@ never read, all leftovers of later work:
 * a group that consumes a materialized calendar prefix (task 198) reloads it whole every lane
   group, where only the month vector is loaded on demand;
 * a few epilogue masks, and shared slots of dates the calendar prefix visits once, which task 223's
-  count takes for two uses.
+  count took for two uses. Task 223's review has since removed these (`PLAN_TASK_223.md` 9.4).
 
 The row asks for the run-time cost to be measured before anything changes, since it was not known:
 the segments are built once a batch, and the reloads run every lane group.
@@ -36,29 +37,30 @@ way, a class can be timed against the class as emitted before the emitter change
 |---|---:|---:|
 | an output's validity segment | 61,746 | 55,298 |
 | a calendar prefix vector reloaded from the scratch | 50,020 | 49,268 |
-| a shared slot, a `dup` and a store | 5,722 | 5,532 |
 | an input's data segment | 4,288 | 4,114 |
 | the epilogue's mask | 212 | 132 |
-| **total** | **121,988** | |
+| **total** | **116,266** | |
 
-Nothing else: no store the census could not attribute. Against the row's count, made before task
-235 changed the long draws, the segments are the same (66,034 against 66,024), the reloads exactly
-so, and the masks and slots have moved with the long corpus (212 against 145, 5,722 against
-5,708). Two smaller kinds are new as kinds. An input's data segment is unread where the body reads
-the column only through its validity, as `isNotNull(col)` does. The mask is unread where the
-epilogue loads no column value and stores no value, as for a condition over literals or a lone
+Nothing else: no store the census could not attribute. Against the row's count, made before task 235
+changed the long draws, the segments are the same (66,034 against 66,024), the reloads exactly so,
+and the masks have moved with the long corpus (212 against 145). The row's 5,708 shared slots are
+gone. On the census's first run, before task 223's review, they numbered 5,722. The review made that
+task's count follow the walk (`PLAN_TASK_223.md` 9.4), and its new `VarkaUnreadLocalsSuite` holds
+the corpus to none. Two smaller kinds are new as kinds. An input's data segment is unread where the
+body reads the column only through its validity, as `isNotNull(col)` does. The mask is unread where
+the epilogue loads no column value and stores no value, as for a condition over literals or a lone
 `isNotNull`.
 
-Trimmed of all of them, the loop and epilogue bytes fall 3.37% over the corpus:
+Trimmed of all of them, the loop and epilogue bytes fall 3.34% over the corpus:
 
 | family | loop and epilogue bytes | all trimmed | the segments alone | the reloads alone |
 |---|---:|---:|---:|---:|
-| fuzz, int | 4,418,073 | -1.43% | -1.26% | -0.11% |
-| fuzz, long | 1,933,777 | -2.10% | -2.04% | 0 |
-| wide, int | 29,490,987 | -5.01% | -1.41% | -3.55% |
-| wide, long | 16,872,067 | -1.33% | -1.33% | 0 |
+| fuzz, int | 4,416,351 | -1.39% | -1.26% | -0.11% |
+| fuzz, long | 1,933,645 | -2.09% | -2.04% | 0 |
+| wide, int | 29,476,215 | -4.96% | -1.41% | -3.55% |
+| wide, long | 16,871,551 | -1.33% | -1.33% | 0 |
 | size ladder | 2,602,528 | -2.10% | -1.47% | -0.64% |
-| `make_date` ladder | 171,992 | -2.18% | -1.13% | -1.03% |
+| `make_date` ladder | 171,968 | -2.16% | -1.13% | -1.03% |
 | cheap tails | 26,092 | -17.91% | -15.64% | -2.27% |
 
 Every trimmed class of the corpus verifies. Trimmed, the size ladder at 100 and 400 entries and the
@@ -106,8 +108,10 @@ within its control's spread.
 One case misread once. The trimmed mixed family at 200 entries, null-free, read 106.3 in the first
 run. A rerun gave 80.2 and 79.6 for the two trimmed arms, and 79.9 to 81.5 with each kind trimmed
 alone, while its own as-emitted control read 93.0. A single case jumping by 15 to 30% is this
-machine's noise, not the trim. These are laptop numbers, from a 256-bit datapath, for this plan's
-record; the runner measures the change (section 6).
+machine's noise, not the trim. The timings predate task 223's review, so the trimmed arm also
+stripped the shared slots that review has since removed. Stripped alone, they moved nothing (80.4
+against 80.6 on the mixed family's rerun). These are laptop numbers, from a 256-bit datapath, for
+this plan's record; the runner measures the change (section 6).
 
 ### 2.4 What the check admits
 
@@ -115,8 +119,7 @@ The row, with its premise corrected. The segments are not free in the masked bod
 a batch, and trimming them is the one change with a measured run-time effect. The reloads are more
 than half of the bytes trimmed over the corpus, most of them in the wide int family, and each is a
 Vector API call site against the budget of task 209; on the laptop they cost no time. The input
-segments and the masks are small and come out with the same reasoning. The shared slots are 5,722
-`dup`s and stores, about 0.03% of the bytes, and task 223 named their cause.
+segments and the masks are small and come out with the same reasoning.
 
 ## 3. The design
 
@@ -154,13 +157,12 @@ the first reader comes before the others on every path that reaches them, and th
 the class if that ever stops being true. The slot also stands in today for "this body is an
 epilogue" in four places, which read a flag of their own instead.
 
-### 3.5 The shared slots, left and named
+### 3.5 The shared slots, already gone
 
-The 5,722 are dates two calendar nodes reach through one shared prefix, which the slot count takes
-for two visits (`PLAN_TASK_223.md` 9.3). Counting them right means the count must know the
-lowering's fragment sharing. A `dup` and a store nothing reads costs C2 nothing, and on the laptop
-trimming them moved nothing either. The check of section 5 names them as the one kind left, with
-this reason, as the row's done-when allows.
+Task 223's review made that task's count ask the walk's own rule (`PLAN_TASK_223.md` 9.4), and the
+suite it added, `VarkaUnreadLocalsSuite`, holds the corpus to no shared slot that nothing reads.
+This task widens that suite to every kind of reference local (section 5), so no kind is left to
+name.
 
 ### 3.6 Behind a switch
 
@@ -202,7 +204,7 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
 | `Slots.java` | no local for an unread segment; the columns whose values a body reads; the prefix vectors a fragment's consumers read |
 | `VarkaChronoLowering.java`, `VarkaVectorWalk.java` | the reload of 3.2; the mask's readers |
 | `VarkaEmitOptions.java` | `elideUnreadLocals` |
-| `VarkaUnreadLocalsSuite.scala` (new), with the census in Java beside the cost corpus | the check of section 5 |
+| `VarkaUnreadLocalsSuite.scala`, `VarkaUnreadLocals.java` | task 223's check of shared slots, widened to every reference local: section 5 |
 | `emitted_bytes.json`, `VarkaEmitCostTable.java`, `VarkaEmitCostRegister.java`, `emit_cost_audit.json` | regenerated, the diff reviewed |
 | `VarkaWideKernelBenchmark.scala` and its results file | a section for the two forms |
 | `PLAN_MILESTONE_6.md` | row 239 |
@@ -210,9 +212,10 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
 ## 5. Tests, and what each is for
 
 * **The check**: over the cost corpus at the shipped options, no reference local of a loop or
-  epilogue method is stored and never read under the switch, except the shared slots of 3.5, which
-  it counts by name. With the switch off it pins today's census, so a leftover added to either form
-  is seen. This is the row's first done-when.
+  epilogue method is stored and never read under the switch. It is task 223's
+  `VarkaUnreadLocalsSuite`, widened from shared slots to every kind. With the switch off it pins
+  today's census, so a leftover added to either form is seen. This is the row's first done-when,
+  with no kind left to name.
 * **The bodies still answer**: every emitter suite, the IR fuzzer drawing the switch like every
   boolean, and the composition fuzzer. A reload short of a vector its tail reads, or a segment not
   built for an output whose validity the body writes, fails as a verifier error at the first
@@ -229,9 +232,8 @@ the ones its tails read, and every body sheds the segment and mask calls of 2.1.
 
 ### 6.1 Predictions, registered before the run
 
-1. **The check** finds no unread reference local under the switch except the shared slots, about
-   5,722 of them.
-2. **The bytes** of the corpus's loop and epilogue methods fall about 3.4%, each family within a
+1. **The check** finds no unread reference local under the switch.
+2. **The bytes** of the corpus's loop and epilogue methods fall about 3.3%, each family within a
    tenth of a point of the transformer's figure in 2.1.
 3. **Builds and loop methods**: the reloads were call sites, so a group can drop below the call-site
    budget it was split for, but none rises above one. No shape of the audit gains a build or a
