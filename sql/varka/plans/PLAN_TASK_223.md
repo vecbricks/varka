@@ -150,9 +150,15 @@ four and a one-byte store.
 3. **Held, by its second clause.** Builds and dense loop methods are unchanged in every family: no
    group of the wide long family measured close enough over the budget for three bytes a slot to
    bring it under.
-4. **Held.** Every coverage row is byte-identical; the `fuzz` and `fuzz_long` blocks moved, as
-   they had to, since a block of 100 shapes holds kernels of several groups, and so did the
-   `option_arms` digests, which hash every shape.
+4. **Held for the first build, not after the review.** Every coverage row was byte-identical; the
+   `fuzz` and `fuzz_long` blocks moved, as they had to, since a block of 100 shapes holds kernels
+   of several groups, and so did the `option_arms` digests, which hash every shape. *Corrected
+   after the review (9.4): its count moves five coverage rows at both widths, single-group kernels
+   the first build's count gave a slot read once - `make_ym_interval(year(d), month(d))` and the
+   same times two, `year(d) = 2021 OR month(d) = 3` (a date two calendar fields reach through one
+   prefix), and `coalesce(d, d2)` and `if(l IS NULL, l2, l)` (a column an `isNotNull` reads beside
+   its value). The prediction was that only kernels of several groups move; a single-group
+   kernel moves too wherever the first count was wrong.*
 
 **The audit, requoted.** No conclusion of `PLAN_TASK_199.md` 9 moves: the refitted prices' error at
 2000 bytes and over is 2.2% at the median and 11.9% at the 99th percentile, against 12.4% before.
@@ -220,6 +226,15 @@ are addressed.
    8000 bytes and over. Requoted.
 9. **A qualified `VarkaVectorIR.childrenOf`** in a file that imports it statically, gone with the
    rewrite of item 5.
+
+A second review, of #553 stacked on this one, found six more here. A count too low was still
+unguarded: the walk would recompute a node's subtree with no sign of it. `emitValue` now refuses a
+second visit of a node without a shared slot under CSE, and no suite meets the refusal.
+`fragmentKey` takes the `Analysis` rather than a copy of its word algebra kept on `Slots`. The
+loop and epilogue of a group share one count (`Analysis.bodyUses`, cleared with each grouping's
+materialized prefixes) where each made its own. The arithmetic test reads its slots through
+`VarkaUnreadLocals` instead of parsing disassembly. Prediction 4 of 9.2 had kept its "Held" after
+five coverage rows moved, and row 223 garbled its figures; both are corrected.
 
 Over the corpus of 9.1, no loop or epilogue method grew under the review's change, which is what
 a count too low would have caused, and 2,692 of 36,483 shrank. The loop and epilogue bytes fell by

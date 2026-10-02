@@ -50,6 +50,15 @@ final class VarkaUnreadLocals {
    * reads, as {@code "method: local n"}.
    */
   static List<String> unreadSharedSlots(byte[] bytes) {
+    return sharedSlots(bytes, false);
+  }
+
+  /** As {@link #unreadSharedSlots}, for the shared slots the method does read. */
+  static List<String> readSharedSlots(byte[] bytes) {
+    return sharedSlots(bytes, true);
+  }
+
+  private static List<String> sharedSlots(byte[] bytes, boolean read) {
     List<String> found = new ArrayList<>();
     ClassModel cm = ClassFile.of().parse(bytes);
     for (MethodModel mm : cm.methods()) {
@@ -72,7 +81,7 @@ final class VarkaUnreadLocals {
         if (instruction instanceof StoreInstruction store
             && store.typeKind() == TypeKind.REFERENCE
             && previous instanceof StackInstruction dup && dup.opcode() == Opcode.DUP
-            && !loaded.contains(store.slot())) {
+            && loaded.contains(store.slot()) == read) {
           found.add(name + ": local " + store.slot());
         }
         previous = instruction;

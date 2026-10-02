@@ -313,26 +313,14 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
       }
     // Per loop or epilogue method: the slots a `DUP; ASTORE` pair parks a value in, split into
     // those the method reads back and those it never does.
-    def parked(bytes: Array[Byte]): Seq[(String, Boolean)] =
-      VarkaEmitterTestSupport.methodBodies(bytes).asScala.toSeq.flatMap { case (m, body) =>
-        if (!m.startsWith("loop") && !m.startsWith("epilogue")) Nil
-        else {
-          val lines = body.split("\n").map(_.trim)
-          val loaded = lines.filter(_.startsWith("ALOAD")).map(_.split(" ").last).toSet
-          lines.indices.dropRight(1).collect {
-            case i if lines(i) == "DUP" && lines(i + 1).startsWith("ASTORE") =>
-              val slot = lines(i + 1).split(" ").last
-              (s"$m slot $slot", loaded.contains(slot))
-          }
-        }
-      }
     val heavy = emitMulti(Seq(chain(12, 0), chain(12, 1)), 1, 2)
     assert(methodNames(heavy).count(_.startsWith("loopDense")) >= 2,
       "the two chains share a group, so the case is not exercised")
-    val unread = parked(heavy._2).filterNot(_._2).map(_._1)
+    val unread = VarkaUnreadLocals.unreadSharedSlots(heavy._2).asScala
     assert(unread.isEmpty, s"a value parked and never read: ${unread.mkString(", ")}")
     val light = emitMulti(Seq(chain(1, 0), chain(1, 1)), 1, 2)
-    assert(parked(light._2).exists(_._2), "the column used twice in one body was not shared")
+    assert(!VarkaUnreadLocals.readSharedSlots(light._2).isEmpty,
+      "the column used twice in one body was not shared")
   }
 
   test("IfElse over every comparison matches the reference across per-column null patterns") {

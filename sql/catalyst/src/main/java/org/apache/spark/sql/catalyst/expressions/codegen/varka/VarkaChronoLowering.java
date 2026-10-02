@@ -408,7 +408,7 @@ final class VarkaChronoLowering {
   private static void emitChronoPrefixOnce(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s, int[] t, Set<VarkaVectorIR> computed) {
     boolean shareChronoPrefix = analysis.options.shareChronoPrefix();
-    FragmentKey key = shareChronoPrefix ? fragmentKey(node, dense, s) : null;
+    FragmentKey key = shareChronoPrefix ? fragmentKey(node, dense, s, analysis) : null;
     if (shareChronoPrefix && !s.emittedFragments.add(key)) {
       // A sibling over this date already ran the prefix into these very locals earlier in this
       // lane group, so this node needs nothing but its own tail. The date itself is not loaded
