@@ -253,7 +253,7 @@ regression there must be attributable. Predicted gain over step one: the pass
 is already below the noise floor of the throughput row (section 2), so step
 two's measurable effect is zero on that row; its value is the channel - the
 same stats prune whole batches under a filter inside the fused pipeline
-later, and the file-level bounds of `SCOPE_MILESTONE_7.md` item 8 arrive
+later, and the file-level bounds of `SCOPE_MILESTONE_8.md` item 8 arrive
 through it. If step one's throughput pair shows the pass at under 1%, step
 two is built for the channel with the prediction "no measurable change"
 registered, or deferred to the milestone that needs the channel; the owner

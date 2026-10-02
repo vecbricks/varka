@@ -8,7 +8,7 @@ run 16 to 17 September 2026 in an idle machine window the owner offered.*
 Every number this engine has published is one partition on one core. A Spark
 executor runs one task per core, so the question the closing write-up cannot
 dodge is whether a win measured alone survives the memory system being shared.
-Two papers in the record say it may not: Schmidt (`SCOPE_MILESTONE_7.md` item
+Two papers in the record say it may not: Schmidt (`SCOPE_MILESTONE_8.md` item
 25) has a 48-core socket saturating DRAM at about twelve scalar threads, with
 SIMD only lowering that count, and Kersten's branch-free selection loses a fifth
 of its throughput at twenty threads from bandwidth alone.

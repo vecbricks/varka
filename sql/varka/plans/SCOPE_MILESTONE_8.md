@@ -1,4 +1,15 @@
-# Varka Milestone 7 Scope: coverage
+# Varka Milestone 8 Scope: coverage
+
+*Renumbered from milestone 7 on 2 October 2026, when milestone 7 became trust and
+maintainability, on the owner's choice, and got a task plan of its own (`PLAN_MILESTONE_7.md`).
+The house rule moves the furthest-out catalogue forward, and this is that move; the item numbers
+are unchanged, so every `item <n>` citation resolves. Read "milestone 7" below as "this
+milestone" except where a sentence is dated, as the note below already asks for "milestone 6".*
+
+**Items and rows milestone 7 takes.** Items 48, 58, 59, 62, 63, 68, 69, 72, 74 (all but 74.2,
+which is task 236's), 76, 78, 79 and 80; and, from the tables of items 39 and 81, rows 81, 83,
+86, 138, 180, 214 to 217, 222 and 224. `PLAN_MILESTONE_7.md` names each with the number it has
+here.
 
 *Renumbered from milestone 6 on 23 September 2026, when milestone 6 became the
 compiler's foundation and got a task plan of its own (`PLAN_MILESTONE_6.md`).

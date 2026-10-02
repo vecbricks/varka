@@ -131,7 +131,7 @@ the operators and expressions its native library implements and falls back to
 Spark for the rest, where every limit above returns. The record this rests on:
 
 * Comet's planning surface, surveyed at commit `8c229a703`
-  (`SCOPE_MILESTONE_7.md` item 24, `VISION.md` "Outside Spark, but for
+  (`SCOPE_MILESTONE_8.md` item 24, `VISION.md` "Outside Spark, but for
   Spark"): a support level per expression, fallback reasons printed by
   `EXPLAIN` as `[COMET: ...]`, a rule that all data-producing children must
   be native before an operator converts. The same contract as Varka's, arrived
@@ -186,7 +186,7 @@ is the one still open.
   orphans.
 * Every claim about Spark's behaviour names a census entry and the test that
   pins it, at a revision named in the post.
-* Section 3.7 quotes only what `VISION.md`, `SCOPE_MILESTONE_7.md` items 18
+* Section 3.7 quotes only what `VISION.md`, `SCOPE_MILESTONE_8.md` items 18
   and 24 and `calendar-algorithms.md` record, and a reader can find each
   sentence there.
 * Bounds 1 to 4 of section 2 appear in the draft, each before the claim it
@@ -729,7 +729,7 @@ than generating per-row code itself, and how rare the declined-for-size case is;
 rule: Varka is to replace the Catalyst generator in time, so it must handle every case itself.
 The answer (Spark's row engine is the oracle the kernels are checked against; the emitter's own
 scalar lowering was removed for a reason; per-row code would rebuild the problem) stands, and
-the case got its row: `SCOPE_MILESTONE_7.md` item 75, a spill inside the output. The post says
+the case got its row: `SCOPE_MILESTONE_8.md` item 75, a spill inside the output. The post says
 "not yet" where it said the output is never split inside.
 
 ### 14.4 Published, 1 October 2026

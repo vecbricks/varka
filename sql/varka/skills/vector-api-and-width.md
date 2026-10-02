@@ -437,7 +437,7 @@ right, so only a test whose verdict is a JIT outcome notices, and such a test ru
 own: the warm-up suite's compile tests failed one full run in three by the suites' order until
 they forked `VarkaKernelWarmupProbe`, as the assembly and cliff suites fork theirs
 (`PLAN_TASK_209.md` 13.2). Taking the second species out of the shared JVM is
-`SCOPE_MILESTONE_7.md` item 69.
+`SCOPE_MILESTONE_8.md` item 69.
 `VarkaMilestone4MeasurementsBenchmark` did exactly that with its half-width int species in a
 `forks = 0` JVM, which is one named cause of the engine harness's degraded state (the debt register
 in `PLAN_MILESTONE_4.md`). Two tells, either sufficient: an allocation inside a kernel loop body in
@@ -801,7 +801,7 @@ and on aarch64 `Math` itself is fdlibm for everything but `sin` and `cos`,
 where x86 has Intel's scalar intrinsics for nine functions. The only exact
 lanes are the operators the JDK has no symbol for (`pow` at AVX2, `tanh` on
 NEON), which run the scalar call per lane at scalar speed. `SCOPE_FUNCTIONS.md`
-section 3 tabulates it and `SCOPE_MILESTONE_7.md` item 36 holds the decision it
+section 3 tabulates it and `SCOPE_MILESTONE_8.md` item 36 holds the decision it
 forces: a ULP contract, an emitted fdlibm, or a decline, for the family as a
 whole.
 
@@ -864,7 +864,7 @@ What SLEEF does contribute, by task:
   back with an FMA, truncate the remainder, subtract. The same idea splits a
   64-bit value into 32-bit halves and converts each with `cvtdq2pd`, which AVX2
   has - exact to 2^53, wider than the `0x4330` identity's 2^52, and no exponent
-  bit to reason about. `SCOPE_MILESTONE_7.md` item 37. `vrint2_vd_vd` is the
+  bit to reason about. `SCOPE_MILESTONE_8.md` item 37. `vrint2_vd_vd` is the
   2^52 add-and-subtract round-to-nearest the magic form already uses, so that
   part is confirmed prior art.
 * **Task 28's widen and narrow sequences, per ISA** (`helperavx2.h`,

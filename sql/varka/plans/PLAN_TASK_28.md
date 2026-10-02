@@ -192,7 +192,7 @@ and `YearMonthIntervalType` at the int lane; `LongType`, `TimeType` and
   declines with "one kernel holds one lane". That decline should disappear.
 * `CAST(bigint AS int)` as `NarrowLane`, ANSI declining the batch.
 * Out: casts to and from types neither lane holds - the timestamps
-  (`SCOPE_MILESTONE_7.md` item 31), floating point, decimal and string - which
+  (`SCOPE_MILESTONE_8.md` item 31), floating point, decimal and string - which
   decline by type as they do now.
 
 ### 3.6 Registered op counts

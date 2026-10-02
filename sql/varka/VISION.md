@@ -4,7 +4,7 @@
 > `sql/varka/plans/`: `PLAN_MILESTONE_1.md` (the date MVP, done), `PLAN_MILESTONE_2.md`
 > (the fused vector loop, done), `PLAN_MILESTONE_3.md` (reach - the task plan for what comes
 > next), `PLAN_MILESTONE_4.md` (the date family and the emitter under it),
-> `PLAN_MILESTONE_5.md` (the other lanes) and `SCOPE_MILESTONE_7.md` (coverage - what
+> `PLAN_MILESTONE_5.md` (the other lanes) and `SCOPE_MILESTONE_8.md` (coverage - what
 > the benchmark corpora say is missing).
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
 > actually built. Section 13 answers the whole-stage charter question (task 22).
@@ -199,7 +199,7 @@ spark-submit \
 > never routed, and deliberately deleted in milestone 2 - `PLAN_TASK_9.md` section 5.4).
 > The next step is milestone 3, whose task plan is `sql/varka/plans/PLAN_MILESTONE_3.md`;
 > milestone 4's task plan (`PLAN_MILESTONE_4.md`) follows it, milestone 5's
-> (`PLAN_MILESTONE_5.md`) takes the other lanes, and `SCOPE_MILESTONE_7.md` scopes
+> (`PLAN_MILESTONE_5.md`) takes the other lanes, and `SCOPE_MILESTONE_8.md` scopes
 > benchmark coverage after that.
 
 When proceeding to implementation:
@@ -227,7 +227,7 @@ section is never read as delivered:
   codegen, and the 64 KB method limit the original design cites is not yet addressed by
   any shipped code (`PLAN_MILESTONE_2.md` records this explicitly).
 - The price of full ownership is measured, not guessed: the milestone-6 census
-  (`SCOPE_MILESTONE_7.md`) counts ~400 expression classes, ~17 whole-stage operators and
+  (`SCOPE_MILESTONE_8.md`) counts ~400 expression classes, ~17 whole-stage operators and
   seven generators that exist to produce and compare `UnsafeRow` - which Varka does not
   produce - between here and retiring Janino.
 - When the whole-stage generator is built, it starts from the vector IR and
@@ -259,7 +259,7 @@ interface between computation units is important for performance". Task 62 put
 the 512-bit datapath's share of Varka's speedup at about 1.14x, with the rest
 coming from the loop shape - no per-row objects, no megamorphic calls, no
 branches - and the read-back floor at the columnar-to-row boundary is the
-subject of `SCOPE_MILESTONE_7.md` items 13 and 14. The deck also reports the
+subject of `SCOPE_MILESTONE_8.md` items 13 and 14. The deck also reports the
 Vector API losing to JNI by an order of magnitude on `daxpy` on the JDK 16 of
 its day; the kernels here run on JDK 25, where the intrinsics that were missing
 then exist, and `SKILLS.md` records where they still do not (the long-to-double
@@ -271,7 +271,7 @@ row engine.
 
 **Shen, Xiong and Jiang, "Using Vectorized Execution to Improve SQL Query
 Performance on Spark", ICPP 2021.** The third attempt, read on 16 September
-2026 (`SCOPE_MILESTONE_7.md`, item 25): a whole-engine fork of Spark 2.4 in
+2026 (`SCOPE_MILESTONE_8.md`, item 25): a whole-engine fork of Spark 2.4 in
 Java that relies on the JIT for any SIMD, with no Vector API and no fused
 expression loop, and vectorised shuffle, sort and aggregation beside project and
 filter. Its own decomposition is the useful result: plain X100-style
@@ -307,7 +307,7 @@ And Gandiva has no differential oracle, no fuzzer and no committed benchmarks.
 
 **Outside Spark: Trino (`core/trino-main/src/main/java/io/trino/sql/gen`).** The
 JVM engine nearest to this one in situation, surveyed on 16 September 2026
-(`SCOPE_MILESTONE_7.md`, item 19). Its columnar filter path generates a class per
+(`SCOPE_MILESTONE_8.md`, item 19). Its columnar filter path generates a class per
 filter with a null-checking loop and a bare one chosen per batch on
 `mayHaveNull`, runs conjuncts in an order learned from time per row eliminated,
 reorders only terms that cannot fail, evaluates a dictionary once and reuses the
@@ -320,7 +320,7 @@ C2's auto-vectoriser, the same bet as Gandiva's, and its calendar functions run
 row by row over Joda. The evaluator that emits lanes is the step neither took.
 
 **Outside Spark: DuckDB (`src/execution/expression_executor`).** Surveyed on 16
-September 2026 (`SCOPE_MILESTONE_7.md`, item 20). An interpreter over precompiled
+September 2026 (`SCOPE_MILESTONE_8.md`, item 20). An interpreter over precompiled
 templates with no explicit SIMD in its source, it makes the same structural
 choices in a different medium: validity in sixty-four-bit entries with a bare
 loop for an all-valid entry and a skip for an all-null one, comparisons that
@@ -333,7 +333,7 @@ unchecked one. This engine has the second of those in scope and should take the
 first.
 
 **Outside Spark: DataFusion (`datafusion/physical-expr`, `datafusion/spark`).**
-Surveyed on 16 September 2026 (`SCOPE_MILESTONE_7.md`, item 21). An interpreter
+Surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`, item 21). An interpreter
 over Arrow arrays in Rust whose kernels are arrow-rs's, and the home of Comet's
 Spark-compatible functions, so the nearest published attempt at this engine's
 contract. It short-circuits `AND` and `OR` per batch and narrows to the rare
@@ -347,7 +347,7 @@ sits beside it. That second pass is the next thing the range analysis grows.
 
 **Outside Spark: ClickHouse (`src/Functions`, `src/Interpreters/JIT`).** The
 calendar was read for milestone 6's lookup-table item; the evaluator was
-surveyed on 16 September 2026 (`SCOPE_MILESTONE_7.md`, item 23). It is the one
+surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`, item 23). It is the one
 engine in the survey that both interprets over columns and compiles: functions
 declare their contract as flags, a generic layer strips nulls, constants and
 dictionaries before the kernel, columns carry sixty-four bytes of padding so no
@@ -361,7 +361,7 @@ scalar IR left to LLVM, Gandiva's bet with Gandiva's compiler; the emitter that
 writes lanes is the step it did not take.
 
 **Outside Spark, but for Spark: Comet (`spark/src/main/scala/org/apache/comet`,
-`native/spark-expr`).** Surveyed on 16 September 2026 (`SCOPE_MILESTONE_7.md`,
+`native/spark-expr`).** Surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`,
 item 24). The one system with this engine's exact contract: a plug-in over
 Spark's physical plan that runs what it can elsewhere, falls back for the rest,
 and must answer what Spark answers under `ANSI`. It arrived at the same
@@ -388,7 +388,7 @@ as separate loops behind a batch boundary. Lang, Passing, Kipf, Boncz, Neumann
 and Kemper (VLDB Journal 2020) measured what idle lanes cost inside a fused
 pipeline and found materialising survivors at an operator boundary the best
 remedy on out-of-order cores, which is the compaction this engine does at its
-filter node. The reading notes are `SCOPE_MILESTONE_7.md` item 25, and the
+filter node. The reading notes are `SCOPE_MILESTONE_8.md` item 25, and the
 open-access papers are in `sql/varka/papers`.
 
 What this engine does that neither Spark attempt did: it emits the loop as bytecode with the

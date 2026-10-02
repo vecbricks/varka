@@ -11,4 +11,4 @@ jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
 kernel:      7.0.0-34-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
 purpose:     whether CPU contention reproduces the warm-up released at its 60-second deadline in
-             #541's Build of 1 October (PLAN_TASK_233.md 13.7, SCOPE_MILESTONE_7.md item 77)
+             #541's Build of 1 October (PLAN_TASK_233.md 13.7, SCOPE_MILESTONE_8.md item 77)

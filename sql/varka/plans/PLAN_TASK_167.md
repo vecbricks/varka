@@ -85,7 +85,7 @@ option has five values and two emissions.
 The first is the one worth following: an option whose subject the whole oracle
 cannot reach is either dead or guarding something the shape set does not
 contain, and this task has not established which. That is a new row rather than
-a finding here: `SCOPE_MILESTONE_7.md` item 48.
+a finding here: `SCOPE_MILESTONE_8.md` item 48.
 
 **Prediction 3 held.** `useAVX` is the only field a configuration reaches; every
 other field is set through a test hook. `VarkaEmitOptions`' class javadoc now

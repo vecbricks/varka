@@ -685,7 +685,7 @@ cause; 13.8 tried it and did not reproduce the release either.
 The fix does not wait on that: a deadline that releases a shape whose last probe was clean
 discards a verdict one probe from done, and a fixed sixty seconds cannot tell a compile that is
 slow because C2's queue is long from one that will never come, while the probes already can -
-their allocation was falling. `SCOPE_MILESTONE_7.md` item 77 takes both.
+their allocation was falling. `SCOPE_MILESTONE_8.md` item 77 takes both.
 
 ### 13.8 Two follow-ups the next morning
 

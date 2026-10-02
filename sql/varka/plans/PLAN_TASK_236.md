@@ -177,7 +177,7 @@ declines. That loop is the last resort, and the trace counts the first correctio
 the audit can name every shape that needed either.
 
 The size loop is not rewritten. It stays as the last resort the row asks for, behind a plan that
-makes it rarely run; `SCOPE_MILESTONE_7.md` item 74.2, which assumed this task would replace it,
+makes it rarely run; `SCOPE_MILESTONE_8.md` item 74.2, which assumed this task would replace it,
 says so.
 
 ### 3.3 The margin
@@ -210,7 +210,7 @@ fallbacks fit the driver by giving up the exact partition's fewer operations or 
 budget, and a method over the call-site budget is refused by C1 and runs interpreted until C2
 compiles it.
 
-### 3.5 The prediction on by default (`SCOPE_MILESTONE_7.md` item 71)
+### 3.5 The prediction on by default (`SCOPE_MILESTONE_8.md` item 71)
 
 A shape builds once only where the prediction closes its groups, so the defaults this task needs
 have `predictGrouping` on. That is item 71's question, moved to milestone 7 on 30 September and
@@ -242,7 +242,7 @@ The options, once B's split is planned:
   second kernel recomputes sixty-four prefixes, which should cost far more than its lead on the
   ladder; every batch runs more kernels, each with its own warm-up and scratch.
 * **(c) B alone with a cut that keeps sharers together**: the cut becomes a clustering of entries
-  by shared columns, task 72's reordering (`SCOPE_MILESTONE_7.md` item 15). Not this milestone.
+  by shared columns, task 72's reordering (`SCOPE_MILESTONE_8.md` item 15). Not this milestone.
 * **(d) A' alone**: leaves a projection past 64 columns to the row engine, as 11.5 found.
 
 **Recommendation: plan both, keep both on, and settle the question by measurement.** The done-when
@@ -285,7 +285,7 @@ have kept - the class is the same byte for byte.
 | `VarkaEmitCostAudit.java`, its suite and `emit_cost_audit.json` | builds and reactions per shape over the families of 2.1 |
 | `VarkaWideKernelBenchmark.scala` and its results file | the plan-time arms, item 71's section, sixty-four dates and the control |
 | `VarkaKernelPlanSuite.scala` (new) and the suites of section 5 | the tests |
-| `PLAN_MILESTONE_6.md`, `SCOPE_MILESTONE_7.md` | row 236; items 71 and 74.2 |
+| `PLAN_MILESTONE_6.md`, `SCOPE_MILESTONE_8.md` | row 236; items 71 and 74.2 |
 
 ## 5. Tests, and what each is for
 

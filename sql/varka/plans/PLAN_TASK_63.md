@@ -286,7 +286,7 @@ unserved for `NULL` mode.
 | `VarkaExpressionCompiler.scala` (+ suite) | `intOperand`, the arms, the mode mapping, `compare`'s operand, `compileOffset`'s arithmetic arm, the reasons |
 | `VarkaSharedSessions.scala`, `VarkaDifferentialSuite.scala` | an overflow-dense fixture (`Int.MaxValue` neighbours beside ordinary ints and nulls); the differentials of section 5 |
 | `VarkaEmitterParityBenchmark.scala` + files, `VarkaThroughputBenchmark.scala` + files | section 6 |
-| `docs/sql-varka.md`, `SKILLS.md`, `SCOPE_MILESTONE_7.md` item 12 | the surface bullet and reasons; the lesson; item 12's "until task 30 lands" corrected to this task |
+| `docs/sql-varka.md`, `SKILLS.md`, `SCOPE_MILESTONE_8.md` item 12 | the surface bullet and reasons; the lesson; item 12's "until task 30 lands" corrected to this task |
 | `PLAN_MILESTONE_4.md`, this file | row 63, section 9 |
 
 ## 5. Tests, and what each is for
@@ -727,7 +727,7 @@ consequence for task 82 is that it is a 128-bit task, and its own scope section
 now says so.
 
 *Withdrawn as evidence on 24 September 2026, by the band item 49 of
-`SCOPE_MILESTONE_7.md` asked for.* Ten pinned runs of the arithmetic benchmark
+`SCOPE_MILESTONE_8.md` asked for.* Ten pinned runs of the arithmetic benchmark
 at 512 bits (`VarkaArithmeticBenchmark-jdk25-band.txt`) put the row that moved -
 `i + 1`, ANSI, checked, mixed nulls - in tier 3, with a spread of 26.03% between
 its fastest and slowest run of the same code. A 26.1% move on that row is the

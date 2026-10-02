@@ -2,7 +2,7 @@
 
 *Written and built 18 September 2026. Section 2.60 of `PLAN_MILESTONE_5.md`
 scoped this task on 16 September 2026, from the September surveys
-(`SCOPE_MILESTONE_7.md` items 16 to 29, #223) and Raasveldt's pitfall 3.8.*
+(`SCOPE_MILESTONE_8.md` items 16 to 29, #223) and Raasveldt's pitfall 3.8.*
 
 ## 1. The hole
 

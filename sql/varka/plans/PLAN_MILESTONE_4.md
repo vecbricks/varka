@@ -10,7 +10,7 @@ whose subject is another lane or output type - 27 (boolean outputs), 28
 to `PLAN_MILESTONE_5.md`, text and task numbers unchanged, with the catalogue
 items about other lanes (1-5, 7-10). Their sections and rows here are stubs
 that point there, so citations still resolve. The coverage milestone that was
-called milestone 5 is now milestone 6 (`SCOPE_MILESTONE_7.md`). Everything
+called milestone 5 is now milestone 6 (`SCOPE_MILESTONE_8.md`). Everything
 below that says "milestone 5" in the old sense has been repointed.
 
 **Re-scoped again on 11 September 2026**, to what closes the milestone. Task 62
@@ -33,10 +33,10 @@ opened as: it is the task plan that document promised, written against the
 measurements it said should order it. The scope catalogue it grew from is kept
 whole in section 10, with every item's number unchanged, because other plans cite
 those numbers (`PLAN_TASK_21.md` cites items 5 and 11, `SKILLS.md` cites item
-13, and `SCOPE_MILESTONE_7.md` cites items 1 through 12 throughout). Where the
+13, and `SCOPE_MILESTONE_8.md` cites items 1 through 12 throughout). Where the
 catalogue and this plan disagree, this plan wins - the catalogue records what
 was thought before the survey and before milestone 3's numbers, and several of
-those thoughts have already been corrected in writing (`SCOPE_MILESTONE_7.md`
+those thoughts have already been corrected in writing (`SCOPE_MILESTONE_8.md`
 section 2).
 
 Milestone 1 built kernels. Milestone 2 built the emitter and proved it on int32
@@ -53,7 +53,7 @@ at the owner's request; see 2.2).
 The scope document refused to order itself until three inputs existed. All
 three now do:
 
-* **The survey ran** (`SCOPE_MILESTONE_7.md` section 1), and its corrections
+* **The survey ran** (`SCOPE_MILESTONE_8.md` section 1), and its corrections
   are folded in rather than re-litigated: there is not one `DOUBLE` or `FLOAT`
   column in TPC-DS or TPC-H, so item 3 is the taxi benchmark's item; the old
   item 8 was two items and is now 8 (string functions, 37 uses) and 9 (string
@@ -1436,7 +1436,7 @@ here because the shapes are int32 in and int32 out, and the divisor being a
 literal is what makes them cheap.
 
 **What it closes.** The compositions section 2.24 and scope item 11 of
-`SCOPE_MILESTONE_7.md` list as residual today - the day of quarter, the week
+`SCOPE_MILESTONE_8.md` list as residual today - the day of quarter, the week
 of month, the Julian day number - and the composite keys, which join the
 closing table (task 62) as rows of their own. Task 57's node stays: it is
 the cheaper lowering of its one shape, and the arm for `Add(WeekDay, 1)` is
@@ -2218,7 +2218,7 @@ The scope's section 8, each question now owned by a task or settled here:
   out; the owner left it unscheduled. The design, the two converter lessons
   and the three increments are recorded in `PLAN_TASK_23.md` under "Deferred
   to a dedicated task"; it takes a number when it starts.
-* **`DecimalType`** - per item 12; its design pass is `SCOPE_MILESTONE_7.md`
+* **`DecimalType`** - per item 12; its design pass is `SCOPE_MILESTONE_8.md`
   items 1 and 2.
 * **Grouped aggregation, hash joins, sorting** - grouping is hashing and
   partitioning, a milestone of its own after item 7.
@@ -2412,7 +2412,7 @@ rewritten in the past tense with what the sweep found, never deleted.
   what differs between the two shapes. Closing it means one measurement across
   the write count and a cost rule in `planSlots`, or a recorded decline saying
   the single-field case is too small to matter. The same shape-dependence is the
-  argument in `SCOPE_MILESTONE_7.md` item 11 for choosing lowerings by cost
+  argument in `SCOPE_MILESTONE_8.md` item 11 for choosing lowerings by cost
   rather than by a global default. **Adopted as task 76** (section 2.38).
   **Swept 10 September 2026 with a recorded decline** (`PLAN_TASK_76.md` 10):
   measured across a write-count ladder at three widths, the loss exists at 4
@@ -2739,7 +2739,7 @@ Recorded so they are not re-proposed:
 * **`DecimalType`**: not a lane type - precision <= 18 fits an int64
   unscaled value, but the general case is 128-bit with no lane at any
   species. It needs its own design pass, not an item here; that pass is
-  `SCOPE_MILESTONE_7.md` items 1 and 2, made urgent by the survey.
+  `SCOPE_MILESTONE_8.md` items 1 and 2, made urgent by the survey.
 * **`CPUFeatures`**: package-private, so a fallback decision comes from a
   measurement or the species width, never a feature query.
 * **Hash joins**: scalar probing over off-heap tables with SIMD reserved for

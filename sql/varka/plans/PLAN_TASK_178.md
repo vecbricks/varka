@@ -1,6 +1,6 @@
 # Task 178: bands on demand, the rule and the tooling
 
-*Row 178 of `PLAN_MILESTONE_6.md`, from `SCOPE_MILESTONE_7.md` item 49 and task 145's finding.
+*Row 178 of `PLAN_MILESTONE_6.md`, from `SCOPE_MILESTONE_8.md` item 49 and task 145's finding.
 Written 1 October 2026, when the row closed; most of what it asked for had happened on the side
 by then, and this file records what, and what the row itself added.*
 

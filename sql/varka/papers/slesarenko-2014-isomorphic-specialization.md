@@ -18,11 +18,11 @@ The page carries ACM's copyright and permission notice, which this directory's
 README treats as not permitting a copy; the eleven Item 25 papers in that
 position kept reading notes only. **This transcription is kept on the
 repository owner's explicit decision of 19 September 2026**, and the reading
-notes stand beside it in `sql/varka/plans/SCOPE_MILESTONE_7.md` Item 11.
+notes stand beside it in `sql/varka/plans/SCOPE_MILESTONE_8.md` Item 11.
 
 ## Why this paper is here
 
-`sql/varka/plans/SCOPE_MILESTONE_7.md` Item 11 asks who decides, per
+`sql/varka/plans/SCOPE_MILESTONE_8.md` Item 11 asks who decides, per
 expression, which physical form a value lives in. This paper is the cleanest
 statement of one answer's mechanics: representation as a first-class object -
 a declared isomorphism `Iso[From, To]` per (abstract type, core representation)

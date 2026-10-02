@@ -18,7 +18,7 @@ The C++ form of Varka's own decision: one portable vector layer, explicit
 emission rather than the auto-vectoriser, and a localised platform-specific
 island only where no portable form reaches the instruction - which for them,
 as for Varka, is compress-store. It is the measured prior art behind the
-compress and PEXT gate in `SCOPE_MILESTONE_7.md` Items 19 and 22 (native
+compress and PEXT gate in `SCOPE_MILESTONE_8.md` Items 19 and 22 (native
 compress-store worth several times the best shuffle path and scaling with
 width; PDEP at a tenth of scalar speed on AMD Rome; PEXT losing to shuffles
 even on Intel), it independently confirms `PLAN_TASK_62.md` section 11's

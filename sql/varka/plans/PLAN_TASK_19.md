@@ -145,7 +145,7 @@ replaced by the measured delta, the conf table if 4.1 lands), `README.md`
 (honest table row, the milestone promise), `PLAN_MILESTONE_3.md` (task-19
 row, and the "Row consumers do not pay" why-bullet still quoting
 0.6-0.7x), `PLAN_MILESTONE_2.md` (register entry swept), and the
-`SCOPE_MILESTONE_7.md` claim that `.noop()` is a row consumer - it
+`SCOPE_MILESTONE_8.md` claim that `.noop()` is a row consumer - it
 contradicts this benchmark's class doc and one of the two must be fixed.
 
 ## 5. Measurement
@@ -222,7 +222,7 @@ gives the rule a real cost model for the row engine's side of the ledger.
   `datediff` 5.2x -> 5.6x, chains 6.5-7.2x -> 7.0-7.5x flat, `CASE WHEN`
   predictable 6.2x -> 5.8x, mixed-row 0.9x -> 0.8x, residual 0.7x ->
   0.6x), and the stale ~16 ns/row was replaced by the measured floor.
-* `SCOPE_MILESTONE_7.md`'s claim that `.noop()` is a row consumer was
+* `SCOPE_MILESTONE_8.md`'s claim that `.noop()` is a row consumer was
   wrong - this fork's noop write accepts columnar batches (that is what
   the columnar throughput cases measure) - and was corrected; the
   milestone-2 register's row-consumer entry is swept in the past tense.

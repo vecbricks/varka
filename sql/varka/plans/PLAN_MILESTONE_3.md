@@ -107,7 +107,7 @@ The survey named two gating shapes that cost almost nothing and unlock a large
 fraction of real date expressions: `cast(string AS DATE)` folding (85 sites wrap
 date expressions in it) and `BETWEEN`'s rewrite into paired comparisons (41
 sites). Two more joined them from the benchmark census in
-`SCOPE_MILESTONE_7.md` (then numbered 5): `In` and `InSet` over the lane types Varka already has
+`SCOPE_MILESTONE_8.md` (then numbered 5): `In` and `InSet` over the lane types Varka already has
 (118 `IN (` sites across TPC-DS and TPC-H), and `Coalesce` (41 sites, the third
 most common non-aggregate function in the corpus after `cast`). All four are
 compiler-side only - no new kernel, no plan-shape change - so they come first

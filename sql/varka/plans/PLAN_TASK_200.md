@@ -98,7 +98,7 @@ per output under every partition that keeps the order - 24 methods for 24 fields
 each loading a prefix - because adjacent outputs share nothing and two fields with loaded
 prefixes are 26 ops, over clause 1's 16, with no reuse to open clause 2; the same twelve dates'
 fields take 12 methods listed by date and 48 listed by field. That is task 72's case
-(`SCOPE_MILESTONE_7.md` item 15), now with its numbers, and no task of this milestone.
+(`SCOPE_MILESTONE_8.md` item 15), now with its numbers, and no task of this milestone.
 
 **The boundary.** The search is over the runs the grouping's rule admits, so the verdict is
 about greedy against the best partition under the same rule; whether a different rule - one
@@ -170,9 +170,9 @@ partition's methods as well as its ops.
 ## 5. What remains elsewhere
 
 * **Reordering the outputs** so that sharers sit together: task 72, carried in
-  `SCOPE_MILESTONE_7.md` item 15's table from `PLAN_MILESTONE_5.md` 2.25, with the numbers of
+  `SCOPE_MILESTONE_8.md` item 15's table from `PLAN_MILESTONE_5.md` 2.25, with the numbers of
   section 2 added there.
-* **`predictGrouping`'s default**, which task 199 left to this task: `SCOPE_MILESTONE_7.md` item
+* **`predictGrouping`'s default**, which task 199 left to this task: `SCOPE_MILESTONE_8.md` item
   71, measured on the same benchmark section as the switch above.
 
 ## 6. Sequencing
@@ -201,7 +201,7 @@ addressed, and the answer to the fourth changed the verdict.
    methods.
 5. The search's boundary - the same admission rule - was not stated. It is now.
 6. The verdict rested on a proxy and did not say so. It does, and section 4 is the timing.
-7. `predictGrouping`'s default was left to nobody. It is `SCOPE_MILESTONE_7.md` item 71.
+7. `predictGrouping`'s default was left to nobody. It is `SCOPE_MILESTONE_8.md` item 71.
 8. "The debt register" was cited without a reference. Task 72 is item 15 there.
 9. The probe was deleted after the run. It is `VarkaGroupingBoundSuite`, which holds greedy to
    the best partition's ops on every family and will hold it to the methods once the switch

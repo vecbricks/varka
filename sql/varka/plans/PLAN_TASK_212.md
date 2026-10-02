@@ -16,7 +16,7 @@ generated loop walks every row in one call and the JIT compiles it partway
 through that call.
 
 The owner asked, on 26 September 2026, for a task in this milestone. The
-reason to do it now rather than in `SCOPE_MILESTONE_7.md`: the milestone's
+reason to do it now rather than in `SCOPE_MILESTONE_8.md`: the milestone's
 second post states the first-query cost as one of its bounds (`PLAN_TASK_181.md`
 2, bound 4), and a bound that says "slower until the JIT notices" reads very
 differently from one that says "slower for the first few batches".

@@ -32,7 +32,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 
 /**
  * What the `TIME` extracts cost in the representation Spark stores - nanoseconds of day in a
- * 64-bit lane - against the split representation `SCOPE_MILESTONE_7.md` item 11 proposes:
+ * 64-bit lane - against the split representation `SCOPE_MILESTONE_8.md` item 11 proposes:
  * seconds of day in a 32-bit lane, with the nanoseconds within the second beside it.
  *
  * `hour`, `minute` and `second` over a `TIME` are constant divisions, and a `TIME` has no

@@ -17,10 +17,10 @@ section headers:
 |---|---:|---|---|
 | datetime | 64 | int32 and int64 lanes; the calendar algorithms | Varka's home ground; `TIME` is milestone 5's subject |
 | math | 61 | **a double lane**; the Vector API's math operators | section 2 and 3 |
-| aggregate | 76 | the aggregation operator, milestone 6's target | `SCOPE_MILESTONE_7.md` items 4 and 5 |
-| string | 67 | a string representation | `SCOPE_MILESTONE_7.md` item 80's family |
+| aggregate | 76 | the aggregation operator, milestone 6's target | `SCOPE_MILESTONE_8.md` items 4 and 5 |
+| string | 67 | a string representation | `SCOPE_MILESTONE_8.md` item 80's family |
 | predicate, conditional | 13 + 10 | compares, blend, `IS_NAN` | largely fused; `LIKE` and the regexes are strings |
-| bitwise | 6 | shifts and counts, all in the Vector API | `SCOPE_MILESTONE_7.md` item 32 |
+| bitwise | 6 | shifts and counts, all in the Vector API | `SCOPE_MILESTONE_8.md` item 32 |
 | hash | 9 | xxhash64 and murmur over lanes | feasible for numeric inputs; nothing scoped |
 | array, map, lambda, collection, struct | 54 | variable-length nested values per row | far; no representation |
 | window | 9 | operator-level, not expression-level | after aggregation |
@@ -174,7 +174,7 @@ functions, whose row-engine bits are the same on every host: `exp` and `log`
 are a table and a short polynomial, and a lane that reproduces fdlibm's
 arithmetic reproduces its bits - bit-exact, slower than SVML by a factor to be
 measured, and a kernel to maintain. Or a **decline** of the family, since no
-function in it is exact. `SCOPE_MILESTONE_7.md` item 36 holds the decision.
+function in it is exact. `SCOPE_MILESTONE_8.md` item 36 holds the decision.
 
 ## 4. What is shared across the families
 

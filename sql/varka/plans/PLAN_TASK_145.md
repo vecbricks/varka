@@ -290,7 +290,7 @@ run. Fixed here, since the band above is the first thing that needed it.
 ## 6. Explicitly out of this task
 
 - **The read-back floor itself** (task 19, and item 13 of
-  `SCOPE_MILESTONE_7.md`): this task removes one plan's need to pay it, not
+  `SCOPE_MILESTONE_8.md`): this task removes one plan's need to pay it, not
   the cost of paying it.
 - **Whole-stage codegen support** for the Varka transition nodes, which the
   `VarkaColumnarToRowExec` comment records as a follow-up and which no

@@ -278,7 +278,7 @@ suite and the bytes oracle pass unchanged, which is the proof; the coverage
 suite's source scan of the arms reads the five files rather than one, and
 said so itself when it found seventeen names instead of sixty. Task 86's
 operand-admission table is a behaviour change, which section 4 keeps out of
-this task, and it is a milestone 6 row now (`SCOPE_MILESTONE_7.md` item 39),
+this task, and it is a milestone 6 row now (`SCOPE_MILESTONE_8.md` item 39),
 so it did not come along. The compiler went from 2271 lines to 862.
 
 ### 3.5 `VarkaKernelEvaluator` by responsibility (medium)
@@ -371,6 +371,6 @@ diff, no results file, band or docs table moved, and every new file opens with
 its purpose.
 
 Step 3.7, one place per node, is not done here. It is the one step that is not
-a move, and it is deferred to milestone 6 as `SCOPE_MILESTONE_7.md` item 47,
+a move, and it is deferred to milestone 6 as `SCOPE_MILESTONE_8.md` item 47,
 which records what was learned about it on the way: the passes that read
 several nodes at once are the part a per-node dispatch cannot absorb.

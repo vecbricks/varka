@@ -3,7 +3,7 @@
 > **Status: closed (September 2026).** A code review of the Varka code as it stood at
 > commit `b56e9f7f34a`, kept as the record of that review. Every finding in it has been
 > fixed and merged, so nothing here is a list of open work: open work lives in `plans/` -
-> a task's own plan file, the current milestone's debt register, or `SCOPE_MILESTONE_7.md`.
+> a task's own plan file, the current milestone's debt register, or `SCOPE_MILESTONE_8.md`.
 > Later plans cite findings below by number and by line, so the body is not reordered.
 
 Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, the
