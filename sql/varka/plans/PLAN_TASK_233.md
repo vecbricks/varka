@@ -792,3 +792,7 @@ against 597 ms; 1.63 unpinned); the 50 and 99-entry cheap projections are 1.17 a
 slower once compiled (125 against 107 ms, 251 against 232; 1.15 and 1.19 unpinned). The 99-entry
 ratio moving by a tenth in one pair of runs is the same lottery, and is why the post's table
 quotes the wide-projection benchmark, measured twice pinned, rather than this one.
+
+**Republished.** The page was rebuilt from `POST_MILESTONE_6_GIVEUPS.md` at `a05938dbfb4` and
+differs from what was live only in the two corrected sentences; the site's commit is `708fd21`
+in `vecbricks/vecbricks.github.io`.
