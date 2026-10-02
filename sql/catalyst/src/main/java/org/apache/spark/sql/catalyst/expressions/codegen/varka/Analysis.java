@@ -226,6 +226,12 @@ final class Analysis {
    * ({@code Slots.bodyUses}, task 223).
    */
   final Set<VarkaVectorIR> analyzed = new HashSet<>();
+  /**
+   * {@code Slots.bodyUses} per group body, keyed by the body's outputs and whether it is dense:
+   * a group's loop and epilogue methods visit the same nodes, so the count is made once for both.
+   * Cleared with each grouping's materialized prefixes, which the count reads.
+   */
+  final Map<List<Object>, Map<VarkaVectorIR, Integer>> bodyUses = new HashMap<>();
   /** The output roots, for the one node type admitted only there. */
   final Set<VarkaVectorIR> roots = new HashSet<>();
   /** Per distinct node, the bitset of input ordinals its subtree references. */
@@ -516,6 +522,7 @@ final class Analysis {
    * decomposes is left as it is: within a group the fragment sharing already computes it once.
    */
   void planMaterialized(List<VarkaVectorIR> outputs, List<List<Integer>> groups) {
+    bodyUses.clear();
     materialized = Map.of();
     if (!options.materializeChronoPrefix() || !options.shareChronoPrefix()
         || options.methodByteBudget() <= 0 || groups.size() < 2) {

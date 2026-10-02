@@ -281,13 +281,17 @@ final class Slots {
    */
   long skippedColumns;
   /**
-   * The words this body still reads, or null for all of them ({@link #liveWords}), and the
-   * kernel's word algebra ({@code Analysis.wordOwner}): what {@link #fragmentKey} keys a prefix
-   * fragment's word on, so that a fragment's key is known before any word slot is numbered and
-   * the use count of {@link #bodyUses} asks it as the lowering does.
+   * The words this body still reads, or null for all of them ({@link #liveWords}): what
+   * {@link #fragmentKey} tells a dead word by, so that a fragment's key is known before any word
+   * slot is numbered and the use count of {@link #bodyUses} asks it as the lowering does.
    */
   Set<WordOwner> liveWordOwners;
-  Map<VarkaVectorIR, WordOwner> wordOwners = Map.of();
+  /**
+   * The nodes without a shared slot this lane group has emitted, cleared with the walk's
+   * {@code computed} set: a second visit of one means {@link #bodyUses} counted it too low, which
+   * {@code VarkaVectorWalk.emitValue} refuses rather than recompute the node's subtree.
+   */
+  final Set<VarkaVectorIR> emittedUnshared = new HashSet<>();
 
   Slots(int numInputs, int numOutputs) {
     srcSeg = new int[numInputs];
@@ -379,13 +383,14 @@ final class Slots {
     }
     final Set<VarkaVectorIR> body = emitted;
     s.liveWordOwners = live;
-    s.wordOwners = analysis.wordOwner;
     // How often this body visits each node, which decides its shared slots (task 223); see
     // bodyUses. Only a loop or epilogue body walks vectors, and only under CSE does the count
     // decide anything, so no other plan pays for it.
     final Map<VarkaVectorIR, Integer> bodyUses =
         (mode == BodyMode.LOOP || mode == BodyMode.EPILOGUE) && analysis.options.cse()
-            ? bodyUses(body, outputs, outputIdx, analysis, group, dense, s) : Map.of();
+            ? analysis.bodyUses.computeIfAbsent(List.of(List.copyOf(outputIdx), group, dense),
+                k -> bodyUses(body, outputs, outputIdx, analysis, group, dense, s))
+            : Map.of();
     long treeColumns = 0L;
     long bodyColumns = 0L;
     for (VarkaVectorIR node : tree) {
@@ -657,7 +662,7 @@ final class Slots {
                 : node instanceof TruncDateDynamic ? TRUNC_DYNAMIC_TMP_COUNT
                 : node instanceof DayOfYear || node instanceof WeekOfYear ? CHRONO_PREFIX_SLOTS + 1
                 : CHRONO_PREFIX_SLOTS;
-            FragmentKey key = fragmentKey(node, dense, s);
+            FragmentKey key = fragmentKey(node, dense, s, analysis);
             int[] prefix = shareChronoPrefix ? s.chronoPrefixTmp.get(key) : null;
             if (prefix == null) {
               prefix = new int[CHRONO_PREFIX_SLOTS];
@@ -954,7 +959,7 @@ final class Slots {
         skipped = isNotNull.child();
       } else if (isChrono(node)) {
         VarkaVectorIR date = chronoChild(node);
-        boolean first = !share || fragments.add(fragmentKey(node, dense, s));
+        boolean first = !share || fragments.add(fragmentKey(node, dense, s, analysis));
         boolean loaded = loadedPrefixDate(analysis, group, node) != null;
         if (!first || (loaded && !visitsLoadedDate(dense, s, date))) {
           skipped = date;
@@ -1314,7 +1319,7 @@ final class Slots {
    * so no sibling's order can change what it decides.
    */
   static void planFragmentsReadingMonth(List<VarkaVectorIR> outputs,
-      List<Integer> outputIdx, boolean dense, Slots s) {
+      List<Integer> outputIdx, boolean dense, Slots s, Analysis analysis) {
     s.fragmentsReadingMonth.clear();
     Set<VarkaVectorIR> seen = new HashSet<>();
     List<VarkaVectorIR> pending = new ArrayList<>();
@@ -1327,7 +1332,7 @@ final class Slots {
         continue;
       }
       if (isChrono(node) && tailReadsMarchMonth(node)) {
-        s.fragmentsReadingMonth.add(fragmentKey(node, dense, s));
+        s.fragmentsReadingMonth.add(fragmentKey(node, dense, s, analysis));
       }
       for (VarkaVectorIR child : childrenOf(node)) {
         pending.add(child);
@@ -1336,10 +1341,11 @@ final class Slots {
   }
 
   /** {@link FragmentKey} for {@code node}'s civil-from-days prefix; see that record's doc. */
-  static FragmentKey fragmentKey(VarkaVectorIR node, boolean dense, Slots s) {
+  static FragmentKey fragmentKey(VarkaVectorIR node, boolean dense, Slots s,
+      Analysis analysis) {
     Object word = null;
     if (!dense) {
-      WordOwner owner = s.wordOwners.get(node);
+      WordOwner owner = analysis.wordOwner.get(node);
       word = owner instanceof WordOwner.Own own && s.liveWordOwners != null
           && !s.liveWordOwners.contains(own) ? DEAD_WORD : owner;
     }

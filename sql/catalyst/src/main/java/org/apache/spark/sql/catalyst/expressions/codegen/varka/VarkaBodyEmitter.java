@@ -763,8 +763,9 @@ final class VarkaBodyEmitter {
     // OR-ed into dstValidity exactly where a value root ORs its validity word; the dstData
     // slot stays untouched, per the interface contract.
     Set<VarkaVectorIR> computed = new HashSet<>();
+    s.emittedUnshared.clear();
     s.emittedFragments.clear();
-    planFragmentsReadingMonth(outputs, outputIdx, dense, s);
+    planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       if (root instanceof Cond cond) {
