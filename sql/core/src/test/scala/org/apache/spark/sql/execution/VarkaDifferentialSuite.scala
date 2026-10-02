@@ -1318,6 +1318,42 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
+  test("a fused conjunct that can raise sees only the rows the residual conjuncts before it " +
+      "let through, as Spark evaluates them") {
+    // Task 273. Spark evaluates a filter's conjuncts in order and stops at the first false one,
+    // so `make_date(2021, i, 1)` never runs on the row whose `s` is not 'x', and that row's
+    // month of 13 raises nothing under ANSI. Varka fuses the `make_date` conjunct and leaves
+    // `s = 'x'`, which it cannot compile, in a row filter above its node; the kernel declines
+    // the batch the invalid month is in, and the declined batch must still be filtered in
+    // Spark's order.
+    Seq(spark, varkaSpark).foreach { session =>
+      session.createDataFrame(Seq(
+          ("x", Int.box(5), date("2021-12-31")),
+          ("y", Int.box(13), date("2021-12-31")),
+          ("x", Int.box(6), date("2021-01-01"))))
+        .toDF("s", "i", "d").coalesce(1)
+        .createOrReplaceTempView("varka_filter_order")
+      session.catalog.cacheTable("varka_filter_order")
+    }
+    try {
+      withAnsi(true) {
+        val q = "SELECT s, i, d FROM varka_filter_order " +
+          "WHERE s = 'x' AND make_date(2021, i, 1) < d ORDER BY i"
+        val plan = varkaSpark.sql(q).queryExecution.executedPlan
+        // The shape under test: the make_date conjunct fused, `s = 'x'` in a row filter above.
+        assertFused(plan)
+        assert(collectFirst(plan) {
+          case f: FilterExec if f.condition.references.exists(_.name == "s") => f
+        }.isDefined, s"expected `s = 'x'` in a row filter above the Varka node:\n$plan")
+        // The table's one batch holds the invalid month, so the kernel declines it: what is
+        // compared is how the declined batch is filtered, not the kernel's answer.
+        checkAnswer(varkaSpark.sql(q), spark.sql(q).collect().toSeq)
+      }
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_filter_order"))
+    }
+  }
+
   test("weekofyear matches the row engine on every day across forty year " +
       "boundaries, at Velox's fixtures, under every spelling and on the filter path") {
     // The dense sweep of the plan: every day from 1990-12-20 to 2030-01-10 built from range,

@@ -83,7 +83,7 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
           VarkaProjectExec(projectList, filter)
         case filter @ FilterExec(condition, child)
             if child.supportsColumnar && arrowFriendly(child) =>
-          rewriteFilter(condition, child, VarkaFilterExec(_, _)).getOrElse(filter)
+          rewriteFilter(condition, child, VarkaFilterExec(_, _, _)).getOrElse(filter)
       }
     } else {
       plan
@@ -101,11 +101,13 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
         // which would otherwise leave the compacting filter in the tree.
         case ColumnarToRowExec(VarkaProjectExec(projectList, filter: VarkaFilterExec))
             if isForwardedNarrowing(projectList, filter.output) =>
-          VarkaFilterColumnarToRowExec(filter.condition, filter.child, Some(projectList))
+          VarkaFilterColumnarToRowExec(filter.condition, filter.child, Some(projectList),
+            filter.wholeCondition)
         case ColumnarToRowExec(varka: VarkaProjectExec) =>
           VarkaColumnarToRowExec(varka.projectList, varka.child)
         case ColumnarToRowExec(varka: VarkaFilterExec) =>
-          VarkaFilterColumnarToRowExec(varka.condition, varka.child)
+          VarkaFilterColumnarToRowExec(varka.condition, varka.child,
+            wholeCondition = varka.wholeCondition)
         case project @ ProjectExec(projectList, child)
             if isVarkaEligible(projectList, child.output) =>
           val columnarChild = child match {
@@ -135,7 +137,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
             case other => other
           }
           if (columnarChild.supportsColumnar && arrowFriendly(columnarChild)) {
-            rewriteFilter(condition, columnarChild, VarkaFilterColumnarToRowExec(_, _))
+            rewriteFilter(condition, columnarChild,
+              VarkaFilterColumnarToRowExec(_, _, None, _))
               .getOrElse(filter)
           } else {
             filter
@@ -250,13 +253,15 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
   private def rewriteFilter(
       condition: Expression,
       child: SparkPlan,
-      mkVarka: (Expression, SparkPlan) => SparkPlan): Option[SparkPlan] = {
+      mkVarka: (Expression, SparkPlan, Option[Expression]) => SparkPlan): Option[SparkPlan] = {
     VarkaExpressionCompiler.compilePredicate(condition, child.output,
         VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)).map { predicate =>
-      val varka = mkVarka(predicate.fusedConjuncts.reduceLeft(And(_, _)), child)
-      predicate.residualConjuncts.reduceLeftOption(And(_, _))
-        .map(residual => FilterExec(residual, varka))
-        .getOrElse(varka)
+      val residual = predicate.residualConjuncts.reduceLeftOption(And(_, _))
+      // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with
+      // the whole condition, in Spark's order (see VarkaFilterExecBase).
+      val varka = mkVarka(predicate.fusedConjuncts.reduceLeft(And(_, _)), child,
+        residual.map(_ => condition))
+      residual.map(FilterExec(_, varka)).getOrElse(varka)
     }
   }
 }
