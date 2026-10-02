@@ -709,10 +709,11 @@ virtual machine - and item 77's two changes do not depend on it.
 
 `POST_MILESTONE_6_GIVEUPS.md`, in the first post's form, follows 12.4's outline as 13.5 narrowed
 it: section 2 is about wide projections of cheap columns, and its remedy is `maxFields` below the
-width for such a query only. Three figures are still to draw, each from committed files:
+width for such a query only. Its three figures, each drawn from committed files when its
+script runs:
 
 | figure | what it shows | from |
 |:--|:--|:--|
 | 1, `fig28-where-operators-run` | per suite, the share of operators in a stage, outside one by design, and outside one for a reason | `VarkaCodegenGiveUps-jdk25-results.txt` |
-| 2, `fig29-wide-projection-in-and-out` | time a row in a stage and out, cheap and mixed, 50 and 99 columns, three processors | `CodegenWideProjectionBenchmark-jdk25-*`, `CodegenCompileWaitBenchmark-jdk25-results.txt` |
+| 2, `fig29-wide-projection-in-and-out` | in-stage time over out-of-stage time, cheap and mixed, 50 and 99 columns, runner and laptop | `CodegenWideProjectionBenchmark-jdk25-*`, `CodegenCompileWaitBenchmark-jdk25-results.txt` |
 | 3, `fig30-first-minute` | each query's time for a minute, the 150-column projection in a stage and out | `compile_wait-jdk*-output.txt`, `CodegenFallbackCostBenchmark-jdk25-results.txt` |

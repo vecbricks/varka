@@ -114,7 +114,7 @@ under the default settings, once everything is compiled:
 ![A wide projection in a stage and out of it](figures/svg/fig29-wide-projection-in-and-out.svg)
 
 *Figure 2. Time per row in a stage and outside one, for cheap and mixed projections of 50 and 99
-columns, on three processors.*
+columns, on a GitHub-hosted runner and a laptop. Above the dashed line the stage is slower.*
 
 On stock Spark 4.2.0 the same 99 cheap columns are 1.30, 1.45 and 1.37 times slower in a stage
 with JDK 17, 21 and 25.
