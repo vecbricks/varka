@@ -561,7 +561,7 @@ object VarkaIrGrammar {
     val depth = 1 + rnd.nextInt(4)
     val roots: Seq[VarkaVectorIR] =
       if (rnd.nextInt(5) == 0) Seq(shapes.cond(depth))
-      else Seq.fill(1 + rnd.nextInt(3))(shapes.value(depth).node).distinct
+      else Seq.fill(1 + rnd.nextInt(3))(shapes.root(depth)).distinct
     DrawnLong(roots, numInputs, numLiterals)
   }
 
@@ -570,20 +570,20 @@ object VarkaIrGrammar {
     val numInputs = 1 + rnd.nextInt(3)
     val numLiterals = rnd.nextInt(3)
     val roots = Seq.fill(20 + rnd.nextInt(181)) {
-      new LongShapes(rnd, numInputs, numLiterals).value(1 + rnd.nextInt(4)).node
+      new LongShapes(rnd, numInputs, numLiterals).root(1 + rnd.nextInt(4))
     }.distinct
     DrawnLong(roots, numInputs, numLiterals)
   }
 
   /**
    * The generator at the long lane, over the lane-generic subset of the IR: the leaves, the
-   * arithmetic in its three modes, the negate, the constant division in both its lowerings
-   * (which one emits is `useAVX`'s choice, which the suite draws), the range guard, the hull
-   * ops, the conditional and the conditions. No calendar node, since those refuse a 64-bit
-   * child where they are built. The `TIME` and interval expressions the compiler lowers are
-   * trees of exactly these nodes - a subtraction under a division, a guarded add over a
-   * guarded multiply - so a grammar over the node set covers them without knowing their names,
-   * and the fuzzer's reach test holds it to the whole set.
+   * arithmetic in its three modes, the negate, the constant division in both its lowerings (which
+   * one emits is `useAVX`'s choice, which the suite draws), the range guard, the hull ops, the
+   * conditional and the conditions - and, at an output root only, the narrowing (`root`). No
+   * calendar node, since those refuse a 64-bit child where they are built. The `TIME` and interval
+   * expressions the compiler lowers are trees of exactly these nodes - a subtraction under a
+   * division, a guarded add over a guarded multiply - so a grammar over the node set covers them
+   * without knowing their names, and the fuzzer's reach test holds it to the whole set.
    *
    * Every subtree carries a magnitude bound, saturating as `Shapes`' do. It decides three
    * things: whether a division may be placed (the dividend bound), whether a checked mode may
@@ -689,6 +689,19 @@ object VarkaIrGrammar {
           case _ => new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), LaneType.LONG))
         }
       }
+    }
+
+    /**
+     * An output root: a value tree, or - where its bound fits an int - that tree narrowed to a
+     * 32-bit column, the root every `TIME` kernel has (`VarkaTimeCompiler`). The narrowing is a
+     * truncation with no overflow check, so it is drawn, as the compiler builds it, only over
+     * values proven to fit; and it is admitted at an output root alone, so it is drawn here and
+     * never inside `value`. The decision draws a number only when the bound fits, so a shape
+     * none of whose roots fits is the shape it was before the arm (task 235).
+     */
+    def root(depth: Int): VarkaVectorIR = {
+      val v = value(depth)
+      if (v.bound <= Int.MaxValue && rnd.nextInt(3) == 0) new NarrowLane(v.node) else v.node
     }
   }
 }
