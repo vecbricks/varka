@@ -4240,6 +4240,71 @@ the cause: the suite run after a suite that compiles thousands of classes, in th
 in with a test that holds a warm-up behind a stalled compile queue and expects `COMPILED`, and
 `VarkaWarmupEndToEndSuite` passes in a full CI run of the sql module. Size: small.
 
+### Item 78. A post for Spark users: how Spark compiles a query, and why it compiles it again
+
+*Added 2 October 2026 on the owner's decision, from the post proposals made after task 233's
+draft: this post next, paired with item 79, and item 80 between the big posts.*
+
+The reader runs Spark and has read the first three posts; the question is what happens between
+the plan and the running code, and what it costs them. **The pipeline**, as master's source has
+it: each whole-stage codegen stage becomes one Java source string; the driver compiles it with
+Janino once, to check that it compiles and to read its methods' sizes - where the 64 KB fallback
+and the 8000-byte check of the first and third posts are decided; the source travels to the
+executors inside the stage's task binary (an internal setting since 4.0.0,
+`spark.sql.codegen.broadcastCleanedSourceThreshold`, can broadcast it separately, and is off by
+default), which is why the 3,000-branch stage of task 233 logged `Broadcasting large task binary
+with size 1071.4 KiB`; each executor compiles it again, through a per-JVM cache of generated
+classes keyed by the source text, `spark.sql.codegen.cache.maxEntries`, 100 by default; and then
+HotSpot runs it interpreted, then C1's code, then C2's, the wait task 233 measured.
+
+**The hook**, from a check on stock 4.2.0 on the laptop, not yet committed: because the cache key
+is the source text, and integer, long, date, timestamp, float and double literals are written
+into the source while strings, decimals and binaries are passed as references, `WHERE id = 6`
+after `WHERE id = 5` compiled two new classes, and `WHERE s = 'b'` after `WHERE s = 'a'` none;
+a new date compiled two, and so did a new value of a named parameter, `:p` - Spark binds the
+parameter as a literal. A dashboard with a date filter compiles every query anew, on the driver
+and on every executor, and each new class starts over in C1.
+
+**To measure**, registered with predictions in the task's plan before any runs: Janino's compile
+time against a stage's size; the compiles per executor on a small cluster (`local-cluster`); a
+short query's latency with a new literal against a repeated one, where compiling may be most of
+it; what happens past the cache's 100 entries; and whether passing those literals as references,
+as strings already are, would be worth proposing upstream.
+
+**Done when** the literal check and every other snippet run on stock Spark with their runner
+outputs committed, the measurements are committed with provenance and their predictions scored,
+and the post is published with every number tracing under `dev/varka_quote_check.py`. Size:
+medium.
+
+### Item 79. Its companion for Spark and JVM developers: bytecode without source
+
+*Added 2 October 2026 with item 78, as its pair: published with it or right after, each linking
+the other, as task 210's and task 181's posts were.*
+
+Spark writes Java and has Janino parse and compile it; Varka emits bytecode directly with the
+JDK's Class-File API (final since JDK 24). The post is about what that changes for a query
+engine: no source to build or parse, every method's size known before the class is loaded - the
+size control the second milestone 6 post described - and what an emitted class costs against a
+compiled one. **To measure:** emission against Janino's compile of the same kernels, from the same
+expression list; the timings in `PLAN_TASK_12.md` and `PLAN_TASK_14.md` include the kernels'
+compute, so they do not answer it, and a new benchmark does. **Done when** that benchmark is
+committed with its provenance and the post is published beside item 78's. Size: medium.
+
+### Item 80. A reference post: Spark's code generator by the numbers
+
+*Added 2 October 2026 with items 78 and 79, to go out between the big posts.*
+
+One page of the numbers that decide what Spark compiles and how well, each with what happens past
+it, how you would see it and which setting moves it: 100 fields (`spark.sql.codegen.maxFields`);
+1024 characters of source, past which Spark splits code into methods
+(`spark.sql.codegen.methodSplitThreshold`); 255 parameter slots; 8000 bytes twice, HotSpot's limit
+for compiling a method and C2's budget for inlining into one; 65,535 bytes of a method;
+`spark.sql.codegen.hugeMethodLimit`; the 100 entries of the codegen cache; and the generated fast
+hash map's capacity (`spark.sql.codegen.aggregate.fastHashMap.capacityBit`, 16). Most of it is in
+the record already - the first and third posts, task 188's census and task 233's measurements -
+and each number is checked against 4.2.0's source or a stock run before it is printed. **Done
+when** the post is published with every number tracing. Size: small.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
@@ -4276,6 +4341,9 @@ arrived with the reason it left milestone 5 rather than with an argument for a
 place here, and the two that already have one - 98, which is item 13's row
 boundary by another name, and 64, which task 104's divisions would need - are
 scheduled when those arguments are made, not before.
+
+Items 78 to 80, the posts, are a track beside the spine, not in its order: 78 and 79 as a pair,
+78 first, and 80 between them and the next long post.
 
 Items 13 and 14 sit beside the table rather than in it: each opens with an
 admission check (a JMH pair, a profile and a batch-size sweep) that costs a
