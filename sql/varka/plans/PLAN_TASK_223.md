@@ -174,5 +174,4 @@ whole, every lane group, where only the month vector is loaded on demand and a f
 (`month` and `quarter` one vector of six). At about ten bytes a segment and twenty a reload, they
 come to some 3% of the corpus's loop and epilogue bytes, four times what this task saved; the column
 loads may also cost run time, since a vector load with a bounds check is not plainly dead to C2.
-Proposed as a row of its own - the owner's to place, in this milestone's size control or in
-milestone 7.
+Proposed as a row of its own; the owner placed it in this milestone the same day, as row 239.
