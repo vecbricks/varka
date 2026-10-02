@@ -1,0 +1,46 @@
+Output of rewrite.scala on a GitHub-hosted runner, by varka-silent-giveups.yml.
+run:     https://github.com/MaxGekk/spark/actions/runs/36919500989
+commit:  be9686fe267
+cpu:     AMD EPYC 9V45 96-Core Processor
+java:    openjdk version "25.0.4" 2026-07-21 LTS
+spark:   4.2.0
+
+### from_json in its own projection, after the rest: merged back into one
+== Physical Plan ==
+Project [(id#0L + 1) AS a#3L, from_json(StructField(a,IntegerType,true), concat({"a":, cast((id#0L % 10) as string), }), Some(Etc/UTC), false).a AS j#4]
++- *(1) Range (0, 1000, step=1, splits=1)
+
+
+### from_json over an aggregate's output: merged into the aggregate, which leaves its stage
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=true
++- == Final Plan ==
+   ResultQueryStage 0
+   +- HashAggregate(keys=[_groupingexpression#14L], functions=[sum(id#0L)])
+      +- *(1) HashAggregate(keys=[_groupingexpression#14L], functions=[partial_sum(id#0L)])
+         +- *(1) Project [id#0L, (id#0L % 10) AS _groupingexpression#14L]
+            +- *(1) Range (0, 1000, step=1, splits=1)
++- == Initial Plan ==
+   HashAggregate(keys=[_groupingexpression#14L], functions=[sum(id#0L)])
+   +- HashAggregate(keys=[_groupingexpression#14L], functions=[partial_sum(id#0L)])
+      +- Project [id#0L, (id#0L % 10) AS _groupingexpression#14L]
+         +- Range (0, 1000, step=1, splits=1)
+
+
+### get_json_object over the aggregate's output: merged too, and the aggregate stays in
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=true
++- == Final Plan ==
+   ResultQueryStage 0
+   +- *(1) HashAggregate(keys=[_groupingexpression#28L], functions=[sum(id#0L)])
+      +- *(1) HashAggregate(keys=[_groupingexpression#28L], functions=[partial_sum(id#0L)])
+         +- *(1) Project [id#0L, (id#0L % 10) AS _groupingexpression#28L]
+            +- *(1) Range (0, 1000, step=1, splits=1)
++- == Initial Plan ==
+   HashAggregate(keys=[_groupingexpression#28L], functions=[sum(id#0L)])
+   +- HashAggregate(keys=[_groupingexpression#28L], functions=[partial_sum(id#0L)])
+      +- Project [id#0L, (id#0L % 10) AS _groupingexpression#28L]
+         +- Range (0, 1000, step=1, splits=1)
+
+
+### Spark 4.2.0, Java 25.0.4

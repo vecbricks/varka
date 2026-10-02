@@ -388,9 +388,8 @@ compiled with its calls inlined. The same log dates the compile: C2 took the met
 after the JVM started and printed its tree at 33.1, so the compile itself took about twenty seconds,
 which is the wait of 9.2 and 11.3 seen from the compiler's side. What differs between the machines
 is what those calls cost: under the logging the 9V74's stage settles at 748 ms against 493 outside,
-1.52 times, in the same range as the 7763's 1.57 of 9.2, and the laptop's Zen 5 shows a smaller gap
-in an uncommitted run. 11.1's projections are the same mechanism at smaller widths: a stage's method
-past a few thousand bytes stops inlining its writes.
+1.52 times, in the same range as the 7763's 1.57 of 9.2. 11.1's projections are the same mechanism
+at smaller widths: a stage's method past a few thousand bytes stops inlining its writes.
 
 ### 11.3 Investigation 5: the wait on released Spark and three JDKs
 
@@ -406,6 +405,10 @@ in 11.1:
 | then, in a stage / outside one | 706 / 388 ms | 692 / 436 ms | 1212 / 698 ms |
 | 99 entries in a stage, the defaults: settles after | 2.7 s | 2.1 s | 2.9 s |
 | 60 sums, in a stage / `wholeStage=false` | 347 / 719 ms | 316 / 647 ms | 536 / 865 ms |
+
+*2 October:* the committed `compile_wait-*` outputs are now run 36936386636, which adds the
+99-entry projection under `wholeStage=false` (13.5); this table is run 36911698296, in the files'
+history.
 
 **Prediction 11 held in what it could test:** the wait is on all three JDKs of released Spark, 17
 to 22 seconds, within a factor of 1.3; the first run (36908683124, whose other scripts still
@@ -452,3 +455,234 @@ beyond 64 KB` in the top-k's comparator, which has no fallback (`failing-*`). `s
 window and the object hash aggregate with no `*(n)` in the final adaptive plan, `from_json`
 taking its projection out of the stage while `get_json_object` keeps it, and the 101st column
 taking a projection out.
+
+## 12. Before the draft, registered 1 October 2026
+
+Reading section 4's outline against sections 9 and 11 left four gaps: the outline has no place
+for the post's strongest finding (11.1 and 11.2), and still advises raising `maxFields`, which 9.2
+and 11.3 show costs a wait and a lasting slowdown; its advice to move a fallback expression into a
+projection of its own was never run, and `CollapseProject` looks likely to undo it; its third
+section promises what the interpreter fallback costs, which nothing measured; and two of its
+version claims had no source in this plan. The last needs no run: SPARK-59774 makes the 8000-byte
+line a warning from 4.4.0, and the line's logger is `CodeCompiler` from 4.3.0 (`PLAN_TASK_210.md`
+and the first post, which quote both); 4.3.0 has a first release candidate and no release, so
+the post says "from 4.3.0" and "from 4.4.0" of releases to come, and since both changes are after
+4.2.0, no 4.1.3 run is needed (section 5).
+
+### 12.1 The rewrite, on stock Spark
+
+`sql/varka/demo/silent-giveups/rewrite.scala`, run by the workflow of 11.3: `from_json` in a
+projection of its own over the rest of the projection, `from_json` over an aggregate's output,
+and `get_json_object` over the same aggregate.
+
+14. Both rewrites are undone: the split projection is one `Project` again, without `*(n)`, and
+    the projection over the aggregate is merged into the final `HashAggregate`, which leaves its
+    stage while the partial aggregate stays in one; with `get_json_object` every operator is in a
+    stage.
+
+### 12.2 The log level, for one logger
+
+`log_level.scala` provokes 11.5's four INFO give-ups with no appender, under the distribution's
+`log4j2.properties.template` plus `log_level.log4j2.properties`, which raises the `codegen`
+package and `HashAggregateExec` to INFO.
+
+15. The shell prints all four give-ups, together with one `Code generated in` line per compiled
+    class from the same package, and no other INFO line of Spark's.
+
+### 12.3 What the interpreter fallback costs
+
+`CodegenInterpreterFallbackBenchmark`, on a runner: 100, 300 and 1000 entries `x + k` over a
+nullable column, outside a stage, compiled and interpreted (the object `NO_CODEGEN` builds, which
+is the one a failed compile falls back to).
+
+16. Interpreted is 5 to 15 times slower per row than compiled at every width.
+
+### 12.4 The outline, revised
+
+Section 4's four sections stay in the order a user meets them, with two changes: the first post's
+advice on `maxFields` is corrected, and the finding that a stage can be slower is its own
+section, since it is neither silent in the census's sense nor logged.
+
+1. **Silent.** A `from_json`, a window, an object hash aggregate, a schema past a hundred
+   fields: the operator leaves its stage and only `EXPLAIN` shows it. What it costs: a fifth of
+   a microsecond a row for the fallback expression (9.2), less than the expression itself. What
+   not to do: move it into a projection of its own (12.1). What to do: a function that generates
+   code where one exists (`get_json_object`), or nothing.
+2. **In a stage and slower.** A projection of 50 or more columns runs up to 1.65 times slower
+   inside a stage than outside one under the defaults (11.1), because C2 stops inlining the row
+   writes in a method past a few thousand bytes (11.2); raised past `maxFields`, it waits 17 to
+   22 seconds for C2 first on released Spark (11.3). Aggregates win in a stage (11.1). The
+   corrected advice: do not raise `maxFields` for a wide projection.
+3. **Hidden in the log.** The method past 8000 bytes (the first post, one paragraph), the split
+   refusals, the fast hash map: two lines of `log4j2.properties` (12.2), and the 4.3.0 and 4.4.0
+   changes.
+4. **Logged, with a fallback.** The 64 KB stage that runs its operators one by one (the first
+   post's ladder) and the projection that runs interpreted (12.3).
+5. **Failing the query.** The top-k over a 1200-branch `CASE WHEN` (11.5).
+
+Closing: how you'd know, over your own history - `dev/varka_codegen_report.py` over event logs
+(11.4) - and what Spark could add, as a proposal, not a claim.
+
+### 12.5 Three more, registered 2 October 2026
+
+Reading the outline against sections 11 and 13 left the post's main finding with three gaps. Its
+evidence is all cheap entries, `id + k`, where 9.2's 150 `date_add` entries tied; it offers no
+remedy, and `hugeMethodLimit` cannot be one, since the 40 and 60-sum aggregates that win in a stage
+have larger methods (1746 and 2586 bytes) than the 50-entry projection that loses (1861); and on
+stock Spark, 11.3 timed the 99-entry stage without the same projection outside one.
+
+`CodegenWideProjectionBenchmark`, on a runner: projections of 50 and 99 entries, cheap (`id + k`)
+and a mix of six kinds of entry (an addition, `date_add`, a string `concat`, a division over a
+cast, a null test over a nullable column, `substr`), each under the defaults, with `maxFields`
+just below its width so that the projection alone leaves the stage, and with `wholeStage=false`;
+timed after fifteen seconds of warm-up, so that C2's code is in. And `compile_wait.scala` gains the
+99-entry projection under `wholeStage=false`.
+
+17. The mix loses in a stage at 99 entries by less than the cheap entries do, 1.1 to 1.3 times,
+    and ties at 50.
+18. Both remedies recover the time outside a stage, within 5% of each other, for every shape that
+    loses in a stage.
+19. On stock 4.2.0 the 99-entry projection is slower in a stage than with `wholeStage=false` on
+    all three JDKs.
+
+## 13. Outcome of section 12, 1 October 2026
+
+### 13.1 The rewrite, on stock Spark
+
+`rewrite-jdk{17,21,25}-output.txt`, run 36919500989. **Prediction 14 held** on all three JDKs. The
+projection split in two is one `Project` again in the executed plan, with `from_json` in it and
+no `*(n)`, over a `*(1) Range`. Over an aggregate the projection is merged into the final
+`HashAggregate`'s result expressions, and that aggregate leaves its stage while the partial
+aggregate below it keeps its `*(1)`; with `get_json_object` in its place every operator is in a
+stage. A first version of the snippet aggregated a string, `max(js)`, which makes a sort
+aggregate that is outside a stage either way and tests nothing; the committed one aggregates
+`sum(id)` by a key and builds the JSON from the key.
+
+### 13.2 The log level, for one logger
+
+`log_level-jdk{17,21,25}-output.txt`, run 36917213523. **Prediction 15 held** on all three JDKs,
+line for line: the twelve give-up lines of 11.5 appear in the shell with no appender, together
+with fifteen `Code generated in` lines from `CodeGenerator`, and no other INFO line of Spark's. So
+the post's advice is the two loggers of `log_level.log4j2.properties`, and the price is one line
+per compiled class.
+
+### 13.3 What the interpreter fallback costs
+
+`CodegenInterpreterFallbackBenchmark` on a runner that drew an AMD EPYC 7763
+(`CodegenInterpreterFallbackBenchmark-jdk25-results.txt`, run 36917218645, with its provenance).
+
+| entries | compiled | interpreted | times |
+|--:|--:|--:|--:|
+| 100 | 1080 ns a row | 3380 ns | 3.1 |
+| 300 | 2320 ns | 9548 ns | 4.1 |
+| 1000 | 9032 ns | 39526 ns | 4.4 |
+
+**Prediction 16 was wrong:** three to four and a half times, not five to fifteen. The interpreter's
+price per entry grows a little with width (34 ns an entry at 100, 40 at 1000) while the compiled
+projection's stays at 8 to 11, so the ratio widens slowly; the first post's thirty-four times was
+the interpreter against a stage, over `CASE WHEN`, where the generated code keeps the row's values
+in locals - here both arms are outside a stage, and the compiled one already pays the row boundary.
+
+### 13.4 C2's budget at 25 to 99 entries
+
+The review of this plan (1 October) found 11.2 extending its mechanism to 11.1's widths without a
+log for them, so `CodegenCompileWaitBenchmark` ran again under C2's inlining log, on a runner
+that drew an AMD EPYC 7763 (`CodegenCompileWaitBenchmark-jdk25-runner-inlining-results.txt`,
+run 36920247002, with its provenance, and the four trees in `-c2-trees.txt` beside it). No
+prediction was registered for it; 11.2's last sentence is the claim under test. C2's verdicts in
+each stage's consume method:
+
+| entries | method | `addExact` inlined / refused | `write` inlined / refused | in a stage / outside |
+|--:|--:|--:|--:|--:|
+| 25 | 936 bytes | 25 / 0 | 25 / 0 | 68 / 154 ms |
+| 50 | 1861 | 33 / 17 | 0 / 50 | 363 / 275 |
+| 75 | 2786 | 28 / 47 | 0 / 75 | 566 / 401 |
+| 99 | 3674 | 23 / 76 | 0 / 99 | 795 / 517 |
+| 150 (11.2) | 5749 | 12 / 138 | 0 / 150 | 748 / 493 |
+
+The claim holds, and the table says where the line is. At 25 entries every call is inlined and
+the stage wins by better than two to one; from 50 the writes are all refused and the stage loses,
+by the 1.3 to 1.6 of 11.1 under the logging too. The budget is spent sooner the wider the method,
+not later: `DesiredMethodLimit` bounds the caller's own bytes together with what it inlines, so
+the 1861-byte method has room for 33 of its additions and the 5749-byte one for 12. The
+aggregates' consume methods are 189 to 539 bytes at 10 to 60 sums, each sum's update in a small
+method of its own, and C2 inlines all of them, which is the other half of 11.1: the generated
+aggregate is already split the way the projection outside a stage is.
+
+### 13.5 The wide projection's last three questions
+
+`CodegenWideProjectionBenchmark` on a runner that drew an AMD EPYC 7763
+(`CodegenWideProjectionBenchmark-jdk25-results.txt`, run 36936386326, with its provenance), and
+the same benchmark on the laptop (13.6). Time a row in a stage against the projection taken out
+of it (both remedies agree, so one column stands for them):
+
+| shape | runner, in a stage / out | laptop, in a stage / out |
+|:--|--:|--:|
+| 50 cheap | 402 / 285 ns, 1.41 times slower | 129 / 111 ns, 1.16 times slower |
+| 99 cheap | 800 / 521 ns, 1.54 times slower | 256 / 205 ns, 1.25 times slower |
+| 50 mixed | 876 / 943 ns, 7% faster | 382 / 432 ns, 12% faster |
+| 99 mixed | 1534 / 1814 ns, 15% faster | 716 / 856 ns, 16% faster |
+
+**Prediction 17 was wrong, and it narrows the post's finding.** The mix of six kinds of entry does
+not lose in a stage at either width, on either machine; it wins. An entry that does work of its
+own - a string built, a date shifted, a division - costs more than the call C2 leaves behind, and
+the stage's saving on the row boundary is the larger term. The loss is a property of wide
+projections of cheap entries: arithmetic and column copies, the shape of a wide select of
+derived columns, not of a projection that computes. **Prediction 18 held:** `maxFields` just below
+the width and `wholeStage=false` are within 1% of each other in all eight rows, and both recover
+the time outside a stage for the cheap shapes; for the mix they cost what the stage saved. Over a
+cached table the two are one setting, since the scan alone is never a stage; under a filter or an
+aggregate `maxFields` is the narrower one, and it is the post's remedy, for cheap projections
+only. **Prediction 19 held:** on stock 4.2.0 (`compile_wait-jdk*-output.txt`, run 36936386636)
+the 99 cheap entries are 1.30, 1.45 and 1.37 times slower in a stage than under `wholeStage=false`
+on JDK 17, 21 and 25 (656 against 503 ms, 738 against 510, 273 against 200).
+
+The same run's JDK 25 job drew an AMD EPYC 9V45, a Zen 5 server, and its 150-entry stage waits
+12.0 seconds and then runs 1.21 times the time outside a stage (417 against 344 ms), where the
+Zen 3 and Zen 4 runners stay 1.4 to 1.6 times slower; the laptop's Zen 5 is closer still (13.6).
+The calls C2 leaves in the stage cost less on Zen 5.
+
+### 13.6 The laptop
+
+`CodegenWideProjectionBenchmark`, `CodegenCompileWaitBenchmark` and `CodegenFallbackCostBenchmark`
+on the laptop, quiet, one after another (`*-jdk25-laptop-results.txt`, each with its
+provenance). `CodegenInterpreterFallbackBenchmark` did not run: its class was not in the tree the
+job ran from, and the runner's result (13.3) stands alone.
+
+The wait under the defaults is shorter than any runner's: the 99-entry stage settles after 0.7
+seconds, and the 60-sum aggregate is 1.63 times faster in a stage (335 against 546 ms). The
+50 and 99-entry cheap projections are 1.15 and 1.19 times slower in a stage once compiled (121
+against 105 ms, 254 against 214). The 150-entry stage of 9.2 waits 10.7 seconds for C2 and then
+runs 1.06 times the time outside a stage (400 against 378 ms): the laptop result that 11.2
+mentioned without a committed run, now committed. So the size of the post's finding depends on
+the processor, from a few percent on Zen 5 to half again on Zen 3 and 4, while its direction does
+not; the post gives the range and names the machines.
+
+### 13.7 The warm-up test under load
+
+#541's Build of 1 October failed one test, `VarkaWarmupEndToEndSuite`'s first: the projection's
+warm-up was released at its 60-second deadline, `RELEASED did not equal COMPILED`, with its last
+probe already down from 5,809,968 bytes to 20,720 - one clean probe short of the two the verdict
+needs (`VarkaKernelWarmup.run`, which checks the deadline after each probe). The suite ran 50
+minutes into the job's test JVM, on a four-core runner. The overnight study asked whether CPU
+contention alone reproduces it: the suite back to back in a fresh JVM each time on the laptop,
+beside 0, 16, 24, 32 and 48 busy processes, about an hour each
+(`VarkaWarmupUnderLoad-laptop-results.txt`, with its provenance).
+
+| busy processes | runs | failed | warm-up, median | slowest |
+|--:|--:|--:|--:|--:|
+| 0 | 240 | 0 | 0.32 s | 0.38 s |
+| 16 | 134 | 0 | 0.85 s | 1.02 s |
+| 24 | 90 | 0 | 1.59 s | 2.09 s |
+| 32 | 77 | 0 | 1.86 s | 2.67 s |
+| 48 | 65 | 0 | 2.27 s | 3.11 s |
+
+It does not: 606 runs, every warm-up compiled, the slowest in 3.11 seconds at twice as many busy
+processes as hardware threads. What a fresh JVM cannot have is what CI's had - fifty minutes of
+other suites, thousands of generated classes queued for C2 ahead of the kernel's methods. The
+failed job's log has no `CodeCache is full`, so the compile queue's backlog is the likelier cause,
+and a run of the suite after a heavy one in the same JVM is the experiment that would show it.
+The fix does not wait on that: a deadline that releases a shape whose last probe was clean
+discards a verdict one probe from done, and a fixed sixty seconds cannot tell a compile that is
+slow because C2's queue is long from one that will never come, while the probes already can -
+their allocation was falling. `SCOPE_MILESTONE_7.md` item 77 takes both.

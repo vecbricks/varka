@@ -1,0 +1,26 @@
+================================================================================================
+a projection evaluated by the interpreter after its compile fails
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+100 entries x + k over 200000 cached rows, outside a stage:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+compiled                                                              216            246          19          0.9        1080.0       1.0X
+interpreted, what a failed compile falls back to                      676            699          18          0.3        3379.7       0.3X
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+300 entries x + k over 200000 cached rows, outside a stage:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+compiled                                                              464            484          32          0.4        2319.6       1.0X
+interpreted, what a failed compile falls back to                     1910           1924          21          0.1        9547.8       0.2X
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 7763 64-Core Processor
+1000 entries x + k over 200000 cached rows, outside a stage:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+compiled                                                              1806           1884          65          0.1        9031.5       1.0X
+interpreted, what a failed compile falls back to                      7905           8059         208          0.0       39525.9       0.2X
+
+
