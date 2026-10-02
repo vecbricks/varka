@@ -173,6 +173,13 @@ final class Slots {
    */
   final Set<FragmentKey> fragmentsReadingMonth = new HashSet<>();
   /**
+   * Per prefix fragment of the lane group being emitted now, which of the prefix's first five
+   * vectors its tails read ({@code VarkaChronoLowering.prefixReads}), filled with
+   * {@link #fragmentsReadingMonth} and for the same reason: a group that loads a materialized
+   * prefix loads, under {@link VarkaEmitOptions#elideUnreadLocals}, only what some tail reads.
+   */
+  final Map<FragmentKey, Integer> fragmentReads = new HashMap<>();
+  /**
    * The prefix fragments already emitted in the lane group being emitted now. Emit-time
    * state rather than plan-time, cleared at the top of {@code emitLaneGroup} for exactly the
    * reason its {@code computed} set is a fresh local there: a local's value does not survive
@@ -182,9 +189,14 @@ final class Slots {
    */
   final Set<FragmentKey> emittedFragments = new HashSet<>();
   /**
-   * The epilogue's bounds mask, or null in every other body role. Non-null is
-   * exactly the signal that loads and stores take their masked overloads: the value is a
-   * {@code VectorMask} local, live for the whole single pass.
+   * Whether this body is an epilogue: the signal that loads and stores take their masked
+   * overloads and the validity helpers their partial-group forms.
+   */
+  boolean epilogue;
+  /**
+   * The epilogue's bounds mask, a {@code VectorMask} local live for the whole single pass, or null
+   * in every other body role - and, under {@link VarkaEmitOptions#elideUnreadLocals}, in an
+   * epilogue nothing in which loads or stores under it ({@link #epilogueReadsMask}).
    */
   Integer epilogueMask;
   /** The driver's status accumulator (an int slot), where its callees' returns are ORed. */
@@ -383,14 +395,28 @@ final class Slots {
     }
     final Set<VarkaVectorIR> body = emitted;
     s.liveWordOwners = live;
-    // How often this body visits each node, which decides its shared slots (task 223); see
-    // bodyUses. Only a loop or epilogue body walks vectors, and only under CSE does the count
-    // decide anything, so no other plan pays for it.
+    // How often this body visits each node; see bodyUses. Only a loop or epilogue body walks
+    // vectors, and the count decides two things there: its shared slots under CSE (task 223), and
+    // under elideUnreadLocals which columns it reads for their values (task 239). No other plan
+    // pays for it.
+    boolean elide = analysis.options.elideUnreadLocals();
     final Map<VarkaVectorIR, Integer> bodyUses =
-        (mode == BodyMode.LOOP || mode == BodyMode.EPILOGUE) && analysis.options.cse()
+        (mode == BodyMode.LOOP || mode == BodyMode.EPILOGUE) && (analysis.options.cse() || elide)
             ? analysis.bodyUses.computeIfAbsent(List.of(List.copyOf(outputIdx), group, dense),
                 k -> bodyUses(body, outputs, outputIdx, analysis, group, dense, s))
             : Map.of();
+    // The columns this body reads for their values, under elideUnreadLocals: those the walk visits.
+    // A column only an isNotNull reads, for its validity word, is not one of them, and maps no
+    // data segment (VarkaBodyEmitter step (4)).
+    long valueColumns = ~0L;
+    if (elide && (mode == BodyMode.LOOP || mode == BodyMode.EPILOGUE)) {
+      valueColumns = 0L;
+      for (Map.Entry<VarkaVectorIR, Integer> e : bodyUses.entrySet()) {
+        if (e.getKey() instanceof ColumnRef c && e.getValue() > 0) {
+          valueColumns |= 1L << c.ordinal();
+        }
+      }
+    }
     long treeColumns = 0L;
     long bodyColumns = 0L;
     for (VarkaVectorIR node : tree) {
@@ -437,11 +463,12 @@ final class Slots {
         continue;
       }
       s.dstSeg[o] = slot++;
-      s.dstValSeg[o] = slot++;
+      s.dstValSeg[o] = VarkaBodyEmitter.buildsValiditySegment(analysis, dense, mode, outputs, o)
+          ? slot++ : -1;
     }
     for (int i = 0; i < numInputs; i++) {
       if ((s.inputs >>> i & 1L) != 0) {
-        s.srcSeg[i] = slot++;
+        s.srcSeg[i] = (valueColumns >>> i & 1L) != 0 ? slot++ : -1;
         s.srcValSeg[i] = slot++;
         s.dead[i] = slot++;
         s.hasNulls[i] = slot++;
@@ -547,7 +574,10 @@ final class Slots {
     }
 
     if (mode == BodyMode.EPILOGUE) {
-      s.epilogueMask = slot++;
+      s.epilogue = true;
+      if (!elide || epilogueReadsMask(outputs, outputIdx, valueColumns, s, analysis, group)) {
+        s.epilogueMask = slot++;
+      }
     }
 
     // The epilogue is the loop body run once over a partial lane group, so it needs exactly
@@ -980,6 +1010,29 @@ final class Slots {
   }
 
   /**
+   * Whether an epilogue reads its bounds mask: something in it loads or stores under the mask. Four
+   * things do - a column's masked load, a value root's masked store, a guard's condemnation and a
+   * prefix transfer - so the epilogue reads it where it reads a column for its value
+   * ({@code valueColumns}), serves a root that is neither a condition (whose bitmap is written by
+   * the validity helpers) nor a narrowing (whose store builds its own mask), folds a guard into
+   * the accumulator, or stores or loads a materialized prefix. A reader this misses reads the
+   * unbuilt mask, which fails at the first emission rather than quietly taking the unmasked form.
+   */
+  private static boolean epilogueReadsMask(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
+      long valueColumns, Slots s, Analysis analysis, int group) {
+    if (valueColumns != 0L || s.guardAcc != null) {
+      return true;
+    }
+    for (int o : outputIdx) {
+      VarkaVectorIR root = outputs.get(o);
+      if (!(root instanceof Cond) && !(root instanceof NarrowLane)) {
+        return true;
+      }
+    }
+    return analysis.materialized.values().stream().anyMatch(m -> m.groups().contains(group));
+  }
+
+  /**
    * Whether a body that loads {@code date}'s materialized prefix visits the date all the same: in
    * a masked body, for a validity word that is the date's own and read by something the body
    * emits ({@link #visitedMaterializedDates}). Asked by {@link #bodyUses} and by
@@ -1321,6 +1374,7 @@ final class Slots {
   static void planFragmentsReadingMonth(List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, boolean dense, Slots s, Analysis analysis) {
     s.fragmentsReadingMonth.clear();
+    s.fragmentReads.clear();
     Set<VarkaVectorIR> seen = new HashSet<>();
     List<VarkaVectorIR> pending = new ArrayList<>();
     for (int o : outputIdx) {
@@ -1331,11 +1385,28 @@ final class Slots {
       if (!seen.add(node)) {
         continue;
       }
-      if (isChrono(node) && tailReadsMarchMonth(node)) {
-        s.fragmentsReadingMonth.add(fragmentKey(node, dense, s, analysis));
+      if (isChrono(node)) {
+        FragmentKey key = fragmentKey(node, dense, s, analysis);
+        if (tailReadsMarchMonth(node)) {
+          s.fragmentsReadingMonth.add(key);
+        }
+        s.fragmentReads.merge(key, VarkaChronoLowering.prefixReads(node,
+            analysis.options), (a, b) -> a | b);
+      }
+      // Under elideUnreadLocals the walk follows the emission, as emittedNodes does: a date
+      // whose materialized prefix the group loads and does not visit is never emitted, so a tail
+      // under it reads no month and no vector of any prefix here.
+      VarkaVectorIR skipped = analysis.options.elideUnreadLocals()
+          ? loadedPrefixDate(analysis, s.group, node) : null;
+      if (skipped != null && visitsLoadedDate(dense, s, skipped)) {
+        skipped = null;
       }
       for (VarkaVectorIR child : childrenOf(node)) {
-        pending.add(child);
+        if (child == skipped) {
+          skipped = null;
+        } else {
+          pending.add(child);
+        }
       }
     }
   }

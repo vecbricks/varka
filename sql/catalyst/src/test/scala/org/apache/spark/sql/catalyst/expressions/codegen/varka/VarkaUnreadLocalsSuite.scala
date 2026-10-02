@@ -42,4 +42,28 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     assert(unread.isEmpty, s"${unread.size} shared slots nothing reads, the first: " +
       unread.take(5).mkString("; "))
   }
+
+  /** The census of every unread reference local over the corpus under `options`, by kind. */
+  private def census(options: VarkaEmitOptions): Map[String, Int] = {
+    val shapes = VarkaEmitCostCorpus.fuzz(1000).asScala.toSeq ++
+      VarkaEmitCostCorpus.wide().asScala ++ VarkaEmitCostCorpus.ladders().asScala
+    shapes.flatMap { s =>
+      val bytes = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaUnreadLocals",
+        s.roots, s.numInputs, s.numLiterals, null, null, options)
+      VarkaUnreadLocalsTrim.census(bytes).asScala.map(_.kind)
+    }.groupBy(identity).view.mapValues(_.size).toMap
+  }
+
+  test("under elideUnreadLocals no loop or epilogue method in the cost corpus stores a " +
+      "reference local it never reads") {
+    val options = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
+    val on = census(options.withElideUnreadLocals(true))
+    assert(on.isEmpty, s"unread reference locals under the switch: $on")
+    // The form that builds everything keeps the four kinds task 239 found (PLAN_TASK_239.md 2.1)
+    // and no other, so a leftover of a new kind added to the reference form is seen too.
+    val off = census(options)
+    assert(off.keySet.subsetOf(Set("segment: output validity", "vector: prefix reload",
+      "segment: input data", "mask: indexInRange")) && off.nonEmpty,
+      s"the reference form's unread reference locals: $off")
+  }
 }

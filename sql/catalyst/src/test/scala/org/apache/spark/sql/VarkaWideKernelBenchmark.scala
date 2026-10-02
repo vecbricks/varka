@@ -46,6 +46,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * times one emission of the mixed family under each, for the partition's cost at plan time. See
  * `PLAN_TASK_200.md` 4.
  *
+ * A section prices the locals a loop or epilogue method stores and never reads
+ * (`VarkaEmitOptions.elideUnreadLocals`): the size ladder at a hundred and four hundred entries
+ * and the mixed family at a hundred and two hundred, with them built, elided, and built again
+ * last as a control for the order of the cases. See `PLAN_TASK_239.md` 6.
+ *
  * The last two sections go past the driver from a table's own ceiling, about 180 groups: eight
  * hundred and twelve hundred ladder entries, two and three hundred groups. One kernel whose driver
  * calls its groups through stages (`VarkaEmitOptions.splitDriver`, A') is priced against several
@@ -219,6 +224,29 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
           val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
           benchmark.addCase(s"$shape, $label (${loops(kernel)} loop methods), $nullsLabel") { _ =>
             scan(kernel, roots.size, withNulls)
+          }
+        }
+        benchmark.run()
+      }
+
+      runBenchmark("the locals nothing reads, built and elided") {
+        val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        // Both forms named: the elision is off by default until this section's measurement.
+        val built = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(false)
+        val elided = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(true)
+        val shapes = Seq(100, widest).map(n => (s"$n ladder entries", (0 until n).map(entry))) ++
+          Seq(100, 200).map(n => (s"$n mixed entries", (0 until n).map(mixedEntry)))
+        // The built form runs again last, a control for the order of the cases.
+        val forms = Seq("locals built" -> built, "locals elided" -> elided,
+          "locals built, again" -> built)
+        for (withNulls <- Seq(false, true); (shape, roots) <- shapes) {
+          val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
+          for ((label, options) <- forms) {
+            val kernel = emit(roots, options, loader)
+            benchmark.addCase(s"$shape, $label, $nullsLabel") { _ =>
+              scan(kernel, roots.size, withNulls)
+            }
           }
         }
         benchmark.run()
