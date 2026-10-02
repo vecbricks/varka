@@ -102,8 +102,12 @@ The cost corpus again after the change, from the same tally: bytes, loop methods
 
 ## 7. Risks
 
-A walk that visits a node more often than its parent edges say would load an unset local; the
-emitter suites and the fuzzer run every body, and the new test states the count's property.
+A count that disagrees with the walk is never a wrong answer. Too high, it leaves a slot nothing
+reads, a `dup` and a store; too low, the walk visits the node again and computes it again, since
+`emitValue` loads a slot only where one is planned - more bytes, and a guard or word store done
+twice. The emitter suites and the fuzzer run every body, and the new test states the count's
+property. *Corrected after the review (9.4, item 7): this section first said a count too low would
+load an unset local.*
 
 ## 8. Sequencing
 
@@ -162,7 +166,8 @@ calendar node reaches its date through the shared prefix (`shareChronoPrefix`), 
 nodes over one date visit it once, and the count, which counts each node's edge, says twice. The
 error is harmless either way - a count too high costs a dead store, one too low a recomputation,
 never an answer - and it is two in a hundred of what the change removed; counting the prefix's
-visit instead would mean restating the prefix's rule in the count.
+visit instead would mean restating the prefix's rule in the count. *The review removed all of them
+by having the count ask the prefix's rule rather than restate it (9.4).*
 
 **Other reference locals stored and never read**, counted from the emitted bytecode of the same
 corpus after the change: 66,024 memory segments built with `ofAddress`, 59,392 of them in the masked
@@ -177,3 +182,52 @@ whole, every lane group, where only the month vector is loaded on demand and a f
 come to some 3% of the corpus's loop and epilogue bytes, four times what this task saved; the column
 loads may also cost run time, since a vector load with a bounds check is not plainly dead to C2.
 Proposed as a row of its own; the owner placed it in this milestone the same day, as row 239.
+
+### 9.4 The review, 2 October 2026
+
+A code review of the pull request found nine problems, none of which changes an answer. All nine
+are addressed.
+
+1. **The count followed an edge the walk does not.** It counted a calendar node's edge to a date
+   whose materialized prefix the body loads and does not visit, which 3.1 had said uses nothing.
+   A date reached by another path as well therefore got a slot it reads once.
+2. **The count added one visit per calendar node where the prefix visits its date once per
+   fragment.** These were the 5708 slots of 9.3, which that section recorded as the count's own
+   error and left. Items 1 and 2 are one defect: the count restated what the walk visits instead
+   of asking the walk's rule. `Slots.bodyUses` now asks it. A date edge counts once per prefix
+   fragment's key, and not at all where the body loads the date's prefix without visiting the date
+   (`Slots.visitsLoadedDate`, which `emitChronoPrefixOnce` asks too). The key has to be known
+   before any slot is numbered, so its word is now the word's owner in the kernel's word algebra,
+   or a marker for a word the body never reads. That tells words apart exactly as their slots do,
+   which `assertWordAlgebraAgrees` already holds the slots to. The test of item 3 found a third
+   edge of the same kind: an `IsNotNull` reads its column's validity word and never its vector,
+   and its edge no longer counts either.
+3. **The test 4 and 5 promised was missing.** `VarkaUnreadLocalsSuite` now holds every loop and
+   epilogue method of the cost corpus to no shared slot that nothing reads, reading the bytecode
+   through `VarkaUnreadLocals`. Before item 2 it found 5,722 such slots. With items 1 and 2 it found
+   396, every one a column that an `isNotNull` read beside a value. With the third edge it finds
+   none.
+4. **The count ran where nothing reads it**: in the driver, which plans every output and walks no
+   vector, and with CSE off. It now runs only for a loop or epilogue body under CSE.
+5. **Two walks had to agree on which edges count.** The count is one function beside
+   `emittedNodes`, asking the `loadedPrefixDate` and the visit rule the emission asks, rather than
+   a loop restating them.
+6. **`Analysis.useCount` kept counts that nothing read.** It is now `analyzed`, a set, which is
+   the memo it had become.
+7. **Section 7 said a count too low would load an unset local.** It recomputes the node instead,
+   since `emitValue` loads a slot only where one is planned. Corrected there.
+8. **The pull request's description quoted the figure from before task 235** for the methods of
+   8000 bytes and over. Requoted.
+9. **A qualified `VarkaVectorIR.childrenOf`** in a file that imports it statically, gone with the
+   rewrite of item 5.
+
+Over the corpus of 9.1, no loop or epilogue method grew under the review's change, which is what
+a count too low would have caused, and 2,692 of 36,483 shrank. The loop and epilogue bytes fell by
+0.039% in the fuzz int family, 0.050% in the wide int family, and less elsewhere. The emitted-bytes
+oracle, the price tables and the cost audit are regenerated on it, and no conclusion of 9.2
+moves: the methods of 8000 bytes and over still number 155, and the fitted prices' error at 2000
+bytes and over is still 2.2% at the median and 11.9% at the 99th percentile. The shared
+crossings `VarkaEmitterBudgetSuite` pins move later, since the four fields over a date no longer
+keep the date a slot the shared prefix reads once: with the bitmap pass the single epilogue now
+crosses `HugeMethodLimit` at 51 outputs rather than 49, and without it at 45 rather than 44. The
+unshared crossings stay where they were.

@@ -439,7 +439,7 @@ final class VarkaChronoLowering {
       // dropped. Any other date - a column above all - is not loaded at all, and neither is the
       // range check of a guard over it, which the producing group ran. Which dates are visited is
       // decided with the word liveness (Slots.liveWords), so that the plan and this emission agree.
-      if (!dense && s.visitedMaterializedDates.contains(date)) {
+      if (Slots.visitsLoadedDate(dense, s, date)) {
         emitValue(cb, date, dense, analysis, s, computed);
         cb.pop();
       }

@@ -220,8 +220,12 @@ final class Analysis {
    * helpers that do not otherwise need an {@code Analysis}.
    */
   final Divider divider;
-  /** Distinct nodes in first-visit order, with how often each is used. */
-  final Map<VarkaVectorIR, Integer> useCount = new LinkedHashMap<>();
+  /**
+   * The distinct nodes {@link #analyze} has visited, its memo. How often a node is used decides
+   * nothing kernel-wide: a node's shared slot is decided per body, on what that body visits
+   * ({@code Slots.bodyUses}, task 223).
+   */
+  final Set<VarkaVectorIR> analyzed = new HashSet<>();
   /** The output roots, for the one node type admitted only there. */
   final Set<VarkaVectorIR> roots = new HashSet<>();
   /** Per distinct node, the bitset of input ordinals its subtree references. */
@@ -378,7 +382,7 @@ final class Analysis {
    * innermost arm chain, and keep the unqualified guard for anything else.
    *
    * <p>It is its own walk rather than a stack in {@link #analyze}, because that one memoises
-   * on {@code useCount} and returns on a repeated node without descending: a node used twice
+   * on {@code analyzed} and returns on a repeated node without descending: a node used twice
    * would have its subtree's context recorded from the first use only. Here a node whose
    * recorded chain disagrees with the chain it is reached by is demoted to the empty list and
    * the demotion is pushed down its subtree, so a shared subtree under two different arms
@@ -750,13 +754,10 @@ final class Analysis {
       throw new IllegalArgumentException("a " + node.laneType() + " node in a "
           + lane.laneType + " emission: " + node.getClass().getSimpleName());
     }
-    Integer seen = useCount.get(node);
-    if (seen != null) {
-      // A repeated node: its subtree is already analyzed, only the use count grows.
-      useCount.put(node, seen + 1);
+    if (!analyzed.add(node)) {
+      // A repeated node: its subtree is already analyzed.
       return;
     }
-    useCount.put(node, 1);
     switch (node) {
       case ColumnRef c -> {
         if (c.ordinal() < 0 || c.ordinal() >= numInputs) {

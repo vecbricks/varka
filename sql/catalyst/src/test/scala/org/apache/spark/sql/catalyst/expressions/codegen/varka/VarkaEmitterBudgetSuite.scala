@@ -397,7 +397,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
 
   test("sharing the prefix moves the epilogue's HugeMethodLimit crossing, and the bitmap " +
     "pass moves " +
-      "it again: unshared 21 to 22, shared 44 to 49") {
+      "it again: unshared 21 to 22, shared 45 to 51") {
     // This is what step B1 was for, measured in the single-epilogue form (budget 0) that task 24
     // chose: one epilogue over *every* output, whose size grows with the whole projection rather
     // than with a group. Task 87 split it per group; the crossing stays pinned here as the fact
@@ -429,26 +429,34 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val limit = VarkaEmitBudget.HUGE_METHOD_LIMIT
     // Task 70 (PLAN_TASK_70.md 9): with the bitmap pass on by default, every word in these
     // methods is dead, so epilogueMasked is epilogueDense's bytes and the crossing is the
-    // dense epilogue's - unshared 21 fits (7563) and 22 crosses (8033); shared reaches
+    // dense epilogue's - unshared 21 fits (7563) and 22 crosses (8033); shared reached
     // 49. The per-group arm keeps the old boundaries, asserted beside.
+    //
+    // Task 223's review (PLAN_TASK_223.md 9.4) moved both shared crossings and neither unshared
+    // one. Four fields share one prefix, which visits their date once, and the date had kept a
+    // slot for four uses, a dup and a store per date nothing read. With the slot gone, shared
+    // 50 fit (7984) and 51 cross (8065) under the pass, and 44 fit (7895) and 45 cross (8569)
+    // in the per-group arm. An unshared prefix visits its date for every field, so the slot was
+    // read there and nothing moved.
     assert(singleEpilogueSize(fields(6).take(21), 12, unshared) < limit)
     assert(singleEpilogueSize(fields(6).take(22), 12, unshared) > limit)
     assert(singleEpilogueSize(fields(12), 12, sharing) < limit,
       "forty-eight shared outputs fit under the pass; the boundary is further out")
-    assert(singleEpilogueSize(fields((49 + 3) / 4).take(49 - 1), 13,
+    assert(singleEpilogueSize(fields((51 + 3) / 4).take(51 - 1), 13,
       sharing) < limit)
-    val past = singleEpilogueSize(fields((49 + 3) / 4).take(49), 13,
+    val past = singleEpilogueSize(fields((51 + 3) / 4).take(51), 13,
       sharing)
     assert(past > limit,
-      s"49 shared calendar outputs now fit in $past bytes - the pass reaches " +
-        "further than this test records, so PLAN_TASK_70.md 9's ladder is stale")
-    // The reference variant: the boundaries task 54 left, 20/21 unshared and 44 shared.
+      s"51 shared calendar outputs now fit in $past bytes - the pass reaches " +
+        "further than this test records, so the crossings above are stale")
+    // The reference variant: the boundaries task 54 left, 20/21 unshared, and 45 shared since
+    // task 223's review.
     val perGroupUnshared = unshared.withValidityByBitmap(false)
     val perGroupShared = sharing.withValidityByBitmap(false)
     assert(singleEpilogueSize(fields(5), 12, perGroupUnshared) < limit)
     assert(singleEpilogueSize(fields(6).take(21), 12, perGroupUnshared) > limit)
-    assert(singleEpilogueSize(fields(10), 12, perGroupShared) < limit)
-    assert(singleEpilogueSize(fields(11), 12, perGroupShared) > limit)
+    assert(singleEpilogueSize(fields(11), 12, perGroupShared) < limit)
+    assert(singleEpilogueSize(fields(12).take(45), 12, perGroupShared) > limit)
   }
 
   test("the driver stays under HugeMethodLimit on the output ladder, with the pass " +
