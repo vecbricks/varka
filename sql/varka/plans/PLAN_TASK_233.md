@@ -680,9 +680,74 @@ beside 0, 16, 24, 32 and 48 busy processes, about an hour each
 It does not: 606 runs, every warm-up compiled, the slowest in 3.11 seconds at twice as many busy
 processes as hardware threads. What a fresh JVM cannot have is what CI's had - fifty minutes of
 other suites, thousands of generated classes queued for C2 ahead of the kernel's methods. The
-failed job's log has no `CodeCache is full`, so the compile queue's backlog is the likelier cause,
-and a run of the suite after a heavy one in the same JVM is the experiment that would show it.
+failed job's log has no `CodeCache is full`, so the compile queue's backlog looked the likelier
+cause; 13.8 tried it and did not reproduce the release either.
 The fix does not wait on that: a deadline that releases a shape whose last probe was clean
 discards a verdict one probe from done, and a fixed sixty seconds cannot tell a compile that is
 slow because C2's queue is long from one that will never come, while the probes already can -
 their allocation was falling. `SCOPE_MILESTONE_7.md` item 77 takes both.
+
+### 13.8 Two follow-ups the next morning
+
+**The laptop's interpreter run**, which the night's job missed
+(`CodegenInterpreterFallbackBenchmark-jdk25-laptop-results.txt`, with its provenance): the
+interpreter is 3.6, 3.6 and 4.4 times the compiled projection at 100, 300 and 1000 entries,
+against the runner's 3.1 to 4.4 (13.3).
+
+**The compile queue, tried twice.** 13.7 named a backlog in C2's queue as the likelier cause of
+CI's release. The suite ran after `SQLQuerySuite` in one JVM, with C2's queue read through
+`jcmd Compiler.queue` every two seconds: the queue never held more than 5 methods, and the
+projection's warm-up compiled in 0.28 seconds. Then pinned to four cores (`taskset`,
+`-XX:ActiveProcessorCount=4`, a CI runner's count and so its two or three compiler threads),
+after `SQLQuerySuite`, `DataFrameSuite`, `DataFrameAggregateSuite` and `WholeStageCodegenSuite`:
+the queue reached 40 methods as the warm-up suite began, and the warm-up compiled in 0.33
+seconds. Neither reproduces it. The cause of the sixty seconds on CI is open - fifty minutes of
+a module's suites in one JVM is more than these two minutes, and a GitHub runner is a shared
+virtual machine - and item 77's two changes do not depend on it.
+
+## 14. The draft, 2 October 2026
+
+`POST_MILESTONE_6_GIVEUPS.md`, in the first post's form, follows 12.4's outline as 13.5 narrowed
+it: section 2 is about wide projections of cheap columns, and its remedy is `maxFields` below the
+width for such a query only. Its three figures, each drawn from committed files when its
+script runs:
+
+| figure | what it shows | from |
+|:--|:--|:--|
+| 1, `fig28-where-operators-run` | per suite, the share of operators in a stage, outside one by design, and outside one for a reason | `VarkaCodegenGiveUps-jdk25-results.txt` |
+| 2, `fig29-wide-projection-in-and-out` | in-stage time over out-of-stage time, cheap and mixed, 50 and 99 columns, runner and laptop | `CodegenWideProjectionBenchmark-jdk25-*`, `CodegenCompileWaitBenchmark-jdk25-results.txt` |
+| 3, `fig30-first-minute` | each query's time for a minute, the 150-column projection in a stage and out | `compile_wait-jdk*-output.txt`, `CodegenFallbackCostBenchmark-jdk25-results.txt` |
+
+**The examples, 2 October 2026.** The owner asked for more SQL in the post, each with its plan
+and why. `examples.scala` prints them on stock 4.2.0 (`examples-jdk{17,21,25}-output.txt`, run
+36973845828, the plans the same on all three JDKs): a top-k sort, an object aggregate, a sort
+aggregate over a string, `map_filter` and `transform`, the 99-column projection with its method
+size (3,670 bytes) and with `maxFields=98`, and the plan of the 3,000-branch stage after its
+compile failed, which still shows `*(1)` - `EXPLAIN` gives the plan Spark made, not how it ran,
+so the WARN line is that fallback's only sign. Two of them correct section 2's reading of the
+source, which was master's: on 4.2.0 `transform` has no generated code - SPARK-37019 gives the
+five array higher-order functions code in 4.3.0 - and a sort aggregate with grouping keys has
+none either, SPARK-32750, also 4.3.0. The census ran on master, so on 4.2 its silent share
+would be larger by those operators; the post says so, and its section 6 lists the two tickets.
+
+## 15. Approved, 2 October 2026
+
+The owner read the rendered draft, with its figures and the examples of section 14, and approved
+it. The post is to live at https://vecbricks.github.io/when-spark-stops-compiling-your-query/, and
+the first two posts now link it - the first in its introduction, beside the second post's link, the
+second where it introduces the first. What remains is the publication itself, on the owner's go:
+the page rendered by `dev/varka_post_page.py` into the site, the site's index listing it first, a
+link card from Figure 1, and the first two posts' pages rebuilt with the new links; then the site's
+commit is recorded here and row 233 is marked done.
+
+## 16. Published, 2 October 2026
+
+The post is live at https://vecbricks.github.io/when-spark-stops-compiling-your-query/, beside the
+first two, and the site's index lists it first. It was rendered by `dev/varka_post_page.py` from
+`POST_MILESTONE_6_GIVEUPS.md` at `02a9e559057`; the site's commit is `89851f1` in
+`vecbricks/vecbricks.github.io`, and its link card is Figure 1 rendered to a 1200 by 630 PNG by
+headless Chromium. The first two posts' pages were rebuilt from the same revision and differ from
+what was live only by their link to this one. The post's section 6 was reread against the tracker
+at publication and needed no change: SPARK-37019 and SPARK-32750 fixed in 4.3.0, SPARK-59774 in
+4.4.0, SPARK-33301 open with apache/spark#59069 unmerged. Its spark-shell snippets ran on stock
+Spark 4.2.0 under JDK 17, 21 and 25 (11.5, 13.1, 13.2 and 14), so the row's done-when holds.
