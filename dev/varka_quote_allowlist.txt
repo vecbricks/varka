@@ -133,3 +133,4 @@ sql/varka/plans/PLAN_TASK_118.md	11.16	a section number of PLAN_TASK_62.md, not 
 sql/varka/plans/PLAN_TASK_118.md	11.17	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
 sql/varka/plans/PLAN_TASK_118.md	11.18	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
 sql/varka/plans/PLAN_TASK_164.md	11.17	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/READING_MILESTONE_7.md	99.81	a transcription's share of its PDF's text-layer characters, not a measured rate

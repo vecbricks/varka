@@ -4354,6 +4354,38 @@ left is the start of that argument.
 | 224 | Benchmarks and tools in Java | `PLAN_TASK_191.md` | the Java port of the harness adapter and `VarkaEmitDump`, which goes with 214 to 217 |
 | 231 | The other row loops read each column through the batch's vectors | `PLAN_TASK_228.md` | the fallback path's row loops, on neither list |
 
+### Item 82. From milestone 7's paper reading: work for later milestones
+
+*Added on 3 October 2026, from reading the fifteen papers of `READING_MILESTONE_7.md` section 11;
+what serves milestone 7's goal became its rows 273 to 281, and this is the rest.*
+
+* **TLP's aggregate, GROUP BY, DISTINCT and HAVING oracles** (Rigger and Su, OOPSLA 2020,
+  pp. 9-12), for items 4 and 5's aggregates and item 3's grouping: a partition's partial results
+  recombined must equal the whole, the contract a kernel's partial-and-merge has to keep, with
+  DuckDB's partial-SUM overflow and MIN sentinel the bug classes to expect (pp. 11-12, 15); under
+  ANSI a partition's SUM can overflow where the total does not.
+* **NaN, both zeros and infinities, with both forms of NOT**, when item 35's double lane lands:
+  IEEE vector comparisons answer false on NaN where Spark orders NaN highest, and a NOT compiled as
+  a swap of the result mask is consistently wrong in a way the partition oracle passes (p. 25).
+* **The `<=>` partition** as the differential for item 34's null-safe equality.
+* **`floorMod7` in five operations instead of twelve** under a range bound, by Lemire, Kaser and
+  Kurz's direct remainder (Theorem 1, p. 6), and a divide-free `remainderOfSixty`
+  (`x < 86400`, c = 139811, F = 23); and a long-lane `BoundedDivide` for dividends below 2^31,
+  where Granlund and Montgomery's existence argument (p. 4) guarantees a multiplier.
+* **`DOUBLE_RECIP` by one biased reciprocal**, fl((1 + 2^-51) / d), in place of its per-divisor
+  deny-list, if row 248 keeps the option (Granlund and Montgomery (7.1), p. 7).
+* **Lane-level validation of every emitted kernel**, Alive2's per-function sweep (47 bugs, p. 1)
+  at 23,000 lines and hours of solving (pp. 9-10), which item 58 keeps out of milestone 7; and
+  Alive-style proofs of item 11's conditional rewrites (`PLAN_EGRAPH_PORT.md`).
+* **Every compiled-or-interpreted combination of a kernel's methods through WhiteBox**, Artemis's
+  ideal (p. 4), and trace coverage read from the compilation log (p. 11).
+* **Mutation runs on each pull request's changed lines**, with one survivor per line shown in
+  review (Petrovic and Ivankovic, pp. 2-3), once milestone 8 adds code rather than moving it.
+* **NullAway's nullability for generics**, which the paper lacks (p. 6).
+* **Catalyst expressions enumerated through the compiler** and compared with vanilla Spark, which
+  would keep the compiler's admission and the emitter's shape rules in step mechanically; and
+  pruning row 269's enumeration by the emitter's record, to reach size 6.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

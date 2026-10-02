@@ -19,6 +19,10 @@ rows that moved there from milestones 5 and 6 keep their task numbers.
 *2 October 2026, later the same day: a survey of how thirteen engines keep their answers right
 (`READING_MILESTONE_7.md`) added rows 271 and 272 and refined rows 248, 255, 256, 262 and 263.*
 
+*3 October 2026: the fifteen papers that survey listed, read in full (`READING_MILESTONE_7.md`
+11), added rows 273 to 281 and refined rows 81, 138, 240 to 245, 248, 252, 257, 262, 265, 266, 269
+and 272. Row 273 is a bug the reading found, reproduced the same day.*
+
 ## 1. The question, and what "done" means
 
 Six milestones built vocabulary and then a foundation under it, and each was checked as it
@@ -35,6 +39,9 @@ the code has grown faster than its structure.
   reference evaluator, never with Spark (2.2). The shared test JVM runs a second vector species,
   which can leave later kernels boxed and made one suite fail in about one full run in three
   (item 69).
+* **The tests can pass over a wrong kernel.** The fuzzers check interpreted kernels only, a kernel
+  that throws is hidden by the ghost fallback, output validity is pre-filled only with ones, and a
+  filter's declined batch is refiltered in an order Spark does not use (2.2).
 * **The code is harder to change than it should be.** A new emit option touches about nine
   places. `emitBody` is one 372-line method serving three roles. The compiler's facade is
   1346 lines of Scala, and method names are matched as string prefixes in a dozen places
@@ -50,16 +57,22 @@ base they land on provable where proof is cheap, tested where it is not, and eas
 
 1. **Every bounded arithmetic lowering carries a machine-checked proof** over its guarded
    domain, run in CI in under a minute and stated against a specification of the SQL standard
-   with Spark's departures named (tasks 240 to 245).
-2. **The tests reach what they miss today**: Spark's own date tests, poisoned null lanes, the
-   ANSI form comparing error classes, and the partition oracle (81, 138); random compositions
-   compared with vanilla Spark itself (262), Spark's own SQL suites run with Varka on (271), and
-   every small IR tree through the emitter (269); every segment a kernel maps checked against its
-   buffers under test (263), and every kernel's answer the same under the interpreter, C1, C2 and
-   the Vector API's intrinsics off (272). No Varka suite runs
-   a second species of a lane type in the shared test JVM (246), and every emit option states
-   why it exists and moves some hash in the bytes oracle, or is gone (247, 248). What the tests
-   miss is measured, by branch coverage and a bounded mutation run (265).
+   with Spark's departures named (tasks 240 to 245), the analyses that supply the guards' bounds
+   proved as well (281).
+2. **The tests reach what they miss today**: Spark's own date tests, poisoned null lanes, both
+   fills of output validity, the ANSI form comparing error classes, and the partition oracle with
+   and without Spark's rewrites (81, 138); random compositions compared with vanilla Spark itself
+   (262), Spark's own SQL suites run with Varka on (271), and every small IR tree through the
+   emitter (269), each failure shrunk to a minimal case (277) and the passing shapes varied in ways
+   that must not change an answer (278); kernels checked compiled by C2 as well as interpreted
+   (274), under the interpreter, C1, C2 and the Vector API's intrinsics off (272), every segment
+   they map checked against its buffers (263), a kernel failure the ghost fallback hides failing
+   its test (275), and every decline the one the row's verdict calls for (279); and the reference
+   evaluator held to Spark's own interpreter (276). The filter-order bug the reading found is
+   fixed (273). No Varka suite runs a second species of a lane type in the shared test JVM (246),
+   and every emit option states why it exists and moves some hash in the bytes oracle, or is gone
+   (247, 248). What the tests miss is measured, by what the emitter reached, branch coverage and
+   a bounded mutation run (280, 265).
 3. **Varka's code is Java and legible**: the compiler ported with its shape cache (214 to 217,
    224) and the evaluators with it (251, 267), checked by Error Prone and NullAway (266); item
    74's refactors landed, each with the proof its row names (248 to 252); the runtime refusals
@@ -93,7 +106,38 @@ Spark doing it, and the proofs restated as refinements in Spark mode and in stan
 taken in full; task 245 is where it can be cut if 243 and 244 run long, since the proofs of 240
 to 242 stand without it.
 
-### 2.2 The tests, and how well they test (81, 138, 246, 247, 262, 263, 265, 269, 271, 272)
+**What the papers add to the proofs** (`READING_MILESTONE_7.md` 11). The prover's verdicts are
+checked in turn: `dev/varka_prove.sh` fails on `unknown` and on a timeout as well as on `sat`;
+each proof file carries queries that must come back `sat` - its precondition is satisfiable, its
+boundary inputs are admitted, a constant changed by one is refuted - and Z3 and cvc5, pinned, must
+agree in the nightly, since Alive2's authors found six soundness bugs in Z3. Java's operators are
+stated once, in a prelude (`sql/varka/proofs/java.smt2`): masked shifts, `%`, `floorMod`,
+`Integer.MIN_VALUE / -1`, `L2I` and the saturating `D2I` and `D2L` are not the SMT operators of the
+same names. Each proof's constants are rendered from the code (`VarkaChrono`, `signedMagic`,
+`EXACT_DIVIDEND_BOUND`), and `signedMagic` asserts Granlund and Montgomery's Theorem 5.1
+inequality for its divisor, which proves the multiply-high exact over all of int32 for every
+divisor up to 2^17, where task 149's sweep covers nine. Row 241's two forms divide in doubles, so
+its proofs need floating-point theory: it is sized medium, and starts with a spike that records
+the solve time against the one-minute budget, the proofs moving to the nightly if they do not fit.
+Row 242 records each calendar division site's range and theorem beside it, labels every quoted
+bound sufficient or exact (`YEAR_M`'s 44858 first fails at 44894), and pins the first failing
+input past each bound as a test; it names the leap hash's unsigned compare, the one built, rather
+than row 208's, which section 8 leaves out. Row 243 says per operation whether a division
+truncates or floors, and row 245 states each refinement as five queries per mode over (data,
+valid) pairs, data free under a null bit: a satisfiable precondition, a decline wherever Spark
+raises, null-ness equal, values equal on valid lanes, and a decline only where Spark raises or the
+input leaves the bound.
+
+**The analyses that supply the preconditions (281).** Alive trusts its dataflow predicates
+(pp. 2-4), and one of its eight bugs hinged on an overflow predicate. Varka's are
+`VarkaRangeAnalysis` and `VarkaValueRange`, which decide when a calendar node fuses without a guard
+and when an overflow check comes off, and `VarkaTimeCompiler`'s quotient bounds. Row 281 states an
+obligation for each of their rules over symbolic interval ends and Java's wrapping arithmetic,
+checks the calendar rules by exhaustion, and proves a 64-bit rule at a reduced width if it times
+out, as Alive did; row 264's debt on the analysis's loose `INT` answers is paid only with these
+obligations passing.
+
+### 2.2 The tests, and how well they test (81, 138, 246, 247, 262 to 265, 269, 271 to 280)
 
 Row 81 is planned (`PLAN_TASK_81.md`) and suits a newcomer. Row 138's three forms all run in
 `VarkaCoverageDifferentialSuite`, and its ANSI form compares the error class, the SQLSTATE and
@@ -150,8 +194,12 @@ compares it with C2's, and the Vector API's plain-Java fallback, which runs with
 `-XX:-EnableVectorSupport`, is a second implementation of every intrinsic, sharing only the
 checks made before the dispatch (`READING_MILESTONE_7.md` 8). Row 272 runs the fuzzers' kernels
 under the interpreter, C1, C2 and the intrinsics off, each in a forked JVM, and compares the
-answers; C2's seeded stress flags (`StressIGVN`, `StressGCM`, `StressLCM`, `RepeatCompilation`)
-run on the fastdebug JDK, and are the levers row 257 lacks.
+answers. C2's seeded stress flags (`StressIGVN`, `StressGCM`, `StressLCM`, `RepeatCompilation`)
+are product diagnostic flags in JDK 25, so they run nightly on the shipped JDK, only
+`DeoptimizeALot` needing the fastdebug build. Each arm proves through JFR's compilation events
+which tier served the compared call, an `-Xcomp` arm compiles everything first, a crashed fork keeps
+its `hs_err` and replay files with its seeds, and after row 246 a deliberate second species is one
+more arm. They are the levers row 257 lacks, and 257's forks compare answers as well as rates.
 
 **Every small tree (269).** Random draws miss corners. Every well-typed IR tree up to a small
 size goes through the emitter and is compared with the reference evaluator, under the null
@@ -162,8 +210,98 @@ piece of the emitter a model could cover; enumerating small trees covers it with
 mutation testing. The first step is branch coverage of the emitter and the compiler under the
 suites and the fuzzers, which names the arms nothing runs; the second is a bounded mutation run
 (PIT) on `Slots` and `Analysis`, in an idle machine window. A mutant that survives becomes a
-test, or a note that it changes no behaviour. It comes after 262, 263 and 269, so that it
-measures the tests this milestone leaves.
+test, or a note that it changes no behaviour. It comes after 262, 263, 269 and 280, so that it
+measures the tests this milestone leaves. PIT first reaches the ScalaTest suites test by test,
+with `NON_VOID_METHOD_CALLS`, `REMOVE_CONDITIONALS` and the bitwise mutators beside its defaults,
+and each mutant gets one of three verdicts - killed by a behavioural test, killed only by the
+emitted-bytes oracle, survived - the second read as a survivor, since the bytes oracle kills
+equivalent mutants too.
+
+**What the papers found the tests can pass over** (`READING_MILESTONE_7.md` 11).
+
+* **A filter's order (273).** Spark evaluates a filter's conjuncts in order and stops at the
+  first false one. Varka fuses the conjuncts it compiles below a row filter that holds the rest,
+  and a batch its kernel declines is refiltered with the fused conjuncts alone (the fallback
+  predicate of `VarkaFilterExec` and `VarkaFilterColumnarToRowExec`), so a fused conjunct that can
+  raise under ANSI runs on rows a residual conjunct before it would have stopped; the split's own
+  comment considers nondeterminism and nothing else. **Reproduced** on 3 October 2026 by a test
+  in `VarkaDifferentialSuite`: under ANSI, `WHERE s = 'x' AND make_date(2021, i, 1) < d` over a
+  row whose `s` is not 'x' and whose month is 13 returns Spark's rows on the row engine and fails
+  on Varka with `DATETIME_FIELD_OUT_OF_BOUNDS`, thrown from the filter's fallback. The fix gives
+  the fallback the original condition, every conjunct in its order: the kernel only ever
+  declines, so every batch with a row that would raise is filtered in Spark's order.
+* **Interpreted code (274).** `VarkaKernelCheck` runs a fresh class once per batch of at most
+  1,000 rows, and the test sessions turn the warm-up off, so every fuzzer verdict comes from the
+  interpreter, which runs the Vector API's plain-Java fallback; the C2 vector code users run is
+  checked on three shapes (`VarkaWarmupEndToEndSuite`). Row 274 warms each kernel to C2 before the
+  compared batches, JFR's events proving which tier served each call, and runs about eight batch
+  histories per kernel - calls before the compared batch, an OSR mid-batch, a trap after a warm-up
+  that never took the guard, null or remainder branch - since 89.6% of Artemis's disagreements
+  needed choices between all-interpreted and all-compiled (Table 4, p. 10).
+* **The ghost fallback (275).** A kernel that throws gets a warning, a metric and a JFR event,
+  and its batch reruns on the row path (`VarkaEvaluatorBase.recordKernelFailure`), so a `sql/core`
+  test with right answers passes over a broken kernel. Row 275 fails a test on any kernel-failure
+  fallback it did not expect, as Spark's own suites turn the codegen fallback off.
+* **A validity bit never set (138).** The harnesses pre-fill output validity with ones, which
+  catches a kernel that fails to clear a bit and not one that fails to set it; row 138 runs each
+  batch with the zero fill too.
+* **The partition oracle, optimized away (138).** Spark rewrites `NOT (a < b)` into `a >= b`
+  (`BooleanSimplification`) and `(a < b) IS NULL` into null checks on the columns
+  (`NullDownPropagation`) before Varka sees the filter, and `InferFiltersFromConstraints` adds
+  `isnotnull` conjuncts that settle every null row first. Row 138 compares the three partitions on
+  row ids and values with the unfiltered table, under the default optimizer and with those rules
+  excluded, and its ANSI form covers each position Spark skips: after a residual conjunct, the
+  right side of AND and OR, the untaken arm of CASE and IF, later COALESCE arguments.
+
+**The reference evaluator, held to Spark (276).** `VarkaReferenceEvaluator` is the oracle of both
+fuzzers and of row 269, and nothing holds it to Spark; PQS tests its interpreter against the
+engine (pp. 12-13). Row 276 runs every coverage row's IR and every composed kernel three ways on
+the same inputs - the kernel, the reference evaluator and Catalyst's `eval` on the Spark
+expression - with no session: a kernel that disagrees with both is a Varka bug, and a reference
+that disagrees with Spark is fixed or becomes a named delta (244).
+
+**One shrinker (277).** ddmin's result is 1-minimal by construction, and a single culprit costs
+about 2 log2 n tests (Zeller and Hildebrandt, Props. 11 and 13). Row 277 builds `VarkaShrinker`
+in catalyst's test sources, used by rows 262, 269 and 248: an IR tree shrunk roots first and then
+level by level, every candidate kept well typed by an admissibility predicate shared with row
+269's enumerator; then the emit options' delta from the defaults; then the batch - its length,
+null pattern and rows - under a failure signature that keeps the shrink on the same bug. Failures
+are grouped by that signature, a committed list names each known one with its row or delta, and
+an entry no nightly run matches fails.
+
+**Variants that must agree (278).** EMI varies a program where its input does not reach and
+requires the same output (Le, Afshari and Su). Row 278 makes about eight variants of each passing
+IR shape - its outputs permuted, a dead output added that reuses a live root's date, an arm the
+reference evaluator never selected replaced, a literal swapped for a column holding the same
+constant - each checked against the reference evaluator.
+
+**Declines as specified behaviour (279).** The fuzzers avoid firing guards because the reference
+evaluator has no notion of a declined batch. Row 279 gives each row a verdict - an answer, a
+decline that must happen, one that may (a guard not qualified by its arm, on an arm the row does
+not take), an input outside the contract - and checks the kernel's status against it on both
+sides of every guard bound; each guarded coverage row names its domain and runs under the domain's
+predicate, its negation and IS NULL, fused with nothing declined inside and Spark's answer
+outside: the test-side counterpart of row 245's guard completeness.
+
+**What the emitter reached (280).** QPG found more bugs by steering generation toward unseen query
+plans than a coverage-guided fuzzer that reached more code (pp. 8-9). Varka's plan is the
+emitter's record of what it did: the canonical IR over literal slots, the `VarkaEmitTrace`
+reactions, the groups and their shared or materialized prefixes, one kernel or several, the
+decline reasons. Row 280 has every fuzzer and coverage suite report the distinct ones it reached
+and the mechanisms it never did, which row 265 reads, then measures steering - draws that reached
+something new kept and mutated - by a fixed-seed A/B, kept only if it reaches more.
+
+**The fuzzers, sharpened (262, 81, 269).** Row 262 also draws `NOT p` and `p IS NULL` beside each
+predicate and runs each projection under the three partitions of a drawn predicate; builds filters
+that select known rows, evaluating each conjunct on pivot rows and negating the false ones, as PQS
+rectifies; draws nested Catalyst trees with neighbouring types so the analyzer inserts casts
+(`VarkaCatalystGrammar`, beside `VarkaIrGrammar`); and uses row 277's shrinker. Row 81 runs each
+harvested statement as a filter too, `WHERE e = v` and its negation. Row 269 generates by type,
+with series per sort checked both ways against `Analysis` up to size 3; runs size 3 in PR CI,
+size 4 nightly and size 5 in an idle window (about 1,100, 27,000 and 700,000 int-lane trees);
+enumerates two or three outputs over one shared subtree, which task 234's shape needed; counts its
+reach per position, since the grammar draws `date_add` offsets only as literals today; and runs
+under row 248's word and guard configurations.
 
 ### 2.3 Structure (248 to 254, 214 to 217, 224, 83, 86, 222, 264, 266 to 268)
 
@@ -182,7 +320,9 @@ because the winner depends on the machine, a reference form, a fault injector su
 It is also the source of a configuration matrix (`READING_MILESTONE_7.md` 3): the suites run under
 the options' configurations with a skip list giving a reason for each entry, as DuckDB's
 `test/configs` do, and a shape marked as declining fails when it starts to fuse, as Druid's
-`cannotVectorize` marker does, so neither list can go stale. The emitter splits (250, `emitBody`)
+`cannotVectorize` marker does, so neither list can go stale. A matrix failure is shrunk to its
+minimal delta from the defaults (row 277), and its skip entry names that delta, which the stale
+check reruns. The emitter splits (250, `emitBody`)
 and the evaluator split (251) follow, 251 splitting `VarkaEvaluatorBase` into Java components rather
 than into smaller Scala files. Row 83's single refusal goes after 250, since both rewrite the
 emitter's refusal paths. Row 86's single operand admission goes after the ports, so that the
@@ -190,7 +330,10 @@ admission is written once in Java and not ported twice. The ports themselves (21
 mechanical and meant for an agent, gated as task 175 was. Row 217 is item 74.4, and takes
 `VarkaShapeCache.scala` with it, the one Scala file in the compiler's own package, so that 1.1's
 claim holds. Item 74.2, the size loop, is task 236's and is not repeated here. The comments pass
-(252) runs last, once the structure has settled.
+(252) runs last, once the structure has settled, and corrects what the paper reading found wrong:
+`VarkaEmitterDivisionSuite` says Java's `/` throws at `Integer.MIN_VALUE / -1`, where it wraps
+(JLS 15.17.2), and `emitConstDivide`'s javadoc calls the long-lane division exact over the whole
+lane, where it is exact under `EXACT_DIVIDEND_BOUND`.
 
 **The rest of the Scala (267, 268).** Varka's main code holds 17 Scala files and 6,741 lines
 today, and about 3,900 lines in 13 files after rows 214 to 217. Row 267 ports the evaluators
@@ -206,7 +349,11 @@ the owner set for test helpers on 30 September 2026.
 nothing checks it beyond javac and checkstyle. Row 266 runs Error Prone and NullAway on
 Varka's Java packages only, not Spark's. Its first step confirms that Error Prone runs on JDK
 25's javac with the incubator module. It comes early, so that the ports and the refactors are
-checked as they land.
+checked as they land. From the NullAway paper: the checker runs as a javac pass of its own
+(`dev/varka_errorprone.sh`), touching no Spark build file, in a CI job that fails on a planted
+null dereference; NullAway is staged by class, a committed list of unannotated classes that may
+only shrink, a reason on every suppression, and runtime non-null checks where Scala calls into
+Java. The prediction registered is about 125 to 145 annotations, at the paper's rate.
 
 **Milestone 4's debts (264).** `sql/varka/AGENTS.md` says a swept debt is rewritten in the past
 tense, and several entries of `PLAN_MILESTONE_4.md` section 9 still read as open.
@@ -283,32 +430,41 @@ does not trace to a committed file. Task 270's post is written from the same rec
 ## 3. Task breakdown
 
 Task numbers continue the single sequence from 240; rows that moved to the catalogue from
-milestones 5 and 6 keep theirs. Rows 262 to 270 came from the plan's own review, and 271 and
-272 from the survey of other engines (the notes at its head).
+milestones 5 and 6 keep theirs. Rows 262 to 270 came from the plan's own review, 271 and 272 from
+the survey of other engines, and 273 to 281 from reading the papers (the notes at its head).
 
 | task | what it is | where it came from | size |
 | ---: | :--- | :--- | :--- |
-| 240 | The proof tooling, and the int32 multiply-high bound per divisor proven: `sql/varka/proofs/`, `dev/varka_prove.sh` in the linters' job, compared with task 149's sweep for one nightly cycle, then the sweep's opt-in test cites the proof | item 58 step 1 | small |
-| 241 | The long-lane division forms proven at row 166's regions and at 2^52 - 1, the solver asked for the exact bound | item 58 step 2 | small |
-| 242 | The other bounded lowerings proven as met: `floorMod7`'s forms, the decomposition's constants over the covered years, the unsigned range compare (row 208); `sql/varka/AGENTS.md` says a new bounded lowering comes with its proof file | item 58 step 3 | small to medium |
-| 243 | The specification fragment: one definition per operation the coverage table lowers that the standard fixes, every interpretation choice recorded | item 59 step 1 | medium |
+| 240 | The proof tooling, and the int32 multiply-high bound per divisor proven: `sql/varka/proofs/`, `dev/varka_prove.sh` in the linters' job, compared with task 149's sweep for one nightly cycle, then the sweep's opt-in test cites the proof; the prover's verdicts checked (unknown and timeouts fail, sanity queries must be `sat`, Z3 and cvc5 agree in the nightly), Java's operators stated in a prelude, the constants rendered from the code, and Theorem 5.1's inequality asserted in `signedMagic` for every divisor | item 58 step 1, `READING_MILESTONE_7.md` 11 | small |
+| 241 | The long-lane division forms proven at row 166's regions and at 2^52 - 1, the solver asked for the exact bound; the forms divide in doubles, so floating-point theory, starting with a spike that records the solve time | item 58 step 2, `READING_MILESTONE_7.md` 11 | medium |
+| 242 | The other bounded lowerings proven as met: `floorMod7`'s forms, the decomposition's constants over the covered years, the unsigned range compare (row 208); `sql/varka/AGENTS.md` says a new bounded lowering comes with its proof file; each calendar division site's range and theorem recorded, every quoted bound labelled sufficient or exact, the first failing input past it pinned; the unsigned compare is the leap hash's | item 58 step 3, `READING_MILESTONE_7.md` 11 | small to medium |
+| 243 | The specification fragment: one definition per operation the coverage table lowers that the standard fixes, every interpretation choice recorded; each operation says whether it truncates or floors | item 59 step 1, `READING_MILESTONE_7.md` 11 | medium |
 | 244 | Spark's departures from it as named deltas, each with a test showing Spark doing it; the extensions marked as Spark's or ISO 8601's | item 59 step 2 | medium |
-| 245 | The proofs restated as refinements of the specification, soundness and guard completeness, in Spark mode and standard mode; `SCOPE_STANDARD_MODE.md` cites the standard-mode theorems | item 59 step 3 | medium |
-| 81 | Spark's own date tests as a differential corpus. **Planned** (`PLAN_TASK_81.md`) | item 39 | small; a newcomer's |
-| 138 | Three test forms: poisoned null lanes in each coverage row's masked body, both-engines-throw-or-agree for ANSI rows comparing the error class, SQLSTATE and message parameters (`checkError`), not only that both throw, and a ternary-logic partition oracle for every filter row | item 39 | medium |
+| 245 | The proofs restated as refinements of the specification, soundness and guard completeness, in Spark mode and standard mode; `SCOPE_STANDARD_MODE.md` cites the standard-mode theorems; five queries per mode over (data, valid) pairs | item 59 step 3, `READING_MILESTONE_7.md` 11 | medium |
+| 281 | The analyses that supply the preconditions proven: an obligation for each rule of `VarkaRangeAnalysis` and `VarkaValueRange` and for `VarkaTimeCompiler`'s quotient bounds, over symbolic interval ends and Java's wrapping arithmetic | Alive, `READING_MILESTONE_7.md` 11 | medium |
+| 81 | Spark's own date tests as a differential corpus. **Planned** (`PLAN_TASK_81.md`); each statement also run as a filter | item 39, `READING_MILESTONE_7.md` 11 | small; a newcomer's |
+| 138 | Three test forms: poisoned null lanes in each coverage row's masked body, both-engines-throw-or-agree for ANSI rows comparing the error class, SQLSTATE and message parameters (`checkError`), not only that both throw, and a ternary-logic partition oracle for every filter row; output validity pre-filled both ways; the partition compared on rows, with and without `BooleanSimplification`, `NullDownPropagation` and `InferFiltersFromConstraints`; the ANSI form over every position Spark skips | item 39, `READING_MILESTONE_7.md` 11 | medium |
 | 246 | One species per lane type in the shared test JVM: the census, each second-width arm moved to a forked JVM, a guard in the emitter's test base, the full Varka run's time before and after | item 69 | small to medium |
 | 247 | What `validityOrFirst` is for: the shape that tells its two values apart joins the oracle, or the option goes with the tests that set it | item 48 | small |
-| 262 | Vanilla Spark as the oracle, at random: the composition fuzzer's projections and filters run with Varka on and off over random data with nulls, ANSI on and off, the answers compared; one arm in the nightly; a failure shrunk to its smallest failing subtree and saved, the saved reproducers replayed in PR CI; each fused output forced to decline in turn, the answer unchanged | the plan review (2.2), `READING_MILESTONE_7.md` 1 | medium |
+| 262 | Vanilla Spark as the oracle, at random: the composition fuzzer's projections and filters run with Varka on and off over random data with nulls, ANSI on and off, the answers compared; one arm in the nightly; a failure shrunk to its smallest failing subtree and saved, the saved reproducers replayed in PR CI; each fused output forced to decline in turn, the answer unchanged; `NOT p` and `p IS NULL` beside each predicate and projections under its partitions; filters that select known rows; nested Catalyst trees with type coercions; row 277's shrinker | the plan review (2.2), `READING_MILESTONE_7.md` 1, `READING_MILESTONE_7.md` 11 | medium |
 | 271 | Spark's own SQL suites with Varka on, Spark's golden files the oracle: a patch per Spark version or subclassed suites, every exclusion with a reason, and the exclusion list failing when an excluded test starts passing | `READING_MILESTONE_7.md` 2, item 24 | medium |
 | 263 | A sanitizer for kernel memory access: under a test-only flag the evaluator records each buffer's address range and real capacity, and `VarkaVectorSupport.ofAddress` fails on a segment outside them; a canary past each buffer, checked when the kernel returns; where each segment came from recorded; every byte back at close; the suites and fuzzers run with it on | the plan review (2.2), item 58, `READING_MILESTONE_7.md` 5 | small to medium |
-| 269 | Every small tree: each well-typed IR tree up to a small size through the emitter, compared with the reference evaluator under the fuzzers' null patterns | the plan review (2.2), item 58 | medium |
-| 272 | The platform under the kernels: the fuzzers' kernels run under the interpreter, C1, C2 and the Vector API's intrinsics off (`-XX:-EnableVectorSupport`), each in a forked JVM, the answers compared; C2's seeded stress flags on the fastdebug JDK | `READING_MILESTONE_7.md` 8, items 56 and 58 | medium |
-| 265 | How well the tests test: branch coverage of the emitter and compiler under the suites and fuzzers, then a bounded mutation run (PIT) on `Slots` and `Analysis` in an idle window; each surviving mutant a test or an equivalence note | the plan review (2.2) | medium, measured |
-| 248 | `VarkaEmitOptions` from one table of options: defaults by name, and `canonical()`, the bytes suite's inventory and the fuzzer's draws derived from it; each option's reason recorded - an alternative kept because the winner depends on the machine, a reference form, a fault injector (`misdescribeWordLiveness`), or retired; the suites run under the options' configurations with a reasoned skip list, and a shape marked as declining failing when it starts to fuse. Proof: `emitted_bytes.json` unchanged | item 74.1, `READING_MILESTONE_7.md` 3 | small to medium |
+| 269 | Every small tree: each well-typed IR tree up to a small size through the emitter, compared with the reference evaluator under the fuzzers' null patterns; generated by type and checked both ways against `Analysis`; sizes 3, 4 and 5 in PR CI, nightly and an idle window; shared-output shapes; reach counted per position; under row 248's configurations | the plan review (2.2), item 58, `READING_MILESTONE_7.md` 11 | medium |
+| 272 | The platform under the kernels: the fuzzers' kernels run under the interpreter, C1, C2 and the Vector API's intrinsics off (`-XX:-EnableVectorSupport`), each in a forked JVM, the answers compared; C2's seeded stress flags on the fastdebug JDK; each arm proves its tier through JFR; an `-Xcomp` arm; crash artifacts kept; the stress flags nightly, since they are product diagnostic flags | `READING_MILESTONE_7.md` 8, items 56 and 58, `READING_MILESTONE_7.md` 11 | medium |
+| 273 | **Reproduced** (3 October 2026, a test in `VarkaDifferentialSuite`). A fused conjunct that can raise runs on rows a residual conjunct before it would have stopped: a declined batch is refiltered with the fused conjuncts alone, so under ANSI `WHERE s = 'x' AND make_date(2021, i, 1) < d` fails on Varka with `DATETIME_FIELD_OUT_OF_BOUNDS` where Spark returns its rows. The fix gives the fallback the original condition, every conjunct in its order | NoREC (p. 5), `READING_MILESTONE_7.md` 11 | small |
+| 274 | The fuzzers check the code users run: each kernel warmed to C2 before the compared batches, JFR proving which tier served each call, and about eight batch histories per kernel - calls before, an OSR mid-batch, a trap after a quiet warm-up | Artemis, `READING_MILESTONE_7.md` 11 | medium |
+| 275 | A kernel failure the ghost fallback hides fails its test: any kernel-failure fallback a test did not expect fails it, designed declines still pass | mutation testing, `READING_MILESTONE_7.md` 11 | small |
+| 276 | The reference evaluator held to Spark's interpreter: every coverage row's IR and every composed kernel run as the kernel, the reference evaluator and Catalyst's `eval`, with no session | PQS, NoREC, `READING_MILESTONE_7.md` 11 | small |
+| 277 | One shrinker for every fuzz failure: an IR tree roots first then level by level, kept well typed; then the option delta; then the batch; failures grouped by signature, with a committed list of known ones that fails when an entry stops matching | delta debugging, `READING_MILESTONE_7.md` 11 | small to medium |
+| 278 | Variants that must agree: about eight per passing IR shape - outputs permuted, a dead output added, an untaken arm replaced, a literal swapped for a constant column - checked against the reference evaluator | EMI, `READING_MILESTONE_7.md` 11 | medium |
+| 279 | Declines as specified behaviour: a verdict per row (an answer, a decline that must happen, one that may, an input outside the contract), checked on both sides of every guard bound; each guarded coverage row names its domain | TLP, Alive2, Korat, `READING_MILESTONE_7.md` 11 | medium |
+| 280 | What the emitter reached: each fuzzer and coverage suite reports the emitter mechanisms it reached and never reached, read by row 265, then steering toward unseen ones measured by a fixed-seed A/B | QPG, `READING_MILESTONE_7.md` 11 | small to medium |
+| 265 | How well the tests test: branch coverage of the emitter and compiler under the suites and fuzzers, then a bounded mutation run (PIT) on `Slots` and `Analysis` in an idle window; each surviving mutant a test or an equivalence note; PIT through the ScalaTest suites test by test; three verdicts per mutant - killed by a behavioural test, killed only by the bytes oracle, survived | the plan review (2.2), `READING_MILESTONE_7.md` 11 | medium, measured |
+| 248 | `VarkaEmitOptions` from one table of options: defaults by name, and `canonical()`, the bytes suite's inventory and the fuzzer's draws derived from it; each option's reason recorded - an alternative kept because the winner depends on the machine, a reference form, a fault injector (`misdescribeWordLiveness`), or retired; the suites run under the options' configurations with a reasoned skip list, and a shape marked as declining failing when it starts to fuse. Proof: `emitted_bytes.json` unchanged; each skip entry names its minimal option delta | item 74.1, `READING_MILESTONE_7.md` 3, `READING_MILESTONE_7.md` 11 | small to medium |
 | 249 | One class owns the emitted method names, replacing the prefix matches in main and test code. Proof: `emitted_bytes.json` unchanged | item 74.6 | small |
 | 250 | `emitBody` split into driver, loop and epilogue emitters sharing the prologue helpers. Proof: `emitted_bytes.json` unchanged | item 74.3 | medium |
 | 251 | `VarkaEvaluatorBase` split into Java components: runner, batch ledger, scratch, warm-up, fallback accounting, dumping. Proof: a before-and-after benchmark of per-batch overhead | item 74.5 | medium |
-| 252 | Comments that narrate history rewritten to explain the code as it is | item 74.7 | small, last |
+| 252 | Comments that narrate history rewritten to explain the code as it is; and the comments the paper reading found wrong | item 74.7, `READING_MILESTONE_7.md` 11 | small, last |
 | 214 | Port `VarkaTimeCompiler` to Java. Proof: the coverage and family-chain oracles, and task 191's emission times | item 81 | mechanical; an agent's |
 | 215 | Port `VarkaConditionCompiler` to Java. Proof: as 214's | item 81 | mechanical; an agent's |
 | 216 | Port `VarkaChronoCompiler` to Java. Proof: as 214's | item 81 | mechanical; an agent's |
@@ -316,7 +472,7 @@ milestones 5 and 6 keep theirs. Rows 262 to 270 came from the plan's own review,
 | 224 | Benchmarks and tools in Java: the harness adapter and `VarkaEmitDump` | item 81 | small |
 | 267 | The evaluators to Java beside 251's components: `VarkaKernelEvaluator`, `VarkaFilterEvaluator`, `VarkaVectorProjection`, `VarkaFusionReport`, `VarkaExecMetrics`; the exec nodes and the columnar rule stay thin Scala wrappers. Proof: as 251's | the plan review (2.3) | medium |
 | 268 | *Optional.* `VarkaEmitterTestBase`'s helpers to Java, the suites thin wrappers over them | the plan review (2.3) | medium |
-| 266 | Error Prone and NullAway on Varka's Java packages only; the first step confirms Error Prone on JDK 25's javac with the incubator module | the plan review (2.3) | small to medium |
+| 266 | Error Prone and NullAway on Varka's Java packages only; the first step confirms Error Prone on JDK 25's javac with the incubator module; its own javac pass; NullAway staged by class with a list that only shrinks, reasons on suppressions, checks where Scala calls into Java | the plan review (2.3), `READING_MILESTONE_7.md` 11 | small to medium |
 | 264 | Milestone 4's debt register swept: each entry of `PLAN_MILESTONE_4.md` section 9 still open closed in the past tense, made a row, or moved to `SCOPE_MILESTONE_8.md` | the plan review (2.3) | small |
 | 83 | One refusal, instead of four. Proof: `emitted_bytes.json` unchanged | item 39 | medium |
 | 86 | One operand admission, stated once | item 39 | medium |
@@ -325,7 +481,7 @@ milestones 5 and 6 keep theirs. Rows 262 to 270 came from the plan's own review,
 | 254 | The grouping weights against the emitted counts: each pinned by a test, or the register retired | item 63 | small to medium |
 | 255 | The CI queue off the laptop with no stored credential: the queue on the fork with its own `GITHUB_TOKEN`, the check sync on the base repository with its own; master's head run after each merge; a PR's new tests rerun several times, and a fix's new test required to fail on the base | item 76, redesigned (2.4), `READING_MILESTONE_7.md` 9 | medium |
 | 256 | Regenerate one benchmark section, not the whole file, and run it paired against the PR's merge base in alternating batches with a threshold | item 72, `READING_MILESTONE_7.md` 9 | small to medium |
-| 257 | A kernel after other kernels: the slow mode's frequency as a function of N, one arm in the nightly | item 62 | medium |
+| 257 | A kernel after other kernels: the slow mode's frequency as a function of N, one arm in the nightly; its forks compare answers too | item 62, `READING_MILESTONE_7.md` 11 | medium |
 | 180 | Promotion, continuously | item 81 | a cadence |
 | 258 | A post for Spark users: how Spark compiles a query, and why it compiles it again | item 78 | medium |
 | 259 | Its companion for Spark and JVM developers: bytecode without source | item 79 | medium |
@@ -337,10 +493,10 @@ milestones 5 and 6 keep theirs. Rows 262 to 270 came from the plan's own review,
 
 | wave | tasks | why they wait |
 | ---: | :--- | :--- |
-| 0 | 240, 246, 248, 249, 255, 256, 81, 263, 266 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 255 and 256 end the laptop queue and the hand splicing for every PR below; 263 and 266 check every port and refactor below as it lands; 81 needs nothing |
-| 1 | 241, 243, 250, 251, 214, 215, 216, 138, 247, 222, 253, 262, 269, 271, 264 | after the tooling and the two cheap refactors; the three family ports run in parallel, by an agent; 262 and 269 need only the fuzzers' grammar, and 271 only Spark's suites; 264 is decisions, not code |
-| 2 | 242, 244, 217, 224, 83, 254, 257, 267, 272, 265 | 217 after the families it fronts; 83 after 250, which rewrites the same paths; 244 after 243 defines what a delta departs from; 267 after 251's components; 272 after 246, so that a configuration's verdict is not a second species' boxing; 265 after 262, 263 and 269, so that it measures the tests the milestone leaves |
-| 3 | 245, 86, 252, 268 | 86 after the ports, so the admission is written once in Java; 252 once the structure has settled; 268, optional, once the ports and refactors have settled the helpers' callers |
+| 0 | 240, 246, 248, 249, 255, 256, 81, 263, 266, 273, 275, 277 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 255 and 256 end the laptop queue and the hand splicing for every PR below; 263 and 266 check every port and refactor below as it lands; 81 needs nothing; 273 is a reproduced bug; 275 and 277 make every later test's failure loud and small |
+| 1 | 241, 243, 250, 251, 214, 215, 216, 138, 247, 222, 253, 262, 269, 271, 264, 274, 276 | after the tooling and the two cheap refactors; the three family ports run in parallel, by an agent; 262 and 269 need only the fuzzers' grammar and 277's shrinker, and 271 only Spark's suites; 264 is decisions, not code; 274 and 276 sharpen the oracles every later test reads |
+| 2 | 242, 244, 217, 224, 83, 254, 257, 267, 272, 278, 279, 280, 281 | 217 after the families it fronts; 83 after 250, which rewrites the same paths; 244 after 243 defines what a delta departs from; 267 after 251's components; 272 after 246, so that a configuration's verdict is not a second species' boxing; 278 after 277; 279 after 138; 280 after 262; 281 after 240's tooling |
+| 3 | 245, 86, 252, 268, 265 | 86 after the ports, so the admission is written once in Java; 252 once the structure has settled; 268, optional, once the ports and refactors have settled the helpers' callers; 265 after 262, 263, 269 and 280, so that it measures the tests the milestone leaves |
 | 4 | 261, 270 | 261 last by definition; 270's post written from what 261 records |
 
 Tasks 180 and 258 to 260 run across the waves.
@@ -381,19 +537,23 @@ anything rows 262, 263 and 269 find is weighed against the milestone's scope (se
    changes to merge.
 5. **An agent's port drifts from the Scala it replaces.** Each port is gated by the
    family-chain, coverage and bytes oracles, as 175 was.
-6. **The new tests will find disagreements.** A differential against Spark itself (262),
-   Spark's own suites (271), every small tree (269), a sanitizer (263) and the kernels under
-   several JIT configurations (272) are built to find what the record has not; each
-   finding is fixed, or becomes a named delta (244) or a row, and that can grow the milestone.
-   The halfway review (section 4) is where the growth is weighed against 1.1.
+6. **The new tests will find disagreements.** A differential against Spark itself (262), Spark's own
+   suites (271), every small tree (269), a sanitizer (263), the kernels under several JIT
+   configurations (272) and compiled by C2 (274) are built to find what the record has not - the
+   reading found one before any was built (273); each finding is fixed, or becomes a named delta
+   (244) or a row, and that can grow the milestone. The halfway review (section 4) is where the
+   growth is weighed against 1.1.
 7. **Measuring how well the tests test costs machine time.** A mutation run multiplies a
    suite's time by its mutants; 265 bounds it to `Slots` and `Analysis`, runs it in an idle
    window, and takes the cheaper branch coverage first.
+8. **Checking compiled kernels costs machine time too.** Row 274's warm-ups and batch
+   histories, 272's forked arms and 269's size-5 tier multiply the fuzzers' cost; each runs a small
+   arm in PR CI and the rest nightly or in an idle window, and records its times.
 
 ## 7. Open questions
 
-1. **Z3 or cvc5 in CI?** SMT-LIB is neutral; 240 chooses by install cost in the lint image.
-   Neither is on the laptop today.
+1. **Which solver gates the lint job?** SMT-LIB is neutral, and the nightly runs both (2.1); 240
+   chooses the lint job's by install cost and solve time. Neither is on the laptop today.
 2. **Does 254 retune the weights or retire them?** Item 63 leaves it to the task; task 236's
    planner reads the same costs, so 254 takes its answer from 236's build.
 3. **Where 255's queue workflow lives on the fork.** A scheduled workflow runs from the default

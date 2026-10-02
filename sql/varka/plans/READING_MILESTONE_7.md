@@ -213,42 +213,121 @@ SMT proofs of arithmetic lowerings, mutation testing, bounded-exhaustive generat
 trees, and tests of JIT history - what a kernel meets when compiled after others. Rows 240 to 245,
 265, 269 and 257 would make Varka the first among these thirteen, which is row 270's story.
 
-## 11. Papers to read, by the row that needs them
+## 11. The papers, read
 
-None is in the record yet; each is read when its row starts, and its notes go here.
+The fifteen papers this note first listed were read in full on 3 October 2026, each by the row
+it bears on. The owner downloaded them to `~/Downloads/Milestone7` (`SOURCES.md` there gives each
+copy's source); mechanical transcriptions sit beside them in `markdown/`, made the way
+`sql/varka/papers/README.md` describes and checked against each PDF's text layer (99.81 to 100
+per cent of the characters kept). They are not copied here: these are reading notes. Pages are
+the PDFs'.
 
-* **Lopes, Menendez, Nagarakatte and Regehr, "Provably Correct Peephole Optimizations with Alive",
-  PLDI 2015; Lopes, Lee, Hur, Liu and Regehr, "Alive2: Bounded Translation Validation for LLVM",
-  PLDI 2021** - row 240. Item 58 names Alive2 as the closest analogue without having read it: how
-  preconditions are encoded is how Varka's guard bounds will be.
-* **Granlund and Montgomery, "Division by Invariant Integers using Multiplication", PLDI 1994;
-  Lemire, Kaser and Kurz, "Faster Remainder by Direct Computation", Software: Practice and
-  Experience 2019** - rows 240 to 242: the exact bounds the proofs state. Both are cited in the
-  record and neither is transcribed, which the owner's rule on source papers asks for.
-* **Rigger and Su: "Testing Database Engines via Pivoted Query Synthesis", OSDI 2020; "Detecting
-  Optimization Bugs in Database Engines via Non-Optimizing Reference Engine Construction",
-  ESEC/FSE 2020; "Finding Bugs in Database Systems via Query Partitioning", OOPSLA 2020; Ba and
-  Rigger, "Testing Database Engines via Query Plan Guidance", ICSE 2023** - rows 138 and 262. The
-  partition oracle is adopted already without the paper; NoREC's reference, the same engine with
-  its optimization off, is Varka off against on.
-* **Zeller and Hildebrandt, "Simplifying and Isolating Failure-Inducing Input", IEEE TSE 2002; Le,
-  Afshari and Su, "Compiler Validation via Equivalence Modulo Inputs", PLDI 2014** - the shrinker,
-  and option changes that must leave an answer alone.
-* **Li, Jiang, Xu and Su, "Validating JIT Compilers via Compilation Space Exploration", SOSP
-  2023** - rows 272 and 257: varying when methods are compiled to find miscompilations.
-* **Petrovic and Ivankovic, "State of Mutation Testing at Google", ICSE-SEIP 2018** - row 265:
-  mutants on changed lines only, shown in review.
-* **Banerjee, Clapp and Sridharan, "NullAway: Practical Type-Based Null Safety for Java",
-  ESEC/FSE 2019** - row 266.
-* **Boyapati, Khurshid and Marinov, "Korat: Automated Testing Based on Java Predicates", ISSTA
-  2002; Runciman, Naylor and Lindblad, "SmallCheck and Lazy SmallCheck", Haskell Symposium
-  2008** - row 269: enumerating well-typed trees with pruning.
+**Lopes, Menendez, Nagarakatte and Regehr, "Provably Correct Peephole Optimizations with Alive",
+PLDI 2015; Lopes, Lee, Hur, Liu and Regehr, "Alive2: Bounded Translation Validation for LLVM",
+PLDI 2021.** A rewrite is a source and target with a precondition, proved by refinement with a
+bit-vector solver; Alive found 8 wrong rewrites among 334, most making an expression defined over
+fewer inputs (Alive pp. 8-9), and wide multiplies and divides took hours, worked around by
+narrowing widths (p. 9). Alive2 asks first whether a precondition is always false, "because of
+bugs or limitations in the encoding" (p. 8), and its authors found six soundness bugs in Z3
+(p. 12). For Varka, the precondition is the guard's bound; Spark has no undefined behaviour at
+this layer, so refinement becomes: decline wherever Spark raises, and equal (data, valid) pairs
+elsewhere, data free under a null bit. Five things follow: the prover's verdicts are themselves
+checked (`unknown`, timeouts, satisfiable preconditions, two solvers agreeing); Java's operators
+are stated in a prelude, since an SMT operator with the right name can have the wrong meaning
+(Alive2 p. 4); the proofs' constants come from the code; row 241's forms divide in doubles, so
+it needs floating-point theory and a measured solve time; and the analyses that supply the
+preconditions, which Alive trusts (pp. 2-4), are proved too (row 281).
+
+**Granlund and Montgomery, "Division by Invariant Integers using Multiplication", PLDI 1994;
+Lemire, Kaser and Kurz, "Faster Remainder by Direct Computation", Software: Practice and
+Experience 2019.** Theorem 5.1 (p. 5) is exactly the condition `emitMulHiDivide` relies on: one
+inequality on the multiplier, which holds for every divisor up to 2^17, where task 149's sweep
+covers nine. The calendar's round-up magics follow from (4.4) over their real ranges, with a
+no-wrap condition the paper never needs; the round-down-plus-carry steps, `floorMod7`'s folds and
+the leap hash have no theorem and need their own proofs; and `NARROW_DECOMPOSE_MAX_DAYS` sits past
+what the closed form proves, so only an exact query covers it. Several quoted bounds are
+sufficient rather than exact - `YEAR_M`'s 44858 first fails at 44894 - and should say which.
+(7.1) (p. 7) covers neither long-lane form. Lemire's direct remainder gives `floorMod7` in five
+operations instead of twelve under a range bound, and `remainderOfSixty` without a divide - speed,
+for a later milestone.
+
+**Rigger and Su, "Testing Database Engines via Pivoted Query Synthesis", OSDI 2020; "Detecting
+Optimization Bugs in Database Engines via Non-Optimizing Reference Engine Construction", ESEC/FSE
+2020.** NoREC compares a query the engine optimizes with one it cannot, because a DBMS cannot
+turn its optimizations off (p. 3); Varka can, which makes row 262 NoREC with the switch NoREC
+lacked. NoREC excludes errors "optimized away", since SQL does not say whether AND short-circuits
+(p. 5); Varka's contract is stricter, vanilla Spark's order, and reading the code against that
+exclusion found task 273. PQS evaluates a predicate on a pivot row with an interpreter and
+rectifies it to TRUE (p. 6), which gives row 262 filters that select known rows; and PQS tests
+its interpreter against the engine (pp. 12-13), which is row 276 for Varka's reference evaluator.
+
+**Rigger and Su, "Finding Bugs in Database Systems via Query Partitioning", OOPSLA 2020; Ba and
+Rigger, "Testing Database Engines via Query Plan Guidance", ICSE 2023.** TLP compares rows, not
+counts - counts missed 5 of 48 bugs (p. 20) - and relies on partitions optimized to different
+degrees (p. 9). In Spark the partitions are optimized away before Varka sees them:
+`BooleanSimplification` rewrites `NOT (a < b)` into `a >= b` and `NullDownPropagation` pushes
+`IS NULL` onto the columns, so row 138's oracle runs with those rules excluded too. QPG steers
+generation toward unseen query plans, finding 1.4 times SQLancer's unique bugs where the
+coverage-guided SQLRight, with more code coverage, found 17 times fewer (pp. 8-9); Varka's plan
+is the emitter's record of what it did, which row 280 counts.
+
+**Zeller and Hildebrandt, "Simplifying and Isolating Failure-Inducing Input", IEEE TSE 2002 (the
+version submitted); Le, Afshari and Su, "Compiler Validation via Equivalence Modulo Inputs",
+PLDI 2014.** ddmin's result is 1-minimal by construction (Prop. 11, p. 5) and a single culprit
+costs about 2 log2 n tests (Prop. 13); it found the one GCC option of 31 that prevents a crash in
+7 tests (p. 8), which is task 234's hand minimization, mechanized. An IR tree is shrunk roots
+first, then level by level, each candidate kept well typed (row 277). EMI varies the program
+where its input does not reach and requires the same output; 64 of its 147 bugs showed under one
+configuration only (p. 8). Varka's variants are outputs permuted, a dead output added, an untaken
+arm replaced (row 278); and its harnesses pre-fill output validity with 0xFF only, so a kernel
+that never sets a valid bit passes on an all-valid output - row 138 adds the 0x00 fill.
+
+**Li, Jiang, Xu and Su, "Validating JIT Compilers via Compilation Space Exploration", SOSP
+2023.** Every compiled-or-interpreted choice must give the same output, and 89.6% of Artemis's
+disagreements needed choices between all-interpreted and all-compiled (Table 4, p. 10); HotSpot's
+one miscompilation needed C1, C2, a deoptimization and an OSR (p. 3). For Varka the finding is
+about its own tests: `VarkaKernelCheck` runs a fresh class on at most 1000 rows and the test
+sessions turn the warm-up off, so every fuzzer verdict comes from the interpreter, which runs the
+Vector API's Java fallback. Row 274 warms each kernel to C2 and varies its batch history; row
+272's arms prove which tier ran; C2's stress flags are product diagnostic flags in JDK 25, so they
+run nightly.
+
+**Petrovic and Ivankovic, "State of Mutation Testing at Google", ICSE-SEIP 2018; Banerjee, Clapp
+and Sridharan, "NullAway: Practical Type-Based Null Safety for Java", ESEC/FSE 2019.** Google
+mutates changed lines only, suppresses arid code, and grew usefulness from 20 to 80 per cent by
+turning every "not useful" into a rule (pp. 2-6). For Varka a mutant killed only by the
+emitted-bytes oracle is not a behavioural kill, and the ghost fallback lets a `sql/core` test
+pass over a kernel that throws - row 275. NullAway's gain came from checking on every build at
+1.15 times the compile (pp. 1, 8), staged by package with unannotated classes trusted (p. 5);
+Varka's `null`s sit mostly in five classes, and a class filled across passes, as `Slots` is,
+cannot use `@Initializer`.
+
+**Boyapati, Khurshid and Marinov, "Korat: Automated Testing Based on Java Predicates", ISSTA
+2002; Runciman, Naylor and Lindblad, "SmallCheck and Lazy SmallCheck", Haskell Symposium 2008.**
+SmallCheck's series generate by type, and a bijection test checks a generator against the
+predicate (p. 6); counts explode from tens of thousands at one depth to billions at the next
+(p. 5). Varka's IR is typed locally, so series per sort generate only well-typed trees: about
+1,100 at size 3, 27,000 at size 4 and 700,000 at size 5 on the int lane, seconds, forty
+CPU-minutes and sixteen CPU-hours across fifteen configurations, so the bound is node count, not
+depth. Korat states a precondition for every behaviour (p. 6), which for Varka is a verdict per
+row - an answer, a decline that must happen, one that may, an input outside the contract (row
+279). The grammar draws `date_add` offsets only as literals today, and its reach test counts node
+types, not positions.
 
 ## 12. What to do with it
 
-Two rows and five refinements, in `PLAN_MILESTONE_7.md`: row 271 runs Spark's own SQL suites with
-Varka on (section 2); row 272 runs the kernels under several JIT configurations (section 8); and
-rows 262 (a shrinker, replayed reproducers, fallback invariance), 263 (the canary, the record of
-where a segment came from, the capacity check), 248 (the configuration matrix with reasoned skips
-and stale-marker failures), 256 (a paired run against the merge base) and 255 (new tests rerun,
-and a fix's test failing on the base) take what sections 1, 3, 5 and 9 found.
+From the engines (sections 1 to 9), two rows and five refinements in `PLAN_MILESTONE_7.md`: row
+271 runs Spark's own SQL suites with Varka on (section 2); row 272 runs the kernels under several
+JIT configurations (section 8); and rows 262 (a shrinker, replayed reproducers, fallback
+invariance), 263 (the canary, the record of where a segment came from, the capacity check), 248
+(the configuration matrix with reasoned skips and stale-marker failures), 256 (a paired run
+against the merge base) and 255 (new tests rerun, and a fix's test failing on the base) take what
+sections 1, 3, 5 and 9 found.
+
+From the papers (section 11), nine rows - 273, the filter-order bug NoREC's exclusion pointed at;
+274, fuzzers that check C2-compiled kernels; 275, a kernel failure the ghost fallback hides fails
+the test; 276, the reference evaluator held to Spark's interpreter; 277, one shrinker; 278,
+answer-preserving variants; 279, declines as specified behaviour; 280, what the emitter reached;
+281, proofs of the range analysis - and refinements of rows 81, 138, 240 to 245, 248, 252, 257,
+262, 265, 266, 269 and 272. Work the papers point at beyond milestone 7 is `SCOPE_MILESTONE_8.md`
+item 82.
