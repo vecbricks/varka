@@ -1,0 +1,10 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenFallbackCostBenchmark
+where:       the owner's laptop, a ThinkPad P16s Gen 4, quiet: run first in the night's job, one
+             benchmark at a time, load average under 2.5 at each start
+command:     SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "sql/Test/runMain <this class>"
+commit:      b942f65c971 (varka-task-233-more, #542's head then)
+date:        2026-10-02, 00:44 to 01:05 CEST
+jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+kernel:      7.0.0-34-generic
+cpu:         AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
+purpose:     task 233: the silent give-ups' cost and the 150-entry stage's first minute on a laptop (PLAN_TASK_233.md 13.6); vanilla Spark only, Varka off

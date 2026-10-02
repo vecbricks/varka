@@ -4214,6 +4214,32 @@ image can be cached across the docs-only runs, is a question for whoever takes t
 synced check on the pull request with no process running on a laptop, and `hold` and
 `drop` are gone from `dev/varka_ci_queue.sh`. Size: medium.
 
+### Item 77. The warm-up's verdict under a slow compile queue
+
+*Added 2 October 2026 from `PLAN_TASK_233.md` 13.7, after #541's Build failed on it.*
+
+`VarkaKernelWarmup` releases a shape that has no verdict sixty seconds after its warm-up was
+queued (`DEADLINE_SECONDS`), and checks that deadline after each probe. On a CI runner, fifty
+minutes into a test JVM, the projection of `VarkaWarmupEndToEndSuite` was released with its last
+probe at 20,720 bytes against a first of 5,809,968 - compiled, and one clean probe short of the two
+the verdict needs. On the laptop the same suite in fresh JVMs never came within twenty times the
+deadline, even with twice as many busy processes as hardware threads (606 runs, the slowest
+warm-up 3.11 seconds), so what CI had and the laptop did not is most likely a long C2 queue of
+other suites' generated classes. A released shape serves its batches on the row path for good,
+so on a long-lived executor - the case the warm-up exists for - the same backlog costs a user the
+compiled kernel.
+
+Two changes, both in `VarkaKernelWarmup.run`: at the deadline, a shape whose last probe was clean
+gets the probes it still needs before it is judged; and the deadline becomes a deadline on
+progress rather than on time - released when the probes' allocation has stopped falling for a
+stretch, not when sixty seconds have passed while it falls. And one experiment first, to confirm
+the cause: the suite run after a suite that compiles thousands of classes, in the same JVM, under
+`-XX:+PrintCompilation`, showing the kernel's methods queued behind them.
+
+**Done when** the experiment reproduces the release or rules the queue out, the two changes are
+in with a test that holds a warm-up behind a stalled compile queue and expects `COMPILED`, and
+`VarkaWarmupEndToEndSuite` passes in a full CI run of the sql module. Size: small.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

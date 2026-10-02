@@ -1,0 +1,68 @@
+================================================================================================
+one CodegenFallback expression in a projection: from_json
+================================================================================================
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                              255            259           3          3.9         254.6       1.0X
+the entries and one from_json: outside a stage             938            949           9          1.1         937.5       0.3X
+the entries and one get_json_object: in a stage            853            860          13          1.2         853.4       0.3X
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+32 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                              484            488           5          2.1         484.0       1.0X
+the entries and one from_json: outside a stage            1168           1176           9          0.9        1167.6       0.4X
+the entries and one get_json_object: in a stage           1031           1038          11          1.0        1031.3       0.5X
+
+entries alone: the projection runs inside a whole-stage codegen stage
+with from_json: the projection runs outside any stage
+with get_json_object: the projection runs inside a whole-stage codegen stage
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+48 date entries over 1000000 cached rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+the entries alone, in a stage                              715            722          12          1.4         715.4       1.0X
+the entries and one from_json: outside a stage            1431           1443          16          0.7        1431.0       0.5X
+the entries and one get_json_object: in a stage           1291           1299           6          0.8        1291.3       0.6X
+
+
+================================================================================================
+the first minute of a new stage: 150 entries id + k, queries back to back
+================================================================================================
+
+maxFields=200, in a stage, ms per query: 1079 991 956 957 960 951 951 953 956 948 949 954 984 426 428 438 425 461 408 402 402 416 400 426 419 402 408 404 401 411 442 409 400 428 404 399 410 401 398 400 419 401 482 401 408 408 409 412 397 396 397 400 457 396 398 394 397 396 395 467 394 398 404 410 397 411 396 399 401 398 424 397 434 396 413 397 399 415 397 395 395 395 395 395 395 436 395 396 400 398 400 411 406 397 396 395 397 397 419 394 406 399 399 396 396 398 403 401 430 399 397 427 402 398 453 412 406 403 423 398 397 405 398 399 432 433 407 400 398 398
+maxFields=100, the default, outside a stage, ms per query: 439 385 383 379 378 382 386 407 378 386 378 388 384 381 382 380 386 383 380 390 385 390 390 387 394 385 389 387 392 385 379 391 381 404 379 382 383 383 379 381 378 382 384 379 380 415 408 381 377 379 377 382 383 410 391 390 396 395 393 392 392 435 381 380 379 383 381 381 375 387 377 381 379 376 377 377 384 393 388 388 382 380 381 382 377 383 381 378 379 379 383 382 380 391 381 381 381 379 385 375 389 381 376 377 377 381 380 378 378 376 381 380 386 377 375 390 380 376 383 377 382 381 377 377 402 383 381 377 375 377 382 381 377 377 375 382 379 376 401 375 383 381 376 377 377 381 381 377 376 376 381 379 378 375 377 381 380
+
+================================================================================================
+a projection past maxFields
+================================================================================================
+
+maxFields=100: the projection runs outside any stage; largest method: no stage
+maxFields=200: the projection runs inside a whole-stage codegen stage; largest method: 5747 bytes
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+cheap entries, id + k, 150 entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+maxFields=100, the default: outside a stage                            390            399          10          2.6         390.4       1.0X
+maxFields=200: in a stage                                              936            953          20          1.1         935.6       0.4X
+
+maxFields=100: the projection runs outside any stage; largest method: no stage
+maxFields=200: the projection runs inside a whole-stage codegen stage; largest method: 5454 bytes
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+date entries, date_add(d, k), 150 entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------
+maxFields=100, the default: outside a stage                                   379            386           4          2.6         379.5       1.0X
+maxFields=200: in a stage                                                     246            248           1          4.1         246.0       1.5X
+
+

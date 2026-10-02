@@ -406,6 +406,10 @@ in 11.1:
 | 99 entries in a stage, the defaults: settles after | 2.7 s | 2.1 s | 2.9 s |
 | 60 sums, in a stage / `wholeStage=false` | 347 / 719 ms | 316 / 647 ms | 536 / 865 ms |
 
+*2 October:* the committed `compile_wait-*` outputs are now run 36936386636, which adds the
+99-entry projection under `wholeStage=false` (13.5); this table is run 36911698296, in the files'
+history.
+
 **Prediction 11 held in what it could test:** the wait is on all three JDKs of released Spark, 17
 to 22 seconds, within a factor of 1.3; the first run (36908683124, whose other scripts still
 needed fixing) read 17.1 to 19.1. "Longest on JDK 17" cannot be scored: each JDK drew a different
@@ -604,3 +608,81 @@ the 1861-byte method has room for 33 of its additions and the 5749-byte one for 
 aggregates' consume methods are 189 to 539 bytes at 10 to 60 sums, each sum's update in a small
 method of its own, and C2 inlines all of them, which is the other half of 11.1: the generated
 aggregate is already split the way the projection outside a stage is.
+
+### 13.5 The wide projection's last three questions
+
+`CodegenWideProjectionBenchmark` on a runner that drew an AMD EPYC 7763
+(`CodegenWideProjectionBenchmark-jdk25-results.txt`, run 36936386326, with its provenance), and
+the same benchmark on the laptop (13.6). Time a row in a stage against the projection taken out
+of it (both remedies agree, so one column stands for them):
+
+| shape | runner, in a stage / out | laptop, in a stage / out |
+|:--|--:|--:|
+| 50 cheap | 402 / 285 ns, 1.41 times slower | 129 / 111 ns, 1.16 times slower |
+| 99 cheap | 800 / 521 ns, 1.54 times slower | 256 / 205 ns, 1.25 times slower |
+| 50 mixed | 876 / 943 ns, 7% faster | 382 / 432 ns, 12% faster |
+| 99 mixed | 1534 / 1814 ns, 15% faster | 716 / 856 ns, 16% faster |
+
+**Prediction 17 was wrong, and it narrows the post's finding.** The mix of six kinds of entry does
+not lose in a stage at either width, on either machine; it wins. An entry that does work of its
+own - a string built, a date shifted, a division - costs more than the call C2 leaves behind, and
+the stage's saving on the row boundary is the larger term. The loss is a property of wide
+projections of cheap entries: arithmetic and column copies, the shape of a wide select of
+derived columns, not of a projection that computes. **Prediction 18 held:** `maxFields` just below
+the width and `wholeStage=false` are within 1% of each other in all eight rows, and both recover
+the time outside a stage for the cheap shapes; for the mix they cost what the stage saved. Over a
+cached table the two are one setting, since the scan alone is never a stage; under a filter or an
+aggregate `maxFields` is the narrower one, and it is the post's remedy, for cheap projections
+only. **Prediction 19 held:** on stock 4.2.0 (`compile_wait-jdk*-output.txt`, run 36936386636)
+the 99 cheap entries are 1.30, 1.45 and 1.37 times slower in a stage than under `wholeStage=false`
+on JDK 17, 21 and 25 (656 against 503 ms, 738 against 510, 273 against 200).
+
+The same run's JDK 25 job drew an AMD EPYC 9V45, a Zen 5 server, and its 150-entry stage waits
+12.0 seconds and then runs 1.21 times the time outside a stage (417 against 344 ms), where the
+Zen 3 and Zen 4 runners stay 1.4 to 1.6 times slower; the laptop's Zen 5 is closer still (13.6).
+The calls C2 leaves in the stage cost less on Zen 5.
+
+### 13.6 The laptop
+
+`CodegenWideProjectionBenchmark`, `CodegenCompileWaitBenchmark` and `CodegenFallbackCostBenchmark`
+on the laptop, quiet, one after another (`*-jdk25-laptop-results.txt`, each with its
+provenance). `CodegenInterpreterFallbackBenchmark` did not run: its class was not in the tree the
+job ran from, and the runner's result (13.3) stands alone.
+
+The wait under the defaults is shorter than any runner's: the 99-entry stage settles after 0.7
+seconds, and the 60-sum aggregate is 1.63 times faster in a stage (335 against 546 ms). The
+50 and 99-entry cheap projections are 1.15 and 1.19 times slower in a stage once compiled (121
+against 105 ms, 254 against 214). The 150-entry stage of 9.2 waits 10.7 seconds for C2 and then
+runs 1.06 times the time outside a stage (400 against 378 ms): the laptop result that 11.2
+mentioned without a committed run, now committed. So the size of the post's finding depends on
+the processor, from a few percent on Zen 5 to half again on Zen 3 and 4, while its direction does
+not; the post gives the range and names the machines.
+
+### 13.7 The warm-up test under load
+
+#541's Build of 1 October failed one test, `VarkaWarmupEndToEndSuite`'s first: the projection's
+warm-up was released at its 60-second deadline, `RELEASED did not equal COMPILED`, with its last
+probe already down from 5,809,968 bytes to 20,720 - one clean probe short of the two the verdict
+needs (`VarkaKernelWarmup.run`, which checks the deadline after each probe). The suite ran 50
+minutes into the job's test JVM, on a four-core runner. The overnight study asked whether CPU
+contention alone reproduces it: the suite back to back in a fresh JVM each time on the laptop,
+beside 0, 16, 24, 32 and 48 busy processes, about an hour each
+(`VarkaWarmupUnderLoad-laptop-results.txt`, with its provenance).
+
+| busy processes | runs | failed | warm-up, median | slowest |
+|--:|--:|--:|--:|--:|
+| 0 | 240 | 0 | 0.32 s | 0.38 s |
+| 16 | 134 | 0 | 0.85 s | 1.02 s |
+| 24 | 90 | 0 | 1.59 s | 2.09 s |
+| 32 | 77 | 0 | 1.86 s | 2.67 s |
+| 48 | 65 | 0 | 2.27 s | 3.11 s |
+
+It does not: 606 runs, every warm-up compiled, the slowest in 3.11 seconds at twice as many busy
+processes as hardware threads. What a fresh JVM cannot have is what CI's had - fifty minutes of
+other suites, thousands of generated classes queued for C2 ahead of the kernel's methods. The
+failed job's log has no `CodeCache is full`, so the compile queue's backlog is the likelier cause,
+and a run of the suite after a heavy one in the same JVM is the experiment that would show it.
+The fix does not wait on that: a deadline that releases a shape whose last probe was clean
+discards a verdict one probe from done, and a fixed sixty seconds cannot tell a compile that is
+slow because C2's queue is long from one that will never come, while the probes already can -
+their allocation was falling. `SCOPE_MILESTONE_7.md` item 77 takes both.

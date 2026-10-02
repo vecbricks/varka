@@ -1,0 +1,49 @@
+================================================================================================
+a wide projection in a stage, and taking it out
+================================================================================================
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             128            130           1          7.8         128.5       1.0X
+maxFields=49: no stage in the plan                   112            114           2          9.0         111.6       1.2X
+wholeStage=false: no stage in the plan               111            114           3          9.0         110.5       1.2X
+
+the defaults: in a stage
+maxFields=49: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+50 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             382            392          13          2.6         382.0       1.0X
+maxFields=49: no stage in the plan                   431            435           3          2.3         431.1       0.9X
+wholeStage=false: no stage in the plan               432            438           9          2.3         431.8       0.9X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 cheap entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             256            261           5          3.9         256.2       1.0X
+maxFields=98: no stage in the plan                   206            207           1          4.9         205.7       1.2X
+wholeStage=false: no stage in the plan               205            213          11          4.9         204.9       1.3X
+
+the defaults: in a stage
+maxFields=98: no stage in the plan
+wholeStage=false: no stage in the plan
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+99 mixed entries over 1000000 cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+the defaults: in a stage                             716            722           5          1.4         716.2       1.0X
+maxFields=98: no stage in the plan                   858            863           4          1.2         857.9       0.8X
+wholeStage=false: no stage in the plan               856            873          14          1.2         856.3       0.8X
+
+
