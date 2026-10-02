@@ -4224,19 +4224,20 @@ minutes into a test JVM, the projection of `VarkaWarmupEndToEndSuite` was releas
 probe at 20,720 bytes against a first of 5,809,968 - compiled, and one clean probe short of the two
 the verdict needs. On the laptop the same suite in fresh JVMs never came within twenty times the
 deadline, even with twice as many busy processes as hardware threads (606 runs, the slowest
-warm-up 3.11 seconds), so what CI had and the laptop did not is most likely a long C2 queue of
-other suites' generated classes. A released shape serves its batches on the row path for good,
+warm-up 3.11 seconds), and neither did it in one JVM behind four heavy suites pinned to four
+cores, with forty methods in C2's queue (`PLAN_TASK_233.md` 13.8); what CI had that these runs
+did not is not known. A released shape serves its batches on the row path for good,
 so on a long-lived executor - the case the warm-up exists for - the same backlog costs a user the
 compiled kernel.
 
 Two changes, both in `VarkaKernelWarmup.run`: at the deadline, a shape whose last probe was clean
-gets the probes it still needs before it is judged; and the deadline becomes a deadline on
-progress rather than on time - released when the probes' allocation has stopped falling for a
-stretch, not when sixty seconds have passed while it falls. And one experiment first, to confirm
-the cause: the suite run after a suite that compiles thousands of classes, in the same JVM, under
-`-XX:+PrintCompilation`, showing the kernel's methods queued behind them.
+gets the probes it still needs before it is judged; and the deadline becomes a deadline on progress
+rather than on time - released when the probes' allocation has stopped falling for a stretch, not
+when sixty seconds have passed while it falls. And, since a backlog of forty methods in C2's queue
+did not reproduce it, the cause still to find: a CI run of the sql module with the warm-up's probes
+and C2's queue logged around the suite.
 
-**Done when** the experiment reproduces the release or rules the queue out, the two changes are
+**Done when** a logged CI run shows what held the compile, the two changes are
 in with a test that holds a warm-up behind a stalled compile queue and expects `COMPILED`, and
 `VarkaWarmupEndToEndSuite` passes in a full CI run of the sql module. Size: small.
 

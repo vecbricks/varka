@@ -680,9 +680,39 @@ beside 0, 16, 24, 32 and 48 busy processes, about an hour each
 It does not: 606 runs, every warm-up compiled, the slowest in 3.11 seconds at twice as many busy
 processes as hardware threads. What a fresh JVM cannot have is what CI's had - fifty minutes of
 other suites, thousands of generated classes queued for C2 ahead of the kernel's methods. The
-failed job's log has no `CodeCache is full`, so the compile queue's backlog is the likelier cause,
-and a run of the suite after a heavy one in the same JVM is the experiment that would show it.
+failed job's log has no `CodeCache is full`, so the compile queue's backlog looked the likelier
+cause; 13.8 tried it and did not reproduce the release either.
 The fix does not wait on that: a deadline that releases a shape whose last probe was clean
 discards a verdict one probe from done, and a fixed sixty seconds cannot tell a compile that is
 slow because C2's queue is long from one that will never come, while the probes already can -
 their allocation was falling. `SCOPE_MILESTONE_7.md` item 77 takes both.
+
+### 13.8 Two follow-ups the next morning
+
+**The laptop's interpreter run**, which the night's job missed
+(`CodegenInterpreterFallbackBenchmark-jdk25-laptop-results.txt`, with its provenance): the
+interpreter is 3.6, 3.6 and 4.4 times the compiled projection at 100, 300 and 1000 entries,
+against the runner's 3.1 to 4.4 (13.3).
+
+**The compile queue, tried twice.** 13.7 named a backlog in C2's queue as the likelier cause of
+CI's release. The suite ran after `SQLQuerySuite` in one JVM, with C2's queue read through
+`jcmd Compiler.queue` every two seconds: the queue never held more than 5 methods, and the
+projection's warm-up compiled in 0.28 seconds. Then pinned to four cores (`taskset`,
+`-XX:ActiveProcessorCount=4`, a CI runner's count and so its two or three compiler threads),
+after `SQLQuerySuite`, `DataFrameSuite`, `DataFrameAggregateSuite` and `WholeStageCodegenSuite`:
+the queue reached 40 methods as the warm-up suite began, and the warm-up compiled in 0.33
+seconds. Neither reproduces it. The cause of the sixty seconds on CI is open - fifty minutes of
+a module's suites in one JVM is more than these two minutes, and a GitHub runner is a shared
+virtual machine - and item 77's two changes do not depend on it.
+
+## 14. The draft, 2 October 2026
+
+`POST_MILESTONE_6_GIVEUPS.md`, in the first post's form, follows 12.4's outline as 13.5 narrowed
+it: section 2 is about wide projections of cheap columns, and its remedy is `maxFields` below the
+width for such a query only. Three figures are still to draw, each from committed files:
+
+| figure | what it shows | from |
+|:--|:--|:--|
+| 1, `fig28-where-operators-run` | per suite, the share of operators in a stage, outside one by design, and outside one for a reason | `VarkaCodegenGiveUps-jdk25-results.txt` |
+| 2, `fig29-wide-projection-in-and-out` | time a row in a stage and out, cheap and mixed, 50 and 99 columns, three processors | `CodegenWideProjectionBenchmark-jdk25-*`, `CodegenCompileWaitBenchmark-jdk25-results.txt` |
+| 3, `fig30-first-minute` | each query's time for a minute, the 150-column projection in a stage and out | `compile_wait-jdk*-output.txt`, `CodegenFallbackCostBenchmark-jdk25-results.txt` |

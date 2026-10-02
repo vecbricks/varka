@@ -1,0 +1,11 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.CodegenInterpreterFallbackBenchmark
+where:       the owner's laptop, a ThinkPad P16s Gen 4, quiet (load average 0.40 at the start)
+command:     SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "sql/Test/runMain <this class>"
+commit:      0e038bdb4a2 (varka-task-233-more after #541's merge) with this class copied in from
+             6a11111c3da (varka-task-233-post)
+date:        2026-10-02, 07:42 CEST
+jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
+kernel:      7.0.0-34-generic
+cpu:         AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
+purpose:     task 233: what the interpreter fallback costs on a laptop (PLAN_TASK_233.md 13.8); vanilla
+             Spark only, Varka off
