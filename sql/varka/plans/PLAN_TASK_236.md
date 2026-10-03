@@ -434,8 +434,23 @@ already is, and a class of its own would have carried them out and back for noth
 3. **Kernels.** Held in the count: the cut takes one emission that builds nothing and one build
    a kernel where the bisection took more than ten emissions for two kernels. The cut falls a
    group's worth of entries before the bisection's.
-4. **Plan time.** Waits for the runner.
+4. **Plan time.** On the laptop (`VarkaWideKernelBenchmark-jdk25-results.txt`, 3 October 2026,
+   under `performance`): the split driver plans in 103 and 180 ms at 800 and 1200 entries where
+   its two builds took 203 and 356, half as predicted; several kernels plan in 108 and 200 ms
+   against 96 and 139 for their classes alone and 1316 and 2032 with the search - 12% and 44%
+   over the classes, not the 5% predicted, the difference being the emission that declines
+   before building and the prefix's own grouping. The runner's reading is step 3's.
 5. **No class moves** where the first grouping built once: the planned class is the loop's,
    byte for byte, on every shape of the plan suite; the audit's digest of first groupings moves
    only where the margins or the width rule close a group.
-6. and 7. Wait for the runner.
+6. **Item 71, on the laptop.** The predicted and the planned grouping run within the control's
+   spread of the weights' on the mixed family (69 against 70 and 69 ms) and the ladder (255 and
+   260 against 255 and 258); on 64 cheap tails, where the prediction closes three loop methods
+   for the weights' four and the plan closes four again, both read 7 ms against the weights' 6.
+   The runner decides the default.
+7. **Task 190's question, on the laptop.** Several kernels planned beat the split driver planned
+   by 2% at 800 ladder entries (521 against 533 and 530 ms) and 7% at 1200 (783 against 839 and
+   838), more than the control's spread; on sixty-four dates by field they lose by 3 to 14% (66
+   against 64 and 58 ms null-free, 65 against 59 and 57 with nulls), the one class loading each
+   date's prefix where the second kernel decomposes 64 dates again. As predicted in direction;
+   the rule of 3.6 reads the runner.
