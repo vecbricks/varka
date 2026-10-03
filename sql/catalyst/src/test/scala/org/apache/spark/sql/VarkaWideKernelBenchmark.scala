@@ -123,14 +123,14 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
    * in projection order parts the fields of a date, so the second kernel decomposes every date
    * again where the one class computes each prefix once and loads it (task 198).
    */
-  private val datesByField: Seq[VarkaVectorIR] = {
+  private[sql] val datesByField: Seq[VarkaVectorIR] = {
     val cols = (0 until 64).map(new ColumnRef(_))
     cols.map(new Year(_)) ++ cols.map(new Month(_)) ++ cols.map(new Quarter(_)) ++
       cols.map(new DayOfMonth(_))
   }
 
   /** `n` ladder entries numbered from literal slot 0: one kernel's roots. */
-  private def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map(entry)
+  private[sql] def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map(entry)
 
   /**
    * How the compiler splits `n` ladder entries under `severalKernels`: the largest prefix one
@@ -164,27 +164,35 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
   /**
    * How the compiler splits `roots` under `severalKernels` with `planSize` on: the emitter
    * declines a shape whose driver is over the budget before building it, naming the largest
-   * prefix one class serves (`VarkaEmitDeclined.plannedCut`), and the rest is asked again. Each
-   * kernel's entries keep their literal slots, so the sizes are what matters here.
+   * prefix one class serves (`VarkaEmitDeclined.plannedCut`), and the rest is asked again. The
+   * kernels' roots: `rest` gives the roots after a cut, since the ladder's entries are numbered
+   * from each kernel's own literal slot 0 as `kernelSizes` numbers them, where the dates by field
+   * have no literals and are sliced as they are.
    */
-  private def plannedSizes(roots: Seq[VarkaVectorIR], numInputs: Int,
-      options: VarkaEmitOptions): Seq[Int] = {
+  private[sql] def plannedKernels(roots: Seq[VarkaVectorIR], numInputs: Int,
+      options: VarkaEmitOptions,
+      rest: (Seq[VarkaVectorIR], Int) => Seq[VarkaVectorIR]): Seq[Seq[VarkaVectorIR]] = {
     if (roots.isEmpty) {
       return Nil
     }
     try {
       VarkaLoopEmitter.emit("VarkaWideBenchPlan", java.util.List.of(roots: _*), numInputs,
         roots.size, null, null, options.withPlanSize(true))
-      Seq(roots.size)
+      Seq(roots)
     } catch {
       case d: VarkaEmitDeclined if d.plannedCut > 0 =>
-        d.plannedCut +: plannedSizes(roots.drop(d.plannedCut), numInputs, options)
+        roots.take(d.plannedCut) +: plannedKernels(rest(roots, d.plannedCut), numInputs, options,
+          rest)
     }
   }
 
-  /** `roots` cut into kernels of `sizes`, in order. */
-  private def cut(roots: Seq[VarkaVectorIR], sizes: Seq[Int]): Seq[Seq[VarkaVectorIR]] =
-    sizes.scanLeft(0)(_ + _).sliding(2).map { case Seq(from, to) => roots.slice(from, to) }.toSeq
+  /** The ladder's roots after a cut: the rest, numbered from literal slot 0 again. */
+  private[sql] def restOfLadder(roots: Seq[VarkaVectorIR], cut: Int): Seq[VarkaVectorIR] =
+    ladder(roots.size - cut)
+
+  /** The dates by field after a cut: the rest as it is, since the fields have no literals. */
+  private[sql] def restOfFields(roots: Seq[VarkaVectorIR], cut: Int): Seq[VarkaVectorIR] =
+    roots.drop(cut)
 
   /** The loop methods of an emitted kernel: its groups. */
   private def loops(kernel: VarkaFusedKernel): Int =
@@ -383,9 +391,8 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
             sink += build(ladder(n), splitDriver.withPlanSize(true)).length
           }
           benchmark.addCase(s"$n entries, several kernels, planned") { _ =>
-            val planned = plannedSizes(ladder(n), 1, oneKernel)
-            cut(ladder(n), planned).foreach(k => sink += build(k, oneKernel.withPlanSize(true))
-              .length)
+            plannedKernels(ladder(n), 1, oneKernel, restOfLadder)
+              .foreach(k => sink += build(k, oneKernel.withPlanSize(true)).length)
           }
         }
         benchmark.run()
@@ -402,13 +409,14 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val plannedSplit = splitDriver.withPlanSize(true)
         val plannedOne = oneKernel.withPlanSize(true)
-        val shapes = past.map(n => (s"$n ladder entries", ladder(n), 1)) :+
-          ("sixty-four dates by field, 256 outputs", datesByField, 64)
-        val forms = shapes.map { case (label, roots, inputs) =>
-          val sizes = plannedSizes(roots, inputs, oneKernel)
+        val shapes = past.map(n => (s"$n ladder entries", ladder(n), 1, restOfLadder _)) :+
+          ("sixty-four dates by field, 256 outputs", datesByField, 64, restOfFields _)
+        val forms = shapes.map { case (label, roots, inputs, rest) =>
+          val planned = plannedKernels(roots, inputs, oneKernel, rest)
+          val sizes = planned.map(_.size)
           require(sizes.size > 1, s"$label fits one kernel: nothing to compare")
           val staged = emit(roots, plannedSplit, loader, inputs)
-          val kernels = cut(roots, sizes).map(emit(_, plannedOne, loader, inputs))
+          val kernels = planned.map(emit(_, plannedOne, loader, inputs))
           (label, roots.size, inputs, sizes, staged, kernels)
         }
         for (withNulls <- Seq(false, true); (label, n, inputs, sizes, staged, kernels) <- forms) {
