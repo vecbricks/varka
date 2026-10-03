@@ -232,7 +232,7 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       runBenchmark("the locals nothing reads, built and elided") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        // Both forms named: the elision is off by default until this section's measurement.
+        // Both forms named: the elision is the default since this section's measurement.
         val built = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(false)
         val elided = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(true)
         val shapes = Seq(100, widest).map(n => (s"$n ladder entries", (0 until n).map(entry))) ++

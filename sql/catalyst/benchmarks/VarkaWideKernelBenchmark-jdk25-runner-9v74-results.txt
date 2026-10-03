@@ -1,0 +1,118 @@
+================================================================================================
+the driver from a table against the driver unrolled
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+1000000 rows in 4096-row batches:                         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------
+100 entries, unrolled driver, null-free                              94           2538        4706         10.7          93.7       1.0X
+100 entries, driver from a table, null-free                          92           2503        4678         10.9          91.5       1.0X
+100 entries, unrolled driver, every seventh row null                108           2730        5105          9.3         107.8       0.9X
+100 entries, driver from a table, every seventh row null            106           2676        5104          9.5         105.7       0.9X
+400 entries, driver from a table, null-free                         364           8998       17842          2.7         364.0       0.3X
+400 entries, driver from a table, every seventh row null            423          10968       19985          2.4         422.8       0.2X
+
+
+================================================================================================
+the exact grouping against the greedy walk
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+1000000 rows in 4096-row batches:                                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+100 mixed entries, greedy grouping (50 loop methods), null-free                            54           1272        2670         18.6          53.9       1.0X
+100 mixed entries, exact grouping (26 loop methods), null-free                             53           1278        2412         18.8          53.1       1.0X
+200 mixed entries, greedy grouping (100 loop methods), null-free                          107           2605        4989          9.3         107.3       0.5X
+200 mixed entries, exact grouping (51 loop methods), null-free                            105           2516        4766          9.5         105.0       0.5X
+400 ladder entries, greedy grouping (100 loop methods), null-free                         367           9456       18173          2.7         366.9       0.1X
+400 ladder entries, exact grouping (100 loop methods), null-free                          365           9512       17197          2.7         364.5       0.1X
+100 mixed entries, greedy grouping (50 loop methods), every seventh row null               75           1416        2671         13.3          75.2       0.7X
+100 mixed entries, exact grouping (26 loop methods), every seventh row null                59           1437        2776         16.9          59.1       0.9X
+200 mixed entries, greedy grouping (100 loop methods), every seventh row null             149           2830        5651          6.7         148.7       0.4X
+200 mixed entries, exact grouping (51 loop methods), every seventh row null               117           2944        5334          8.6         116.9       0.5X
+400 ladder entries, greedy grouping (100 loop methods), every seventh row null            424           9975       20132          2.4         424.0       0.1X
+400 ladder entries, exact grouping (100 loop methods), every seventh row null             424          10086       20602          2.4         424.2       0.1X
+
+
+================================================================================================
+the locals nothing reads, built and elided
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+1000000 rows in 4096-row batches:                                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------
+100 ladder entries, locals built, null-free                                 91           2076        4363         11.0          91.0       1.0X
+100 ladder entries, locals elided, null-free                                90           1965        4159         11.1          90.2       1.0X
+100 ladder entries, locals built, again, null-free                          91           2284        4286         11.0          91.0       1.0X
+400 ladder entries, locals built, null-free                                364           9518       17440          2.7         364.3       0.2X
+400 ladder entries, locals elided, null-free                               362           9369       16946          2.8         361.6       0.3X
+400 ladder entries, locals built, again, null-free                         363           9330       17174          2.8         363.4       0.3X
+100 mixed entries, locals built, null-free                                  53           1218        2358         18.9          52.8       1.7X
+100 mixed entries, locals elided, null-free                                 52           1118        2383         19.3          51.9       1.8X
+100 mixed entries, locals built, again, null-free                           53           1224        2369         19.0          52.7       1.7X
+200 mixed entries, locals built, null-free                                 104           2432        4834          9.6         104.4       0.9X
+200 mixed entries, locals elided, null-free                                103           2198        4658          9.7         103.0       0.9X
+200 mixed entries, locals built, again, null-free                          104           2255        4765          9.6         104.4       0.9X
+100 ladder entries, locals built, every seventh row null                   106           2311        4905          9.4         106.2       0.9X
+100 ladder entries, locals elided, every seventh row null                   98           2404        4831         10.2          98.2       0.9X
+100 ladder entries, locals built, again, every seventh row null            106           2496        4810          9.4         105.9       0.9X
+400 ladder entries, locals built, every seventh row null                   424          10603       19519          2.4         424.1       0.2X
+400 ladder entries, locals elided, every seventh row null                  393           9672       20175          2.5         392.8       0.2X
+400 ladder entries, locals built, again, every seventh row null            424          10506       19744          2.4         423.6       0.2X
+100 mixed entries, locals built, every seventh row null                     59           1412        2608         16.9          59.2       1.5X
+100 mixed entries, locals elided, every seventh row null                    60           1306        2472         16.8          59.6       1.5X
+100 mixed entries, locals built, again, every seventh row null              59           1334        2793         17.0          58.8       1.5X
+200 mixed entries, locals built, every seventh row null                    116           2689        5287          8.6         116.5       0.8X
+200 mixed entries, locals elided, every seventh row null                   118           2453        4991          8.5         117.8       0.8X
+200 mixed entries, locals built, again, every seventh row null             116           2820        5157          8.6         116.3       0.8X
+
+
+================================================================================================
+emitting the mixed family: the exact grouping's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+200 mixed entries, greedy grouping                   26             33          19          0.0    25886811.0       1.0X
+200 mixed entries, exact grouping                    18             19           0          0.0    18303156.0       1.4X
+
+
+================================================================================================
+past the driver's ceiling: a split driver against several kernels
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+1000000 rows in 4096-row batches:                                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+800 entries, split driver (one kernel, 2 stages), null-free                          770          22042       39376          1.3         770.0       1.0X
+800 entries, several kernels (724 + 76), null-free                                   736          20808       38664          1.4         735.9       1.0X
+1200 entries, split driver (one kernel, 2 stages), null-free                        1146          36763       64670          0.9        1145.8       0.7X
+1200 entries, several kernels (724 + 476), null-free                                1100          30044       56897          0.9        1099.7       0.7X
+800 entries, split driver (one kernel, 2 stages), every seventh row null             865          24246       46104          1.2         865.0       0.9X
+800 entries, several kernels (724 + 76), every seventh row null                      860          23253       43634          1.2         859.7       0.9X
+1200 entries, split driver (one kernel, 2 stages), every seventh row null           1322          42097       76113          0.8        1322.0       0.6X
+1200 entries, several kernels (724 + 476), every seventh row null                   1283          33621       64044          0.8        1282.9       0.6X
+
+
+================================================================================================
+past the driver's ceiling: each form's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4+7-LTS on Linux 6.17.0-1022-azure
+AMD EPYC 9V74 80-Core Processor
+one emission:                                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+800 entries, split driver (3541653 bytes)                             328            332           3          0.0   328233201.0       1.0X
+800 entries, several kernels (3558609 bytes in 2 classes)             154            156           2          0.0   154389193.0       2.1X
+800 entries, several kernels with the compiler's search              2114           2119           4          0.0  2114329537.0       0.2X
+1200 entries, split driver (5245553 bytes)                            570            574           4          0.0   570254575.0       0.6X
+1200 entries, several kernels (5342587 bytes in 2 classes)            226            228           1          0.0   226240679.0       1.5X
+1200 entries, several kernels with the compiler's search             3255           3266          11          0.0  3255172331.0       0.1X
+
+

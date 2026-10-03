@@ -439,9 +439,10 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
       assert(VarkaColumnarRule.preColumnarTransitions(eligible) ===
         VarkaFilterExec(dLess10, child))
       // The mixed predicate splits: the fused conjunct in the Varka node, the int conjunct
-      // in a row FilterExec above it - which then sees only the surviving rows.
+      // in a row FilterExec above it - which then sees only the surviving rows. The Varka
+      // node keeps the whole condition for the batches its kernel cannot serve.
       assert(VarkaColumnarRule.preColumnarTransitions(mixed) ===
-        FilterExec(shortResidual, VarkaFilterExec(dLess10, child)))
+        FilterExec(shortResidual, VarkaFilterExec(dLess10, child, Some(mixed.condition))))
       assert(VarkaColumnarRule.preColumnarTransitions(ineligible) === ineligible)
       // A row child is left for the post stage, which absorbs the transition.
       assert(VarkaColumnarRule.preColumnarTransitions(rowChild) === rowChild)
@@ -467,7 +468,8 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
         FilterExec(And(dLess10, shortResidual),
           ColumnarToRowExec(child))) ===
         FilterExec(shortResidual,
-          VarkaFilterColumnarToRowExec(dLess10, child)))
+          VarkaFilterColumnarToRowExec(dLess10, child,
+            wholeCondition = Some(And(dLess10, shortResidual)))))
       // The residual filter the pre stage left above a (now fused) Varka filter is not
       // touched again: its child is a row node.
       val residualOverFused = FilterExec(shortResidual,

@@ -37,8 +37,10 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
   private lazy val corpus = VarkaEmitCostCorpus.fuzz(1000).asScala.toSeq ++
     VarkaEmitCostCorpus.wide().asScala ++ VarkaEmitCostCorpus.ladders().asScala
 
-  private val shipped = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
-  private val elided = shipped.withElideUnreadLocals(true)
+  // The shipped options elide the unread locals; the reference form builds them all.
+  private val elided = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
+    .withElideUnreadLocals(true)
+  private val built = elided.withElideUnreadLocals(false)
 
   // Each options value's classes, emitted once and shared by the tests that read them.
   private val emitted = mutable.Map.empty[VarkaEmitOptions, Seq[(String, Array[Byte])]]
@@ -60,7 +62,7 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
   test("every shared slot of every loop and epilogue method in the cost corpus is read") {
     // Both bodies of each shape, with and without the switch: the switch moves the slots the
     // segments and the mask took, and must leave the shared ones alone.
-    for (options <- Seq(shipped, elided)) {
+    for (options <- Seq(built, elided)) {
       val unread = classes(options).flatMap { case (label, bytes) =>
         VarkaUnreadLocals.unreadSharedSlots(bytes).asScala.map(f => s"$label: $f")
       }
@@ -78,7 +80,7 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     assert(noCse.isEmpty, s"unread reference locals under the switch without CSE: $noCse")
     // The form that builds everything keeps the four kinds task 239 found (PLAN_TASK_239.md 2.1)
     // and no other, so a leftover of a new kind added to the reference form is seen too.
-    val off = census(shipped)
+    val off = census(built)
     assert(off.keySet.subsetOf(Set("segment: output validity", "vector: prefix reload",
       "segment: input data", "mask: indexInRange")) && off.nonEmpty,
       s"the reference form's unread reference locals: $off")
@@ -107,8 +109,9 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
       (new TruncDate(col, TruncLevel.QUARTER), 1, Array.empty[Int]),
       (new TruncDate(col, TruncLevel.MONTH), 1, Array.empty[Int]),
       (new TruncDateDynamic(col, new ColumnRef(1)), 2, Array.empty[Int]))
-    val split = VarkaEmitOptions.DEFAULTS.withMaterializeChronoPrefix(true)
-      .withGroupBudget(1).withFusedCeiling(1)
+    // The reference form, which builds every prefix vector, so that the second group loads them.
+    val split = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(false)
+      .withMaterializeChronoPrefix(true).withGroupBudget(1).withFusedCeiling(1)
     val arms = Seq("the defaults" -> split, "no Julian map" -> split.withJulianMap(false),
       "no Neri-Schneider month" -> split.withNeriSchneiderMonth(false),
       "recomposed trunc" -> split.withTruncDate(VarkaEmitOptions.TruncDateForm.RECOMPOSE))
