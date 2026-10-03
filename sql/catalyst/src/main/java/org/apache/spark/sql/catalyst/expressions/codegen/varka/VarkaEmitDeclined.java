@@ -37,18 +37,38 @@ import java.util.List;
  * projection fuses without them; it is empty for a class-wide limit, where no output is to blame
  * on its own. The emitter's other refusals are not declines: they reject IR the compiler never
  * builds, and stay plain {@code IllegalArgumentException}s ({@code PLAN_TASK_169.md} 2.1).
+ *
+ * <p>Under {@link VarkaEmitOptions#planSize} a class-wide decline on the driver also carries
+ * {@link #plannedCut}: how many of the outputs, from the first, one class serves by the plan's
+ * reading of the driver over the grouping the emitter formed, so that the compiler cuts the
+ * projection there in one step rather than bisecting it (task 236). It is -1 where the plan has
+ * no cut: a decline on a limit the plan cannot read, such as the class-file caps.
  */
 public final class VarkaEmitDeclined extends IllegalArgumentException {
 
   private final List<Integer> outputs;
+  private final int plannedCut;
 
   VarkaEmitDeclined(String reason, List<Integer> outputs) {
+    this(reason, outputs, -1);
+  }
+
+  VarkaEmitDeclined(String reason, List<Integer> outputs, int plannedCut) {
     super(reason);
     this.outputs = List.copyOf(outputs);
+    this.plannedCut = plannedCut;
   }
 
   /** The indices of the outputs whose own group is over the limit; empty for a class-wide one. */
   public List<Integer> outputs() {
     return outputs;
+  }
+
+  /**
+   * How many leading outputs one class serves by the plan, for the compiler to keep in this
+   * kernel; -1 where the plan has no cut. Positive and fewer than the outputs when present.
+   */
+  public int plannedCut() {
+    return plannedCut;
   }
 }

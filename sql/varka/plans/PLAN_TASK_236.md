@@ -361,3 +361,81 @@ Three readings, of which the first two are counts and run anywhere:
    cut, and the tests of section 5; the audit with the switch on.
 3. The runner's run, the predictions scored, and the defaults set: `planSize`, `predictGrouping`
    with item 71's answer, and task 190's question by the rule of 3.6.
+
+## 9. Outcome
+
+### 9.1 Built, 3 October 2026
+
+Step 2, behind `VarkaEmitOptions.planSize`, off by default until step 3.
+
+**The plan.** `emit` builds the drivers alone before the class: a class of the two driver
+methods and nothing else, whose calls name methods the class does not have, which the Class-File
+API does not mind. From a table the driver is its calls, so what the drivers built alone measure
+is what the full class's drivers measure, byte for byte, which `VarkaKernelPlanSuite` holds from
+one group to four hundred. The plan is read for every grouping whose stages are not yet sized:
+the first, and one a call-site rollback or a grouping fallback starts afresh, so no build is spent
+finding a driver over.
+
+* **Under the split driver**, a driver over the budget sets the stage size the loop used to read
+  off the built class, so the first build is the second build the loop made: the same class
+  byte for byte at 800 and 1200 ladder entries, 300 and 1500 one-output groups, and the forty
+  compositions of wide draws. The audit counts the stages planned: 37, one for every shape past
+  the ceiling (prediction 2).
+* **Without the split driver**, the plan declines before any build, naming in
+  `VarkaEmitDeclined.plannedCut` the outputs of the first groups whose calls fit the budget, by
+  the arithmetic that sizes a stage. The compiler takes the cut in one step and asks for the
+  prefix, which plans itself on its own grouping; a prefix whose driver is still over cuts once
+  more, and after two cuts the bisection decides, as the last resort for the class-file caps the
+  plan cannot read. On eight hundred ladder entries the loop bisects in more than ten emissions,
+  each a class built and measured; the plan takes one emission that builds nothing and then one
+  build a kernel. Its cut is the bisection's or a group's worth of entries earlier - 716 against
+  720 - since the stage margin's bytes are kept out of the driver.
+* **The margins** are derived with the prices by `VarkaEmitCostFit.margins` and written into
+  `VarkaEmitCostTable` by the same generator: the largest under-prediction the fit makes on its
+  own groups in the band where each budget binds, methods of 2000 bytes and over for bytes and of
+  62 call sites and over for sites. They came out at 21.1% and 17.7%, so a planned group closes
+  at a predicted 6312 bytes and 76 call sites. The audit counts both directions: 4 held-out
+  methods of 2000 bytes and over are under-predicted past the byte margin and none past the
+  site margin, and the margins and the width rule below cost 18 loop methods over the corpus's
+  28,404 with the prediction alone (28,422; the weights give 28,481), on twelve shapes the audit
+  names.
+* **Corrections.** A reaction to the planned build is counted and named in `VarkaEmitTrace`
+  with the method, what the plan predicted for it and what it measured; the loop after it is
+  unchanged. Before item 71's width rule the audit found nine corrections on three shapes, every
+  one a call-site split of a group of heavy outputs the prediction already said was over the
+  budget, exempt by its width of six, which a seventh output that added no node - a tree the
+  group already held - took past the exemption after the prediction's last word. That is item
+  71's second question, and the plan answers it by counting such an output toward the width:
+  under `planSize` the prediction judges that step too, and the group closes before it. With the
+  rule, every one of the audit's 2259 shapes builds once and the audit lists no correction. The
+  item's first question, what the predicted grouping costs at run time, is the benchmark's (6).
+* **Item 74.2** of `SCOPE_MILESTONE_7.md` assumed this task would replace the size loop; it
+  stays, as 3.2 planned, the last resort behind the plan.
+
+**Files.** `VarkaLoopEmitter` (the plan, `driverAlone`, the corrections and the cut),
+`VarkaEmitTrace` (the corrections, the stages planned and the planned declines),
+`VarkaEmitDeclined` (`plannedCut`), `VarkaEmitOptions` (`planSize`), `VarkaEmitCostTable` and
+`VarkaEmitCostFit` (the margins), `VarkaExpressionCompiler` (the cut before the bisection),
+`VarkaEmitCostAudit` and `emit_cost_audit.json` (the planned arm and the margin counts),
+`VarkaWideKernelBenchmark` (the planned arms, task 190's section and item 71's), and the tests:
+`VarkaKernelPlanSuite`, two tests in `VarkaExpressionCompilerSuite`, one in
+`VarkaSeveralKernelsSuite`. The IR fuzzer draws `planSize` as it draws every boolean. No
+`VarkaKernelPlan` class: the plan is a few readings inside `emit`, where the grouping it needs
+already is, and a class of its own would have carried them out and back for nothing.
+
+### 9.2 The predictions, scored so far
+
+1. **Held, beyond what it asked.** Over the audit's 2259 shapes the plan builds 2259 classes,
+   one each, where the weights build 2343 and the prediction 2300. Three shapes built twice
+   before item 71's width rule, all on the call-site exemption; with it, none, and none builds a
+   third time (`VarkaKernelPlanSuite`).
+2. **Stages.** Held: all 37 shapes past the ceiling build once under the split driver, each the
+   two-build class byte for byte.
+3. **Kernels.** Held in the count: the cut takes one emission that builds nothing and one build
+   a kernel where the bisection took more than ten emissions for two kernels. The cut falls a
+   group's worth of entries before the bisection's.
+4. **Plan time.** Waits for the runner.
+5. **No class moves** where the first grouping built once: the planned class is the loop's,
+   byte for byte, on every shape of the plan suite; the audit's digest of first groupings moves
+   only where the margins or the width rule close a group.
+6. and 7. Wait for the runner.

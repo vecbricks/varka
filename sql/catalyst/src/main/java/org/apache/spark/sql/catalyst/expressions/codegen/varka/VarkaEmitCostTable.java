@@ -22,7 +22,10 @@ import java.util.Map;
 /**
  * The prices {@link VarkaEmitCost} predicts with: for each feature, what it adds to each
  * of a group's four methods in bytes and then in Vector API call sites, in
- * {@link VarkaEmitCost#METHODS} order, fitted by least squares over emitted groups.
+ * {@link VarkaEmitCost#METHODS} order, fitted by least squares over emitted groups; and
+ * the margins the planned grouping keeps under the budgets, the largest under-prediction
+ * the fit makes on its own groups in the band where each budget binds
+ * ({@code PLAN_TASK_236.md} 3.3).
  *
  * <p>Generated, not written: {@code VarkaEmitCostSuite} derives it from emitted classes at
  * the default options and sixteen int lanes, fails while this file differs from what it
@@ -33,6 +36,15 @@ import java.util.Map;
 final class VarkaEmitCostTable {
 
   private VarkaEmitCostTable() {}
+
+  /**
+   * The share of the byte budget a planned group is closed under, so that a method the
+   * prices under-predict still measures within it.
+   */
+  static final double BYTES_MARGIN = 0.211;
+
+  /** The same for the call-site budget. */
+  static final double SITES_MARGIN = 0.177;
 
   /** Each feature's price, by feature. */
   static final Map<String, double[]> PRICES = Map.ofEntries(

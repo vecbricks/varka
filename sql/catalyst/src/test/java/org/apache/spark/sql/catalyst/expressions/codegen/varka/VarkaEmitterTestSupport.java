@@ -443,4 +443,13 @@ public final class VarkaEmitterTestSupport {
       return e;
     }
   }
+
+  /**
+   * {@code VarkaLoopEmitter.planDriverSlackForTest}, for suites outside this package: bytes taken
+   * off the plan's reading of the driver, so the plan admits a driver the build finds over
+   * (task 236). Set back to 0 after the test.
+   */
+  public static void setPlanDriverSlack(int bytes) {
+    VarkaLoopEmitter.planDriverSlackForTest = bytes;
+  }
 }

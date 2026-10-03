@@ -589,13 +589,56 @@ final class VarkaEmitCostFit {
 
       """;
 
-  /** The Java source of {@code VarkaEmitCostTable}, the fitted prices. */
-  static String tableSource(Map<String, double[]> regression) {
+  /**
+   * The band of a quantity where its budget binds: a method of this many bytes and over is near
+   * enough the byte budget for an under-prediction to cost a rebuild, and the same for call sites
+   * against the call-site budget. The audit's "2000 bytes and over" band, and two thirds of
+   * {@code CALL_SITE_BUDGET}.
+   */
+  static final int BYTES_BAND = 2000;
+  static final int SITES_BAND = VarkaEmitBudget.CALL_SITE_BUDGET * 2 / 3;
+
+  /**
+   * The margins the planned grouping closes a group under its budgets by
+   * ({@code VarkaEmitOptions.planSize}, {@code PLAN_TASK_236.md} 3.3): the largest
+   * under-prediction {@code prices} make on {@code rows}, the methods they were fitted on, in the
+   * band where each budget binds, as a share of the measurement; {@code [bytes, sites]}, each at
+   * least zero and rounded up to a thousandth. Derived with the prices, so a refit moves them.
+   */
+  static double[] margins(Map<String, double[]> prices, List<Group> rows) {
+    double bytes = 0;
+    double sites = 0;
+    for (Group r : rows) {
+      double[] predicted = VarkaEmitCost.predict(prices, r.counts());
+      if (predicted == null) {
+        continue;
+      }
+      for (int q = 0; q < Q; q++) {
+        double measured = r.measured()[q];
+        if (Double.isNaN(measured)) {
+          continue;
+        }
+        double under = (measured - predicted[q]) / measured;
+        if (q < 4 && measured >= BYTES_BAND) {
+          bytes = Math.max(bytes, under);
+        } else if (q >= 4 && measured >= SITES_BAND) {
+          sites = Math.max(sites, under);
+        }
+      }
+    }
+    return new double[] {Math.ceil(bytes * 1000) / 1000, Math.ceil(sites * 1000) / 1000};
+  }
+
+  /** The Java source of {@code VarkaEmitCostTable}, the fitted prices and their margins. */
+  static String tableSource(Map<String, double[]> regression, double[] margins) {
     return LICENSE + """
         /**
          * The prices {@link VarkaEmitCost} predicts with: for each feature, what it adds to each
          * of a group's four methods in bytes and then in Vector API call sites, in
-         * {@link VarkaEmitCost#METHODS} order, fitted by least squares over emitted groups.
+         * {@link VarkaEmitCost#METHODS} order, fitted by least squares over emitted groups; and
+         * the margins the planned grouping keeps under the budgets, the largest under-prediction
+         * the fit makes on its own groups in the band where each budget binds
+         * ({@code PLAN_TASK_236.md} 3.3).
          *
          * <p>Generated, not written: {@code VarkaEmitCostSuite} derives it from emitted classes at
          * the default options and sixteen int lanes, fails while this file differs from what it
@@ -607,6 +650,14 @@ final class VarkaEmitCostFit {
 
           private VarkaEmitCostTable() {}
 
+          /**
+           * The share of the byte budget a planned group is closed under, so that a method the
+           * prices under-predict still measures within it.
+           */
+        """ + "  static final double BYTES_MARGIN = " + number(margins[0]) + ";\n\n"
+        + "  /** The same for the call-site budget. */\n"
+        + "  static final double SITES_MARGIN = " + number(margins[1]) + ";\n\n"
+        + """
           /** Each feature's price, by feature. */
           static final Map<String, double[]> PRICES = Map.ofEntries(
         """ + entries(regression) + ");\n}\n";
@@ -637,6 +688,7 @@ final class VarkaEmitCostFit {
     Register reg = register();
     List<Group> rows = new ArrayList<>(trainingGroups());
     rows.addAll(reg.probes());
-    return List.of(tableSource(regression(rows)), registerSource(reg.prices()));
+    Map<String, double[]> fitted = regression(rows);
+    return List.of(tableSource(fitted, margins(fitted, rows)), registerSource(reg.prices()));
   }
 }

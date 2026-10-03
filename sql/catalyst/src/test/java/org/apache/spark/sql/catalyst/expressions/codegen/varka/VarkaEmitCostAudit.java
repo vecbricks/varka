@@ -123,6 +123,11 @@ final class VarkaEmitCostAudit {
         q -> round(errors[Math.min(errors.length - 1, (int) (q * errors.length))]);
     long under = scored.stream().filter(p -> p.predicted().get(pricing) < p.measured()).count();
     long within = java.util.Arrays.stream(errors).filter(e -> e <= 10.0).count();
+    // The plan's margins (task 236): a held-out method measured past its prediction by more
+    // than the margin is one the plan would have to correct.
+    long pastMargin = scored.stream().filter(p -> p.predicted().get(pricing)
+        < p.measured() * (1 - (p.sites() ? VarkaEmitCostTable.SITES_MARGIN
+            : VarkaEmitCostTable.BYTES_MARGIN))).count();
     return orderedOf(
         "methods", scored.size(),
         "median error %", pct.applyAsDouble(0.5),
@@ -130,6 +135,7 @@ final class VarkaEmitCostAudit {
         "99th percentile %", pct.applyAsDouble(0.99),
         "worst %", round(errors[errors.length - 1]),
         "under-predicted %", round(100.0 * under / scored.size()),
+        "under-predicted past the margin", pastMargin,
         "within 10% share", round(100.0 * within / errors.length));
   }
 
@@ -172,12 +178,12 @@ final class VarkaEmitCostAudit {
     }
   }
 
-  private static Emitted emitted(Shape shape, boolean predict) {
+  private static Emitted emitted(Shape shape, VarkaEmitOptions options) {
     VarkaEmitTrace trace = new VarkaEmitTrace();
     try {
       byte[] bytes = VarkaLoopEmitter.emitTraced(
           "org.apache.spark.sql.varka.execution.VarkaEmitCostAudit", shape.roots(),
-          shape.numInputs(), shape.numLiterals(), shipped(predict), trace);
+          shape.numInputs(), shape.numLiterals(), options, trace);
       var names = VarkaEmittedClass.measure(bytes).codeLength().keySet();
       int loops = (int) Math.max(names.stream().filter(n -> n.startsWith("loopDense")).count(),
           names.stream().filter(n -> n.startsWith("loopMasked")).count());
@@ -204,6 +210,11 @@ final class VarkaEmitCostAudit {
         .withPredictGrouping(predict);
   }
 
+  /** The shipped options with the prediction and the plan on ({@code planSize}, task 236). */
+  static VarkaEmitOptions planned() {
+    return shipped(true).withPlanSize(true);
+  }
+
   private static Map<String, Object> grouping(List<Shape> shapes) {
     Map<String, Object> families = new LinkedHashMap<>();
     for (String family : shapes.stream().map(Shape::family).distinct().toList()) {
@@ -223,10 +234,40 @@ final class VarkaEmitCostAudit {
       List<String> rebuiltOff = new ArrayList<>();
       List<String> rebuiltOn = new ArrayList<>();
       List<String> gained = new ArrayList<>();
+      // The plan's arm (task 236): the prediction and `planSize` on, each shape built once
+      // unless the plan was corrected, and every correction named.
+      int onePlanned = 0;
+      int loopsPlanned = 0;
+      int declinedPlanned = 0;
+      int buildsPlanned = 0;
+      int stagesPlanned = 0;
+      Map<String, Integer> reactionsPlanned = new LinkedHashMap<>();
+      List<String> rebuiltPlanned = new ArrayList<>();
+      List<String> corrected = new ArrayList<>();
+      List<String> gainedPlanned = new ArrayList<>();
       StringBuilder groupings = new StringBuilder();
       for (Shape s : mine) {
-        Emitted off = emitted(s, false);
-        Emitted on = emitted(s, true);
+        Emitted off = emitted(s, shipped(false));
+        Emitted on = emitted(s, shipped(true));
+        Emitted plan = emitted(s, planned());
+        declinedPlanned += plan.loops() < 0 ? 1 : 0;
+        buildsPlanned += plan.builds();
+        stagesPlanned += plan.trace().plannedStages;
+        plan.trace().reactions().forEach((name, count) -> reactionsPlanned.merge(name, count,
+            Integer::sum));
+        if (plan.builds() > 1) {
+          rebuiltPlanned.add(rebuilt(s, plan.trace()));
+        }
+        for (String correction : plan.trace().corrections) {
+          corrected.add(s.index() + ": " + correction);
+        }
+        if (plan.loops() >= 0 && on.loops() >= 0) {
+          onePlanned += plan.builds() == 1 ? 1 : 0;
+          loopsPlanned += plan.loops();
+          if (plan.loops() > on.loops()) {
+            gainedPlanned.add(s.index() + ": " + on.loops() + " -> " + plan.loops());
+          }
+        }
         groupings.append(s.index()).append(VarkaLoopEmitter.groupsForTest(s.roots(),
             shipped(true)).stream().map(List::size).toList()).append('\n');
         declinedOff += off.loops() < 0 ? 1 : 0;
@@ -274,7 +315,16 @@ final class VarkaEmitCostAudit {
           "reactions, predicted", reactionsOn,
           "shapes built more than once, weights", rebuiltOff,
           "shapes built more than once, predicted", rebuiltOn,
-          "predicted first groupings, digest", digest(groupings.toString())));
+          "predicted first groupings, digest", digest(groupings.toString()),
+          "emitted in one build, planned", onePlanned,
+          "loop methods, planned", loopsPlanned,
+          "shapes with more loop methods, planned", gainedPlanned,
+          "declined, planned", declinedPlanned,
+          "builds, planned", buildsPlanned,
+          "stages planned", stagesPlanned,
+          "reactions, planned", reactionsPlanned,
+          "shapes built more than once, planned", rebuiltPlanned,
+          "corrections, planned", corrected));
     }
     return families;
   }
@@ -316,7 +366,12 @@ final class VarkaEmitCostAudit {
             + "The count of builds also reads task 200's mixed and interleaved families, and "
             + "the size ladder past the driver's ceiling with compositions of wide draws near and "
             + "past it; it counts the emitter's builds, not the compiler's admission emissions. "
-            + "See PLAN_TASK_199.md and PLAN_TASK_236.md.",
+            + "Then the same shapes with planSize on beside the prediction (task 236): the "
+            + "builds, the stages planned before the first build, the reactions, the shapes "
+            + "built more than once, and every correction of a planned build with the method, "
+            + "its prediction and its measurement; and the loop methods the plan's margins cost. "
+            + "The accuracy section also counts, per band, the methods under-predicted past the "
+            + "margins. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
         "jdk", System.getProperty("java.specification.version"),
         "accuracy", accuracy(points(shapes)),
         "grouping", grouping(built));

@@ -1,6 +1,6 @@
 {
   "generated_by" : "VarkaEmitCostAuditSuite; regenerate with VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostAuditSuite'",
-  "description" : "The emit cost model's two pricings - the fitted prices the grouping uses (VarkaEmitCostTable) and the measured register (VarkaEmitCostRegister) - scored against the classes the emitter builds, at sixteen int lanes, over the odd-numbered fuzz and wide shapes and every ladder, none of which either was derived from, each emitted under its default grouping and under groups up to the fused ceiling. An error is |predicted - measured| / measured for one method of one group. Then each shape at the shipped options with predictGrouping off and on: how many builds it took, its loop methods, the builds spent on shapes that decline either way, every build and the reaction to a measurement that forced it, the shapes built more than once, and a digest of the first groupings the prediction forms, which moves whenever the prices regroup a shape. The count of builds also reads task 200's mixed and interleaved families, and the size ladder past the driver's ceiling with compositions of wide draws near and past it; it counts the emitter's builds, not the compiler's admission emissions. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
+  "description" : "The emit cost model's two pricings - the fitted prices the grouping uses (VarkaEmitCostTable) and the measured register (VarkaEmitCostRegister) - scored against the classes the emitter builds, at sixteen int lanes, over the odd-numbered fuzz and wide shapes and every ladder, none of which either was derived from, each emitted under its default grouping and under groups up to the fused ceiling. An error is |predicted - measured| / measured for one method of one group. Then each shape at the shipped options with predictGrouping off and on: how many builds it took, its loop methods, the builds spent on shapes that decline either way, every build and the reaction to a measurement that forced it, the shapes built more than once, and a digest of the first groupings the prediction forms, which moves whenever the prices regroup a shape. The count of builds also reads task 200's mixed and interleaved families, and the size ladder past the driver's ceiling with compositions of wide draws near and past it; it counts the emitter's builds, not the compiler's admission emissions. Then the same shapes with planSize on beside the prediction (task 236): the builds, the stages planned before the first build, the reactions, the shapes built more than once, and every correction of a planned build with the method, its prediction and its measurement; and the loop methods the plan's margins cost. The accuracy section also counts, per band, the methods under-predicted past the margins. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
   "jdk" : "25",
   "accuracy" : {
     "by pricing, quantity and size band" : {
@@ -13,6 +13,7 @@
             "99th percentile %" : 77.1,
             "worst %" : 263.9,
             "under-predicted %" : 56.5,
+            "under-predicted past the margin" : 388,
             "within 10% share" : 57.2
           },
           "500 to 1999 bytes" : {
@@ -22,6 +23,7 @@
             "99th percentile %" : 20.7,
             "worst %" : 45.9,
             "under-predicted %" : 56.9,
+            "under-predicted past the margin" : 117,
             "within 10% share" : 89.4
           },
           "2000 to 7999 bytes" : {
@@ -31,6 +33,7 @@
             "99th percentile %" : 12.0,
             "worst %" : 45.1,
             "under-predicted %" : 44.8,
+            "under-predicted past the margin" : 4,
             "within 10% share" : 87.8
           },
           "8000 bytes and over" : {
@@ -40,6 +43,7 @@
             "99th percentile %" : 5.1,
             "worst %" : 5.2,
             "under-predicted %" : 90.8,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
@@ -49,6 +53,7 @@
             "99th percentile %" : 12.0,
             "worst %" : 45.1,
             "under-predicted %" : 45.6,
+            "under-predicted past the margin" : 4,
             "within 10% share" : 88.0
           }
         },
@@ -60,6 +65,7 @@
             "99th percentile %" : 71.2,
             "worst %" : 506.5,
             "under-predicted %" : 57.2,
+            "under-predicted past the margin" : 2047,
             "within 10% share" : 69.9
           },
           "500 to 1999 bytes" : {
@@ -69,6 +75,7 @@
             "99th percentile %" : 18.3,
             "worst %" : 63.8,
             "under-predicted %" : 45.1,
+            "under-predicted past the margin" : 125,
             "within 10% share" : 93.2
           },
           "2000 to 7999 bytes" : {
@@ -78,6 +85,7 @@
             "99th percentile %" : 8.5,
             "worst %" : 32.2,
             "under-predicted %" : 53.6,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 99.5
           },
           "8000 bytes and over" : {
@@ -87,6 +95,7 @@
             "99th percentile %" : 8.2,
             "worst %" : 8.2,
             "under-predicted %" : 74.2,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
@@ -96,6 +105,7 @@
             "99th percentile %" : 8.4,
             "worst %" : 32.2,
             "under-predicted %" : 54.0,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 99.5
           }
         }
@@ -109,6 +119,7 @@
             "99th percentile %" : 99.0,
             "worst %" : 397.0,
             "under-predicted %" : 40.2,
+            "under-predicted past the margin" : 1363,
             "within 10% share" : 64.0
           },
           "500 to 1999 bytes" : {
@@ -118,6 +129,7 @@
             "99th percentile %" : 86.6,
             "worst %" : 128.9,
             "under-predicted %" : 33.9,
+            "under-predicted past the margin" : 866,
             "within 10% share" : 49.2
           },
           "2000 to 7999 bytes" : {
@@ -127,6 +139,7 @@
             "99th percentile %" : 79.1,
             "worst %" : 107.6,
             "under-predicted %" : 9.5,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 48.9
           },
           "8000 bytes and over" : {
@@ -136,6 +149,7 @@
             "99th percentile %" : 76.8,
             "worst %" : 78.2,
             "under-predicted %" : 0.0,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 0.0
           },
           "2000 bytes and over" : {
@@ -145,6 +159,7 @@
             "99th percentile %" : 78.6,
             "worst %" : 107.6,
             "under-predicted %" : 9.4,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 48.1
           }
         },
@@ -156,6 +171,7 @@
             "99th percentile %" : 81.0,
             "worst %" : 760.0,
             "under-predicted %" : 8.3,
+            "under-predicted past the margin" : 172,
             "within 10% share" : 85.5
           },
           "500 to 1999 bytes" : {
@@ -165,6 +181,7 @@
             "99th percentile %" : 32.3,
             "worst %" : 89.7,
             "under-predicted %" : 28.8,
+            "under-predicted past the margin" : 120,
             "within 10% share" : 90.0
           },
           "2000 to 7999 bytes" : {
@@ -174,6 +191,7 @@
             "99th percentile %" : 31.8,
             "worst %" : 53.6,
             "under-predicted %" : 36.0,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 81.2
           },
           "8000 bytes and over" : {
@@ -183,6 +201,7 @@
             "99th percentile %" : 12.0,
             "worst %" : 12.0,
             "under-predicted %" : 79.2,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 86.7
           },
           "2000 bytes and over" : {
@@ -192,6 +211,7 @@
             "99th percentile %" : 31.8,
             "worst %" : 53.6,
             "under-predicted %" : 36.7,
+            "under-predicted past the margin" : 0,
             "within 10% share" : 81.3
           }
         }
@@ -206,6 +226,7 @@
           "99th percentile %" : 9.2,
           "worst %" : 12.1,
           "under-predicted %" : 16.7,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 99.5
         },
         "fuzz long" : {
@@ -218,6 +239,7 @@
           "99th percentile %" : 10.7,
           "worst %" : 23.6,
           "under-predicted %" : 51.1,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 98.4
         },
         "wide long" : {
@@ -227,6 +249,7 @@
           "99th percentile %" : 11.4,
           "worst %" : 15.6,
           "under-predicted %" : 43.9,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 97.2
         },
         "size ladder" : {
@@ -236,6 +259,7 @@
           "99th percentile %" : 12.5,
           "worst %" : 12.6,
           "under-predicted %" : 48.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 50.7
         },
         "make_date ladder" : {
@@ -245,6 +269,7 @@
           "99th percentile %" : 2.2,
           "worst %" : 2.2,
           "under-predicted %" : 33.3,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "cheap tails" : {
@@ -254,6 +279,7 @@
           "99th percentile %" : 45.1,
           "worst %" : 45.1,
           "under-predicted %" : 100.0,
+          "under-predicted past the margin" : 4,
           "within 10% share" : 50.0
         }
       },
@@ -265,6 +291,7 @@
           "99th percentile %" : 29.7,
           "worst %" : 36.7,
           "under-predicted %" : 19.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 67.8
         },
         "fuzz long" : {
@@ -277,6 +304,7 @@
           "99th percentile %" : 32.7,
           "worst %" : 51.4,
           "under-predicted %" : 12.7,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 52.7
         },
         "wide long" : {
@@ -286,6 +314,7 @@
           "99th percentile %" : 102.2,
           "worst %" : 107.6,
           "under-predicted %" : 0.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 0.0
         },
         "size ladder" : {
@@ -295,6 +324,7 @@
           "99th percentile %" : 59.0,
           "worst %" : 59.2,
           "under-predicted %" : 0.8,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 49.9
         },
         "make_date ladder" : {
@@ -304,6 +334,7 @@
           "99th percentile %" : 13.9,
           "worst %" : 13.9,
           "under-predicted %" : 8.3,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 58.3
         },
         "cheap tails" : {
@@ -313,6 +344,7 @@
           "99th percentile %" : 2.3,
           "worst %" : 2.3,
           "under-predicted %" : 0.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         }
       }
@@ -326,6 +358,7 @@
           "99th percentile %" : 8.8,
           "worst %" : 9.3,
           "under-predicted %" : 21.9,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "fuzz long" : {
@@ -338,6 +371,7 @@
           "99th percentile %" : 8.7,
           "worst %" : 32.2,
           "under-predicted %" : 60.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 99.3
         },
         "wide long" : {
@@ -347,6 +381,7 @@
           "99th percentile %" : 7.9,
           "worst %" : 8.5,
           "under-predicted %" : 65.8,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "size ladder" : {
@@ -356,6 +391,7 @@
           "99th percentile %" : 3.2,
           "worst %" : 3.2,
           "under-predicted %" : 49.9,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "make_date ladder" : {
@@ -365,6 +401,7 @@
           "99th percentile %" : 1.1,
           "worst %" : 1.1,
           "under-predicted %" : 50.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "cheap tails" : {
@@ -374,6 +411,7 @@
           "99th percentile %" : 18.1,
           "worst %" : 18.1,
           "under-predicted %" : 0.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 0.0
         }
       },
@@ -385,6 +423,7 @@
           "99th percentile %" : 14.2,
           "worst %" : 16.2,
           "under-predicted %" : 25.8,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 90.0
         },
         "fuzz long" : {
@@ -397,6 +436,7 @@
           "99th percentile %" : 19.4,
           "worst %" : 53.6,
           "under-predicted %" : 44.7,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 88.7
         },
         "wide long" : {
@@ -406,6 +446,7 @@
           "99th percentile %" : 11.8,
           "worst %" : 12.0,
           "under-predicted %" : 72.8,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 94.5
         },
         "size ladder" : {
@@ -415,6 +456,7 @@
           "99th percentile %" : 31.8,
           "worst %" : 31.8,
           "under-predicted %" : 0.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 49.9
         },
         "make_date ladder" : {
@@ -424,6 +466,7 @@
           "99th percentile %" : 1.9,
           "worst %" : 1.9,
           "under-predicted %" : 100.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         },
         "cheap tails" : {
@@ -433,6 +476,7 @@
           "99th percentile %" : 0.0,
           "worst %" : 0.0,
           "under-predicted %" : 0.0,
+          "under-predicted past the margin" : 0,
           "within 10% share" : 100.0
         }
       }
@@ -470,7 +514,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "557ca8310cf6ee47"
+      "predicted first groupings, digest" : "557ca8310cf6ee47",
+      "emitted in one build, planned" : 1000,
+      "loop methods, planned" : 1639,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 1000,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "fuzz long" : {
       "shapes" : 1000,
@@ -503,7 +563,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "d36a1f7b4e35faef"
+      "predicted first groupings, digest" : "d36a1f7b4e35faef",
+      "emitted in one build, planned" : 1000,
+      "loop methods, planned" : 1395,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 1000,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "wide int" : {
       "shapes" : 100,
@@ -536,7 +612,23 @@
       },
       "shapes built more than once, weights" : [ "1: 2 builds (1 call-site splits)", "171: 2 builds (1 call-site splits)" ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "83e4d5d746f78e63"
+      "predicted first groupings, digest" : "83e4d5d746f78e63",
+      "emitted in one build, planned" : 100,
+      "loop methods, planned" : 8886,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 100,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "wide long" : {
       "shapes" : 100,
@@ -569,7 +661,23 @@
       },
       "shapes built more than once, weights" : [ "1: 2 builds (1 call-site splits)", "3: 2 builds (1 call-site splits)", "7: 2 builds (1 call-site splits)", "17: 2 builds (1 call-site splits)", "43: 2 builds (1 call-site splits)", "51: 4 builds (3 call-site splits)", "63: 2 builds (1 call-site splits)", "79: 4 builds (3 call-site splits)", "95: 2 builds (1 call-site splits)", "111: 2 builds (1 call-site splits)", "137: 3 builds (2 call-site splits)", "139: 2 builds (1 call-site splits)", "149: 2 builds (1 call-site splits)", "161: 2 builds (1 call-site splits)", "167: 2 builds (1 call-site splits)", "177: 3 builds (2 call-site splits)", "191: 2 builds (1 call-site splits)" ],
       "shapes built more than once, predicted" : [ "63: 2 builds (1 call-site splits)", "149: 2 builds (1 call-site splits)" ],
-      "predicted first groupings, digest" : "3945cdc131513a1d"
+      "predicted first groupings, digest" : "3945cdc131513a1d",
+      "emitted in one build, planned" : 100,
+      "loop methods, planned" : 6545,
+      "shapes with more loop methods, planned" : [ "3: 44 -> 46", "51: 67 -> 70", "61: 101 -> 102", "79: 60 -> 67", "103: 14 -> 15", "135: 55 -> 56", "137: 31 -> 33" ],
+      "declined, planned" : 0,
+      "builds, planned" : 100,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "size ladder" : {
       "shapes" : 5,
@@ -602,7 +710,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "8c9d38342ffb2fbb"
+      "predicted first groupings, digest" : "8c9d38342ffb2fbb",
+      "emitted in one build, planned" : 5,
+      "loop methods, planned" : 193,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 5,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "make_date ladder" : {
       "shapes" : 2,
@@ -635,7 +759,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "308fdca4ead3b6ae"
+      "predicted first groupings, digest" : "308fdca4ead3b6ae",
+      "emitted in one build, planned" : 2,
+      "loop methods, planned" : 14,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 2,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "cheap tails" : {
       "shapes" : 2,
@@ -668,7 +808,23 @@
       },
       "shapes built more than once, weights" : [ "22: 2 builds (1 call-site splits)", "64: 3 builds (2 call-site splits)" ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "0d2ce60ddf1fafad"
+      "predicted first groupings, digest" : "0d2ce60ddf1fafad",
+      "emitted in one build, planned" : 2,
+      "loop methods, planned" : 6,
+      "shapes with more loop methods, planned" : [ "64: 3 -> 4" ],
+      "declined, planned" : 0,
+      "builds, planned" : 2,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "mixed families, one date" : {
       "shapes" : 3,
@@ -701,7 +857,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "d52270a1304ad77e"
+      "predicted first groupings, digest" : "d52270a1304ad77e",
+      "emitted in one build, planned" : 3,
+      "loop methods, planned" : 88,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 3,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "two dates, fields interleaved" : {
       "shapes" : 3,
@@ -734,7 +906,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "33d54d0ade1d615a"
+      "predicted first groupings, digest" : "33d54d0ade1d615a",
+      "emitted in one build, planned" : 3,
+      "loop methods, planned" : 204,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 3,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "twelve dates, by date" : {
       "shapes" : 1,
@@ -767,7 +955,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "5dcf6c4ef3f7d341"
+      "predicted first groupings, digest" : "5dcf6c4ef3f7d341",
+      "emitted in one build, planned" : 1,
+      "loop methods, planned" : 12,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 1,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "twelve dates, by field" : {
       "shapes" : 1,
@@ -800,7 +1004,23 @@
       },
       "shapes built more than once, weights" : [ ],
       "shapes built more than once, predicted" : [ ],
-      "predicted first groupings, digest" : "1a87fa61ed89038f"
+      "predicted first groupings, digest" : "1a87fa61ed89038f",
+      "emitted in one build, planned" : 1,
+      "loop methods, planned" : 48,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 1,
+      "stages planned" : 0,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "size ladder past the driver's ceiling" : {
       "shapes" : 2,
@@ -833,7 +1053,23 @@
       },
       "shapes built more than once, weights" : [ "800: 2 builds (1 stage splits)", "1200: 2 builds (1 stage splits)" ],
       "shapes built more than once, predicted" : [ "800: 2 builds (1 stage splits)", "1200: 2 builds (1 stage splits)" ],
-      "predicted first groupings, digest" : "63e82192dfc6de1d"
+      "predicted first groupings, digest" : "63e82192dfc6de1d",
+      "emitted in one build, planned" : 2,
+      "loop methods, planned" : 500,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 2,
+      "stages planned" : 2,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "wide compositions, int" : {
       "shapes" : 20,
@@ -866,7 +1102,23 @@
       },
       "shapes built more than once, weights" : [ "0: 2 builds (1 stage splits)", "1: 2 builds (1 stage splits)", "2: 2 builds (1 stage splits)", "3: 3 builds (1 call-site splits, 1 stage splits)", "4: 2 builds (1 stage splits)", "5: 2 builds (1 stage splits)", "6: 2 builds (1 stage splits)", "7: 2 builds (1 stage splits)", "8: 2 builds (1 stage splits)", "9: 2 builds (1 stage splits)", "10: 2 builds (1 stage splits)", "11: 2 builds (1 stage splits)", "12: 2 builds (1 stage splits)", "13: 2 builds (1 stage splits)", "14: 2 builds (1 stage splits)", "15: 2 builds (1 stage splits)", "16: 2 builds (1 stage splits)", "17: 2 builds (1 stage splits)", "18: 2 builds (1 stage splits)", "19: 2 builds (1 stage splits)" ],
       "shapes built more than once, predicted" : [ "0: 2 builds (1 stage splits)", "1: 2 builds (1 stage splits)", "2: 2 builds (1 stage splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 2 builds (1 stage splits)", "6: 2 builds (1 stage splits)", "7: 2 builds (1 stage splits)", "8: 2 builds (1 stage splits)", "9: 2 builds (1 stage splits)", "10: 2 builds (1 stage splits)", "11: 2 builds (1 stage splits)", "12: 2 builds (1 stage splits)", "13: 2 builds (1 stage splits)", "14: 2 builds (1 stage splits)", "15: 2 builds (1 stage splits)", "16: 2 builds (1 stage splits)", "17: 2 builds (1 stage splits)", "18: 2 builds (1 stage splits)", "19: 2 builds (1 stage splits)" ],
-      "predicted first groupings, digest" : "ec2da6b82c98954f"
+      "predicted first groupings, digest" : "ec2da6b82c98954f",
+      "emitted in one build, planned" : 20,
+      "loop methods, planned" : 5006,
+      "shapes with more loop methods, planned" : [ ],
+      "declined, planned" : 0,
+      "builds, planned" : 20,
+      "stages planned" : 20,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     },
     "wide compositions, long" : {
       "shapes" : 20,
@@ -899,7 +1151,23 @@
       },
       "shapes built more than once, weights" : [ "0: 2 builds (1 stage splits)", "1: 3 builds (1 call-site splits, 1 stage splits)", "2: 2 builds (1 call-site splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 5 builds (3 call-site splits, 1 stage splits)", "6: 4 builds (2 call-site splits, 1 stage splits)", "7: 2 builds (1 call-site splits)", "8: 2 builds (1 stage splits)", "9: 3 builds (1 call-site splits, 1 stage splits)", "10: 3 builds (1 call-site splits, 1 stage splits)", "11: 2 builds (1 stage splits)", "12: 3 builds (1 call-site splits, 1 stage splits)", "13: 2 builds (1 call-site splits)", "14: 5 builds (3 call-site splits, 1 stage splits)", "15: 2 builds (1 stage splits)", "16: 3 builds (2 call-site splits)", "17: 3 builds (1 call-site splits, 1 stage splits)", "19: 2 builds (1 stage splits)" ],
       "shapes built more than once, predicted" : [ "0: 2 builds (1 stage splits)", "1: 2 builds (1 stage splits)", "3: 2 builds (1 stage splits)", "4: 2 builds (1 stage splits)", "5: 3 builds (1 call-site splits, 1 stage splits)", "6: 2 builds (1 stage splits)", "8: 2 builds (1 stage splits)", "9: 2 builds (1 stage splits)", "10: 2 builds (1 stage splits)", "11: 2 builds (1 stage splits)", "12: 2 builds (1 stage splits)", "13: 2 builds (1 call-site splits)", "14: 2 builds (1 stage splits)", "15: 2 builds (1 stage splits)", "17: 2 builds (1 stage splits)", "19: 2 builds (1 stage splits)" ],
-      "predicted first groupings, digest" : "18e86f99f2097731"
+      "predicted first groupings, digest" : "18e86f99f2097731",
+      "emitted in one build, planned" : 20,
+      "loop methods, planned" : 3886,
+      "shapes with more loop methods, planned" : [ "2: 165 -> 166", "10: 211 -> 212", "16: 162 -> 164", "17: 193 -> 194" ],
+      "declined, planned" : 0,
+      "builds, planned" : 20,
+      "stages planned" : 15,
+      "reactions, planned" : {
+        "byte regroups" : 0,
+        "call-site splits" : 0,
+        "call-site rollbacks" : 0,
+        "stage splits" : 0,
+        "exact grouping fallbacks" : 0,
+        "prediction fallbacks" : 0
+      },
+      "shapes built more than once, planned" : [ ],
+      "corrections, planned" : [ ]
     }
   }
 }

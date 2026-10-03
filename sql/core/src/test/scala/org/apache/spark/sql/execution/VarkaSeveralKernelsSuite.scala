@@ -94,6 +94,17 @@ class VarkaSeveralKernelsSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
+  test("under planSize eight hundred greatest entries, past the driver's ceiling with the split " +
+      "driver off, answer from two kernels the plan cut without a search (task 236)") {
+    withWideDates {
+      val outputs = (1 to 800).map { k =>
+        s"greatest(add_months(c0, $k), date_add(c0, $k), last_day(c0)) AS g$k"
+      } :+ "i"
+      check(VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withSeveralKernels(true)
+        .withPlanSize(true), s"SELECT ${outputs.mkString(", ")} FROM $view")
+    }
+  }
+
   test("two hundred greatest entries, past the unrolled driver's ceiling, answer from two " +
       "kernels") {
     withWideDates {

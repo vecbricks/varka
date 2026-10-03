@@ -2587,6 +2587,59 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaShapeCache.buildCount - before === probes, "the kept kernel was built again")
   }
 
+  test("under planSize the compiler cuts a projection past the driver's ceiling in one step, " +
+      "at the bisection's kernels, with one class built per kernel (task 236)") {
+    // PLAN_TASK_236.md 3.4: with the split driver off, eight hundred ladder entries are two
+    // kernels. The loop finds the first by bisection, ten or more emissions each building and
+    // measuring a class; the plan reads the cut off the driver built alone and declines before
+    // any build, so the first emission builds nothing and each kernel is then built once.
+    def entry(k: Int): NamedExpression =
+      out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
+    val list = (1 to 800).map(entry)
+    val loop = VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withSeveralKernels(true)
+    VarkaShapeCache.invalidateAll()
+    val before = VarkaShapeCache.buildCount
+    val bisected = VarkaExpressionCompiler.compilePartial(list, childOutput, loop).get
+    val searched = VarkaShapeCache.buildCount - before
+    assert(searched > 10, s"$searched emissions: the loop did not bisect")
+    val planned = VarkaExpressionCompiler.compilePartial(list, childOutput,
+      loop.withPlanSize(true)).get
+    val cut = VarkaShapeCache.buildCount - before - searched
+    assert(planned.kernels.size === 2 && planned.declines.isEmpty)
+    assert(cut <= planned.kernels.size + 1, s"$cut emissions for two planned kernels")
+    // The plan cuts where the bisection cut, or within a few entries before it, where the loop
+    // fitted the driver only through its fallbacks (PLAN_TASK_236.md 2.3).
+    val Seq(first, _) = bisected.kernels.map(_.outputs.size)
+    val Seq(plannedFirst, plannedRest) = planned.kernels.map(_.outputs.size)
+    assert(plannedFirst <= first && first - plannedFirst <= 8 && plannedFirst + plannedRest === 800,
+      s"the plan cut at $plannedFirst where the bisection cut at $first")
+    assert(planned.specs.take(plannedFirst).forall(_.isInstanceOf[FusedOutput]))
+    assert(planned.specs.drop(plannedFirst) === (0 until plannedRest).map(KernelOutput(1, _)))
+  }
+
+  test("under planSize a kernel the plan read as fitting that declines is cut once from the " +
+      "built grouping, not bisected") {
+    // The hook takes bytes off the plan's reading of the driver, so the plan admits eight
+    // hundred entries as one class; the build finds the driver over, and the decline carries the
+    // cut read off the grouping it built, which the compiler takes in one step.
+    def entry(k: Int): NamedExpression =
+      out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k + 1)), LastDay(d2))))
+    val list = (1 to 800).map(entry)
+    val options = VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withSeveralKernels(true)
+      .withPlanSize(true)
+    VarkaEmitterTestSupport.setPlanDriverSlack(100000)
+    try {
+      VarkaShapeCache.invalidateAll()
+      val before = VarkaShapeCache.buildCount
+      val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, options).get
+      val emissions = VarkaShapeCache.buildCount - before
+      assert(partial.kernels.size === 2 && partial.declines.isEmpty)
+      assert(emissions <= 3, s"$emissions emissions: the mispredicted kernel was bisected")
+    } finally {
+      VarkaEmitterTestSupport.setPlanDriverSlack(0)
+    }
+  }
+
   test("a projection with a nondeterministic entry declines whole, with the reason on each entry") {
     // A Varka node evaluates residual entries through projections of its own, on its row path
     // and beside its kernel, where vanilla's Project draws `rand` from one generator per

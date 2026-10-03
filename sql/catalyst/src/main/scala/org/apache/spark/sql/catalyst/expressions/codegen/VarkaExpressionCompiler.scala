@@ -497,25 +497,39 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     def positions(partial: PartialVarkaProjection): Seq[Int] =
       partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
         .sortBy(_._1).map(_._2)
-    def ask(demoted: Map[Int, String]): Option[(PartialVarkaProjection, Seq[Int], String)] = {
+    def ask(demoted: Map[Int, String])
+        : Option[(PartialVarkaProjection, Seq[Int], String, Int)] = {
       classifyOnce(projectList, childOutput, demoted, options)._1.flatMap { partial =>
-        admitBySize(partial.fused, options).map { case (named, reason) =>
-          (partial, named, reason)
+        admitBySize(partial.fused, options).map { case (named, reason, cut) =>
+          (partial, named, reason, cut)
         }
       }
     }
     var demoted = initial
     // The entries a class-wide decline demoted: they fit, only not in this kernel.
     var bisected = Set.empty[Int]
+    // The cuts the plan has made for this kernel, each one emission that builds nothing; after
+    // two the bisection has the last word (PLAN_TASK_236.md 3.4).
+    var plannedCuts = 0
     while (true) {
       ask(demoted) match {
         case None =>
           val (partial, declines, alone) = classifyOnce(projectList, childOutput, demoted, options)
           return (partial, declines, bisected ++ alone)
-        case Some((partial, named, reason)) if named.nonEmpty =>
+        case Some((partial, named, reason, _)) if named.nonEmpty =>
           val at = positions(partial)
           demoted ++= named.map(at).map(_ -> reason)
-        case Some((partial, _, reason)) =>
+        case Some((partial, _, reason, cut))
+            if cut > 0 && cut < positions(partial).size && plannedCuts < 2 =>
+          // Under `planSize` the decline says how many of the fused entries one class serves,
+          // read off the driver over the grouping the emitter formed: the rest are set aside in
+          // one step. The next ask plans the prefix on its own grouping, so a prefix whose own
+          // driver is still over cuts once more, and after that the bisection decides.
+          val at = positions(partial)
+          plannedCuts += 1
+          demoted ++= at.drop(cut).map(_ -> reason)
+          bisected ++= at.drop(cut)
+        case Some((partial, _, reason, _)) =>
           val at = positions(partial)
           // `hi` entries are known not to fit as a class; `lo` entries are known to fit, or to
           // decline naming outputs, which the next round handles. Nothing fused fits trivially.
@@ -525,7 +539,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
           while (hi - lo > 1) {
             val mid = (lo + hi) / 2
             ask(demoted ++ at.drop(mid).map(_ -> reasonAtHi)) match {
-              case Some((_, named, r)) if named.isEmpty =>
+              case Some((_, named, r, _)) if named.isEmpty =>
                 hi = mid
                 reasonAtHi = r
               case _ =>
@@ -676,8 +690,9 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * the class from them, so planning on the Spark driver loads nothing, and a bisection's probes
    * leave no class behind but the one that runs. A decline names the outputs whose own group
    * cannot fit; a class-wide one names none, and the caller demotes outputs from the end,
-   * since the driver it leaves over the budget grows with their number ([[classify]] bisects).
-   * Any other failure of the build admits the shape as before, and is logged once per JVM: the
+   * since the driver it leaves over the budget grows with their number ([[classify]] bisects,
+   * or cuts in one step where the decline carries the plan's cut, task 236). Any other failure
+   * of the build admits the shape as before, and is logged once per JVM: the
    * executor meets it where it always has, behind the ghost fallback. A class that builds but
    * fails to define or link is no longer met here at all, since nothing is defined: the
    * executors meet it on its first batch, the same fallback; the tests verify every admitted
@@ -685,7 +700,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    */
   private def admitBySize(
       fused: CompiledVarkaProjection,
-      options: VarkaEmitOptions): Option[(Seq[Int], String)] = {
+      options: VarkaEmitOptions): Option[(Seq[Int], String, Int)] = {
     // Asked with the budget off as well: the legacy form is built once and never measured, so
     // the only decline it can give is the class-file cap's, and that one is worth a residual
     // at plan time rather than a per-task fallback on the executor (PLAN_TASK_219.md 10).
@@ -699,7 +714,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       case d: VarkaEmitDeclined =>
         val named = d.outputs().asScala.map(_.intValue).toSeq
         val reason = s"over the emitter's method budget (${d.getMessage.split("; ").head})"
-        Some((named, reason))
+        Some((named, reason, d.plannedCut()))
       case NonFatal(e) =>
         // Not a decline, so not a shape the emitter refuses by design: an emitter bug, or a
         // failure of the JVM's, which the executor meets behind the ghost fallback as before.
@@ -788,7 +803,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     while (true) {
       val once = predicateOnce(condition, childOutput, demoted, options)
       val more = once.compiled.flatMap { predicate =>
-        admitBySize(predicate.fused, options).map { case (_, reason) =>
+        admitBySize(predicate.fused, options).map { case (_, reason, _) =>
           predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
         }
       }

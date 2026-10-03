@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -188,6 +189,35 @@ public final class VarkaLoopEmitter {
   static int emitLanesForTest(VarkaEmitOptions options, Lane lane) {
     return emitLanes(options, lane);
   }
+
+  /**
+   * The plan's reading of the drivers under {@code planSize}: the two drivers built by
+   * themselves over the first grouping of {@code outputs} and measured ({@link #driverAlone}),
+   * for the suite that holds them to the drivers of the built class, byte for byte.
+   */
+  static VarkaEmittedClass plannedDriversForTest(List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    Analysis analysis = new Analysis(numInputs, numLiterals, options, laneOf(outputs));
+    for (VarkaVectorIR root : outputs) {
+      analysis.analyzeRoot(root);
+    }
+    analysis.collectArmContexts(outputs);
+    analysis.collectGuardedProducers();
+    analysis.planWordAlgebra();
+    analysis.planBitmapPass(outputs);
+    List<List<Integer>> groups = groupOutputs(outputs, options);
+    analysis.planMaterialized(outputs, groups);
+    return driverAlone(ClassDesc.of("org.apache.spark.sql.varka.execution.VarkaPlannedDriver"),
+        outputs, analysis, numLiterals, groups);
+  }
+
+  /**
+   * A test hook for the plan's reading of the driver: bytes taken off what the drivers built
+   * alone measure, so a test can make the plan say a driver fits that the build then finds over,
+   * and watch the correction. Zero outside such a test.
+   */
+  static volatile int planDriverSlackForTest = 0;
 
   /**
    * The telemetry-defaulted form of
@@ -346,6 +376,19 @@ public final class VarkaLoopEmitter {
     // `exactGrouping` the first grouping is the best partition of the outputs under the same
     // rule rather than the greedy walk's; a class it would make decline is built again without
     // it, keeping the prediction, before the prediction is dropped (see `PLAN_TASK_200.md`).
+    //
+    // Under `planSize` the first build is planned (task 236). The driver is the one method no
+    // regroup shrinks and the one whose bytes are known before the class exists: from a table it
+    // is its calls alone, a fixed number of bytes a group, so it is built by itself over the
+    // first grouping and measured. A driver over the budget is split into stages sized off that
+    // measurement in the first build, where the loop above would build the class whole, measure
+    // it and build it again; without the split driver it declines before any build, naming the
+    // largest prefix of the outputs one class serves, which the compiler cuts the projection at
+    // in one step rather than by bisection. The prediction closes each group under the budgets
+    // less the fit's margins (VarkaEmitCostTable), so a method it under-predicts still measures
+    // within them. The measurement keeps the last word: a reaction to the planned build is a
+    // correction, counted and named in the trace, and anything still over after it runs the loop
+    // above as the last resort, unchanged (`PLAN_TASK_236.md` 3).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -369,13 +412,50 @@ public final class VarkaLoopEmitter {
     ExactRuns exactRuns = new ExactRuns();
     // Groups per stage under `splitDriver`, 0 until a build's drivers alone are over the budget.
     int stageGroups = 0;
+    boolean planned = options.planSize() && budget > 0;
+    // Under the plan with the prediction, each group's prediction, so a correction can say what
+    // the plan expected of the method it corrects.
+    TallyRecord predictions = planned && options.predictGrouping()
+        ? new TallyRecord(VarkaEmitCostTable.PRICES, new ArrayList<>(), false) : null;
     while (true) {
-      List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, null, exactRuns);
-      trace.builds++;
+      if (predictions != null) {
+        predictions.tallies().clear();
+      }
+      List<List<Integer>> groups = groupOutputs(outputs, grouping, forcedStarts, predictions,
+          exactRuns);
       // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
       // address as an eighth argument (task 198).
       analysis.planMaterialized(outputs, groups);
+      if (planned && stageGroups == 0 && options.driverOutputTable()) {
+        // The plan: the driver built alone over this grouping, and stages or a cut read off it.
+        // Read again for every grouping whose stages are not yet sized - the first, and one a
+        // rollback or a fallback starts afresh - so no build is spent finding the driver over.
+        analysis.stageGroups = 0;
+        VarkaEmittedClass driver = driverAlone(classDesc, outputs, analysis, numLiterals, groups);
+        int widest = widestDriver(driver) - planDriverSlackForTest;
+        if (widest > budget) {
+          int fit = Math.max(1, (int) ((long) groups.size() * (budget - STAGE_MARGIN) / widest));
+          if (options.splitDriver()) {
+            stageGroups = fit;
+            trace.plannedStages++;
+          } else {
+            // One class serves the outputs of the first `fit` groups; the rest are the
+            // compiler's to set aside (VarkaEmitDeclined.plannedCut).
+            int cut = 0;
+            for (int g = 0; g < Math.min(fit, groups.size() - 1); g++) {
+              cut += groups.get(g).size();
+            }
+            trace.plannedDeclines++;
+            throw new VarkaEmitDeclined(String.join("; ", overLimits(driver, budget))
+                + "; planned before the build: " + fit + " of " + groups.size()
+                + " groups fit the driver", List.of(), cut);
+          }
+        }
+      }
+      trace.builds++;
+      // Whether this build is the plan's, whose reactions are corrections of it.
+      boolean correcting = planned && trace.builds == 1;
       analysis.stageGroups = stageGroups;
       byte[] bytes;
       VarkaEmittedClass measured;
@@ -410,18 +490,26 @@ public final class VarkaLoopEmitter {
         limit = METHOD_CODE_CAP;
       }
       List<Integer> stuck = new ArrayList<>();
-      boolean split = halveGroups(groupsOver(measured, limit).keySet(), groups, 1, forcedStarts,
-          stuck);
+      SortedMap<Integer, Map.Entry<String, Integer>> overBytes = groupsOver(measured, limit);
+      boolean split = halveGroups(overBytes.keySet(), groups, 1, forcedStarts, stuck);
       if (split) {
         trace.byteRegroups++;
+        if (correcting) {
+          noteCorrections(trace, overBytes, predictions, limit, true);
+        }
       }
       // Only a built class has call-site counts: a refusal's measurement is one method's bytes.
-      if (bytes != null && siteBudget > 0 && stuck.isEmpty()
-          && halveGroups(groupsOverCallSites(measured, siteBudget).keySet(), groups, narrowest,
-              forcedStarts, null)) {
-        siteSplit = true;
-        split = true;
-        trace.siteSplits++;
+      if (bytes != null && siteBudget > 0 && stuck.isEmpty()) {
+        SortedMap<Integer, Map.Entry<String, Integer>> overSites =
+            groupsOverCallSites(measured, siteBudget);
+        if (halveGroups(overSites.keySet(), groups, narrowest, forcedStarts, null)) {
+          siteSplit = true;
+          split = true;
+          trace.siteSplits++;
+          if (correcting) {
+            noteCorrections(trace, overSites, predictions, siteBudget, false);
+          }
+        }
       }
       if (split) {
         continue;
@@ -444,6 +532,10 @@ public final class VarkaLoopEmitter {
         if (next > 0) {
           stageGroups = next;
           trace.stageSplits++;
+          if (correcting) {
+            trace.corrections.add("the stages: " + String.join("; ", findings) + "; resized to "
+                + next + " groups a stage");
+          }
           continue;
         }
       }
@@ -474,7 +566,8 @@ public final class VarkaLoopEmitter {
       } else {
         throw new VarkaEmitDeclined(String.join("; ", findings)
             + (stuck.isEmpty() ? "" : "; output" + (stuck.size() == 1 ? " " : "s ") + stuck
-                + " cannot be regrouped smaller"), stuck);
+                + " cannot be regrouped smaller"), stuck,
+            planned && stuck.isEmpty() ? plannedCut(measured, limit, budget, groups) : -1);
       }
       siteBudget = options.callSiteBudget();
       forcedStarts.clear();
@@ -530,6 +623,100 @@ public final class VarkaLoopEmitter {
 
   /** The bytes a stage size leaves for a stage's own code beside its calls. */
   private static final int STAGE_MARGIN = 64;
+
+  /**
+   * The drivers of the class over {@code groups}, built by themselves and measured, for the plan
+   * under {@code planSize}: the two driver methods and nothing else, so their calls name methods
+   * the class does not have, which the Class-File API does not mind. From a table the driver's
+   * code is its calls, so what is measured here is what the full class's driver measures, and
+   * a driver past the class-file cap is read from the refusal as {@link #emit} reads one.
+   */
+  private static VarkaEmittedClass driverAlone(ClassDesc classDesc, List<VarkaVectorIR> outputs,
+      Analysis analysis, int numLiterals, List<List<Integer>> groups) {
+    boolean anyColumns = analysis.referencedColumns != 0;
+    analysis.owner = classDesc;
+    MethodTypeDesc desc = analysis.bodyDesc();
+    try {
+      byte[] bytes = ClassFile.of().build(classDesc, (ClassBuilder b) -> {
+        b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL);
+        if (!analysis.nullsFromValidInputs) {
+          b.withMethodBody("runDense", desc, AccessFlag.PRIVATE.mask(),
+              (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, true, BodyMode.DRIVER, -1,
+                  classDesc, outputs, analysis, numLiterals, groups));
+        }
+        if (anyColumns || analysis.nullsFromValidInputs) {
+          b.withMethodBody("runMasked", desc, AccessFlag.PRIVATE.mask(),
+              (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, false, BodyMode.DRIVER, -1,
+                  classDesc, outputs, analysis, numLiterals, groups));
+        }
+      });
+      return VarkaEmittedClass.measure(bytes);
+    } catch (IllegalArgumentException e) {
+      Optional<VarkaEmittedClass> refusal = VarkaEmittedClass.refused(e);
+      if (refusal.isPresent()) {
+        return refusal.get();
+      }
+      throw e;
+    }
+  }
+
+  /** The bytes of the wider of a class's two drivers, 0 where it has neither. */
+  private static int widestDriver(VarkaEmittedClass measured) {
+    int widest = 0;
+    for (String driver : List.of("runDense", "runMasked")) {
+      Integer bytes = measured.codeLength().get(driver);
+      if (bytes != null) {
+        widest = Math.max(widest, bytes);
+      }
+    }
+    return widest;
+  }
+
+  /**
+   * The plan's cut for a class-wide decline on the driver ({@link VarkaEmitDeclined#plannedCut}):
+   * the outputs of the first groups whose calls fit the budget, by the arithmetic that sizes a
+   * stage; -1 where a method other than a driver is over {@code limit}, which no cut answers.
+   */
+  private static int plannedCut(VarkaEmittedClass measured, int limit, int budget,
+      List<List<Integer>> groups) {
+    for (Map.Entry<String, Integer> e : measured.codeLength().entrySet()) {
+      if (e.getValue() > limit && !e.getKey().startsWith("run")) {
+        return -1;
+      }
+    }
+    int widest = widestDriver(measured);
+    if (widest <= budget || groups.size() < 2 || budget <= STAGE_MARGIN) {
+      return -1;
+    }
+    int fit = Math.max(1, (int) ((long) groups.size() * (budget - STAGE_MARGIN) / widest));
+    int cut = 0;
+    for (int g = 0; g < Math.min(fit, groups.size() - 1); g++) {
+      cut += groups.get(g).size();
+    }
+    return cut;
+  }
+
+  /**
+   * Names each group {@code over} names as a correction of the planned build in the trace: the
+   * method, what the plan predicted for it where it predicted, and what it measured against
+   * {@code limit}, in bytes or in call sites.
+   */
+  private static void noteCorrections(VarkaEmitTrace trace,
+      SortedMap<Integer, Map.Entry<String, Integer>> over, TallyRecord predictions, int limit,
+      boolean bytes) {
+    for (Map.Entry<Integer, Map.Entry<String, Integer>> e : over.entrySet()) {
+      String predicted = "unpredicted";
+      if (predictions != null && e.getKey() < predictions.tallies().size()) {
+        double[] p = predictions.tallies().get(e.getKey()).predicted();
+        if (p != null) {
+          predicted = "predicted " + Math.round(bytes ? VarkaEmitCost.maxBytes(p)
+              : VarkaEmitCost.maxSites(p));
+        }
+      }
+      trace.corrections.add(e.getValue().getKey() + ": " + predicted + ", measured "
+          + e.getValue().getValue() + ", limit " + limit + (bytes ? " bytes" : " call sites"));
+    }
+  }
 
   /**
    * Adds a forced start at the middle output of each of the groups {@code over} names that
@@ -803,13 +990,18 @@ public final class VarkaLoopEmitter {
   static List<VarkaEmitCost.Tally> talliesForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Map<String, double[]> prices) {
     List<VarkaEmitCost.Tally> tallies = new ArrayList<>();
-    groupOutputs(List.copyOf(outputs), options, Set.of(), new TallyRecord(prices, tallies),
-        new ExactRuns());
+    groupOutputs(List.copyOf(outputs), options, Set.of(),
+        new TallyRecord(prices, tallies, true), new ExactRuns());
     return tallies;
   }
 
-  /** Where {@link #talliesForTest} asks {@link #groupOutputs} to leave each group's tally. */
-  private record TallyRecord(Map<String, double[]> prices, List<VarkaEmitCost.Tally> tallies) {}
+  /**
+   * Where {@link #talliesForTest} asks {@link #groupOutputs} to leave each group's tally, with
+   * its feature counts where {@code keepCounts}; the plan under {@code planSize} asks for the
+   * predictions alone.
+   */
+  private record TallyRecord(Map<String, double[]> prices, List<VarkaEmitCost.Tally> tallies,
+      boolean keepCounts) {}
 
   /**
    * As above, with {@code forcedStarts}: outputs that begin a new group whatever the weights
@@ -843,7 +1035,7 @@ public final class VarkaLoopEmitter {
     // units the byte and call-site budgets are read in after the build (see `PLAN_TASK_199.md`).
     boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
     Function<VarkaVectorIR.LaneType, VarkaEmitCost.Tally> newTally =
-        record != null ? lane -> new VarkaEmitCost.Tally(lane, record.prices(), true)
+        record != null ? lane -> new VarkaEmitCost.Tally(lane, record.prices(), record.keepCounts())
             : predict ? lane -> new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false)
             : null;
     VarkaVectorIR.LaneType lane = VarkaVectorIR.emissionLane(outputs.get(0));
@@ -859,8 +1051,7 @@ public final class VarkaLoopEmitter {
       // count and only costs it the CSE. That matters once a node can outweigh the budget on
       // its own: after one calendar output `ops` already exceeds it, so without this test
       // `SELECT year(d) AS a, year(d) AS b` would emit the decomposition twice.
-      if (!current.isEmpty()
-          && ((step.marginal() > 0 && !step.fits()) || forcedStarts.contains(o))) {
+      if (!current.isEmpty() && (closes(step, options) || forcedStarts.contains(o))) {
         groups.add(current);
         if (record != null) {
           record.tallies().add(group.tally);
@@ -985,7 +1176,7 @@ public final class VarkaLoopEmitter {
           Admission step = admit(run, outputs.get(o), o - i, options, predict, materialize,
               earlier, lane);
           // As in the greedy walk, an output that adds nothing joins whatever the budgets say.
-          if (o > i && step.marginal() > 0 && !step.fits()) {
+          if (o > i && closes(step, options)) {
             break;
           }
           scratch[length++] = run.ops;
@@ -1008,6 +1199,20 @@ public final class VarkaLoopEmitter {
   private record Admission(GroupOps withNext, int marginal, boolean fitsWeights, boolean fits) {}
 
   /**
+   * Whether the grouping closes its group before the output {@code step} added. An output that
+   * adds nothing - a tree the group already holds - joins whatever the budgets say, since
+   * splitting it off cannot reduce the method's ops and only costs it the CSE: with one
+   * exception, under the plan. Its store is a call site, and it counts toward the group's width,
+   * so a group of heavy outputs exempt from the call-site budget by its width can pass the
+   * exemption on such outputs alone and be split after the build on what the prediction already
+   * said (item 71 of {@code SCOPE_MILESTONE_7.md}, answered in {@code PLAN_TASK_236.md}): under
+   * {@code planSize} the prediction judges that step too, so the group closes before it instead.
+   */
+  private static boolean closes(Admission step, VarkaEmitOptions options) {
+    return !step.fits() && (step.marginal() > 0 || options.planSize());
+  }
+
+  /**
    * Adds {@code output} to {@code withNext} - the group so far, or a copy of it where the caller
    * keeps the group as it was, as the greedy walk does - and judges the step; see
    * {@link Admission}.
@@ -1018,8 +1223,13 @@ public final class VarkaLoopEmitter {
     int before = withNext.ops;
     int marginal = withNext.add(output);
     if (marginal == 0) {
-      // Every caller joins such an output whatever the budgets say, so it is not judged.
-      return new Admission(withNext, 0, true, true);
+      // Every caller joins such an output whatever the budgets say, so it is not judged - except
+      // under the plan where it takes the group past the width the call-site budget exempts, and
+      // the group is predicted over that budget (see `closes`).
+      boolean fits = !predict || !options.planSize()
+          || groupSize + 1 <= Math.max(1, options.heavyGroupOutputs())
+          || withNext.predictedWithin(options, groupSize + 1);
+      return new Admission(withNext, 0, true, fits);
     }
     // What clause 2 counts as reuse. By default only a civil-from-days prefix the group already
     // computes. Under `shareWholeNodes` any node the group already holds counts too, measured as
@@ -1160,11 +1370,16 @@ public final class VarkaLoopEmitter {
       if (predicted == null) {
         return true;
       }
-      if (VarkaEmitCost.maxBytes(predicted) > options.methodByteBudget()) {
+      // Under the plan the budgets are kept with the fit's margins to spare, so a method the
+      // prices under-predict by as much as they did on their own groups still measures within
+      // them (task 236).
+      double bytesMargin = options.planSize() ? VarkaEmitCostTable.BYTES_MARGIN : 0;
+      double sitesMargin = options.planSize() ? VarkaEmitCostTable.SITES_MARGIN : 0;
+      if (VarkaEmitCost.maxBytes(predicted) > options.methodByteBudget() * (1 - bytesMargin)) {
         return false;
       }
       return options.callSiteBudget() == 0 || outputs <= Math.max(1, options.heavyGroupOutputs())
-          || VarkaEmitCost.maxSites(predicted) <= options.callSiteBudget();
+          || VarkaEmitCost.maxSites(predicted) <= options.callSiteBudget() * (1 - sitesMargin);
     }
 
     /**

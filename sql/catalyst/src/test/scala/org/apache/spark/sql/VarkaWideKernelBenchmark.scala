@@ -51,13 +51,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * and the mixed family at a hundred and two hundred, with them built, elided, and built again
  * last as a control for the order of the cases. See `PLAN_TASK_239.md` 6.
  *
- * The last two sections go past the driver from a table's own ceiling, about 180 groups: eight
- * hundred and twelve hundred ladder entries, two and three hundred groups. One kernel whose driver
- * calls its groups through stages (`VarkaEmitOptions.splitDriver`, A') is priced against several
+ * Two sections go past the driver from a table's own ceiling, about 180 groups: eight hundred
+ * and twelve hundred ladder entries, two and three hundred groups. One kernel whose driver calls
+ * its groups through stages (`VarkaEmitOptions.splitDriver`, A') is priced against several
  * kernels run in turn over each batch (`VarkaEmitOptions.severalKernels`, B), split as the
  * compiler splits them - the largest prefix one kernel serves, then the rest - each reading the
  * input again and recomputing the prefix it shares. Then one emission of each, with the bytes
- * of the classes. See `PLAN_TASK_190.md` 11.
+ * of the classes, each form as the size loop builds it and as the plan does
+ * (`VarkaEmitOptions.planSize`). See `PLAN_TASK_190.md` 11 and `PLAN_TASK_236.md` 6.
+ *
+ * The last two sections are task 236's: both forms planned, on the ladder and on sixty-four
+ * dates listed by field, with A' first and again last; and the predicted grouping against the
+ * weights' and the planned grouping with the fit's margins, on the cheap tails, the mixed family
+ * and the ladder (item 71 of `SCOPE_MILESTONE_7.md`).
  *
  * {{{
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaWideKernelBenchmark"
@@ -96,15 +102,31 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
     }
   }
 
+  /** `year(d) + k`, the cheap tail the call-site budget was read on. */
+  private def tailEntry(k: Int): VarkaVectorIR =
+    new IntArith(IntOp.ADD, Overflow.WRAP, new Year(new ColumnRef(0)), new LiteralSlot(k))
+
   private var nextId = 0
 
   private def emit(roots: Seq[VarkaVectorIR], options: VarkaEmitOptions,
-      loader: VarkaGeneratedClassLoader): VarkaFusedKernel = {
+      loader: VarkaGeneratedClassLoader, numInputs: Int = 1): VarkaFusedKernel = {
     nextId += 1
     val name = s"org.apache.spark.sql.varka.execution.VarkaWideBench$nextId"
     loader.defineGeneratedClass(name, VarkaLoopEmitter.emit(name,
-      java.util.List.of(roots: _*), 1, roots.size, null, null, options))
+      java.util.List.of(roots: _*), numInputs, roots.size, null, null, options))
     loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
+  }
+
+  /**
+   * Sixty-four dates, four fields of each, listed by field: every `year`, then every `month`,
+   * `quarter` and `dayofmonth`. The shape of `PLAN_TASK_236.md` 2.4, where several kernels' cut
+   * in projection order parts the fields of a date, so the second kernel decomposes every date
+   * again where the one class computes each prefix once and loads it (task 198).
+   */
+  private val datesByField: Seq[VarkaVectorIR] = {
+    val cols = (0 until 64).map(new ColumnRef(_))
+    cols.map(new Year(_)) ++ cols.map(new Month(_)) ++ cols.map(new Quarter(_)) ++
+      cols.map(new DayOfMonth(_))
   }
 
   /** `n` ladder entries numbered from literal slot 0: one kernel's roots. */
@@ -139,6 +161,31 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
     }
   }
 
+  /**
+   * How the compiler splits `roots` under `severalKernels` with `planSize` on: the emitter
+   * declines a shape whose driver is over the budget before building it, naming the largest
+   * prefix one class serves (`VarkaEmitDeclined.plannedCut`), and the rest is asked again. Each
+   * kernel's entries keep their literal slots, so the sizes are what matters here.
+   */
+  private def plannedSizes(roots: Seq[VarkaVectorIR], numInputs: Int,
+      options: VarkaEmitOptions): Seq[Int] = {
+    if (roots.isEmpty) {
+      return Nil
+    }
+    try {
+      VarkaLoopEmitter.emit("VarkaWideBenchPlan", java.util.List.of(roots: _*), numInputs,
+        roots.size, null, null, options.withPlanSize(true))
+      Seq(roots.size)
+    } catch {
+      case d: VarkaEmitDeclined if d.plannedCut > 0 =>
+        d.plannedCut +: plannedSizes(roots.drop(d.plannedCut), numInputs, options)
+    }
+  }
+
+  /** `roots` cut into kernels of `sizes`, in order. */
+  private def cut(roots: Seq[VarkaVectorIR], sizes: Seq[Int]): Seq[Seq[VarkaVectorIR]] =
+    sizes.scanLeft(0)(_ + _).sliding(2).map { case Seq(from, to) => roots.slice(from, to) }.toSeq
+
   /** The loop methods of an emitted kernel: its groups. */
   private def loops(kernel: VarkaFusedKernel): Int =
     kernel.getClass.getDeclaredMethods.count(_.getName.startsWith("loopDense"))
@@ -169,8 +216,12 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       val dsts = Array.fill(past.max)(arena.allocate(chunk * 4L, 8))
       val dstValidities = Array.fill(past.max)(arena.allocate(chunk / 8L, 8))
 
-      /** Every 4096-row batch of the column through `kernel`, null-free or with nulls. */
-      def scan(kernel: VarkaFusedKernel, outputs: Int, withNulls: Boolean): Unit = {
+      /**
+       * Every 4096-row batch of the column through `kernel`, null-free or with nulls; a kernel
+       * over several inputs reads the one column through each of them.
+       */
+      def scan(kernel: VarkaFusedKernel, outputs: Int, withNulls: Boolean,
+          inputs: Int = 1): Unit = {
         val lits = Array.tabulate(outputs)(k => k % 12 + 1)
         val dstData = dsts.take(outputs).map(_.address())
         val dstValidity = dstValidities.take(outputs).map(_.address())
@@ -178,9 +229,10 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
         var batch = 0
         while (done < numRows) {
           val n = math.min(chunk, numRows - done)
-          val status = kernel.run(Array(data.address() + done * 4L),
-            Array(if (withNulls) validity.address() + done / 8L else 0L),
-            Array(if (withNulls) batchNulls(batch) else 0), dstData, dstValidity, lits, n)
+          val status = kernel.run(Array.fill(inputs)(data.address() + done * 4L),
+            Array.fill(inputs)(if (withNulls) validity.address() + done / 8L else 0L),
+            Array.fill(inputs)(if (withNulls) batchNulls(batch) else 0), dstData, dstValidity,
+            lits, n)
           require(status == 0, s"the kernel declined a batch: status $status")
           done += n
           batch += 1
@@ -324,9 +376,82 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
             sink += kernelSizes(n, oneKernel).size
             sizes.foreach(k => sink += build(ladder(k), oneKernel).length)
           }
+          // Planned (task 236): the split driver sizes its stages off a driver built alone, one
+          // build; several kernels' cut is read off the same, one emission that builds nothing
+          // and then one build a kernel.
+          benchmark.addCase(s"$n entries, split driver, planned") { _ =>
+            sink += build(ladder(n), splitDriver.withPlanSize(true)).length
+          }
+          benchmark.addCase(s"$n entries, several kernels, planned") { _ =>
+            val planned = plannedSizes(ladder(n), 1, oneKernel)
+            cut(ladder(n), planned).foreach(k => sink += build(k, oneKernel.withPlanSize(true))
+              .length)
+          }
         }
         benchmark.run()
         require(sink != Int.MinValue)
+      }
+
+      // Task 190's question, both forms planned (PLAN_TASK_236.md 3.6): the split driver (A')
+      // against several kernels (B) on the ladder, B's best case, and on sixty-four dates by
+      // field, its worst, where its cut parts the fields of a date. A' runs first and again last,
+      // a control for the case order 11.6 did not control.
+      runBenchmark("past the driver's ceiling, both forms planned: a split driver against " +
+          "several kernels, the split driver first and again last") {
+        val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val plannedSplit = splitDriver.withPlanSize(true)
+        val plannedOne = oneKernel.withPlanSize(true)
+        val shapes = past.map(n => (s"$n ladder entries", ladder(n), 1)) :+
+          ("sixty-four dates by field, 256 outputs", datesByField, 64)
+        val forms = shapes.map { case (label, roots, inputs) =>
+          val sizes = plannedSizes(roots, inputs, oneKernel)
+          require(sizes.size > 1, s"$label fits one kernel: nothing to compare")
+          val staged = emit(roots, plannedSplit, loader, inputs)
+          val kernels = cut(roots, sizes).map(emit(_, plannedOne, loader, inputs))
+          (label, roots.size, inputs, sizes, staged, kernels)
+        }
+        for (withNulls <- Seq(false, true); (label, n, inputs, sizes, staged, kernels) <- forms) {
+          val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
+          benchmark.addCase(s"$label, split driver, planned, $nullsLabel") { _ =>
+            scan(staged, n, withNulls, inputs)
+          }
+          benchmark.addCase(s"$label, several kernels (${sizes.mkString(" + ")}), planned, " +
+              s"$nullsLabel") { _ =>
+            kernels.zip(sizes).foreach { case (kernel, k) => scan(kernel, k, withNulls, inputs) }
+          }
+          benchmark.addCase(s"$label, split driver, planned, again, $nullsLabel") { _ =>
+            scan(staged, n, withNulls, inputs)
+          }
+        }
+        benchmark.run()
+      }
+
+      // Item 71 of SCOPE_MILESTONE_7.md, brought into task 236 (PLAN_TASK_236.md 3.5): what the
+      // predicted grouping costs at run time against the weights', and the planned grouping
+      // with the fit's margins, on the families the prediction closes groups on. The weights
+      // run first and again last as the control.
+      runBenchmark("the predicted grouping against the weights, and planned with the margins") {
+        val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
+          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
+        val weights = VarkaEmitOptions.DEFAULTS.withPredictGrouping(false)
+        val predicted = VarkaEmitOptions.DEFAULTS.withPredictGrouping(true)
+        val planned = predicted.withPlanSize(true)
+        val shapes = Seq(22, 64).map(n => (s"$n cheap tails", (0 until n).map(tailEntry))) ++
+          Seq(("200 mixed entries", (0 until 200).map(mixedEntry)),
+            (s"$widest ladder entries", ladder(widest)))
+        val forms = Seq("weights" -> weights, "predicted" -> predicted, "planned" -> planned,
+          "weights, again" -> weights)
+        for (withNulls <- Seq(false, true); (shape, roots) <- shapes) {
+          val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
+          for ((label, options) <- forms) {
+            val kernel = emit(roots, options, loader)
+            benchmark.addCase(s"$shape, $label (${loops(kernel)} loop methods), $nullsLabel") {
+              _ => scan(kernel, roots.size, withNulls)
+            }
+          }
+        }
+        benchmark.run()
       }
     } finally {
       arena.close()
