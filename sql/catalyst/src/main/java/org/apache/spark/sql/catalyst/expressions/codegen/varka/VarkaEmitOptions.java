@@ -387,9 +387,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        reads (task 239): an output's validity segment only where the body writes that validity,
  *        an input's data segment only where it reads the column's values, a materialized prefix's
  *        vectors only where its tails read them, and the epilogue's mask only where something
- *        loads or stores under it. Off is the body that builds them all, kept as the reference
- *        the suites and the benchmark compare against; off by default until the runner measures
- *        it ({@code PLAN_TASK_239.md} 6).
+ *        loads or stores under it. On by default since a runner measured it: the masked ladder
+ *        at 400 entries runs 7.4% faster, and nothing slower ({@code PLAN_TASK_239.md} 9.2).
+ *        Off is the body that builds them all, kept as the reference the suites and the
+ *        benchmark compare against.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -537,7 +538,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true, true, true, false);
+          false, true, true, true, true, true);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {

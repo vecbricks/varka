@@ -330,13 +330,21 @@ each with the locals built, elided, and built again last. The runner's run and t
 step 3. The price tables and the cost audit are regenerated then, under the new default, since
 with the switch off nothing they read moves.
 
-### 9.2 The predictions, scored so far
+### 9.2 The predictions, scored
 
 1. **Held.** The check finds no unread reference local under the switch.
 2. **Held, exactly.** 3.34%, and every family's figure is the transformer's.
-3. Waits for the default: the audit's builds and loop methods move only when the switch is on in
-   the shipped options.
-4. and 5. Wait for the runner.
+3. **Held in part.** No shape of the audit gains a build or a loop method: the corpus keeps its
+   53,772 loop and epilogue methods, and those of 8,000 bytes and over fall from 155 to 120. But
+   none loses a call-site split. The one grouping that moved is wide long shape 51, which loses
+   its byte regroup and keeps its four builds.
+4. **Held, with one case beyond it.** On the runner (an EPYC 9V74, run 37048974333) the masked
+   ladder at 400 entries takes 392.8 ms elided against 424.1 built and 423.6 built again, 7.4%
+   faster where the laptop gave 8.6%. The masked ladder at 100 entries, predicted flat, also
+   moves: 98.2 ms against 106.2 and 105.9, 7.5%. Every null-free case and the mixed family stay
+   within 2 ms of their control.
+5. **Not scored.** The runner's benchmark reports no allocation; the laptop's 16 to 24 KB a batch
+   stands as the only measurement.
 
 ### 9.3 The review
 
@@ -362,3 +370,22 @@ that; all are addressed.
   shared slots with the switch on as well as off, and the census without CSE too.
 * Smaller: a stale `emitLaneGroup` comment, an empty branch in step (3), and an impossible
   `key != null` guard, now a comment stating why the key is there.
+
+### 9.4 The default, 3 October 2026
+
+`elideUnreadLocals` is on by default, as 3.6 planned once the runner showed no case slower. The
+emitted-bytes oracle, the price tables and the cost audit are regenerated under it. The refit
+prices the slimmer bodies slightly less well: below 500 bytes the median byte error goes from
+7.6% to 8.5%, and above 2,000 bytes from 2.2% to 2.4%. The off arm stays, as the reference the
+suites and the benchmark compare against. The runner's file is committed beside the laptop's as
+`VarkaWideKernelBenchmark-jdk25-runner-9v74-results.txt`.
+
+Four pinned facts moved with the default, each re-pinned with a note:
+
+* The single epilogue's HugeMethodLimit crossing under the bitmap pass: unshared from 22 outputs
+  to 24, shared from 51 to 57. The per-group arm builds the segments it writes, so it stands.
+* The make_date ladder's dense epilogue crosses at 15 outputs, not 14; the masked one still at 13.
+* Task 209's call sites: the second group of twenty-two split tails holds 40, not 42, and the
+  consumer of a make_date pair split one output a method 66, not 68.
+* The prefix-reads test names the reference form, so that the second group still loads every
+  vector.

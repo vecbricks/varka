@@ -396,8 +396,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
   }
 
   test("sharing the prefix moves the epilogue's HugeMethodLimit crossing, and the bitmap " +
-    "pass moves " +
-      "it again: unshared 21 to 22, shared 45 to 51") {
+    "pass and the elided locals move " +
+      "it again: unshared 21 to 24, shared 45 to 57") {
     // This is what step B1 was for, measured in the single-epilogue form (budget 0) that task 24
     // chose: one epilogue over *every* output, whose size grows with the whole projection rather
     // than with a group. Task 87 split it per group; the crossing stays pinned here as the fact
@@ -438,16 +438,21 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // 50 fit (7984) and 51 cross (8065) under the pass, and 44 fit (7895) and 45 cross (8569)
     // in the per-group arm. An unshared prefix visits its date for every field, so the slot was
     // read there and nothing moved.
-    assert(singleEpilogueSize(fields(6).take(21), 12, unshared) < limit)
-    assert(singleEpilogueSize(fields(6).take(22), 12, unshared) > limit)
+    //
+    // Task 239's elided locals (PLAN_TASK_239.md 9.4) moved both crossings under the pass, where
+    // the epilogue no longer builds the validity segments the bitmap pass writes for it:
+    // unshared 23 fit (7948) and 24 cross (8416), shared 56 fit (7570) and 57 cross (8122). The
+    // per-group arm builds and writes them, so its boundaries stand.
+    assert(singleEpilogueSize(fields(6).take(23), 12, unshared) < limit)
+    assert(singleEpilogueSize(fields(6), 12, unshared) > limit)
     assert(singleEpilogueSize(fields(12), 12, sharing) < limit,
       "forty-eight shared outputs fit under the pass; the boundary is further out")
-    assert(singleEpilogueSize(fields((51 + 3) / 4).take(51 - 1), 13,
+    assert(singleEpilogueSize(fields((57 + 3) / 4).take(57 - 1), 15,
       sharing) < limit)
-    val past = singleEpilogueSize(fields((51 + 3) / 4).take(51), 13,
+    val past = singleEpilogueSize(fields((57 + 3) / 4).take(57), 15,
       sharing)
     assert(past > limit,
-      s"51 shared calendar outputs now fit in $past bytes - the pass reaches " +
+      s"57 shared calendar outputs now fit in $past bytes - the pass reaches " +
         "further than this test records, so the crossings above are stale")
     // The reference variant: the boundaries task 54 left, 20/21 unshared, and 45 shared since
     // task 223's review.
@@ -517,7 +522,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
   }
 
   test("a make_date ladder crosses HugeMethodLimit in the masked epilogue at 13 outputs and " +
-      "the dense one at 14, with every loop method under it (task 87)") {
+      "the dense one at 15, with every loop method under it (task 87)") {
     // PLAN_TASK_87.md 2.2 and 2.3: the epilogue holds every output while the loop is grouped,
     // so on this family the epilogue is the first method over 8000 bytes, and past it HotSpot
     // never compiles it - PrintCompilation shows the 16-output dense epilogue absent at every
@@ -535,7 +540,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     def size(n: Int, method: String): Int =
       VarkaEmitterTestSupport.codeSize(emitMulti(ladder(n), 1, n, single)._2, method)
     assert(size(12, "epilogueMasked") < limit && size(13, "epilogueMasked") > limit)
-    assert(size(13, "epilogueDense") < limit && size(14, "epilogueDense") > limit)
+    // The dense epilogue crossed at 14 until task 239 elided the validity segments it never
+    // writes: 14 outputs now fit (7923) and 15 cross (8564).
+    assert(size(14, "epilogueDense") < limit && size(15, "epilogueDense") > limit)
     val at16 = VarkaEmittedClass.measure(emitMulti(ladder(16), 1, 16, single)._2)
     at16.codeLength.asScala.filter(_._1.startsWith("loop")).foreach { case (m, bytes) =>
       assert(bytes < limit, s"$m is $bytes bytes: a loop method over HugeMethodLimit")
@@ -1042,7 +1049,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // Split at the middle: the first group computes the prefix and stores it for the second
     // (task 198), the second loads it in place of the decomposition.
     val split = emitMulti(tails(22), 1, 22)._2
-    assert(loopSites(split) === Seq("loopDense0" -> 71, "loopDense1" -> 42), loopSites(split))
+    // The second group read 42 sites until task 239, which reloads only the prefix vectors its
+    // tails read (PLAN_TASK_239.md 9.4).
+    assert(loopSites(split) === Seq("loopDense0" -> 71, "loopDense1" -> 40), loopSites(split))
     // Forty-eight tails: one group of 177 halves to 24 and 24; the first, with its stores, is
     // still over and halves again; the second loads the prefix and fits.
     val wide = groupSites(emitMulti(tails(48), 1, 48)._2)
@@ -1082,7 +1091,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       bodies(emitMulti(ladder(12), 1, 12, off)._2), "the ladder is left as it was")
     val pair = loopSites(emitMulti(ladder(2), 1, 2,
       VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0))._2)
-    assert(pair === Seq("loopDense0" -> (93 + Analysis.SCRATCH_VECTORS), "loopDense1" -> 68),
+    // The consumer loaded 68 sites until task 239 trimmed its reloads to what it reads.
+    assert(pair === Seq("loopDense0" -> (93 + Analysis.SCRATCH_VECTORS), "loopDense1" -> 66),
       pair)
     def tree(lo: Int, hi: Int): VarkaVectorIR =
       if (lo == hi) new AddMonths(new ColumnRef(0), new LiteralSlot(lo - 1))
