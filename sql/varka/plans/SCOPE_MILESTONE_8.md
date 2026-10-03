@@ -919,7 +919,10 @@ engine itself - egg ported to Java 25 as a library in its own repository
 under `github.com/vecbricks`, with the determinism Varka needs and without
 proofs, parsing or the ILP extractor - is planned in `PLAN_EGRAPH_PORT.md`,
 independent of this item and buildable before it; Varka takes it as a
-pinned dependency when this item needs it.
+pinned dependency when this item needs it. *3 October 2026: the owner named
+it `jegg`, and the repository `github.com/vecbricks/jegg` exists with the
+build, the licence and the plan, which now lives there as its `PLAN.md`;
+`PLAN_EGRAPH_PORT.md` here is a pointer to it.*
 
 **The trigger has already fired, in the emitter. Noted 27 September 2026, at the owner's
 observation.** A date has two physical forms in Varka today: days since the epoch, the form
