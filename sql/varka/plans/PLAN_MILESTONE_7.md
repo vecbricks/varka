@@ -366,7 +366,7 @@ Task 253 states and enforces the seven-argument `run`'s scratch contract (item 6
 caches each IR node's hash. Task 254 (item 63) either pins each grouping weight to the count
 its node emits alone, or retires the hand-written register so the grouping reads the class.
 
-### 2.4 Infrastructure (255 to 257)
+### 2.4 Infrastructure (255 to 257, 283)
 
 Task 255 takes the CI queue off the laptop with no stored credential, splitting it so each
 repository acts only on itself. `PLAN_TASK_227.md` 3 put the whole queue on `vecbricks/varka`,
@@ -396,7 +396,10 @@ Task 256 lets a benchmark run regenerate only the sections a PR adds or changes,
 paired against the PR's merge base in alternating batches with a threshold, as DuckDB's
 regression runner does, so that a band becomes a gate. Task 257 is
 item 62's probe: the slow mode a kernel meets after N other kernels, as a function of N, with
-one arm in the nightly.
+one arm in the nightly. Task 283, found by task 236's gate run on 3 October 2026, makes the
+exhaustive division sweep of task 149 fit inside the watchdog of row 226 or carry a cap of its
+own, and makes a fork the watchdog halts fail its sbt step instead of hanging it; until then the
+gate's and the nightly's sweep steps cannot pass.
 
 **The issue mirror, fixed with this plan.** `dev/varka_issues.py` mirrored only the
 highest-numbered plan, and its `classify` compared the whole marker with "moved", so
@@ -489,6 +492,7 @@ the survey of other engines, and 273 to 281 from reading the papers (the notes a
 | 255 | The CI queue off the laptop with no stored credential: the queue on the fork with its own `GITHUB_TOKEN`, the check sync on the base repository with its own; master's head run after each merge; a PR's new tests rerun several times, and a fix's new test required to fail on the base | item 76, redesigned (2.4), `READING_MILESTONE_7.md` 9 | medium |
 | 256 | Regenerate one benchmark section, not the whole file, and run it paired against the PR's merge base in alternating batches with a threshold | item 72, `READING_MILESTONE_7.md` 9 | small to medium |
 | 257 | A kernel after other kernels: the slow mode's frequency as a function of N, one arm in the nightly; its forks compare answers too | item 62, `READING_MILESTONE_7.md` 11 | medium |
+| 283 | The exhaustive division sweep outlives the watchdog, and sbt hangs on the halted fork. *Found 3 October 2026 by task 236's gate run.* Task 149's opt-in test "the multiply-high form is exact over every int32 dividend for every divisor in use" runs nine divisors over all 2^32 dividends under a ScalaTest assert each, which is far past the ten minutes `VarkaTestWatchdog` (row 226) allows a test, so `dev/varka_gate.sh`'s sweep step and the nightly's have halted on it since the watchdog landed on 28 September 2026 - every log on record shows the test only ever cancelled by its opt-in or halted - and the proofs of task 240 compare against a sweep that never completes. Worse, after the watchdog's `Runtime.halt` sbt did not report the suite aborted as row 226 intended but waited on the halted fork indefinitely (the `-batch` server printed "Unable to read from client"), so the gate hung rather than failed. Done when the sweep steps pass: the test split per divisor or given a cap of its own through `varka.test.watchdog.minutes` set by the gate's and the nightly's sweep steps, with the time measured and written beside it; and a halted fork fails the sbt step within a minute, by the watchdog exiting through a path sbt's test agent reports or the gate's steps carrying a timeout of their own | task 236's gate run | small |
 | 180 | Promotion, continuously | item 81 | a cadence |
 | 258 | A post for Spark users: how Spark compiles a query, and why it compiles it again | item 78 | medium |
 | 259 | Its companion for Spark and JVM developers: bytecode without source | item 79 | medium |
@@ -500,7 +504,7 @@ the survey of other engines, and 273 to 281 from reading the papers (the notes a
 
 | wave | tasks | why they wait |
 | ---: | :--- | :--- |
-| 0 | 240, 246, 248, 249, 255, 256, 81, 263, 266, 273, 275, 277 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 255 and 256 end the laptop queue and the hand splicing for every PR below; 263 and 266 check every port and refactor below as it lands; 81 needs nothing; 273 is a reproduced bug; 275 and 277 make every later test's failure loud and small |
+| 0 | 240, 246, 248, 249, 255, 256, 81, 263, 266, 273, 275, 277, 283 | 240 is the proofs' tooling; 246 makes later suites' verdicts trustworthy; 248 and 249 are what every later refactor touches; 255 and 256 end the laptop queue and the hand splicing for every PR below; 263 and 266 check every port and refactor below as it lands; 81 needs nothing; 273 is a reproduced bug; 275 and 277 make every later test's failure loud and small |
 | 1 | 241, 243, 250, 251, 214, 215, 216, 138, 247, 222, 253, 262, 269, 271, 264, 274, 276 | after the tooling and the two cheap refactors; the three family ports run in parallel, by an agent; 262 and 269 need only the fuzzers' grammar and 277's shrinker, and 271 only Spark's suites; 264 is decisions, not code; 274 and 276 sharpen the oracles every later test reads |
 | 2 | 242, 244, 217, 224, 83, 254, 257, 267, 272, 278, 279, 280, 281 | 217 after the families it fronts; 83 after 250, which rewrites the same paths; 244 after 243 defines what a delta departs from; 267 after 251's components; 272 after 246, so that a configuration's verdict is not a second species' boxing; 278 after 277; 279 after 138; 280 after 262; 281 after 240's tooling |
 | 3 | 245, 86, 252, 268, 265 | 86 after the ports, so the admission is written once in Java; 252 once the structure has settled; 268, optional, once the ports and refactors have settled the helpers' callers; 265 after 262, 263, 269 and 280, so that it measures the tests the milestone leaves |
