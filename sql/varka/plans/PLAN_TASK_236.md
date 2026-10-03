@@ -449,26 +449,28 @@ three copies each of the scaling arithmetic and the analysis prologue (`fitGroup
 3. **Kernels.** Held in the count: the cut takes one emission that builds nothing and one build
    a kernel where the bisection took more than ten emissions for two kernels, and the cut is the
    bisection's prefix.
-4. **Plan time.** On the laptop (`VarkaWideKernelBenchmark-jdk25-results.txt`, 3 October 2026,
-   under `performance`): the split driver plans in 95 and 168 ms at 800 and 1200 entries where
-   its two builds took 191 and 331, half as predicted; several kernels plan in 100 and 184 ms
-   against 89 and 128 for their classes alone and 1215 and 1904 with the search - 12% and 44%
-   over the classes, not the 5% predicted, the difference being the emission that declines
-   before building and the prefix's own grouping. **On the runner the same** (an Intel Xeon
-   Platinum 8370C, `VarkaWideKernelBenchmark-jdk25-runner-8370c-results.txt`, 3 October 2026):
-   the split driver plans in 208 and 359 ms where its two builds took 406 and 709, half again;
-   several kernels in 219 and 404 against 195 and 280 for their classes alone, 12% and 44% over
-   them, the two ratios the laptop read, and against 2662 and 4078 with the search, twelve and
-   ten times less. Held for the split driver on both machines; failed for several kernels on
-   both, by the same two ratios, for the reason above.
+4. **Plan time.** On the laptop (`VarkaWideKernelBenchmark-jdk25-results.txt`, the run of
+   3 October 2026 after the flip, under `performance`): the split driver plans in 99 and 175 ms
+   at 800 and 1200 entries where the loop's two builds take 196 and 349, half as predicted;
+   several kernels plan in 106 and 196 ms against 92 and 134 for their classes alone and 1536
+   and 2625 with the loop's search - 15% and 46% over the classes, not the 5% predicted, the
+   difference being the emission that declines before building and the prefix's own grouping
+   (the run before the flip, in the file's history, read 12% and 44%). **On the runner the
+   same** (an Intel Xeon Platinum 8370C, `VarkaWideKernelBenchmark-jdk25-runner-8370c-results.txt`,
+   3 October 2026): the split driver plans in 208 and 359 ms where its two builds took 406 and
+   709, half again; several kernels in 219 and 404 against 195 and 280 for their classes alone,
+   12% and 44% over them, and against 2662 and 4078 with the search, twelve and ten times less.
+   Held for the split driver on both machines; failed for several kernels on both, by about the
+   same two ratios, for the reason above.
 5. **No class moves** where the first grouping built once: the planned class is the loop's,
    byte for byte, on every shape of the plan suite; the audit's digest of first groupings moves
    only where the margins or the width rule close a group.
 6. **Item 71, on the laptop.** The predicted and the planned grouping run within the control's
-   spread of the weights' on the mixed family and the ladder (252 and 252 against 253 and 251
-   ms); on 64 cheap tails, where the prediction closes three loop methods for the weights' four
-   and the plan closes four again, the readings are 6, 8, 7 and 7 ms, a millisecond apart on a
-   7 ms case. **On the runner, held for the plan and failed for the prediction alone.** The
+   spread of the weights' on the mixed family and the ladder (253 and 252 against 254 and 251
+   ms; 69 throughout on the mixed family); on 64 cheap tails, where the prediction closes three
+   loop methods for the weights' four and the plan closes four again, the readings are 7, 8, 7
+   and 7 ms, a millisecond apart on a 7 ms case. **On the runner, held for the plan and failed
+   for the prediction alone.** The
    planned grouping reads as the weights' on every family: 5 against 5 and 5 ms on 22 tails, 17
    against 17 and 17 on 64, 131 against 130 and 131 on the mixed family, 466 against 463 and
    465 on the ladder, and the same with nulls. The prediction without the margins reads 217 ms
@@ -477,12 +479,16 @@ three copies each of the scaling arithmetic and the analysis prologue (`fitGroup
    five two-second iterations; on the laptop's eight pinned cores the same arm read 8 against 6.
    The record's explanation and what it means for a default are in
    `sql/varka/skills/the-jit.md` ("A method filled to the byte budget by prediction").
-7. **Task 190's question, on the laptop.** Several kernels planned beat the split driver planned
-   by 1 to 2% at 800 ladder entries (520 against 529 and 525 ms) and 7% at 1200 (773 against
-   827 and 825), more than the control's spread; on sixty-four dates by field they lose by 10%
-   (66 against 60 and 59 ms null-free, 63 against 56 and 55 with nulls), the one class loading
-   each date's prefix where the second kernel decomposes 64 dates again. As predicted in
-   direction. **On the runner, the same shape with a wider control.** At 800 entries B is
+7. **Task 190's question, on the laptop.** In the run after the flip, both forms planned by
+   default: several kernels tie the split driver at 800 ladder entries (517 against 520 and 519
+   ms; 568 against 574 and 572 with nulls) and beat it by 7% at 1200 (772 against 825 and 827;
+   852 against 928 and 918), more than the control's spread; on sixty-four dates by field they
+   are 3% behind null-free (63 against 61 and 61), the one class loading each date's prefix
+   where the second kernel decomposes 64 dates again, and with nulls the control itself moved
+   from 60 ms first to 39 last, so that reading decides nothing. The run before the flip, in the
+   file's history, had them 1 to 2% ahead at 800 and 10% behind by field. As predicted in
+   direction on the ladder; by field the laptop's loss is smaller than the 10% predicted and the
+   runner's larger. **On the runner, the same shape with a wider control.** At 800 entries B is
    inside A''s spread (986 against 979 first and 1002 again; 1091 against 1039 and 1096 with
    nulls); at 1200 it is 4 to 8% ahead (1393 against 1515 and 1452; 1536 against 1622 and 1596);
    on sixty-four dates by field it is 7 to 22% behind (172 against 141 and 161) and 15 to 20%
@@ -546,3 +552,8 @@ regeneration costs a second regeneration", and both were paid for here:
 * The runner's run is committed beside the laptop's as
   `VarkaWideKernelBenchmark-jdk25-runner-8370c-results.txt`, with its provenance; it was taken
   at `3de1a11d64c`, the code of the review's fixes, which the laptop's final run repeated.
+* **The second regeneration**, the one the lesson budgets: the laptop file was regenerated
+  after the flip with the arms renamed, under `performance`, pinned, canary within its band,
+  in 63 minutes. No row shared with the file before the flip moved by 3% or more; the planned
+  arms now carry the plain labels and the loop's arms their own, and the retired section's rows
+  stay in the file's history. 9.2 items 4, 6 and 7 quote this file.

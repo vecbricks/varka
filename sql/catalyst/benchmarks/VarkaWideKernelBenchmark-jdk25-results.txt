@@ -18,3 +18,157 @@ AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 the exact grouping against the greedy walk
 ================================================================================================
 
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows in 4096-row batches:                                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+100 mixed entries, greedy grouping (50 loop methods), null-free                            36            738        1569         27.4          36.5       1.0X
+100 mixed entries, exact grouping (26 loop methods), null-free                             41            743        1566         24.6          40.6       0.9X
+200 mixed entries, greedy grouping (100 loop methods), null-free                           73           1498        3114         13.7          72.9       0.5X
+200 mixed entries, exact grouping (51 loop methods), null-free                             71           1403        2973         14.0          71.2       0.5X
+400 ladder entries, greedy grouping (100 loop methods), null-free                         263           4874       10175          3.8         263.3       0.1X
+400 ladder entries, exact grouping (100 loop methods), null-free                          269           4917       10251          3.7         269.2       0.1X
+100 mixed entries, greedy grouping (50 loop methods), every seventh row null               49            991        2034         20.5          48.7       0.7X
+100 mixed entries, exact grouping (26 loop methods), every seventh row null                44            842        1783         22.8          43.9       0.8X
+200 mixed entries, greedy grouping (100 loop methods), every seventh row null              90           1693        3561         11.1          90.4       0.4X
+200 mixed entries, exact grouping (51 loop methods), every seventh row null                85           1537        3220         11.8          84.8       0.4X
+400 ladder entries, greedy grouping (100 loop methods), every seventh row null            279           5318       11190          3.6         279.4       0.1X
+400 ladder entries, exact grouping (100 loop methods), every seventh row null             279           5369       11269          3.6         278.5       0.1X
+
+
+================================================================================================
+the locals nothing reads, built and elided
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows in 4096-row batches:                                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------
+100 ladder entries, locals built, null-free                                 63           1214        2534         15.8          63.3       1.0X
+100 ladder entries, locals elided, null-free                                63           1150        2432         15.9          62.7       1.0X
+100 ladder entries, locals built, again, null-free                          64           1207        2528         15.7          63.5       1.0X
+400 ladder entries, locals built, null-free                                254           4819       10031          3.9         253.7       0.2X
+400 ladder entries, locals elided, null-free                               253           4576        9599          4.0         252.6       0.3X
+400 ladder entries, locals built, again, null-free                         253           4779        9944          3.9         253.4       0.2X
+100 mixed entries, locals built, null-free                                  35            710        1501         28.3          35.4       1.8X
+100 mixed entries, locals elided, null-free                                 35            686        1452         28.8          34.7       1.8X
+100 mixed entries, locals built, again, null-free                           35            713        1496         28.4          35.2       1.8X
+200 mixed entries, locals built, null-free                                  70           1418        2977         14.3          69.8       0.9X
+200 mixed entries, locals elided, null-free                                 69           1310        2775         14.5          68.8       0.9X
+200 mixed entries, locals built, again, null-free                           70           1445        3024         14.4          69.6       0.9X
+100 ladder entries, locals built, every seventh row null                    74           1353        2859         13.5          74.1       0.9X
+100 ladder entries, locals elided, every seventh row null                   68           1345        2833         14.6          68.3       0.9X
+100 ladder entries, locals built, again, every seventh row null             74           1341        2808         13.4          74.5       0.8X
+400 ladder entries, locals built, every seventh row null                   303           5358       11170          3.3         302.6       0.2X
+400 ladder entries, locals elided, every seventh row null                  275           5344       11202          3.6         274.6       0.2X
+400 ladder entries, locals built, again, every seventh row null            301           5451       11391          3.3         301.1       0.2X
+100 mixed entries, locals built, every seventh row null                     41            831        1752         24.3          41.1       1.5X
+100 mixed entries, locals elided, every seventh row null                    42            807        1653         23.9          41.8       1.5X
+100 mixed entries, locals built, again, every seventh row null              41            803        1684         24.2          41.3       1.5X
+200 mixed entries, locals built, every seventh row null                     82           1587        3322         12.2          81.7       0.8X
+200 mixed entries, locals elided, every seventh row null                    83           1524        3176         12.0          83.1       0.8X
+200 mixed entries, locals built, again, every seventh row null              81           1641        3436         12.3          81.3       0.8X
+
+
+================================================================================================
+emitting the mixed family: the exact grouping's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+200 mixed entries, greedy grouping                   14             15           0          0.0    14389545.0       1.0X
+200 mixed entries, exact grouping                    11             11           0          0.0    11091381.0       1.3X
+
+
+================================================================================================
+past the driver's ceiling: each form's cost at plan time
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+one emission:                                                                         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+800 entries, split driver                                                                        99            101           1          0.0    99348661.0       1.0X
+800 entries, several kernels                                                                    106            107           2          0.0   105533678.0       0.9X
+800 entries, split driver, the loop's two builds (3451877 bytes)                                196            198           2          0.0   195853259.0       0.5X
+800 entries, several kernels, the loop's classes alone (3469249 bytes in 2 classes)              92             93           1          0.0    92130651.0       1.1X
+800 entries, several kernels with the loop's compiler search                                   1536           1544           5          0.0  1536182181.0       0.1X
+1200 entries, split driver                                                                      175            181           6          0.0   175379235.0       0.6X
+1200 entries, several kernels                                                                   196            198           1          0.0   196177255.0       0.5X
+1200 entries, split driver, the loop's two builds (5110577 bytes)                               349            358           9          0.0   349344564.0       0.3X
+1200 entries, several kernels, the loop's classes alone (5208235 bytes in 2 classes)            134            135           1          0.0   134326392.0       0.7X
+1200 entries, several kernels with the loop's compiler search                                  2625           2635          10          0.0  2624948196.0       0.0X
+
+
+================================================================================================
+past the driver's ceiling: a split driver against several kernels, the split driver first and again last
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows in 4096-row batches:                                                           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+800 ladder entries, split driver, null-free                                                           520          11180       23122          1.9         520.1       1.0X
+800 ladder entries, several kernels (724 + 76), null-free                                             517          10571       22039          1.9         516.8       1.0X
+800 ladder entries, split driver, again, null-free                                                    519            526           9          1.9         519.2       1.0X
+1200 ladder entries, split driver, null-free                                                          825          18732       37982          1.2         825.1       0.6X
+1200 ladder entries, several kernels (724 + 476), null-free                                           772          15334       31987          1.3         771.6       0.7X
+1200 ladder entries, split driver, again, null-free                                                   827            833           5          1.2         827.3       0.6X
+sixty-four dates by field, 256 outputs, split driver, null-free                                        61           1650        2015         16.5          60.7       8.6X
+sixty-four dates by field, 256 outputs, several kernels (181 + 75), null-free                          63            979        1929         15.9          63.1       8.2X
+sixty-four dates by field, 256 outputs, split driver, again, null-free                                 61             68          14         16.3          61.4       8.5X
+800 ladder entries, split driver, every seventh row null                                              574          12692       26382          1.7         573.9       0.9X
+800 ladder entries, several kernels (724 + 76), every seventh row null                                568          11974       24776          1.8         567.9       0.9X
+800 ladder entries, split driver, again, every seventh row null                                       572            580          10          1.7         571.7       0.9X
+1200 ladder entries, split driver, every seventh row null                                             928          22361       44958          1.1         928.3       0.6X
+1200 ladder entries, several kernels (724 + 476), every seventh row null                              852          17725       36902          1.2         852.3       0.6X
+1200 ladder entries, split driver, again, every seventh row null                                      918            926           9          1.1         917.9       0.6X
+sixty-four dates by field, 256 outputs, split driver, every seventh row null                           60           1743        2126         16.6          60.1       8.7X
+sixty-four dates by field, 256 outputs, several kernels (181 + 75), every seventh row null             63            958        1848         15.8          63.4       8.2X
+sixty-four dates by field, 256 outputs, split driver, again, every seventh row null                    39             44           5         25.4          39.4      13.2X
+
+
+================================================================================================
+the predicted grouping against the weights, and planned with the margins
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows in 4096-row batches:                                              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+22 cheap tails, weights (2 loop methods), null-free                                        1              1           0        756.4           1.3       1.0X
+22 cheap tails, predicted (2 loop methods), null-free                                      2              2           0        563.5           1.8       0.7X
+22 cheap tails, planned (2 loop methods), null-free                                        1              1           0       1061.6           0.9       1.4X
+22 cheap tails, weights, again (2 loop methods), null-free                                 1              1           0       1064.2           0.9       1.4X
+64 cheap tails, weights (4 loop methods), null-free                                        7              7           0        152.9           6.5       0.2X
+64 cheap tails, predicted (3 loop methods), null-free                                      8              9          13        132.2           7.6       0.2X
+64 cheap tails, planned (4 loop methods), null-free                                        7              7           0        149.2           6.7       0.2X
+64 cheap tails, weights, again (4 loop methods), null-free                                 7              7           0        149.9           6.7       0.2X
+200 mixed entries, weights (51 loop methods), null-free                                   69           1376        2890         14.6          68.7       0.0X
+200 mixed entries, predicted (51 loop methods), null-free                                 69           1372        2882         14.5          68.8       0.0X
+200 mixed entries, planned (51 loop methods), null-free                                   69           1382        2886         14.5          69.0       0.0X
+200 mixed entries, weights, again (51 loop methods), null-free                            69           1392        2950         14.5          68.8       0.0X
+400 ladder entries, weights (100 loop methods), null-free                                254           4532        9422          3.9         253.7       0.0X
+400 ladder entries, predicted (100 loop methods), null-free                              253           4588        9594          4.0         253.1       0.0X
+400 ladder entries, planned (100 loop methods), null-free                                252           4635        9690          4.0         252.2       0.0X
+400 ladder entries, weights, again (100 loop methods), null-free                         251           4634        9663          4.0         251.3       0.0X
+22 cheap tails, weights (2 loop methods), every seventh row null                           1              1           0       1068.0           0.9       1.4X
+22 cheap tails, predicted (2 loop methods), every seventh row null                         2              2           0        564.9           1.8       0.7X
+22 cheap tails, planned (2 loop methods), every seventh row null                           1              1           0       1075.5           0.9       1.4X
+22 cheap tails, weights, again (2 loop methods), every seventh row null                    1              1           0       1075.5           0.9       1.4X
+64 cheap tails, weights (4 loop methods), every seventh row null                           7              7           0        152.5           6.6       0.2X
+64 cheap tails, predicted (3 loop methods), every seventh row null                         8             10          14        132.9           7.5       0.2X
+64 cheap tails, planned (4 loop methods), every seventh row null                           7              7           0        149.7           6.7       0.2X
+64 cheap tails, weights, again (4 loop methods), every seventh row null                    7              7           0        152.4           6.6       0.2X
+200 mixed entries, weights (51 loop methods), every seventh row null                      83           1537        3235         12.1          82.9       0.0X
+200 mixed entries, predicted (51 loop methods), every seventh row null                    83           1449        3053         12.0          83.3       0.0X
+200 mixed entries, planned (51 loop methods), every seventh row null                      83           1497        3124         12.0          83.3       0.0X
+200 mixed entries, weights, again (51 loop methods), every seventh row null               83           1481        3124         12.1          82.9       0.0X
+400 ladder entries, weights (100 loop methods), every seventh row null                   276           5466       11441          3.6         276.2       0.0X
+400 ladder entries, predicted (100 loop methods), every seventh row null                 282           5336       11162          3.5         282.0       0.0X
+400 ladder entries, planned (100 loop methods), every seventh row null                   277           5397       11271          3.6         277.1       0.0X
+400 ladder entries, weights, again (100 loop methods), every seventh row null            279           5294       11048          3.6         278.9       0.0X
+
+
