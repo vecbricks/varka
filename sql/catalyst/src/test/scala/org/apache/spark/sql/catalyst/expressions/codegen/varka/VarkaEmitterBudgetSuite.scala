@@ -1039,29 +1039,32 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // cheap tails on their shared prefix are 93 sites and twenty-two are 99. The counts are
     // pinned exactly: they are the register the budget's value was read against, so a
     // lowering change that moves them fails here rather than moving the boundary unseen.
+    // The split this test pins is the measurement's: the prediction (with the plan's margins,
+    // task 236) would close the group before the build, so both are off here.
+    val measured = VarkaEmitOptions.DEFAULTS.withPredictGrouping(false).withPlanSize(false)
     val budget = VarkaEmitBudget.CALL_SITE_BUDGET
-    val off = VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0)
+    val off = measured.withCallSiteBudget(0)
     assert(budget === 93 && VarkaEmitBudget.HEAVY_GROUP_OUTPUTS === 6)
-    assert(loopSites(emitMulti(tails(20), 1, 20)._2) === Seq("loopDense0" -> 93),
+    assert(loopSites(emitMulti(tails(20), 1, 20, measured)._2) === Seq("loopDense0" -> 93),
       "twenty tails are one group at the budget")
     assert(loopSites(emitMulti(tails(22), 1, 22, off)._2) === Seq("loopDense0" -> 99),
       "with the budget off, twenty-two tails are one group past C1")
     // Split at the middle: the first group computes the prefix and stores it for the second
     // (task 198), the second loads it in place of the decomposition.
-    val split = emitMulti(tails(22), 1, 22)._2
+    val split = emitMulti(tails(22), 1, 22, measured)._2
     // The second group read 42 sites until task 239, which reloads only the prefix vectors its
     // tails read (PLAN_TASK_239.md 9.4).
     assert(loopSites(split) === Seq("loopDense0" -> 71, "loopDense1" -> 40), loopSites(split))
     // Forty-eight tails: one group of 177 halves to 24 and 24; the first, with its stores, is
     // still over and halves again; the second loads the prefix and fits.
-    val wide = groupSites(emitMulti(tails(48), 1, 48)._2)
+    val wide = groupSites(emitMulti(tails(48), 1, 48, measured)._2)
     assert(wide.count(_._1.startsWith("loopDense")) === 3 && wide.values.forall(_ <= budget),
       wide)
     // The budget reads the epilogues too, since an epilogue C1 refuses reaches C2 only by
     // invocation count. On these shapes each group's epilogue carries its loop's count, so
     // reading both moves no split the loops alone decide.
     for (b <- Seq(split, emitMulti(tails(22), 1, 22, off)._2,
-        emitMulti(VarkaHugeMethodProbe.ladder(1), 1, 1)._2)) {
+        emitMulti(VarkaHugeMethodProbe.ladder(1), 1, 1, measured)._2)) {
       val g = groupSites(b)
       for ((m, n) <- g if m.startsWith("loop")) {
         val epilogue = "epilogue" + m.stripPrefix("loop")
@@ -1070,7 +1073,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     }
     // A split on call sites is byte-identical from one emission to the next, as a split on
     // bytes is, since the shape cache treats either as one emission; and the answers hold.
-    assert(bodies(split) === bodies(emitMulti(tails(22), 1, 22)._2))
+    assert(bodies(split) === bodies(emitMulti(tails(22), 1, 22, measured)._2))
     val lits = (1 to 22).toArray
     val patterns = Seq(Seq((_: Int) => false), Seq((i: Int) => i % 3 == 0))
     checkMatrix(tails(22), 1, lits, Seq(1, 1024, 1031), patterns, ctx = "split on call sites")
@@ -1085,29 +1088,29 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // the byte budget would decline: this budget bounds a delay before C2, not whether C2
     // compiles at all.
     val ladder = VarkaHugeMethodProbe.ladder _
-    assert(loopSites(emitMulti(ladder(1), 1, 1)._2) === Seq("loopDense0" -> 93))
-    assert(loopSites(emitMulti(ladder(2), 1, 2)._2) === Seq("loopDense0" -> 148))
-    assert(bodies(emitMulti(ladder(12), 1, 12)._2) ===
+    assert(loopSites(emitMulti(ladder(1), 1, 1, measured)._2) === Seq("loopDense0" -> 93))
+    assert(loopSites(emitMulti(ladder(2), 1, 2, measured)._2) === Seq("loopDense0" -> 148))
+    assert(bodies(emitMulti(ladder(12), 1, 12, measured)._2) ===
       bodies(emitMulti(ladder(12), 1, 12, off)._2), "the ladder is left as it was")
     val pair = loopSites(emitMulti(ladder(2), 1, 2,
-      VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0))._2)
+      measured.withHeavyGroupOutputs(0))._2)
     // The consumer loaded 68 sites until task 239 trimmed its reloads to what it reads.
     assert(pair === Seq("loopDense0" -> (93 + Analysis.SCRATCH_VECTORS), "loopDense1" -> 66),
       pair)
     def tree(lo: Int, hi: Int): VarkaVectorIR =
       if (lo == hi) new AddMonths(new ColumnRef(0), new LiteralSlot(lo - 1))
       else new Greatest(tree(lo, (lo + hi) / 2), tree((lo + hi) / 2 + 1, hi))
-    val heavy = loopSites(emitMulti(Seq(tree(1, 4)), 1, 4)._2)
+    val heavy = loopSites(emitMulti(Seq(tree(1, 4)), 1, 4, measured)._2)
     assert(heavy.size === 1 && heavy.head._2 > budget, heavy)
     // Under a budget of one with no heavy groups every group is a single output, nothing
     // declines, and the answers hold; and the legacy form has no measurement, so the budget
     // does not apply to it.
-    val one = VarkaEmitOptions.DEFAULTS.withCallSiteBudget(1).withHeavyGroupOutputs(0)
+    val one = measured.withCallSiteBudget(1).withHeavyGroupOutputs(0)
     assert(loopSites(emitMulti(tails(22), 1, 22, one)._2).size === 22)
     checkMatrix(tails(22), 1, lits, Seq(1, 1024, 1031), patterns, options = one,
       ctx = "one output a group")
     assert(loopSites(emitMulti(tails(22), 1, 22,
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))._2) === Seq("loopDense0" -> 99))
+      measured.withMethodByteBudget(0))._2) === Seq("loopDense0" -> 99))
   }
 
   test("a class the call-site splits would make decline is built again without them, so the " +
@@ -1121,6 +1124,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // Read on the unrolled driver, whose per-output work puts it past the one-group form's widest
     // method; a driver from a table is its calls alone.
     val unrolled = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
+      .withPredictGrouping(false).withPlanSize(false)
     val oneGroup = VarkaEmittedClass.measure(
       emitMulti(tails(22), 1, 22, unrolled.withCallSiteBudget(0))._2)
     val widest: Int = oneGroup.largestMethod().getValue

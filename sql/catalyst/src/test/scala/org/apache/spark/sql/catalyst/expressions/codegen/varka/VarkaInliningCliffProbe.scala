@@ -170,8 +170,9 @@ object VarkaInliningCliffProbe {
     val fused = shape(kind, outputs)
     val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
       fused.numLiterals, null, null,
+      // The budget is read against the measured split, not the predicted one (task 236).
       VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withCallSiteBudget(budget)
-        .withHeavyGroupOutputs(heavy))
+        .withHeavyGroupOutputs(heavy).withPredictGrouping(false).withPlanSize(false))
     val measured = VarkaEmittedClass.measure(bytes)
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala
       .filter(_.startsWith("loop"))

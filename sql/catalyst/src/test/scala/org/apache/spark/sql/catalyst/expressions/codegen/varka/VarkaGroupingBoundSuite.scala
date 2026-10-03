@@ -34,9 +34,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
  */
 class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
 
-  // The greedy walk, the baseline every arm below is held against.
+  // The greedy walk, the baseline every arm below is held against, without the plan: its margins
+  // close groups earlier than the rule the bound admits runs by (task 236), and the bound is
+  // about the rule.
   private val options = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
-    .withExactGrouping(false)
+    .withExactGrouping(false).withPlanSize(false)
 
   private lazy val table =
     VarkaCoverageRows.read(getWorkspaceFilePath("sql", "varka", "coverage.json"))

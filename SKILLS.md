@@ -134,6 +134,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The deoptimization cycle is profiled loop predication's, and the wait before C2 is nobody's](sql/varka/skills/the-jit.md#the-deoptimization-cycle-is-profiled-loop-predications-and-the-wait-before-c2-is-nobodys)
 * [A call-site budget keeps wide groups under C1, and a narrow heavy group runs under C2 alone](sql/varka/skills/the-jit.md#a-call-site-budget-keeps-wide-groups-under-c1-and-a-narrow-heavy-group-runs-under-c2-alone)
 * [Split methods compile, but C2 stops inlining their calls at the caller's budget](sql/varka/skills/the-jit.md#split-methods-compile-but-c2-stops-inlining-their-calls-at-the-callers-budget)
+* [A method filled to the byte budget by prediction cost thirteen times its neighbours on a four-core runner, and a margin is what bought it back](sql/varka/skills/the-jit.md#a-method-filled-to-the-byte-budget-by-prediction-cost-thirteen-times-its-neighbours-on-a-four-core-runner-and-a-margin-is-what-bought-it-back)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)

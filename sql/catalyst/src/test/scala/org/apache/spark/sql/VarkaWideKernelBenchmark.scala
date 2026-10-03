@@ -56,14 +56,15 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * its groups through stages (`VarkaEmitOptions.splitDriver`, A') is priced against several
  * kernels run in turn over each batch (`VarkaEmitOptions.severalKernels`, B), split as the
  * compiler splits them - the largest prefix one kernel serves, then the rest - each reading the
- * input again and recomputing the prefix it shares. Then one emission of each, with the bytes
- * of the classes, each form as the size loop builds it and as the plan does
- * (`VarkaEmitOptions.planSize`). See `PLAN_TASK_190.md` 11 and `PLAN_TASK_236.md` 6.
+ * input again and recomputing the prefix it shares. First one emission of each, with the bytes
+ * of the classes, each form as the plan builds it (`VarkaEmitOptions.planSize`, the default)
+ * and as the size loop did; then the two forms at run time, on the ladder and on sixty-four
+ * dates listed by field, with A' first and again last. See `PLAN_TASK_190.md` 11 and
+ * `PLAN_TASK_236.md` 6 and 9.3.
  *
- * The last two sections are task 236's: both forms planned, on the ladder and on sixty-four
- * dates listed by field, with A' first and again last; and the predicted grouping against the
- * weights' and the planned grouping with the fit's margins, on the cheap tails, the mixed family
- * and the ladder (item 71 of `SCOPE_MILESTONE_8.md`).
+ * The last section is item 71's (`SCOPE_MILESTONE_8.md`): the planned grouping, the prediction
+ * closing groups with the fit's margins, against the weights' and against the prediction
+ * without the margins, on the cheap tails, the mixed family and the ladder.
  *
  * {{{
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaWideKernelBenchmark"
@@ -332,103 +333,89 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       // over the budget, and several kernels only where one kernel cannot serve them all.
       // Both named: the split driver is the default since `PLAN_TASK_190.md` 11.5, and each of
       // B's kernels is a kernel whose driver fits, which is what the compiler's split makes.
+      // Both plan their size since task 236 made the plan the default; the loop that reacted
+      // to each measurement in turn is the reference arm here, named `loop`, and its classes
+      // are the planned ones byte for byte (`PLAN_TASK_236.md` 9.2), so only the plan-time
+      // section still runs it.
       val splitDriver = VarkaEmitOptions.DEFAULTS.withSplitDriver(true)
       val oneKernel = VarkaEmitOptions.DEFAULTS.withSplitDriver(false)
+      val loopSplit = splitDriver.withPlanSize(false)
+      val loopOne = oneKernel.withPlanSize(false)
       val forms = past.map { n =>
-        val sizes = kernelSizes(n, oneKernel)
+        val sizes = kernelSizes(n, loopOne)
         require(sizes.size > 1, s"$n ladder entries fit one kernel: nothing to compare")
-        val staged = emit(ladder(n), splitDriver, loader)
-        val stages = staged.getClass.getDeclaredMethods.count(_.getName.startsWith("stageDense"))
-        (n, sizes, staged, stages, sizes.map(k => emit(ladder(k), oneKernel, loader)))
-      }
-
-      runBenchmark("past the driver's ceiling: a split driver against several kernels") {
-        val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
-          minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        for (withNulls <- Seq(false, true); (n, sizes, staged, stages, kernels) <- forms) {
-          val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
-          benchmark.addCase(s"$n entries, split driver (one kernel, $stages stages), " +
-              s"$nullsLabel") { _ =>
-            scan(staged, n, withNulls)
-          }
-          benchmark.addCase(s"$n entries, several kernels (${sizes.mkString(" + ")}), " +
-              s"$nullsLabel") { _ =>
-            kernels.zip(sizes).foreach { case (kernel, k) => scan(kernel, k, withNulls) }
-          }
-        }
-        benchmark.run()
+        (n, sizes)
       }
 
       runBenchmark("past the driver's ceiling: each form's cost at plan time") {
         // One emission per iteration of every class the form needs, built and measured but not
-        // defined; the label carries the classes' bytes.
+        // defined; the label carries the classes' bytes. The planned forms are the default: the
+        // split driver sizes its stages off a driver built alone, one build; several kernels'
+        // cut is read off the same, one emission that builds nothing and then one build a
+        // kernel. The loop's arms are the reference: the split driver's two builds, several
+        // kernels' classes alone with their split given, and the same with the compiler's
+        // search for it, which asks the emitter for halving prefixes the shape cache then holds.
         val benchmark = new Benchmark("one emission", 1,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         var sink = 0
         def build(roots: Seq[VarkaVectorIR], options: VarkaEmitOptions): Array[Byte] =
           VarkaLoopEmitter.emit("VarkaWideBenchEmission", java.util.List.of(roots: _*), 1,
             roots.size, null, null, options)
-        for ((n, sizes, _, _, _) <- forms) {
-          val stagedBytes = build(ladder(n), splitDriver).length
-          val severalBytes = sizes.map(k => build(ladder(k), oneKernel).length).sum
-          benchmark.addCase(s"$n entries, split driver ($stagedBytes bytes)") { _ =>
+        for ((n, sizes) <- forms) {
+          val stagedBytes = build(ladder(n), loopSplit).length
+          val severalBytes = sizes.map(k => build(ladder(k), loopOne).length).sum
+          benchmark.addCase(s"$n entries, split driver") { _ =>
             sink += build(ladder(n), splitDriver).length
           }
-          benchmark.addCase(s"$n entries, several kernels ($severalBytes bytes in " +
-              s"${sizes.size} classes)") { _ =>
-            sizes.foreach(k => sink += build(ladder(k), oneKernel).length)
-          }
-          // The compiler finds the split by asking the emitter for halving prefixes, which the
-          // shape cache then holds; this is what a projection's first plan pays for it.
-          benchmark.addCase(s"$n entries, several kernels with the compiler's search") { _ =>
-            sink += kernelSizes(n, oneKernel).size
-            sizes.foreach(k => sink += build(ladder(k), oneKernel).length)
-          }
-          // Planned (task 236): the split driver sizes its stages off a driver built alone, one
-          // build; several kernels' cut is read off the same, one emission that builds nothing
-          // and then one build a kernel.
-          benchmark.addCase(s"$n entries, split driver, planned") { _ =>
-            sink += build(ladder(n), splitDriver.withPlanSize(true)).length
-          }
-          benchmark.addCase(s"$n entries, several kernels, planned") { _ =>
+          benchmark.addCase(s"$n entries, several kernels") { _ =>
             plannedKernels(ladder(n), 1, oneKernel, restOfLadder)
-              .foreach(k => sink += build(k, oneKernel.withPlanSize(true)).length)
+              .foreach(k => sink += build(k, oneKernel).length)
+          }
+          benchmark.addCase(s"$n entries, split driver, the loop's two builds " +
+              s"($stagedBytes bytes)") { _ =>
+            sink += build(ladder(n), loopSplit).length
+          }
+          benchmark.addCase(s"$n entries, several kernels, the loop's classes alone " +
+              s"($severalBytes bytes in ${sizes.size} classes)") { _ =>
+            sizes.foreach(k => sink += build(ladder(k), loopOne).length)
+          }
+          benchmark.addCase(s"$n entries, several kernels with the loop's compiler search") { _ =>
+            sink += kernelSizes(n, loopOne).size
+            sizes.foreach(k => sink += build(ladder(k), loopOne).length)
           }
         }
         benchmark.run()
         require(sink != Int.MinValue)
       }
 
-      // Task 190's question, both forms planned (PLAN_TASK_236.md 3.6): the split driver (A')
-      // against several kernels (B) on the ladder, B's best case, and on sixty-four dates by
-      // field, its worst, where its cut parts the fields of a date. A' runs first and again last,
-      // a control for the case order 11.6 did not control.
-      runBenchmark("past the driver's ceiling, both forms planned: a split driver against " +
-          "several kernels, the split driver first and again last") {
+      // Task 190's question (PLAN_TASK_236.md 3.6): the split driver (A') against several
+      // kernels (B) on the ladder, B's best case, and on sixty-four dates by field, its worst,
+      // where its cut parts the fields of a date. A' runs first and again last, a control for
+      // the case order 11.6 did not control. Both forms plan their size, as they do by default.
+      runBenchmark("past the driver's ceiling: a split driver against several kernels, " +
+          "the split driver first and again last") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        val plannedSplit = splitDriver.withPlanSize(true)
-        val plannedOne = oneKernel.withPlanSize(true)
         val shapes = past.map(n => (s"$n ladder entries", ladder(n), 1, restOfLadder _)) :+
           ("sixty-four dates by field, 256 outputs", datesByField, 64, restOfFields _)
         val forms = shapes.map { case (label, roots, inputs, rest) =>
           val planned = plannedKernels(roots, inputs, oneKernel, rest)
           val sizes = planned.map(_.size)
           require(sizes.size > 1, s"$label fits one kernel: nothing to compare")
-          val staged = emit(roots, plannedSplit, loader, inputs)
-          val kernels = planned.map(emit(_, plannedOne, loader, inputs))
+          val staged = emit(roots, splitDriver, loader, inputs)
+          val kernels = planned.map(emit(_, oneKernel, loader, inputs))
           (label, roots.size, inputs, sizes, staged, kernels)
         }
         for (withNulls <- Seq(false, true); (label, n, inputs, sizes, staged, kernels) <- forms) {
           val nullsLabel = if (withNulls) "every seventh row null" else "null-free"
-          benchmark.addCase(s"$label, split driver, planned, $nullsLabel") { _ =>
+          benchmark.addCase(s"$label, split driver, $nullsLabel") { _ =>
             scan(staged, n, withNulls, inputs)
           }
-          benchmark.addCase(s"$label, several kernels (${sizes.mkString(" + ")}), planned, " +
+          benchmark.addCase(s"$label, several kernels (${sizes.mkString(" + ")}), " +
               s"$nullsLabel") { _ =>
             kernels.zip(sizes).foreach { case (kernel, k) => scan(kernel, k, withNulls, inputs) }
           }
-          benchmark.addCase(s"$label, split driver, planned, again, $nullsLabel") { _ =>
+          benchmark.addCase(s"$label, split driver, again, $nullsLabel") { _ =>
             scan(staged, n, withNulls, inputs)
           }
         }
@@ -442,9 +429,11 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
       runBenchmark("the predicted grouping against the weights, and planned with the margins") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        val weights = VarkaEmitOptions.DEFAULTS.withPredictGrouping(false)
-        val predicted = VarkaEmitOptions.DEFAULTS.withPredictGrouping(true)
-        val planned = predicted.withPlanSize(true)
+        // Planned is the default since task 236; the weights alone and the prediction without
+        // the plan's margins are its reference arms.
+        val planned = VarkaEmitOptions.DEFAULTS
+        val predicted = planned.withPlanSize(false)
+        val weights = predicted.withPredictGrouping(false)
         val shapes = Seq(22, 64).map(n => (s"$n cheap tails", (0 until n).map(tailEntry))) ++
           Seq(("200 mixed entries", (0 until 200).map(mixedEntry)),
             (s"$widest ladder entries", ladder(widest)))

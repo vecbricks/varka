@@ -204,13 +204,17 @@ final class VarkaEmitCostAudit {
     return s.index() + ": " + t.builds + " builds (" + String.join(", ", why) + ")";
   }
 
-  /** The shipped options at the audit's width, with the switch on or off. */
+  /**
+   * The options before the plan, at the audit's width, with the prediction on or off: the
+   * weights alone, and the prediction without the plan's margins. Neither ships since task 236
+   * made the plan the default; both stay as the arms the shipped grouping is read against.
+   */
   static VarkaEmitOptions shipped(boolean predict) {
     return VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
-        .withPredictGrouping(predict);
+        .withPredictGrouping(predict).withPlanSize(false);
   }
 
-  /** The shipped options with the prediction and the plan on ({@code planSize}, task 236). */
+  /** The shipped options: the prediction and the plan on ({@code planSize}, task 236). */
   static VarkaEmitOptions planned() {
     return shipped(true).withPlanSize(true);
   }

@@ -337,8 +337,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@link #heavyGroupOutputs} outputs, over {@link #callSiteBudget} - so a group the
  *        measurement would split is split before the class is built, and the common case builds
  *        once. The weights still close groups as before; the prediction only adds closes, and the
- *        measurement of the built class stays the last word. Off by default, and with
- *        {@link #methodByteBudget} 0 it changes nothing ({@code PLAN_TASK_199.md}).
+ *        measurement of the built class stays the last word. On by default since 3 October 2026,
+ *        under the plan ({@link #planSize}), whose margins it closes groups with: planned, the
+ *        families it regroups ran within the control's spread of the weights' on a runner and on
+ *        the laptop, where the prediction without the margins filled a method of sixty-four
+ *        cheap tails to the budget and ran thirteen times slower on the runner
+ *        ({@code PLAN_TASK_236.md} 9.3); off is the weights alone, kept as the reference arm.
+ *        With {@link #methodByteBudget} 0 it changes nothing ({@code PLAN_TASK_199.md}).
  * @param driverOutputTable whether the driver's per-output work - each output's validity
  *        zeroed, filled or written by the bitmap pass, and the all-null shortcut's test - is one
  *        call reading a table baked into the class, rather than unrolled once per output. Unrolled
@@ -399,8 +404,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        margins ({@code VarkaEmitCostTable}), so that the class the first build makes is the one
  *        kept. The measurement still has the last word: a method measured over a limit is
  *        corrected by today's reaction, and anything left runs the size loop as the last resort.
- *        Off by default until the runner measures it ({@code PLAN_TASK_236.md} 8); off is the
- *        loop that reacts to each measurement in turn, kept as the reference.
+ *        On by default since 3 October 2026, when a runner planned the split driver in half
+ *        its two builds' time and several kernels in one build a kernel, and both forms planned
+ *        ran as the loop's classes had ({@code PLAN_TASK_236.md} 9.3); off is the loop that
+ *        reacts to each measurement in turn, kept as the reference.
  * @param misdescribeDriverBytes a fault injector for the plan, like the two {@code misdescribe}
  *        switches: bytes taken off what the drivers built alone measure, so a test can make the
  *        plan admit a driver the build then finds over, and watch the correction. Zero in
@@ -555,7 +562,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true, true, true, true, false, 0);
+          true, true, true, true, true, true, true, 0);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {

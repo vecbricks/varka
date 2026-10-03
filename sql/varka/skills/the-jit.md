@@ -847,3 +847,26 @@ each row still pays a real call per refused method, with no optimisation across 
   C2 inlines 11 and refuses 90 for the budget, identically in every fork under `-Xbatch`.
   `VarkaSplitInliningSuite` pins both ends; see `PLAN_TASK_181.md` 10.
 
+## A method filled to the byte budget by prediction cost thirteen times its neighbours on a four-core runner, and a margin is what bought it back
+
+- Task 236's item 71 section ran sixty-four cheap tails under three groupings: the weights
+  (four loop methods), the cost model's prediction without a margin (three, each filled to
+  near the 8000-byte budget) and the prediction with the fit's margins (four again). On the
+  laptop the three read 6, 8 and 7 ms, a millisecond apart. On the GitHub runner, an Intel Xeon
+  Platinum 8370C with four cores, they read 17, 217 and 17 ms: the filled methods' arm was
+  thirteen times slower than either neighbour for the whole measurement, two seconds of warm-up
+  and five iterations of two seconds (`VarkaWideKernelBenchmark-jdk25-runner-8370c-results.txt`,
+  3 October 2026). Every other family of the section read the same across the three arms on
+  both machines.
+- The record's explanation, not verified with flags on the runner because a runner's JVM
+  cannot be probed after the fact: a method near the budget takes C2 seconds to compile, and
+  on four cores shared with the benchmark the compile did not finish inside the window, so the
+  arm was timed on C1 code; the laptop's eight pinned cores finished it during warm-up. It is
+  the cliff "A wide loop method's cliff is the time before C2" above, met on a slower machine
+  than the one that found it. The fit's margins (21.1% of the byte budget) close the group one
+  output earlier and the runner reads it as the weights' arm.
+- The lesson for a default: a grouping that is right by the budget on the development machine
+  can be wrong by the compile window on the machine the number is published from, so a
+  grouping default is decided on the runner's reading, and with the margin the fit derives,
+  never at the budget's edge. `predictGrouping` ships with `planSize` for this reason and
+  neither alone (`PLAN_TASK_236.md` 9.3).

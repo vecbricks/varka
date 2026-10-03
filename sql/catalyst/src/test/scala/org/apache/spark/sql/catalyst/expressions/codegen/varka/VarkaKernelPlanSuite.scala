@@ -29,8 +29,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  */
 class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
 
-  private val planned = VarkaEmitOptions.DEFAULTS.withPlanSize(true)
-  private val unplanned = VarkaEmitOptions.DEFAULTS.withPlanSize(false)
+  // Both arms under the weights alone: with the prediction on, the plan's margins close groups
+  // the prediction without them keeps, so the loop and the plan would not be building the same
+  // grouping on the shapes `emit_cost_audit.json` names; the margins are the audit's to pin.
+  private val unplanned = VarkaEmitOptions.DEFAULTS.withPlanSize(false).withPredictGrouping(false)
+  private val planned = unplanned.withPlanSize(true)
 
   /** One group per output: a group budget of one closes a group after every `date_add`. */
   private def oneEach(options: VarkaEmitOptions): VarkaEmitOptions =

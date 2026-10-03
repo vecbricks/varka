@@ -2570,8 +2570,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // fits. Each probe is built and measured; none is defined.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k + 1)), LastDay(d2))))
-    val oneKernel =
-      VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false).withSeveralKernels(false)
+    // The plan would read the cut off the driver and build nothing (task 236); the bisection
+    // whose probes this test is about runs with it off.
+    val oneKernel = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
+      .withSeveralKernels(false).withPlanSize(false)
     VarkaShapeCache.invalidateAll()
     val before = VarkaShapeCache.buildCount
     val partial = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
@@ -2597,6 +2599,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
     val list = (1 to 800).map(entry)
     val loop = VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withSeveralKernels(true)
+      .withPlanSize(false)
     VarkaShapeCache.invalidateAll()
     val before = VarkaShapeCache.buildCount
     val bisected = VarkaExpressionCompiler.compilePartial(list, childOutput, loop).get

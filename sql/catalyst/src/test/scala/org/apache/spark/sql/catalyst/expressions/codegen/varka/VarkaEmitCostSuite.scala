@@ -117,9 +117,13 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
         "ColumnRef/LONG" -> 1))
   }
 
-  /** `roots` at the shipped options and the audit's width: the bytes and the builds taken. */
-  private def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
-      predict: Boolean, base: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS)
+  /**
+   * `roots` at the audit's width, with the prediction on or off and the plan off: the bytes and
+   * the builds taken. The plan's margins close groups earlier than the prediction alone, and
+   * what this suite holds is the prediction; the plan is `VarkaKernelPlanSuite`'s.
+   */
+  private def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int, predict: Boolean,
+      base: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS.withPlanSize(false))
       : (Option[Array[Byte]], Int) = {
     val builds = new Array[Int](1)
     val bytes = try {
@@ -183,7 +187,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // seen rather than averaged away. The greedy walk's, as the plan records it: under the exact
     // grouping, the default since `PLAN_TASK_200.md` 8.2, `VarkaGroupingBoundSuite` holds the
     // same wide shapes to no decline and no fallback.
-    val greedy = VarkaEmitOptions.DEFAULTS.withExactGrouping(false)
+    val greedy = VarkaEmitOptions.DEFAULTS.withExactGrouping(false).withPlanSize(false)
     val gained = Seq.newBuilder[String]
     for (shape <- VarkaEmitCostCorpus.wide().asScala) {
       val where = s"${shape.family} ${shape.index}"
@@ -227,10 +231,12 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // the cheap tails at the int lane, and at the long lane forty outputs over one shared
     // division, which the call-site budget splits. Each emits under the switch in a grouping the
     // weights never form, and is run at every null pattern over lengths that leave an epilogue.
-    val predicted = VarkaEmitOptions.DEFAULTS.withPredictGrouping(true)
+    // The prediction alone, without the plan's margins (task 236), against the weights alone.
+    val weights = VarkaEmitOptions.DEFAULTS.withPlanSize(false).withPredictGrouping(false)
+    val predicted = weights.withPredictGrouping(true)
     val tails = (0 until 64).map(VarkaEmitCostCorpus.tailEntry)
     assert(VarkaLoopEmitter.groupsForTest(tails.asJava, predicted) !=
-      VarkaLoopEmitter.groupsForTest(tails.asJava, VarkaEmitOptions.DEFAULTS))
+      VarkaLoopEmitter.groupsForTest(tails.asJava, weights))
     val lits = (0 until 64).map(k => k * 3 - 90).toArray
     checkMatrix(tails, 1, lits, Seq(1, 7, 17, 64, 129), combos(1), options = predicted,
       ctx = "cheap tails, predicted")

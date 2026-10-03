@@ -602,3 +602,13 @@ that would remove the search.
 **Both stay on**, on the owner's decision of 30 September 2026: B's lead per row is 0.9 to 2.6%,
 and A' plans five to six times faster while B's split is found by bisection. The question comes
 back once task 236 plans B's split without the search.
+
+**Settled: both stay on, 3 October 2026.** Task 236 planned both forms and measured them on a
+runner (`VarkaWideKernelBenchmark-jdk25-runner-8370c-results.txt`, `PLAN_TASK_236.md` 9.3), A'
+first and again last as the control 11.6 lacked. On the ladder B is within the control's spread
+at 800 entries and 4 to 8% ahead at 1200; on sixty-four dates listed by field it is 7 to 22%
+behind, 15 to 20% with nulls, since its second kernel decomposes the dates again; and it plans
+slower, 219 against 208 ms and 404 against 359. By the rule of `PLAN_TASK_236.md` 3.6 B alone
+needed no loss on either family and no slower plan, so the division of duty of 11.5 stays: the
+split driver where one class serves the outputs, several kernels where it cannot. B alone waits
+for a cut that keeps sharers together (`SCOPE_MILESTONE_8.md` item 15).

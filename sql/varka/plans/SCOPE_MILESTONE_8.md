@@ -4051,6 +4051,13 @@ output that adds no node counts toward the width the call-site budget exempts, s
 before it rather than being split after the build. The first, run time, is task 236's benchmark
 section; the default follows its runner run (step 3).*
 
+*Answered, 3 October 2026: on by default, under the plan. On a runner and on the laptop the
+planned grouping - the prediction closing groups at the budgets less the fit's margins - ran
+within the control's spread of the weights' on the four families the prediction regroups, where
+the prediction without the margins filled a method of sixty-four cheap tails to the budget and ran
+thirteen times slower on the runner (`PLAN_TASK_236.md` 9.3). The prediction ships with the plan,
+and neither alone.*
+
 `VarkaEmitOptions.predictGrouping` (task 199) makes the first grouping close a group where the
 fitted cost model predicts that the next output would put a method over the byte budget or the
 call-site budget, so a shape the measurement would otherwise split builds once. It is off by

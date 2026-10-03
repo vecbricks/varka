@@ -116,9 +116,11 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
     // build measures, forces starts, and the exact grouping rebuilds around them. The switch
     // must survive that, so the class is the exact grouping's, not the greedy one the fallback
     // would make.
+    // Under the prediction and the plan (task 236) the first grouping already fits the budget,
+    // so the regroup this test is about needs both off.
     val roots = mixed(40)
     val budget = 2000
-    val tight = exact.withMethodByteBudget(budget)
+    val tight = exact.withPredictGrouping(false).withPlanSize(false).withMethodByteBudget(budget)
     val builds = new Array[Int](2)
     val bytes = VarkaLoopEmitter.emitCountingBuilds(
       "org.apache.spark.sql.varka.execution.VarkaExactGroupingTest", roots.asJava, 1, 40,

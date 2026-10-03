@@ -478,8 +478,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
    * budget, and the declines themselves.
    */
   private val wideVariants: Seq[(String, VarkaEmitOptions)] = {
-    val d = VarkaEmitOptions.DEFAULTS
+    // The variants are the size loop's, with the plan and the prediction off (task 236): under
+    // both the first build is the last and no mechanism is reached. The defaults run beside
+    // them, planned, so every composition is also checked as production emits it.
+    val d = VarkaEmitOptions.DEFAULTS.withPlanSize(false).withPredictGrouping(false)
     Seq(
+      "the defaults, planned" -> VarkaEmitOptions.DEFAULTS,
       "split driver" -> d.withSplitDriver(true),
       "whole driver" -> d.withSplitDriver(false),
       "whole driver, predicted grouping" -> d.withSplitDriver(false).withPredictGrouping(true),
