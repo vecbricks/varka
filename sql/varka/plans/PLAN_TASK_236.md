@@ -450,22 +450,22 @@ three copies each of the scaling arithmetic and the analysis prologue (`fitGroup
    a kernel where the bisection took more than ten emissions for two kernels, and the cut is the
    bisection's prefix.
 4. **Plan time.** On the laptop (`VarkaWideKernelBenchmark-jdk25-results.txt`, 3 October 2026,
-   under `performance`): the split driver plans in 103 and 180 ms at 800 and 1200 entries where
-   its two builds took 203 and 356, half as predicted; several kernels plan in 108 and 200 ms
-   against 96 and 139 for their classes alone and 1316 and 2032 with the search - 12% and 44%
+   under `performance`): the split driver plans in 95 and 168 ms at 800 and 1200 entries where
+   its two builds took 191 and 331, half as predicted; several kernels plan in 100 and 184 ms
+   against 89 and 128 for their classes alone and 1215 and 1904 with the search - 12% and 44%
    over the classes, not the 5% predicted, the difference being the emission that declines
    before building and the prefix's own grouping. The runner's reading is step 3's.
 5. **No class moves** where the first grouping built once: the planned class is the loop's,
    byte for byte, on every shape of the plan suite; the audit's digest of first groupings moves
    only where the margins or the width rule close a group.
 6. **Item 71, on the laptop.** The predicted and the planned grouping run within the control's
-   spread of the weights' on the mixed family (69 against 70 and 69 ms) and the ladder (255 and
-   260 against 255 and 258); on 64 cheap tails, where the prediction closes three loop methods
-   for the weights' four and the plan closes four again, both read 7 ms against the weights' 6.
-   The runner decides the default.
+   spread of the weights' on the mixed family and the ladder (252 and 252 against 253 and 251
+   ms); on 64 cheap tails, where the prediction closes three loop methods for the weights' four
+   and the plan closes four again, the readings are 6, 8, 7 and 7 ms, a millisecond apart on a
+   7 ms case. The runner decides the default.
 7. **Task 190's question, on the laptop.** Several kernels planned beat the split driver planned
-   by 2% at 800 ladder entries (521 against 533 and 530 ms) and 7% at 1200 (783 against 839 and
-   838), more than the control's spread; on sixty-four dates by field they lose by 3 to 14% (66
-   against 64 and 58 ms null-free, 65 against 59 and 57 with nulls), the one class loading each
-   date's prefix where the second kernel decomposes 64 dates again. As predicted in direction;
-   the rule of 3.6 reads the runner.
+   by 1 to 2% at 800 ladder entries (520 against 529 and 525 ms) and 7% at 1200 (773 against
+   827 and 825), more than the control's spread; on sixty-four dates by field they lose by 10%
+   (66 against 60 and 59 ms null-free, 63 against 56 and 55 with nulls), the one class loading
+   each date's prefix where the second kernel decomposes 64 dates again. As predicted in
+   direction; the rule of 3.6 reads the runner.

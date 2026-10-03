@@ -1,11 +1,11 @@
 benchmark:   org.apache.spark.sql.VarkaWideKernelBenchmark
-commit:      6fa1dc8a19c
-date:        2026-10-03T11:09:33Z
+commit:      3de1a11d64c
+date:        2026-10-03T13:10:46Z
 jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
 kernel:      7.0.0-34-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 power:       governor=performance epp=performance profile=performance
 pinned to:   taskset -c 0,12,13,14,15,1,2,3
-load at start: 0.95
-canary:      ok (compute +0.1% cache +1.9% memory -1.5% )
+load at start: 0.97
+canary:      ok (compute +0.2% cache +0.2% memory -1.2% )
 wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaWideKernelBenchmark
