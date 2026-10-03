@@ -32,7 +32,15 @@ written; a row whose first bold marker begins with **Done** is finished and
 carries a pointer to its outcome, **Withdrawn** rows are closed, and every
 other row is open, whether marked **Scoped**, **Planned** or not yet marked.
 Each row names what has to be true before the task starts and what counts as
-done, and every task has, or gets, its own `PLAN_TASK_<n>.md`. The same rows
+done, and every task has, or gets, its own `PLAN_TASK_<n>.md`. Every milestone ends
+with a closing task, the last row of its table, that does the housekeeping the
+work leaves behind: every document that names the milestone in flight
+corrected, the lessons in the skills files, the oracles regenerated
+on the closing commit, the milestone's entry in [`CHANGELOG.md`](CHANGELOG.md),
+an annotated tag `varka-m<n>` on the commit that closes the last row, and the
+worktrees and branches of merged pull requests removed; milestone 6's is task
+282 (`PLAN_TASK_282.md`), and the close is recorded as the plan's last
+section. The same rows
 are mirrored as [issues labelled `task`](https://github.com/vecbricks/varka/issues?q=label%3Atask),
 one per open row, by `dev/varka_issues.py` on every change to the plan; the
 ones a newcomer can finish in a day carry `good first issue`. The table is the
