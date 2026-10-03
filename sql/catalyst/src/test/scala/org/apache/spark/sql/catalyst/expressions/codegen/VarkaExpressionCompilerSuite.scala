@@ -2607,11 +2607,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val cut = VarkaShapeCache.buildCount - before - searched
     assert(planned.kernels.size === 2 && planned.declines.isEmpty)
     assert(cut <= planned.kernels.size + 1, s"$cut emissions for two planned kernels")
-    // The plan cuts where the bisection cut, or within a few entries before it, where the loop
-    // fitted the driver only through its fallbacks (PLAN_TASK_236.md 2.3).
+    // The plan cuts where the bisection cut: the driver's bytes are exact, so the largest prefix
+    // whose driver fits is read, not searched for (PLAN_TASK_236.md 2.3).
     val Seq(first, _) = bisected.kernels.map(_.outputs.size)
     val Seq(plannedFirst, plannedRest) = planned.kernels.map(_.outputs.size)
-    assert(plannedFirst <= first && first - plannedFirst <= 8 && plannedFirst + plannedRest === 800,
+    assert(plannedFirst === first && plannedFirst + plannedRest === 800,
       s"the plan cut at $plannedFirst where the bisection cut at $first")
     assert(planned.specs.take(plannedFirst).forall(_.isInstanceOf[FusedOutput]))
     assert(planned.specs.drop(plannedFirst) === (0 until plannedRest).map(KernelOutput(1, _)))
@@ -2619,25 +2619,20 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("under planSize a kernel the plan read as fitting that declines is cut once from the " +
       "built grouping, not bisected") {
-    // The hook takes bytes off the plan's reading of the driver, so the plan admits eight
-    // hundred entries as one class; the build finds the driver over, and the decline carries the
-    // cut read off the grouping it built, which the compiler takes in one step.
+    // `misdescribeDriverBytes` takes bytes off the plan's reading of the driver, so the plan
+    // admits eight hundred entries as one class; the build finds the driver over, and the decline
+    // carries the cut read off the grouping it built, which the compiler takes in one step.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k + 1)), LastDay(d2))))
     val list = (1 to 800).map(entry)
     val options = VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withSeveralKernels(true)
-      .withPlanSize(true)
-    VarkaEmitterTestSupport.setPlanDriverSlack(100000)
-    try {
-      VarkaShapeCache.invalidateAll()
-      val before = VarkaShapeCache.buildCount
-      val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, options).get
-      val emissions = VarkaShapeCache.buildCount - before
-      assert(partial.kernels.size === 2 && partial.declines.isEmpty)
-      assert(emissions <= 3, s"$emissions emissions: the mispredicted kernel was bisected")
-    } finally {
-      VarkaEmitterTestSupport.setPlanDriverSlack(0)
-    }
+      .withPlanSize(true).withMisdescribeDriverBytes(100000)
+    VarkaShapeCache.invalidateAll()
+    val before = VarkaShapeCache.buildCount
+    val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, options).get
+    val emissions = VarkaShapeCache.buildCount - before
+    assert(partial.kernels.size === 2 && partial.declines.isEmpty)
+    assert(emissions <= 3, s"$emissions emissions: the mispredicted kernel was bisected")
   }
 
   test("a projection with a nondeterministic entry declines whole, with the reason on each entry") {

@@ -401,6 +401,11 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        corrected by today's reaction, and anything left runs the size loop as the last resort.
  *        Off by default until the runner measures it ({@code PLAN_TASK_236.md} 8); off is the
  *        loop that reacts to each measurement in turn, kept as the reference.
+ * @param misdescribeDriverBytes a fault injector for the plan, like the two {@code misdescribe}
+ *        switches: bytes taken off what the drivers built alone measure, so a test can make the
+ *        plan admit a driver the build then finds over, and watch the correction. Zero in
+ *        production; rides the shape key like every option, so a mispredicted plan's classes and
+ *        declines are never served to an emission that did not ask for it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -441,7 +446,8 @@ public record VarkaEmitOptions(
     boolean splitDriver,
     boolean severalKernels,
     boolean elideUnreadLocals,
-    boolean planSize) {
+    boolean planSize,
+    int misdescribeDriverBytes) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -549,7 +555,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          false, true, true, true, true, true, false);
+          false, true, true, true, true, true, false, 0);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -635,6 +641,7 @@ public record VarkaEmitOptions(
       b.severalKernels = severalKernels;
       b.elideUnreadLocals = elideUnreadLocals;
       b.planSize = planSize;
+      b.misdescribeDriverBytes = misdescribeDriverBytes;
     return b;
   }
 
@@ -679,6 +686,7 @@ public record VarkaEmitOptions(
     private boolean severalKernels;
     private boolean elideUnreadLocals;
     private boolean planSize;
+    private int misdescribeDriverBytes;
 
     private Builder() {
     }
@@ -878,6 +886,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder misdescribeDriverBytes(int bytes) {
+      this.misdescribeDriverBytes = bytes;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -888,7 +901,7 @@ public record VarkaEmitOptions(
           mulHiDivide, narrowHalfSpecies, methodByteBudget, rangeSets, splitConditions,
           groupLocalSlots, materializeChronoPrefix, callSiteBudget, heavyGroupOutputs,
           predictGrouping, driverOutputTable, exactGrouping, splitDriver, severalKernels,
-          elideUnreadLocals, planSize);
+          elideUnreadLocals, planSize, misdescribeDriverBytes);
     }
   }
 
@@ -939,6 +952,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withPlanSize(boolean enabled) {
     return toBuilder().planSize(enabled).build();
+  }
+
+  public VarkaEmitOptions withMisdescribeDriverBytes(int bytes) {
+    return toBuilder().misdescribeDriverBytes(bytes).build();
   }
 
   public VarkaEmitOptions withRangeSets(boolean enabled) {
@@ -1093,7 +1110,8 @@ public record VarkaEmitOptions(
    * unchanged; so do the fields added since ({@code groupLocalSlots},
    * {@code materializeChronoPrefix}, {@code callSiteBudget}, {@code heavyGroupOutputs},
    * {@code predictGrouping}, {@code driverOutputTable}, {@code exactGrouping},
-   * {@code splitDriver}, {@code severalKernels}, {@code elideUnreadLocals}, {@code planSize}).
+   * {@code splitDriver}, {@code severalKernels}, {@code elideUnreadLocals}, {@code planSize},
+   * {@code misdescribeDriverBytes}).
    */
   public String canonical() {
     if (isDefault()) {
@@ -1120,6 +1138,8 @@ public record VarkaEmitOptions(
         + (splitDriver ? "" : "|wholeDriver")
         + (severalKernels ? "" : "|oneKernel")
         + (elideUnreadLocals ? "|elideUnreadLocals" : "")
-        + (planSize ? "|planSize" : "") + ')';
+        + (planSize ? "|planSize" : "")
+        + (misdescribeDriverBytes == 0 ? "" : "|misdescribeDriverBytes=" + misdescribeDriverBytes)
+        + ')';
   }
 }

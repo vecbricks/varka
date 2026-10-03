@@ -120,11 +120,12 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
     assert(declined.outputs().isEmpty && declined.getMessage.contains("planned before the build"))
     val cut = declined.plannedCut()
     assert(cut > 600 && cut < 800, s"cut at $cut")
-    // The prefix it names is one class, built once.
+    // The prefix it names is one class, built once, and one entry more is not: the driver's
+    // bytes are exact, so the cut is the largest prefix one class serves (PLAN_TASK_236.md 2.3).
     val (_, prefixTrace) = emitted(roots.take(cut), 1, cut, whole)
     assert(prefixTrace.builds === 1 && prefixTrace.plannedDeclines === 0)
-    // The bisection's answer, found by the loop: the plan cuts there or a little earlier, the
-    // stage margin's worth of calls (PLAN_TASK_236.md 2.3).
+    intercept[VarkaEmitDeclined](emitted(roots.take(cut + 4), 1, cut + 4, whole))
+    // The loop's answer, found by bisection without the plan, is the same prefix.
     val loop = unplanned.withSplitDriver(false)
     def fits(k: Int): Boolean =
       try { emitted(roots.take(k), 1, k, loop); true } catch { case _: VarkaEmitDeclined => false }
@@ -134,24 +135,21 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
       val mid = (lo + hi) / 2
       if (fits(mid)) lo = mid else hi = mid
     }
-    assert(lo >= cut && lo - cut <= 8, s"the loop fits $lo entries where the plan cuts at $cut")
+    assert(lo === cut, s"the loop fits $lo entries where the plan cuts at $cut")
   }
 
   test("a planned build the measurement finds over a limit is corrected once, and the " +
       "correction is named") {
-    // The hook takes bytes off the plan's reading of the driver, so the plan sizes no stages
-    // for three hundred one-output groups and the build finds the driver over; the loop's own
-    // reaction then sizes the stages, which the trace counts as the plan's correction.
-    VarkaLoopEmitter.planDriverSlackForTest = 100000
-    try {
-      val (bytes, trace) = emitted(dateAdds(300), 1, 300, oneEach(planned))
-      assert(trace.builds === 2 && trace.plannedStages === 0 && trace.stageSplits === 1)
-      assert(trace.corrections.size === 1 && trace.corrections.get(0).startsWith("the stages:"),
-        trace.corrections)
-      assert(VarkaEmitBudget.overLimits(VarkaEmittedClass.measure(bytes)).isEmpty)
-    } finally {
-      VarkaLoopEmitter.planDriverSlackForTest = 0
-    }
+    // `misdescribeDriverBytes` takes bytes off the plan's reading of the driver, so the plan
+    // sizes no stages for three hundred one-output groups and the build finds the driver over;
+    // the loop's own reaction then sizes the stages, which the trace counts as the plan's
+    // correction.
+    val (bytes, trace) = emitted(dateAdds(300), 1, 300,
+      oneEach(planned).withMisdescribeDriverBytes(100000))
+    assert(trace.builds === 2 && trace.plannedStages === 0 && trace.stageSplits === 1)
+    assert(trace.corrections.size === 1 && trace.corrections.get(0).startsWith("the stages:"),
+      trace.corrections)
+    assert(VarkaEmitBudget.overLimits(VarkaEmittedClass.measure(bytes)).isEmpty)
   }
 
   test("under the plan no shape of the audit's corpus builds a third time") {

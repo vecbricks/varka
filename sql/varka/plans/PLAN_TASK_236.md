@@ -388,8 +388,10 @@ finding a driver over.
   more, and after two cuts the bisection decides, as the last resort for the class-file caps the
   plan cannot read. On eight hundred ladder entries the loop bisects in more than ten emissions,
   each a class built and measured; the plan takes one emission that builds nothing and then one
-  build a kernel. Its cut is the bisection's or a group's worth of entries earlier - 716 against
-  720 - since the stage margin's bytes are kept out of the driver.
+  build a kernel. Its cut is the bisection's: the driver's bytes are exact, so the largest prefix
+  one class serves is read rather than searched for. (The first build of this step kept the
+  stage margin's bytes out of the cut too and landed a group early, 716 against 720; the review
+  found it.)
 * **The margins** are derived with the prices by `VarkaEmitCostFit.margins` and written into
   `VarkaEmitCostTable` by the same generator: the largest under-prediction the fit makes on its
   own groups in the band where each budget binds, methods of 2000 bytes and over for bytes and of
@@ -406,9 +408,11 @@ finding a driver over.
   budget, exempt by its width of six, which a seventh output that added no node - a tree the
   group already held - took past the exemption after the prediction's last word. That is item
   71's second question, and the plan answers it by counting such an output toward the width:
-  under `planSize` the prediction judges that step too, and the group closes before it. With the
-  rule, every one of the audit's 2259 shapes builds once and the audit lists no correction. The
-  item's first question, what the predicted grouping costs at run time, is the benchmark's (6).
+  under `planSize` the prediction judges that step on its call sites alone - not on bytes, where
+  splitting a duplicate off would only re-emit the tree it shares - and the group closes before
+  it. With the rule, every one of the audit's 2259 shapes builds once and the audit lists no
+  correction. The item's first question, what the predicted grouping costs at run time, is the
+  benchmark's (6).
 * **Item 74.2** of `SCOPE_MILESTONE_7.md` assumed this task would replace the size loop; it
   stays, as 3.2 planned, the last resort behind the plan.
 
@@ -423,6 +427,17 @@ finding a driver over.
 `VarkaKernelPlan` class: the plan is a few readings inside `emit`, where the grouping it needs
 already is, and a class of its own would have carried them out and back for nothing.
 
+**The review of this step** (3 October 2026) found seven problems, all fixed before the merge:
+the cut kept the stage margin's bytes out of the driver where no stage exists, so every planned
+split of several kernels landed a group early, and with it the plan declined off the exact
+grouping where the loop's fallbacks would have fitted the greedy one (one fix: the cut reads the
+driver's exact bytes against the whole budget, which is the bisection's prefix); a duplicate
+output was judged on bytes as well as call sites, which could split the tree it shares (now
+call sites alone); the test hook was a static read on the production path, invisible to the
+shape key (now `misdescribeDriverBytes`, an option like the two `misdescribe` switches); the
+plan re-read the driver after every regroup rather than for a grouping started afresh; and
+three copies each of the scaling arithmetic and the analysis prologue (`fitGroups`, `analyze`).
+
 ### 9.2 The predictions, scored so far
 
 1. **Held, beyond what it asked.** Over the audit's 2259 shapes the plan builds 2259 classes,
@@ -432,8 +447,8 @@ already is, and a class of its own would have carried them out and back for noth
 2. **Stages.** Held: all 37 shapes past the ceiling build once under the split driver, each the
    two-build class byte for byte.
 3. **Kernels.** Held in the count: the cut takes one emission that builds nothing and one build
-   a kernel where the bisection took more than ten emissions for two kernels. The cut falls a
-   group's worth of entries before the bisection's.
+   a kernel where the bisection took more than ten emissions for two kernels, and the cut is the
+   bisection's prefix.
 4. **Plan time.** On the laptop (`VarkaWideKernelBenchmark-jdk25-results.txt`, 3 October 2026,
    under `performance`): the split driver plans in 103 and 180 ms at 800 and 1200 entries where
    its two builds took 203 and 356, half as predicted; several kernels plan in 108 and 200 ms
