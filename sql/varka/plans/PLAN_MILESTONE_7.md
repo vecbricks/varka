@@ -427,6 +427,13 @@ arithmetic lowering carries a machine-checked proof over its guarded domain" pub
 of how Varka is checked rewritten on what the proofs and tests now hold, quoting nothing that
 does not trace to a committed file. Task 270's post is written from the same record, after it.
 
+Since 3 October 2026 the row also carries the close every milestone owes under `CONTRIBUTING.md`'s
+rule ("Finding work"), in the shape milestone 6's task 282 gave it (`PLAN_TASK_282.md` 2): every
+document that names the milestone in flight corrected, the issue mirror applied, the lessons in
+the skills files, the oracles regenerated on the closing commit and expected unchanged, the
+milestone's entry in `CHANGELOG.md`, an annotated tag `varka-m7` on the commit that closes the
+last row, and the worktrees and branches of merged pull requests removed.
+
 ## 3. Task breakdown
 
 Task numbers continue the single sequence from 240; rows that moved to the catalogue from
@@ -487,7 +494,7 @@ the survey of other engines, and 273 to 281 from reading the papers (the notes a
 | 259 | Its companion for Spark and JVM developers: bytecode without source | item 79 | medium |
 | 260 | A reference post: Spark's code generator by the numbers | item 80 | small |
 | 270 | The milestone's own post, for JVM and database engineers: how Varka knows its answers are right, and where that stops | the plan review (2.5), item 58 | medium |
-| 261 | The closing task: 1.1 read row by row, and the README's account of how Varka is checked rewritten | this plan | small |
+| 261 | The closing task: 1.1 read row by row, and the README's account of how Varka is checked rewritten; then the close `CONTRIBUTING.md` asks of every milestone, in task 282's shape - the documents, the issue mirror, the lessons, the oracles, the `CHANGELOG.md` entry, the tag `varka-m7`, the cleanup | this plan | small |
 
 ## 4. Ordering
 
