@@ -96,7 +96,7 @@ timestamps `TimestampNTZNanosType` and `TimestampLTZNanosType` have a sixteen-by
 physical type of their own and are stored by `ArrowWriter` as a `StructVector`,
 so they are not one lane of anything. Of the five, the two timestamp types share
 the lane physically and are outside this milestone (section 8 of the milestone
-plan, `SCOPE_MILESTONE_7.md` item 31): the compiler declines them with a reason
+plan, `SCOPE_MILESTONE_8.md` item 31): the compiler declines them with a reason
 that says so, and section 3.2 records the semantic finding the next milestone
 inherits with them.
 
@@ -126,7 +126,7 @@ opened for it and withdrawn the same day).
 
 The owner then read the corrected plan and narrowed it: one task should not
 carry the whole lane, and the timestamp types were never in this milestone. So:
-the two timestamp types leave the milestone (`SCOPE_MILESTONE_7.md` item 31,
+the two timestamp types leave the milestone (`SCOPE_MILESTONE_8.md` item 31,
 carrying the DST finding as the argument they arrive with); `bigint`
 arithmetic, `bi + 1` included, is task 104's; every `TIME` operation beyond a
 comparison is task 102's; every interval operation beyond a comparison,
@@ -409,5 +409,5 @@ is populated.
 The end-to-end number (task 105); `IN` over a long column and every `TIME`
 operation beyond a comparison (task 102); interval arithmetic (103); `bigint`
 arithmetic, `l + 1` included (104); the width-8 compaction path a long filter's
-survivors take (128); and the two timestamp types (`SCOPE_MILESTONE_7.md` item
+survivors take (128); and the two timestamp types (`SCOPE_MILESTONE_8.md` item
 31). The lesson about the two forms the suites compile is in `SKILLS.md`.

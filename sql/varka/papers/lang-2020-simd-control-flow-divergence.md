@@ -20,7 +20,7 @@ disqualified it, and `VarkaFilterExec`'s compaction into a dense batch is the
 paper's "materialization at an operator boundary", which its measurements
 favour for scan-shaped pipelines on out-of-order cores (section 6). The paper
 supplies the cost model for the selection-narrowing question in
-`SCOPE_MILESTONE_7.md` (Items 16, 17 and 23, and Item 25's reading notes): the
+`SCOPE_MILESTONE_8.md` (Items 16, 17 and 23, and Item 25's reading notes): the
 refill threshold is all lanes when one vector is refilled and falls to about
 five of eight when five are; partial consume loses on anything complex and is
 excluded; static register allocation charges for buffers even when unused,

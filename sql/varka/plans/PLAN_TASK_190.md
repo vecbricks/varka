@@ -563,7 +563,7 @@ Where the two options meet is the question the owner asked next: does using both
 e-graph? No. A' has nothing to choose - one class keeps every output's sharing, and its stages
 are a byte count. B's efficiency is where it cuts, and it cuts in projection order, blind to
 what entries share; the better cut is a clustering of entries by shared columns and subtrees,
-the same problem as task 72's output order, recorded there in `SCOPE_MILESTONE_7.md`. An e-graph
+the same problem as task 72's output order, recorded there in `SCOPE_MILESTONE_8.md`. An e-graph
 chooses among equivalent forms of an expression, which is item 11's question, not this one.
 
 ### 11.6 The runner's measurement, 30 September 2026

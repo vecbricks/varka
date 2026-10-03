@@ -1,7 +1,7 @@
 # Task 124: the no-fallback proof, `PrintIntrinsics` in CI
 
 *Written 18 September 2026. Section 2.59 of `PLAN_MILESTONE_5.md` opened this
-task on 16 September 2026, from the September surveys (`SCOPE_MILESTONE_7.md`
+task on 16 September 2026, from the September surveys (`SCOPE_MILESTONE_8.md`
 items 16 to 29, #223).*
 
 ## 1. What this is for

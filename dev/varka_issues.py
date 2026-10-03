@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Mirror the current milestone's task table as GitHub issues (task 183, scope item 38).
+"""Mirror the milestone plans' task tables as GitHub issues (task 183, scope item 38).
 
     dev/varka_issues.py                  # dry run: print the rule and what would change
     dev/varka_issues.py --apply          # open, update and close issues through gh
@@ -29,6 +29,13 @@ the plan and to the task's own plan file when it has one. When a row turns done 
 withdrawn, its issue is closed with the row's outcome quoted. Nothing flows the other way:
 edit the row, and this script brings the issue to it.
 
+Every plan is read, not only the current one, because a milestone's last rows can still be
+open when the next plan merges. Only the current plan's rows open new issues; an earlier plan's
+rows keep the issues they already have in step - one still open there stays open, one done,
+withdrawn or moved is closed - and get none new, so a milestone mirrored before this script
+existed opens nothing. A task number in two plans is the later plan's row: the earlier row's
+"Moved" marker is the record of the move, and the issue follows the row to its new milestone.
+
 The rule, since the tables' status vocabulary is not uniform: a row's state is its first
 bold marker. A marker beginning with "Done" (Done, DONE, "Done, negative") closes the issue
 as completed; "Withdrawn" or "Moved" closes it as not planned; any other marker (Scoped,
@@ -36,9 +43,10 @@ Planned, Built, "Step 1 done", "Census drafted") is in progress and the issue st
 the marker in its body; a row with no marker is open and not started. So no row is left
 unclassified, and the dry run prints each row's state next to the marker it read.
 
-Labels: "task", "milestone-<n>", and "good first issue" for the rows listed in
-dev/varka_good_first_tasks.txt, a hand-kept list of at most five rows a newcomer can finish
-in a day. .github/workflows/varka-issues.yml runs this with --apply on every push to master
+Labels: "task", "milestone-<n>" for the plan the row is in, and "good first issue" for the
+rows listed in
+dev/varka_good_first_tasks.txt, a hand-kept list of at most five rows a newcomer can
+finish in a day. .github/workflows/varka-issues.yml runs this with --apply on every push to master
 that touches a milestone plan, so the mirror follows the table without anyone remembering.
 """
 
@@ -65,12 +73,33 @@ class Row:
     text: str
     origin: str
     size: str
+    plan: str = ""  # the PLAN_MILESTONE_<n>.md the row is in
+    milestone: int = 0
 
 
 @dataclass
 class State:
     kind: str  # "open", "done" or "withdrawn"
     marker: str  # the bold marker read, or "not started"
+
+
+def all_plans(plans_dir=PLANS_DIR):
+    """Every PLAN_MILESTONE_<n>.md with its milestone number, the highest first.
+
+    >>> import tempfile
+    >>> d = tempfile.mkdtemp()
+    >>> for n in (5, 12, 6): open(os.path.join(d, f"PLAN_MILESTONE_{n}.md"), "w").close()
+    >>> [(os.path.basename(path), n) for path, n in all_plans(d)]
+    [('PLAN_MILESTONE_12.md', 12), ('PLAN_MILESTONE_6.md', 6), ('PLAN_MILESTONE_5.md', 5)]
+    """
+    plans = {}
+    for path in glob.glob(os.path.join(plans_dir, "PLAN_MILESTONE_*.md")):
+        m = re.fullmatch(r"PLAN_MILESTONE_(\d+)\.md", os.path.basename(path))
+        if m:
+            plans[int(m.group(1))] = path
+    if not plans:
+        sys.exit(f"no PLAN_MILESTONE_<n>.md under {plans_dir}")
+    return [(plans[n], n) for n in sorted(plans, reverse=True)]
 
 
 def current_plan(plans_dir=PLANS_DIR):
@@ -82,15 +111,30 @@ def current_plan(plans_dir=PLANS_DIR):
     >>> os.path.basename(current_plan(d)[0]), current_plan(d)[1]
     ('PLAN_MILESTONE_12.md', 12)
     """
-    plans = {}
-    for path in glob.glob(os.path.join(plans_dir, "PLAN_MILESTONE_*.md")):
-        m = re.fullmatch(r"PLAN_MILESTONE_(\d+)\.md", os.path.basename(path))
-        if m:
-            plans[int(m.group(1))] = path
-    if not plans:
-        sys.exit(f"no PLAN_MILESTONE_<n>.md under {plans_dir}")
-    n = max(plans)
-    return plans[n], n
+    return all_plans(plans_dir)[0]
+
+
+def rows_of_plans(plans):
+    """The rows of every plan's task table, given as (plan name, milestone, rows) with the highest
+    milestone first, each task number taken from the highest plan that has it: a row moved to a
+    later milestone is that milestone's, and its earlier "Moved" marker is the record of the move.
+
+    >>> rows = rows_of_plans([
+    ...     ("P7.md", 7, [Row(214, "Port the time family", "item 81", "small")]),
+    ...     ("P6.md", 6, [Row(214, "Port. **Moved to milestone 7**: as item 81", "o", "s"),
+    ...                   Row(236, "Plan the size. **Planned** (x)", "o", "s")])])
+    >>> [(r.number, r.plan, r.milestone, classify(r.text).kind) for r in rows]
+    [(214, 'P7.md', 7, 'open'), (236, 'P6.md', 6, 'open')]
+    """
+    taken, rows = set(), []
+    for plan_name, milestone, plan_rows in plans:
+        for row in plan_rows:
+            if row.number in taken:
+                continue
+            taken.add(row.number)
+            row.plan, row.milestone = plan_name, milestone
+            rows.append(row)
+    return rows
 
 
 def split_cells(line):
@@ -171,6 +215,8 @@ def classify(text):
     'done'
     >>> classify("Old idea. **Withdrawn** (9): superseded").kind
     'withdrawn'
+    >>> classify("A port. **Moved to milestone 7** (2 October 2026, item 81): the rest").kind
+    'withdrawn'
     >>> s = classify("The cliff. **Laptop ladder done** (9.1): vanilla steps"); s.kind, s.marker
     ('open', 'Laptop ladder done')
     >>> s = classify("A disjointness test for the compiler's family chain"); s.kind, s.marker
@@ -182,7 +228,7 @@ def classify(text):
     marker = m.group(1).strip()
     if marker.lower().startswith("done"):
         return State("done", marker)
-    if marker.lower().split(",")[0].strip() in ("withdrawn", "moved"):
+    if re.match(r"(withdrawn|moved)\b", marker.lower()):
         return State("withdrawn", marker)
     return State("open", marker)
 
@@ -258,7 +304,8 @@ def issue_title(row):
     return f"[Task {row.number}] {title_of(row.text)}"
 
 
-def issue_body(row, state, plan_name, milestone):
+def issue_body(row, state):
+    plan_name, milestone = row.plan, row.milestone
     task_plan = f"PLAN_TASK_{row.number}.md"
     links = [f"the milestone plan, [`{plan_name}`](sql/varka/plans/{plan_name}) section 3"]
     if os.path.exists(os.path.join(PLANS_DIR, task_plan)):
@@ -345,30 +392,59 @@ def existing_issues(repo):
     return issues
 
 
-def plan_actions(rows, issues, plan_name, milestone, good_first):
-    """What to do for each row, as (row, action, detail) with action in create, update, close,
-    reopen, keep or skip; pure, so the dry run and --apply agree by construction.
+MILESTONE_LABEL = re.compile(r"milestone-\d+")
 
-    >>> rows = [Row(1, "Open one", "o", "small"), Row(2, "Closed one. **Done** (x): won", "o", "s"),
-    ...         Row(3, "Never mirrored. **Withdrawn**: no", "o", "s")]
+
+def stale_milestone_labels(issue, row):
+    """The issue's milestone labels other than the row's own milestone, which an update removes.
+
+    >>> issue = {"labels": [{"name": "task"}, {"name": "milestone-6"}]}
+    >>> stale_milestone_labels(issue, Row(214, "t", "o", "s", "P7.md", 7))
+    ['milestone-6']
+    >>> stale_milestone_labels({}, Row(214, "t", "o", "s", "P7.md", 7))
+    []
+    """
+    names = [label["name"] for label in issue.get("labels") or []]
+    own = f"milestone-{row.milestone}"
+    return [n for n in names if MILESTONE_LABEL.fullmatch(n) and n != own]
+
+
+def plan_actions(rows, issues, current, good_first):
+    """What to do for each row, as (row, action, detail) with action in create, update, close,
+    reopen, keep or skip; pure, so the dry run and --apply agree by construction. Only a row of
+    the current milestone's plan opens an issue; an earlier plan's row keeps the one it has.
+
+    >>> rows = [Row(1, "Open one", "o", "small", "P.md", 6),
+    ...         Row(2, "Closed one. **Done** (x): won", "o", "s", "P.md", 6),
+    ...         Row(3, "Never mirrored. **Withdrawn**: no", "o", "s", "P.md", 6),
+    ...         Row(4, "Open in an earlier plan", "o", "s", "Q.md", 5),
+    ...         Row(5, "Moved. **Moved to milestone 6**: as row 9", "o", "s", "Q.md", 5)]
     >>> issues = {1: {"number": 11, "state": "OPEN", "title": "[Task 1] Open one",
-    ...                "body": issue_body(rows[0], classify(rows[0].text), "P.md", 6)},
-    ...           2: {"number": 12, "state": "OPEN", "title": "[Task 2] Closed one", "body": ""}}
-    >>> [(r.number, a) for r, a, _ in plan_actions(rows, issues, "P.md", 6, {})]
-    [(1, 'keep'), (2, 'close'), (3, 'skip')]
+    ...                "body": issue_body(rows[0], classify(rows[0].text))},
+    ...           2: {"number": 12, "state": "OPEN", "title": "[Task 2] Closed one", "body": ""},
+    ...           5: {"number": 15, "state": "OPEN", "title": "[Task 5] Moved", "body": ""}}
+    >>> [(r.number, a) for r, a, _ in plan_actions(rows, issues, 6, {})]
+    [(1, 'keep'), (2, 'close'), (3, 'skip'), (4, 'skip'), (5, 'close')]
     """
     actions = []
     for row in rows:
         state = classify(row.text)
         issue = issues.get(row.number)
         title = issue_title(row)
-        body = issue_body(row, state, plan_name, milestone)
+        body = issue_body(row, state)
         if state.kind == "open":
             if issue is None:
-                actions.append((row, "create", (title, body, state)))
+                if row.milestone == current:
+                    actions.append((row, "create", (title, body, state)))
+                else:
+                    actions.append((row, "skip", f"milestone {row.milestone}, never mirrored"))
             elif issue["state"] != "OPEN":
                 actions.append((row, "reopen", (title, body, state)))
-            elif issue["title"] != title or issue.get("body") != body:
+            elif (
+                issue["title"] != title
+                or issue.get("body") != body
+                or stale_milestone_labels(issue, row)
+            ):
                 actions.append((row, "update", (title, body, state)))
             else:
                 actions.append((row, "keep", (title, body, state)))
@@ -381,18 +457,18 @@ def plan_actions(rows, issues, plan_name, milestone, good_first):
     return actions
 
 
-def labels_for(row, milestone, good_first):
-    labels = ["task", f"milestone-{milestone}"]
+def labels_for(row, good_first):
+    labels = ["task", f"milestone-{row.milestone}"]
     if row.number in good_first:
         labels.append("good first issue")
     return labels
 
 
-def ensure_labels(repo, milestone):
-    for name, color, description in (
-        ("task", "0E8A16", "A row of the current milestone's task table"),
-        (f"milestone-{milestone}", "1D76DB", f"Milestone {milestone}'s task table"),
-    ):
+def ensure_labels(repo, milestones):
+    wanted = [("task", "0E8A16", "A row of a milestone plan's task table")] + [
+        (f"milestone-{m}", "1D76DB", f"Milestone {m}'s task table") for m in sorted(milestones)
+    ]
+    for name, color, description in wanted:
         command = ["label", "create", name, "--color", color, "--description", description]
         result = subprocess.run(
             ["gh", *command, "--repo", repo], capture_output=True, text=True, check=False
@@ -401,23 +477,29 @@ def ensure_labels(repo, milestone):
             sys.exit(f"gh label create {name} failed:\n{result.stderr}")
 
 
-def apply(actions, issues, repo, milestone, good_first):
-    ensure_labels(repo, milestone)
+def apply(actions, issues, repo, good_first):
+    ensure_labels(
+        repo,
+        {row.milestone for row, action, _ in actions if action in ("create", "update", "reopen")},
+    )
     for row, action, detail in actions:
         if action == "create":
             title, body, _ = detail
             args = ["issue", "create", "--title", title, "--body", body]
-            for label in labels_for(row, milestone, good_first):
+            for label in labels_for(row, good_first):
                 args += ["--label", label]
             print(f"task {row.number}: opened {gh(args, repo).strip()}")
         elif action in ("update", "reopen"):
             title, body, _ = detail
-            number = str(issues[row.number]["number"])
+            issue = issues[row.number]
+            number = str(issue["number"])
             if action == "reopen":
                 gh(["issue", "reopen", number], repo)
             args = ["issue", "edit", number, "--title", title, "--body", body]
-            for label in labels_for(row, milestone, good_first):
+            for label in labels_for(row, good_first):
                 args += ["--add-label", label]
+            for label in stale_milestone_labels(issue, row):
+                args += ["--remove-label", label]
             gh(args, repo)
             print(f"task {row.number}: {action} #{number}")
         elif action == "close":
@@ -429,51 +511,62 @@ def apply(actions, issues, repo, milestone, good_first):
             print(f"task {row.number}: closed #{number} as {reason}")
 
 
-def report(actions, rows, plan_name, good_first):
-    print(f"{plan_name}: {len(rows)} rows. The rule: a row's state is its first bold marker;")
-    print('"Done..." closes as completed, "Withdrawn"/"Moved" as not planned, any other marker')
-    print("is in progress and stays open, no marker is open and not started.\n")
+def report(actions, plans_read, current, good_first):
+    names = ", ".join(f"{name} ({len(rows)} rows)" for name, _, rows in plans_read)
+    print(f"Plans read: {names}; milestone {current} is current.")
+    print('The rule: a row\'s state is its first bold marker; "Done..." closes as completed,')
+    print('"Withdrawn"/"Moved..." as not planned, any other marker is in progress and stays open,')
+    print("no marker is open and not started. Only the current plan opens issues.\n")
     counts = {}
     for row, action, detail in actions:
+        if action == "skip" and row.milestone != current:
+            counts["skip, earlier plan"] = counts.get("skip, earlier plan", 0) + 1
+            continue
         state = classify(row.text)
         counts[action] = counts.get(action, 0) + 1
         extra = ""
         if row.number in good_first:
             extra = f"  [good first issue: {good_first[row.number]}]"
-        print(f"  {row.number:>4}  {action:<7} {state.kind:<9} ({state.marker}){extra}")
+        print(
+            f"  {row.number:>4}  m{row.milestone:<3} {action:<7} {state.kind:<9} ({state.marker})"
+            f"{extra}"
+        )
         if action in ("create", "update", "reopen"):
             print(f"        {issue_title(row)}")
     print("\n" + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
-    unknown = [n for n in good_first if n not in {r.number for r in rows}]
+    current_rows = {r.number for r in plans_read[0][2]} if plans_read else set()
+    unknown = [n for n in good_first if n not in current_rows]
     if unknown:
-        print(f"good-first list names rows not in the table: {unknown}")
+        print(f"good-first list names rows not in the current table: {unknown}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
-    parser.add_argument("--plan", help="a PLAN_MILESTONE_<n>.md; the current one by default")
+    parser.add_argument("--plan", help="one PLAN_MILESTONE_<n>.md alone; every plan by default")
     parser.add_argument("--repo", default="vecbricks/varka", help="owner/name for gh")
     parser.add_argument("--apply", action="store_true", help="change the issues; dry run otherwise")
     args = parser.parse_args()
     if args.plan:
-        plan_path = args.plan
-        m = re.search(r"PLAN_MILESTONE_(\d+)\.md$", plan_path)
+        m = re.search(r"PLAN_MILESTONE_(\d+)\.md$", args.plan)
         if not m:
-            sys.exit(f"{plan_path} is not a PLAN_MILESTONE_<n>.md")
-        milestone = int(m.group(1))
+            sys.exit(f"{args.plan} is not a PLAN_MILESTONE_<n>.md")
+        plans = [(args.plan, int(m.group(1)))]
     else:
-        plan_path, milestone = current_plan()
-    plan_name = os.path.basename(plan_path)
-    with open(plan_path, encoding="utf-8") as handle:
-        rows = parse_rows(handle.read())
-    if not rows:
-        sys.exit(f"{plan_name} has no task table")
+        plans = all_plans()
+    plans_read = []
+    for plan_path, milestone in plans:
+        with open(plan_path, encoding="utf-8") as handle:
+            plans_read.append((os.path.basename(plan_path), milestone, parse_rows(handle.read())))
+    if not plans_read[0][2]:
+        sys.exit(f"{plans_read[0][0]} has no task table")
+    current = plans_read[0][1]
+    rows = rows_of_plans(plans_read)
     good_first = good_first_tasks()
     issues = existing_issues(args.repo)
-    actions = plan_actions(rows, issues, plan_name, milestone, good_first)
-    report(actions, rows, plan_name, good_first)
+    actions = plan_actions(rows, issues, current, good_first)
+    report(actions, plans_read, current, good_first)
     if args.apply:
-        apply(actions, issues, args.repo, milestone, good_first)
+        apply(actions, issues, args.repo, good_first)
     else:
         print("\ndry run; pass --apply to change the issues")
 

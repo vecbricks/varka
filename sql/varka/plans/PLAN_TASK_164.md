@@ -279,7 +279,7 @@ runs on the same pool and is a question for task 118 rather than this one.
 ## 6. Explicitly out of this task
 
 - **Lifting the narrowing restriction** so `hour(t) + 1` fuses. That is task
-  28 (`SCOPE_MILESTONE_7.md` item 39), and this list is built from what fuses
+  28 (`SCOPE_MILESTONE_8.md` item 39), and this list is built from what fuses
   today rather than waiting for it.
 - **A `TIME` equivalent of the surface's filter entries.** The chains answer
   the datapath question, which is a projection question; the filter shapes are

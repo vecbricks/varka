@@ -604,8 +604,17 @@ The milestones:
   `bigint`), the rest of ANSI integer arithmetic (`/`, `div`, `%` and the
   int64 forms; the int32 add, subtract, multiply and negate came back to
   milestone 4 as task 63), `date - date`, and civil-from-days in long lanes.
-* **Milestone 6**: *coverage* - the scope catalogue is in
-  [`sql/varka/plans/SCOPE_MILESTONE_7.md`](sql/varka/plans/SCOPE_MILESTONE_7.md),
+* **Milestone 6**: *the compiler's foundation* - the task plan is
+  [`sql/varka/plans/PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md):
+  no shape Varka admits can fail to emit, every method bounded in bytes, and the
+  posts on where vanilla Spark's code generation gives up.
+* **Milestone 7**: *trust and maintainability* - the task plan is
+  [`sql/varka/plans/PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md):
+  machine-checked proofs of the bounded arithmetic, the differential tests'
+  gaps closed, the compiler ported to Java and refactored with no emitted byte
+  moved, and CI that needs no laptop.
+* **Milestone 8**: *coverage* - the scope catalogue is in
+  [`sql/varka/plans/SCOPE_MILESTONE_8.md`](sql/varka/plans/SCOPE_MILESTONE_8.md),
   driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that
   census says: `DateType`, the only type Varka has today, is 3.1% of the columns
   in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
@@ -623,7 +632,7 @@ which live in [`sql/varka/skills/`](sql/varka/skills/)).
 
 The work is organised as milestones with a numbered task table each; the
 milestone in flight is
-[`sql/varka/plans/PLAN_MILESTONE_5.md`](sql/varka/plans/PLAN_MILESTONE_5.md),
+[`sql/varka/plans/PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md),
 and its rows marked **Scoped** or **Planned** are open. Pick one, open an
 issue naming the row, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
 the work is done here: plans as records, numbers that trace to committed

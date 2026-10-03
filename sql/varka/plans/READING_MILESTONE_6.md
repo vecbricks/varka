@@ -12,7 +12,7 @@ directory's default is reading notes rather than copies. These are the notes.
 The query-compilation papers most relevant to the milestone had already been
 read - Kohn, Leis and Neumann's adaptive execution, Kersten, Leis and Neumann's
 Flying Start, Gubner and Boncz's VOILA, Menon's relaxed operator fusion - and
-are in `SCOPE_MILESTONE_7.md` Item 25. This set adds the tensor compilers, which
+are in `SCOPE_MILESTONE_8.md` Item 25. This set adds the tensor compilers, which
 the record held nothing from, and the sources the post needs.
 
 ## 1. Why the cliff exists for Spark and not for Varka
@@ -76,7 +76,7 @@ Varka emits bytecode directly, in milliseconds (`VarkaEmissionBenchmark`), and
 runs it on the JVM's own JIT - a real difference from the native engines'
 codegen paths, and one for the post. Section 4.5.1's adaptive filter order,
 scored by time / (1 + values in - values out), is a concrete rule for the filter
-work (`SCOPE_MILESTONE_7.md` Items 16 and 20).
+work (`SCOPE_MILESTONE_8.md` Items 16 and 20).
 
 ## 3. Splitting a wide projection: task 190's second step
 

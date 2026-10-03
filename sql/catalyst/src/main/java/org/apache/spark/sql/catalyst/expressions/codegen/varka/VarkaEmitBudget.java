@@ -212,7 +212,7 @@ final class VarkaEmitBudget {
    * too, and a site's cost differs by shape: a {@code make_date} producer compiles at a count
    * the cheap tails are refused at. The value was read on the cheap tails, at the 512-bit and
    * 128-bit species, on JDK 25; a mask-heavy wide group, such as a split-condition filter's, and
-   * the 256-bit species are uncalibrated ({@code SCOPE_MILESTONE_7.md} item 61).
+   * the 256-bit species are uncalibrated ({@code SCOPE_MILESTONE_8.md} item 61).
    *
    * <p><b>What the budget does.</b> The emitter reads each group method's count off the built
    * class, beside its bytes, and a group whose loop or epilogue is over the budget is split

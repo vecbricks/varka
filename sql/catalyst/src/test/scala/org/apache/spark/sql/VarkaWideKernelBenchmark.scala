@@ -63,7 +63,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * The last two sections are task 236's: both forms planned, on the ladder and on sixty-four
  * dates listed by field, with A' first and again last; and the predicted grouping against the
  * weights' and the planned grouping with the fit's margins, on the cheap tails, the mixed family
- * and the ladder (item 71 of `SCOPE_MILESTONE_7.md`).
+ * and the ladder (item 71 of `SCOPE_MILESTONE_8.md`).
  *
  * {{{
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaWideKernelBenchmark"
@@ -435,7 +435,7 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
-      // Item 71 of SCOPE_MILESTONE_7.md, brought into task 236 (PLAN_TASK_236.md 3.5): what the
+      // Item 71 of SCOPE_MILESTONE_8.md, brought into task 236 (PLAN_TASK_236.md 3.5): what the
       // predicted grouping costs at run time against the weights', and the planned grouping
       // with the fit's margins, on the families the prediction closes groups on. The weights
       // run first and again last as the control.

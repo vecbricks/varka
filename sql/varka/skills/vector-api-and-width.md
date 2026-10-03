@@ -437,7 +437,7 @@ right, so only a test whose verdict is a JIT outcome notices, and such a test ru
 own: the warm-up suite's compile tests failed one full run in three by the suites' order until
 they forked `VarkaKernelWarmupProbe`, as the assembly and cliff suites fork theirs
 (`PLAN_TASK_209.md` 13.2). Taking the second species out of the shared JVM is
-`SCOPE_MILESTONE_7.md` item 69.
+`SCOPE_MILESTONE_8.md` item 69.
 `VarkaMilestone4MeasurementsBenchmark` did exactly that with its half-width int species in a
 `forks = 0` JVM, which is one named cause of the engine harness's degraded state (the debt register
 in `PLAN_MILESTONE_4.md`). Two tells, either sufficient: an allocation inside a kernel loop body in
@@ -801,7 +801,7 @@ and on aarch64 `Math` itself is fdlibm for everything but `sin` and `cos`,
 where x86 has Intel's scalar intrinsics for nine functions. The only exact
 lanes are the operators the JDK has no symbol for (`pow` at AVX2, `tanh` on
 NEON), which run the scalar call per lane at scalar speed. `SCOPE_FUNCTIONS.md`
-section 3 tabulates it and `SCOPE_MILESTONE_7.md` item 36 holds the decision it
+section 3 tabulates it and `SCOPE_MILESTONE_8.md` item 36 holds the decision it
 forces: a ULP contract, an emitted fdlibm, or a decline, for the family as a
 whole.
 
@@ -864,7 +864,7 @@ What SLEEF does contribute, by task:
   back with an FMA, truncate the remainder, subtract. The same idea splits a
   64-bit value into 32-bit halves and converts each with `cvtdq2pd`, which AVX2
   has - exact to 2^53, wider than the `0x4330` identity's 2^52, and no exponent
-  bit to reason about. `SCOPE_MILESTONE_7.md` item 37. `vrint2_vd_vd` is the
+  bit to reason about. `SCOPE_MILESTONE_8.md` item 37. `vrint2_vd_vd` is the
   2^52 add-and-subtract round-to-nearest the magic form already uses, so that
   part is confirmed prior art.
 * **Task 28's widen and narrow sequences, per ISA** (`helperavx2.h`,
@@ -1011,3 +1011,20 @@ The general lesson: when a narrower vector is needed for one instruction, prefer
 that is exactly as wide as the data over a wider species with a mask. The mask is not the
 expensive part; what it does to the loop around it is.
 
+## The Vector API's plain-Java fallback is a second implementation, sharing only its pre-dispatch checks
+
+Read for milestone 7's row 272 in the JDK 25 sources (`openjdk-build/jdk25`, 6c48f4ed7). Every
+Vector API operation dispatches through an intrinsic candidate in
+`jdk.internal.vm.vector.VectorSupport` whose Java body calls a default implementation, and the
+vector classes supply it as a plain per-lane loop (`res[i] = f.apply(i, vec1[i], vec2[i])` in
+`IntVector`). That loop is what runs in the interpreter, in C1, which has no vector intrinsics,
+and wherever C2 bails out of an intrinsic; `-XX:+UnlockExperimentalVMOptions
+-XX:-EnableVectorSupport` forces it everywhere, and `-XX:DisableIntrinsic=_VectorBinaryOp,...`
+per operation. It is therefore a second implementation of every lowering a kernel uses, and
+comparing a kernel's answers with it checks C2's code generation where no proof reaches. It is
+not independent everywhere: the divide-by-zero check, the shift-count masking and the AND_NOT
+rewrite run in Java before the dispatch, so both paths share them. No test in the JDK runs the
+Vector API's correctness suite with the intrinsics off; OpenJDK's `VectorizationTestRunner` does
+the analogous thing for auto-vectorized loops, comparing the interpreter's answer, got through
+WhiteBox, with C2's. On the performance side this is the same fallback `the-jit.md` warns about:
+a silent slow path when it runs in production, a reference when it runs on purpose.

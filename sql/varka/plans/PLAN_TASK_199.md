@@ -63,7 +63,7 @@ nothing to remove. And the row's model as stated: a regression on node counts, f
 order of magnitude below the budget, errs low on the large methods it would be asked about, and
 low is the direction that makes a method measure over the limit and rebuild anyway.
 
-**What it admits.** The model's second use, the one task 200 and `SCOPE_MILESTONE_7.md` item 63
+**What it admits.** The model's second use, the one task 200 and `SCOPE_MILESTONE_8.md` item 63
 need: a cost for a candidate group that is cheaper to ask than an emission, in the units the limits
 are read in. Task 200's dynamic program asks for the cost of every contiguous run of outputs,
 about n * n / 2 of them, which at 400 outputs is 80000 emissions and out of reach at any emission
@@ -171,7 +171,7 @@ laptop A/B for the plan's record, not a published number.
 1. **Sharing makes costs non-additive.** CSE, a shared prefix and whole-node reuse make a group's
    bytes less than the sum of its nodes'; B counts distinct nodes and one prefix per date, as
    `GroupOps` does, and the audit's error by shape family shows where that is not enough.
-2. **The call-site limit depends on the shape, not only the count** (`SCOPE_MILESTONE_7.md` item
+2. **The call-site limit depends on the shape, not only the count** (`SCOPE_MILESTONE_8.md` item
    61): a prediction exact in call sites can still disagree with C1 on a mask-heavy group. The
    measurement stays the last word, so a miss costs a rebuild, not a wrong method.
 3. **The register goes stale** when a lowering changes, as the weights did (task 148). The suite
@@ -307,7 +307,7 @@ over one long-lane division that the call-site budget splits.
 * **For task 200:** A is the cost to use. It prices a candidate group from its features alone,
   so the dynamic program can ask for every contiguous run of outputs. It also removes the greedy
   close of 9.3, which is task 200's own subject: an exact partition would have found the halving.
-* **For `SCOPE_MILESTONE_7.md` item 63:** a register of per-node costs measured alone does not
+* **For `SCOPE_MILESTONE_8.md` item 63:** a register of per-node costs measured alone does not
   predict a wide group (9.2). If the weights are to be replaced by measured costs, the register
   should be read in context or fitted, as A is.
 * **Not done:** the switch stays off. It changes no default and no emitted byte, and flipping it

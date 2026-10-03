@@ -1,7 +1,7 @@
 # Plan: an e-graph library for Java 25, ported from egg
 
 <!-- Not a numbered task, and not Varka source: a library that Varka does not
-     use yet, planned so that scope item 11 of SCOPE_MILESTONE_7.md has an
+     use yet, planned so that scope item 11 of SCOPE_MILESTONE_8.md has an
      engine to pick up when its time comes. It lives in a dedicated repository
      under github.com/vecbricks (owner's decision, 5 September 2026); this
      file is Varka's record of the decision and moves to that repository, as
@@ -11,7 +11,7 @@
 
 ## 1. Where this came from
 
-`SCOPE_MILESTONE_7.md` item 11, "Physical representation as a compiler
+`SCOPE_MILESTONE_8.md` item 11, "Physical representation as a compiler
 decision", concluded that the engine Varka is meant to become - every Spark
 type and expression, several physical forms per logical value - needs an
 extractor over equivalence classes: conversion nodes as ordinary nodes,
@@ -174,7 +174,7 @@ In the library's repository:
 | `src/jmh/java/` and `benchmarks/` | section 6, with the provenance header Varka's result files carry |
 | `PLAN.md` (this file, moved) and `README.md` | the record and the front door |
 
-In Varka, now: `SCOPE_MILESTONE_7.md` item 11 pointing here. In Varka, at
+In Varka, now: `SCOPE_MILESTONE_8.md` item 11 pointing here. In Varka, at
 item 11's time: the dependency on a pinned version and the client mapping,
 planned there.
 

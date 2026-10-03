@@ -10,7 +10,7 @@ survey's `d_date BETWEEN` shape.
 
 ## 1. Why filters, and why now
 
-The corpus survey (`SCOPE_MILESTONE_7.md` section 1) is unambiguous: 53-78% of
+The corpus survey (`SCOPE_MILESTONE_8.md` section 1) is unambiguous: 53-78% of
 all date-column references sit in WHERE clauses, and the whole TPC-DS/TPC-H
 corpus holds exactly five DATE-typed projection expressions. Until this task a
 filter in the plan blocked fusion outright - the differential suite pinned

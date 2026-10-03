@@ -264,7 +264,7 @@ is recorded above.
   declines apart in a metric, it pays for the second accumulator then, with the
   need as its argument.
 - **Task 103's `extract(DAY FROM dt)`**, which is the first caller that will
-  have to guard rather than prove. It is milestone 6's (`SCOPE_MILESTONE_7.md`
+  have to guard rather than prove. It is milestone 6's (`SCOPE_MILESTONE_8.md`
   item 39) and this task is what makes its guard one line.
 - **The int lane's own bound.** Every int32 dividend converts exactly, so the
   int lane has no precondition to enforce and the filled-in bound there is a

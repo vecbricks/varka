@@ -223,6 +223,24 @@ first's "discipline", and the claim was even in a comment. Neither the comment n
 noticed the orders differed. Both are now acquire-then-release, which is strictly better than
 either and, more to the point, is one rule rather than two.
 
+## Arrow promises no padding: an IPC read slices a buffer to its exact length
+
+Read for milestone 7's sanitizer (row 263) in the Arrow Java 19.0.0 sources, and worth knowing
+before any code writes a whole word into a buffer it did not allocate.
+
+Varka writes an output's validity a 64-bit word at a time, so its segment must own the whole last
+word. That holds for the buffers Varka allocates: `allocateNew` sizes a validity buffer with
+`BaseValueVector.roundUp8ForValidityBuffer`, `((valueCount + 63) >> 6) << 3` bytes, and the
+allocator rounds every request up to a power of two (`BaseAllocator.buffer` through
+`DefaultRoundingPolicy`). It does not hold for buffers that arrive from elsewhere. The format only
+recommends padding (`docs/source/format/Columnar.rst` in the Arrow tree); the Java IPC reader
+slices each buffer to its exact length (`MessageSerializer`, `body.slice(offset, length)`), and a
+C Data Interface import sizes a bitmap to `offset + length` bits. A word written into such a
+buffer runs up to seven bytes past it, silently. So a whole-word write needs the buffer's
+`capacity()`, not its nominal size, and row 263's sanitizer checks every segment against the
+capacity. A read cannot run past an input silently: an input's segment is sized to its nominal
+bytes, so its own bounds check throws first.
+
 ## A checklist for the next node type or mode, from what three reviews found in this one
 
 Task 63 (int32 arithmetic) shipped, was reviewed twice more after it shipped,
@@ -608,3 +626,18 @@ habits follow:
 * **Every way a fuzz case can fail must print its context.** The suite named its seed and iteration
   for a rejection or a decline but not for an `IllegalStateException` from one of the emitter's own
   checks, so the first failing shape had to be found with a local patch. `emitOrSkip` now names it.
+
+## A skip list without reasons rots; a marker that fails when its claim stops being true cannot
+
+From the survey of thirteen engines' testing for milestone 7 (`READING_MILESTONE_7.md` 2 and 3).
+Every engine that holds a fast path to a slower one reruns one corpus under many configurations,
+and the ones whose lists stay honest share two habits. DuckDB reruns its whole suite under
+dozens of configurations (`test/configs`), and every skipped test carries a reason, so the skip
+lists double as the record of known divergences. Druid runs every SQL test with vectorization off
+and forced on, and a test marked `cannotVectorize()` fails the moment it vectorizes; Gluten's
+Delta gate fails on a new failure and also when an excluded test starts passing. The first habit
+makes a skip reviewable; the second makes it expire. A list with neither is a place where
+regressions hide once the bug that justified an entry is fixed. Varka's matrices - the options
+table's configurations (row 248), Spark's own suites with Varka on (row 271) - take both: a
+reason per skipped entry, and a marker that fails when its shape starts to fuse or its test starts
+passing.

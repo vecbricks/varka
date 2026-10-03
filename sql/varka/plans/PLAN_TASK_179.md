@@ -89,7 +89,7 @@ executed against the row engine. Both are in section 7.
 
 ## 5. Task 177: the check item 45 asked for, and what is left of the task
 
-Item 45 of `SCOPE_MILESTONE_7.md` proposed a scoped CI path for refactors the
+Item 45 of `SCOPE_MILESTONE_8.md` proposed a scoped CI path for refactors the
 bytes oracle proves byte-identical, with one precondition to verify first:
 that Spark's full matrix still runs somewhere after such a merge, because a
 scoped pull request run is only safe if the matrix runs before a release.

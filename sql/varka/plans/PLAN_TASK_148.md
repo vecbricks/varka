@@ -23,7 +23,7 @@ the larger of its two forms, as the long lane already does. Pin that weight to t
 with a test, and add a shape with several outputs. Regenerate the oracle and fix the stale
 comment. Leave the question of what weights are for to item 63." Section 2.2a's second question,
 whether weights should bound size at all now that bytes and call sites are measured, is
-therefore `SCOPE_MILESTONE_7.md` item 63's.
+therefore `SCOPE_MILESTONE_8.md` item 63's.
 
 ## 2. The admission check, done
 
@@ -87,7 +87,7 @@ pins the groupings, and the new test pins the weight to the count.
 ### 3.3 What is deliberately unchanged
 
 * Every other weight, `GROUP_BUDGET` and `FUSED_CEILING`, and the question whether weights
-  should still bound size: `SCOPE_MILESTONE_7.md` item 63.
+  should still bound size: `SCOPE_MILESTONE_8.md` item 63.
 * Every emitted body. The change moves which methods a kernel has, never what a division emits.
 
 ### 3.4 Registered op counts
@@ -102,7 +102,7 @@ after, and section 5's first test asserts both.
 | `VarkaEmitBudget.java` | `INT_CONST_DIVIDE_WEIGHT`, the long lane's constant renamed, the comments |
 | `VarkaEmitterBudgetSuite.scala` | the division's register at both lanes; the four-column shape |
 | `sql/varka/emitted_bytes.json` | regenerated |
-| `PLAN_MILESTONE_6.md`, `SCOPE_MILESTONE_7.md` | row 148 and section 2.2a; item 63's note |
+| `PLAN_MILESTONE_6.md`, `SCOPE_MILESTONE_8.md` | row 148 and section 2.2a; item 63's note |
 | `sql/varka/skills/benchmarking.md` | the metric's lesson, as a bullet of the lesson on counting by owner |
 
 ## 5. Tests, and what each is for
@@ -189,5 +189,5 @@ section 3.2 names are corrected. `VarkaEmitterBudgetSuite` gains two tests:
 ### 9.3 What the task leaves
 
 Section 2.2a's second question, whether weights should still bound size now that bytes and call
-sites are measured on the built class, is `SCOPE_MILESTONE_7.md` item 63's, as is any speed
+sites are measured on the built class, is `SCOPE_MILESTONE_8.md` item 63's, as is any speed
 measurement of what accurate weights change.

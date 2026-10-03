@@ -36,7 +36,7 @@ was deferred and what has to be true before it starts:
   is, why it is a debt, and what closing it would take. A debt with a measurement
   attached is worth ten with an adjective.
 * **Work for later milestones** goes in the furthest-out scope document -
-  currently `plans/SCOPE_MILESTONE_7.md` - which keeps a scope catalogue for
+  currently `plans/SCOPE_MILESTONE_8.md` - which keeps a scope catalogue for
   exactly this. A milestone's catalogue moves forward when its own plan
   becomes a task plan.
 

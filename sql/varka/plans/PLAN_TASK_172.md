@@ -687,7 +687,7 @@ milliseconds either way.
   before the back-to-back and steady-state sections, which start from the JVM it leaves; the
   class doc said fourth. The plan's note that the untouched rows moved within the band is the
   measure of that.
-* **The warm-up finding has a row**: `SCOPE_MILESTONE_7.md` item 60, the verdict's cost against
+* **The warm-up finding has a row**: `SCOPE_MILESTONE_8.md` item 60, the verdict's cost against
   the row path's as a per-shape question.
 * The two benchmarks over the range keys share their helpers through `VarkaArrowSessions`, and
   this benchmark's two first-query sections register their cases through one helper.

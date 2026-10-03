@@ -151,7 +151,7 @@ is the first thing to settle**, because it decides whether the headline
 expressions wait for task 28 or ship before it.
 
 *Added 19 September 2026.* There is a third answer, and it may be the cheapest:
-change the representation rather than the store. `SCOPE_MILESTONE_7.md` item 11
+change the representation rather than the store. `SCOPE_MILESTONE_8.md` item 11
 now names a `TIME` held as `(seconds of day: int32, nanoseconds within the
 second: int32)`, under which `hour`, `minute` and `second` are int-lane magic
 divides by 3600 and 60 - the family task 88's A/B measured at 3.7x the double
@@ -471,7 +471,7 @@ Three things follow, and the third is the one that reorders the work.
    by the cache**, not by this task: two int32 columns beside or instead of the
    `TimeNanoVector`, written by the serializer task 116 already taught `TIME`,
    admitted by `isArrowBacked` as a pair, and chosen by the compiler when the
-   batch offers them. That is `SCOPE_MILESTONE_7.md` item 11's first concrete
+   batch offers them. That is `SCOPE_MILESTONE_8.md` item 11's first concrete
    encoding decision - the form attribute on a value, and a leaf per form - and
    it belongs to that item, with this section as its pricing.
 
@@ -575,7 +575,7 @@ route A's.
 **The cache encoding**, route C: the split as a second physical form of a
 `TIME` column in `ArrowCachedBatchSerializer`, `isArrowBacked` admitting the
 pair, the compiler taking the seconds leaf when the batch carries it and route
-A otherwise. `SCOPE_MILESTONE_7.md` item 11 owns it; the numbers here are its
+A otherwise. `SCOPE_MILESTONE_8.md` item 11 owns it; the numbers here are its
 case.
 
 ### 8.5 Sequencing
@@ -831,7 +831,7 @@ positions divide by direction:
   decimal output and hands its data buffer to the kernel as it does an int
   vector's.
 - **The input** (`make_time`'s seconds column): the kernel must read the low
-  word out of every other eight bytes, which is `SCOPE_MILESTONE_7.md` item 1's
+  word out of every other eight bytes, which is `SCOPE_MILESTONE_8.md` item 1's
   de-interleave - the thing that item names as the first measurement of its
   milestone - and belongs there. A `make_time` whose seconds are a literal is
   group B's arithmetic and needs only task 28's widening, as 2.4 said.
@@ -893,7 +893,7 @@ and is the int lane's bounded division family alongside task 149's
 multiply-high. It is the hand-written rate for one field at every width, and
 short of it for the three-field shape while cache-resident - 18% under at 512
 bits in L3 - which is milestone row 163's finding rather than this row's, and
-moved to `SCOPE_MILESTONE_7.md` item 39 with it. Nothing in the compiler builds
+moved to `SCOPE_MILESTONE_8.md` item 39 with it. Nothing in the compiler builds
 `BoundedDivide` yet: it waits for a seconds-of-day column, which is route B or
 route C below.
 
@@ -902,7 +902,7 @@ it is a gap in what the milestone claims:
 
 | piece | where | why not here |
 |---|---|---|
-| the split leaf and the cache encoding (routes B and C, 8.4) | `SCOPE_MILESTONE_7.md` item 11 | a second physical representation of a `TIME` column is the representation question, and item 11 owns it; 8.2's numbers are its case |
+| the split leaf and the cache encoding (routes B and C, 8.4) | `SCOPE_MILESTONE_8.md` item 11 | a second physical representation of a `TIME` column is the representation question, and item 11 owns it; 8.2's numbers are its case |
 | `second` with its fraction, `time_to_seconds` (the widening store) | row 157, moved to item 39 | a decimal output is sixteen bytes from an eight-byte lane - a store problem, not a division one |
 | `make_time` | item 1, with the decimal lanes | a constructor with a decimal operand; it needs the representation before it needs a kernel |
 | the five `time_to_*`/`time_from_*` conversions | row 158, **done** 20 September 2026 | shipped as group E |

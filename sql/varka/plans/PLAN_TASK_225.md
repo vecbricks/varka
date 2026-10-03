@@ -99,4 +99,4 @@ So the job that cost every Varka pull request a quarter of an hour past its own
 tests costs a scoped change 7 to 8 minutes, inside the suites' time, and a
 documents-only change 4; row 225 is done. What the readings surface instead is
 the base image build in front of the lint job on a documents-only run, a note
-under `SCOPE_MILESTONE_7.md` item 76.
+under `SCOPE_MILESTONE_8.md` item 76.

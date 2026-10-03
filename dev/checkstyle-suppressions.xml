@@ -73,7 +73,7 @@
     <suppress checks=".*"
               files="src/main/java/org/apache/datasketches/memory/internal/ResourceImpl.java"/>
     <!-- A doc comment attached to no declaration: on for Varka's sources only, where a
-         refactor found three blocks stacked on the wrong method (SCOPE_MILESTONE_7.md item 43).
+         refactor found three blocks stacked on the wrong method (SCOPE_MILESTONE_8.md item 43).
          Spark's own sources are not held to it here. -->
     <suppress checks="InvalidJavadocPosition"
               files="^(?!.*[\\/]varka[\\/]).*$"/>

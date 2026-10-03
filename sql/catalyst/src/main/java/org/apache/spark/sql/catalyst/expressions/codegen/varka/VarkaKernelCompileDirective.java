@@ -62,7 +62,7 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * C1 compiles ({@code VarkaEmitBudget.CALL_SITE_BUDGET}), so the methods that can be stranded
  * are the narrow, heavy groups' it leaves past it; the directive still matches every method of
  * a warmed class, the ones C1 could compile included, and whether it should spare those is a
- * cold-start measurement ({@code SCOPE_MILESTONE_7.md} item 61). It has to stay tied to the
+ * cold-start measurement ({@code SCOPE_MILESTONE_8.md} item 61). It has to stay tied to the
  * warm-up either way: a method it keeps from C1 has no profile until the warm-up's calls make
  * one, and a light kernel fed only by its batches then runs interpreted far longer than C1
  * would have let it ({@code PLAN_TASK_209.md} 12.5).

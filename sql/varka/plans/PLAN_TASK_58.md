@@ -59,7 +59,7 @@ the shape `Year(ThursdayOf(col))` is one task 37's fixtures already render.
 * The emitter: `Year`'s tail and `ThursdayOf`'s arm are task 37's; this task
   reads them.
 * `weekofyear`: its arm stays; the two share by CSE, not by a combined node.
-* A `yearweek` key: scope item 11 of `SCOPE_MILESTONE_7.md`, a product
+* A `yearweek` key: scope item 11 of `SCOPE_MILESTONE_8.md`, a product
   decision, not this task.
 
 ### 3.3 Registered op counts

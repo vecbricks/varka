@@ -1232,7 +1232,7 @@ public final class VarkaLoopEmitter {
    * exception, under the plan. Its store is a call site, and it counts toward the group's width,
    * so a group of heavy outputs exempt from the call-site budget by its width can pass the
    * exemption on such outputs alone and be split after the build on what the prediction already
-   * said (item 71 of {@code SCOPE_MILESTONE_7.md}, answered in {@code PLAN_TASK_236.md}): under
+   * said (item 71 of {@code SCOPE_MILESTONE_8.md}, answered in {@code PLAN_TASK_236.md}): under
    * {@code planSize} the prediction judges that step too, so the group closes before it instead.
    */
   private static boolean closes(Admission step, VarkaEmitOptions options) {
