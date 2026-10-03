@@ -604,10 +604,16 @@ The milestones:
   `bigint`), the rest of ANSI integer arithmetic (`/`, `div`, `%` and the
   int64 forms; the int32 add, subtract, multiply and negate came back to
   milestone 4 as task 63), `date - date`, and civil-from-days in long lanes.
-* **Milestone 6**: *the compiler's foundation* - the task plan is
+* **Milestone 6**: *the compiler's foundation*, closed on 3 October 2026 - the
+  task plan is
   [`sql/varka/plans/PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md):
-  no shape Varka admits can fail to emit, every method bounded in bytes, and the
-  posts on where vanilla Spark's code generation gives up.
+  no shape Varka admits can fail to emit, every method bounded in bytes by
+  construction, the size ladder and a realistic query measured against vanilla
+  Spark, a census of where Spark's code generation gives up, and three posts:
+  [the 8000-byte cliff](https://vecbricks.github.io/the-8000-byte-cliff/),
+  [under 8000 bytes by construction](https://vecbricks.github.io/under-8000-bytes-by-construction/)
+  and [when Spark stops compiling your query](https://vecbricks.github.io/when-spark-stops-compiling-your-query/).
+  The record of every milestone is [`CHANGELOG.md`](CHANGELOG.md).
 * **Milestone 7**: *trust and maintainability* - the task plan is
   [`sql/varka/plans/PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md):
   machine-checked proofs of the bounded arithmetic, the differential tests'
@@ -632,7 +638,7 @@ which live in [`sql/varka/skills/`](sql/varka/skills/)).
 
 The work is organised as milestones with a numbered task table each; the
 milestone in flight is
-[`sql/varka/plans/PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md),
+[`sql/varka/plans/PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md),
 and its rows marked **Scoped** or **Planned** are open. Pick one, open an
 issue naming the row, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
 the work is done here: plans as records, numbers that trace to committed

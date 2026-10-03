@@ -657,3 +657,22 @@ Whether the methods a change touched are the ones a quoted number ran is answere
 `git worktree add --detach <path> <commit>`, `build/sbt catalyst/Test/compile`, the dump, and a
 diff of its method table against today's - a quarter of an hour, against a sentence a reader
 can falsify.
+
+## A full-load night flips the power profile, and a regeneration after it measures the profile
+
+- On the night of 3 October 2026 twenty test JVMs ran on the laptop with its 100 W charger
+  attached. The battery, charged to its conservation threshold by 02:00, discharged under the
+  load while plugged in - 78% at 07:33, 21% at 10:15, 7% at 11:50 - and at 06:57
+  `power-profiles-daemon` (0.30, `battery_aware=true`) switched `performance` to `balanced` and
+  did not switch back when charging resumed. The first regeneration of the wide-kernel
+  benchmark that day ran under `balanced` and was thrown away; every committed laptop file says
+  `profile=performance` in its provenance, and a file that says `balanced` is not comparable.
+- Before an unattended full-load window, read `powerprofilesctl get` and the battery's status;
+  keep the load within what the charger sustains (the eight-thread pinned benchmark is fine,
+  twenty JVMs are not) or have the queue pause while the battery reads `discharging`; and read
+  the profile again before and after any regeneration. Report a change rather than fix it: the
+  machine's power settings are the owner's.
+- The companion mistake, the same morning: `dev/varka_bench_regen.sh` exited 0 while the
+  benchmark JVM had died in one section, and the file it wrote was missing that section's rows.
+  A regeneration is checked by reading every section of the file it wrote, never by the
+  script's exit code.

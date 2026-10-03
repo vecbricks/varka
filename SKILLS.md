@@ -38,6 +38,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Another engine's number is timed only on the plan it actually took](sql/varka/skills/benchmarking.md#another-engines-number-is-timed-only-on-the-plan-it-actually-took)
 * [An arm named for a form must set that form, not read it from the defaults](sql/varka/skills/benchmarking.md#an-arm-named-for-a-form-must-set-that-form-not-read-it-from-the-defaults)
 * [A drawing of an emitted class is a measurement at a commit, and the timing beside it has one too](sql/varka/skills/benchmarking.md#a-drawing-of-an-emitted-class-is-a-measurement-at-a-commit-and-the-timing-beside-it-has-one-too)
+* [A full-load night flips the power profile, and a regeneration after it measures the profile](sql/varka/skills/benchmarking.md#a-full-load-night-flips-the-power-profile-and-a-regeneration-after-it-measures-the-profile)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
@@ -51,6 +52,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A git hook's nested git commands act on the repository being committed to](sql/varka/skills/build-and-environment.md#a-git-hooks-nested-git-commands-act-on-the-repository-being-committed-to)
 * [The Maven build CI runs takes about fifteen minutes here, and it is the only place three failures appear](sql/varka/skills/build-and-environment.md#the-maven-build-ci-runs-takes-about-fifteen-minutes-here-and-it-is-the-only-place-three-failures-appear)
 * [A committed file outside every module runs the whole CI matrix](sql/varka/skills/build-and-environment.md#a-committed-file-outside-every-module-runs-the-whole-ci-matrix)
+* [An sbt-forked JVM hides its main class in an arg file](sql/varka/skills/build-and-environment.md#an-sbt-forked-jvm-hides-its-main-class-in-an-arg-file)
 
 #### [Calendar algorithms](sql/varka/skills/calendar-algorithms.md)
 * [Reading a paper into the repo](sql/varka/skills/calendar-algorithms.md#reading-a-paper-into-the-repo)
@@ -113,6 +115,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [`failAfter` without a signaler cannot stop a test, so a hang holds the CI slot](sql/varka/skills/testing-and-debugging.md#failafter-without-a-signaler-cannot-stop-a-test-so-a-hang-holds-the-ci-slot)
 * [A fuzz campaign finds what the gate's count cannot, once every failure names its shape](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-finds-what-the-gates-count-cannot-once-every-failure-names-its-shape)
 * [A skip list without reasons rots; a marker that fails when its claim stops being true cannot](sql/varka/skills/testing-and-debugging.md#a-skip-list-without-reasons-rots-a-marker-that-fails-when-its-claim-stops-being-true-cannot)
+* [A long opt-in run needs the suite timeout raised, or it fails as a hang](sql/varka/skills/testing-and-debugging.md#a-long-opt-in-run-needs-the-suite-timeout-raised-or-it-fails-as-a-hang)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)

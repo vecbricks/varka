@@ -87,11 +87,43 @@ merge, and the milestone's **Done** rows already hold the material.
 
 ## 4. Verification
 
-<!-- Filled as the steps run. -->
+Run on 3 October 2026, after row 236 closed with #611:
+
+* **Step 2, the documents.** Every file naming a milestone as current was grepped for
+  (`milestone in flight`, `PLAN_MILESTONE_<n>.md`, `SCOPE_MILESTONE_8.md`): the README named
+  milestone 6 as in flight in its Contributing section and described it as open in its status
+  list; `CONTRIBUTING.md` named it "as this is written"; `VISION.md` named milestone 5 as the
+  next step in two status notes. Five places, all corrected to milestone 7 in flight and
+  milestone 6 closed with its posts. The skills files' mentions of milestone 6 are dated
+  prose and stay. `PLAN_MILESTONE_6.md` 3 read row by row: 63 **Done**, 13 **Moved**, none
+  open but this row; 1.3 scored item by item in its section 10. `dev/varka_issues.py` is
+  applied by CI on the plan's change.
+* **Step 3, the lessons.** Three sections added: the power profile a full-load night flips
+  and the regeneration checked by its sections (`benchmarking.md`), the sbt-forked JVM that
+  hides its class in an arg file (`build-and-environment.md`), and the long opt-in run that
+  needs its caps raised or split (`testing-and-debugging.md`); the fourth of section 2, the
+  runner's compile window, had gone into `the-jit.md` with task 236. `SKILLS.md` regenerated.
+* **Step 4, the oracles.** `emitted_bytes.json` and `emit_cost_audit.json` regenerated on the
+  closing commit: byte for byte the committed files.
+* **Step 5, the changelog.** `CHANGELOG.md` created with six sections, milestone 6 in full and
+  1 to 5 from their plans' headlines, outcomes and posts.
+* **Step 6, the tag and the cleanup.** After this pull request merges: `varka-m6` on its merge
+  commit; then the worktrees and local branches of merged pull requests, and on the fork the
+  branches of merged or closed pull requests of this repository only.
 
 ## 5. Outcome
 
-<!-- Filled when the tag is pushed. -->
+1. **Held.** Five stale pointers, the four section 1 named and the README's status wording;
+   under ten.
+2. **Held.** Both oracles byte-identical.
+3. **Pending the merge.** The mirror closed 236's issue with #611; 282's closes with this one.
+4. **Failed, and the failure is the finding.** The fork holds 1015 branches, and only 323 are
+   branches of this repository's merged or closed pull requests; 692 have no pull request here
+   because they are the owner's Apache Spark branches on the same fork, which the cleanup must
+   not touch. Locally 37 of 70 branches are merged pull requests'; the other 33 are review
+   checkouts and the owner's own branches, kept and listed in the pull request. So the cleanup
+   deletes 323 and 37, not nine hundred: the prediction counted the fork's branches as this
+   project's. The three merged-branch worktrees go with them.
 
 ## 6. Explicitly out of this task
 

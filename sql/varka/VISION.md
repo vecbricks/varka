@@ -2,10 +2,12 @@
 > principles and stack below still govern the code. Its scope and next-steps sections,
 > written before implementation started, are historical - the live roadmap is
 > `sql/varka/plans/`: `PLAN_MILESTONE_1.md` (the date MVP, done), `PLAN_MILESTONE_2.md`
-> (the fused vector loop, done), `PLAN_MILESTONE_3.md` (reach - the task plan for what comes
-> next), `PLAN_MILESTONE_4.md` (the date family and the emitter under it),
-> `PLAN_MILESTONE_5.md` (the other lanes) and `SCOPE_MILESTONE_8.md` (coverage - what
-> the benchmark corpora say is missing).
+> (the fused vector loop, done), `PLAN_MILESTONE_3.md` (reach, done), `PLAN_MILESTONE_4.md`
+> (the date family and the emitter under it, done), `PLAN_MILESTONE_5.md` (64-bit lanes and
+> TIME, done), `PLAN_MILESTONE_6.md` (the compiler's foundation, closed 3 October 2026),
+> `PLAN_MILESTONE_7.md` (trust and maintainability, in flight) and `SCOPE_MILESTONE_8.md`
+> (coverage - what the benchmark corpora say is missing); `CHANGELOG.md` at the repository
+> root records each milestone's close.
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
 > actually built. Section 13 answers the whole-stage charter question (task 22).
 
@@ -197,10 +199,9 @@ spark-submit \
 
 > **Status:** this list is done or superseded (step 6's `JavaClassFileEngine` was built,
 > never routed, and deliberately deleted in milestone 2 - `PLAN_TASK_9.md` section 5.4).
-> The next step is milestone 3, whose task plan is `sql/varka/plans/PLAN_MILESTONE_3.md`;
-> milestone 4's task plan (`PLAN_MILESTONE_4.md`) follows it, milestone 5's
-> (`PLAN_MILESTONE_5.md`) takes the other lanes, and `SCOPE_MILESTONE_8.md` scopes
-> benchmark coverage after that.
+> The steps since are milestones 3 to 6, all closed (`PLAN_MILESTONE_3.md` to
+> `PLAN_MILESTONE_6.md`, and `CHANGELOG.md`); milestone 7 (`PLAN_MILESTONE_7.md`) is in
+> flight, and `SCOPE_MILESTONE_8.md` scopes benchmark coverage after it.
 
 When proceeding to implementation:
 1. **Write `VarkaMorsel`:** Helper to map `ArrowVector` to `MemorySegment`.

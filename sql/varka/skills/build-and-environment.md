@@ -307,3 +307,16 @@ A file this prints is one the next pull request touching it will pay the full ma
 jobs that can never be Varka's are also gated on their own source directories in
 `build_and_test.yml`, as SparkR's, buf's and the UI job's are, so the fallback cannot reach
 them however the map drifts.
+
+## An sbt-forked JVM hides its main class in an arg file
+
+- A benchmark or a test JVM that sbt forks shows in `ps` as `java @/tmp/sbt-args<digits>.tmp`:
+  the whole command line, main class included, is inside that file. On 3 October 2026 a
+  `pkill` by class name killed the queue scripts around a running `VarkaWideKernelBenchmark`
+  and left the JVM itself running for twenty minutes at full load, so the regeneration queued
+  behind it never started (it refuses a busy machine). A `pgrep`-based wait for the same class
+  name would have returned at once for the same reason.
+- To find or stop such a JVM, match the process's working directory
+  (`readlink /proc/<pid>/cwd`, the worktree's module) or the arg file's content
+  (`grep -l <Class> /tmp/sbt-args*.tmp`), and stop the sbt launcher too; then read the load
+  average before trusting that the machine is idle.

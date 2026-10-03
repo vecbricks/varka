@@ -641,3 +641,15 @@ regressions hide once the bug that justified an entry is fixed. Varka's matrices
 table's configurations (row 248), Spark's own suites with Varka on (row 271) - take both: a
 reason per skipped entry, and a marker that fails when its shape starts to fuse or its test starts
 passing.
+
+## A long opt-in run needs the suite timeout raised, or it fails as a hang
+
+- `SparkFunSuite` fails any test body past twenty minutes, and `VarkaTestWatchdog` halts the
+  JVM at ten. Both are right for a suite and wrong for a deliberate long run: on 3 October
+  2026 the overnight fuzz jobs for SPARK-33301 (tens of thousands of queries a job) all "failed"
+  at the twenty-minute mark with nothing wrong in them, and the gate's sweep step halted on task
+  149's exhaustive division sweep, which needs hours (row 283 of milestone 7).
+- A long run passes its own cap: `-Dspark.test.timeout=<minutes>` for `SparkFunSuite`'s and
+  `-Dvarka.test.watchdog.minutes=<minutes>` for the watchdog's, set by the script that launches
+  the run, with the expected duration written beside it. A run that will take hours is also
+  better split by its natural unit - a divisor, a seed - so each piece stays inside the caps.
