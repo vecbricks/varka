@@ -19,7 +19,6 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -78,14 +77,12 @@ final class VarkaEmitCost {
   private VarkaEmitCost() {}
 
   /**
-   * The eight quantities a prediction has: the bytes, then the call sites, of the dense loop, the
-   * masked loop, the dense epilogue and the masked epilogue, in that order. The order is the
-   * table's column order.
+   * How many quantities a prediction has, and a feature is priced in: the bytes, then the call
+   * sites, of each group method in {@link VarkaMethodNames#GROUP_METHOD_KINDS}' order - the dense
+   * loop, the masked loop, the dense epilogue, the masked epilogue - which is the table's column
+   * order.
    */
-  static final List<String> METHODS = VarkaMethodNames.GROUP_METHOD_KINDS;
-
-  /** How many quantities a feature is priced in: bytes and call sites for each method. */
-  static final int QUANTITIES = 2 * 4;
+  static final int QUANTITIES = 2 * VarkaMethodNames.GROUP_METHOD_KINDS.size();
 
   /** The feature every method carries once, suffixed with the kernel's lane. */
   static final String FIXED = "fixed/";
@@ -195,8 +192,9 @@ final class VarkaEmitCost {
     }
 
     /**
-     * The eight predicted quantities, in {@link #METHODS} order, bytes then call sites; null when
-     * a feature has no price, which a caller must read as "unknown" rather than as zero.
+     * The eight predicted quantities, in {@link VarkaMethodNames#GROUP_METHOD_KINDS} order, bytes
+     * then call sites; null when a feature has no price, which a caller must read as "unknown"
+     * rather than as zero.
      */
     double[] predicted() {
       return unpriced ? null : total.clone();

@@ -130,7 +130,7 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
     assert(builds(0) > 1, "the budget never made the measurement regroup")
     assert(builds(1) === 0, "the exact grouping was dropped to make the class fit")
     VarkaEmittedClass.measure(bytes).codeLength.asScala.foreach { case (m, size) =>
-      if (VarkaEmitBudget.groupOf(m) >= 0) {
+      if (VarkaMethodNames.groupOf(m) >= 0) {
         assert(size <= budget, s"$m is $size bytes")
       }
     }

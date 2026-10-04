@@ -26,7 +26,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHugeMethodProbe._
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isGroupMethod, isLoop}
 
 /**
  * The property VARKA-87 exists for, asserted from the JVM rather than inferred from a byte count:
@@ -115,7 +115,7 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
     val bytes = VarkaLoopEmitter.emit(CLASS_NAME, ladder(outputs).asJava, 1, outputs,
       null, null, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(methodByteBudget))
     val names = VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq
-      .filter(m => isLoop(m) || isEpilogue(m))
+      .filter(isGroupMethod)
     Compiled(tiers.toMap, names)
   }
 

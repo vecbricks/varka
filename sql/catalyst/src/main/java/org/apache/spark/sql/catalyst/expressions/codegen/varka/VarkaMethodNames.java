@@ -33,7 +33,12 @@ import java.util.List;
  * </pre>
  *
  * <p>The names are the class's layout, and code that measures a built class reads them back to
- * find a group's methods, a driver or a stage; this class is the one place either is spelled.
+ * find a group's methods, a driver or a stage. In Java this class is the one place either is
+ * spelled. Five files outside Java mirror the names because they cannot call it - the
+ * deoptimization-cycle guard {@code dev/varka_deopt_cycle.py}, {@code dev/varka_emit.sh},
+ * {@code dev/varka_inlining_cliff.py}, and the figure scripts {@code fig21.py} and
+ * {@code fig27.py} under {@code sql/varka/plans/figures} - and {@code VarkaMethodNamesSuite}
+ * fails when one of them stops naming what the builders produce, so a rename here reaches them.
  */
 public final class VarkaMethodNames {
 
@@ -47,33 +52,34 @@ public final class VarkaMethodNames {
   private static final String LOOP = "loop";
   private static final String EPILOGUE = "epilogue";
 
-  private static String side(boolean dense) {
-    return dense ? "Dense" : "Masked";
+  /** A kind's name on one side, without a group index: {@code loopDense}, {@code stageMasked}. */
+  private static String kind(String prefix, boolean dense) {
+    return prefix + (dense ? "Dense" : "Masked");
   }
 
   /** A side's driver: {@code runDense} or {@code runMasked}. */
   public static String driver(boolean dense) {
-    return DRIVER + side(dense);
+    return kind(DRIVER, dense);
   }
 
   /** A side's stage {@code k} of a split driver: {@code stageDense0}, {@code stageMasked3}. */
   public static String stage(boolean dense, int k) {
-    return STAGE + side(dense) + k;
+    return kind(STAGE, dense) + k;
   }
 
   /** A side's loop method for {@code group}: {@code loopDense0}, {@code loopMasked12}. */
   public static String loop(boolean dense, int group) {
-    return LOOP + side(dense) + group;
+    return kind(LOOP, dense) + group;
   }
 
   /** A side's single epilogue over every output: {@code epilogueDense}, {@code epilogueMasked}. */
   public static String epilogue(boolean dense) {
-    return EPILOGUE + side(dense);
+    return kind(EPILOGUE, dense);
   }
 
   /** A side's epilogue for {@code group}: {@code epilogueDense0}, {@code epilogueMasked12}. */
   public static String epilogue(boolean dense, int group) {
-    return EPILOGUE + side(dense) + group;
+    return kind(EPILOGUE, dense) + group;
   }
 
   /** Both drivers, dense first. */
@@ -84,7 +90,15 @@ public final class VarkaMethodNames {
    * the dense and masked epilogue - in the column order of the emit cost table.
    */
   public static final List<String> GROUP_METHOD_KINDS =
-      List.of(LOOP + side(true), LOOP + side(false), EPILOGUE + side(true), EPILOGUE + side(false));
+      List.of(kind(LOOP, true), kind(LOOP, false), kind(EPILOGUE, true), kind(EPILOGUE, false));
+
+  /**
+   * The method of {@code group} whose kind is {@code GROUP_METHOD_KINDS.get(kindIndex)}: the
+   * cost table reads each group's four methods by their column.
+   */
+  public static String groupMethod(int kindIndex, int group) {
+    return GROUP_METHOD_KINDS.get(kindIndex) + group;
+  }
 
   /** Whether {@code method} is a driver. */
   public static boolean isDriver(String method) {
@@ -103,7 +117,7 @@ public final class VarkaMethodNames {
 
   /** Whether {@code method} is a stage on the given side. */
   public static boolean isStage(String method, boolean dense) {
-    return method.startsWith(STAGE + side(dense));
+    return method.startsWith(kind(STAGE, dense));
   }
 
   /** Whether {@code method} is a loop method, on either side. */
@@ -113,7 +127,7 @@ public final class VarkaMethodNames {
 
   /** Whether {@code method} is a loop method on the given side. */
   public static boolean isLoop(String method, boolean dense) {
-    return method.startsWith(LOOP + side(dense));
+    return method.startsWith(kind(LOOP, dense));
   }
 
   /** Whether {@code method} is an epilogue, single or per group, on either side. */
@@ -123,7 +137,7 @@ public final class VarkaMethodNames {
 
   /** Whether {@code method} is an epilogue on the given side. */
   public static boolean isEpilogue(String method, boolean dense) {
-    return method.startsWith(EPILOGUE + side(dense));
+    return method.startsWith(kind(EPILOGUE, dense));
   }
 
   /** Whether {@code method} is a loop or an epilogue: what a group's methods are. */

@@ -120,10 +120,11 @@ final class VarkaEmitCostCorpus {
     List<Group> result = new ArrayList<>();
     for (int g = 0; g < groups.size(); g++) {
       double[] measured = new double[VarkaEmitCost.QUANTITIES];
-      for (int m = 0; m < 4; m++) {
-        String method = VarkaEmitCost.METHODS.get(m) + g;
+      int kinds = VarkaMethodNames.GROUP_METHOD_KINDS.size();
+      for (int m = 0; m < kinds; m++) {
+        String method = VarkaMethodNames.groupMethod(m, g);
         measured[m] = orNaN(emitted.codeLength().get(method));
-        measured[m + 4] = orNaN(emitted.vectorCallSites().get(method));
+        measured[m + kinds] = orNaN(emitted.vectorCallSites().get(method));
       }
       result.add(new Group(groups.get(g), tallies.get(g).counts(), measured));
     }

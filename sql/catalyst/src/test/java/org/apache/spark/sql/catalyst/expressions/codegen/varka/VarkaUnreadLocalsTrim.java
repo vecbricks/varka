@@ -61,11 +61,6 @@ final class VarkaUnreadLocalsTrim {
 
   private VarkaUnreadLocalsTrim() {}
 
-  /** Whether a method is one the census reads: a group's loop or epilogue. */
-  static boolean counted(String method) {
-    return VarkaMethodNames.isLoop(method) || VarkaMethodNames.isEpilogue(method);
-  }
-
   /** One dead store: the method kind, what the local held, and the expression's span. */
   record Dead(String method, String kind, int start, int store) {}
 
@@ -75,7 +70,7 @@ final class VarkaUnreadLocalsTrim {
     ClassModel cm = ClassFile.of().parse(bytes);
     for (MethodModel mm : cm.methods()) {
       String name = mm.methodName().stringValue();
-      if (!counted(name) || mm.code().isEmpty()) {
+      if (!VarkaMethodNames.isGroupMethod(name) || mm.code().isEmpty()) {
         continue;
       }
       all.addAll(dead(name, mm.code().get().elementList()));
@@ -251,7 +246,7 @@ final class VarkaUnreadLocalsTrim {
       Map<String, Set<Integer>> drop = new HashMap<>();
       for (MethodModel mm : cm.methods()) {
         String name = mm.methodName().stringValue();
-        if (!counted(name) || mm.code().isEmpty()) {
+        if (!VarkaMethodNames.isGroupMethod(name) || mm.code().isEmpty()) {
           continue;
         }
         List<CodeElement> els = mm.code().get().elementList();
@@ -306,7 +301,7 @@ final class VarkaUnreadLocalsTrim {
   static long countedBytes(byte[] bytes) {
     long sum = 0;
     for (Map.Entry<String, Integer> e : VarkaEmittedClass.measure(bytes).codeLength().entrySet()) {
-      if (counted(e.getKey())) {
+      if (VarkaMethodNames.isGroupMethod(e.getKey())) {
         sum += e.getValue();
       }
     }

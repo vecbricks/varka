@@ -767,9 +767,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       new java.util.LinkedHashMap[String, Integer]())
     assert(VarkaEmitBudget.overLimits(pool).asScala ===
       Seq("the constant pool has 70000 entries, over the cap of 65535"))
-    assert(VarkaEmitBudget.groupOf("loopMasked12") === 12 &&
-      VarkaEmitBudget.groupOf("epilogueDense0") === 0 &&
-      VarkaEmitBudget.groupOf("epilogueMasked") === -1 && VarkaEmitBudget.groupOf("run") === -1)
+    assert(VarkaMethodNames.groupOf("loopMasked12") === 12 &&
+      VarkaMethodNames.groupOf("epilogueDense0") === 0 &&
+      VarkaMethodNames.groupOf("epilogueMasked") === -1 && VarkaMethodNames.groupOf("run") === -1)
   }
 
   test("a hundred four-op outputs fuse in one kernel under the byte budget, every method fits, " +
@@ -1021,7 +1021,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
   /** A group method's vector call sites, by name: every loop and epilogue method of a group. */
   private def groupSites(bytes: Array[Byte]): Map[String, Int] =
     VarkaEmittedClass.measure(bytes).vectorCallSites.asScala
-      .collect { case (m, n) if VarkaEmitBudget.groupOf(m) >= 0 => m -> n.toInt }.toMap
+      .collect { case (m, n) if VarkaMethodNames.groupOf(m) >= 0 => m -> n.toInt }.toMap
 
   /** The dense loop methods' call sites, in group order: the counts the plan's tables pin. */
   private def loopSites(bytes: Array[Byte]): Seq[(String, Int)] =

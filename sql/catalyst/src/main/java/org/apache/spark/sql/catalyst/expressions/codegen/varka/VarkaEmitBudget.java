@@ -143,12 +143,6 @@ final class VarkaEmitBudget {
     return findings;
   }
 
-  /** The group a loop or epilogue method belongs to; see {@link VarkaMethodNames#groupOf}. */
-  static int groupOf(String method) {
-    return VarkaMethodNames.groupOf(method);
-  }
-
-
   /**
    * The groups with a method over {@code methodLimit}, each with its largest such method:
    * what the emitter's regroup splits. A group's methods are its loop and its epilogue on
@@ -168,7 +162,7 @@ final class VarkaEmitBudget {
       Map<String, Integer> measure, int limit) {
     SortedMap<Integer, Map.Entry<String, Integer>> over = new TreeMap<>();
     for (Map.Entry<String, Integer> e : measure.entrySet()) {
-      int g = groupOf(e.getKey());
+      int g = VarkaMethodNames.groupOf(e.getKey());
       if (g >= 0 && e.getValue() > limit
           && (!over.containsKey(g) || over.get(g).getValue() < e.getValue())) {
         over.put(g, e);
@@ -257,7 +251,7 @@ final class VarkaEmitBudget {
   static List<String> overCallSiteBudget(VarkaEmittedClass emitted, int callSiteBudget) {
     List<String> findings = new ArrayList<>();
     for (Map.Entry<String, Integer> e : emitted.vectorCallSites().entrySet()) {
-      if (groupOf(e.getKey()) >= 0 && e.getValue() > callSiteBudget) {
+      if (VarkaMethodNames.groupOf(e.getKey()) >= 0 && e.getValue() > callSiteBudget) {
         findings.add(e.getKey() + " carries " + e.getValue() + " vector call sites, over the "
             + "call-site budget of " + callSiteBudget + ": C1 refuses it, so it runs "
             + "interpreted until C2 compiles it");

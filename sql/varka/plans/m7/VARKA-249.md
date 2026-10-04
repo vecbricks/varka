@@ -99,3 +99,23 @@ tests import the readers they use by name. The literal names in expected values 
 its first run: the inserted imports broke scalastyle's import order in seven files, where an
 import wrapped over two lines sorts by its package and not by its brace; fixed, and scalastyle and
 `dev/lint-java` pass.
+
+**The review of 4 October 2026** (`/code-review high`) found no bug in the emitter and six gaps in
+the claim of one owner, all fixed: the cost corpus still assembled a name from a kind and a group
+index, now `VarkaMethodNames.groupMethod`; the cost table's column count was written as `2 * 4`
+beside the list it counts, now derived from it, and `VarkaEmitCost.METHODS` was a second name for
+`GROUP_METHOD_KINDS`, now gone; `VarkaEmitBudget.groupOf` had become a pure delegate, now inlined
+into its callers; four tests wrote out `isLoop(m) || isEpilogue(m)`, now `isGroupMethod`, and the
+trim helper's own copy is gone; the naming suite tested each side-specific reader on one side, now
+both; and the class spelled its side prefix five times, now one helper. It also found that five
+files outside Java mirror the names - the deoptimization-cycle guard, `dev/varka_emit.sh`,
+`dev/varka_inlining_cliff.py` and two figure scripts - which the class doc wrongly said did not
+exist: the doc now lists them, and `VarkaMethodNamesSuite` fails when one stops naming what the
+builders produce, so a rename reaches them.
+
+## 10. Explicitly out of this task
+
+* **Recording each method's kind and group in `VarkaEmittedClass`** instead of reading them back
+  from the name, which the review proposed so that a future method whose name starts with an
+  existing prefix could not be miscounted. No such name exists; the row asked for one owner of the
+  names, not for removing the parsing. If a refactor adds such a method, its row takes this up.

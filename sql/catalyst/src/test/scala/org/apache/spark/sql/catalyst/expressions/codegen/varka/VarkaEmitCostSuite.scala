@@ -169,7 +169,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
       assert(loops(on.get) <= loops(off.get), s"$n tails: ${loops(on.get)} loop methods " +
         s"predicted, ${loops(off.get)} under the weights")
       VarkaEmittedClass.measure(on.get).vectorCallSites.asScala.foreach { case (m, sites) =>
-        if (VarkaEmitBudget.groupOf(m) >= 0) {
+        if (VarkaMethodNames.groupOf(m) >= 0) {
           assert(sites <= VarkaEmitBudget.CALL_SITE_BUDGET, s"$n tails: $m carries $sites")
         }
       }

@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar.{drawShape,
   fuzzSeed, shapeRandom}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isGroupMethod
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -60,7 +60,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
       }.toMap
 
   private def bodies(methods: Map[String, Method]): Seq[String] =
-    methods.keys.toSeq.filter(m => isLoop(m) || isEpilogue(m)).sorted
+    methods.keys.toSeq.filter(isGroupMethod).sorted
 
   private def severalGroups(methods: Map[String, Method]): Boolean =
     methods.contains("loopDense1") || methods.contains("loopMasked1")
