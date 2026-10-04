@@ -75,6 +75,8 @@ and AMD AVX2 machines and Arm are the gaps.
   "Measurements" section of `sql/varka/AGENTS.md`.
 * **No `TODO` in code.** Unfinished work lives in a plan file with its reason,
   never as a marker in the source.
+* **Java is modern Java 25.** The rules are in `sql/varka/AGENTS.md`, "Java code"; they apply to
+  the code a change touches and to every port from Scala.
 * **Comments explain the code to a new reader.** How the code came to be this
   way belongs in the plans and in git.
 * **Refactors are proven by the oracles.** `sql/varka/emitted_bytes.json`

@@ -171,6 +171,53 @@ the record is two hundred kilobytes and nothing needs all of it to answer one
 question - so put the lesson where a reader looking for that topic would find
 it, rather than opening a file per lesson.
 
+## Java code: modern Java 25, on the code a change touches
+
+Set by the owner on 4 October 2026. They apply to the Java a change writes or touches and to
+every Scala-to-Java port; existing Java that a change does not touch is not swept to match.
+
+**The language.**
+
+* **A record for every data carrier.** A type that holds values and has no mutable identity is a
+  `record`, with its invariants checked in the compact constructor. A class only where mutable
+  state or inheritance is the point.
+* **Closed sets are sealed, and matched exhaustively.** A closed set of cases is a sealed
+  interface of records, consumed by a pattern-matching `switch` with record patterns where they
+  destructure, never by an `instanceof`-and-cast ladder. A switch over a sealed type or an enum
+  has no `default`, so that a new case is a compile error at every consumer instead of a silent
+  fallthrough. The IR (`VarkaVectorIR`) is the model.
+* **`var` where the right-hand side names the type** (`var groups = new ArrayList<Integer>()`),
+  the type written out where it does not (`int widest = widestDriver(driver)`).
+* **Text blocks for multi-line strings; the diamond, method references, and `String.replace`
+  over `replaceAll` for a literal.**
+* **`List.of`, `Set.of`, `Map.of` for collections nothing modifies** - they reject nulls, which
+  matters where a value arrives from Scala.
+* **Statements before `super(...)`** (flexible constructor bodies, final in 25) for validating
+  arguments in the few class hierarchies there are.
+* **`ThreadLocal` for per-thread mutable buffers**, such as the fallback scratch; `ScopedValue`
+  only for immutable context passed down a call, which Varka has not needed so far.
+
+**What it runs on.**
+
+* **The JDK, not a library**, for anything the JDK covers: no new Guava or Commons use in Varka's
+  Java (and see the shading rule below for the Guava already in Spark).
+* **`jdk.incubator.vector` is the one incubator module, and the reason the engine exists**;
+  preview features stay off - no `StableValue`, no `StructuredTaskScope` - and so does anything
+  that would need `--enable-preview` in Spark's build.
+* **No allocation, streams, lambdas or boxing on a path that runs per batch or per row**: the
+  runtime helpers an emitted kernel calls and the evaluators' batch loops. Streams, lambdas and
+  records are welcome in the compiler, which runs once per shape; even there a plain loop beats a
+  stream that is harder to read.
+* **Explicit imports.** No `import module`: it hides what a file depends on, and Spark's
+  checkstyle expects imports by name.
+
+**What stays as it is.** Spark's interop surface stays Scala - the `SparkPlan` subclasses, the
+Catalyst rules, the ScalaTest suites - as the migration rule below says. Test helpers are Java and
+the suites thin Scala wrappers over them; the engine module's tests are JUnit 5 as they are, and no
+new assertion library comes in. A refactor is proven by `emitted_bytes.json` byte-identical, a
+port by the coverage and family-chain oracles. Lines stay within 100 columns, and `dev/lint-java`
+passes; Error Prone and NullAway join the checks when VARKA-266 lands.
+
 ## Papers are transcribed, not paraphrased from memory
 
 `papers/` holds machine transcriptions of the third-party papers this work reads
