@@ -32,6 +32,10 @@
 # C1's limit, which the call-site budget is there to prevent (dev/varka_inlining_cliff.sh,
 # VARKA-209.md 11).
 #
+# Every step runs under dev/varka_deadline.sh, VARKA_STEP_DEADLINE seconds (default 10800, the
+# ten-thousand-iteration fuzzer's room with margin), so a hung step fails instead of holding
+# the machine until morning (VARKA-283).
+#
 # Logs go under target/varka-nightly/<date>/; the summary names the fuzzer's
 # seed so a failure replays with -Dvarka.fuzz.seed=<seed> -Dvarka.fuzz.only=<n>.
 # Exit status is the number of failed steps.
@@ -62,7 +66,12 @@ run_step() {
   local name="$1"; shift
   local start=$SECONDS
   echo "== $name (log: $logdir/$name.log)"
-  if "$@" > "$logdir/$name.log" 2>&1; then status[$name]=ok; else status[$name]=FAILED; fi
+  if "$root/dev/varka_deadline.sh" "${VARKA_STEP_DEADLINE:-10800}" "$@" > "$logdir/$name.log" 2>&1
+  then
+    status[$name]=ok
+  else
+    status[$name]=FAILED
+  fi
   secs[$name]=$((SECONDS - start))
   grep -h -E "Tests: succeeded|FAILED \*\*\*|verdict|[[:space:]]OFF$|seed=|^\[info\] - " "$logdir/$name.log" \
     | sed 's/^\[info\] //' | head -6 | sed 's/^/   /'

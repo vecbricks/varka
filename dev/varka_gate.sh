@@ -48,6 +48,11 @@
 # script looks for hsdis-<arch>.so in the usual local places and exports it
 # when found, and says so either way, because a gate that silently skipped
 # its instruction assertions is a gate that lies.
+#
+# Every step runs under dev/varka_deadline.sh, VARKA_STEP_DEADLINE seconds (default 3600): a
+# step past it is stopped with everything it started and reported FAILED, so a hang - sbt
+# waiting on a test JVM the watchdog halted, as the sweep step did before VARKA-283 - fails
+# the gate within the hour instead of holding the machine.
 set -uo pipefail
 
 # Usage text is found rather than numbered: a hard-coded range silently truncates as the
@@ -102,7 +107,11 @@ run_step() {
   local log="$logdir/$name.log"
   local start=$SECONDS
   echo "== $name: $* (log: $log)"
-  if "$@" > "$log" 2>&1; then status[$name]=ok; else status[$name]=FAILED; fi
+  if "$root/dev/varka_deadline.sh" "${VARKA_STEP_DEADLINE:-3600}" "$@" > "$log" 2>&1; then
+    status[$name]=ok
+  else
+    status[$name]=FAILED
+  fi
   secs[$name]=$((SECONDS - start))
   if [ "${status[$name]}" = FAILED ]; then
     echo "-- $name FAILED; last lines of $log:"
@@ -112,13 +121,12 @@ run_step() {
   fi
 }
 
-narrow_env() { JAVA_OPTS="${JAVA_OPTS:-} -XX:MaxVectorSize=16" "$@"; }
 
 for s in "${selected[@]}"; do
   case "$s" in
     compile) run_step compile build/sbt -batch catalyst/Test/compile sql/Test/compile ;;
     wide) run_step wide build/sbt -batch 'catalyst/testOnly *Varka*' 'sql/testOnly *Varka*' ;;
-    narrow) run_step narrow narrow_env build/sbt -batch \
+    narrow) run_step narrow env JAVA_OPTS="${JAVA_OPTS:-} -XX:MaxVectorSize=16" build/sbt -batch \
               'catalyst/testOnly *Varka*' 'sql/testOnly *Varka*' ;;
     sweep) run_step sweep build/sbt -batch "project catalyst" \
              'set Test/javaOptions += "-Dvarka.sweep=true"' \

@@ -289,15 +289,19 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
     intercept[IllegalArgumentException](VarkaDivisionLowering.signedMagicForTest(1))
   }
 
-  test("the multiply-high form is exact over every int32 dividend for every divisor in use " +
-      "(opt-in: -Dvarka.sweep=true; VARKA-149)") {
-    // The proof the emitted arithmetic rests on, run as the arithmetic: the unsigned
-    // multiplier, the one shift and the sign bit, against Java's `/`, for all 2^32 dividends
-    // and every divisor in `intDivisors`. Scalar, not the kernel - the kernel's parity over
-    // the extremes and the fuzzer's random dividends are above; this is the exhaustive half.
-    assume(System.getProperty("varka.sweep") == "true",
-      "set -Dvarka.sweep=true to sweep the multiply-high form")
-    for (d <- intDivisors) {
+  // The proof the emitted arithmetic rests on, run as the arithmetic: the unsigned multiplier,
+  // the one shift and the sign bit, against Java's `/`, for all 2^32 dividends and every divisor
+  // in `intDivisors`. Scalar, not the kernel - the kernel's parity over the extremes and the
+  // fuzzer's random dividends are above; this is the exhaustive half. One test per divisor, so a
+  // failure names its divisor and each stays well inside the test watchdog's cap; the comparison
+  // is a plain branch, since an assert with an interpolated clue builds a string on every one of
+  // the 2^32 iterations, which kept the single test of nine divisors running for hours
+  // (VARKA-283.md).
+  for (d <- intDivisors) {
+    test(s"the multiply-high form is exact over every int32 dividend for divisor $d " +
+        "(opt-in: -Dvarka.sweep=true; VARKA-149)") {
+      assume(System.getProperty("varka.sweep") == "true",
+        "set -Dvarka.sweep=true to sweep the multiply-high form")
       val magic = VarkaDivisionLowering.signedMagicForTest(math.abs(d))
       val mu = magic(0)
       val shift = magic(1).toInt
@@ -306,7 +310,9 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
       var done = false
       while (!done) {
         val q = (((n.toLong * mu) >> shift) + (n >>> 31)).toInt * sign
-        assert(q === n / d, s"d=$d n=$n")
+        if (q != n / d) {
+          fail(s"d=$d n=$n: the multiply-high form gives $q where Java's / gives ${n / d}")
+        }
         if (n == Int.MaxValue) done = true else n += 1
       }
     }
