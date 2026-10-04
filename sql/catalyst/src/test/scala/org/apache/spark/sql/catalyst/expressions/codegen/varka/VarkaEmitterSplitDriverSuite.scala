@@ -24,12 +24,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 /**
  * The split driver (`VarkaEmitOptions.splitDriver`): past about 180 groups the driver from a
  * table is over the byte budget, and under the option its calls to the groups move into stages it
- * calls in turn. See `PLAN_TASK_190.md` 11.
+ * calls in turn. See `VARKA-190.md` 11.
  */
 class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
 
-  // Both forms named: the split driver is the default since `PLAN_TASK_190.md` 11.5. The plan
-  // (task 236) is off throughout: this suite is the size loop's, which reads the stage size off
+  // Both forms named: the split driver is the default since `VARKA-190.md` 11.5. The plan
+  // (VARKA-236) is off throughout: this suite is the size loop's, which reads the stage size off
   // the built class, and the plan that reads it off a driver built alone is
   // `VarkaKernelPlanSuite`'s.
   private val whole = VarkaEmitOptions.DEFAULTS.withSplitDriver(false).withPlanSize(false)

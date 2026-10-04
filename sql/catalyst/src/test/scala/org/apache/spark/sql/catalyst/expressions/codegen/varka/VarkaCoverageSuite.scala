@@ -77,7 +77,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val ym = AttributeReference("ym",
     YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.MONTH))()
 
-  // The long lane's columns (task 29): `bigint`, `TIME(6)` and a day-time interval, two of
+  // The long lane's columns (VARKA-29): `bigint`, `TIME(6)` and a day-time interval, two of
   // each so a comparison can be column against column as well as against a literal.
   private val l = AttributeReference("l", LongType)()
   private val l2 = AttributeReference("l2", LongType)()
@@ -181,8 +181,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d IN (DATE '2021-01-01', DATE '2021-06-01')", "up to 16 literals"),
       Row("year(d) = 2021 AND i > 0",
         "every conjunct of an AND fuses or the predicate is not in this table; the int column "
-          + "compares in the kernel rather than leaving a residual row filter (task 122)"),
-      Row("i > 0", "a bare int column compares in the kernel (task 122)"),
+          + "compares in the kernel rather than leaving a residual row filter (VARKA-122)"),
+      Row("i > 0", "a bare int column compares in the kernel (VARKA-122)"),
       Row("i IS NOT NULL",
         "the same column's validity word, which the optimizer infers beside `i > 0`"),
       Row("i = 5"),
@@ -195,7 +195,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         Some(InSet(d, (1 to 11).map(v => v.asInstanceOf[Any]).toSet)),
         Some((1 to 11).map(m => f"DATE '2021-$m%02d-01'").mkString("d IN (", ", ", ")"))))),
 
-    // The long lane (task 29): three types, comparisons only. Arithmetic over them is task
+    // The long lane (VARKA-29): three types, comparisons only. Arithmetic over them is task
     // 104 (`bigint`), 102 (`TIME`) and 103 (intervals), and stays out of this table until then.
     Family("Long-lane predicates", predicates = true, Seq(
       Row("l > l2"),
@@ -228,7 +228,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("time_trunc('MINUTE', t)"),
       Row("time_trunc('MILLISECOND', t2)"),
       Row("hour(t)", "an int computed in the 64-bit lane and narrowed at the kernel's store, " +
-        "the one place a lane changes width until task 28; so the extract fuses as an output " +
+        "the one place a lane changes width until VARKA-28; so the extract fuses as an output " +
         "and declines under another expression"),
       Row("minute(t2)"),
       Row("second(t)"),
@@ -457,11 +457,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val endMark = "<!-- END generated coverage table -->"
 
   /**
-   * The width audit's census (`sql/varka/width_audit.json`, task 153), read for one column of
+   * The width audit's census (`sql/varka/width_audit.json`, VARKA-153), read for one column of
    * the table: whether C2 lowers every Vector API call of the row's kernel at 128-bit lanes -
    * the species a NEON-only aarch64 host runs at. The refusals it records are this x86 JVM's at
    * a forced 128-bit species; the aarch64 runner's own census refuses nothing there
-   * (`PLAN_TASK_153.md` 6). Absent when the census has not been taken.
+   * (`VARKA-153.md` 6). Absent when the census has not been taken.
    */
   private lazy val widthAudit: Option[(String, Map[String, Seq[String]])] = {
     val file = getWorkspaceFilePath("sql", "varka", "width_audit.json").toFile
@@ -483,7 +483,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The column's cell for one row, from what C2 printed for the row's kernel at 128 bits. A
    * `not supported` line is a refusal, and it names its construction; the census file carries
    * those lines alone, since C2's other two kinds prove nothing about the final code and vary
-   * between runs (`VarkaWidthAuditSuite.isRefusal`, task 154). The filter here is kept so a
+   * between runs (`VarkaWidthAuditSuite.isRefusal`, VARKA-154). The filter here is kept so a
    * census written before that change still renders the same column.
    */
   private def narrowVerdict(sql: String): String = widthAudit match {
@@ -515,9 +515,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       sb.append("The *128-bit lanes* column is `sql/varka/width_audit.json`'s census on " +
         s"$host at a forced 128-bit species: `vector` means C2 refused no Vector API call in " +
         "the row's kernel there; `per-lane` names the constructions it had no lowering for, " +
-        "which then run as Java loops over the lanes (task 153). It is this x86 JVM's table " +
+        "which then run as Java loops over the lanes (VARKA-153). It is this x86 JVM's table " +
         "below its own width: the pool's aarch64 runner, whose native species is 128 bits, " +
-        "refuses nothing (`PLAN_TASK_153.md` 6).\n\n")
+        "refuses nothing (`VARKA-153.md` 6).\n\n")
     }
     families.foreach { family =>
       sb.append(s"#### ${family.title}\n\n")

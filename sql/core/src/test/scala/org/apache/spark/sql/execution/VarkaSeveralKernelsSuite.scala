@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 
 /**
  * The evaluator's side of several kernels per projection (`VarkaEmitOptions.severalKernels`,
- * `PLAN_TASK_190.md` 11): a projection past what one kernel serves - more columns than a kernel
+ * `VARKA-190.md` 11): a projection past what one kernel serves - more columns than a kernel
  * reads, or a driver past the byte budget - runs its kernels in turn over each batch, and must
  * answer as the row engine does over the same Arrow-cached data, nulls included, with forwarded
  * and row-evaluated entries beside the kernels' columns.
@@ -84,7 +84,7 @@ class VarkaSeveralKernelsSuite extends QueryTest with VarkaSharedSessions {
 
   test("under the defaults eight hundred greatest entries over one column and a date_add over " +
       "each of the other sixty-nine answer from two kernels, the first with a split driver") {
-    // Both options on (PLAN_TASK_190.md 11.5): the split driver serves the driver's ceiling in
+    // Both options on (VARKA-190.md 11.5): the split driver serves the driver's ceiling in
     // the first kernel, and the entries past its sixty-four columns are the second kernel's.
     withWideDates {
       val outputs = (1 to 800).map { k =>
@@ -95,7 +95,7 @@ class VarkaSeveralKernelsSuite extends QueryTest with VarkaSharedSessions {
   }
 
   test("under planSize eight hundred greatest entries, past the driver's ceiling with the split " +
-      "driver off, answer from two kernels the plan cut without a search (task 236)") {
+      "driver off, answer from two kernels the plan cut without a search (VARKA-236)") {
     withWideDates {
       val outputs = (1 to 800).map { k =>
         s"greatest(add_months(c0, $k), date_add(c0, $k), last_day(c0)) AS g$k"

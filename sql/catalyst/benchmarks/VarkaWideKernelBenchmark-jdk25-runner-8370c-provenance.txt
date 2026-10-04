@@ -6,8 +6,8 @@ date:        2026-10-03
 jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz (not pinned)
-purpose:     task 236's step 3 (PLAN_TASK_236.md 6 and 8): the plan-time section with each form
+purpose:     VARKA-236's step 3 (VARKA-236.md 6 and 8): the plan-time section with each form
              as the loop built it and planned; item 71's section, the predicted and the planned
-             grouping against the weights; and task 190's section, both forms planned, the split
+             grouping against the weights; and VARKA-190's section, both forms planned, the split
              driver first and again last. Its best times score predictions 4, 6 and 7 and set
              the defaults of planSize and predictGrouping by the rule of 3.6

@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 # Build hsdis - the disassembler plugin HotSpot's -XX:+PrintAssembly needs -
-# without building a JDK. The assembly suite (task 31) and dev/varka_emit.sh
+# without building a JDK. The assembly suite (VARKA-31) and dev/varka_emit.sh
 # --asm cancel or print hex without it; SKILLS.md's recipe went through a full
 # fastdebug build, which this replaces. Needs gcc and libcapstone-dev
 # (apt install libcapstone-dev); the JDK's hsdis source is one C file plus a

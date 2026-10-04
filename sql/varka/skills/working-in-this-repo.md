@@ -45,7 +45,7 @@ these files by `dev/varka_toc.py`.
   name first and reading the silence as a machine or environment problem.
 - The quote check walks the history of the results directories as well as their
   current files, and while a merge is in progress it walks `MERGE_HEAD` beside
-  `HEAD` (task 161): a number that only the incoming side committed is not an
+  `HEAD` (VARKA-161): a number that only the incoming side committed is not an
   orphan. If the hook refuses a merge commit for numbers master holds, the fix
   is the checker, not `--no-verify`.
 - Run `dev/varka_precommit.sh` before committing, or install it as the pre-commit hook:
@@ -76,7 +76,7 @@ these files by `dev/varka_toc.py`.
   coercion, so `d + ym` stayed an `Add` over a date and an interval instead of
   becoming `DateAddYMInterval`, and it reported `declined` for shapes the surface had
   been timing with `expectFused` for weeks. Every date/interval arithmetic spelling
-  task 67 added was affected. It resolves through the analyzer now, so re-take any
+  VARKA-67 added was affected. It resolves through the analyzer now, so re-take any
   such number rather than trusting it - and note the general shape, since this is the
   second tool in the same family to have carried it: a hand-rolled resolver that
   binds names and looks up functions is enough for `year(d)` and silently not enough
@@ -87,7 +87,7 @@ these files by `dev/varka_toc.py`.
 
 ## A recipe for a cheap agent ages at the rate of the emitter, not of the arithmetic
 
-Task 35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic
+VARKA-35, the third of the four recipe tasks (34-37) to be executed. Its section 2 arithmetic
 was verified in planning and was right on the first run under every variant; every correction
 the build needed was to the recipe's picture of the emitter, and the re-plan written six weeks
 earlier (its section 7) had itself gone stale in three places by build time: the leap flag's
@@ -140,7 +140,7 @@ Scala linter job runs `dev/scalastyle`, whose parser (scalariform) predates part
 Scala 2.13 it will meet in new code: it rejects underscore separators in numeric
 literals (`86_400_000_000_000L` fails with "Expected token RPAREN but got
 Token(INTEGER_LITERAL ...)") although scalac accepts them. That failed the linter
-job on task 116's suite after every test in it had passed locally. `dev/scalastyle`
+job on VARKA-116's suite after every test in it had passed locally. `dev/scalastyle`
 takes about a minute on a warm build; run it before the first push of any Scala
 change, and spell large literals without separators.
 
@@ -155,7 +155,7 @@ recorded this (#222, one plan file) was required to run the Varka engine on two
 architectures, the bench module, the Java 25 Maven build and every test shard.
 Do not read a skipped job as "this PR did not touch that module" or a required
 one as "it did", and do not plan a task around a gate skipping until the
-precondition measures the pull request's own files (`PLAN_TASK_106.md` 9).
+precondition measures the pull request's own files (`VARKA-106.md` 9).
 
 ## A red Build here may be failing on code this repository does not contain
 
@@ -176,7 +176,7 @@ nothing in the branch can have caused it - stop. Only if it is here does the usu
 question arise, which is whether the branch or the machine caused it, and which
 `.github` documents under "Investigating PR CI Failures".
 
-**The second check, once the sync has brought the test in.** After task 117 synced
+**The second check, once the sync has brought the test in.** After VARKA-117 synced
 the fork with upstream master, the same test was in the tree and still red, and the
 grep no longer settles it. The next question is whether upstream's own CI fails it
 at the same JDK: this fork builds on Java 25 (`build_main.yml` sets `java: 25`),
@@ -201,7 +201,7 @@ milestone task row; at most it becomes a line here, which is what this is.
 Milestone 6 has two tracks the owner set on the day it opened: the compiler's foundation and
 continuous promotion. Two days in, the foundation spine was nearly through, the research rows
 around it were mostly done, the task table had grown from 23 rows to 43, and the promotion
-track had no commit at all (`PLAN_MILESTONE_6.md` 9). Nothing in the day-to-day chose that: each
+track had no commit at all (`m6/PLAN.md` 9). Nothing in the day-to-day chose that: each
 next step was the row with the clearest measurement, and a row with no number in it never won
 that comparison.
 
@@ -217,7 +217,7 @@ has none.
 
 On 25 September 2026 the owner asked why the Varka pull requests were taking so long to pass
 CI, and the fork's run list for the day answered with four causes, in the order they cost.
-The queue runner (`dev/varka_ci_queue.sh`, task 176) waits until no Build runs anywhere on the
+The queue runner (`dev/varka_ci_queue.sh`, VARKA-176) waits until no Build runs anywhere on the
 fork, because the twenty job slots are shared, and two upstream Builds on the same fork that
 day took 125 and 132 minutes of them, pausing the Varka queue for 2 h 18 min at one stretch.
 One Build failed in a way that hung a job until its timeout (the G32 heap case in
@@ -227,7 +227,7 @@ where a plan-only PR runs a handful in about 33 minutes. And seven merges each s
 master into every other open PR, and each such push cancelled that PR's Build and needed a
 new one: the day's list held more than twenty cancelled runs.
 
-The last cause is the one the tooling can remove, and task 211 did: a PR whose head moved
+The last cause is the one the tooling can remove, and VARKA-211 did: a PR whose head moved
 since a Build passed keeps that verdict when everything changed since is outside what the
 Build tests - the plans, skills and papers, any Markdown, and committed benchmark results - and
 the passed head is an ancestor of the new one. The check is GitHub's compare API from the

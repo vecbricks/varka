@@ -30,7 +30,7 @@ import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableS
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * The schema-width cliff at the cache (`PLAN_TASK_185.md`): a query that reads one column of a
+ * The schema-width cliff at the cache (`VARKA-185.md`): a query that reads one column of a
  * cached table, over tables of 100 and 101 fields. `InMemoryTableScanExec` produces columnar
  * batches only while the whole cached schema has at most `spark.sql.codegen.maxFields` (100)
  * fields, so the two tables, one column apart, are read by two different paths.

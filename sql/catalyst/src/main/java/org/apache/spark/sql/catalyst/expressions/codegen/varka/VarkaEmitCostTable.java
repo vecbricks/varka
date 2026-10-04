@@ -25,7 +25,7 @@ import java.util.Map;
  * {@link VarkaEmitCost#METHODS} order, fitted by least squares over emitted groups; and
  * the margins the planned grouping keeps under the budgets, the largest under-prediction
  * the fit makes on its own groups in the band where each budget binds
- * ({@code PLAN_TASK_236.md} 3.3).
+ * ({@code VARKA-236.md} 3.3).
  *
  * <p>Generated, not written: {@code VarkaEmitCostSuite} derives it from emitted classes at
  * the default options and sixteen int lanes, fails while this file differs from what it

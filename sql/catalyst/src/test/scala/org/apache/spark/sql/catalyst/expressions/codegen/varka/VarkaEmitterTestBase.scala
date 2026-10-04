@@ -86,7 +86,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
     emitMulti(Seq(root), 1, numLiterals, options)
 
   /**
-   * The multi-output, multi-input version of [[emit]] (task 10). Since task 23 the emitter's
+   * The multi-output, multi-input version of [[emit]] (VARKA-10). Since VARKA-23 the emitter's
    * non-shape inputs travel as a [[VarkaEmitOptions]] value on the call rather than as static
    * hooks a test had to set and reset, so a variant is just a different argument here.
    */
@@ -132,23 +132,23 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
     makeInputData(arena, length, isNull, i => i * 31 - 7000)
 
   /**
-   * A null slot's data is poisoned, not zeroed (task 70's harness change, made before that
-   * task's emitter work so the whole existing matrix runs against it first). Arrow leaves the
-   * data under a null slot undefined, the loop body loads every column unmasked, and the only
-   * things standing between a null lane's garbage and a wrong answer are the validity word -
-   * which the range guards AND with their condemning mask (tasks 42, 52, 60) - and the rule
-   * that no lowering traps on any int. Until this landed the harness wrote the caller's own
-   * value into a null slot - the same in-range day or count the valid rows carry - which
-   * cannot tell a kernel that honours the word from one that never had to: an in-range lane
-   * reaches no guard's condemning comparison whether it is masked or not. Alternating the two
-   * extremes can, and puts each on both sides of every guard's bound.
+   * A null slot's data is poisoned, not zeroed (VARKA-70's harness change, made before that task's
+   * emitter work so the whole existing matrix runs against it first). Arrow leaves the data under a
+   * null slot undefined, the loop body loads every column unmasked, and the only things standing
+   * between a null lane's garbage and a wrong answer are the validity word - which the range guards
+   * AND with their condemning mask (VARKA-42, VARKA-52, VARKA-60) - and the rule that no lowering
+   * traps on any int. Until this landed the harness wrote the caller's own value into a null slot -
+   * the same in-range day or count the valid rows carry - which cannot tell a kernel that honours
+   * the word from one that never had to: an in-range lane reaches no guard's condemning comparison
+   * whether it is masked or not. Alternating the two extremes can, and puts each on both sides of
+   * every guard's bound.
    *
    * <p>The alternation counts null slots, not row indices. Keying it on {@code i} would collide
    * with the null patterns, which are themselves index predicates: under {@code alternating}
    * ({@code i % 2 == 1}) every null row is odd, so an {@code i & 1} poison would write
    * {@code Int.MaxValue} in every one of them and a quarter of the matrix would only ever see
    * the upper side of a bound. The bounds are asymmetric - {@code MAKE_DATE_MIN_YEAR} against
-   * {@code MAKE_DATE_MAX_YEAR}, and task 69 widens {@code dayRange} in one direction only - so
+   * {@code MAKE_DATE_MAX_YEAR}, and VARKA-69 widens {@code dayRange} in one direction only - so
    * a mask applied to the {@code > MAX} comparison but not the {@code < MIN} one would stay
    * green. Counting null slots alternates whatever the pattern is.
    */
@@ -197,7 +197,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
     for (i <- 0 until length) data.set(ValueLayout.JAVA_INT, i * 4L, 0xDEADBEEF)
     // The nominal size by default, and a bounded segment is a real assertion: a per-group
     // write addressing more than the bytes its group occupies faults here rather than
-    // corrupting a neighbour. Task 47's word writer needs whole words instead, which is what
+    // corrupting a neighbour. VARKA-47's word writer needs whole words instead, which is what
     // an Arrow destination buffer actually carries (VarkaKernelEvaluatorSuite), so its arm
     // asks for that size explicitly rather than widening every other test's guard.
     val validity = alloc(arena, if (validityBytes >= 0) validityBytes else (length + 7) / 8L)
@@ -229,7 +229,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   // -----------------------------------------------------------------------------------------
-  // Task 11: the reference evaluator - an independent Scala implementation of the milestone's
+  // VARKA-11: the reference evaluator - an independent Scala implementation of the milestone's
   // 2.6 semantics (three-valued conditions, blend, null-skipping greatest/least, floorMod)
   // that every predication test runs the emitted loop against, row for row and bit for bit.
   // It lives in VarkaReferenceEvaluator now, shared with the IR fuzzer; these two are the
@@ -286,7 +286,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
           val validityAddrs = cols.zip(nullCounts).map { case (col, nc) =>
             if (nc == 0 || nc == length) col.validityAddress(length) else col.validity.address()
           }
-          // A Cond root is a selection output (task 21): its data address is 0L per the
+          // A Cond root is a selection output (VARKA-21): its data address is 0L per the
           // kernel contract - exactly what the filter evaluator passes - so a regression
           // that touches it faults instead of writing somewhere silently.
           val dstData = roots.zip(outs).map { case (root, out) =>
@@ -336,7 +336,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   // -------------------------------------------------------------------------------------------
-  // The long lane (task 85, step 4)
+  // The long lane (VARKA-85, step 4)
   // -------------------------------------------------------------------------------------------
 
   /** One 64-bit column: eight bytes a lane, and the same validity bitmap the int lane uses. */
@@ -383,11 +383,11 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   /**
-   * The int matrix's twin at 64-bit lanes, over the subset task 85 ships there: the leaves, the
+   * The int matrix's twin at 64-bit lanes, over the subset VARKA-85 ships there: the leaves, the
    * arithmetic and its modes, the negate, the comparisons, the hull ops and the conditional.
    * It drives the kernel through the eight-argument `run` - the long lane's own entry point,
    * whose second scalar array is what a 64-bit literal needs - and compares against
-   * `evalLong`, which is task 119's first part.
+   * `evalLong`, which is VARKA-119's first part.
    */
   protected def checkLongMatrix(
       roots: Seq[VarkaVectorIR],
@@ -466,7 +466,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
       LocalDate.of(2000, 2, 29).toEpochDay.toInt, LocalDate.of(1, 1, 1).toEpochDay.toInt,
       LocalDate.of(9999, 12, 31).toEpochDay.toInt
     ) ++ Array(
-      // dayofyear's own boundary set (task 34): every year-end/year-start pair a leap flag
+      // dayofyear's own boundary set (VARKA-34): every year-end/year-start pair a leap flag
       // could get wrong, plus February's own boundary in a leap and a century-non-leap year.
       LocalDate.of(2000, 1, 1), LocalDate.of(2000, 12, 31), // leap
       LocalDate.of(2024, 1, 1), LocalDate.of(2024, 12, 31), // leap
@@ -478,13 +478,13 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   protected def calendarBoundaryDay(c: Int, i: Int): Int =
     if (i < calendarBoundaryDays.length) calendarBoundaryDays(i) else i * 9973 - 400000
 
-  // Task 35: trunc(date, YEAR | MONTH | QUARTER), two lowerings behind VarkaEmitOptions.truncDate.
+  // VARKA-35: trunc(date, YEAR | MONTH | QUARTER), two lowerings behind VarkaEmitOptions.truncDate.
   protected val truncRoots = Seq[VarkaVectorIR](
     new TruncDate(new ColumnRef(0), TruncLevel.YEAR),
     new TruncDate(new ColumnRef(0), TruncLevel.MONTH),
     new TruncDate(new ColumnRef(0), TruncLevel.QUARTER))
 
-  // Task 42: make_date over three int columns. The triples cover the validity rule's corners:
+  // VARKA-42: make_date over three int columns. The triples cover the validity rule's corners:
   // valid dates at both ends of the contract, 29 February in leap, common, century and
   // quatercentennial years, 30 February, 31 April, 32 December, month 0, 13 and -1, day 0 and
   // -1. `makeDateTriples(c, i)` cycles them per column `c` (0 year, 1 month, 2 day).
@@ -506,7 +506,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   protected val makeDateNull =
     new MakeDate(new ColumnRef(0), new ColumnRef(1), new ColumnRef(2), false)
 
-  // Task 37's days: the ISO corners its plan names - the week-53 years, the January days that
+  // VARKA-37's days: the ISO corners its plan names - the week-53 years, the January days that
   // belong to the old year and the December days that belong to the new one - and Velox's
   // Spark-compatibility fixtures (velox/functions/sparksql/tests/DateTimeFunctionsTest.cpp),
   // written against Spark by people who had to match it exactly, over the calendar boundary set.
@@ -683,7 +683,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Task 32 step B: sharing the civil-from-days prefix between calendar nodes over one date.
+  // VARKA-32 step B: sharing the civil-from-days prefix between calendar nodes over one date.
   // -------------------------------------------------------------------------------------------
 
   /** The days the calendar differentials drive: the range's edges, then a strided walk. */
@@ -708,7 +708,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
   protected val unshared = VarkaEmitOptions.DEFAULTS.withShareChronoPrefix(false)
 
   /** The lane ops one emitted body method runs: its `IntVector` invocations, counted off the
-   * class file. Task 48's deliverable is a count, not a duration, so it is asserted as one. */
+   * class file. VARKA-48's deliverable is a count, not a duration, so it is asserted as one. */
   protected def laneOps(bytes: Array[Byte], method: String): Int =
     VarkaEmitterTestSupport.invocationCount(bytes, method, "jdk.incubator.vector.IntVector")
 
@@ -716,16 +716,16 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
    * the magic), the `+ 2`, and the magic's shift. The store into t[5] is not one. */
   /**
    * What the prefix's month step costs, which depends on the axis: four ops on the 0-based one
-   * (the `* 5`, the `+ 2`, the magic multiply and its shift) and two on task 53's 3-based one
-   * (the `* 2141` and the `+ 197913`). Task 48's elision saves whichever of the two the shape
+   * (the `* 5`, the `+ 2`, the magic multiply and its shift) and two on VARKA-53's 3-based one
+   * (the `* 2141` and the `+ 197913`). VARKA-48's elision saves whichever of the two the shape
    * was going to pay, which is the sense in which that task's win shrank rather than went away.
    */
   protected def monthStepOps(options: VarkaEmitOptions): Int =
     if (options.neriSchneiderMonth()) 2 else 4
 
   /**
-   * The single masked epilogue's bytecode size in the form before task 87 - the one method
-   * every output shared (task 24) - whatever `options` says about the byte budget. The tests
+   * The single masked epilogue's bytecode size in the form before VARKA-87 - the one method
+   * every output shared (VARKA-24) - whatever `options` says about the byte budget. The tests
    * that pin where that method crossed HugeMethodLimit measure this form on purpose: the
    * crossing is the fact the per-group epilogue answers, and it stays measurable at budget 0.
    */
@@ -744,7 +744,7 @@ trait VarkaEmitterTestBase extends SparkFunSuite with VarkaTestWatchdog {
       Array(out._1.address()), Array(out._2.address()), Array.empty[Int], length,
       VarkaEmitterTestSupport.scratch(kernel, length))
 
-  // Task 63's int arithmetic. `checkOff` is the A/B arm the benchmark prices and the flag the
+  // VARKA-63's int arithmetic. `checkOff` is the A/B arm the benchmark prices and the flag the
   // emitter reads to drop the sign test; it is never a correct setting for an ANSI query.
   protected val checkOff = VarkaEmitOptions.DEFAULTS.withCheckIntOverflow(false)
 

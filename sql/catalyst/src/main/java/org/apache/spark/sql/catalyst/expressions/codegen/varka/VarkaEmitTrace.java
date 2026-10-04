@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 /**
- * What one emission's size control did, counted for the suites (task 238): how many times the
+ * What one emission's size control did, counted for the suites (VARKA-238): how many times the
  * class was built, and how many times each of the loop's reactions to a measurement ran - a group
  * halved on bytes, a group split on call sites, the call-site splits rolled back, a driver split
  * into stages, and the exact grouping or the prediction dropped because the class it made would
@@ -26,7 +26,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * seen rather than passing on shapes too small to test it. See {@code VarkaLoopEmitter.emit}.
  *
  * <p>Under {@code VarkaEmitOptions.planSize} the first build is the plan's, and a reaction to
- * its measurement is a <i>correction</i> of the plan (task 236): counted in the reaction's own
+ * its measurement is a <i>correction</i> of the plan (VARKA-236): counted in the reaction's own
  * counter as well, and named in {@link #corrections} with the method, what the plan predicted
  * for it and what it measured, so the audit can list every shape the plan got wrong. A reaction
  * to a later build is the size loop as the last resort, which the counters alone record.

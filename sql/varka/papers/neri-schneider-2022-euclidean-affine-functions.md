@@ -14,9 +14,9 @@ Open-access deposit: HAL [hal-04346335](https://hal.science/hal-04346335v1).
 
 ## Why this paper is here
 
-Varka's civil-from-days lowering (task 26) follows Hinnant's `civil_from_days`.
+Varka's civil-from-days lowering (VARKA-26) follows Hinnant's `civil_from_days`.
 This paper's Algorithms 5 and 6 are a different and generally better
-decomposition, and `sql/varka/plans/PLAN_TASK_53.md` takes the half of it that
+decomposition, and `sql/varka/plans/m4/VARKA-53.md` takes the half of it that
 an `IntVector` lane can express - the month block of Algorithm 5, where one
 affine numerator `N_3 = 2141 * N_Y + 197913` yields both the month
 (`N_3 / 2^16`) and the day of month (`N_3 % 2^16 / 2141`). Section 8.2 is also

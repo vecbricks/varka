@@ -27,7 +27,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DayTimeIntervalType, LongType, StructField, StructType, TimeType}
 
 /**
- * Task 102's first TIME kernels against the row engine, over every second of a day.
+ * VARKA-102's first TIME kernels against the row engine, over every second of a day.
  *
  * `t1 - t2`, `time_diff` and `time_trunc` are a subtraction and a constant division on the long
  * lane; `t + dt` is a wrapping add under two range guards, because Spark's
@@ -237,7 +237,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions with V
   }
 
   test("the emit.useAVX session switch selects the magic form, and the answers do not move") {
-    // Task 121: `spark.sql.codegen.varka.emit.useAVX=2` makes a session emit the magic-number
+    // VARKA-121: `spark.sql.codegen.varka.emit.useAVX=2` makes a session emit the magic-number
     // form of the 64-bit division - the lowering a host without intrinsified converts takes -
     // through the same plan and the same cache path, with the row engine as the oracle for it
     // as for the conversion form. The switch is a session property, so it is set on the fused
@@ -253,7 +253,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions with V
   }
 
   test("hour, minute and second agree with the row engine over every second of the day") {
-    // Group C's extracts (`PLAN_TASK_102.md` 8.3): `LocalTime`'s field reads on the row engine
+    // Group C's extracts (`VARKA-102.md` 8.3): `LocalTime`'s field reads on the row engine
     // against long-lane divisions narrowed to an int at the kernel's store, through both
     // consumers. The TIME(3) column puts the widening cast in front of the division, and the
     // sub-second columns reach the edges where a rounding division would answer the next
@@ -264,7 +264,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions with V
   }
 
   test("an extract under another expression is left to the row engine, beside a fused one") {
-    // The narrowing is the store's, so `hour(t) + 1` has no fused form until task 28 narrows
+    // The narrowing is the store's, so `hour(t) + 1` has no fused form until VARKA-28 narrows
     // inside a tree: the entry declines with its reason and the row engine answers it, while
     // the extract beside it is still served by the kernel.
     val query = s"SELECT hour(t) + 1 AS h, minute(t) AS m FROM $day"
@@ -275,7 +275,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaSharedSessions with V
 
   test("time_to_millis, time_to_micros and the time_from_* conversions agree with the row " +
       "engine over every second of the day") {
-    // Group E (`PLAN_TASK_102.md` 9.3): the two divisions at three precisions, and the three
+    // Group E (`VARKA-102.md` 9.3): the two divisions at three precisions, and the three
     // multiplies from a bigint count and from their own divisions' results, through both
     // consumers. Every row is inside the day, so every batch is the kernel's.
     for (column <- Seq("t", "t2", "t3"); field <- Seq("time_to_millis", "time_to_micros")) {

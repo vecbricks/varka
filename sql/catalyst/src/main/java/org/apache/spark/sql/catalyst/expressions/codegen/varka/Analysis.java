@@ -223,7 +223,7 @@ final class Analysis {
   /**
    * The distinct nodes {@link #analyze} has visited, its memo. How often a node is used decides
    * nothing kernel-wide: a node's shared slot is decided per body, on what that body visits
-   * ({@code Slots.bodyUses}, task 223).
+   * ({@code Slots.bodyUses}, VARKA-223).
    */
   final Set<VarkaVectorIR> analyzed = new HashSet<>();
   /**
@@ -314,7 +314,7 @@ final class Analysis {
    */
   BitmapPass[] served;
   /** How many value roots the pass declined for a mixed AND/OR tree - the safety net in
-   *  PLAN_TASK_70.md 3.1, which the suite holds at zero over its fixtures. */
+   *  VARKA-70.md 3.1, which the suite holds at zero over its fixtures. */
   int declinedBitmapRoots;
 
   /**
@@ -327,7 +327,7 @@ final class Analysis {
 
   /**
    * The dates whose civil-from-days prefix outputs in two or more loop-method groups decompose,
-   * under {@link VarkaEmitOptions#materializeChronoPrefix} (task 198). The first such group
+   * under {@link VarkaEmitOptions#materializeChronoPrefix} (VARKA-198). The first such group
    * computes the prefix once per lane group and stores its vectors into a scratch region the
    * caller passes to {@code run}; the later groups load them in place of the prefix. Keyed by
    * the date, the dense fragment key's child: the values are the same whatever validity word a
@@ -342,7 +342,7 @@ final class Analysis {
    * How many consecutive groups each sub-driver ("stage") calls under
    * {@link VarkaEmitOptions#splitDriver}, or 0 where the driver calls every group itself. Set per
    * build by {@code VarkaLoopEmitter.emit}, from the measured driver of a build before, and 0 for
-   * every emission whose drivers fit, whose bytes are then unchanged (`PLAN_TASK_190.md` 11).
+   * every emission whose drivers fit, whose bytes are then unchanged (`VARKA-190.md` 11).
    */
   int stageGroups = 0;
 
@@ -384,7 +384,7 @@ final class Analysis {
 
   /**
    * The context walk: assigns every node the arm chain its uses agree on, by the rule in
-   * {@code PLAN_TASK_79.md} 3.3 - narrow only where every use sits under one and the same
+   * {@code VARKA-79.md} 3.3 - narrow only where every use sits under one and the same
    * innermost arm chain, and keep the unqualified guard for anything else.
    *
    * <p>It is its own walk rather than a stack in {@link #analyze}, because that one memoises
@@ -592,7 +592,7 @@ final class Analysis {
 
   /**
    * Decides, per output, whether the masked driver writes that root's validity bitmap in
-   * one pass over whole input bitmaps (PLAN_TASK_70.md 3.1). A root qualifies when its word
+   * one pass over whole input bitmaps (VARKA-70.md 3.1). A root qualifies when its word
    * is a pure expression over input bitmaps that flattens to one operator: AND and OR are
    * each associative and commutative over bitmaps, so a tree of either collapses to a
    * left-leaning chain the engine's two-then-{@code Into} entry points evaluate into the
@@ -750,7 +750,7 @@ final class Analysis {
     // node whose own lane differs from the emission's is the narrowing root, which is on
     // the int lane by value and the long lane by computation; it is held to the emission
     // lane through its child, and to the root position here: an output root only, until
-    // task 28 gives the emitter a bi-lane loop, since below a root it would put a 32-bit
+    // VARKA-28 gives the emitter a bi-lane loop, since below a root it would put a 32-bit
     // value into a computation nothing here can hold. Asked before the lane check so the
     // refusal names the cause rather than the lane mix that follows from it.
     if (node instanceof NarrowLane && !roots.contains(node)) {
@@ -1015,7 +1015,7 @@ final class Analysis {
    *
    * <p>This position and {@code next_day} 's weekday once shared {@link #requireOffsetShape},
    * under one sentence covering both - that each "carries a runtime bound a derived value cannot
-   * declare". That is true of the weekday and false here, which {@code PLAN_TASK_67.md} 2.1
+   * declare". That is true of the weekday and false here, which {@code VARKA-67.md} 2.1
    * recorded and this split acts on. A column-count {@code AddMonths} is in
    * {@link Analysis#selfGuarding} and is checked at run time against
    * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS} / {@code MAX_MONTHS} by a lanewise test on the

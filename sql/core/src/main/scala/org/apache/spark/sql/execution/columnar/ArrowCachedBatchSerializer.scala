@@ -84,7 +84,7 @@ class ArrowCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer {
   // The default implementation strips a topmost ColumnarToRowTransition to expose the columnar
   // plan underneath - sound for a pure transition, whose only work is the row conversion, and
   // silently WRONG for the fused Varka nodes, which carry a whole projection or filter inside
-  // the transition (task 21 found this: caching a view whose top was the fused filter cached
+  // the transition (VARKA-21 found this: caching a view whose top was the fused filter cached
   // the unfiltered table). Those nodes exist in row/columnar pairs running identical kernels,
   // so instead of refusing the conversion this swaps the fused row node for its columnar
   // sibling: the cache still gets columnar input, and the work the transition had fused away

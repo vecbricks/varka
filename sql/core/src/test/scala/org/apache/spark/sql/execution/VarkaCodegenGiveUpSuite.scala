@@ -40,7 +40,7 @@ import org.apache.spark.sql.types.{DataType, DateType, IntegerType, LongType}
 
 /**
  * Reproducers for the census of the places vanilla Spark's code generation gives up
- * (`PLAN_TASK_188.md`), one test per entry, each making Spark show the give-up in its plan or its
+ * (`VARKA-188.md`), one test per entry, each making Spark show the give-up in its plan or its
  * log at the revision under test. The census was read from the source; these hold its claims to
  * what Spark actually does, so the milestone's post can cite a test rather than a reading.
  *
@@ -451,7 +451,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
     // 130-column expression, in two entries and without the checked multiplies so that nothing
     // else can decline it, is refused at Varka's own budget of fused nodes, with that reason. The
     // census's "immune" for this entry is therefore "not reached" until that budget gives way
-    // to the byte budget (task 190), and this arm pins where the shape stops today.
+    // to the byte budget (VARKA-190), and this arm pins where the shape stops today.
     val (fused, declined) =
       classified(nullableInts(130).selectExpr(s"($sum) AS a", s"($sum) + 1 AS b"))
     assert(fused.isEmpty && declined.keySet == Set(0, 1), declined)

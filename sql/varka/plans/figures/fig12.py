@@ -20,7 +20,7 @@ in the same place on every JDK because Spark writes the bytecode, not the JDK.
 
 Every value is read from the demo's committed runner outputs when the script runs
 (sql/varka/demo/method_size_cliff-jdk{17,21,25}-output.txt), so the figure cannot drift from
-them (PLAN_TASK_203.md 9.2)."""
+them (VARKA-203.md 9.2)."""
 
 import math
 import os

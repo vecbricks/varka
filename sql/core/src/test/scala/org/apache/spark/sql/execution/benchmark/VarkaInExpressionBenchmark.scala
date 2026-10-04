@@ -27,7 +27,7 @@ import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * The columnar-terminal `IN` benchmark (task 20): Spark's own `InExpressionBenchmark` measures
+ * The columnar-terminal `IN` benchmark (VARKA-20): Spark's own `InExpressionBenchmark` measures
  * `WHERE id IN (...)` as a row-source filter, where the milestone survey found `DateType` the
  * slowest primitive at short lists; this benchmark prices what Varka can fuse today - `IN` in
  * condition position, `CASE WHEN d IN (...) THEN ... ELSE ... END`, over Arrow-cached dates
@@ -48,7 +48,7 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  *  - Above the cap: n = 50, guarded by [[requireDeclined]] and still measured - the
  *    no-regression proof that an over-cap list keeps stock performance on the varka session.
  *  - Anchor: the stock-shaped `SELECT COUNT(*) WHERE d IN (<n>)` filter at 5/50/200/500 on
- *    both sessions, tying this file's list shapes to the upstream benchmark's. Until task 21
+ *    both sessions, tying this file's list shapes to the upstream benchmark's. Until VARKA-21
  *    all four anchors were unfused by design (Varka rewrote projections only); the in-cap
  *    anchor now runs the mask kernel and is guarded fused, while 50/200/500 stay declined
  *    over the literal cap.
@@ -183,9 +183,9 @@ object VarkaInExpressionBenchmark extends SqlBasedBenchmark {
       requireDeclined(varka, "case-when IN, 50 literals", fusedQuery(50))
       runPair(baseline, varka, "case-when IN, 50 literals, declined (over the cap)",
         fusedQuery(50))
-      // Task 21 flipped the in-cap anchor: the filter itself now runs the mask kernel.
+      // VARKA-21 flipped the in-cap anchor: the filter itself now runs the mask kernel.
       requireFused(varka, "filter IN anchor, 5 literals", anchorQuery(5))
-      runPair(baseline, varka, "filter IN anchor, 5 literals (fused since task 21)",
+      runPair(baseline, varka, "filter IN anchor, 5 literals (fused since VARKA-21)",
         anchorQuery(5))
       for (n <- Seq(50, 200, 500)) {
         requireDeclined(varka, s"filter IN anchor, $n literals", anchorQuery(n))

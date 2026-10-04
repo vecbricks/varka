@@ -62,7 +62,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth
  * few hundred bytes a call, fits under the per-column allowance, and the verdict would call the
  * kernel compiled while one of its loops still boxes about twenty bytes a row on a real batch.
  * Over a long call the same loop is thousands of bytes over the per-row allowance, so the verdict
- * waits for every loop method the probe reaches ({@code PLAN_TASK_221.md} 2). A count cannot
+ * waits for every loop method the probe reaches ({@code VARKA-221.md} 2). A count cannot
  * say any of this: crossing a threshold only queues a compile, which lands whenever a compiler
  * thread reaches it. A kernel whose first block is already clean has nothing to wait for - its
  * driver returns before any loop runs, as it does over an all-null input - and is released at
@@ -72,7 +72,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth
  * that batch is released: its kernel inputs, tiled to {@link #SNAPSHOT_ROWS} rows, so that C2
  * compiles from real values and real guard outcomes rather than a synthetic batch's. The kernel
  * has two drivers, one for batches whose inputs are all null-free and one for batches with nulls
- * (`PLAN_TASK_10.md` 2.5), and the batch that claims the warm-up says nothing about which of the
+ * (`VARKA-10.md` 2.5), and the batch that claims the warm-up says nothing about which of the
  * two the shape's later batches will need, so the calls alternate between them and the verdict
  * waits for both - unless no input of the shape is nullable, when no batch can reach the masked
  * driver and only the dense one is warmed. A call to the dense driver passes every input as
@@ -341,7 +341,7 @@ public final class VarkaKernelWarmup {
     private final VarkaFusedKernel kernel;
     private final boolean longLane;
     private final Arena arena;
-    /** The scratch a kernel with a materialized prefix takes (task 198), or 0 for one without. */
+    /** The scratch a kernel with a materialized prefix takes (VARKA-198), or 0 for one without. */
     private final long scratch;
     private final long queuedAt = System.nanoTime();
 

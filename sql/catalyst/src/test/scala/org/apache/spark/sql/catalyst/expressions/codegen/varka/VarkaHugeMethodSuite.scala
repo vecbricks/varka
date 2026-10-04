@@ -28,14 +28,14 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHugeMethodProbe._
 
 /**
- * The property task 87 exists for, asserted from the JVM rather than inferred from a byte count:
+ * The property VARKA-87 exists for, asserted from the JVM rather than inferred from a byte count:
  * under the byte budget every loop and epilogue method of a kernel past the legacy form's
  * crossing is compiled by C2, and in the legacy form the single epilogue is not compiled at all.
  *
  * HotSpot's `DontCompileHugeMethods` refuses any method whose bytecode exceeds `HugeMethodLimit`
  * (8000 bytes, a develop flag no product build can raise) at every tier, silently: the method
  * runs in the interpreter for the life of the JVM and nothing prints. The legacy emitter's
- * single epilogue crosses that limit at thirteen `make_date` outputs (`PLAN_TASK_87.md` 2.2),
+ * single epilogue crosses that limit at thirteen `make_date` outputs (`VARKA-87.md` 2.2),
  * so a sixteen-output ladder is the shape on which the two forms differ. Each test forks a JVM
  * ([[VarkaHugeMethodProbe]]) under `-Xbatch -XX:+PrintCompilation`, runs the ladder hot, and
  * reads the tiers HotSpot printed for the emitted class's methods.

@@ -50,7 +50,7 @@ import org.apache.spark.sql.types.{ByteType, DataType, DateType, DayTimeInterval
  * line-map entries. With
  * `--rounds N` the kernel is also loaded and run N times over synthetic data, which is what
  * lets the wrapper's `--asm` get C2's standard compilation of the loop method printed.
- * After the table comes the class against what the JVM enforces (`PLAN_TASK_87.md`): the
+ * After the table comes the class against what the JVM enforces (`VARKA-87.md`): the
  * constant pool count, the widest signature's parameter slots, and either a line saying every
  * method is under `HugeMethodLimit` or one `OVER LIMIT` line per method that is not - a method
  * HotSpot will load and run interpreted for the life of the JVM without saying so.
@@ -70,7 +70,7 @@ import org.apache.spark.sql.types.{ByteType, DataType, DateType, DayTimeInterval
  * `--table` prints instead the markdown a plan's registered-op-counts section wants: one row
  * per expression, one column per option variant given with `--variant k=v,...` (the defaults
  * first), each cell every lane op `loopDense0` runs - on whichever vector type - and a delta
- * column per variant against the defaults. That is the table tasks 53 and 54 built by hand;
+ * column per variant against the defaults. That is the table VARKA-53 and VARKA-54 built by hand;
  * summing the types rather than reading `IntVector` alone is what keeps a variant that moves
  * work onto the double lane from reporting the move as a saving.
  */
@@ -184,7 +184,7 @@ object VarkaEmitDump {
       val size = VarkaEmitterTestSupport.codeSize(bytes, m)
       val vectorOps =
         VarkaEmitterTestSupport.invocationCount(bytes, m, "jdk.incubator.vector.IntVector")
-      // The long lane (task 85), read beside the int one so a 64-bit body's own ops show.
+      // The long lane (VARKA-85), read beside the int one so a 64-bit body's own ops show.
       val longOps =
         VarkaEmitterTestSupport.invocationCount(bytes, m, "jdk.incubator.vector.LongVector")
       // The double lane, which a `division` setting other than MAGIC moves work onto: without
@@ -197,7 +197,7 @@ object VarkaEmitDump {
         VarkaEmitterTestSupport.invocationCount(bytes, m, "jdk.incubator.vector.Vector")
       val maskOps =
         VarkaEmitterTestSupport.invocationCount(bytes, m, "jdk.incubator.vector.VectorMask")
-      // Validity work, which is the metric task 70 moves: everything the method invokes on
+      // Validity work, which is the metric VARKA-70 moves: everything the method invokes on
       // VarkaVectorSupport except the segment mapping, which every body mode emits per segment
       // and which would keep the count off zero however much validity work went away.
       val validityOps = VarkaEmitterTestSupport.invocationCount(
@@ -206,7 +206,7 @@ object VarkaEmitDump {
       report(f"$m%-18s $size%6d $vectorOps%9d $longOps%10d $doubleOps%12d $convertOps%7d " +
         f"$maskOps%10d $validityOps%8d $lines%5d")
     }
-    // The class against what the JVM enforces (PLAN_TASK_87.md): weight is the emitter's proxy,
+    // The class against what the JVM enforces (VARKA-87.md): weight is the emitter's proxy,
     // and these are the quantities it stands in for. A method over HugeMethodLimit is the
     // finding this line exists to make visible, since the class would load and run regardless.
     val measured = VarkaEmittedClass.measure(bytes)
@@ -222,7 +222,7 @@ object VarkaEmitDump {
     }
     // C1's limit rather than the JVM's: a group method over the call-site budget belongs to a
     // narrow group of heavy outputs the emitter leaves on purpose, or to a group whose split
-    // would have declined the class, or the budget was off (task 209). Not an error, but worth
+    // would have declined the class, or the budget was off (VARKA-209). Not an error, but worth
     // seeing: the method runs interpreted until C2 compiles it. A heavy kernel has one such
     // method per group and side, so the list is cut after the first few.
     val budget = options.callSiteBudget()
@@ -317,13 +317,13 @@ object VarkaEmitDump {
       case "int" | "integer" => IntegerType
       case "short" | "smallint" => ShortType
       case "byte" | "tinyint" => ByteType
-      // Task 67's third type in the date lane. Spelled by field, because the field decides
+      // VARKA-67's third type in the date lane. Spelled by field, because the field decides
       // what the emitter does with it: MONTH and YEAR are the ends a column can hold, and
       // "ym" is the YEAR TO MONTH pair make_ym_interval produces.
       case "ymm" | "interval month" => YearMonthIntervalType(YearMonthIntervalType.MONTH)
       case "ymy" | "interval year" => YearMonthIntervalType(YearMonthIntervalType.YEAR)
       case "ym" | "interval year to month" => YearMonthIntervalType()
-      // The long lane's three types (task 29): one 64-bit column each.
+      // The long lane's three types (VARKA-29): one 64-bit column each.
       case "bigint" | "long" => LongType
       case "time" => TimeType(TimeType.MICROS_PRECISION)
       case t if t.startsWith("time(") && t.endsWith(")") =>
@@ -342,7 +342,7 @@ object VarkaEmitDump {
    * `Add(date, yearmonthinterval)`, which only becomes `DateAddYMInterval` when
    * `AnsiTypeCoercion`/`TypeCoercion` rewrites it; without that the compiler sees an `Add`
    * over two types it has no arm for and declines. So every expression written with an
-   * operator rather than a function - which is every date/interval arithmetic shape task 67
+   * operator rather than a function - which is every date/interval arithmetic shape VARKA-67
    * added - reported "declined" here while fusing perfectly well in a real session, and the
    * tool disagreed with `Surface`'s own `expectFused` on entries the surface has been timing
    * for weeks. Resolving through a `LocalRelation` and `SimpleAnalyzer` costs nothing and
@@ -386,18 +386,18 @@ object VarkaEmitDump {
 
   /** Load the class and run it `rounds` times over synthetic columns of the kernel's lane, so
    *  a `-XX:CompileCommand=print` on the loop method has something to print. The output count
-   *  is the projection's, not inferred from the loop methods: since task 32 step B2 one loop
+   *  is the projection's, not inferred from the loop methods: since VARKA-32 step B2 one loop
    *  method can hold several outputs, and a destination array sized by method count made the
    *  kernel index past it. A long-lane kernel takes 64-bit inputs holding nanoseconds of day,
    *  which is inside every `TIME` guard and every division bound, and each output buffer has
    *  the width of its Spark type - four bytes for a narrowed int, eight otherwise - so the
-   *  narrowing store of task 102 is driven as the evaluator drives it.
+   *  narrowing store of VARKA-102 is driven as the evaluator drives it.
    *
    *  `nulls` is how many rows of each input are null. Zero - the default - reports a null-free
    *  batch, which the emitted `run` dispatches to the dense driver, so only the dense methods
    *  are ever compiled; any positive count takes the masked path instead. Without it a
    *  `--rounds` probe cannot see the masked body at all, which is what a
-   *  `-XX:+PrintCompilation` run of the task 70 review needed. */
+   *  `-XX:+PrintCompilation` run of the VARKA-70 review needed. */
   private def runHot(bytes: Array[Byte],
       fused: org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection,
       inputs: Seq[Attribute], rounds: Int, nulls: Int, rows: Int): Unit = {

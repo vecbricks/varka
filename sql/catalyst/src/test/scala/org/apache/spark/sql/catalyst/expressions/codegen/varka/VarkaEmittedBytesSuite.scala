@@ -36,16 +36,16 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, L
   TimeType, YearMonthIntervalType}
 
 /**
- * The emitted-bytes oracle (task 85, step 1): what the emitter produces for every shape, pinned
+ * The emitted-bytes oracle (VARKA-85, step 1): what the emitter produces for every shape, pinned
  * so that a refactor of the emitter can prove it changed nothing. It is also the check that the
  * compiler never builds IR the emitter rejects: every coverage row goes through the compiler and
  * is emitted at both widths, and an emitter rejection of any of them fails this suite
- * (`PLAN_TASK_169.md` 2.1, the IR contract violations).
+ * (`VARKA-169.md` 2.1, the IR contract violations).
  *
  * Three shape sets. Every row of the coverage table (`sql/varka/coverage.json`, compiled to IR
  * the way `VarkaCoverageSuite` compiles it, on both lanes), ten thousand random int32 trees
  * from the shared fuzz grammar at a fixed seed, and ten thousand random long-lane trees from
- * its long grammar at that grammar's own seed (task 119). Each shape is emitted at two widths,
+ * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at two widths,
  * 128 and 512 bits - `lanesOverride` 4 and 16 at the int lane, 2 and 8 at the long one - and
  * every method body of the emitted class is rendered symbolically
  * (`VarkaEmitterTestSupport.methodBodies`: opcodes and resolved operands, labels numbered, no
@@ -124,7 +124,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       try {
         VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null, null, options)
       } catch {
-        // An arm may decline a shape the defaults emit (task 87's byte budget on a heavy single
+        // An arm may decline a shape the defaults emit (VARKA-87's byte budget on a heavy single
         // output); the audit records that as the arm's answer rather than failing on it.
         case d: VarkaEmitDeclined => return Seq("<declined>" -> sha(d.getMessage))
       }
@@ -259,7 +259,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The emit options a session can select, and so the emissions the oracle has to pin.
    *
    * Only one field of `VarkaEmitOptions` has a configuration in front of it -
-   * `spark.sql.codegen.varka.emit.useAVX`, which task 121 added so that a machine whose
+   * `spark.sql.codegen.varka.emit.useAVX`, which VARKA-121 added so that a machine whose
    * converts do not become instructions can ask for the magic form. Everything else on the
    * record reaches the emitter through a test hook alone, and the audit test below records
    * which of those move bytes. The oracle therefore pins the defaults in full, shape by
@@ -449,7 +449,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * Every value of every emit option, paired with the transform that selects it.
    *
    * The oracle above pins the defaults, and only the defaults, at two widths. That was enough
-   * while `VarkaEmitOptions` was reachable from tests alone; task 121 gave one of its fields a
+   * while `VarkaEmitOptions` was reachable from tests alone; VARKA-121 gave one of its fields a
    * session configuration, so a user can now ask for an emission no committed hash covers.
    * This list is the inventory row 167 asks for, and the test below turns it into the other
    * half of the answer: which of these arms actually move the emitted bytes, and on which

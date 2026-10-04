@@ -26,7 +26,7 @@ import jdk.jfr.Name;
 /**
  * JFR event timing one fused-kernel emission. A defined emission ({@link #defined}) times the
  * class define, plus the Class-File walk where the lookup builds the bytes itself - the whole miss
- * path of {@code VarkaShapeCache} minus the lookup; an admission (task 237) times the walk alone,
+ * path of {@code VarkaShapeCache} minus the lookup; an admission (VARKA-237) times the walk alone,
  * at planning, for a shape whose class a later lookup defines from those bytes. Fires
  * only while a JFR recording has the event enabled; every field names the shape, never a
  * per-execution identity, because the emitted class is shared - join back to

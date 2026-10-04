@@ -63,7 +63,7 @@ runs:
         # tree below. HEAD after this step is apache/spark's master with one squash commit on
         # top, so diffing against it measures this fork's whole divergence from upstream
         # rather than the branch's own change - which is why every module gate answers true
-        # and every pull request runs the full matrix (PLAN_TASK_106.md 9). The branch and the
+        # and every pull request runs the full matrix (VARKA-106.md 9). The branch and the
         # branch it was cut from do share real history, so their merge base is the base the
         # diff wants. It is computed here, before `merge --squash` discards the ancestry that
         # makes it computable: a squash commit records no merge parent, which is what defeated

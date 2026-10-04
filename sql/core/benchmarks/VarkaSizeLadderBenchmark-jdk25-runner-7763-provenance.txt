@@ -1,7 +1,7 @@
 benchmark:   org.apache.spark.sql.execution.benchmark.VarkaSizeLadderBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml ("Run benchmarks"),
              in one dispatch with the other size ladder class, so the one-core and the
-             every-core files come from the same machine and hour (task 197)
+             every-core files come from the same machine and hour (VARKA-197)
 run:         https://github.com/MaxGekk/spark/actions/runs/36519637464
 commit:      23413940398 (varka-task-197-parallel, master defe20108c4 plus the task's commit,
              with the workflow's Varka engine jar on --jars)

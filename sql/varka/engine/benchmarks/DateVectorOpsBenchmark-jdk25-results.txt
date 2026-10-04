@@ -8,9 +8,9 @@ DateVectorOpsBenchmark.java.
 
 This file is the forked-JVM measurement that replaced the in-process (forks=0) run in git history
 at 46339ca285d. That run measured the kernels on the surefire JVM after the JUnit suites had
-shaped its profiles (PLAN_MILESTONE_4.md, debt register; PLAN_TASK_24.md section 6), and it
+shaped its profiles (m4/PLAN.md, debt register; VARKA-24.md section 6), and it
 understated every vector kernel: vectorDateDiff NULL_FREE at 10000 rows read 431 ops/ms there
-and reads 1211 here, the same figure task 24 could only reach by forcing C2 to inline the Vector
+and reads 1211 here, the same figure VARKA-24 could only reach by forcing C2 to inline the Vector
 API (1276). The scalar loops moved by about 10%. The narrow-width table is new; the earlier file
 had none.
 
@@ -110,8 +110,8 @@ DateVectorOpsBenchmark.vectorSubDays      MIXED_NULL  1000000  thrpt    3      1
 * 128-bit, 10000 rows: addDays and subDays 1.29x-1.30x null-free (205 against 158) and 1.16x
   mixed-null; dateDiff does not win - 0.98x null-free (143 against 145) and 0.86x mixed-null
   (109 against 128). At 1M rows 1.13x-1.20x. At four lanes these kernels' per-group validity
-  handling costs about what the lanes save, which is the milestone-4 validity work (tasks 45
-  to 47) in one number; the emitted kernels are measured separately in the catalyst parity
+  handling costs about what the lanes save, which is the milestone-4 validity work (VARKA-45
+  to VARKA-47) in one number; the emitted kernels are measured separately in the catalyst parity
   file and are not this file's subject.
 * The scalar loops are identical at both widths (157-158 null-free at 10000 rows), as they
   should be: the width flag changes nothing scalar code runs.

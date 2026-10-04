@@ -24,7 +24,7 @@ import scala.jdk.CollectionConverters._
  * methods it saves where the greedy walk strands cheap outputs, the classes it leaves alone where
  * the greedy walk is already at the best, its answers, and how it meets a forced start and the
  * measurement's regroup. How it compares with the best partition over the whole corpus is
- * `VarkaGroupingBoundSuite`'s. See `PLAN_TASK_200.md`.
+ * `VarkaGroupingBoundSuite`'s. See `VARKA-200.md`.
  */
 class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
 
@@ -116,7 +116,7 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
     // build measures, forces starts, and the exact grouping rebuilds around them. The switch
     // must survive that, so the class is the exact grouping's, not the greedy one the fallback
     // would make.
-    // Under the prediction and the plan (task 236) the first grouping already fits the budget,
+    // Under the prediction and the plan (VARKA-236) the first grouping already fits the budget,
     // so the regroup this test is about needs both off.
     val roots = mixed(40)
     val budget = 2000

@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoad
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
- * The child process behind [[VarkaHugeMethodSuite]] (task 87). Launched in a forked JVM under
+ * The child process behind [[VarkaHugeMethodSuite]] (VARKA-87). Launched in a forked JVM under
  * `-Xbatch -XX:+PrintCompilation`, it emits one `make_date` ladder - `n` outputs over one date
  * column, one literal day apiece - under the emit options the arguments select, runs it hot on
  * ragged batches so that every loop and epilogue method is invoked past C2's threshold, and

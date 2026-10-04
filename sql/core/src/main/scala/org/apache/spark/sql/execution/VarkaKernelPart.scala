@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection
 
 /**
  * One further kernel of a projection several kernels serve (`VarkaEmitOptions.severalKernels`,
- * `PLAN_TASK_190.md` 11): the evaluator machinery of [[VarkaEvaluatorBase]] - the shape-cached
+ * `VARKA-190.md` 11): the evaluator machinery of [[VarkaEvaluatorBase]] - the shape-cached
  * runner, its warm-up, its scratch and its argument arrays - for that kernel alone. It serves no
  * batch itself: the projection's [[VarkaKernelEvaluator]] asks it whether it can run and whether
  * it is ready, and runs it into the one output batch (`runKernel`), so every fallback is still

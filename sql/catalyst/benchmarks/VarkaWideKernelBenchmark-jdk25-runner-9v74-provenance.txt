@@ -6,6 +6,6 @@ date:        2026-10-02
 jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 9V74 80-Core Processor (not pinned)
-purpose:     task 239's step 3 (PLAN_TASK_239.md 6): the section "the locals nothing reads, built
+purpose:     VARKA-239's step 3 (VARKA-239.md 6): the section "the locals nothing reads, built
              and elided" times the locals built, elided, and built again last as the control; its
              best times score prediction 4 and set elideUnreadLocals's default

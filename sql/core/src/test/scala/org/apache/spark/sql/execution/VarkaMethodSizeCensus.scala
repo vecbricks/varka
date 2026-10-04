@@ -58,7 +58,7 @@ import org.apache.spark.sql.{SQLQueryTestSuite, SSBQuerySuite, TPCDSQuerySuite, 
  * the environment variable `VARKA_CENSUS_OUT`; `VARKA_CENSUS_FAMILIES`, a comma-separated
  * subset of `golden,tpcds,tpch,ssb`, runs only those. Environment variables, because sbt runs
  * the suites in a forked JVM that its own system properties do not reach. The committed file is
- * `sql/core/benchmarks/VarkaCodegenMethodSizes-jdk25-results.txt`; see `PLAN_TASK_181.md`.
+ * `sql/core/benchmarks/VarkaCodegenMethodSizes-jdk25-results.txt`; see `VARKA-181.md`.
  */
 class VarkaMethodSizeCensus extends SparkFunSuite {
 

@@ -42,7 +42,7 @@
 # --force is given, and it records the CPU governor, energy preference and power
 # profile, because the same code on the same machine has measured its
 # memory-bound kernels 20-27% apart on different days with every compute-bound
-# control flat (task 54's regeneration against master's committed file; a
+# control flat (VARKA-54's regeneration against master's committed file; a
 # same-day run of master reproduced the gap). When it finishes it runs
 # dev/varka_bench_diff.py against the committed wide file so the controls and
 # the moved rows are in front of you before you commit - and if unrelated rows
@@ -56,7 +56,7 @@ case "${1:-}" in -h|--help) usage 0 ;; esac
 module="$1"; klass="$2"; shift 2
 # --width=N takes the MaxVectorSize in BYTES, as the JVM does, and the companion is named
 # after the bits it produces: 16 is the 128-bit file every benchmark commits, 32 the
-# 256-bit one a result earns when it depends on the width (PLAN_TASK_144.md 9.4).
+# 256-bit one a result earns when it depends on the width (VARKA-144.md 9.4).
 narrow=1; wide_run=1; force=0; pin=auto; width=16
 for a in "$@"; do
   case "$a" in
@@ -230,7 +230,7 @@ echo
 
 # The invariants, which are not about the numbers moving. A fused kernel that has
 # become slower than the passes it exists to beat is a broken measurement, not a
-# slow row, and it is the failure task 77 was opened for: the 128-bit collapse
+# slow row, and it is the failure VARKA-77 was opened for: the 128-bit collapse
 # went into three committed files before anyone remarked on it.
 echo "== invariants =="
 gate_rc=0

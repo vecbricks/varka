@@ -9,5 +9,5 @@ jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         Intel Xeon Platinum 8573C (the runner is not pinned; the file is the workflow's artifact
              unchanged; the compile log is in the run's job log)
-purpose:     task 233's third investigation (PLAN_TASK_233.md 10.1): the wait for C2 under default
+purpose:     VARKA-233's third investigation (VARKA-233.md 10.1): the wait for C2 under default
              settings, and the stage against no stage once compiled; vanilla Spark only, Varka off

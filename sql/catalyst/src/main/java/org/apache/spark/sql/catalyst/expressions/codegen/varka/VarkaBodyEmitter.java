@@ -73,11 +73,11 @@ final class VarkaBodyEmitter {
       all.add(o);
     }
     // A loop method is always one group's; the epilogue is one group's, or every output's in
-    // the form before task 87 (the method layout in VarkaLoopEmitter.emit); the driver is
+    // the form before VARKA-87 (the method layout in VarkaLoopEmitter.emit); the driver is
     // every output's.
     List<Integer> bodyOutputs = group >= 0 ? groups.get(group) : all;
     // A group's method sets up only what its group writes and reads, so its size is the
-    // group's and not the kernel's (task 87). The driver owns every output - it zeroes each
+    // group's and not the kernel's (VARKA-87). The driver owns every output - it zeroes each
     // validity bitmap and runs the bitmap pass - so unrolled it keeps the whole-kernel prologue
     // whichever way the option is set; from a table (below) it keeps none of it.
     boolean perGroup = mode != BodyMode.DRIVER && analysis.options.methodByteBudget() > 0;
@@ -92,7 +92,7 @@ final class VarkaBodyEmitter {
     // (4b) below, and the driver keeps only what it reads: the empty-batch return, that call, the
     // all-null shortcut and its calls to the groups. It maps no output or input segment, sizes
     // nothing, hoists no literal and reads no species - the loop and epilogue methods do all of
-    // that for themselves - so its size is its calls' (see `PLAN_TASK_190.md` 10).
+    // that for themselves - so its size is its calls' (see `VARKA-190.md` 10).
     boolean driverTable = mode == BodyMode.DRIVER && analysis.options.driverOutputTable();
     if (driverTable) {
       prologueOutputs = List.of();
@@ -122,7 +122,7 @@ final class VarkaBodyEmitter {
       cb.lstore(s.validityBytes);
     }
 
-    // A materialized prefix's scratch (task 198): one segment over all of it, regions times
+    // A materialized prefix's scratch (VARKA-198): one segment over all of it, regions times
     // SCRATCH_VECTORS times dataBytes, so the caller's scratch is laid out by the batch's own
     // length and a body needs no size but the one it has; region r's vector k is read and
     // written at byteOffset + (r * SCRATCH_VECTORS + k) * dataBytes.
@@ -209,7 +209,7 @@ final class VarkaBodyEmitter {
       // emitted there. The
       // liveness pass this task added is what could remove it, but the driver is planned with `live
       // = null` (see Slots.plan) and this is deliberately not that change: it is the residue
-      // PLAN_TASK_70.md 9.2 prediction 3 measures and leaves // to the driver.
+      // VARKA-70.md 9.2 prediction 3 measures and leaves // to the driver.
       if (dense || s.deadRefs.contains(s.word[i])) {
         // A column only a skipped date reads, with its word dead too, is read by nothing here.
         // Nor one the body reads only for its validity, under elideUnreadLocals (Slots.plan).
@@ -260,7 +260,7 @@ final class VarkaBodyEmitter {
       }
     }
 
-    // (4b) The bitmap pass (see PLAN_TASK_70.md 3.1): for each served output, its validity written
+    // (4b) The bitmap pass (see VARKA-70.md 3.1): for each served output, its validity written
     // whole from the input bitmaps, here and not per lane group. Between (4) and (5) on purpose -
     // the null counts it passes are read in (4), and a batch the shortcut returns from in (5) must
     // already have every served bitmap written, since nothing after (5) runs for it. The engine
@@ -358,7 +358,7 @@ final class VarkaBodyEmitter {
     }
     for (int j = 0; j < numLiterals; j++) {
       if (s.scalarArg[j] < 0) {
-        continue; // a literal no output of this group reads (per-group planning, task 87)
+        continue; // a literal no output of this group reads (per-group planning, VARKA-87)
       }
       cb.aload(analysis.lane.scalarArgsSlot());
       cb.loadConstant(j);
@@ -408,7 +408,7 @@ final class VarkaBodyEmitter {
         // method of the pre-task-87 form). Each epilogue keeps its own even-batch return
         // rather than the driver testing once for all of them: the calls that return at once
         // are what warm the method up on a scan whose batches mostly divide evenly
-        // (PLAN_TASK_87.md 2.6.3).
+        // (VARKA-87.md 2.6.3).
         String epilogue = dense ? "epilogueDense" : "epilogueMasked";
         if (analysis.options.methodByteBudget() > 0) {
           // The last call's status is returned as it is rather than stored and reloaded: the
@@ -450,7 +450,7 @@ final class VarkaBodyEmitter {
    * needs no prologue - the driver has taken the empty batch, prepared every output's validity
    * and taken the all-null shortcut before calling it - and keeps the status on the operand stack,
    * so it has no locals beyond the parameters it forwards. The groups keep their order across the
-   * stages, so a group that reads a prefix an earlier group materialized (task 198) still runs
+   * stages, so a group that reads a prefix an earlier group materialized (VARKA-198) still runs
    * after it, loop after loop and epilogue after epilogue.
    */
   static void emitStage(CodeBuilder cb, boolean dense, int k, ClassDesc classDesc,
@@ -648,9 +648,9 @@ final class VarkaBodyEmitter {
    *
    * <p>Two choices are deliberate. The int species is the width's own and not a half-width
    * one: a second {@code IntVector} species in the JVM makes the shared templates inline
-   * bimorphically and boxes every other int kernel in the process (`PLAN_TASK_28.md` 2.2). And
+   * bimorphically and boxes every other int kernel in the process (`VARKA-28.md` 2.2). And
    * the mask is an int mask, which C2 lowers at every width, where the long lane's masks are
-   * per-lane at two lanes (task 153) - so a narrowed store costs a masked int store and
+   * per-lane at two lanes (VARKA-153) - so a narrowed store costs a masked int store and
    * nothing that scalarises.
    */
   private static void emitNarrowStore(CodeBuilder cb, Analysis analysis, Slots s, int o) {
@@ -698,7 +698,7 @@ final class VarkaBodyEmitter {
     // is, `(long) i * 4`, and not as `byteOffset >>> 1`: C2 folds a linear function of the
     // induction variable into the store's addressing mode and hoists its bounds check out of
     // the loop, and a shift of the wide offset is neither - it cost four scalar ops, a range
-    // check and the loop's unrolling per group (`PLAN_TASK_156.md`).
+    // check and the loop's unrolling per group (`VARKA-156.md`).
     cb.iload(s.iVar);
     cb.i2l();
     cb.loadConstant(4L);
@@ -998,7 +998,7 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * One served output's whole-batch write (PLAN_TASK_70.md 3.1): {@code setValid} for the
+   * One served output's whole-batch write (VARKA-70.md 3.1): {@code setValid} for the
    * constant, {@code copyColumnValidity} for one input, {@code and|orColumnValidity} for the
    * first two of a chain and {@code and|orColumnValidityInto} for each further one - the
    * left-leaning evaluation into the destination the engine's aliasing contract allows. Each

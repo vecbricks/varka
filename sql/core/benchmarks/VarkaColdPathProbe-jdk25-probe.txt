@@ -1,4 +1,4 @@
-VarkaColdPathProbe readings for task 228 (PLAN_TASK_228.md 7): what the JVM did with the
+VarkaColdPathProbe readings for VARKA-228 (VARKA-228.md 7): what the JVM did with the
 projection a Varka node runs on its row path, with and without the copy of the referenced
 columns into an UnsafeRow (VarkaInputRows), against vanilla's row-at-a-time path.
 

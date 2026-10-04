@@ -1,9 +1,9 @@
-Two pinned runs of CodegenWideProjectionBenchmark on the quiet laptop, after task 233's unpinned run
+Two pinned runs of CodegenWideProjectionBenchmark on the quiet laptop, after VARKA-233's unpinned run
 (CodegenWideProjectionBenchmark-jdk25-laptop-results.txt, which the post quotes) and to check it:
 one benchmark at a time, pinned to the fast cores as dev/varka_bench_regen.sh pins them (taskset -c
 0-3,12-15, the four Zen 5 cores at 5.16 GHz and their SMT siblings). Under the pin the JVM sees 8
 processors and starts 4 C2 compiler threads and 8 parallel GC threads, against 12 and 18 unpinned.
-Each run is reproduced as the benchmark printed it (PLAN_TASK_233.md 17).
+Each run is reproduced as the benchmark printed it (VARKA-233.md 17).
 
 commit:  0e038bdb4a2 (varka-task-233-more) with this class as at 18c2f12daef (#544's head);
          Spark's main sources (core, catalyst, sql/core, sql/api, common) are identical

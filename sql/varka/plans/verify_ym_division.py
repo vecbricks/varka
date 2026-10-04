@@ -15,11 +15,11 @@
 # limitations under the License.
 #
 
-"""The admission check behind task 89, section 2.20 of PLAN_MILESTONE_5.md.
+"""The admission check behind VARKA-89, section 2.20 of m5/PLAN.md.
 
 A year-month interval is a count of months in an int32, so both expressions this
 task is about divide by a constant over the *whole* int32 range - which is
-exactly what the range-narrowed magic multiply cannot serve and what task 88's
+exactly what the range-narrowed magic multiply cannot serve and what VARKA-88's
 double-lane division can. This script is what says so, against the Java the row
 engine runs:
 

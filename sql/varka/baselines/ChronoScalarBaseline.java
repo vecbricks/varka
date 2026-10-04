@@ -33,7 +33,7 @@ import java.time.LocalDate;
  * access, the row boundary, or anything else in a query. Read it as the per-row cost of the
  * calendar arithmetic alone, and read a Varka ratio quoted against it the same way.
  *
- * <p>Methodology follows {@code PLAN_TASK_14.md} 2.1, as the rest of the project's numbers do:
+ * <p>Methodology follows {@code VARKA-14.md} 2.1, as the rest of the project's numbers do:
  * five measured iterations over two-second windows after a two-second warm-up, on an otherwise
  * idle machine, reported by the minimum. The data matches the parity benchmark's: one million
  * rows of {@code i % 20000 - 10000} days, walked in 4096-row chunks.

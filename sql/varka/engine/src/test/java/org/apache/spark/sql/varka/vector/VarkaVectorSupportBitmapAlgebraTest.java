@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@link VarkaVectorSupport#copyValidity}, {@link VarkaVectorSupport#andValidity} and
- * {@link VarkaVectorSupport#orValidity} (task 70), whose whole value is bit-exactness: each
+ * {@link VarkaVectorSupport#orValidity} (VARKA-70), whose whole value is bit-exactness: each
  * produces exactly what the emitted loop produces when it ORs lane-masked words into a zeroed
  * bitmap, which is what {@code VarkaEmitterTestBase.assertSameOutput} compares byte for byte.
  * So every test here is about four things - the bits below {@code rows}, the bits past them in

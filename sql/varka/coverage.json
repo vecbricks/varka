@@ -413,14 +413,14 @@
     "family" : "Predicates",
     "form" : "predicate",
     "catalyst" : [ "And", "EqualTo", "GreaterThan", "Year" ],
-    "note" : "every conjunct of an AND fuses or the predicate is not in this table; the int column compares in the kernel rather than leaving a residual row filter (task 122)"
+    "note" : "every conjunct of an AND fuses or the predicate is not in this table; the int column compares in the kernel rather than leaving a residual row filter (VARKA-122)"
   }, {
     "sql" : "i > 0",
     "executable" : "i > 0",
     "family" : "Predicates",
     "form" : "predicate",
     "catalyst" : [ "GreaterThan" ],
-    "note" : "a bare int column compares in the kernel (task 122)"
+    "note" : "a bare int column compares in the kernel (VARKA-122)"
   }, {
     "sql" : "i IS NOT NULL",
     "executable" : "i IS NOT NULL",
@@ -609,7 +609,7 @@
     "family" : "Time arithmetic",
     "form" : "projection",
     "catalyst" : [ "HoursOfTime" ],
-    "note" : "an int computed in the 64-bit lane and narrowed at the kernel's store, the one place a lane changes width until task 28; so the extract fuses as an output and declines under another expression"
+    "note" : "an int computed in the 64-bit lane and narrowed at the kernel's store, the one place a lane changes width until VARKA-28; so the extract fuses as an output and declines under another expression"
   }, {
     "sql" : "minute(t2)",
     "executable" : "minute(t2)",

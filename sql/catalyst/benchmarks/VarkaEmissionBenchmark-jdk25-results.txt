@@ -33,7 +33,7 @@ four calendar outputs over one date                  22             26          
 
 
 ================================================================================================
-emitting a wide kernel: four-op outputs (task 190)
+emitting a wide kernel: four-op outputs (VARKA-190)
 ================================================================================================
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic

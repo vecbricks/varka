@@ -1,4 +1,4 @@
-The kernel warm-up's verdict under a starved machine (PLAN_TASK_221.md 2 and 9):
+The kernel warm-up's verdict under a starved machine (VARKA-221.md 2 and 9):
 VarkaKernelWarmupSuite run as plain JVMs pinned to cores 2 and 3 of the laptop while two busy
 loops hold both cores - the starvation sql/varka/skills/the-jit.md records as reproducing a
 four-core runner's compile delays. A probe's readings, not a benchmark: what they establish is
@@ -11,7 +11,7 @@ Reproduce:
     -Dspark.testing=1 -cp <catalyst test classpath> org.scalatest.tools.Runner -oW \
     -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupSuite
 
-commit:  4ce07f33462 (before the fix), and the task 221 branch (after)
+commit:  4ce07f33462 (before the fix), and the VARKA-221 branch (after)
 date:    2026-09-27
 jdk:     openjdk version "25.0.4.1" 2026-08-18
 cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M

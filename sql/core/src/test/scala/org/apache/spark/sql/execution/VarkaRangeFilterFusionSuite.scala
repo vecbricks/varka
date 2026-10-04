@@ -36,7 +36,7 @@ import org.apache.spark.sql.types.IntegerType
  * set, whose kernel loops over a table of bounds, so the whole filter fuses however many ranges it
  * has and the kernel's methods stay small. Written as the tree of comparisons the query spells,
  * one condition is emitted into one method, and the chain fit the 8000-byte budget only up to 48
- * ranges (`PLAN_TASK_172.md` 9.1); this pins that the range set removed that limit.
+ * ranges (`VARKA-172.md` 9.1); this pins that the range set removed that limit.
  */
 class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
 

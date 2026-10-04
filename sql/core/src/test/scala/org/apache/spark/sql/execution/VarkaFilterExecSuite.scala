@@ -31,7 +31,7 @@ import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
- * Unit tests for the two Varka filter nodes (task 21): [[VarkaFilterExec]] - the mask kernel
+ * Unit tests for the two Varka filter nodes (VARKA-21): [[VarkaFilterExec]] - the mask kernel
  * plus compaction into a fresh dense batch - and [[VarkaFilterColumnarToRowExec]], which
  * consumes the selection bitmap at the row boundary with no compaction. Plus the
  * `VarkaColumnarRule` filter rewrites, the conjunct split included.
@@ -47,7 +47,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
    * A column on a lane the kernel does not read, so a predicate over it is residual - and a
    * list that carries it, kept separate from the two-column one several tests below number
    * their ordinals against. The tests whose subject is the *split* between fused and residual
-   * conjuncts use these: task 122 made a bare int column compare in the kernel, so `i > 5`
+   * conjuncts use these: VARKA-122 made a bare int column compare in the kernel, so `i > 5`
    * stopped being an example of something that cannot fuse.
    */
   private val shortAttr = AttributeReference("sh", ShortType)()
@@ -78,7 +78,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
 
   /**
    * Runs the row node over `specs` and reads every emitted row into a tuple of its columns -
-   * the multi-column counterpart of [[rowValues]], which task 78 needs because the point of a
+   * the multi-column counterpart of [[rowValues]], which VARKA-78 needs because the point of a
    * narrowing is which columns come out, not what the first one holds.
    */
   private def rowNodeRows(
@@ -238,7 +238,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val rowsPerBatch = 512
     // Every fourth row is null, so the always-true predicate below selects 384 of 512 rows
     // and the batch takes the *compacting* path. This used to be all-selected, which was fine
-    // until task 24 taught that case to forward the child's columns instead - after which an
+    // until VARKA-24 taught that case to forward the child's columns instead - after which an
     // all-selected run of this test would cover forwarding (which has its own test) and leave
     // the compaction's allocation and release, the thing this test exists for, unexercised.
     val selectedPerBatch = (0 until rowsPerBatch).count(_ % 4 != 3)
@@ -563,7 +563,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     // VarkaFusedTransition promises "the columnar-out node computing exactly what this fused
     // transition computes", and the cache serializer swaps one for the other when a cached
     // view's top is this node. A sibling that dropped the narrowing would hand the cache a
-    // two-column schema where the plan promised one - the same class of error as task 21's
+    // two-column schema where the plan promised one - the same class of error as VARKA-21's
     // dropped filter, which is why this is asserted rather than assumed.
     val child = TestColumnarBatchPlan(Nil, Seq(attrD, intAttr))
     val narrowed = VarkaFilterColumnarToRowExec(dLess10, child, Some(Seq(attrD)))

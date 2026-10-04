@@ -28,7 +28,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.QueryExecutionListener
 
 /**
- * The kernel warm-up end to end (`spark.sql.codegen.varka.warmup.enabled`, `PLAN_TASK_212.md`
+ * The kernel warm-up end to end (`spark.sql.codegen.varka.warmup.enabled`, `VARKA-212.md`
  * 10): a shape's first query serves its batches on the row path while a background thread gets
  * the new kernel compiled, and once the warm-up has its verdict the same shape's next query runs
  * the kernel. Both queries must give the row engine's answers; what the tests pin is which path

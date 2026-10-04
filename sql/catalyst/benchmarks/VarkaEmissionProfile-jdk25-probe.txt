@@ -1,4 +1,4 @@
-The emission profile (PLAN_TASK_191.md 2): VarkaEmissionBenchmark's wide four-op shape -
+The emission profile (VARKA-191.md 2): VarkaEmissionBenchmark's wide four-op shape -
 greatest(greatest(add_months(d, k), date_add(d, k)), last_day(d)) for k = 1..n over one date
 column - compiled and emitted repeatedly by VarkaEmitDump --repeat under a JFR recording
 (settings=profile), and each execution sample attributed by dev/varka_jfr_frames.py to the
@@ -12,7 +12,7 @@ Reproduce (each width):
     --columns d:date --options methodByteBudget=1048576 --repeat <20000 / n>
   jfr print --events jdk.ExecutionSample --stack-depth 64 emit.jfr | dev/varka_jfr_frames.py
 
-commit:  ad7a546a18b (working tree with the --repeat option, PLAN_TASK_191.md's first commit)
+commit:  ad7a546a18b (working tree with the --repeat option, VARKA-191.md's first commit)
 date:    2026-09-27T05:10:00+00:00
 jdk:     openjdk version "25.0.4.1" 2026-08-18
 cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
@@ -103,7 +103,7 @@ The same shape emitted once per width and parsed back (java.lang.classfile, Code
 200 outputs: 204 methods, class 969790 bytes, largest method 12412 bytes, max_locals up to 5466 (epilogueMasked49), mean 2566 per method
 400 outputs: 404 methods, class 1947790 bytes, largest method 25812 bytes, max_locals up to 10866 (epilogueMasked99), mean 5066 per method
 
-## 4. The profile again, after the fix, with the probe corrected (PLAN_TASK_191.md 9)
+## 4. The profile again, after the fix, with the probe corrected (VARKA-191.md 9)
 
 Sections 1 to 3 above were read through VarkaEmitDump, which handed the emitter its outputs as a
 Scala List seen through asJava - a list whose get(i) walks from the head. The planner indexes the
@@ -114,7 +114,7 @@ copies its outputs on entry, so every caller gets the same, and the probe below 
 fix, in both forms. Its times now agree with VarkaEmissionBenchmark's to within the probe's JFR
 overhead; the benchmark's files are the numbers.
 
-commit:  the task 191 branch after 4a50dc39a1e, with the copy on entry
+commit:  the VARKA-191 branch after 4a50dc39a1e, with the copy on entry
 date:    2026-09-27T07:40:00+00:00
 load:    1.24 1.09 1.13 at start
 

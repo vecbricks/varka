@@ -5,7 +5,7 @@ uses a case's tier to decide whether its move in a regeneration means anything.
 tier 0 <= 3%   1 <= 10%   2 <= 25%   3 not readable from a diff at all
 
 runs:    12
-commit:  99ee4c9592f (tree identical to master 1a916ad3d7d, task 29 as merged)
+commit:  99ee4c9592f (tree identical to master 1a916ad3d7d, VARKA-29 as merged)
 date:    2026-09-17T21:36:27+00:00
 jdk:     openjdk version "25.0.4" 2026-07-21
 cpu:     AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M

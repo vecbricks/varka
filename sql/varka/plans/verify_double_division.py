@@ -15,10 +15,10 @@
 # limitations under the License.
 #
 
-"""The admission check behind task 88, section 2.19 of PLAN_MILESTONE_5.md.
+"""The admission check behind VARKA-88, section 2.19 of m5/PLAN.md.
 
 The Vector API has no integer division and no multiply-high, so every division
-Varka does today is a range-narrowed magic multiply. Task 88 asks whether a
+Varka does today is a range-narrowed magic multiply. VARKA-88 asks whether a
 division through double lanes - `(double) v` in, a multiply by the reciprocal or
 a true divide, `D2I`/`D2L` back - is exact over the dividends Varka's divisions
 actually see, in which case it needs no magic, no correction and no range guard.
@@ -58,7 +58,7 @@ failing ones.
 perform them** (IntervalUtils.scala:47-70): `extract(HOUR FROM dt)` and
 `extract(MINUTE FROM dt)` are a modulo *then* a divide with ByteType results, and
 `extract(SECOND FROM dt)` is `Decimal(micros % MICROS_PER_MINUTE, 8, 6)` with no
-division at all. They belong to task 103, and their blocker is the output type
+division at all. They belong to VARKA-103, and their blocker is the output type
 rather than the division. Only `getDays` is a flat division.
 
 Run: python3 sql/varka/plans/verify_double_division.py    (about six seconds)
@@ -92,7 +92,7 @@ TWO53 = 1 << 53
 # The int32 rows come from VarkaChrono and its javadoc. The two Julian rows are what the
 # shipped default
 # (julianMap = true) performs; the era rows are the narrowed prefix's own step and the total
-# form task 88 would delete the narrowing for.
+# form VARKA-88 would delete the narrowing for.
 INT32_ROWS = [
     ("era/narrow", 146097, 0, 1 << 24, "era step, narrowed: /146097 over w < 2^24"),
     ("era/total", 146097, 0, (1 << 32) + 719468, "era step, total: /146097 over biased int32"),
@@ -315,7 +315,7 @@ def main():
     if bad:
         for d, claimed, actual in bad[:10]:
             print(f"  d={d}: the rule says {claimed}, the arithmetic says {actual}")
-        print("  FAIL - the rule in PLAN_TASK_88.md section 2 is wrong.")
+        print("  FAIL - the rule in VARKA-88.md section 2 is wrong.")
         return 1
     print("  no divisor disagrees, so the rule holds over that family.")
     print(

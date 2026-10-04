@@ -27,7 +27,7 @@ import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * End-to-end throughput benchmark (Task 7): rows/sec for `date_add` / `date_sub` / `datediff`
+ * End-to-end throughput benchmark (VARKA-7): rows/sec for `date_add` / `date_sub` / `datediff`
  * over ~2M Arrow-cached date rows with Varka on (SIMD kernels, [[VarkaColumnarRule]] fused into
  * [[org.apache.spark.sql.execution.VarkaColumnarToRowExec]]) vs the standard Janino row path, plus
  * a mixed projection that is not Varka-eligible (fallback) to show the non-fused path has no
@@ -43,16 +43,16 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * The `runQueries` cases write to `noop`, and `noop` accepts columnar batches, so their varka
  * sides hand the kernels' own Arrow batches to the sink through
  * [[org.apache.spark.sql.execution.VarkaProjectExec]] - no columnar-to-row conversion is inside
- * the measurement. That includes the mixed projection, Varka-eligible since task 12 (one fused
+ * the measurement. That includes the mixed projection, Varka-eligible since VARKA-12 (one fused
  * entry, one forwarded, one residual). The `runRowQueries` cases force the row path instead
  * (`toRdd`), measuring [[org.apache.spark.sql.execution.VarkaColumnarToRowExec]]'s batch
- * assembly plus the read back to rows - the number behind task 12's escape-hatch decision
- * (assemble-then-read vs merge-at-row, `PLAN_TASK_12.md` section 2.3).
+ * assembly plus the read back to rows - the number behind VARKA-12's escape-hatch decision
+ * (assemble-then-read vs merge-at-row, `VARKA-12.md` section 2.3).
  *
- * Task 14 added the milestone-2 fusion cases (nested chains, the shared subchain that DAG-CSE
+ * VARKA-14 added the milestone-2 fusion cases (nested chains, the shared subchain that DAG-CSE
  * serves, `CASE WHEN` on predictable and pseudo-random data, `dayofweek`) and the chain-depth
  * scaling pairs on both consumers, and moved every case to the committed-run methodology of
- * `PLAN_TASK_14.md` 2.1: five iterations minimum over two-second warmup and measurement windows,
+ * `VARKA-14.md` 2.1: five iterations minimum over two-second warmup and measurement windows,
  * replacing the single-run 2x1s settings whose day-to-day swing the debt register recorded.
  * The two `CASE WHEN` tables differ only in data: over `varka_date_pairs` the condition is
  * constant (`d2 - d` is a fixed 366 days), so a per-row branch predicts perfectly and the case
@@ -106,7 +106,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
     session.sql("select count(*) from varka_dates").collect()
   }
 
-  /** Task 42's table: the year, month and day of the dates `cacheDates` builds, as three ints. */
+  /** VARKA-42's table: the year, month and day of the dates `cacheDates` builds, as three ints. */
   private def cacheDateParts(session: SparkSession): Unit = {
     session.sql(
       """select year(d) as y, month(d) as m, day(d) as dd
@@ -147,7 +147,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
 
   /**
    * A date column `d` and an int month count `m` in `[-120, 120]` - well inside
-   * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` - for task 60's `add_months` column-count pair.
+   * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` - for VARKA-60's `add_months` column-count pair.
    */
   private def cacheDatesMonthCounts(session: SparkSession): Unit = {
     session.sql(
@@ -160,9 +160,9 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
-   * Task 67's fixture: `cacheDatesMonthCounts`' generator exactly, plus the same count spelled
+   * VARKA-67's fixture: `cacheDatesMonthCounts`' generator exactly, plus the same count spelled
    * as a `MONTH`-unit interval. Its own table rather than a column added to
-   * `varka_date_months`, so task 60's committed rows keep the fixture they were measured on -
+   * `varka_date_months`, so VARKA-60's committed rows keep the fixture they were measured on -
    * a cached table with one more column is not the same cached table, even for a query that
    * never reads it.
    */
@@ -178,11 +178,11 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
-   * Task 68's fixture: two month counts, each spelled once as an int column and once as a
+   * VARKA-68's fixture: two month counts, each spelled once as an int column and once as a
    * `MONTH`-unit interval, so the binary algebra has a genuine second operand. Its own table
    * rather than two columns added to `varka_date_interval_counts`, for the reason that table
    * itself records - a cached table with one more column is not the same cached table, so
-   * task 67's committed rows keep the fixture they were measured on.
+   * VARKA-67's committed rows keep the fixture they were measured on.
    *
    * The second count is the first generator shifted by 97 within a period of 241, which is
    * prime, so `m2` differs from `m` on every row and no row is a disguised `x + x`. That is
@@ -207,7 +207,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
-   * `varka_dates_weekday` for task 59: dates `d` and `d2` beside a weekday name `s` cycling
+   * `varka_dates_weekday` for VARKA-59: dates `d` and `d2` beside a weekday name `s` cycling
    * through the 21 spellings in three case styles, every name valid, so the derived leaf's
    * parse is the whole of the pre-pass and nothing declines.
    */
@@ -260,7 +260,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   }
 
   /**
-   * `varka_dates_trunc_formats` for task 61: dates `d` beside a trunc format `fmt` cycling
+   * `varka_dates_trunc_formats` for VARKA-61: dates `d` beside a trunc format `fmt` cycling
    * through the eight accepted spellings in three case styles, every format valid, so the
    * derived leaf's parse is the whole of the pre-pass and every row is a live lane.
    */
@@ -285,7 +285,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       query: String): Unit = {
     requireFused(varka, name, query)
     runBenchmark(name) {
-      // The committed-run methodology of PLAN_TASK_14.md 2.1: at least five measured iterations
+      // The committed-run methodology of VARKA-14.md 2.1: at least five measured iterations
       // over two-second windows, so a committed number is a distribution, not a single draw.
       val benchmark = new Benchmark(s"$name over $numRows Arrow-cached rows", numRows,
         minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
@@ -302,7 +302,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
   /**
    * Like [[runQueries]] but consuming rows (`toRdd` forces the row-output plan), so the varka
    * side runs `VarkaColumnarToRowExec`: kernels, batch assembly, then per-row read-back. The
-   * assemble-then-read variant of the task 12 escape hatch is what this prices.
+   * assemble-then-read variant of the VARKA-12 escape hatch is what this prices.
    */
   private def runRowQueries(
       baseline: SparkSession,
@@ -359,59 +359,59 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
 
       runQueries(baseline, varka, "date_add", "SELECT date_add(d, 3) AS a FROM varka_dates")
       runQueries(baseline, varka, "date_sub", "SELECT date_sub(d, 5) AS a FROM varka_dates")
-      // Task 56's pair: the same column-offset kernel with and without the evaluator's per-batch
-      // bound check. `date_add(d, i)` (task 38) records no bound and is the control;
+      // VARKA-56's pair: the same column-offset kernel with and without the evaluator's per-batch
+      // bound check. `date_add(d, i)` (VARKA-38) records no bound and is the control;
       // `d + CAST(i AS INTERVAL DAY)` compiles to the same node with a bound on `i`, because
       // Spark's cast throws past 106751991 days, so its varka row pays one vector compare pass
       // over the offset column before the kernel runs. The difference between the two varka rows
       // is the check's price on the cheapest shape that pays it.
-      runQueries(baseline, varka, "date_add, column offset (task 56 control)",
+      runQueries(baseline, varka, "date_add, column offset (VARKA-56 control)",
         "SELECT date_add(d, i) AS a FROM varka_dates")
-      runQueries(baseline, varka, "date + CAST(i AS INTERVAL DAY), bound checked (task 56)",
+      runQueries(baseline, varka, "date + CAST(i AS INTERVAL DAY), bound checked (VARKA-56)",
         "SELECT d + CAST(i AS INTERVAL DAY) AS a FROM varka_dates")
-      // Task 60's pair, the same A/B shape on add_months' heavier kernel: the month count
+      // VARKA-60's pair, the same A/B shape on add_months' heavier kernel: the month count
       // widened from a compile-time-bounded literal to a column carrying a per-batch runtime
       // guard instead. `add_months(d, 13)` is the literal control, on the same fixture so the
       // two rows differ only in the offset's shape, not the underlying dates.
-      runQueries(baseline, varka, "add_months, literal (task 60 control)",
+      runQueries(baseline, varka, "add_months, literal (VARKA-60 control)",
         "SELECT add_months(d, 13) AS a FROM varka_date_months")
-      runQueries(baseline, varka, "add_months, column count (task 60)",
+      runQueries(baseline, varka, "add_months, column count (VARKA-60)",
         "SELECT add_months(d, m) AS a FROM varka_date_months")
-      // Task 67's pair, and what it is for: the same count, once as an int column and once as
+      // VARKA-67's pair, and what it is for: the same count, once as an int column and once as
       // a MONTH-unit interval, on one fixture holding both. The two compile to the identical
       // node over the identical lanes - a year-month interval is a month count in an int32
       // buffer - so the rows should agree, and the measurement is that admitting the type
       // costs nothing rather than that it is fast. A gap between them is a finding about the
       // Arrow read path, not about the lane.
-      runQueries(baseline, varka, "add_months, int count (task 67 control)",
+      runQueries(baseline, varka, "add_months, int count (VARKA-67 control)",
         "SELECT add_months(d, m) AS a FROM varka_date_interval_counts")
-      runQueries(baseline, varka, "d + interval column (task 67)",
+      runQueries(baseline, varka, "d + interval column (VARKA-67)",
         "SELECT d + ym AS a FROM varka_date_interval_counts")
-      // Task 68's two pairs, and what they are for. The type exists only above the kernel, in
+      // VARKA-68's two pairs, and what they are for. The type exists only above the kernel, in
       // `outputTypes` and `allocateVector`, and not in the IR, so an emitter-level parity row
       // cannot see it at all: an interval arm and its int twin are the same nodes over the same
       // lanes. Only an end-to-end row can, and what it prices is the Arrow write path - whether
       // filling an `IntervalYearVector` costs what filling an `IntVector` costs. A gap between
       // the halves of a pair is therefore a finding about that path, not about the lane.
       //
-      // The addition pair is task 63's checked add, whose interval spelling is checked in every
+      // The addition pair is VARKA-63's checked add, whose interval spelling is checked in every
       // ANSI mode because Spark computes it with `addExact` unconditionally. The composite pair
       // is the shape that fuses with no check at all, both operands being calendar fields the
       // compile-time bound proves safe.
-      runQueries(baseline, varka, "interval add, int count (task 68 control)",
+      runQueries(baseline, varka, "interval add, int count (VARKA-68 control)",
         "SELECT m + m2 AS a FROM varka_interval_pairs")
-      runQueries(baseline, varka, "interval add, interval columns (task 68)",
+      runQueries(baseline, varka, "interval add, interval columns (VARKA-68)",
         "SELECT ym + ym2 AS a FROM varka_interval_pairs")
-      runQueries(baseline, varka, "month composite, int form (task 68 control)",
+      runQueries(baseline, varka, "month composite, int form (VARKA-68 control)",
         "SELECT year(d) * 12 + month(d) AS a FROM varka_interval_pairs")
-      runQueries(baseline, varka, "make_ym_interval (task 68)",
+      runQueries(baseline, varka, "make_ym_interval (VARKA-68)",
         "SELECT make_ym_interval(year(d), month(d)) AS a FROM varka_interval_pairs")
-      // Task 42: a date built from three int columns, under the session's default (ANSI) mode.
+      // VARKA-42: a date built from three int columns, under the session's default (ANSI) mode.
       runQueries(baseline, varka, "make_date",
         "SELECT make_date(y, m, dd) AS a FROM varka_date_parts")
       runQueries(baseline, varka, "datediff",
         "SELECT datediff(d2, d) AS diff FROM varka_date_pairs")
-      // The milestone-2 fusion cases (PLAN_TASK_14.md 2.2). The nested projection is the query
+      // The milestone-2 fusion cases (VARKA-14.md 2.2). The nested projection is the query
       // the milestone plan opens with - milestone 1's per-op kernels could not fuse it at all.
       runQueries(baseline, varka, "nested projection",
         "SELECT datediff(date_add(d, 1), d2) AS n FROM varka_date_pairs")
@@ -428,53 +428,53 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
         "SELECT CASE WHEN d < d2 THEN date_add(d, 7) ELSE date_sub(d2, 7) END AS c " +
           "FROM varka_date_pairs_rand")
       // The one case that replaces an allocating path (Janino's LocalDate round trip) rather
-      // than just fusing arithmetic - the kernel-level 36x of PLAN_TASK_11.md at query level.
+      // than just fusing arithmetic - the kernel-level 36x of VARKA-11.md at query level.
       runQueries(baseline, varka, "dayofweek", "SELECT dayofweek(d) AS dw FROM varka_dates")
-      // Task 59's three rows: the literal weekday is the control (task 33's kernel, one input);
+      // VARKA-59's three rows: the literal weekday is the control (VARKA-33's kernel, one input);
       // the column weekday pays the derived leaf - the row engine's parse per row, before the
       // kernel - so its varka row is the leaf plus the kernel against Janino's parse plus
       // arithmetic per row; the reuse row pays one leaf for two kernels, which section 2.26
       // predicts is where the mechanism's value lies.
-      runQueries(baseline, varka, "next_day, literal weekday (task 59 control)",
+      runQueries(baseline, varka, "next_day, literal weekday (VARKA-59 control)",
         "SELECT next_day(d, 'MON') AS a FROM varka_dates_weekday")
-      runQueries(baseline, varka, "next_day, weekday column (task 59)",
+      runQueries(baseline, varka, "next_day, weekday column (VARKA-59)",
         "SELECT next_day(d, s) AS a FROM varka_dates_weekday")
-      runQueries(baseline, varka, "next_day, weekday column reused by two outputs (task 59)",
+      runQueries(baseline, varka, "next_day, weekday column reused by two outputs (VARKA-59)",
         "SELECT next_day(d, s) AS a, next_day(d2, s) AS b FROM varka_dates_weekday")
-      // Task 61's two rows: the literal format is the control (task 35's one-input kernel);
+      // VARKA-61's two rows: the literal format is the control (VARKA-35's one-input kernel);
       // the format column pays the derived leaf - parseTruncLevel per row - and a kernel that
       // computes all four periods and blends on the level.
-      runQueries(baseline, varka, "trunc, literal format (task 61 control)",
+      runQueries(baseline, varka, "trunc, literal format (VARKA-61 control)",
         "SELECT trunc(d, 'MONTH') AS a FROM varka_dates_trunc_formats")
-      runQueries(baseline, varka, "trunc, format column (task 61)",
+      runQueries(baseline, varka, "trunc, format column (VARKA-61)",
         "SELECT trunc(d, fmt) AS a FROM varka_dates_trunc_formats")
-      // Task 37: the ISO week by the Thursday rule, the widest single-field kernel.
+      // VARKA-37: the ISO week by the Thursday rule, the widest single-field kernel.
       runQueries(baseline, varka, "weekofyear", "SELECT weekofyear(d) AS w FROM varka_dates")
       runQueries(baseline, varka, "yearofweek",
         "SELECT extract(YEAROFWEEK FROM d) AS y FROM varka_dates")
-      // Task 63's int arithmetic, end to end. The composite key is the shape its plan is
+      // VARKA-63's int arithmetic, end to end. The composite key is the shape its plan is
       // about: both operands are bounded by the calendar, so the compiler proves overflow
       // out and emits no check even under ANSI, and the row engine decomposes the date twice
       // where Varka decomposes it once. `datediff + 1` is the same arithmetic over a shape
       // with almost no prefix, so it prices the add against the `datediff` row above it, and
       // `try_add` is the mode that nulls the lane rather than condemning the batch.
-      runQueries(baseline, varka, "year * 100 + month (task 63)",
+      runQueries(baseline, varka, "year * 100 + month (VARKA-63)",
         "SELECT year(d) * 100 + month(d) AS k FROM varka_dates")
-      runQueries(baseline, varka, "datediff + 1 (task 63)",
+      runQueries(baseline, varka, "datediff + 1 (VARKA-63)",
         "SELECT datediff(d, DATE'2000-01-01') + 1 AS a FROM varka_dates")
-      runQueries(baseline, varka, "try_add over datediff (task 63)",
+      runQueries(baseline, varka, "try_add over datediff (VARKA-63)",
         "SELECT try_add(datediff(d, DATE'2000-01-01'), i) AS a FROM varka_dates")
       // The same projection twice, which is the end-to-end worth of lowering arithmetic.
-      // The first row is what this case measured until task 63: one fused date entry, one
+      // The first row is what this case measured until VARKA-63: one fused date entry, one
       // forwarded column, one residual - except that `i + 1` fuses now, so the projection is
       // whole and the row prices that. The second keeps a residual entry by using an operator
       // no arm lowers, so the partial-fusion shape the file has always tracked is still
       // tracked. Read together they say what the residual entry costs the whole projection.
-      runQueries(baseline, varka, "mixed projection, arithmetic entry fused (task 63)",
+      runQueries(baseline, varka, "mixed projection, arithmetic entry fused (VARKA-63)",
         "SELECT date_add(d, 3) AS a, i, i + 1 AS inc FROM varka_dates")
       runQueries(baseline, varka, "mixed projection (partial fusion)",
         "SELECT date_add(d, 3) AS a, i, i % 7 AS inc FROM varka_dates")
-      // Chain-depth scaling (PLAN_TASK_14.md 2.3): the fused loop pays one load and one store
+      // Chain-depth scaling (VARKA-14.md 2.3): the fused loop pays one load and one store
       // whatever the depth; Janino pays per-row per-op overhead. Columnar consumer here, the
       // same chains through the row consumer below - their crossing is the break-even depth
       // milestone 3's fuse-profitability item needs.
@@ -497,7 +497,7 @@ object VarkaThroughputBenchmark extends SqlBasedBenchmark {
       runRowQueries(baseline, varka, "residual-heavy projection, row consumer",
         "SELECT date_add(d, 3) AS a, i % 7 AS r1, i % 9 AS r2, i % 11 AS r3, i % 13 AS r4 " +
           "FROM varka_dates")
-      // The heavy-op row twins (task 19): every row-consumer case above fuses only cheap
+      // The heavy-op row twins (VARKA-19): every row-consumer case above fuses only cheap
       // adds, where the ~6 ns/row read-back is most likely to dominate - deciding the
       // profitability rule on them alone would decide it on the worst case. These four reuse
       // their columnar cases' SQL verbatim, so each pair differs only in the consumer.

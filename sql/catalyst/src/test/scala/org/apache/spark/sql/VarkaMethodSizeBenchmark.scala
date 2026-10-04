@@ -32,7 +32,7 @@ import org.apache.spark.sql.types.DateType
 
 /**
  * What a kernel costs when one of its methods is too large for the JIT
- * (`sql/varka/plans/PLAN_TASK_87.md` section 6).
+ * (`sql/varka/plans/m6/VARKA-87.md` section 6).
  *
  * HotSpot never compiles a method whose bytecode exceeds 8000 bytes
  * (`DontCompileHugeMethods`, on by default, with `HugeMethodLimit` fixed at 8000 in a product
@@ -55,12 +55,12 @@ import org.apache.spark.sql.types.DateType
  * Two forms, named explicitly so the labels survive the default changing: `single epilogue`,
  * the legacy emission (`methodByteBudget` 0), and `epilogue per group`, the emission under the
  * budget at HugeMethodLimit - a group's methods set up only their group, the epilogue is one
- * method per group, and the class is measured and regrouped (`PLAN_TASK_87.md` 3.1). The file
+ * method per group, and the class is measured and regrouped (`VARKA-87.md` 3.1). The file
  * was first committed with the legacy form alone, so the baseline existed before the change
  * measured against it; both forms are in one table per rung so the columns compare directly.
  *
  * The null-free rows from 12 outputs on are a different cliff, and the file says so rather
- * than hiding it (`PLAN_MILESTONE_6.md` section 2.12, task 189). In some JVM forks the second
+ * than hiding it (`m6/PLAN.md` section 2.12, VARKA-189). In some JVM forks the second
  * group's dense loop method enters a C2 deoptimization cycle - a new tier-4 compile installed
  * about every 250 milliseconds, the method's own compile time, and made not entrant on first
  * execution at a `profile_predicate` trap on the loop's back-edge - and runs interpreted for
@@ -195,7 +195,7 @@ object VarkaMethodSizeBenchmark extends BenchmarkBase {
       val (nfData, nfValidity) = fill(arena, nulls = false)
       val (mxData, mxValidity) = fill(arena, nulls = true)
 
-      runBenchmark("the epilogue past HugeMethodLimit: a make_date ladder (task 87)") {
+      runBenchmark("the epilogue past HugeMethodLimit: a make_date ladder (VARKA-87)") {
         for (n <- rungs) {
           val fused = shape(n)
           val kernels = forms.map { form => form._1 -> emit(fused, loader, n, form) }

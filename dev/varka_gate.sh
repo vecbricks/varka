@@ -43,7 +43,7 @@
 #   quotes    dev/varka_quote_check.py: every number the documents quote traces to a
 #             committed results file (or the allowlist)
 #
-# The assembly suite (task 31) is part of `wide` and `narrow`; it needs a
+# The assembly suite (VARKA-31) is part of `wide` and `narrow`; it needs a
 # disassembler and cancels without one. If VARKA_HSDIS_DIR is unset this
 # script looks for hsdis-<arch>.so in the usual local places and exports it
 # when found, and says so either way, because a gate that silently skipped

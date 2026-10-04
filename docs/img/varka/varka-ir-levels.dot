@@ -52,7 +52,7 @@ digraph VarkaIRLevels {
   }
   subgraph cluster_L5 { label="level 5: what the user sees"; fontsize=10; color="#9aa3ad"; style="rounded";
     U_proj [shape=box, style="rounded,filled", fillcolor="white", color="#1d2126", label=<<b>a projected column</b><br/><font point-size="8">SELECT expr: an int32 Arrow column (date or int) plus validity</font>>];
-    U_filt [shape=box, style="rounded,filled", fillcolor="white", color="#1d2126", label=<<b>the rows that pass</b><br/><font point-size="8">WHERE expr: a Cond root as the selection bitmap (task 21)</font>>];
+    U_filt [shape=box, style="rounded,filled", fillcolor="white", color="#1d2126", label=<<b>the rows that pass</b><br/><font point-size="8">WHERE expr: a Cond root as the selection bitmap (VARKA-21)</font>>];
   }
   L_date -> AddDays:days [color="#2f8f82"];
   L_date -> SubDays:days [color="#2f8f82"];
@@ -112,8 +112,8 @@ digraph VarkaIRLevels {
   { rank=same; U_proj; U_filt; }
 
   subgraph cluster_frag { label="emitter fragments, below the IR (not nodes; shared code inside one lane group)"; fontsize=10; color="#444a52"; style="rounded,dashed";
-    Prefix [shape=box, style="rounded,filled,dashed", fillcolor="#f0efe9", color="#444a52", label=<<b>civil-from-days prefix</b><br/><font point-size="8">emitChronoPrefix: days -&gt; era, rem, century, yearOfCentury, [marchMonth]<br/>one run per distinct date per lane group (task 32 step B; tasks 48, 53, 54);<br/>every Chrono tail and AddMonths read its locals t[0..5]<br/>marchMonth is skipped when no consumer needs it (Year, DayOfYear, trunc YEAR)</font>>];
-    Mod7 [shape=box, style="rounded,filled,dashed", fillcolor="#f0efe9", color="#444a52", label=<<b>floorMod 7</b><br/><font point-size="8">emitFloorMod7: a magic multiply (task 14)<br/>per node, not shared: DayOfWeek, WeekDay, NextDay,<br/>and TruncDateDynamic's week result</font>>];
+    Prefix [shape=box, style="rounded,filled,dashed", fillcolor="#f0efe9", color="#444a52", label=<<b>civil-from-days prefix</b><br/><font point-size="8">emitChronoPrefix: days -&gt; era, rem, century, yearOfCentury, [marchMonth]<br/>one run per distinct date per lane group (VARKA-32 step B; VARKA-48, VARKA-53, VARKA-54);<br/>every Chrono tail and AddMonths read its locals t[0..5]<br/>marchMonth is skipped when no consumer needs it (Year, DayOfYear, trunc YEAR)</font>>];
+    Mod7 [shape=box, style="rounded,filled,dashed", fillcolor="#f0efe9", color="#444a52", label=<<b>floorMod 7</b><br/><font point-size="8">emitFloorMod7: a magic multiply (VARKA-14)<br/>per node, not shared: DayOfWeek, WeekDay, NextDay,<br/>and TruncDateDynamic's week result</font>>];
   }
   { rank=same; P_date; Prefix; Mod7; }
   L_date -> Prefix [color="#444a52", style=dashed]; P_date -> Prefix [color="#444a52", style=dashed, constraint=false];

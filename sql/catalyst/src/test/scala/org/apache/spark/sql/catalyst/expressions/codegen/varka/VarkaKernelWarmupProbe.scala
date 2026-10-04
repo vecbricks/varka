@@ -34,7 +34,7 @@ import org.apache.spark.util.Utils
  * carry two receiver classes, C2 inlines both, and every vector the warmed kernel computes is
  * boxed where the two paths merge. The kernel then never stops allocating, and the warm-up rightly
  * never calls it compiled (`vector-api-and-width.md`, "two species in one JVM is a box per
- * iteration"; see `PLAN_TASK_209.md` 13.2). A fresh JVM per case is the clean JVM the verdict
+ * iteration"; see `VARKA-209.md` 13.2). A fresh JVM per case is the clean JVM the verdict
  * assumes.
  *
  * `main(<none|some|all>)` warms [[shape]] on a batch of 10000 dates whose nulls the argument

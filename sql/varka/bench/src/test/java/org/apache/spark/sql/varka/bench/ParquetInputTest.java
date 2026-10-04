@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The driver's {@code --input parquet} (task 194): the date table written to a Parquet file
+ * The driver's {@code --input parquet} (VARKA-194): the date table written to a Parquet file
  * and read back as {@code varka_dates}, with the same rows and columns as the cached table and
  * nothing cached, so a timing over it is a timing of the file's path; and the refusal of the
  * {@code TIME} table, which Parquet does not write on every distribution.

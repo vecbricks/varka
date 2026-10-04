@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
 
   // -------------------------------------------------------------------------------------------
-  // Task 88: the calendar prefix's constant divisions through the double lane.
+  // VARKA-88: the calendar prefix's constant divisions through the double lane.
   // -------------------------------------------------------------------------------------------
 
   private val divisionForms = VarkaEmitOptions.Division.values().toSeq
@@ -208,7 +208,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   test("the emitted calendar kernels agree over the whole covered range under both double " +
-      "division forms (opt-in: -Dvarka.sweep=true; task 88)") {
+      "division forms (opt-in: -Dvarka.sweep=true; VARKA-88)") {
     // The bounded tests above run the double forms over a boundary list; this runs them over
     // every day the prefix covers, which is the only check at the resolution the deny-list was
     // decided at. `verify_double_division.py` proves the arithmetic exact over each site's
@@ -234,7 +234,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Task 89: a constant division with no magic form, over the whole int32 range.
+  // VARKA-89: a constant division with no magic form, over the whole int32 range.
   // -------------------------------------------------------------------------------------------
 
   test("a constant division matches Java's `/` over the whole int32 range, at every width") {
@@ -290,7 +290,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   test("the multiply-high form is exact over every int32 dividend for every divisor in use " +
-      "(opt-in: -Dvarka.sweep=true; task 149)") {
+      "(opt-in: -Dvarka.sweep=true; VARKA-149)") {
     // The proof the emitted arithmetic rests on, run as the arithmetic: the unsigned
     // multiplier, the one shift and the sign bit, against Java's `/`, for all 2^32 dividends
     // and every divisor in `intDivisors`. Scalar, not the kernel - the kernel's parity over
@@ -354,7 +354,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Task 88 step 3: the same division at 64-bit lanes, where the conversion is same-width.
+  // VARKA-88 step 3: the same division at 64-bit lanes, where the conversion is same-width.
   // -------------------------------------------------------------------------------------------
 
   /**
@@ -383,8 +383,8 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   test("a long-lane constant division matches Java's `/` over the range it is exact on") {
-    // The divisors task 102 and 103 need, each over its own neighbourhood and both ends of the
-    // exact range. Two things fail differently here: precision, which breaks at the ends of the
+    // The divisors VARKA-102 and VARKA-103 need, each over its own neighbourhood and both ends of
+    // the exact range. Two things fail differently here: precision, which breaks at the ends of the
     // range first, and truncation toward zero, which a floor-producing lowering gets wrong only
     // on negative dividends with a remainder - hence both signs of every value.
     val col = new ConstDivide(new ColumnRef(0, LaneType.LONG), 1, ConstDivide.EXACT_DIVIDEND_BOUND)
@@ -451,7 +451,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
     // And what the form costs, counted from the bytes rather than from the plan that sketched
     // it: seven double ops (the two halves of the identity, the divide, the round and its
     // correction), two reinterprets, and five long ops - fourteen against the conversion form's
-    // three. `PLAN_TASK_88.md` 3.3 registered nine, before the signed case was decided;
+    // three. `VARKA-88.md` 3.3 registered nine, before the signed case was decided;
     // section 9.2 records the correction.
     //
     // The long count excludes the loads and stores, which belong to the body and not to the
@@ -467,7 +467,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   test("a long-lane constant division converts once each way, where the int lane converts twice") {
-    // The op counts of `PLAN_TASK_88.md` 3.3: three operations at the long lane against seven at
+    // The op counts of `VARKA-88.md` 3.3: three operations at the long lane against seven at
     // the int one. The saving is structural rather than incidental - an int vector has twice the
     // lanes of the double vector it converts into, so it needs two halves and a join, while a
     // 64-bit lane pairs one to one.
@@ -573,7 +573,7 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
     assert(minusOne.getMessage.contains("overflows at Long.MIN_VALUE"), minusOne.getMessage)
     // And the bound itself: the two-argument form is the int lane's, so a long-lane division
     // that leaves the bound out is refused where it is built rather than emitted unguarded,
-    // and a bound no lowering can honour is refused beside it (task 147).
+    // and a bound no lowering can honour is refused beside it (VARKA-147).
     val unstated = intercept[IllegalArgumentException](new ConstDivide(col, 60))
     assert(unstated.getMessage.contains("must state the dividend bound"), unstated.getMessage)
     val overClaimed =
@@ -593,13 +593,13 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Task 102: a range guard at the long lane, which is what makes `TIME + INTERVAL` a decline
+  // VARKA-102: a range guard at the long lane, which is what makes `TIME + INTERVAL` a decline
   // rather than a wrap where Spark throws.
   // -------------------------------------------------------------------------------------------
 
   test("a bounded division is exact over its whole bound at both widths, and refuses a pair " +
       "that does not exist") {
-    // PLAN_TASK_102.md 8.4: one multiply and one logical shift, exact for every dividend under
+    // VARKA-102.md 8.4: one multiply and one logical shift, exact for every dividend under
     // the bound by the constructor's search. The batch is the bound long, so every dividend
     // the node is defined over is compared once against the true division, in a full lane
     // group and in the tail, at 128 and 512 bits.

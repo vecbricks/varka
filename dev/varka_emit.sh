@@ -40,7 +40,7 @@
 # kernel hot under -XX:CompileCommand=print for loopDense0, saves the full
 # disassembly under target/varka-emit/, and prints the standard C2 compilation's
 # mnemonic frequencies - which is what an op-count prediction should be checked
-# against, and what a boxed vector (task 55) shows up in as prefetchnta and
+# against, and what a boxed vector (VARKA-55) shows up in as prefetchnta and
 # mark-word stores.
 set -euo pipefail
 # Usage text is found rather than numbered: a hard-coded range silently truncates as the

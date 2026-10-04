@@ -300,7 +300,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
   }
 
   test("a node shared across groups gets no slot in a body that uses it once") {
-    // Task 223: a shared slot is decided by the body's own use count, not the kernel's. Two
+    // VARKA-223: a shared slot is decided by the body's own use count, not the kernel's. Two
     // outputs over one column, each a chain of 12 ops - two would pass the group budget of 16,
     // and the chain depth stays under its limit - take a group each, and use the
     // column twice in the kernel and once in each body, so no body parks it in a local that
@@ -501,7 +501,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
 
   test("abs is a blend whose negation arm alone condemns, at Int.MinValue") {
     // `abs` is not an op the IR has. The compiler spells it `if (x < 0) -x else x`, so what
-    // the emitter sees is task 79's shape - a guarded node under a CASE arm - built from task
+    // the emitter sees is VARKA-79's shape - a guarded node under a CASE arm - built from task
     // 63's nodes. There is nothing new to lower here, and that is the claim: the blend
     // answers what Spark's `abs` answers everywhere the negation is defined, and condemns the
     // batch at the one input where Spark raises instead.
@@ -522,7 +522,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
       ctx = "abs WRAP over the extremes")
 
     // And the checked form at the one value that overflows. Int.MinValue is negative, so it
-    // takes the arm that negates and task 79's qualification cannot spare it; the lane after
+    // takes the arm that negates and VARKA-79's qualification cannot spare it; the lane after
     // it is the same value under a null, where no arithmetic was asked for.
     val (kernel, loader) = load(emitMulti(Seq(absOf(Overflow.FAIL)), 1, 1))
     try {
@@ -590,8 +590,8 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
   }
 
   test("the composite key's masked body is its dense twin's bytes") {
-    // PLAN_TASK_63.md 6.1 prediction 6. `year(d) * 100 + month(d)` under WRAP has the word of
-    // a single input, so task 70's driver pass writes the whole output bitmap once per batch
+    // VARKA-63.md 6.1 prediction 6. `year(d) * 100 + month(d)` under WRAP has the word of
+    // a single input, so VARKA-70's driver pass writes the whole output bitmap once per batch
     // and every word in the loop dies - which leaves the masked method with nothing the dense
     // one does not also do. Under FAIL the guard keeps a word alive and the two must differ,
     // which is the other half of the claim and the reason the check's cost is not free in a
@@ -612,7 +612,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
   }
 
   test("the registered op counts, and the controls that must not move") {
-    // PLAN_TASK_63.md 3.3, filled from the emitted bytes. The point of pinning these is that
+    // VARKA-63.md 3.3, filled from the emitted bytes. The point of pinning these is that
     // an arm that quietly emits twice the ops it should still passes every value test. The
     // counts are `IntVector` calls in `loopDense0`, so they include the loop's unrolling -
     // which is why they are read as one table rather than reasoned about one at a time.
@@ -664,7 +664,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
       "negation's check is one compare: it reads the operand, not the result")
     assert(by("year * 100 + month") === by("year, month (control)") + 2,
       "the key is the two fields plus its own two ops, so the year prefix is computed once")
-    // Task 68's `make_ym_interval(year(d), month(d))` is this row and not a new one: the
+    // VARKA-68's `make_ym_interval(year(d), month(d))` is this row and not a new one: the
     // compiler lowers it to exactly these nodes with 12 in the literal slot, both in WRAP
     // because the calendar fields' bounds prove the multiply and the add safe. Registering it
     // again would pin the same bytes under a second name.
@@ -682,7 +682,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
 
   test("BETWEEN- and IN-shaped roots match the reference") {
     // The survey's two dominant filter shapes: BETWEEN as And over paired comparisons
-    // against literals, and IN as the balanced OR chain of EQ leaves (task 20's lowering,
+    // against literals, and IN as the balanced OR chain of EQ leaves (VARKA-20's lowering,
     // now at a root). Data cycles a small range so both selects and rejects occur.
     val d = new ColumnRef(0)
     val between = new And(

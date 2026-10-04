@@ -23,7 +23,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
  * stdout, and HotSpot's compiler threads and log4j write to that stream without coordinating
  * with the probe's `System.out`, so a marker can share a line with a compile record, on either
  * side of it. A reader that requires the marker on a line of its own then misses it, and the
- * suite fails on a probe that did its work (`PLAN_MILESTONE_6.md` row 229). So a marker is
+ * suite fails on a probe that did its work (`m6/PLAN.md` row 229). So a marker is
  * found anywhere in a line, and its value is read from what follows it: a number by its digits,
  * a name up to the next whitespace or up to the end mark the probe prints after a name that
  * holds spaces, and a payload of `key=value` fields as the rest of the line, which a glued

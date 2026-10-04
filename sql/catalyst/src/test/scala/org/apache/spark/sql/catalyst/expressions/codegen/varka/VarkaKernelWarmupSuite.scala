@@ -32,7 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupProbe._
 
 /**
- * The kernel warm-up (`PLAN_TASK_212.md` 10): the copy of a batch it runs on, its verdict on a
+ * The kernel warm-up (`VARKA-212.md` 10): the copy of a batch it runs on, its verdict on a
  * real emitted kernel - which must cover both of the kernel's drivers, whichever kind of batch
  * claimed the warm-up - its release when the shape leaves the cache, and the compiler directive
  * that keeps C1 off the warmed kernel classes so the verdict can arrive at all.
@@ -139,7 +139,7 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The shape has two groups whose loop methods compile one after the other, and the verdict
     // must wait for both: on a starved machine a verdict read from short calls came while the
     // light group's loop was still interpreted, and these calls, 1024 rows each, boxed in it
-    // (PLAN_TASK_221.md 2).
+    // (VARKA-221.md 2).
     test(s"a warm-up claimed by a batch with $claimed compiles both of the kernel's drivers") {
       val run = warmUpInFork(claimed)
       assume(run.support("sampler") == "true", "thread allocation accounting unavailable")

@@ -30,7 +30,7 @@ import org.apache.spark.sql.internal.SQLConf
 
 /**
  * How long a whole-stage codegen stage new to the JVM runs before its code is fast, under the
- * default settings (`PLAN_TASK_233.md` 10.1). HotSpot compiles a hot method with C1 at once and
+ * default settings (`VARKA-233.md` 10.1). HotSpot compiles a hot method with C1 at once and
  * queues it for C2, and a stage runs C1's profiled code until C2's arrives; for a wide stage that
  * wait can be many seconds, and every executor JVM pays it again for every stage it compiles.
  *

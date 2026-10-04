@@ -503,8 +503,8 @@ case class CurrentBatchTimestamp(
 }
 
 /**
- * The Varka helper that belongs with the date expressions rather than with the engine (Task 4).
- * Its eligibility half retired with the milestone-1 dispatcher layer in task 17; what remains is
+ * The Varka helper that belongs with the date expressions rather than with the engine (VARKA-4).
+ * Its eligibility half retired with the milestone-1 dispatcher layer in VARKA-17; what remains is
  * the day-offset folding rule, which [[VarkaExpressionCompiler]] applies when it compiles a
  * `date_add`/`date_sub` offset into a slot of the kernel's runtime argument table.
  */

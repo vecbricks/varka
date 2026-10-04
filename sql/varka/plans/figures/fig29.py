@@ -21,7 +21,7 @@ is slower; below it, faster.
 
 Every value is read from the benchmark's committed files when the script runs
 (sql/core/benchmarks/CodegenWideProjectionBenchmark-jdk25-results.txt and its -laptop-
-counterpart, PLAN_TASK_233.md 13.5)."""
+counterpart, VARKA-233.md 13.5)."""
 
 import os
 import re

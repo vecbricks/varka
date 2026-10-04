@@ -25,7 +25,7 @@ plan, where it lacks the `*(n)` prefix. A Spark event log (`spark.eventLog.enabl
 every SQL execution's final plan, its node names and their strings, and the settings the session
 changed, and that is enough to classify each operator the way `CollapseCodegenStages` did, offline,
 over a whole application's history. The table is the one `VarkaCodegenGiveUpCensus` prints for
-Spark's own query suites (PLAN_TASK_233.md 2 and 10.4):
+Spark's own query suites (VARKA-233.md 2 and 10.4):
 
 * in a stage: under a `WholeStageCodegen (n)` node and not below an `InputAdapter`;
 * whole-stage codegen switched off by a setting: the execution ran with

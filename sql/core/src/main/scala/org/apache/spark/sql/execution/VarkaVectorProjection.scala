@@ -38,7 +38,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * row's `update`, which `MutableColumnarRow` rejects, and a null decimal or calendar interval
  * through its typed setter with a null value rather than through `setNullAt`, so only the
  * primitive types are safe to write directly. The direct write saves the `UnsafeRow` and the
- * converter's pass over it, about a tenth of the row path's time; see `PLAN_TASK_230.md` 2.
+ * converter's pass over it, about a tenth of the row path's time; see `VARKA-230.md` 2.
  *
  * Either way the projection reads its input through [[VarkaInputRows]]. Both projections are
  * compiled on first use, so a task that never takes the row path compiles neither.

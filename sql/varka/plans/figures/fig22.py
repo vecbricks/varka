@@ -20,7 +20,7 @@ TPC-DS, TPC-H and SSB queries, counted by bytecode size in bins that double, on 
 against HotSpot's 8000-byte limit and the class file's 65535.
 
 Every count is read from the committed census when the script runs
-(sql/core/benchmarks/VarkaCodegenMethodSizes-jdk25-results.txt, PLAN_TASK_181.md 11), so the
+(sql/core/benchmarks/VarkaCodegenMethodSizes-jdk25-results.txt, VARKA-181.md 11), so the
 figure cannot drift from it."""
 
 import math
@@ -124,7 +124,7 @@ r.note(
     size=19,
 )
 # The file counts sizes and names no method; the one past 8000 is TPC-DS's (its family's
-# summary line says so) and the census's log named it (PLAN_TASK_181.md 11).
+# summary line says so) and the census's log named it (VARKA-181.md 11).
 r.arrow(px(3000), py(2000), px(12450) - 4, py(past) - 18, color="#6741d9", width=1.8)
 r.note(
     px(1100),

@@ -31,7 +31,7 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector
 
 /**
  * Proves that a `TIME(p)` column, and a day-time interval column, survive Varka's Arrow cache
- * path and arrive as eight-byte lanes the morsel can map (milestone 5 task 116).
+ * path and arrive as eight-byte lanes the morsel can map (milestone 5 VARKA-116).
  *
  * Every piece of that path exists on its own - Spark's Arrow writer and accessors, the cache
  * serializer's column stats, the evaluator's buffer mapping - and nothing composes them for

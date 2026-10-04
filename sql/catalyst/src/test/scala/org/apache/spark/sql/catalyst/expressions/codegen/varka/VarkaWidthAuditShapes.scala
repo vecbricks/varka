@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, LongType, TimeType, YearMonthIntervalType}
 
 /**
- * The shapes the width audit (task 153) asks C2 about: every row of the coverage table as the
+ * The shapes the width audit (VARKA-153) asks C2 about: every row of the coverage table as the
  * compiler lowers it, and a set of hand-built constructions that no row reaches but a kernel
  * can - the checked long arithmetic, the range guard on its own, the two lowerings of the
  * 64-bit constant division. Shared by [[VarkaWidthAuditProbe]], which emits and runs them in a

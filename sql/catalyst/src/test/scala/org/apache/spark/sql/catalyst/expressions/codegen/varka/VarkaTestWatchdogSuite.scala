@@ -27,7 +27,7 @@ import org.apache.spark.SparkFunSuite
  * The watchdog's three outcomes, each in well under a second: a body that returns is left
  * alone; a body that blocks ends at the interrupt; a body that ignores the interrupt is
  * reported with the threads' stacks and the JVM is halted, here through a stub that only
- * records the call (`PLAN_MILESTONE_6.md` row 226).
+ * records the call (`m6/PLAN.md` row 226).
  */
 class VarkaTestWatchdogSuite extends SparkFunSuite {
 

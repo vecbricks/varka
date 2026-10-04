@@ -24,10 +24,10 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The three plan shapes the laptop's first full run produced (PLAN_TASK_62.md 9), as
+ * The three plan shapes the laptop's first full run produced (VARKA-62.md 9), as
  * {@code EXPLAIN} prints them: the check must tell a fused filter from one with a row-engine
  * operator above it, since all three contain a Varka node. And the same check against another
- * engine's node, vecruntime's, as its arm runs it (task 202).
+ * engine's node, vecruntime's, as its arm runs it (VARKA-202).
  */
 public class PlanCheckTest {
 

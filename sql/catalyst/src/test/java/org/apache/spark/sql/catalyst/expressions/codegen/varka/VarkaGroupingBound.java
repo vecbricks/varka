@@ -50,7 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * {@code VarkaGroupingBoundSuite} holds the gap to a bound over the cost model's corpus and the
  * shapes below, and holds the emitter's own exact grouping
  * ({@code VarkaEmitOptions.exactGrouping}) to this partition; the measurement that set the
- * bound is {@code PLAN_TASK_200.md} 2.
+ * bound is {@code VARKA-200.md} 2.
  */
 final class VarkaGroupingBound {
 
@@ -287,7 +287,7 @@ final class VarkaGroupingBound {
    * The mixed family at {@code n} entries: a size-ladder entry, a {@code make_date}, a cheap tail
    * {@code year(d) + k} and a {@code date_add(d, k)} over one date, in rotation, each over the
    * literal slot of its own index. The greedy walk leaves every {@code date_add} in a loop method
-   * of its own here, which the best partition does not ({@code PLAN_TASK_200.md} 2).
+   * of its own here, which the best partition does not ({@code VARKA-200.md} 2).
    */
   static List<VarkaVectorIR> mixed(int n) {
     ColumnRef d = new ColumnRef(0);

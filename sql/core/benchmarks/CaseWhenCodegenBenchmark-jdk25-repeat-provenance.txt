@@ -12,4 +12,4 @@ what:        a CASE WHEN of 30, 60, 100, 300 and 1000 branches over 200,000 rows
              whole-stage codegen stage, outside one, and interpreted (factoryMode=NO_CODEGEN),
              five iterations each after a warm-up pass of the smallest rung; each rung prints
              the stage's largest method and the largest method of the projection outside a
-             stage; the second of two runs dispatched together, kept to compare the claims under 1.3x by minimums (PLAN_TASK_210.md 9.3)
+             stage; the second of two runs dispatched together, kept to compare the claims under 1.3x by minimums (VARKA-210.md 9.3)

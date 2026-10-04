@@ -31,7 +31,7 @@ import org.apache.spark.sql.varka.vector.ChronoVectorOps;
 import org.apache.spark.sql.varka.vector.DateVectorOps;
 
 /**
- * The child process behind {@code VarkaAssemblySuite} (task 31). It is launched in a forked JVM
+ * The child process behind {@code VarkaAssemblySuite} (VARKA-31). It is launched in a forked JVM
  * carrying {@code -XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=print,...}, runs one named
  * case hot enough for C2 to compile the case's method, and exits; the disassembly HotSpot prints
  * on the way is what the parent reads.
@@ -54,7 +54,7 @@ public final class VarkaAssemblyProbe {
   public static final String PREFERRED_BITS_PREFIX = "VARKA_PROBE_PREFERRED_BITS=";
 
   /**
-   * The line carrying the case's steady-state allocation rate (task 55): heap bytes the probe
+   * The line carrying the case's steady-state allocation rate (VARKA-55): heap bytes the probe
    * thread allocated per call of the case's method, measured over {@link #MEASURE_ROUNDS} calls
    * made after the {@link #ROUNDS} that got it compiled. A boxed vector costs a fresh object per
    * lane group and shows up here as bytes that scale with the rows per call; a per-call setup
@@ -169,7 +169,7 @@ public final class VarkaAssemblyProbe {
           "emittedYear", List.of(new VarkaVectorIR.Year(COLUMN_0)), 1, 0);
       case "emittedDayOfWeek" -> emittedProjection(
           "emittedDayOfWeek", List.of(new VarkaVectorIR.DayOfWeek(COLUMN_0)), 1, 0);
-      // Task 46's two arms, on the body the change touches: the masked year loop, emitted
+      // VARKA-46's two arms, on the body the change touches: the masked year loop, emitted
       // with the width-named validity helpers and with the general pair. Same IR, same data,
       // one option apart - so a difference in the printed instructions is the change and
       // nothing else.
@@ -248,7 +248,7 @@ public final class VarkaAssemblyProbe {
     return o[0];
   }
 
-  // --- The allocation self-test (task 55) --------------------------------------------------------
+  // --- The allocation self-test (VARKA-55) -------------------------------------------------------
 
   /**
    * A second {@code IntVector} species, different from the preferred one at every width the suite
@@ -274,7 +274,7 @@ public final class VarkaAssemblyProbe {
    * species turns bimorphic.
    *
    * <p>The plain {@link #vectorAdd} would not do for this, and neither would a {@code selectFrom}
-   * lookup: measured while building this task (`PLAN_TASK_55.md` 3), a bare add stays clean in
+   * lookup: measured while building this task (`VARKA-55.md` 3), a bare add stays clean in
    * a polluted JVM, a {@code selectFrom} lookup boxes only if the second species ran hot
    * <em>first</em> and stays clean when the two are interleaved, and the gather boxes under both
    * orders at both widths. The positive case has to be a shape that boxes whenever the templates
@@ -440,7 +440,7 @@ public final class VarkaAssemblyProbe {
   /**
    * As above, for a named emit variant and, optionally, the <i>masked</i> body.
    *
-   * <p>Task 46 needs both: its A/B is between two emit options, and the bodies it changes are
+   * <p>VARKA-46 needs both: its A/B is between two emit options, and the bodies it changes are
    * the masked ones - a dense value output has had no per-lane-group validity call since task
    * 45. `masked` hands the driver a non-zero null count and a bitmap with real zeros in it, so
    * the dispatcher takes the masked path and the method the parent prints is the one that does

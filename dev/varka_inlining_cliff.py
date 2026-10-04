@@ -18,7 +18,7 @@
 # Reads the logs of dev/varka_inlining_cliff.sh - the forks' marker lines, their PrintInlining
 # and PrintIntrinsics output, and the compile log each fork wrote beside them - and says, per
 # fork, which side of the cliff the kernel landed on and what the JIT made of its loop method
-# (PLAN_TASK_209.md 2).
+# (VARKA-209.md 2).
 #   dev/varka_inlining_cliff.py target/varka-inlining-cliff/<date>/width-host-xbatch-off.log ...
 #   dev/varka_inlining_cliff.py --slow-at 40 <log>...    # the verdict's cut, in nanoseconds a row
 #   dev/varka_inlining_cliff.py --fail-if-slow <log>...  # exit 1 on a slow fork: the nightly guard
@@ -26,7 +26,7 @@
 # the next fork's, so the lines a JVM prints after its DONE line while shutting down are its own.
 # Per fork it reads the case (outputs, fused ceiling, C1 on or off, -Xbatch or not), the loop
 # methods with their bytes and vector call sites, the rate of the last seconds - the verdict is
-# fast or slow by a cut an order of magnitude between the two sides task 198 measured, about 4
+# fast or slow by a cut an order of magnitude between the two sides VARKA-198 measured, about 4
 # and 250 nanoseconds a row - the allocation per call, and C2's words: the reasons it printed for
 # refusing an inline, and the three answers PrintIntrinsics gives for a vector call. From the
 # fork's c2-pid<pid>.xml it reads what each compiler made of the dense loop method: whether C1
@@ -97,7 +97,7 @@ def read_fork(header, lines, slow_at):
         "xbatch": fields.get("xbatch", "?"),
         "shape": fields.get("shape", "cheap"),
         "directive": fields.get("directive", "none"),
-        # The emitter's call-site budget the fork emitted under (task 209); logs from before
+        # The emitter's call-site budget the fork emitted under (VARKA-209); logs from before
         # the budget existed carry no field, and their forks read as budget-less.
         "budget": fields.get("budget"),
         "heavy": fields.get("heavy"),

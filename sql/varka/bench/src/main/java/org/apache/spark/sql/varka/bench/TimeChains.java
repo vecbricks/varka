@@ -35,8 +35,8 @@ import java.util.List;
  *
  * <p><b>What can be composed on the long lane today, and what cannot.</b> The lane narrows an
  * extract to its int only at an output root, so {@code hour(t)} may end a chain but nothing may
- * sit above it ({@code minute(t + dt) + second(t2)} declines; task 28 lifts this). Arithmetic
- * between two {@code bigint}s or two intervals is not built (tasks 104 and 103), so
+ * sit above it ({@code minute(t + dt) + second(t2)} declines; VARKA-28 lifts this). Arithmetic
+ * between two {@code bigint}s or two intervals is not built (VARKA-104 and VARKA-103), so
  * {@code time_diff(..) + time_diff(..)} declines and a {@code bigint} column enters only through
  * {@code greatest}, {@code least}, a comparison or a conditional. And {@code t - dt} declines,
  * because Spark spells it as {@code t + (-dt)} and the interval negation is not lowered. So a
@@ -100,7 +100,7 @@ public final class TimeChains {
    * 0.05 ns per op the heaviest entry here is near 3.3 ns per row, and a runner's per-iteration
    * constant of about 36 ms needs some 7 ns per row at the 1e8 rows its memory holds of this
    * table to keep the constant under 5%. The laptop clears the rule at 2e8 rows, and the runner
-   * dispatch prices its own bound ({@code PLAN_TASK_164.md} section 5).
+   * dispatch prices its own bound ({@code VARKA-164.md} section 5).
    */
   static final int MIN_OPS = 36;
 

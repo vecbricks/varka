@@ -47,8 +47,8 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       VarkaEmitBudget.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
     rejects(emit(new AddDays(new ColumnRef(1), new LiteralSlot(0)), 1), "column ordinal")
     rejects(emit(new AddDays(new ColumnRef(0), new LiteralSlot(1)), 1), "literal slot")
-    // A column offset (task 38) is legal IR now - AddDays(ColumnRef, ColumnRef) no longer
-    // throws; see "AddDays/SubDays with a column offset (task 38) match the reference
+    // A column offset (VARKA-38) is legal IR now - AddDays(ColumnRef, ColumnRef) no longer
+    // throws; see "AddDays/SubDays with a column offset (VARKA-38) match the reference
     // evaluator" above for its coverage.
     rejects(VarkaLoopEmitter.emit("t", java.util.List.of[VarkaVectorIR](), 1, 0),
       "no output chains")
@@ -58,7 +58,7 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     // 5 disjoint depth-13 chains hold 65 distinct ops, one past the total-size cap of the form
     // without a byte budget. The cap counts nodes after CSE: the same 4 chains repeated as 8
     // outputs stay within it. Under the byte budget, the default, bytes decide instead and the
-    // five chains emit (task 190).
+    // five chains emit (VARKA-190).
     val disjointChains = (0 until 5).map(k => chain(13, slotBase = k * 13))
     val reference = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
     rejects(emitMulti(disjointChains, 1, 65, reference), "MAX_FUSED_NODES")
@@ -66,8 +66,8 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       disjointChains.take(4) ++ disjointChains.take(4), 1, 52, reference)
     assert(sharedOk.nonEmpty)
     assert(emitMulti(disjointChains, 1, 65)._2.nonEmpty)
-    // Task 11: conditions are never values. (A condition as an output ROOT became legal in
-    // task 21 - it emits a selection bitmap - so only the value positions reject now.)
+    // VARKA-11: conditions are never values. (A condition as an output ROOT became legal in
+    // VARKA-21 - it emits a selection bitmap - so only the value positions reject now.)
     val cmp = new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(0))
     rejects(emitMulti(Seq(new AddDays(cmp, new LiteralSlot(0))), 1, 1), "value position")
     rejects(emitMulti(Seq(new Greatest(new ColumnRef(0), cmp)), 1, 0), "value position")
@@ -198,11 +198,11 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     // three CompareOps), so a change to any rendering, to the operand order, or to the
     // topological schedule fails here. If it does: make sure the change is intended, then
     // update the literal and say so in the task plan - the same rule as the pinned shape
-    // hashes in VarkaShapeCacheSuite. Task 26 added the four calendar extractions and
-    // re-pinned it (PLAN_TASK_26.md); task 33 added NextDay, task 40 added AddMonths, task 36
-    // added LastDay, task 34 added DayOfYear and task 61 added TruncDateDynamic, each
-    // re-pinning it again (PLAN_TASK_33.md, PLAN_TASK_40.md, PLAN_TASK_36.md, PLAN_TASK_34.md,
-    // PLAN_TASK_61.md). Re-pinned from the failing
+    // hashes in VarkaShapeCacheSuite. VARKA-26 added the four calendar extractions and
+    // re-pinned it (VARKA-26.md); VARKA-33 added NextDay, VARKA-40 added AddMonths, VARKA-36
+    // added LastDay, VARKA-34 added DayOfYear and VARKA-61 added TruncDateDynamic, each
+    // re-pinning it again (VARKA-33.md, VARKA-40.md, VARKA-36.md, VARKA-34.md,
+    // VARKA-61.md). Re-pinned from the failing
     // assertion's own output, never carried over from one side of a merge: a line map that is
     // right for one node set is wrong for the union of two.
     val col = new ColumnRef(0)
@@ -308,7 +308,7 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     assert(ir.contains("outputs=[(addDays col:0 lit:0)]"))
     assert(ir.contains("numInputs=1"))
     assert(VarkaDebugInfoReader.planFragment(bytes) === "date_add(d#1, 3) AS a#2")
-    // Task 16: the same attribute carries the LineNumberTable's decoding key.
+    // VARKA-16: the same attribute carries the LineNumberTable's decoding key.
     assert(VarkaDebugInfoReader.lineMap(bytes).startsWith("1="))
   }
 
@@ -321,7 +321,7 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
   }
 
   test("a debug payload past a class-file constant's limit is cut and marked, and the class " +
-      "still builds (task 190)") {
+      "still builds (VARKA-190)") {
     // Each VarkaDebugInfo field is one constant-pool UTF-8 entry, which a u2 counts, and a
     // kernel of several hundred outputs renders an IR past it; the class-file builder then
     // refused the whole class ("string too long") over metadata the JVM never reads. The plan

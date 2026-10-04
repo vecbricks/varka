@@ -32,7 +32,7 @@
 # `<jvms method='...'/>` frame, usually followed by `<make_not_entrant>`.
 #
 # Counting the first kind and reading it as the second is the mistake
-# `PLAN_MILESTONE_4.md` 2.39 made and this script exists to make impossible; its
+# `m4/PLAN.md` 2.39 made and this script exists to make impossible; its
 # own tell was that the per-method count equalled the compile count the same
 # section reported two paragraphs earlier.
 #

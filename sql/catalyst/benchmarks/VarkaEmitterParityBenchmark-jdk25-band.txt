@@ -23,47 +23,47 @@ tier   spread occ  table | case
 1     4.21   1  20000000 rows in 4096-row chunks | 8 outputs over one date, fusedCeiling 400 (1 loop methods), null-free
 1     5.39   1  20000000 rows in 4096-row chunks | 8 outputs over one date, one method (1 loop methods), null-free
 0     0.98   1  20000000 rows in 4096-row chunks | 8 outputs over one date, unshared (8 loop methods), null-free
-1     6.34   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context off (task 79 A/B), mixed nulls
-0     2.79   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context off (task 79 A/B), null-free
-1     4.88   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context on (task 79 A/B), mixed nulls
-0     2.25   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context on (task 79 A/B), null-free
-1     5.54   1  20000000 rows in 4096-row chunks | ThursdayOf alone (task 37), null-free
-0     1.63   1  20000000 rows in 4096-row chunks | add_months(d, 13), Julian map (task 54 A/B), null-free
-0     1.35   1  20000000 rows in 4096-row chunks | add_months(d, 13), century-then-year (task 54 A/B), null-free
-0     2.09   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count (task 60 control), mixed nulls
-0     1.49   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count (task 60 control), null-free
-0     2.11   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count, words per group (task 70 control), mixed nulls
+1     6.34   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), mixed nulls
+0     2.79   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), null-free
+1     4.88   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), mixed nulls
+0     2.25   1  20000000 rows in 4096-row chunks | CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), null-free
+1     5.54   1  20000000 rows in 4096-row chunks | ThursdayOf alone (VARKA-37), null-free
+0     1.63   1  20000000 rows in 4096-row chunks | add_months(d, 13), Julian map (VARKA-54 A/B), null-free
+0     1.35   1  20000000 rows in 4096-row chunks | add_months(d, 13), century-then-year (VARKA-54 A/B), null-free
+0     2.09   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count (VARKA-60 control), mixed nulls
+0     1.49   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count (VARKA-60 control), null-free
+0     2.11   1  20000000 rows in 4096-row chunks | add_months(d, 13), literal count, words per group (VARKA-70 control), mixed nulls
 0     2.21   1  20000000 rows in 4096-row chunks | add_months(d, 13), mixed nulls
 0     1.47   1  20000000 rows in 4096-row chunks | add_months(d, 13), null-free
-0     1.53   1  20000000 rows in 4096-row chunks | add_months(d, m), column count (task 60), mixed nulls
-0     1.44   1  20000000 rows in 4096-row chunks | add_months(d, m), column count (task 60), null-free
-0     1.38   1  20000000 rows in 4096-row chunks | add_months(d, m), column count, words per group (task 70 A/B), mixed nulls
-2    22.06   1  20000000 rows in 4096-row chunks | date_add(d, off) alone, guard option off (task 52 control), null-free
-2    20.13   1  20000000 rows in 4096-row chunks | date_add(d, off) alone, guard option on (task 52 control), null-free
-1     4.12   1  20000000 rows in 4096-row chunks | dayofmonth, 0-based axis (task 53 A/B), mixed nulls
-1     3.26   1  20000000 rows in 4096-row chunks | dayofmonth, 0-based axis (task 53 A/B), null-free
-1     6.16   1  20000000 rows in 4096-row chunks | dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls
-1     5.09   1  20000000 rows in 4096-row chunks | dayofmonth, Neri-Schneider (task 53 A/B), null-free
+0     1.53   1  20000000 rows in 4096-row chunks | add_months(d, m), column count (VARKA-60), mixed nulls
+0     1.44   1  20000000 rows in 4096-row chunks | add_months(d, m), column count (VARKA-60), null-free
+0     1.38   1  20000000 rows in 4096-row chunks | add_months(d, m), column count, words per group (VARKA-70 A/B), mixed nulls
+2    22.06   1  20000000 rows in 4096-row chunks | date_add(d, off) alone, guard option off (VARKA-52 control), null-free
+2    20.13   1  20000000 rows in 4096-row chunks | date_add(d, off) alone, guard option on (VARKA-52 control), null-free
+1     4.12   1  20000000 rows in 4096-row chunks | dayofmonth, 0-based axis (VARKA-53 A/B), mixed nulls
+1     3.26   1  20000000 rows in 4096-row chunks | dayofmonth, 0-based axis (VARKA-53 A/B), null-free
+1     6.16   1  20000000 rows in 4096-row chunks | dayofmonth, Neri-Schneider (VARKA-53 A/B), mixed nulls
+1     5.09   1  20000000 rows in 4096-row chunks | dayofmonth, Neri-Schneider (VARKA-53 A/B), null-free
 1     5.65   1  20000000 rows in 4096-row chunks | dayofweek, for scale, null-free
 1     8.53   1  20000000 rows in 4096-row chunks | dayofweek, mixed nulls
-2    13.07   1  20000000 rows in 4096-row chunks | dayofweek, per group + general validity helpers (task 46 A/B), mixed nulls
-1     6.36   1  20000000 rows in 4096-row chunks | dayofweek, validity OR-ed per group (task 45 A/B), null-free
-1     7.10   1  20000000 rows in 4096-row chunks | filter d < literal, general validity helpers (task 46 A/B), mixed nulls
-1     7.67   1  20000000 rows in 4096-row chunks | filter d < literal, general validity helpers (task 46 A/B), null-free
+2    13.07   1  20000000 rows in 4096-row chunks | dayofweek, per group + general validity helpers (VARKA-46 A/B), mixed nulls
+1     6.36   1  20000000 rows in 4096-row chunks | dayofweek, validity OR-ed per group (VARKA-45 A/B), null-free
+1     7.10   1  20000000 rows in 4096-row chunks | filter d < literal, general validity helpers (VARKA-46 A/B), mixed nulls
+1     7.67   1  20000000 rows in 4096-row chunks | filter d < literal, general validity helpers (VARKA-46 A/B), null-free
 2    18.03   1  20000000 rows in 4096-row chunks | filter d < literal, mixed nulls
 2    17.95   1  20000000 rows in 4096-row chunks | filter d < literal, null-free
-1     8.34   1  20000000 rows in 4096-row chunks | make_date, ANSI form (task 42 A/B), mixed nulls
-2    13.24   1  20000000 rows in 4096-row chunks | make_date, ANSI form (task 42 A/B), null-free
-1     3.23   1  20000000 rows in 4096-row chunks | make_date, NULL form (task 42 A/B), mixed nulls
-1     4.37   1  20000000 rows in 4096-row chunks | make_date, NULL form (task 42 A/B), null-free
-1     4.72   1  20000000 rows in 4096-row chunks | month, 0-based axis (task 53 A/B), mixed nulls
-1     3.43   1  20000000 rows in 4096-row chunks | month, 0-based axis (task 53 A/B), null-free
-1     6.68   1  20000000 rows in 4096-row chunks | month, Neri-Schneider (task 53 A/B), mixed nulls
-1     3.20   1  20000000 rows in 4096-row chunks | month, Neri-Schneider (task 53 A/B), null-free
+1     8.34   1  20000000 rows in 4096-row chunks | make_date, ANSI form (VARKA-42 A/B), mixed nulls
+2    13.24   1  20000000 rows in 4096-row chunks | make_date, ANSI form (VARKA-42 A/B), null-free
+1     3.23   1  20000000 rows in 4096-row chunks | make_date, NULL form (VARKA-42 A/B), mixed nulls
+1     4.37   1  20000000 rows in 4096-row chunks | make_date, NULL form (VARKA-42 A/B), null-free
+1     4.72   1  20000000 rows in 4096-row chunks | month, 0-based axis (VARKA-53 A/B), mixed nulls
+1     3.43   1  20000000 rows in 4096-row chunks | month, 0-based axis (VARKA-53 A/B), null-free
+1     6.68   1  20000000 rows in 4096-row chunks | month, Neri-Schneider (VARKA-53 A/B), mixed nulls
+1     3.20   1  20000000 rows in 4096-row chunks | month, Neri-Schneider (VARKA-53 A/B), null-free
 1     4.92   1  20000000 rows in 4096-row chunks | next_day(d, 'MON'), literal kernel (control), null-free
 2    13.31   1  20000000 rows in 4096-row chunks | next_day(d, k), column kernel, mixed nulls on the date
 2    11.24   1  20000000 rows in 4096-row chunks | next_day(d, k), column kernel, null-free
-2    21.20   1  20000000 rows in 4096-row chunks | next_day(d, k), column kernel, words per group (task 70 A/B), mixed nulls on the date
+2    21.20   1  20000000 rows in 4096-row chunks | next_day(d, k), column kernel, words per group (VARKA-70 A/B), mixed nulls on the date
 0     2.58   1  20000000 rows in 4096-row chunks | next_day(d, s) per row, getNextDateExact (the row engine)
 0     0.94   1  20000000 rows in 4096-row chunks | per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)
 0     1.30   1  20000000 rows in 4096-row chunks | per-row DateTimeUtils.truncDate YEAR (the path Spark uses today)
@@ -74,16 +74,16 @@ tier   spread occ  table | case
 3    64.57   1  20000000 rows in 4096-row chunks | probe: trivial body, int[] (control)
 0     0.10   1  20000000 rows in 4096-row chunks | scalar year, division (cannot auto-vectorize), null-free
 0     0.11   1  20000000 rows in 4096-row chunks | scalar year, magic multiply (may auto-vectorize), null-free
-0     1.69   1  20000000 rows in 4096-row chunks | trunc MONTH, recompose (task 35 A/B), null-free
-1     3.72   1  20000000 rows in 4096-row chunks | trunc MONTH, subtract (task 35 A/B), null-free
-0     2.20   1  20000000 rows in 4096-row chunks | trunc QUARTER, recompose (task 35 A/B), mixed nulls
-0     2.24   1  20000000 rows in 4096-row chunks | trunc QUARTER, recompose (task 35 A/B), null-free
-1     3.95   1  20000000 rows in 4096-row chunks | trunc QUARTER, subtract (task 35 A/B), mixed nulls
-0     2.12   1  20000000 rows in 4096-row chunks | trunc QUARTER, subtract (task 35 A/B), null-free
-0     2.84   1  20000000 rows in 4096-row chunks | trunc YEAR, recompose (task 35 A/B), mixed nulls
-0     2.04   1  20000000 rows in 4096-row chunks | trunc YEAR, recompose (task 35 A/B), null-free
-1     3.86   1  20000000 rows in 4096-row chunks | trunc YEAR, subtract (task 35 A/B), mixed nulls
-0     2.51   1  20000000 rows in 4096-row chunks | trunc YEAR, subtract (task 35 A/B), null-free
+0     1.69   1  20000000 rows in 4096-row chunks | trunc MONTH, recompose (VARKA-35 A/B), null-free
+1     3.72   1  20000000 rows in 4096-row chunks | trunc MONTH, subtract (VARKA-35 A/B), null-free
+0     2.20   1  20000000 rows in 4096-row chunks | trunc QUARTER, recompose (VARKA-35 A/B), mixed nulls
+0     2.24   1  20000000 rows in 4096-row chunks | trunc QUARTER, recompose (VARKA-35 A/B), null-free
+1     3.95   1  20000000 rows in 4096-row chunks | trunc QUARTER, subtract (VARKA-35 A/B), mixed nulls
+0     2.12   1  20000000 rows in 4096-row chunks | trunc QUARTER, subtract (VARKA-35 A/B), null-free
+0     2.84   1  20000000 rows in 4096-row chunks | trunc YEAR, recompose (VARKA-35 A/B), mixed nulls
+0     2.04   1  20000000 rows in 4096-row chunks | trunc YEAR, recompose (VARKA-35 A/B), null-free
+1     3.86   1  20000000 rows in 4096-row chunks | trunc YEAR, subtract (VARKA-35 A/B), mixed nulls
+0     2.51   1  20000000 rows in 4096-row chunks | trunc YEAR, subtract (VARKA-35 A/B), null-free
 1     3.82   1  20000000 rows in 4096-row chunks | trunc(d, 'MONTH'), literal kernel (control), null-free
 1     3.83   1  20000000 rows in 4096-row chunks | trunc(d, 'QUARTER'), literal kernel (control), mixed nulls
 0     1.96   1  20000000 rows in 4096-row chunks | trunc(d, 'QUARTER'), literal kernel (control), null-free
@@ -96,18 +96,18 @@ tier   spread occ  table | case
 2    16.58   1  20000000 rows in 4096-row chunks | weekday leaf, ascii parser, valid names
 1     3.57   1  20000000 rows in 4096-row chunks | weekday leaf, row-engine parser, a tenth unrecognised
 0     2.88   1  20000000 rows in 4096-row chunks | weekday leaf, row-engine parser, valid names
-1     3.34   1  20000000 rows in 4096-row chunks | weekofyear (task 37), mixed nulls
-0     2.12   1  20000000 rows in 4096-row chunks | weekofyear (task 37), null-free
-0     2.03   2  20000000 rows in 4096-row chunks | weekofyear (task 37), null-free
-1     4.83   1  20000000 rows in 4096-row chunks | weekofyear + yearofweek, one shift (task 58), null-free
+1     3.34   1  20000000 rows in 4096-row chunks | weekofyear (VARKA-37), mixed nulls
+0     2.12   1  20000000 rows in 4096-row chunks | weekofyear (VARKA-37), null-free
+0     2.03   2  20000000 rows in 4096-row chunks | weekofyear (VARKA-37), null-free
+1     4.83   1  20000000 rows in 4096-row chunks | weekofyear + yearofweek, one shift (VARKA-58), null-free
 1     4.51   1  20000000 rows in 4096-row chunks | year(d1), year(d2), two dates, shared option, null-free
-1     8.31   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls
-1     3.29   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard off (task 52 A/B), null-free
-1     6.81   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls
-1     9.08   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard on (task 52 A/B), null-free
-2    10.99   1  20000000 rows in 4096-row chunks | year+month+day+quarter, 0-based axis (task 53 A/B), null-free
-2    10.47   1  20000000 rows in 4096-row chunks | year+month+day+quarter, Julian map (task 54 A/B), null-free
-1     6.90   1  20000000 rows in 4096-row chunks | year+month+day+quarter, century-then-year (task 54 A/B), null-free
+1     8.31   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard off (VARKA-52 A/B), mixed nulls
+1     3.29   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard off (VARKA-52 A/B), null-free
+1     6.81   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard on (VARKA-52 A/B), mixed nulls
+1     9.08   1  20000000 rows in 4096-row chunks | year(date_add(d, off)), producer guard on (VARKA-52 A/B), null-free
+2    10.99   1  20000000 rows in 4096-row chunks | year+month+day+quarter, 0-based axis (VARKA-53 A/B), null-free
+2    10.47   1  20000000 rows in 4096-row chunks | year+month+day+quarter, Julian map (VARKA-54 A/B), null-free
+1     6.90   1  20000000 rows in 4096-row chunks | year+month+day+quarter, century-then-year (VARKA-54 A/B), null-free
 2    14.22   1  20000000 rows in 4096-row chunks | year+month+day+quarter, null-free
 0     1.91   1  20000000 rows in 4096-row chunks | year+month+day+quarter, separate (4 loop methods), null-free
 1     8.07   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared (1 loop method), mixed nulls
@@ -115,30 +115,30 @@ tier   spread occ  table | case
 2    11.13   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared decomposition (hand-written ceiling)
 1     9.49   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared decomposition (no validity write)
 2    10.63   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared decomposition (short live ranges)
-1     8.71   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, per group + OR after the store (task 46 A/B), mixed nulls
-2    10.33   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, per group + general helpers (task 46 A/B), mixed nulls
-1     7.67   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls
-2    13.16   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free
-2    10.08   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, words per group (task 70 A/B), mixed nulls
+1     8.71   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, per group + OR after the store (VARKA-46 A/B), mixed nulls
+2    10.33   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, per group + general helpers (VARKA-46 A/B), mixed nulls
+1     7.67   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), mixed nulls
+2    13.16   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), null-free
+2    10.08   1  20000000 rows in 4096-row chunks | year+month+day+quarter, shared, words per group (VARKA-70 A/B), mixed nulls
 0     1.68   1  20000000 rows in 4096-row chunks | year+month+day, separate (3 loop methods), null-free
 1     7.84   1  20000000 rows in 4096-row chunks | year+month+day, shared (1 loop method), null-free
 0     2.61   1  20000000 rows in 4096-row chunks | year+month, separate (2 loop methods), null-free
 1     4.20   1  20000000 rows in 4096-row chunks | year+month, shared (1 loop method), null-free
-1     5.18   1  20000000 rows in 4096-row chunks | year, Julian map (task 54 A/B), mixed nulls
-1     3.41   1  20000000 rows in 4096-row chunks | year, Julian map (task 54 A/B), null-free
-1     6.33   1  20000000 rows in 4096-row chunks | year, century-then-year (task 54 A/B), mixed nulls
-0     2.37   1  20000000 rows in 4096-row chunks | year, century-then-year (task 54 A/B), null-free
+1     5.18   1  20000000 rows in 4096-row chunks | year, Julian map (VARKA-54 A/B), mixed nulls
+1     3.41   1  20000000 rows in 4096-row chunks | year, Julian map (VARKA-54 A/B), null-free
+1     6.33   1  20000000 rows in 4096-row chunks | year, century-then-year (VARKA-54 A/B), mixed nulls
+0     2.37   1  20000000 rows in 4096-row chunks | year, century-then-year (VARKA-54 A/B), null-free
 1     4.35   1  20000000 rows in 4096-row chunks | year, mixed nulls
-1     5.20   1  20000000 rows in 4096-row chunks | year, month step kept (task 48 A/B), mixed nulls
-1     3.37   1  20000000 rows in 4096-row chunks | year, month step kept (task 48 A/B), null-free
+1     5.20   1  20000000 rows in 4096-row chunks | year, month step kept (VARKA-48 A/B), mixed nulls
+1     3.37   1  20000000 rows in 4096-row chunks | year, month step kept (VARKA-48 A/B), null-free
 1     3.17   1  20000000 rows in 4096-row chunks | year, null-free
-2    11.00   1  20000000 rows in 4096-row chunks | year, per group + OR after the store (task 46 A/B), mixed nulls
-1     6.02   1  20000000 rows in 4096-row chunks | year, per group + general validity helpers (task 46 A/B), mixed nulls
-1     4.33   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group (task 45 A/B), mixed nulls
-1     3.08   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group (task 45 A/B), null-free
-1     5.34   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group, general helpers (task 46 A/B), null-free
-2    10.30   1  20000000 rows in 4096-row chunks | year, words per group (task 70 A/B), mixed nulls
-0     2.43   1  20000000 rows in 4096-row chunks | yearofweek (task 58), null-free
+2    11.00   1  20000000 rows in 4096-row chunks | year, per group + OR after the store (VARKA-46 A/B), mixed nulls
+1     6.02   1  20000000 rows in 4096-row chunks | year, per group + general validity helpers (VARKA-46 A/B), mixed nulls
+1     4.33   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group (VARKA-45 A/B), mixed nulls
+1     3.08   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group (VARKA-45 A/B), null-free
+1     5.34   1  20000000 rows in 4096-row chunks | year, validity OR-ed per group, general helpers (VARKA-46 A/B), null-free
+2    10.30   1  20000000 rows in 4096-row chunks | year, words per group (VARKA-70 A/B), mixed nulls
+0     2.43   1  20000000 rows in 4096-row chunks | yearofweek (VARKA-58), null-free
 3    26.96   1  20000000 rows in chunks | dayofweek, chunk 63 (lanes-1 tail rows), mixed nulls
 2    16.53   1  20000000 rows in chunks | dayofweek, chunk 63 (lanes-1 tail rows), null-free
 2    24.80   1  20000000 rows in chunks | dayofweek, chunk 64 (aligned), mixed nulls
@@ -159,10 +159,10 @@ tier   spread occ  table | case
 2    16.47   1  20000000 rows in chunks | year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), null-free
 3    29.27   1  20000000 rows in chunks | year+month+day+quarter, shared, chunk 64 (aligned), mixed nulls
 2    18.17   1  20000000 rows in chunks | year+month+day+quarter, shared, chunk 64 (aligned), null-free
-1     3.40   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls
-1     4.27   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4096 (aligned), mixed nulls
-2    22.65   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (task 70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls
-1     8.29   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (task 70 A/B), chunk 64 (aligned), mixed nulls
+1     3.40   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls
+1     4.27   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4096 (aligned), mixed nulls
+2    22.65   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls
+1     8.29   1  20000000 rows in chunks | year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 64 (aligned), mixed nulls
 0     1.10   1  20000000 rows in chunks | year+month+day+quarter, unshared, chunk 4095 (lanes-1 tail rows), null-free
 0     1.03   1  20000000 rows in chunks | year+month+day+quarter, unshared, chunk 4096 (aligned), null-free
 1     6.66   1  20000000 rows in chunks | year+month+day+quarter, unshared, chunk 63 (lanes-1 tail rows), null-free
@@ -196,13 +196,13 @@ tier   spread occ  table | case
 2    11.01   1  datediff over 1000000 rows | greatest(d, d2), emitted loop, first input all-null
 2    11.67   1  datediff over 1000000 rows | greatest(d, d2), emitted loop, mixed nulls
 1     8.12   1  datediff over 1000000 rows | greatest(d, d2), emitted loop, null-free
-3    27.85   1  datediff over 1000000 rows | greatest(d, d2), words per group (task 70 A/B), first input all-null
-3    27.72   1  datediff over 1000000 rows | greatest(d, d2), words per group (task 70 A/B), mixed nulls
+3    27.85   1  datediff over 1000000 rows | greatest(d, d2), words per group (VARKA-70 A/B), first input all-null
+3    27.72   1  datediff over 1000000 rows | greatest(d, d2), words per group (VARKA-70 A/B), mixed nulls
 3    28.11   1  datediff over 1000000 rows | hand-written kernel, mixed nulls
 2    22.09   1  datediff over 1000000 rows | hand-written kernel, null-free
-2    10.94   1  dayofweek over 1000000 rows | dayofweek_iso (task 57), null-free
-1     3.81   1  dayofweek over 1000000 rows | digit sum (task 11 reference), mixed nulls
-1     3.55   1  dayofweek over 1000000 rows | digit sum (task 11 reference), null-free
+2    10.94   1  dayofweek over 1000000 rows | dayofweek_iso (VARKA-57), null-free
+1     3.81   1  dayofweek over 1000000 rows | digit sum (VARKA-11 reference), mixed nulls
+1     3.55   1  dayofweek over 1000000 rows | digit sum (VARKA-11 reference), null-free
 1     5.67   1  dayofweek over 1000000 rows | lanewise DIV, null-free
 1     5.74   1  dayofweek over 1000000 rows | magic multiply (shipped), mixed nulls
 2    12.27   1  dayofweek over 1000000 rows | magic multiply (shipped), null-free

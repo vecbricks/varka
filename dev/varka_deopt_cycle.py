@@ -17,7 +17,7 @@
 #
 # Reads the log of dev/varka_deopt_cycle.sh - the forks' -XX:+PrintCompilation and
 # -Xlog:deoptimization=debug output - and says, per fork, whether the kernel's dense loop
-# methods compiled once or entered the C2 deoptimization cycle (PLAN_MILESTONE_6.md 2.12).
+# methods compiled once or entered the C2 deoptimization cycle (m6/PLAN.md 2.12).
 #
 #   dev/varka_deopt_cycle.py target/varka-deopt-cycle/<date>/width-16.log ...
 #   dev/varka_deopt_cycle.py --fail-on-cycle <log>...    # the nightly guard's form

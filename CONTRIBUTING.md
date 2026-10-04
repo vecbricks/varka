@@ -26,27 +26,27 @@ applies to anything that touches Spark itself.
 
 Development runs in milestones, and each milestone is one file under
 [`sql/varka/plans/`](sql/varka/plans/) with a numbered task table. The
-milestone in flight is the highest-numbered `PLAN_MILESTONE_<n>.md` there,
-[`PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md) as this is
+milestone in flight is the highest-numbered `m<n>/PLAN.md` there,
+[`m7/PLAN.md`](sql/varka/plans/m7/PLAN.md) as this is
 written; a row whose first bold marker begins with **Done** is finished and
 carries a pointer to its outcome, **Withdrawn** rows are closed, and every
 other row is open, whether marked **Scoped**, **Planned** or not yet marked.
 Each row names what has to be true before the task starts and what counts as
-done, and every task has, or gets, its own `PLAN_TASK_<n>.md`. Every milestone ends
+done, and every task has, or gets, its own plan in its milestone's folder,
+`m<n>/VARKA-<id>.md`. Every milestone ends
 with a closing task, the last row of its table, that does the housekeeping the
 work leaves behind: every document that names the milestone in flight
 corrected, the lessons in the skills files, the oracles regenerated
 on the closing commit, the milestone's entry in [`CHANGELOG.md`](CHANGELOG.md),
 an annotated tag `varka-m<n>` on the commit that closes the last row, and the
-worktrees and branches of merged pull requests removed; milestone 6's is task
-282 (`PLAN_TASK_282.md`), and the close is recorded as the plan's last
+worktrees and branches of merged pull requests removed; milestone 6's is VARKA-282 (`VARKA-282.md`), and the close is recorded as the plan's last
 section. The same rows
 are mirrored as [issues labelled `task`](https://github.com/vecbricks/varka/issues?q=label%3Atask),
 one per open row, by `dev/varka_issues.py` on every change to the plan; the
 ones a newcomer can finish in a day carry `good first issue`. The table is the
 source of truth and the issues follow it, so a row is edited in the plan and
 never in the issue. The next milestone's scope catalogue is
-[`SCOPE_MILESTONE_8.md`](sql/varka/plans/SCOPE_MILESTONE_8.md), and design
+[`m8/SCOPE.md`](sql/varka/plans/m8/SCOPE.md), and design
 input there is as welcome as code.
 
 Before writing code for a task, open a GitHub issue with the "Varka: take a
@@ -112,7 +112,8 @@ run that no longer matters, and `status` shows every open PR's run.
 
 ### Pull requests
 
-Titles read `[VARKA] <what the change achieves>`, short and goal-oriented.
+Titles read `[VARKA-<id>] <what the change achieves>` for a task's pull request, short and
+goal-oriented, and `[VARKA] <what it achieves>` for one that belongs to no task.
 The description follows [`.github/PULL_REQUEST_TEMPLATE`](.github/PULL_REQUEST_TEMPLATE)
 and explains the mechanism in prose, not only the diff. If a generative AI
 tool took part, the last section says so with a `Generated-by:` line naming

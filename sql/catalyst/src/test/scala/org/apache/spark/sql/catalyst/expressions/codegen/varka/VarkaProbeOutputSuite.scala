@@ -22,7 +22,7 @@ import org.apache.spark.SparkFunSuite
 /**
  * The probe-output reader against the lines that broke its predecessors: a marker glued to a
  * compile record on either side, which is what a compiler thread writing to the probe's stream
- * produces (`PLAN_MILESTONE_6.md` row 229).
+ * produces (`m6/PLAN.md` row 229).
  */
 class VarkaProbeOutputSuite extends SparkFunSuite {
 

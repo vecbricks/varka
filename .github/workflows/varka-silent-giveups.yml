@@ -18,7 +18,7 @@
 #
 
 # Runs the spark-shell scripts under sql/varka/demo/silent-giveups/ - the snippets of the post on
-# where Spark gives up whole-stage codegen (PLAN_TASK_233.md 10.3 and 10.5) - on the stock Spark
+# where Spark gives up whole-stage codegen (VARKA-233.md 10.3 and 10.5) - on the stock Spark
 # distribution under each JDK Spark supports, and uploads what each prints. Like varka-demo.yml it
 # needs no build of this repository: the scripts run the way a reader runs them. Each output keeps
 # the script's own lines, from its first "###" on, with the runner's CPU and the versions above.

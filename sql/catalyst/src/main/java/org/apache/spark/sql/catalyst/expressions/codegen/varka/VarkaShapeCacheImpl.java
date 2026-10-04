@@ -41,7 +41,7 @@ import org.apache.spark.util.SparkStringUtils$;
 
 /**
  * The bounded cross-task cache of loaded fused-kernel classes (see {@code
- * PLAN_MILESTONE_3.md} 2.1). The diagnosis behind its design: emission costs ~80 us and was
+ * m3/PLAN.md} 2.1). The diagnosis behind its design: emission costs ~80 us and was
  * never the problem, but a re-defined class is a new class to HotSpot and re-pays the whole tier
  * ladder - a fixed 13-50 ms per task. Only reusing the loaded class amortises that, so this is an
  * LRU over classes each held by its own {@link VarkaGeneratedClassLoader}, released (and so
@@ -189,7 +189,7 @@ public final class VarkaShapeCacheImpl {
   // that question cost one emission per shape per JVM however often the compiler runs.
   private final Cache<VarkaShapeKey, VarkaEmitDeclined> declined;
 
-  // Shapes admitted at plan time (task 237): each one's bytes, built and measured but not
+  // Shapes admitted at plan time (VARKA-237): each one's bytes, built and measured but not
   // defined, so that answering the compiler's question loads no class - on the Spark driver,
   // which runs no kernel, and for every probe of a bisection but the one the plan keeps. The first
   // lookup that runs the shape defines its class from these bytes rather than building it again,
@@ -235,7 +235,7 @@ public final class VarkaShapeCacheImpl {
 
   /**
    * Answers the compiler's question - does the emitter serve this shape? - without defining a
-   * class (task 237): returns if it does, and throws the {@link VarkaEmitDeclined} it gives if
+   * class (VARKA-237): returns if it does, and throws the {@link VarkaEmitDeclined} it gives if
    * not, remembered like every decline. A shape defined or being defined under {@code parent},
    * or already admitted, is not built again; otherwise its bytes are built, measured and held for
    * the first lookup that runs it ({@link #getOrEmit}).

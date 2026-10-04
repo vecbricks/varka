@@ -31,18 +31,18 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
 /**
- * The child JVM of `dev/varka_deopt_cycle.sh` (task 189): one `make_date` kernel of the method
+ * The child JVM of `dev/varka_deopt_cycle.sh` (VARKA-189): one `make_date` kernel of the method
  * size benchmark's ladder, emitted in one of its two forms and driven over null-free batches for
  * a fixed time, so that the parent can read from the JVM's own compile and deoptimization log
  * whether the kernel's dense loop compiled once or entered the C2 deoptimization cycle
- * `PLAN_MILESTONE_6.md` 2.12 describes. The verdict is the parent's, from those logs; this
+ * `m6/PLAN.md` 2.12 describes. The verdict is the parent's, from those logs; this
  * class only prints what it built and, per second, the rate it saw, so a log can be read
  * against a timeline.
  *
  * Arguments: the output count, the form (`single` for one epilogue over every output, the
- * emission before task 87; `group` for the epilogue per group, the default since), the seconds
+ * emission before VARKA-87; `group` for the epilogue per group, the default since), the seconds
  * to run, optionally the batch length (1024, which every lane count divides), and optionally the
- * path to C2: `batches`, the batches from the first call; `warmup`, the path task 212 gives a
+ * path to C2: `batches`, the batches from the first call; `warmup`, the path VARKA-212 gives a
  * new kernel - C1 kept off the class by the same compiler directive, and twelve thousand calls
  * of 32 rows before the first batch, so that C2 compiles the loop from the warm-up's profile;
  * and the two halves of that path on their own, `c1off` and `shortcalls`, which tell which half
@@ -63,7 +63,7 @@ object VarkaDeoptCycleProbe {
   private val warmupRows = 32
   private val warmupCalls = 12000
 
-  /** Task 212's directive, for this probe's classes: C1 never compiles them. */
+  /** VARKA-212's directive, for this probe's classes: C1 never compiles them. */
   private def excludeC1(): Unit = {
     val file = Files.createTempFile("varka-deopt-probe-directive", ".json")
     try {

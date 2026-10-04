@@ -45,9 +45,9 @@ Running benchmark: datediff over 1000000 rows
   Stopped after 7682 iterations, 2000 ms
   Running case: greatest(d, d2), emitted loop, first input all-null
   Stopped after 10002 iterations, 2000 ms
-  Running case: greatest(d, d2), words per group (task 70 A/B), mixed nulls
+  Running case: greatest(d, d2), words per group (VARKA-70 A/B), mixed nulls
   Stopped after 5049 iterations, 2000 ms
-  Running case: greatest(d, d2), words per group (task 70 A/B), first input all-null
+  Running case: greatest(d, d2), words per group (VARKA-70 A/B), first input all-null
   Stopped after 7224 iterations, 2000 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
@@ -60,8 +60,8 @@ emitted loop, mixed nulls                                                       
 greatest(d, d2), emitted loop, null-free                                          0              0           0      12215.5           0.1       8.9X
 greatest(d, d2), emitted loop, mixed nulls                                        0              0           0       4276.8           0.2       3.1X
 greatest(d, d2), emitted loop, first input all-null                               0              0           0       6087.3           0.2       4.4X
-greatest(d, d2), words per group (task 70 A/B), mixed nulls                       0              0           0       2690.4           0.4       2.0X
-greatest(d, d2), words per group (task 70 A/B), first input all-null              0              0           0       4068.2           0.2       3.0X
+greatest(d, d2), words per group (VARKA-70 A/B), mixed nulls                       0              0           0       2690.4           0.4       2.0X
+greatest(d, d2), words per group (VARKA-70 A/B), first input all-null              0              0           0       4068.2           0.2       3.0X
 Running benchmark: chain over 1000000 rows, mixed nulls
   Running case: fused, depth 1
   Stopped after 28836 iterations, 2000 ms
@@ -129,15 +129,15 @@ CASE WHEN, depth-4 arms, null-free                    0              0          
 arithmetic depth 4, mixed nulls                       0              0           0      16820.3           0.1       0.9X
 CASE WHEN, depth-4 arms, mixed nulls                  0              0           0       2414.3           0.4       0.1X
 Running benchmark: dayofweek over 1000000 rows
-  Running case: dayofweek_iso (task 57), null-free
+  Running case: dayofweek_iso (VARKA-57), null-free
   Stopped after 6705 iterations, 2000 ms
   Running case: magic multiply (shipped), null-free
   Stopped after 6728 iterations, 2000 ms
   Running case: magic multiply (shipped), mixed nulls
   Stopped after 7754 iterations, 2000 ms
-  Running case: digit sum (task 11 reference), null-free
+  Running case: digit sum (VARKA-11 reference), null-free
   Stopped after 4003 iterations, 2000 ms
-  Running case: digit sum (task 11 reference), mixed nulls
+  Running case: digit sum (VARKA-11 reference), mixed nulls
   Stopped after 4307 iterations, 2000 ms
   Running case: lanewise DIV, null-free
   Stopped after 684 iterations, 2001 ms
@@ -147,107 +147,107 @@ OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 dayofweek over 1000000 rows:                   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-dayofweek_iso (task 57), null-free                         0              0           0       3447.2           0.3       1.0X
+dayofweek_iso (VARKA-57), null-free                         0              0           0       3447.2           0.3       1.0X
 magic multiply (shipped), null-free                        0              0           0       3441.9           0.3       1.0X
 magic multiply (shipped), mixed nulls                      0              0           0       3992.5           0.3       1.2X
-digit sum (task 11 reference), null-free                   0              0           0       2193.1           0.5       0.6X
-digit sum (task 11 reference), mixed nulls                 0              0           0       2205.7           0.5       0.6X
+digit sum (VARKA-11 reference), null-free                   0              0           0       2193.1           0.5       0.6X
+digit sum (VARKA-11 reference), mixed nulls                 0              0           0       2205.7           0.5       0.6X
 lanewise DIV, null-free                                    3              3           0        362.4           2.8       0.1X
 per-row LocalDate (the path Spark uses today)             10             10           0        100.3          10.0       0.0X
 Running benchmark: 20000000 rows in 4096-row chunks
   Running case: year, null-free
   Stopped after 132 iterations, 2009 ms
-  Running case: year, validity OR-ed per group (task 45 A/B), null-free
+  Running case: year, validity OR-ed per group (VARKA-45 A/B), null-free
   Stopped after 116 iterations, 2007 ms
-  Running case: year, validity OR-ed per group, general helpers (task 46 A/B), null-free
+  Running case: year, validity OR-ed per group, general helpers (VARKA-46 A/B), null-free
   Stopped after 127 iterations, 2015 ms
-  Running case: year, validity OR-ed per group (task 45 A/B), mixed nulls
+  Running case: year, validity OR-ed per group (VARKA-45 A/B), mixed nulls
   Stopped after 132 iterations, 2012 ms
-  Running case: year, month step kept (task 48 A/B), null-free
+  Running case: year, month step kept (VARKA-48 A/B), null-free
   Stopped after 130 iterations, 2014 ms
   Running case: year, mixed nulls
   Stopped after 132 iterations, 2011 ms
-  Running case: year, words per group (task 70 A/B), mixed nulls
+  Running case: year, words per group (VARKA-70 A/B), mixed nulls
   Stopped after 119 iterations, 2018 ms
-  Running case: year, per group + general validity helpers (task 46 A/B), mixed nulls
+  Running case: year, per group + general validity helpers (VARKA-46 A/B), mixed nulls
   Stopped after 126 iterations, 2009 ms
-  Running case: year, per group + OR after the store (task 46 A/B), mixed nulls
+  Running case: year, per group + OR after the store (VARKA-46 A/B), mixed nulls
   Stopped after 93 iterations, 2000 ms
   Running case: dayofweek, mixed nulls
   Stopped after 379 iterations, 2003 ms
-  Running case: dayofweek, per group + general validity helpers (task 46 A/B), mixed nulls
+  Running case: dayofweek, per group + general validity helpers (VARKA-46 A/B), mixed nulls
   Stopped after 293 iterations, 2004 ms
-  Running case: 1 validity write(s) per body, width-named helpers (task 76), mixed nulls
+  Running case: 1 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls
   Stopped after 265 iterations, 2004 ms
-  Running case: 1 validity write(s) per body, general helpers (task 76), mixed nulls
+  Running case: 1 validity write(s) per body, general helpers (VARKA-76), mixed nulls
   Stopped after 285 iterations, 2002 ms
-  Running case: 1 validity write(s) per body, one write per word (task 47), mixed nulls
+  Running case: 1 validity write(s) per body, one write per word (VARKA-47), mixed nulls
   Stopped after 277 iterations, 2004 ms
-  Running case: 2 validity write(s) per body, width-named helpers (task 76), mixed nulls
+  Running case: 2 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls
   Stopped after 173 iterations, 2007 ms
-  Running case: 2 validity write(s) per body, general helpers (task 76), mixed nulls
+  Running case: 2 validity write(s) per body, general helpers (VARKA-76), mixed nulls
   Stopped after 176 iterations, 2008 ms
-  Running case: 2 validity write(s) per body, one write per word (task 47), mixed nulls
+  Running case: 2 validity write(s) per body, one write per word (VARKA-47), mixed nulls
   Stopped after 184 iterations, 2003 ms
-  Running case: 3 validity write(s) per body, width-named helpers (task 76), mixed nulls
+  Running case: 3 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls
   Stopped after 86 iterations, 2001 ms
-  Running case: 3 validity write(s) per body, general helpers (task 76), mixed nulls
+  Running case: 3 validity write(s) per body, general helpers (VARKA-76), mixed nulls
   Stopped after 77 iterations, 2014 ms
-  Running case: 3 validity write(s) per body, one write per word (task 47), mixed nulls
+  Running case: 3 validity write(s) per body, one write per word (VARKA-47), mixed nulls
   Stopped after 115 iterations, 2007 ms
-  Running case: 4 validity write(s) per body, width-named helpers (task 76), mixed nulls
+  Running case: 4 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls
   Stopped after 55 iterations, 2011 ms
-  Running case: 4 validity write(s) per body, general helpers (task 76), mixed nulls
+  Running case: 4 validity write(s) per body, general helpers (VARKA-76), mixed nulls
   Stopped after 48 iterations, 2035 ms
-  Running case: 4 validity write(s) per body, one write per word (task 47), mixed nulls
+  Running case: 4 validity write(s) per body, one write per word (VARKA-47), mixed nulls
   Stopped after 52 iterations, 2012 ms
   Running case: filter d < literal, null-free
   Stopped after 623 iterations, 2000 ms
-  Running case: filter d < literal, general validity helpers (task 46 A/B), null-free
+  Running case: filter d < literal, general validity helpers (VARKA-46 A/B), null-free
   Stopped after 616 iterations, 2000 ms
   Running case: filter d < literal, mixed nulls
   Stopped after 463 iterations, 2001 ms
-  Running case: filter d < literal, general validity helpers (task 46 A/B), mixed nulls
+  Running case: filter d < literal, general validity helpers (VARKA-46 A/B), mixed nulls
   Stopped after 439 iterations, 2003 ms
-  Running case: year, month step kept (task 48 A/B), mixed nulls
+  Running case: year, month step kept (VARKA-48 A/B), mixed nulls
   Stopped after 131 iterations, 2001 ms
   Running case: add_months(d, 13), null-free
   Stopped after 26 iterations, 2053 ms
   Running case: add_months(d, 13), mixed nulls
   Stopped after 26 iterations, 2056 ms
-  Running case: year, Julian map (task 54 A/B), null-free
+  Running case: year, Julian map (VARKA-54 A/B), null-free
   Stopped after 133 iterations, 2014 ms
-  Running case: year, century-then-year (task 54 A/B), null-free
+  Running case: year, century-then-year (VARKA-54 A/B), null-free
   Stopped after 105 iterations, 2009 ms
-  Running case: year, Julian map (task 54 A/B), mixed nulls
+  Running case: year, Julian map (VARKA-54 A/B), mixed nulls
   Stopped after 131 iterations, 2005 ms
-  Running case: year, century-then-year (task 54 A/B), mixed nulls
+  Running case: year, century-then-year (VARKA-54 A/B), mixed nulls
   Stopped after 105 iterations, 2006 ms
-  Running case: year+month+day+quarter, Julian map (task 54 A/B), null-free
+  Running case: year+month+day+quarter, Julian map (VARKA-54 A/B), null-free
   Stopped after 79 iterations, 2022 ms
-  Running case: year+month+day+quarter, century-then-year (task 54 A/B), null-free
+  Running case: year+month+day+quarter, century-then-year (VARKA-54 A/B), null-free
   Stopped after 70 iterations, 2000 ms
-  Running case: add_months(d, 13), Julian map (task 54 A/B), null-free
+  Running case: add_months(d, 13), Julian map (VARKA-54 A/B), null-free
   Stopped after 26 iterations, 2060 ms
-  Running case: add_months(d, 13), century-then-year (task 54 A/B), null-free
+  Running case: add_months(d, 13), century-then-year (VARKA-54 A/B), null-free
   Stopped after 25 iterations, 2051 ms
-  Running case: month, Neri-Schneider (task 53 A/B), null-free
+  Running case: month, Neri-Schneider (VARKA-53 A/B), null-free
   Stopped after 134 iterations, 2008 ms
-  Running case: month, 0-based axis (task 53 A/B), null-free
+  Running case: month, 0-based axis (VARKA-53 A/B), null-free
   Stopped after 120 iterations, 2007 ms
-  Running case: month, Neri-Schneider (task 53 A/B), mixed nulls
+  Running case: month, Neri-Schneider (VARKA-53 A/B), mixed nulls
   Stopped after 132 iterations, 2014 ms
-  Running case: month, 0-based axis (task 53 A/B), mixed nulls
+  Running case: month, 0-based axis (VARKA-53 A/B), mixed nulls
   Stopped after 120 iterations, 2003 ms
-  Running case: dayofmonth, Neri-Schneider (task 53 A/B), null-free
+  Running case: dayofmonth, Neri-Schneider (VARKA-53 A/B), null-free
   Stopped after 125 iterations, 2009 ms
-  Running case: dayofmonth, 0-based axis (task 53 A/B), null-free
+  Running case: dayofmonth, 0-based axis (VARKA-53 A/B), null-free
   Stopped after 104 iterations, 2008 ms
-  Running case: dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls
+  Running case: dayofmonth, Neri-Schneider (VARKA-53 A/B), mixed nulls
   Stopped after 125 iterations, 2010 ms
-  Running case: dayofmonth, 0-based axis (task 53 A/B), mixed nulls
+  Running case: dayofmonth, 0-based axis (VARKA-53 A/B), mixed nulls
   Stopped after 103 iterations, 2010 ms
-  Running case: year+month+day+quarter, 0-based axis (task 53 A/B), null-free
+  Running case: year+month+day+quarter, 0-based axis (VARKA-53 A/B), null-free
   Stopped after 70 iterations, 2009 ms
   Running case: year+month+day+quarter, null-free
   Stopped after 78 iterations, 2000 ms
@@ -259,11 +259,11 @@ Running benchmark: 20000000 rows in 4096-row chunks
   Stopped after 43 iterations, 2006 ms
   Running case: year+month+day, shared (1 loop method), null-free
   Stopped after 87 iterations, 2018 ms
-  Running case: dayofweek, validity OR-ed per group (task 45 A/B), null-free
+  Running case: dayofweek, validity OR-ed per group (VARKA-45 A/B), null-free
   Stopped after 265 iterations, 2000 ms
-  Running case: year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free
+  Running case: year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), null-free
   Stopped after 42 iterations, 2017 ms
-  Running case: year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls
+  Running case: year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), mixed nulls
   Stopped after 79 iterations, 2022 ms
   Running case: year+month+day+quarter, separate (4 loop methods), null-free
   Stopped after 32 iterations, 2055 ms
@@ -271,87 +271,87 @@ Running benchmark: 20000000 rows in 4096-row chunks
   Stopped after 78 iterations, 2002 ms
   Running case: year+month+day+quarter, shared (1 loop method), mixed nulls
   Stopped after 79 iterations, 2021 ms
-  Running case: year+month+day+quarter, shared, words per group (task 70 A/B), mixed nulls
+  Running case: year+month+day+quarter, shared, words per group (VARKA-70 A/B), mixed nulls
   Stopped after 41 iterations, 2030 ms
-  Running case: year+month+day+quarter, shared, per group + general helpers (task 46 A/B), mixed nulls
+  Running case: year+month+day+quarter, shared, per group + general helpers (VARKA-46 A/B), mixed nulls
   Stopped after 33 iterations, 2053 ms
-  Running case: year+month+day+quarter, shared, per group + OR after the store (task 46 A/B), mixed nulls
+  Running case: year+month+day+quarter, shared, per group + OR after the store (VARKA-46 A/B), mixed nulls
   Stopped after 34 iterations, 2002 ms
   Running case: year(d1), year(d2), two dates, shared option, null-free
   Stopped after 65 iterations, 2013 ms
-  Running case: year(date_add(d, off)), producer guard on (task 52 A/B), null-free
+  Running case: year(date_add(d, off)), producer guard on (VARKA-52 A/B), null-free
   Stopped after 118 iterations, 2009 ms
-  Running case: year(date_add(d, off)), producer guard off (task 52 A/B), null-free
+  Running case: year(date_add(d, off)), producer guard off (VARKA-52 A/B), null-free
   Stopped after 123 iterations, 2005 ms
-  Running case: year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls
+  Running case: year(date_add(d, off)), producer guard on (VARKA-52 A/B), mixed nulls
   Stopped after 103 iterations, 2007 ms
-  Running case: year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls
+  Running case: year(date_add(d, off)), producer guard off (VARKA-52 A/B), mixed nulls
   Stopped after 121 iterations, 2014 ms
-  Running case: date_add(d, off) alone, guard option on (task 52 control), null-free
+  Running case: date_add(d, off) alone, guard option on (VARKA-52 control), null-free
   Stopped after 847 iterations, 2000 ms
-  Running case: date_add(d, off) alone, guard option off (task 52 control), null-free
+  Running case: date_add(d, off) alone, guard option off (VARKA-52 control), null-free
   Stopped after 871 iterations, 2001 ms
-  Running case: CASE over year(date_add(d, off)), arm context on (task 79 A/B), null-free
+  Running case: CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), null-free
   Stopped after 66 iterations, 2024 ms
-  Running case: CASE over year(date_add(d, off)), arm context off (task 79 A/B), null-free
+  Running case: CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), null-free
   Stopped after 67 iterations, 2003 ms
-  Running case: CASE over year(date_add(d, off)), arm context on (task 79 A/B), mixed nulls
+  Running case: CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), mixed nulls
   Stopped after 49 iterations, 2026 ms
-  Running case: CASE over year(date_add(d, off)), arm context off (task 79 A/B), mixed nulls
+  Running case: CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), mixed nulls
   Stopped after 50 iterations, 2000 ms
-  Running case: add_months(d, m), column count (task 60), null-free
+  Running case: add_months(d, m), column count (VARKA-60), null-free
   Stopped after 25 iterations, 2070 ms
-  Running case: add_months(d, 13), literal count (task 60 control), null-free
+  Running case: add_months(d, 13), literal count (VARKA-60 control), null-free
   Stopped after 26 iterations, 2054 ms
-  Running case: add_months(d, m), column count (task 60), mixed nulls
+  Running case: add_months(d, m), column count (VARKA-60), mixed nulls
   Stopped after 24 iterations, 2030 ms
-  Running case: add_months(d, 13), literal count (task 60 control), mixed nulls
+  Running case: add_months(d, 13), literal count (VARKA-60 control), mixed nulls
   Stopped after 26 iterations, 2054 ms
-  Running case: add_months(d, m), column count, words per group (task 70 A/B), mixed nulls
+  Running case: add_months(d, m), column count, words per group (VARKA-70 A/B), mixed nulls
   Stopped after 21 iterations, 2035 ms
-  Running case: add_months(d, 13), literal count, words per group (task 70 control), mixed nulls
+  Running case: add_months(d, 13), literal count, words per group (VARKA-70 control), mixed nulls
   Stopped after 26 iterations, 2061 ms
-  Running case: trunc YEAR, subtract (task 35 A/B), null-free
+  Running case: trunc YEAR, subtract (VARKA-35 A/B), null-free
   Stopped after 87 iterations, 2004 ms
-  Running case: trunc YEAR, recompose (task 35 A/B), null-free
+  Running case: trunc YEAR, recompose (VARKA-35 A/B), null-free
   Stopped after 55 iterations, 2002 ms
-  Running case: trunc MONTH, subtract (task 35 A/B), null-free
+  Running case: trunc MONTH, subtract (VARKA-35 A/B), null-free
   Stopped after 126 iterations, 2010 ms
-  Running case: trunc MONTH, recompose (task 35 A/B), null-free
+  Running case: trunc MONTH, recompose (VARKA-35 A/B), null-free
   Stopped after 42 iterations, 2025 ms
-  Running case: trunc QUARTER, subtract (task 35 A/B), null-free
+  Running case: trunc QUARTER, subtract (VARKA-35 A/B), null-free
   Stopped after 57 iterations, 2030 ms
-  Running case: trunc QUARTER, recompose (task 35 A/B), null-free
+  Running case: trunc QUARTER, recompose (VARKA-35 A/B), null-free
   Stopped after 37 iterations, 2023 ms
-  Running case: trunc YEAR, subtract (task 35 A/B), mixed nulls
+  Running case: trunc YEAR, subtract (VARKA-35 A/B), mixed nulls
   Stopped after 87 iterations, 2016 ms
-  Running case: trunc YEAR, recompose (task 35 A/B), mixed nulls
+  Running case: trunc YEAR, recompose (VARKA-35 A/B), mixed nulls
   Stopped after 55 iterations, 2014 ms
-  Running case: trunc QUARTER, subtract (task 35 A/B), mixed nulls
+  Running case: trunc QUARTER, subtract (VARKA-35 A/B), mixed nulls
   Stopped after 57 iterations, 2030 ms
-  Running case: trunc QUARTER, recompose (task 35 A/B), mixed nulls
+  Running case: trunc QUARTER, recompose (VARKA-35 A/B), mixed nulls
   Stopped after 37 iterations, 2010 ms
-  Running case: make_date, NULL form (task 42 A/B), null-free
+  Running case: make_date, NULL form (VARKA-42 A/B), null-free
   Stopped after 54 iterations, 2003 ms
-  Running case: make_date, ANSI form (task 42 A/B), null-free
+  Running case: make_date, ANSI form (VARKA-42 A/B), null-free
   Stopped after 70 iterations, 2019 ms
-  Running case: make_date, NULL form (task 42 A/B), mixed nulls
+  Running case: make_date, NULL form (VARKA-42 A/B), mixed nulls
   Stopped after 59 iterations, 2012 ms
-  Running case: make_date, ANSI form (task 42 A/B), mixed nulls
+  Running case: make_date, ANSI form (VARKA-42 A/B), mixed nulls
   Stopped after 53 iterations, 2023 ms
   Running case: per-row LocalDate.of make_date (the path Spark uses today)
   Stopped after 23 iterations, 2059 ms
-  Running case: weekofyear (task 37), null-free
+  Running case: weekofyear (VARKA-37), null-free
   Stopped after 51 iterations, 2006 ms
-  Running case: yearofweek (task 58), null-free
+  Running case: yearofweek (VARKA-58), null-free
   Stopped after 73 iterations, 2012 ms
-  Running case: weekofyear + yearofweek, one shift (task 58), null-free
+  Running case: weekofyear + yearofweek, one shift (VARKA-58), null-free
   Stopped after 51 iterations, 2022 ms
-  Running case: weekofyear (task 37), null-free
+  Running case: weekofyear (VARKA-37), null-free
   Stopped after 51 iterations, 2015 ms
-  Running case: weekofyear (task 37), mixed nulls
+  Running case: weekofyear (VARKA-37), mixed nulls
   Stopped after 51 iterations, 2009 ms
-  Running case: ThursdayOf alone (task 37), null-free
+  Running case: ThursdayOf alone (VARKA-37), null-free
   Stopped after 318 iterations, 2004 ms
   Running case: per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)
   Stopped after 6 iterations, 2278 ms
@@ -382,104 +382,104 @@ AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 20000000 rows in 4096-row chunks:                                                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 year, null-free                                                                                       15             15           0       1331.0           0.8       1.0X
-year, validity OR-ed per group (task 45 A/B), null-free                                               17             17           0       1169.3           0.9       0.9X
-year, validity OR-ed per group, general helpers (task 46 A/B), null-free                              16             16           0       1276.9           0.8       1.0X
-year, validity OR-ed per group (task 45 A/B), mixed nulls                                             15             15           0       1328.2           0.8       1.0X
-year, month step kept (task 48 A/B), null-free                                                        15             15           0       1313.1           0.8       1.0X
+year, validity OR-ed per group (VARKA-45 A/B), null-free                                               17             17           0       1169.3           0.9       0.9X
+year, validity OR-ed per group, general helpers (VARKA-46 A/B), null-free                              16             16           0       1276.9           0.8       1.0X
+year, validity OR-ed per group (VARKA-45 A/B), mixed nulls                                             15             15           0       1328.2           0.8       1.0X
+year, month step kept (VARKA-48 A/B), null-free                                                        15             15           0       1313.1           0.8       1.0X
 year, mixed nulls                                                                                     15             15           0       1325.3           0.8       1.0X
-year, words per group (task 70 A/B), mixed nulls                                                      17             17           0       1200.2           0.8       0.9X
-year, per group + general validity helpers (task 46 A/B), mixed nulls                                 16             16           0       1274.1           0.8       1.0X
-year, per group + OR after the store (task 46 A/B), mixed nulls                                       21             22           0        939.4           1.1       0.7X
+year, words per group (VARKA-70 A/B), mixed nulls                                                      17             17           0       1200.2           0.8       0.9X
+year, per group + general validity helpers (VARKA-46 A/B), mixed nulls                                 16             16           0       1274.1           0.8       1.0X
+year, per group + OR after the store (VARKA-46 A/B), mixed nulls                                       21             22           0        939.4           1.1       0.7X
 dayofweek, mixed nulls                                                                                 5              5           0       3890.5           0.3       2.9X
-dayofweek, per group + general validity helpers (task 46 A/B), mixed nulls                             7              7           0       3000.0           0.3       2.3X
-1 validity write(s) per body, width-named helpers (task 76), mixed nulls                               7              8           0       2709.5           0.4       2.0X
-1 validity write(s) per body, general helpers (task 76), mixed nulls                                   7              7           0       2906.3           0.3       2.2X
-1 validity write(s) per body, one write per word (task 47), mixed nulls                                7              7           0       2881.4           0.3       2.2X
-2 validity write(s) per body, width-named helpers (task 76), mixed nulls                              11             12           0       1776.8           0.6       1.3X
-2 validity write(s) per body, general helpers (task 76), mixed nulls                                  11             11           0       1804.2           0.6       1.4X
-2 validity write(s) per body, one write per word (task 47), mixed nulls                               11             11           0       1902.5           0.5       1.4X
-3 validity write(s) per body, width-named helpers (task 76), mixed nulls                              23             23           0        876.6           1.1       0.7X
-3 validity write(s) per body, general helpers (task 76), mixed nulls                                  25             26           1        786.5           1.3       0.6X
-3 validity write(s) per body, one write per word (task 47), mixed nulls                               17             17           1       1184.7           0.8       0.9X
-4 validity write(s) per body, width-named helpers (task 76), mixed nulls                              36             37           1        552.4           1.8       0.4X
-4 validity write(s) per body, general helpers (task 76), mixed nulls                                  42             42           1        478.5           2.1       0.4X
-4 validity write(s) per body, one write per word (task 47), mixed nulls                               38             39           1        525.7           1.9       0.4X
+dayofweek, per group + general validity helpers (VARKA-46 A/B), mixed nulls                             7              7           0       3000.0           0.3       2.3X
+1 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls                               7              8           0       2709.5           0.4       2.0X
+1 validity write(s) per body, general helpers (VARKA-76), mixed nulls                                   7              7           0       2906.3           0.3       2.2X
+1 validity write(s) per body, one write per word (VARKA-47), mixed nulls                                7              7           0       2881.4           0.3       2.2X
+2 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls                              11             12           0       1776.8           0.6       1.3X
+2 validity write(s) per body, general helpers (VARKA-76), mixed nulls                                  11             11           0       1804.2           0.6       1.4X
+2 validity write(s) per body, one write per word (VARKA-47), mixed nulls                               11             11           0       1902.5           0.5       1.4X
+3 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls                              23             23           0        876.6           1.1       0.7X
+3 validity write(s) per body, general helpers (VARKA-76), mixed nulls                                  25             26           1        786.5           1.3       0.6X
+3 validity write(s) per body, one write per word (VARKA-47), mixed nulls                               17             17           1       1184.7           0.8       0.9X
+4 validity write(s) per body, width-named helpers (VARKA-76), mixed nulls                              36             37           1        552.4           1.8       0.4X
+4 validity write(s) per body, general helpers (VARKA-76), mixed nulls                                  42             42           1        478.5           2.1       0.4X
+4 validity write(s) per body, one write per word (VARKA-47), mixed nulls                               38             39           1        525.7           1.9       0.4X
 filter d < literal, null-free                                                                          3              3           0       6399.3           0.2       4.8X
-filter d < literal, general validity helpers (task 46 A/B), null-free                                  3              3           0       6310.6           0.2       4.7X
+filter d < literal, general validity helpers (VARKA-46 A/B), null-free                                  3              3           0       6310.6           0.2       4.7X
 filter d < literal, mixed nulls                                                                        4              4           0       4720.7           0.2       3.5X
-filter d < literal, general validity helpers (task 46 A/B), mixed nulls                                4              5           0       4535.6           0.2       3.4X
-year, month step kept (task 48 A/B), mixed nulls                                                      15             15           0       1327.2           0.8       1.0X
+filter d < literal, general validity helpers (VARKA-46 A/B), mixed nulls                                4              5           0       4535.6           0.2       3.4X
+year, month step kept (VARKA-48 A/B), mixed nulls                                                      15             15           0       1327.2           0.8       1.0X
 add_months(d, 13), null-free                                                                          79             79           0        254.2           3.9       0.2X
 add_months(d, 13), mixed nulls                                                                        79             79           1        254.7           3.9       0.2X
-year, Julian map (task 54 A/B), null-free                                                             15             15           0       1334.4           0.7       1.0X
-year, century-then-year (task 54 A/B), null-free                                                      19             19           0       1054.4           0.9       0.8X
-year, Julian map (task 54 A/B), mixed nulls                                                           15             15           0       1326.8           0.8       1.0X
-year, century-then-year (task 54 A/B), mixed nulls                                                    19             19           0       1051.5           1.0       0.8X
-year+month+day+quarter, Julian map (task 54 A/B), null-free                                           25             26           0        789.8           1.3       0.6X
-year+month+day+quarter, century-then-year (task 54 A/B), null-free                                    28             29           0        704.2           1.4       0.5X
-add_months(d, 13), Julian map (task 54 A/B), null-free                                                79             79           1        254.5           3.9       0.2X
-add_months(d, 13), century-then-year (task 54 A/B), null-free                                         82             82           0        245.0           4.1       0.2X
-month, Neri-Schneider (task 53 A/B), null-free                                                        15             15           0       1340.8           0.7       1.0X
-month, 0-based axis (task 53 A/B), null-free                                                          16             17           0       1212.1           0.8       0.9X
-month, Neri-Schneider (task 53 A/B), mixed nulls                                                      15             15           0       1335.8           0.7       1.0X
-month, 0-based axis (task 53 A/B), mixed nulls                                                        17             17           0       1209.5           0.8       0.9X
-dayofmonth, Neri-Schneider (task 53 A/B), null-free                                                   16             16           0       1256.0           0.8       0.9X
-dayofmonth, 0-based axis (task 53 A/B), null-free                                                     19             19           0       1043.1           1.0       0.8X
-dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls                                                 16             16           0       1253.3           0.8       0.9X
-dayofmonth, 0-based axis (task 53 A/B), mixed nulls                                                   19             20           0       1040.9           1.0       0.8X
-year+month+day+quarter, 0-based axis (task 53 A/B), null-free                                         28             29           0        705.4           1.4       0.5X
+year, Julian map (VARKA-54 A/B), null-free                                                             15             15           0       1334.4           0.7       1.0X
+year, century-then-year (VARKA-54 A/B), null-free                                                      19             19           0       1054.4           0.9       0.8X
+year, Julian map (VARKA-54 A/B), mixed nulls                                                           15             15           0       1326.8           0.8       1.0X
+year, century-then-year (VARKA-54 A/B), mixed nulls                                                    19             19           0       1051.5           1.0       0.8X
+year+month+day+quarter, Julian map (VARKA-54 A/B), null-free                                           25             26           0        789.8           1.3       0.6X
+year+month+day+quarter, century-then-year (VARKA-54 A/B), null-free                                    28             29           0        704.2           1.4       0.5X
+add_months(d, 13), Julian map (VARKA-54 A/B), null-free                                                79             79           1        254.5           3.9       0.2X
+add_months(d, 13), century-then-year (VARKA-54 A/B), null-free                                         82             82           0        245.0           4.1       0.2X
+month, Neri-Schneider (VARKA-53 A/B), null-free                                                        15             15           0       1340.8           0.7       1.0X
+month, 0-based axis (VARKA-53 A/B), null-free                                                          16             17           0       1212.1           0.8       0.9X
+month, Neri-Schneider (VARKA-53 A/B), mixed nulls                                                      15             15           0       1335.8           0.7       1.0X
+month, 0-based axis (VARKA-53 A/B), mixed nulls                                                        17             17           0       1209.5           0.8       0.9X
+dayofmonth, Neri-Schneider (VARKA-53 A/B), null-free                                                   16             16           0       1256.0           0.8       0.9X
+dayofmonth, 0-based axis (VARKA-53 A/B), null-free                                                     19             19           0       1043.1           1.0       0.8X
+dayofmonth, Neri-Schneider (VARKA-53 A/B), mixed nulls                                                 16             16           0       1253.3           0.8       0.9X
+dayofmonth, 0-based axis (VARKA-53 A/B), mixed nulls                                                   19             20           0       1040.9           1.0       0.8X
+year+month+day+quarter, 0-based axis (VARKA-53 A/B), null-free                                         28             29           0        705.4           1.4       0.5X
 year+month+day+quarter, null-free                                                                     25             26           1        790.5           1.3       0.6X
 year+month, separate (2 loop methods), null-free                                                      30             31           1        658.6           1.5       0.5X
 year+month, shared (1 loop method), null-free                                                         19             20           1       1043.0           1.0       0.8X
 year+month+day, separate (3 loop methods), null-free                                                  46             47           0        432.0           2.3       0.3X
 year+month+day, shared (1 loop method), null-free                                                     23             23           0        873.3           1.1       0.7X
-dayofweek, validity OR-ed per group (task 45 A/B), null-free                                           7              8           0       2743.1           0.4       2.1X
-year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free                     47             48           1        425.1           2.4       0.3X
-year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls                   25             26           0        790.7           1.3       0.6X
+dayofweek, validity OR-ed per group (VARKA-45 A/B), null-free                                           7              8           0       2743.1           0.4       2.1X
+year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), null-free                     47             48           1        425.1           2.4       0.3X
+year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), mixed nulls                   25             26           0        790.7           1.3       0.6X
 year+month+day+quarter, separate (4 loop methods), null-free                                          64             64           1        314.5           3.2       0.2X
 year+month+day+quarter, shared (1 loop method), null-free                                             25             26           0        791.1           1.3       0.6X
 year+month+day+quarter, shared (1 loop method), mixed nulls                                           25             26           0        789.5           1.3       0.6X
-year+month+day+quarter, shared, words per group (task 70 A/B), mixed nulls                            49             50           1        411.2           2.4       0.3X
-year+month+day+quarter, shared, per group + general helpers (task 46 A/B), mixed nulls                61             62           1        326.8           3.1       0.2X
-year+month+day+quarter, shared, per group + OR after the store (task 46 A/B), mixed nulls             58             59           1        343.3           2.9       0.3X
+year+month+day+quarter, shared, words per group (VARKA-70 A/B), mixed nulls                            49             50           1        411.2           2.4       0.3X
+year+month+day+quarter, shared, per group + general helpers (VARKA-46 A/B), mixed nulls                61             62           1        326.8           3.1       0.2X
+year+month+day+quarter, shared, per group + OR after the store (VARKA-46 A/B), mixed nulls             58             59           1        343.3           2.9       0.3X
 year(d1), year(d2), two dates, shared option, null-free                                               30             31           0        656.8           1.5       0.5X
-year(date_add(d, off)), producer guard on (task 52 A/B), null-free                                    17             17           0       1192.1           0.8       0.9X
-year(date_add(d, off)), producer guard off (task 52 A/B), null-free                                   16             16           0       1247.9           0.8       0.9X
-year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls                                  19             19           0       1053.6           0.9       0.8X
-year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls                                 16             17           0       1220.3           0.8       0.9X
-date_add(d, off) alone, guard option on (task 52 control), null-free                                   2              2           0      10456.5           0.1       7.9X
-date_add(d, off) alone, guard option off (task 52 control), null-free                                  2              2           0      10367.3           0.1       7.8X
-CASE over year(date_add(d, off)), arm context on (task 79 A/B), null-free                             30             31           1        664.1           1.5       0.5X
-CASE over year(date_add(d, off)), arm context off (task 79 A/B), null-free                            30             30           0        677.2           1.5       0.5X
-CASE over year(date_add(d, off)), arm context on (task 79 A/B), mixed nulls                           40             41           1        501.0           2.0       0.4X
-CASE over year(date_add(d, off)), arm context off (task 79 A/B), mixed nulls                          40             40           0        505.3           2.0       0.4X
-add_months(d, m), column count (task 60), null-free                                                   83             83           0        242.0           4.1       0.2X
-add_months(d, 13), literal count (task 60 control), null-free                                         78             79           1        254.8           3.9       0.2X
-add_months(d, m), column count (task 60), mixed nulls                                                 84             85           1        238.0           4.2       0.2X
-add_months(d, 13), literal count (task 60 control), mixed nulls                                       79             79           1        254.7           3.9       0.2X
-add_months(d, m), column count, words per group (task 70 A/B), mixed nulls                            96             97           1        208.5           4.8       0.2X
-add_months(d, 13), literal count, words per group (task 70 control), mixed nulls                      78             79           1        254.9           3.9       0.2X
-trunc YEAR, subtract (task 35 A/B), null-free                                                         23             23           0        871.7           1.1       0.7X
-trunc YEAR, recompose (task 35 A/B), null-free                                                        36             36           0        550.0           1.8       0.4X
-trunc MONTH, subtract (task 35 A/B), null-free                                                        16             16           0       1266.6           0.8       1.0X
-trunc MONTH, recompose (task 35 A/B), null-free                                                       48             48           1        419.2           2.4       0.3X
-trunc QUARTER, subtract (task 35 A/B), null-free                                                      35             36           0        567.3           1.8       0.4X
-trunc QUARTER, recompose (task 35 A/B), null-free                                                     54             55           1        369.6           2.7       0.3X
-trunc YEAR, subtract (task 35 A/B), mixed nulls                                                       23             23           0        871.5           1.1       0.7X
-trunc YEAR, recompose (task 35 A/B), mixed nulls                                                      36             37           0        549.9           1.8       0.4X
-trunc QUARTER, subtract (task 35 A/B), mixed nulls                                                    35             36           1        566.7           1.8       0.4X
-trunc QUARTER, recompose (task 35 A/B), mixed nulls                                                   54             54           1        370.4           2.7       0.3X
-make_date, NULL form (task 42 A/B), null-free                                                         36             37           1        554.4           1.8       0.4X
-make_date, ANSI form (task 42 A/B), null-free                                                         28             29           1        723.9           1.4       0.5X
-make_date, NULL form (task 42 A/B), mixed nulls                                                       33             34           1        601.5           1.7       0.5X
-make_date, ANSI form (task 42 A/B), mixed nulls                                                       37             38           1        535.3           1.9       0.4X
+year(date_add(d, off)), producer guard on (VARKA-52 A/B), null-free                                    17             17           0       1192.1           0.8       0.9X
+year(date_add(d, off)), producer guard off (VARKA-52 A/B), null-free                                   16             16           0       1247.9           0.8       0.9X
+year(date_add(d, off)), producer guard on (VARKA-52 A/B), mixed nulls                                  19             19           0       1053.6           0.9       0.8X
+year(date_add(d, off)), producer guard off (VARKA-52 A/B), mixed nulls                                 16             17           0       1220.3           0.8       0.9X
+date_add(d, off) alone, guard option on (VARKA-52 control), null-free                                   2              2           0      10456.5           0.1       7.9X
+date_add(d, off) alone, guard option off (VARKA-52 control), null-free                                  2              2           0      10367.3           0.1       7.8X
+CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), null-free                             30             31           1        664.1           1.5       0.5X
+CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), null-free                            30             30           0        677.2           1.5       0.5X
+CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), mixed nulls                           40             41           1        501.0           2.0       0.4X
+CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), mixed nulls                          40             40           0        505.3           2.0       0.4X
+add_months(d, m), column count (VARKA-60), null-free                                                   83             83           0        242.0           4.1       0.2X
+add_months(d, 13), literal count (VARKA-60 control), null-free                                         78             79           1        254.8           3.9       0.2X
+add_months(d, m), column count (VARKA-60), mixed nulls                                                 84             85           1        238.0           4.2       0.2X
+add_months(d, 13), literal count (VARKA-60 control), mixed nulls                                       79             79           1        254.7           3.9       0.2X
+add_months(d, m), column count, words per group (VARKA-70 A/B), mixed nulls                            96             97           1        208.5           4.8       0.2X
+add_months(d, 13), literal count, words per group (VARKA-70 control), mixed nulls                      78             79           1        254.9           3.9       0.2X
+trunc YEAR, subtract (VARKA-35 A/B), null-free                                                         23             23           0        871.7           1.1       0.7X
+trunc YEAR, recompose (VARKA-35 A/B), null-free                                                        36             36           0        550.0           1.8       0.4X
+trunc MONTH, subtract (VARKA-35 A/B), null-free                                                        16             16           0       1266.6           0.8       1.0X
+trunc MONTH, recompose (VARKA-35 A/B), null-free                                                       48             48           1        419.2           2.4       0.3X
+trunc QUARTER, subtract (VARKA-35 A/B), null-free                                                      35             36           0        567.3           1.8       0.4X
+trunc QUARTER, recompose (VARKA-35 A/B), null-free                                                     54             55           1        369.6           2.7       0.3X
+trunc YEAR, subtract (VARKA-35 A/B), mixed nulls                                                       23             23           0        871.5           1.1       0.7X
+trunc YEAR, recompose (VARKA-35 A/B), mixed nulls                                                      36             37           0        549.9           1.8       0.4X
+trunc QUARTER, subtract (VARKA-35 A/B), mixed nulls                                                    35             36           1        566.7           1.8       0.4X
+trunc QUARTER, recompose (VARKA-35 A/B), mixed nulls                                                   54             54           1        370.4           2.7       0.3X
+make_date, NULL form (VARKA-42 A/B), null-free                                                         36             37           1        554.4           1.8       0.4X
+make_date, ANSI form (VARKA-42 A/B), null-free                                                         28             29           1        723.9           1.4       0.5X
+make_date, NULL form (VARKA-42 A/B), mixed nulls                                                       33             34           1        601.5           1.7       0.5X
+make_date, ANSI form (VARKA-42 A/B), mixed nulls                                                       37             38           1        535.3           1.9       0.4X
 per-row LocalDate.of make_date (the path Spark uses today)                                            89             90           0        224.0           4.5       0.2X
-weekofyear (task 37), null-free                                                                       39             39           0        509.7           2.0       0.4X
-yearofweek (task 58), null-free                                                                       28             28           0        727.0           1.4       0.5X
-weekofyear + yearofweek, one shift (task 58), null-free                                               39             40           0        507.7           2.0       0.4X
-weekofyear (task 37), null-free                                                                       39             40           0        509.2           2.0       0.4X
-weekofyear (task 37), mixed nulls                                                                     39             39           0        509.7           2.0       0.4X
-ThursdayOf alone (task 37), null-free                                                                  6              6           0       3240.9           0.3       2.4X
+weekofyear (VARKA-37), null-free                                                                       39             39           0        509.7           2.0       0.4X
+yearofweek (VARKA-58), null-free                                                                       28             28           0        727.0           1.4       0.5X
+weekofyear + yearofweek, one shift (VARKA-58), null-free                                               39             40           0        507.7           2.0       0.4X
+weekofyear (VARKA-37), null-free                                                                       39             40           0        509.2           2.0       0.4X
+weekofyear (VARKA-37), mixed nulls                                                                     39             39           0        509.7           2.0       0.4X
+ThursdayOf alone (VARKA-37), null-free                                                                  6              6           0       3240.9           0.3       2.4X
 per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)                                      375            380           3         53.3          18.7       0.0X
 per-row DateTimeUtils.truncDate YEAR (the path Spark uses today)                                     110            111           1        182.3           5.5       0.1X
 year+month+day+quarter, shared decomposition (hand-written ceiling)                                  125            127           2        160.5           6.2       0.1X
@@ -562,7 +562,7 @@ Running benchmark: 20000000 rows in 4096-row chunks
   Stopped after 332 iterations, 2000 ms
   Running case: next_day(d, k), column kernel, mixed nulls on the date
   Stopped after 371 iterations, 2000 ms
-  Running case: next_day(d, k), column kernel, words per group (task 70 A/B), mixed nulls on the date
+  Running case: next_day(d, k), column kernel, words per group (VARKA-70 A/B), mixed nulls on the date
   Stopped after 264 iterations, 2006 ms
   Running case: weekday leaf, row-engine parser, valid names
   Stopped after 5 iterations, 3151 ms
@@ -581,7 +581,7 @@ AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 next_day(d, 'MON'), literal kernel (control), null-free                                            5              5           0       4274.7           0.2       1.0X
 next_day(d, k), column kernel, null-free                                                           6              6           0       3551.9           0.3       0.8X
 next_day(d, k), column kernel, mixed nulls on the date                                             5              5           0       3884.6           0.3       0.9X
-next_day(d, k), column kernel, words per group (task 70 A/B), mixed nulls on the date              7              8           0       2753.7           0.4       0.6X
+next_day(d, k), column kernel, words per group (VARKA-70 A/B), mixed nulls on the date              7              8           0       2753.7           0.4       0.6X
 weekday leaf, row-engine parser, valid names                                                     627            630           2         31.9          31.3       0.0X
 weekday leaf, ascii parser, valid names                                                          344            346           2         58.2          17.2       0.0X
 weekday leaf, row-engine parser, a tenth unrecognised                                           3586           3601          13          5.6         179.3       0.0X
@@ -647,7 +647,7 @@ Running benchmark: 20000000 rows in chunks
   Stopped after 81 iterations, 2018 ms
   Running case: year+month+day+quarter, shared, chunk 4096 (aligned), mixed nulls
   Stopped after 81 iterations, 2021 ms
-  Running case: year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4096 (aligned), mixed nulls
+  Running case: year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4096 (aligned), mixed nulls
   Stopped after 43 iterations, 2039 ms
   Running case: year+month+day+quarter, unshared, chunk 4095 (lanes-1 tail rows), null-free
   Stopped after 32 iterations, 2006 ms
@@ -655,7 +655,7 @@ Running benchmark: 20000000 rows in chunks
   Stopped after 81 iterations, 2015 ms
   Running case: year+month+day+quarter, shared, chunk 4095 (lanes-1 tail rows), mixed nulls
   Stopped after 81 iterations, 2016 ms
-  Running case: year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls
+  Running case: year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls
   Stopped after 42 iterations, 2002 ms
   Running case: year+month+day+quarter, unshared, chunk 64 (aligned), null-free
   Stopped after 30 iterations, 2016 ms
@@ -663,7 +663,7 @@ Running benchmark: 20000000 rows in chunks
   Stopped after 70 iterations, 2023 ms
   Running case: year+month+day+quarter, shared, chunk 64 (aligned), mixed nulls
   Stopped after 57 iterations, 2011 ms
-  Running case: year+month+day+quarter, shared, words per group (task 70 A/B), chunk 64 (aligned), mixed nulls
+  Running case: year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 64 (aligned), mixed nulls
   Stopped after 38 iterations, 2045 ms
   Running case: year+month+day+quarter, unshared, chunk 63 (lanes-1 tail rows), null-free
   Stopped after 30 iterations, 2014 ms
@@ -671,7 +671,7 @@ Running benchmark: 20000000 rows in chunks
   Stopped after 67 iterations, 2026 ms
   Running case: year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), mixed nulls
   Stopped after 50 iterations, 2015 ms
-  Running case: year+month+day+quarter, shared, words per group (task 70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls
+  Running case: year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls
   Stopped after 35 iterations, 2039 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
@@ -692,19 +692,19 @@ dayofweek, chunk 63 (lanes-1 tail rows), mixed nulls                            
 year+month+day+quarter, unshared, chunk 4096 (aligned), null-free                                                      63             63           0        318.8           3.1       0.0X
 year+month+day+quarter, shared, chunk 4096 (aligned), null-free                                                        25             25           0        807.3           1.2       0.0X
 year+month+day+quarter, shared, chunk 4096 (aligned), mixed nulls                                                      25             25           0        805.9           1.2       0.0X
-year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4096 (aligned), mixed nulls                       47             47           0        423.1           2.4       0.0X
+year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4096 (aligned), mixed nulls                       47             47           0        423.1           2.4       0.0X
 year+month+day+quarter, unshared, chunk 4095 (lanes-1 tail rows), null-free                                            63             63           0        319.1           3.1       0.0X
 year+month+day+quarter, shared, chunk 4095 (lanes-1 tail rows), null-free                                              25             25           0        808.9           1.2       0.0X
 year+month+day+quarter, shared, chunk 4095 (lanes-1 tail rows), mixed nulls                                            25             25           0        804.6           1.2       0.0X
-year+month+day+quarter, shared, words per group (task 70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls             48             48           0        420.0           2.4       0.0X
+year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 4095 (lanes-1 tail rows), mixed nulls             48             48           0        420.0           2.4       0.0X
 year+month+day+quarter, unshared, chunk 64 (aligned), null-free                                                        67             67           0        298.7           3.3       0.0X
 year+month+day+quarter, shared, chunk 64 (aligned), null-free                                                          28             29           1        705.0           1.4       0.0X
 year+month+day+quarter, shared, chunk 64 (aligned), mixed nulls                                                        34             35           1        580.5           1.7       0.0X
-year+month+day+quarter, shared, words per group (task 70 A/B), chunk 64 (aligned), mixed nulls                         53             54           1        377.0           2.7       0.0X
+year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 64 (aligned), mixed nulls                         53             54           1        377.0           2.7       0.0X
 year+month+day+quarter, unshared, chunk 63 (lanes-1 tail rows), null-free                                              67             67           1        300.1           3.3       0.0X
 year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), null-free                                                30             30           0        667.4           1.5       0.0X
 year+month+day+quarter, shared, chunk 63 (lanes-1 tail rows), mixed nulls                                              40             40           1        505.1           2.0       0.0X
-year+month+day+quarter, shared, words per group (task 70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls               57             58           1        348.5           2.9       0.0X
+year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk 63 (lanes-1 tail rows), mixed nulls               57             58           1        348.5           2.9       0.0X
 Running benchmark: 20000000 rows, 20 calendar outputs over 5 dates
   Running case: unshared (9436B epilogue, past HugeMethodLimit), chunk 4096 (aligned)
   Stopped after 6 iterations, 2249 ms

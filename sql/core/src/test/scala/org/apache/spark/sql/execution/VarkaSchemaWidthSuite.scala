@@ -26,7 +26,7 @@ import org.apache.spark.sql.functions.{count, lit}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * The schema-width cliff at the cache (task 185, the census's G3). Whether an
+ * The schema-width cliff at the cache (VARKA-185, the census's G3). Whether an
  * `InMemoryTableScanExec` produces columnar batches is decided by `spark.sql.codegen.maxFields`
  * (100), which vanilla Spark counts over the whole cached relation's schema, not over the columns
  * a query reads; Varka's rule rewrites a projection or a filter only over a columnar child, so a

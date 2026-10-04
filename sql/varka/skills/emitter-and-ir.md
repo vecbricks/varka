@@ -19,8 +19,8 @@ these files by `dev/varka_toc.py`.
   fragment wins because it generalizes to every node built on the same prefix without
   the IR naming any of them.
 - **A shared run must be keyed on everything it reads, not just on its input.** The
-  prefix at the time also emitted a range guard (task 26's, since moved by tasks 51
-  and 52), ANDed with the node's validity word. Every plain extraction aliases its
+  prefix at the time also emitted a range guard (VARKA-26's, since moved by VARKA-51
+  and VARKA-52), ANDed with the node's validity word. Every plain extraction aliases its
   word to its child's, so those shared safely - but `add_months(d, n)` ANDs the date's
   word with the month count's, so keying on the child alone would have given it a
   guard computed under a different mask. Put the extra input in the key and the
@@ -33,22 +33,22 @@ these files by `dev/varka_toc.py`.
   class. The false direction is the dangerous one: `!Arrays.equals` passes for any two
   emissions whatsoever, so a test written that way proves nothing at all.
 - **Widen a method for what is strictly less work, never for what is merely shared.**
-  Task 17 measured that merging two outputs over a shared eight-op chain into one
+  VARKA-17 measured that merging two outputs over a shared eight-op chain into one
   method *loses* 1.4x, and that finding is why the calendar fields sat in separate
   methods for eleven tasks after the fragment could have shared them. The grouping
-  clause that finally admitted them (task 32 B2) is not "the marginal cost fits", which
-  would have re-merged task 17's pair; it is "joining skips a prefix the method already
+  clause that finally admitted them (VARKA-32 B2) is not "the marginal cost fits", which
+  would have re-merged VARKA-17's pair; it is "joining skips a prefix the method already
   computes" (`saved > 0`), bounded by its own `FUSED_CEILING`. The one situation where a
   wider method is less work rather than a trade is the only one that opens the bound,
   and a byte-identity test over non-calendar shapes pins that it opens nothing else.
   The reason to tie the rule to a shape property rather than to a measurement showed up
-  while B2 was built: task 17's own two rows reversed in the regeneration task 46
+  while B2 was built: VARKA-17's own two rows reversed in the regeneration VARKA-46
   committed (budget 24 at 5492.1 against budget 16 at 4237.4, where twelve earlier
   regenerations had 16 ahead by ~1.4x), because moving the validity OR ahead of the
   vector work let it inline in the wider method - the loss was a refused call, not
-  register pressure. A rule keyed on "what task 17 measured" would have been wrong
+  register pressure. A rule keyed on "what VARKA-17 measured" would have been wrong
   either before or after that commit; "skips work the method already did" is right in
-  both states, and the question task 17 asked is back on task 43's desk.
+  both states, and the question VARKA-17 asked is back on VARKA-43's desk.
   Measured, the same four fields that lost as four merged chains win 2.15x as one
   method with one prefix. Two consequences worth carrying: weights that only had to
   "exceed the budget" become wrong the day they bound a method, so recount them from
@@ -66,7 +66,7 @@ these files by `dev/varka_toc.py`.
   node's own defining instruction, after its children are emitted: a marker at the
   start of a post-order case attributes the parent's op to whichever child was emitted
   last.
-- Pick line numbers from a property of the IR (task 16 uses the children-before-parents
+- Pick line numbers from a property of the IR (VARKA-16 uses the children-before-parents
   topological index), not of the emission order, and record the decoding key inside the
   class - a custom attribute is the natural place, since it travels with the bytes into
   a heap dump or a `javap` capture.
@@ -78,7 +78,7 @@ these files by `dev/varka_toc.py`.
 
 - `ClassFile.of().build(...)` computes stack map frames and rejects inconsistent
   operand stacks at *emit* time (`IllegalArgumentException` naming the bytecode
-  offset, with a full instruction dump). A double-store bug in task 11 never reached
+  offset, with a full instruction dump). A double-store bug in VARKA-11 never reached
   the JVM - one layer earlier than the `ClassFile.verify`-before-load discipline,
   and two earlier than a runtime `VerifyError`.
 - Member-resolution mistakes (wrong erased descriptor) still pass both build and
@@ -87,7 +87,7 @@ these files by `dev/varka_toc.py`.
 
 ## What "the masked method is the dense method's bytes" actually took
 
-- Task 70's one-body result - a masked loop or epilogue method whose every validity word is
+- VARKA-70's one-body result - a masked loop or epilogue method whose every validity word is
   dead comes out byte-identical to its dense twin - held on the first run for `year(d)`, the
   four shared fields and `next_day(d, k)`, on the loop and the epilogue both. It needed three
   things to be true at once, and two of them are about slots rather than instructions. The
@@ -96,18 +96,18 @@ these files by `dev/varka_toc.py`.
   every later local would shift by two. And a dead *input* word must keep its slot, because
   the dense body allocates that one too - the prologue's `srcValSeg`/`dead`/`hasNulls`/`word`
   quartet is planned per referenced input in every body, dense included, and has been since
-  task 24. So liveness drives what is emitted for an input word and what is allocated for an
+  VARKA-24. So liveness drives what is emitted for an input word and what is allocated for an
   own word, and they are deliberately not the same rule. Byte identity is a layout property
   as much as a code property; the emitter suite asserts it on size because the two methods
   differ in name in the constant pool and nowhere else.
 
 ## A store the loop repeats per group with a constant operand is a fill the driver should do once
 
-Task 45. The emitted dense loop ended every value output with
+VARKA-45. The emitted dense loop ended every value output with
 `orValidityBitsAt(seg, i, -1L, lanes)` - a 212-byte helper that does not inline in a wide loop -
 once per lane group per output, ORing a word of all ones into a bitmap the driver had zeroed a
 moment earlier. On a dense batch the dispatcher has already proven every input null-free and
-task 11's invariant makes every value output valid on every row, so those bits were known before
+VARKA-11's invariant makes every value output valid on every row, so those bits were known before
 the loop started. Setting them once in the driver, and not emitting the tail, is worth:
 
 | shape | AVX-512 | 128-bit |
@@ -116,8 +116,8 @@ the loop started. Setting them once in the driver, and not emitting the tail, is
 | `year` | +26% | +41% |
 | `dayofweek` | +12% | +46% |
 
-(AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4, one regeneration on the tree merged with task 53.) The
-four-field shape then beats `ChronoVectorOps.vectorFourFields`, the hand-written ceiling task 32
+(AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4, one regeneration on the tree merged with VARKA-53.) The
+four-field shape then beats `ChronoVectorOps.vectorFourFields`, the hand-written ceiling VARKA-32
 spent its time chasing, by 2.3x.
 
 Three things generalise beyond this one store.
@@ -143,7 +143,7 @@ existing differential be the change's oracle rather than something to rewrite.
 
 ## A refused call is refused by the caller's budget, and the caller's budget is spent in program order
 
-Task 46, which set out to make the per-lane-group validity write inline by shrinking the callee,
+VARKA-46, which set out to make the per-lane-group validity write inline by shrinking the callee,
 measured a win, and then found from the compiled code that the win was somewhere else and the
 write was still a call. Everything below was read off the JVM's own output; none of it was
 inferred from a timing.
@@ -159,7 +159,7 @@ is worth four times as much to remove at 128-bit". This part of the analysis was
 both compilers' decisions in one tree. `callee is too large` and `callee uses too much stack`
 are C1's (`c1_GraphBuilder.cpp`: `C1MaxInlineSize` 35, `C1InlineStackLimit` 10, the latter on
 `max_stack + max_locals - parameter slots`); `inline (hot)` is set only in C2's
-`bytecodeInfo.cpp`. Task 46's first reading counted C1's size refusals as evidence that the
+`bytecodeInfo.cpp`. VARKA-46's first reading counted C1's size refusals as evidence that the
 212-byte writer was too big for C2. In C2 the general writer and the 33-byte specialised one
 were refused exactly as often, and for one reason: `NodeCountInliningCutoff`.
 
@@ -170,7 +170,7 @@ the masked `year` loop - in both arms, for the standard and the OSR compile alik
 `incremental=0`. The `year` body's Vector API intrinsics parse to about the cutoff on their own,
 so whichever call is *last in program order* is the one refused, whatever its size. Two
 consequences worth carrying: `-XX:LiveNodeCountInliningCutoff` governs the incremental branch and
-cannot lift this (task 32 tried 400000 and saw nothing move, for this reason); and the develop
+cannot lift this (VARKA-32 tried 400000 and saw nothing move, for this reason); and the develop
 flag it actually is cannot be set on a product JVM at all. The lever the emitter has is order.
 A value root's validity OR depends on its word, not on its vector store, and the word is an
 input word for every calendar extraction, so the OR now goes first (`validityOrFirst`). C2 meets
@@ -178,7 +178,7 @@ it at a few hundred nodes and inlines it, and every masked row in the parity fil
 +20% at AVX-512 and +30% at 128-bit, the 64-op shape +75%, the budget-24 shape +83% and +180%.
 The 64-op figure is one half of a two-sided move and was read as a win because the other half was
 not looked at: the same commit took that row from 270.4 to 8.8 M rows/s at 128-bit, where it stayed
-for several regenerations (`PLAN_MILESTONE_4.md` 2.39). A number quoted at one width when the change
+for several regenerations (`m4/PLAN.md` 2.39). A number quoted at one width when the change
 moved both is half a measurement.
 The exact safety test is "the word is an input word or the constant", not "the root computes no
 word": `Year(IfElse(...))` aliases the blend's computed slot, and reading it early is a frame with
@@ -193,7 +193,7 @@ so two options can be compared this way in one command.
 
 **Once the write inlines, naming the width is a per-shape trade, not a win.** With the order
 fixed in both arms: `year` masked is 4% to 8% *slower* width-named (the call gone, C2 unrolled
-that loop to 172 vector instructions in the body and the general arm to 64 - task 32's register
+that loop to 172 vector instructions in the body and the general arm to 64 - VARKA-32's register
 file at four lanes), the four-field shape +11% and +27%, the selection kernel +43% and +6%. The
 option is on for the multi-write and selection shapes; the single-write loss is recorded.
 
@@ -203,25 +203,25 @@ which branch, how far over - took one twelve-line print in `bytecodeInfo.cpp` an
 minute what three benchmark regenerations could not.
 
 **A defect the same work surfaced:** `VarkaEmitOptions.canonical()` had omitted `truncDate` since
-task 35, so two option values differing only there rendered the same string and shared one
+VARKA-35, so two option values differing only there rendered the same string and shared one
 execution identity in the shape cache's side table. A test that walks the record's components
 and requires each to change the rendering is worth more than the fix.
 
 ## A budget that bounds the method is not a budget that bounds the work
 
-`GROUP_BUDGET` had rested since task 11 on one measurement: two outputs over a
+`GROUP_BUDGET` had rested since VARKA-11 on one measurement: two outputs over a
 shared depth-8 chain ran about 1.4x faster as two loop methods than as one, read
-as register pressure. Task 71 reopened it because the rows had reversed, expecting
+as register pressure. VARKA-71 reopened it because the rows had reversed, expecting
 to pick a bigger number. The number did not move. What was wrong was where the
 bound was applied.
 
 The grouping condition compares `group.ops + marginal` against the budget, and
-`marginal` already excludes nodes the group holds. So task 17's pair is 14 nodes
+`marginal` already excludes nodes the group holds. So VARKA-17's pair is 14 nodes
 plus 6 against a budget of 16 - and the two methods it is split into cost 28
 nodes of work, where the one method it is refused costs 20. **The condition
 rejects the cheaper arrangement because it bounds the method, not the work.**
 
-Task 32 step B2 had already found this and fixed the calendar half of it: an
+VARKA-32 step B2 had already found this and fixed the calendar half of it: an
 output reusing a civil-from-days prefix may join past the budget, "because
 skipping the prefix makes the method less work rather than more". That argument
 is not about prefixes. Any node the group already holds is work the joining
@@ -259,8 +259,8 @@ precisely that it can be scored against something.
 
 ## A range guard belongs where the value is made, not where it is read
 
-Task 52. Task 26 checked the narrowed civil-from-days range at every calendar extraction, per
-lane, per batch; task 51 removed that on the argument that the range is decidable once; task 52
+VARKA-52. VARKA-26 checked the narrowed civil-from-days range at every calendar extraction, per
+lane, per batch; VARKA-51 removed that on the argument that the range is decidable once; VARKA-52
 is the decision. Three things came out of building it.
 
 - **Most of the guard is a compile-time interval.** A date column is the contract range
@@ -271,8 +271,8 @@ is the decision. Three things came out of building it.
   compiler's calendar arms (`dayRange`/`calendarInput` in `VarkaExpressionCompiler`), and it
   costs nothing at run time. The slack is large - 11833917 days forward and 4675410 back from
   the contract - so the corpus never trips it, and a query that does is computed by the row
-  engine with the interval named in `EXPLAIN`. (Task 52 wrote `NARROW_MAX_DAYS` on both sides
-  and 8449747 forward; task 69 gave the upward side its own constant, which is the bullet on
+  engine with the interval named in `EXPLAIN`. (VARKA-52 wrote `NARROW_MAX_DAYS` on both sides
+  and 8449747 forward; VARKA-69 gave the upward side its own constant, which is the bullet on
   asymmetric admission checks above.)
 - **A date-typed calendar output is not "back in range".** The tempting rule "a calendar node's
   output re-enters the contract" is false for `last_day` and `add_months`: their input passed
@@ -281,10 +281,10 @@ is the decision. Three things came out of building it.
   propagates the interval through them for exactly this reason; the +-1 tests at the bound
   are what keep the rule honest.
 - **The runtime half is one producer, guarded once, behind an option.** The only shift the
-  compiler cannot see is a column offset (task 38), so `AddDays`/`SubDays` with a `ColumnRef`
-  offset under a calendar node re-emit task 26's guard block on their own result
+  compiler cannot see is a column offset (VARKA-38), so `AddDays`/`SubDays` with a `ColumnRef`
+  offset under a calendar node re-emit VARKA-26's guard block on their own result
   (`emitRangeGuard`), ANDed with the node's validity word (a null offset must not condemn a
-  batch) and the epilogue mask, ORed into the per-body accumulator task 51 left in place. The
+  batch) and the epilogue mask, ORed into the per-body accumulator VARKA-51 left in place. The
   accumulator is allocated only when the body reaches such a producer and
   `VarkaEmitOptions.guardDayProducers` is on, so every other shape is byte-identical under
   both settings - the suite asserts it on method sizes. The analysis returns two answers:
@@ -300,18 +300,17 @@ is the decision. Three things came out of building it.
   one lane op and it is not. A guard that reuses a mask the body has already built for its
   store would not pay it.
 - **The guard generalizes to a value bounded by anything other than the day range - and the
-  block itself needed no change to do it.** Task 60 widened `add_months`' month count from a
+  block itself needed no change to do it.** VARKA-60 widened `add_months`' month count from a
   compile-time-bounded literal to a column, and reused this same block
   (renamed `emitProducerGuard` to `emitRangeGuard`, taking the two bounds as parameters) to
   guard the count against `MONTH_ARITH_MIN/MAX_MONTHS` instead of the day range. The correction
-  this forced onto `PLAN_MILESTONE_4.md` 2.27: a column bounded by a runtime guard is a
+  this forced onto `m4/PLAN.md` 2.27: a column bounded by a runtime guard is a
   `Bounded` day range at the guard's own extremes (`shifted(days, 31 * MIN, 31 * MAX)`), not an
   unbounded shift - "unbounded" is for a shift the compiler genuinely cannot bound at all, which
   a *guarded* column is not. Getting this wrong would have re-widened every consumer's
-  range to "unknowable" for no reason, the same over-approximation task 51 had just finished
+  range to "unknowable" for no reason, the same over-approximation VARKA-51 had just finished
   removing.
-- **State a guard's guarantee as an interval, not as a verdict, or it will not compose.** Task
-  60's review found the hole this makes. The analysis had a `ColumnShifted` answer meaning
+- **State a guard's guarantee as an interval, not as a verdict, or it will not compose.** VARKA-60's review found the hole this makes. The analysis had a `ColumnShifted` answer meaning
   "some producer below is guarded at run time, so admit this", and `admitCalendar` admitted it
   without any range test. That is sound only while the guarded producer is the calendar node's
   direct child. Put anything above it that moves the day - `add_months` with a column count,
@@ -328,16 +327,16 @@ is the decision. Three things came out of building it.
 - **A constant's name can be a claim nobody checked, and the claim can be too tight.**
   `NARROW_MAX_DAYS` is `(1 << NARROW_ERA_K) - 1 - NARROW_BIAS`, the ceiling of the *shift
   domain* of the era step, and it had been read for four tasks as the range the narrowed
-  civil-from-days decomposition is exact over. It is not. Task 60's review noticed the first
+  civil-from-days decomposition is exact over. It is not. VARKA-60's review noticed the first
   layer - what binds above is the multiply's own overflow, `w * NARROW_ERA_M < 2^31`, looser
-  than the shift domain by about 5,600 years. Task 69 found a second: `eraOf` adds one era when
+  than the shift domain by about 5,600 years. VARKA-69 found a second: `eraOf` adds one era when
   the magic undershoots, and that correction keeps the split exact past the point the multiply
   wraps, ending only where the undershoot reaches *two* eras. The real limit is 9,266 years
   above the constant that had been standing in for it, and the four shapes declining against it
   were being told their day could leave a domain it could not reach. The habit worth keeping:
   when a bound is named after the mechanism that produces it rather than after the property it
   is supposed to guarantee, the two are not the same number, and which one a caller needs is a
-  question to ask rather than to inherit. The way to answer it is task 69's section 2 - prove
+  question to ask rather than to inherit. The way to answer it is VARKA-69's section 2 - prove
   the identity over the extended domain and sweep it exhaustively against `java.time`, because
   "the multiply does not overflow" says nothing on its own about whether the result is still
   the era.
@@ -350,22 +349,22 @@ is the decision. Three things came out of building it.
   shape that motivated the debt still residual: `weekofyear` shifts `+-3` through `ThursdayOf`,
   a shape declines on the union of its directions, and a bound loosened upward alone cannot
   reach it. Recovering that one needs the other lever entirely - the guard's own compare
-  against a bound the compiler picks - which is milestone 5's task 91.
+  against a bound the compiler picks - which is milestone 5's VARKA-91.
 - **A guard the compiler relies on cannot sit behind an option the compiler cannot see.** The
   same review caught the count guard filed with the option-gated day-producer guards while
   `dayRange` returned `Bounded` for a column count unconditionally. With
   `guardDayProducers=false` the guard vanished and the compile-time bound stayed - wrong
   answers, not a slower reference variant. The criterion that sorts these is already in the
-  code: `selfGuarding` (task 42's `make_date`) is "the check is the node's own correctness" and
+  code: `selfGuarding` (VARKA-42's `make_date`) is "the check is the node's own correctness" and
   is never optional, `guardedProducers` is "insurance for a consumer" and may be. A count guard
   protecting its own magic multiply is the former, and moving it there made the option's name
   honest again as well.
 - **Removing a dependency chain is only a win where the chain exists, and a validity group
-  smaller than a byte is where it exists.** Task 76 found task 46's helper choice inverting at
+  smaller than a byte is where it exists.** VARKA-76 found VARKA-46's helper choice inverting at
   four lanes and named the mechanism: a group is `lanes` bits, so at 4 lanes it is half a byte,
-  two consecutive groups read-modify-write the same byte, and they serialise on it. Task 47
+  two consecutive groups read-modify-write the same byte, and they serialise on it. VARKA-47
   built the writer that removes the read entirely - accumulate the word in a register, store
-  all eight bytes, no load - and measured it on task 76's own rungs at three widths. It wins 6
+  all eight bytes, no load - and measured it on VARKA-76's own rungs at three widths. It wins 6
   to 9% at 4 lanes at one and two writes, and the inversion disappears with it, which is the
   mechanism confirmed. It *loses* 11 to 20% at 8 and 16 lanes, where a group owns whole bytes
   and there was never a chain: an eight-byte store plus an accumulator, a mask, a shift and a
@@ -373,20 +372,19 @@ is the decision. Three things came out of building it.
   general lesson is the one the numbers force rather than the one the row's title assumed -
   "one write per word" is not an improvement, it is an improvement *at sub-byte group widths* -
   and the rule that follows is keyed on the bit layout (`lanes < 8`), which is one condition
-  read off the mechanism, not the two thresholds fitted to a machine that task 76 declined.
-- **Before reading a ladder's numbers, check the ladder emits what it claims to.** Task 47's
-  ladder has a step at three writes that neither its model nor task 76's predicts, and the
+  read off the mechanism, not the two thresholds fitted to a machine that VARKA-76 declined.
+- **Before reading a ladder's numbers, check the ladder emits what it claims to.** VARKA-47's
+  ladder has a step at three writes that neither its model nor VARKA-76's predicts, and the
   first candidate - a rung crossing `GROUP_BUDGET` into two loop methods, which would pay every
   per-method cost twice - is checkable in one test and false: all four rungs emit one loop
   method and grow ~130 bytes per write. That turned "the numbers are strange at k=3" into "the
-  JVM does something at k=3", which is a different investigation with a named suspect (task
-  46's inlining cutoff on the caller). The assertion is committed, so the next reader of either
+  JVM does something at k=3", which is a different investigation with a named suspect (VARKA-46's inlining cutoff on the caller). The assertion is committed, so the next reader of either
   ladder meets the fact before the number. The failed first version of it is worth recording
   too: it built the k rungs from one repeated literal slot, so the k roots were the same tree,
   CSE collapsed them, and every rung emitted one write - a ladder that measures nothing while
   looking exactly like one that does.
 - **A local written only inside a branch is `top` at the merge, and the verifier says so.**
-  Task 47's accumulator is cleared under `if ((i & 63) == 0)` and read straight after; the
+  VARKA-47's accumulator is cleared under `if ((i & 63) == 0)` and read straight after; the
   first `lload` failed with `VerifyError: Bad local variable type ... Type top ... is not
   assignable to long`, because one incoming edge had assigned the local and the other had not.
   Initialising it once before the loop is two bytecodes and the fix. Emitting a store inside a
@@ -395,7 +393,7 @@ is the decision. Three things came out of building it.
   guard's mask-body AND reads `Slots#wordRef` for the node under guard - a *stored local*, not
   whatever the emitter last pushed. For `AddDays`/`SubDays` that word is computed immediately
   before the guard runs (`emitAndValidatedOp`'s own call site), so this was never visible at
-  task 52. `add_months` computes its own word differently: task 40's dispatcher ran
+  VARKA-52. `add_months` computes its own word differently: VARKA-40's dispatcher ran
   `emitAndWord` *after* `emitAddMonths` returned, once the whole value was on the stack - fine
   for every reader that came after, but the guard needed to run *inside* `emitAddMonths`, right
   after the count loads and before the magic-multiply's bias folds it in, which is earlier than
@@ -413,7 +411,7 @@ is the decision. Three things came out of building it.
 
 ## A derived input must never raise, because the row engine's null check comes first
 
-Task 59. A string-argument date function (`next_day(d, s)` with a weekday column) runs in the
+VARKA-59. A string-argument date function (`next_day(d, s)` with a weekday column) runs in the
 kernel without string lanes by having the evaluator derive an int32 column per batch, before
 the kernel, through the row engine's own parser (`WeekdayLeaf`); the kernel then reads a plain
 int input (`CompiledVarkaProjection.derivedInputs`, a plan property like `inputBounds`, keyed
@@ -438,7 +436,7 @@ it). Two things came out of building it.
   parsers to the definition over every case pattern of the 21 spellings, every one- and
   two-byte ASCII string and every printable one-byte mutation of every spelling.
 - **The second leaf had no ANSI question at all, and that was a finding, not an assumption**
-  (task 61, `trunc(d, fmt)` with a format column). `TruncDate` has no `failOnError`, and
+  (VARKA-61, `trunc(d, fmt)` with a format column). `TruncDate` has no `failOnError`, and
   `TruncInstant.evalHelper` answers every non-date level - a null format, an unrecognised
   spelling, `'DAY'` and below - with NULL in both modes, so the kind (`TRUNC_LEVEL`) has no
   ANSI twin and `TruncLevelLeaf` never declines. The order of work that made this cheap: read
@@ -451,7 +449,7 @@ it). Two things came out of building it.
 
 ## Read two fields out of one product, and put the axis where the formula wants it
 
-Task 53. The civil-from-days prefix used to find the month with a magic multiply on the March
+VARKA-53. The civil-from-days prefix used to find the month with a magic multiply on the March
 day-of-year and then run `emitMonthStart` *forwards* to recover the day of month, on a March = 0
 axis that needed an add in front of every reported month. Neri and Schneider (2022) show that one
 affine numerator does both jobs at once: with `num = 2141 * doy + 197913`, the month index is
@@ -496,7 +494,7 @@ forwarded beside residual - had something to be mixed about. `i + 1` was the
 shortest expression that qualified, and it stayed the shortest one for
 fourteen tasks.
 
-Task 63 lowered int arithmetic, and every one of those nine places quietly
+VARKA-63 lowered int arithmetic, and every one of those nine places quietly
 started asserting something else. Two failed outright (`assertNotFused` on a
 plan that now fuses, and a value expectation). The rest kept passing while
 measuring or checking a different thing: a projection with nothing residual in
@@ -522,20 +520,20 @@ so the next task to lower `%` finds a sentence that tells it to look.
 
 ## A refusal shared by two positions carries one reason, and it can be true of only one
 
-Task 68's whole compiler-visible change was possible because one emitter check
+VARKA-68's whole compiler-visible change was possible because one emitter check
 turned out to be two. `VarkaLoopEmitter.requireOffsetShape` policed both
 `next_day`'s weekday operand and `add_months`' month count, admitting a literal
 slot or a bare column in either and refusing everything else. Its javadoc gave
 one reason for both: "a weekday and a month count carry runtime bounds a
 derived value cannot declare". That sentence is true of the weekday and false
-of the month count, and the difference is exactly task 60's guard, which checks
+of the month count, and the difference is exactly VARKA-60's guard, which checks
 the count's *value* lanewise against `MONTH_ARITH_MIN/MAX_MONTHS` and cares
 nothing about what produced it. A negated column and a column are the same
 thing to it. `next_day` has no such guard, so its position really does need the
 shape restriction.
 
-The cost of the conflation was two tasks. Task 60 could have admitted a derived
-count when it added the guard; task 67 wrote `d - ym_col` and the `YEAR`-unit
+The cost of the conflation was two tasks. VARKA-60 could have admitted a derived
+count when it added the guard; VARKA-67 wrote `d - ym_col` and the `YEAR`-unit
 cast off as "residual, blocked on the emitter" without asking why. Neither was
 wrong to trust the comment - the comment was the only statement of the rule.
 
@@ -555,7 +553,7 @@ about a predicate with more than one reader:
   shape restrictions that guard has just made unnecessary - that is a gain the
   guard's own task can bank, not a follow-up.
 - **A restriction inherited without its reason is a decline nobody rechecked.**
-  Task 67 pinned `d - ym_col` as declining with a test, which is the right way
+  VARKA-67 pinned `d - ym_col` as declining with a test, which is the right way
   to record a limitation; what was missing was the note saying whose limitation
   it was. A pinned decline should name the check that produces it, so the task
   that changes that check finds the test by grepping for it.
@@ -576,13 +574,13 @@ emission changed. The suite's failure lists the blocks and says to regenerate
 if the change was meant, which is the wrong test to apply here - what has to be
 established is that *only* the fuzz half moved.
 
-The check that establishes it, from task 102's `GuardedRange` (19 September
+The check that establishes it, from VARKA-102's `GuardedRange` (19 September
 2026): regenerate, then diff the JSON's flattened keys between `HEAD` and the
 working tree. The expected answer is exactly two changed keys,
 `lanes/4/fuzz/blocks` and `lanes/16/fuzz/blocks`, no coverage key changed, none
 added or removed. Any coverage key in that diff is a real emission change and
 needs its own explanation. The coverage half is the oracle for emission; the
-fuzz half is the oracle for the grammar. Since task 119 the file carries a
+fuzz half is the oracle for the grammar. Since VARKA-119 the file carries a
 second sequence, `fuzz_long`, drawn by the long-lane grammar from its own seed:
 a lane-generic node moves both sequences' blocks, a calendar node only the
 first, and the two long block lists moving on an int-only change is the signal
@@ -599,7 +597,7 @@ from that, and they are different costs at different layers.
 **In the plan**, a projection that is not eligible cannot become a Varka node, so
 the only node able to perform the narrowing was the filter's *to-row* node, and
 absorbing it there settles the plan at a row boundary. A consumer that wanted
-batches was handed rows however it asked, and the query paid task 19's read-back
+batches was handed rows however it asked, and the query paid VARKA-19's read-back
 floor through a plan difference rather than a kernel difference. The fix is to
 ask "can Varka serve this plan columnar" rather than "does any entry fuse":
 `VarkaColumnarRule`'s pre stage builds `VarkaProjectExec(narrowing, filter)`, the
@@ -625,7 +623,7 @@ underneath the child - invisible in every answer and fatal to the next batch.
 And the measurement lesson beside it: the same change appeared to regress an
 untouched shape by 23%, and the band measured afterwards put that case at a
 30.6% spread with nothing changed - tier 3, unreadable. A file without a band
-cannot distinguish a regression from its own noise, which is `PLAN_TASK_145.md`
+cannot distinguish a regression from its own noise, which is `VARKA-145.md`
 5.4 and the reason row 90's rule exists.
 
 ## The bytes oracle pins one point in the option space, so an option a session can set needs an arm of its own
@@ -633,10 +631,10 @@ cannot distinguish a regression from its own noise, which is `PLAN_TASK_145.md`
 `emitted_bytes.json` hashes every emitted method body at
 `VarkaEmitOptions.DEFAULTS`. While every option was a test hook that was the
 whole story: a suite that wanted a variant asked for it and asserted on the
-result in the suite itself. Task 121 gave `useAVX` a session configuration, and
+result in the suite itself. VARKA-121 gave `useAVX` a session configuration, and
 from then on a user could select an emission no committed hash covered.
 
-The rule the file now carries, from task 167: a field that gains a
+The rule the file now carries, from VARKA-167: a field that gains a
 configuration gains a pinned arm with it, recorded as one digest per arm per
 width in the oracle's `option_arms` section rather than a shape-by-shape block,
 because five arms of ten thousand shapes would multiply the file to say the
@@ -659,9 +657,9 @@ reports the count rather than telling those apart.
 
 ## A lane can change width at a root's store without the loop ever holding two widths
 
-Task 102's `hour(t)`, `minute(t)` and `second(t)` are 64-bit divisions whose
-results are ints, and the plan's first reading (`PLAN_TASK_102.md` 2.5) was that
-an int output from a long-lane kernel waited on task 28's bi-lane loop. It did
+VARKA-102's `hour(t)`, `minute(t)` and `second(t)` are 64-bit divisions whose
+results are ints, and the plan's first reading (`VARKA-102.md` 2.5) was that
+an int output from a long-lane kernel waited on VARKA-28's bi-lane loop. It did
 not. The computation stays in the long lane to the last instruction; only the
 store narrows, and a store is per root. So the IR gained one node,
 `NarrowLane(child)` - an `INT` value over a `LONG` child - admitted **at an
@@ -681,9 +679,9 @@ What made it small, and what to carry to the next width change:
   constructors need to see.
 - **The two costly things were both avoidable.** A second `IntVector` species in
   the class would make the shared templates bimorphic and box every other int
-  kernel (`PLAN_TASK_28.md` 2.2); the store uses the width's own int species and
+  kernel (`VARKA-28.md` 2.2); the store uses the width's own int species and
   a mask instead. And the mask is an int mask, which C2 lowers at every width,
-  where the long lane's masks are per-lane at two lanes (task 153).
+  where the long lane's masks are per-lane at two lanes (VARKA-153).
 - **A root-only node has three doors to guard, and two of them are not the
   emitter's.** The emitter refuses it under another node, ahead of the lane check
   so the message names the cause. The compiler must decline it first, because
@@ -691,7 +689,7 @@ What made it small, and what to carry to the next width change:
   carries an `atRoot` flag into the one place the node is made, so the interior
   route declines with the reason. And the fuzzer's reach tests must name it as
   deliberately out of reach, since the grammar composes nodes under nodes and a
-  root-only node is not a shape to draw until task 28 makes it one.
+  root-only node is not a shape to draw until VARKA-28 makes it one.
 - **The word liveness walk must know a node reads no word.** The first arm
   mirrored `GuardedRange` and demanded the child's validity word; that word is
   consumed only by the root write, which the bitmap pass may take over, and the
@@ -727,14 +725,14 @@ the heaviest shapes they admit stop well short of the class-file format's caps o
 code in a method and 65535 constant pool entries. The heaviest ladder the op cap admits - sixty-two
 `add_months(d, k)` outputs - puts the legacy single epilogue at 49339 bytes, and a balanced
 `greatest` over thirty-two `add_months`, the heaviest single output, at 25629 bytes for its masked
-loop method; the constant pool stays in the hundreds either way (task 87, step 5). So no test can
+loop method; the constant pool stays in the hundreds either way (VARKA-87, step 5). So no test can
 reach those caps with an expression, and a test that claimed to would be pinning a shape's
 current size, not the cap. `VarkaEmitBudget.overLimits` reads the caps from a `VarkaEmittedClass`
 measurement, and the test that pins the readings builds the measurement by hand. A change that
 raises the IR caps has to re-read this: past roughly 80 `add_months`-weight outputs the legacy
 epilogue would cross the method cap, and the emitter would then measure it before the JVM did.
 
-*Re-read on 24 September 2026, when task 190 lifted the op cap under the byte budget.* The method
+*Re-read on 24 September 2026, when VARKA-190 lifted the op cap under the byte budget.* The method
 and constant-pool caps are still out of reach: every group method stays under 4500 bytes at 400
 four-op outputs, and the pool reads 1384 entries there. A third class-file cap was not: the
 `VarkaDebugInfo` attribute writes the rendered IR as one constant-pool UTF-8 entry, which a u2
@@ -742,11 +740,11 @@ counts, and at 800 outputs the builder refused the class with "string too long".
 reachable by an expression and is tested with one - an oversized plan fragment - and the fix is to
 bound the metadata (`VarkaDebugInfo.bounded`), never to decline a kernel for it.
 
-*Refuted for the method cap on 27 September 2026 (task 219), in two parts.* First, the cap is
-reachable: under the byte budget the op cap is off (task 190), so one output is bounded by
+*Refuted for the method cap on 27 September 2026 (VARKA-219), in two parts.* First, the cap is
+reachable: under the byte budget the op cap is off (VARKA-190), so one output is bounded by
 `MAX_CHAIN_DEPTH` and the JVM alone, and a tree of forty distinct nested `make_date`s over
 eighty-one distinct `add_months` - ten nodes deep, legal SQL - makes a `loopDense0` of 132452
-bytes under production options (`PLAN_TASK_219.md` 2.4); the fuzzer reaches the same cap with
+bytes under production options (`VARKA-219.md` 2.4); the fuzzer reaches the same cap with
 forty *copies* once `cse` and `shareChronoPrefix` are both drawn off, which is how the night run
 of 26-27 September found it ten times. Second, and the reason the measurement never saw it: the
 Class-File API enforces the method cap while the class is *assembled*, after every body is built
@@ -760,16 +758,15 @@ constant-pool cap is refused the same way, at assembly, with "65536 is not a val
 ..." (a probe of the API with 70000 field names), and is read too, as a class-wide decline; a far
 branch is not a cap at all, the API widens short jumps itself. Two lessons for the next cap. A
 throw census of the emitter has to count what the libraries it calls throw, not only the `throw`
-statements in the package - task 169's census missed this one for that reason. And when a cap or
-a budget is *lifted*, re-read every "out of reach" claim in the dimension the lift opens: task
-190's re-read probed width, four hundred small outputs, where the regroup protects, and not the
+statements in the package - VARKA-169's census missed this one for that reason. And when a cap or
+a budget is *lifted*, re-read every "out of reach" claim in the dimension the lift opens: VARKA-190's re-read probed width, four hundred small outputs, where the regroup protects, and not the
 one heavy output, where nothing does. The two JDK messages the emitter reads are pinned by a test
 that produces them through the API itself, so a JDK that changes the words fails a test and not a
 night's fuzzing.
 
 ## The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so
 
-Since task 87 the default emission splits the epilogue per group and sets up each group's
+Since VARKA-87 the default emission splits the epilogue per group and sets up each group's
 methods for that group alone, so a single-group kernel's epilogues are `epilogueDense0` and
 `epilogueMasked0`, and the form before it - one epilogue over every output, every method set up
 for the whole kernel - is what `methodByteBudget` 0 emits. That form is not dead: it is the arm
@@ -781,7 +778,7 @@ for its callers), so the assertion keeps measuring the thing it names when the d
 again. A test that names `"epilogueMasked"` without the suffix under the defaults is asking for a
 method that no longer exists, and `VarkaEmitterTestSupport.codeSize` and `invocationCount` fail
 on it, naming the methods the class does have. They returned zero for a missing method until
-task 87's review, so a stale name compared across two emissions read zero against zero and
+VARKA-87's review, so a stale name compared across two emissions read zero against zero and
 passed while asserting nothing. A test can also go vacuous without a missing name: under the
 per-group default, `epilogueMasked0` of a kernel whose outputs are two groups holds only the
 first group, so a test about what one epilogue holds across outputs pins budget 0.
@@ -798,15 +795,15 @@ The generated code writes a string or a nested value through the row's `update`,
 with a null argument rather than through `setNullAt` - a rule that keeps an `UnsafeRow`'s offsets
 (`UnsafeRowUtils.avoidSetNullAt`) and that the columnar row turns into a null-pointer failure.
 `VarkaVectorProjection` makes the choice per projection, by output type; the single write took 6
-to 19% off the columnar node's row path from 32 entries up. See `PLAN_TASK_230.md` 9.
+to 19% off the columnar node's row path from 32 entries up. See `VARKA-230.md` 9.
 
 ## One kernel a node, written out as columns, loses to Spark's own row code
 
 An engine that evaluates each expression node over the whole batch with its own
 kernel, and writes the result out as a column for the next node to read, has no
-8000-byte cliff, because no method grows with the query. Task 202 measured one on
+8000-byte cliff, because no method grows with the query. VARKA-202 measured one on
 the JVM, vecruntime 0.0.3 with the Vector API, on two 9V45 runners
-(`PLAN_TASK_202.md` 7). On the size ladder it pays about 58 ns a row an entry, an
+(`VARKA-202.md` 7). On the size ladder it pays about 58 ns a row an entry, an
 entry being four nodes (`add_months`, `date_add`, `last_day`, `greatest`) and so
 four columns written and read, where whole-stage code pays about 18 below its
 cliff with the values in locals. That makes it 2.9 times slower than stock Spark
@@ -822,11 +819,11 @@ hundred entries 59 times faster than vecruntime.
 
 ## When the emission skips part of a tree, the planning walk has to skip it too
 
-Task 198's materialized prefix lets a later group load a date's decomposition instead of computing
+VARKA-198's materialized prefix lets a later group load a date's decomposition instead of computing
 it, and so skip the date underneath. The word-liveness walk (`Slots.liveWords`) still walked that
 date and kept a guard's validity word live for a range check the body no longer emitted; over a
 bare column the word was an input's, stored at the top of each lane group and never read, and the
-emitter's word check refused the body (task 234).
+emitter's word check refused the body (VARKA-234).
 
 The walk and the emission had each answered "is this date emitted here?" on its own, one from the
 tree and one from the slots. The fix gives the question one answer: the planner decides it where
@@ -837,7 +834,7 @@ same decision.
 
 ## A cost read off one node alone over-prices a wide group; fit it over groups of every width
 
-Task 199 priced a loop-method group's bytes and call sites two ways over the same features. The
+VARKA-199 priced a loop-method group's bytes and call sites two ways over the same features. The
 register measured each node kind by emitting it beside only its own children; the regression
 fitted every price by least squares over groups of every width. The plan predicted the register
 would win because each entry is exact. The regression won instead: at 2000 bytes and over its
@@ -850,13 +847,13 @@ is most of a comparison's price. Any additive cost of emitted code, including a 
 replacement for the grouping weights, has to be measured in the context it will be summed in, or
 fitted there. The regression's training corpus has to reach the limits too: fitted only on fuzz
 shapes an order of magnitude below the budget, the same regression erred low on the largest
-methods (`PLAN_TASK_199.md` 2).
+methods (`VARKA-199.md` 2).
 
 ## Measure what a method spends its bytes on before designing a split of it
 
-Task 190's step 2 was planned around a driver method that grows with the loop-method groups it
+VARKA-190's step 2 was planned around a driver method that grows with the loop-method groups it
 calls, and designed two ways to split it. Measured by difference across four families
-(`PLAN_TASK_190.md` 9.2 and 10.1), the driver grew with the outputs instead: per output it loaded
+(`VARKA-190.md` 9.2 and 10.1), the driver grew with the outputs instead: per output it loaded
 a data segment it never wrote, a validity segment and a zero or fill call, and it hoisted every
 literal into a local it never read. A family with one group hit the same ceiling as one with
 thirty-eight. The fix was not a split but a table: the per-output work is the same calls with a
@@ -872,7 +869,7 @@ against `HugeMethodLimit` even where C2 would remove it.
 
 ## An exact search that replaces a heuristic should keep the heuristic's answer where it is already best
 
-The exact output grouping (`PLAN_TASK_200.md` 8.1) replaces a greedy walk with a dynamic program,
+The exact output grouping (`VARKA-200.md` 8.1) replaces a greedy walk with a dynamic program,
 and among the partitions with the fewest ops and groups it chooses by the greedy walk's own
 preference, the longest first group, then the longest second. That tie-break makes it the greedy
 partition exactly wherever greedy is already at the best, so switching it on changes the emitted

@@ -8,6 +8,6 @@ inputs:      class=org.apache.spark.sql.execution.benchmark.CodegenInterpreterFa
 jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 (the runner is not pinned; the file is the workflow's artifact unchanged)
-purpose:     task 233 (PLAN_TASK_233.md 12.3): what a projection costs once its compile has failed
+purpose:     VARKA-233 (VARKA-233.md 12.3): what a projection costs once its compile has failed
              and the interpreter evaluates it, against the same projection compiled; vanilla Spark
              only, Varka off

@@ -32,7 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelCompi
   VarkaKernelWarmup, VarkaShapeCache}
 
 /**
- * Why Varka keeps C1 off its kernel classes (`VarkaKernelCompileDirective`, `PLAN_TASK_212.md`
+ * Why Varka keeps C1 off its kernel classes (`VarkaKernelCompileDirective`, `VARKA-212.md`
  * 10): the warm-up's verdict on a 54-entry kernel with the directive and without it, each in
  * fresh JVMs.
  *

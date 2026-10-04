@@ -50,7 +50,7 @@ trusting them, not just its ratios.
   as the null counts, and the emitted `run` dispatches a null-free batch to the *dense*
   driver. So every `-XX:+PrintCompilation` and `-XX:CompileCommand=print` probe taken
   through that tool had been looking at `loopDense0` and had no way to see the masked
-  body at all - which is the half that task 70 changed, that carries every validity
+  body at all - which is the half that VARKA-70 changed, that carries every validity
   word, and that the parity file's mixed-null rows measure. The first probe of the
   105x row came back "both arms compile identically" for exactly that reason, and the
   reason was invisible: the tool prints method sizes for both bodies whether or not it
@@ -65,14 +65,14 @@ trusting them, not just its ratios.
 - An A/B pair in the parity benchmark is two kernels emitted from
   `VarkaEmitOptions.DEFAULTS` and `DEFAULTS.with<Option>(false)`. That is exactly right
   until some *other* option's default flips underneath it and removes the work the first
-  option governs. Task 70 turned `validityByBitmap` on, so a served root makes no
-  per-group validity call at all; task 46's three pairs - the width-named helpers and the
+  option governs. VARKA-70 turned `validityByBitmap` on, so a served root makes no
+  per-group validity call at all; VARKA-46's three pairs - the width-named helpers and the
   OR's position, both of which only change how that call is made - were left comparing two
   byte-identical kernels, and the regenerated file committed three rows that priced
   nothing while `VarkaEmitOptions`' javadoc still cited them as the evidence for those
   options. The 128-bit numbers say it plainly in hindsight: the pair that had read -21%
   against its comparand read -1.6% after the flip.
-- **The tests caught their half and the benchmark could not catch its own.** Task 46's
+- **The tests caught their half and the benchmark could not catch its own.** VARKA-46's
   three *naming* tests assert that `orValidityBitsAt16` appears in the class, so they
   failed the moment the call disappeared and were re-pinned on the reference arm in the
   same commit as the flip. Its two *behavioural* tests compare results across the option
@@ -98,7 +98,7 @@ trusting them, not just its ratios.
   and ship whichever wins - the written-down prediction is what makes the reversal
   visible and the numbers re-checkable.
 - **Check what a benchmark never executes before believing what it says about a
-  change there** (task 24). Every committed harness in this repo happened to be
+  change there** (VARKA-24). Every committed harness in this repo happened to be
   lane-aligned - this file's parity benchmark ran one call over 1,000,000 rows, the
   engine JMH's sizes are 32 / 10000 / 1000000, and Spark's default
   `COLUMN_BATCH_SIZE` is 4096, all multiples of 4, 8 and 16 - so `loopBound ==
@@ -109,17 +109,17 @@ trusting them, not just its ratios.
   a pair one row apart isolates the remainder (equal call counts), and a magnified
   pair (64/63) makes a per-row cost measurable that a 4096-row batch hides in
   noise. Two more measurement lessons from the same task: a cost quoted at one
-  rung of a ladder is not a bound on the whole ladder (task 21's "~1-3 ns/row"
+  rung of a ladder is not a bound on the whole ladder (VARKA-21's "~1-3 ns/row"
   copy cost, read as a ceiling, under-predicted the compress win threefold - the
   scalar copy grew with selectivity and the ceiling was one point on that curve);
   and an in-run control (cases the change cannot affect, measured in the same
   process) is what turns "the numbers moved" into "the noise floor is 15% and the
   effect is inside it".
 - **A task that shrinks emitted bytecode must regenerate the committed benchmark
-  file, or the next task to regenerate inherits its win** (task 48, measured).
-  Task 51 removed the per-extraction range guard - two compares plus mask work on
+  file, or the next task to regenerate inherits its win** (VARKA-48, measured).
+  VARKA-51 removed the per-extraction range guard - two compares plus mask work on
   every calendar node's tail - and shipped without regenerating
-  `VarkaEmitterParityBenchmark-jdk25-results.txt`. Task 48's regeneration
+  `VarkaEmitterParityBenchmark-jdk25-results.txt`. VARKA-48's regeneration
   therefore showed `year, null-free` moving 1823.4 to 2166.5 M rows/s, a fifth,
   for a change whose own A/B measures 1.01x. Three things separated the two, and
   all three are worth reproducing: an **in-run control** (`per-row LocalDate
@@ -137,7 +137,7 @@ trusting them, not just its ratios.
 
 ## A benchmark guard that fails in one direction gets satisfied by the failure in the other
 
-Task 62's surface driver fails a run whose *fixed share* - `(wall - executor) / wall`, the
+VARKA-62's surface driver fails a run whose *fixed share* - `(wall - executor) / wall`, the
 part of wall time that is not executor time - is over 5% on a Varka row. It exists to catch a
 job too small to amortise its planning and scheduling. On 12 September 2026 it passed a run
 that measured nothing at all, and passed it with the best number it had ever produced.
@@ -201,7 +201,7 @@ sampling `scaling_cur_freq` through six runs of one case gives 5.08 to 5.14 GHz
 while that case's throughput moves 31%. Address layout: `setarch -R` does not
 narrow the spread. Contention: the machine is idle.
 
-What remains is the per-fork C2 lottery `PLAN_TASK_32.md` 11 had already traced
+What remains is the per-fork C2 lottery `VARKA-32.md` 11 had already traced
 to JDK-8380195, "Vector API produces bimodal performance - nondeterministic C2
 intrinsification across JVM forks", closed Not an Issue. Read that section
 before re-deriving any of it: it also refuted buffer alignment, OSR, unroll
@@ -217,8 +217,7 @@ residency where the working set fits one slice: 154 GB/s becomes 37.7 GB/s.
 `dev/varka_bench_regen.sh` now pins to the fast complex and records the pin.
 
 **The rule.** An A/B whose arms sit in the same run is sound - one JVM, one
-layout, one clock - and that is how every A/B here is built, which is why task
-79's arm-context pair read 0.5% and 1.4% across two runs whose absolute rates
+layout, one clock - and that is how every A/B here is built, which is why VARKA-79's arm-context pair read 0.5% and 1.4% across two runs whose absolute rates
 disagreed by 75%. A number compared against a *previous* run is not sound below
 the band, and the regeneration diff's 3% threshold is below the band for every
 memory-bound row. Run `dev/varka_bench_repeat.sh` to measure the band before
@@ -230,11 +229,11 @@ reading a diff as a regression.
   for "how much validity work is in this method", and it cannot answer that question:
   `loadSegment` emits `VarkaVectorSupport.ofAddress` for every segment a body touches,
   in every body mode, so the count never reaches zero however much validity work is
-  removed. Task 70's plan had registered a table of targets of "0" against it - numbers
+  removed. VARKA-70's plan had registered a table of targets of "0" against it - numbers
   no run could have produced, which would have been discovered by whoever tried to
   assert them and quietly replaced with a different metric than the milestone accepted.
 - The fix is an exclusion list, exact-matched (the helpers carry a lane-count suffix
-  since task 46, and `orValidityBitsAt` is a prefix of `orValidityBitsAt16`). The
+  since VARKA-46, and `orValidityBitsAt` is a prefix of `orValidityBitsAt16`). The
   general lesson: when a plan registers an op count, name the owner *and* what is
   excluded, and check the tool can produce the target before the number is registered.
   `dev/varka_emit.sh` now prints the validity count beside `IntVector` and `VectorMask`,
@@ -244,11 +243,11 @@ reading a diff as a regression.
   `IntVector` calls, the test base's `laneOps`, reads it as three. A weight counted that way
   under-counts by the operations on other types. The division's register counts every
   vector type, and subtracts the body of a division by one to take out the load and the
-  store (`PLAN_TASK_148.md` 2).
+  store (`VARKA-148.md` 2).
 
 ## An inventory made by reading is not an inventory made by counting
 
-- Task 70's plan listed the consumers of a validity word in the masked body by reading the
+- VARKA-70's plan listed the consumers of a validity word in the masked body by reading the
   emitter: the root's per-group write, `IfElse`'s blend, and - the correction the review
   added - the range guards' AND with their condemning mask. Three, and the plan's op-count
   table in 3.3 was derived from the three. There is a fourth: `emitPick`'s null substitution
@@ -276,7 +275,7 @@ reading a diff as a regression.
 
 ## A default decided from a regeneration costs a second regeneration
 
-- Task 70's plan said "one regeneration, section 9 with the predictions scored; the default set
+- VARKA-70's plan said "one regeneration, section 9 with the predictions scored; the default set
   by 6.1's rule". Those two clauses cannot both be true of one run. The committed results
   file's plain rows are, by the repo's rule, the shipped bytes; the run that decides the default
   is taken with the old default, so its plain rows are the old bytes and its variant rows the
@@ -284,7 +283,7 @@ reading a diff as a regression.
   "shipped" is the reference arm and the row called "(task N A/B)" is what ships. There is no
   way to relabel it honestly, because the two arms were not measured under the names they
   would now carry. So the sequence is: measure with the variant, decide, flip, rename the
-  variant to the reference arm (task 45's "validity OR-ed per group" is the model), and
+  variant to the reference arm (VARKA-45's "validity OR-ed per group" is the model), and
   regenerate again. Forty minutes of idle machine, and the plan should budget it.
 - Keep the first run's numbers out of the plan except for the few the decision rests on, and
   allowlist those with the reason: the commit that carried the first file is squashed away on
@@ -303,7 +302,7 @@ reading a diff as a regression.
 - This is not a corner case, it is what the benchmark discipline produces. Re-running a base
   commit when the controls look flat but the fast rows moved (see "The benchmark controls are
   necessary and not sufficient") means committing a run and then superseding it, and the
-  honest way to record the correction is to quote both numbers. Task 70 did exactly that for
+  honest way to record the correction is to quote both numbers. VARKA-70 did exactly that for
   `date_add emitted loop, null-free` - 19227.8 against the disturbed 12754.1 - and master
   came out of the merge failing its own quote gate with exit code 2, in a PR whose own gate
   had been green on every run.
@@ -314,10 +313,10 @@ reading a diff as a regression.
   provenance was squashed away, so nobody later hunts for a file that cannot exist.
 - **And the mirror failure, which is quieter: a quote that traces perfectly and is stale.**
   The same history search that rescues a superseded number also means a document can keep
-  quoting figures no current file carries, indefinitely, while the gate stays green. Task 64's
+  quoting figures no current file carries, indefinitely, while the gate stays green. VARKA-64's
   plan was found this way on 11 September 2026: every one of the twelve numbers its admission
   check rested on - the guard's price from the parity files, the pre-pass's from the
-  throughput files - had been regenerated away by tasks 70, 71, 76 and 77, and the quote check
+  throughput files - had been regenerated away by VARKA-70, VARKA-71, VARKA-76 and VARKA-77, and the quote check
   had passed over all of them because the git history still had them. The plan read as
   current and its summary sentence, "10-15% of the one shape that pays it", had become 4.4%
   to 15.9%.
@@ -331,11 +330,11 @@ reading a diff as a regression.
   would turn the habit into a gate, and is worth a tooling row if this recurs.
 - The related trap when checking by hand: a number can appear in *some* results file by
   coincidence, so grep the file the sentence names rather than the whole benchmark directory.
-  A corpus-wide search said four of task 64's twelve numbers were fine; per-file, none was.
+  A corpus-wide search said four of VARKA-64's twelve numbers were fine; per-file, none was.
 
 ## A band says which moves to read; an invariant says which to stop the line for
 
-Task 77 was opened because a kernel fell from 273 to 8.8 M rows/s at 128-bit and
+VARKA-77 was opened because a kernel fell from 273 to 8.8 M rows/s at 128-bit and
 the number went into three committed files with nobody remarking on it. The
 instinct is to make the diff louder. That does not work, and measuring the file
 says why: over ten runs with nothing changed, the parity file's median case moves
@@ -375,7 +374,7 @@ that wrong in both directions.
 
 ## A benchmark that changes bytes per row must be a ladder, not a row count
 
-Task 142 priced the 64-bit lane against the 32-bit one for eight shapes at a
+VARKA-142 priced the 64-bit lane against the 32-bit one for eight shapes at a
 million rows and read 2.74x to 3.74x, against an arithmetic prediction of about
 2x. The invited conclusion - that a long lane costs three to four times an int
 one - is false, and the same benchmark says so once the row count moves.
@@ -398,7 +397,7 @@ below 2 are worth keeping for a second reason: they say a long lane group does
 the work of two int groups under one set of loop overheads, so the wider lane is
 cheaper than its width wherever there is issue slack to absorb it.
 
-The same discipline one level up is `PLAN_TASK_134.md`'s partitions ladder,
+The same discipline one level up is `VARKA-134.md`'s partitions ladder,
 which exists because one core and twelve cores are also not the same place.
 
 ## Two benchmarks of one project can need different kinds of band, not different thresholds
@@ -464,13 +463,13 @@ widths need separate band files rather than a shared one.
 
 ## A kernel ratio is not an end-to-end ratio, in either direction
 
-Task 142 measured what a 64-bit lane costs against a 32-bit one over memory
+VARKA-142 measured what a 64-bit lane costs against a 32-bit one over memory
 segments with no Spark above them: 1.5x to 2.0x while both arms are in cache, a
-flat 2.11x to 2.20x once they are not. Task 29's plan then predicted what that
+flat 2.11x to 2.20x once they are not. VARKA-29's plan then predicted what that
 would be worth in a query - 0.45x to 0.60x of the int lane for a comparison
 filter - by carrying the kernel ratio up a layer.
 
-Measured (task 144), no case meets that band, and the misses go both ways. At two
+Measured (VARKA-144), no case meets that band, and the misses go both ways. At two
 million Arrow-cached rows the long lane costs 0.73x to 0.96x of the int lane,
 because the cache read, the batch machinery and the filter's plumbing are most of
 the work and none of them doubles with the lane. At twenty million rows one
@@ -501,7 +500,7 @@ difference.
 The first two readings were each produced by an experiment that varied one thing
 and stopped. The thing that would have caught both immediately was not a better
 experiment: `VarkaNarrowingBenchmark` already existed, had measured this exact
-shape at three selectivities and both widths for task 78, and its committed
+shape at three selectivities and both widths for VARKA-78, and its committed
 numbers order the *opposite* way - the narrowed form slightly faster than the
 two-column control. Nobody looked until after the second reading was written
 down.
@@ -560,7 +559,7 @@ rethrown rather than run through its row-by-row operators (`WholeStageCodegenExe
 fallback with `!Utils.isTesting`), and a refused subexpression or aggregate split is an
 internal error rather than an INFO line. So Spark's own benchmarks never measure the
 production fallback past 64 KB, and a benchmark written to measure it dies at the first
-rung that crosses: `CaseWhenCodegenBenchmark`'s first runner dispatch did (`PLAN_TASK_210.md`
+rung that crosses: `CaseWhenCodegenBenchmark`'s first runner dispatch did (`VARKA-210.md`
 8). The class now clears the property at the start of its suite, since the fallback is what it
 measures. Under sbt the same flag is also the `SPARK_TESTING` environment variable, which a
 JVM cannot clear, so such a rung still throws there; the runners' `spark-submit` path is where
@@ -599,13 +598,13 @@ as they stand.
   a suite out of `testOnly` even by its full name; gate it on an environment variable, which
   the forked test JVM inherits where the sbt JVM's system properties do not reach.
 
-See `PLAN_TASK_181.md` 11.
+See `VARKA-181.md` 11.
 
 ## Another engine's number is timed only on the plan it actually took
 
 A plugin engine for Spark converts what it supports and leaves the rest to Spark,
 and the query runs either way, so a run timed under its name can be Spark's
-number. Task 202's admission check found vecruntime 0.0.3 taking every rung of
+number. VARKA-202's admission check found vecruntime 0.0.3 taking every rung of
 the size ladder and none of the twelve date chains, each declined for one logged
 reason ("unsupported expression DateAddYMInterval"). Timed without a check, the
 chains would have published Spark 4.1.3's times as vecruntime's.
@@ -623,7 +622,7 @@ The engine may support one Spark line only, which then needs a stock control of
 its own on that line: vecruntime supports 4.1.x, so a stock 4.1.3 arm runs beside
 it. And it may leave Spark's cached table alone, which puts a different input
 under its number: vecruntime reads Parquet, so what bounds its ratio to Varka is
-task 194's measurement of Spark over both inputs.
+VARKA-194's measurement of Spark over both inputs.
 
 ## An arm named for a form must set that form, not read it from the defaults
 
@@ -631,7 +630,7 @@ A benchmark arm labelled "unrolled driver" was `VarkaEmitOptions.DEFAULTS`, whic
 unrolled driver when the section was written. The next change made the table driver the default,
 and the arm silently became the table: the committed results were still right, because they
 predated the switch, but the next regeneration would have measured the table against itself
-under two labels (`PLAN_TASK_190.md` 10.4). Nothing failed, because nothing checks a label.
+under two labels (`VARKA-190.md` 10.4). Nothing failed, because nothing checks a label.
 
 So an arm whose name says which form it measures sets that form explicitly -
 `DEFAULTS.withDriverOutputTable(false)`, not `DEFAULTS` - even while the explicit value is the
@@ -646,7 +645,7 @@ section 4 called it the class the committed ladder ran. The ladder had run two d
 in between the driver from a table had replaced the unrolled driver: a dump at the ladder's
 commit, from a worktree checked out there, showed 102 of the class's 104 methods byte for byte
 the same and the two drivers at 5278 and 5932 bytes against 1120 and 1121
-(`PLAN_TASK_181.md` 14.1). The text now says which methods are the figure's and which were not.
+(`VARKA-181.md` 14.1). The text now says which methods are the figure's and which were not.
 
 Emitted bytes are a measurement at a commit as much as a rate is, and the emitter moves faster
 than a ladder is rerun on the machine the post quotes. So a figure that draws a class beside a

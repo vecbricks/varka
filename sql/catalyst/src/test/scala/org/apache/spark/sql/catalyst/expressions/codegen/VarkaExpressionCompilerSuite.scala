@@ -37,13 +37,13 @@ import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
 /**
- * Unit tests for [[VarkaExpressionCompiler]] (milestone 2, task 10): the recursive
+ * Unit tests for [[VarkaExpressionCompiler]] (milestone 2, VARKA-10): the recursive
  * Catalyst-to-IR compiler that both `VarkaColumnarRule` (eligibility) and
  * `VarkaKernelEvaluator` (execution) call. End-to-end coverage lives in
  * `VarkaDifferentialSuite`; here the compiled shape itself is pinned - dense input mapping,
  * literal slots deduplicated by value (what makes the emitter's CSE able to see two
  * `date_add(d, 1)` as one computation), output Spark types, the per-entry classification of
- * task 12's partial eligibility, and the shapes that decline.
+ * VARKA-12's partial eligibility, and the shapes that decline.
  */
 class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog {
 
@@ -55,7 +55,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private val i = AttributeReference("i", IntegerType)()
   private val sh = AttributeReference("sh", ShortType)()
   private val by = AttributeReference("by", ByteType)()
-  // Task 67: one column per year-month unit. The stored value is a month count in all three,
+  // VARKA-67: one column per year-month unit. The stored value is a month count in all three,
   // so they differ only in the Spark type the analyzer reasons with and the compiler carries
   // out - which is exactly what the tests below check the compiler does not confuse.
   private val ymm = AttributeReference("ymm",
@@ -67,7 +67,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   private val childOutput: Seq[Attribute] = Seq(d, d2, i, sh, by)
 
-  /** A second `IntegerType` column, for the comparisons that need two of them (task 122). */
+  /** A second `IntegerType` column, for the comparisons that need two of them (VARKA-122). */
   private val sh2 = AttributeReference("i2", IntegerType)()
 
   /** `childOutput` with that second int column, on its own list for the reason below. */
@@ -121,7 +121,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         LessThan(d, d2) -> DateAdd(d, Literal(1)),
         EqualTo(d, d2) -> DateAdd(d, Literal(2))),
       Some(d2))
-    // Ineligible without task 11's recursion; now the first branch wins first, SQL's rule.
+    // Ineligible without VARKA-11's recursion; now the first branch wins first, SQL's rule.
     val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
@@ -180,7 +180,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private val withDow: Seq[Attribute] = childOutput :+ dow
 
   test("next_day with a weekday column compiles to a derived input, ANSI in its kind") {
-    // Until task 59 a column weekday declined; now the column is read through a derived
+    // Until VARKA-59 a column weekday declined; now the column is read through a derived
     // input: the kernel input is a ColumnRef like any other, inputOrdinals names the string
     // column, and the note tells the evaluator to fill that input from it before the kernel.
     val lenient = VarkaExpressionCompiler.compile(
@@ -315,7 +315,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new ColumnRef(2), true)) !== VarkaVectorIR.canonical(new IRMakeDate(new ColumnRef(0),
       new ColumnRef(1), new ColumnRef(2), false)))
     // compilePartial answers None when nothing fuses, so a fused sibling rides along. The
-    // declining operand is a date, not an int expression: since task 63 widened this position
+    // declining operand is a date, not an int expression: since VARKA-63 widened this position
     // to any `IntegerType` tree, only the wrong *type* still reaches the position-named reason.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(MakeDate(y, m, d, false)), out(Year(d))), ints).get
@@ -364,10 +364,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a bare int column compares in the kernel, alone and as a conjunct") {
-    // Task 122. `compare` used to send every non-literal operand through `compileNode`, whose
+    // VARKA-122. `compare` used to send every non-literal operand through `compileNode`, whose
     // value leaves are date columns and fused int fields, so a bare `IntegerType` column
     // declined with "not a date column" and left a residual row filter above the fused part -
-    // which is what task 120's coverage suite found when it began requiring every conjunct of
+    // which is what VARKA-120's coverage suite found when it began requiring every conjunct of
     // a predicate row to fuse. The int32 lane already owned the column: arithmetic reads it
     // through `intOperand`, and a comparison needs no overflow mode because it yields a mask.
     for ((name, predicate) <- Seq(
@@ -393,7 +393,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("an int column's validity predicate fuses, because the optimizer infers it") {
-    // Task 122's second half. Spark infers `isnotnull(i)` beside any null-intolerant predicate
+    // VARKA-122's second half. Spark infers `isnotnull(i)` beside any null-intolerant predicate
     // on `i`, so admitting the comparison without admitting this would leave a row filter over
     // every fused int comparison - the kernel doing the compare and the row engine still
     // visiting every row for the null. The word is the same one a date column's validity reads.
@@ -456,7 +456,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val node = new DayOfWeekIso(new ColumnRef(0))
     assert(compiled.outputs === Seq(node, node))
     assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
-    // Since task 63 these do compile - as int arithmetic over a fused field - so the claim
+    // Since VARKA-63 these do compile - as int arithmetic over a fused field - so the claim
     // this test defends is narrower than "nothing else fuses": no other Add becomes the
     // dedicated DayOfWeekIso node, which is what would silently change the value.
     for (other <- Seq(Add(WeekDay(d), Literal(2)), Add(DayOfWeek(d), Literal(1)),
@@ -498,7 +498,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(AddMonths(d, Literal(VarkaChrono.MONTH_ARITH_MAX_MONTHS)))), childOutput).isDefined)
   }
 
-  // Task 60: add_months' month count widened to a column, the way task 38 widened date_add's
+  // VARKA-60: add_months' month count widened to a column, the way VARKA-38 widened date_add's
   // day offset - a runtime guard on the count takes over from the compile-time bound above.
 
   test("add_months(d, i) and d + CAST(i AS INTERVAL MONTH) compile to the same " +
@@ -516,8 +516,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("declines a further-folded count and a widened one, each with its own reason") {
-    // The YEAR-end interval cast and the negated MONTH cast used to decline here. Task 68
-    // widened the emitter's month-count position to hold task 63's arithmetic, so the first now
+    // The YEAR-end interval cast and the negated MONTH cast used to decline here. VARKA-68
+    // widened the emitter's month-count position to hold VARKA-63's arithmetic, so the first now
     // declines only when its multiply is unbounded and the second fuses outright; both moved to
     // that task's tests rather than being deleted, and this comment is the pointer, since a
     // reader chasing "why did add_months stop declining these" should land somewhere.
@@ -527,7 +527,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(AddMonths(d, Add(i, Literal(1)))) ===
       "month count is neither a foldable literal nor an integer column")
     // The stored year-month interval column used to decline here, because isArrowBacked would
-    // not read an IntervalYearVector. Task 67 admits it end to end, so the case moved to that
+    // not read an IntervalYearVector. VARKA-67 admits it end to end, so the case moved to that
     // task's own test rather than being deleted: this comment is the pointer, since a reader
     // chasing "why did add_months stop declining an interval" should land somewhere.
     // A Short/Byte count: AddMonths.inputTypes demands IntegerType exactly, so the analyzer
@@ -542,7 +542,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("a column count composes with dayRange like a literal count does") {
     // year(add_months(d, m)) fuses: a column count is Bounded by the emitter's own runtime
-    // guard (task 60's correction to PLAN_MILESTONE_4.md 2.27), not left unbounded.
+    // guard (VARKA-60's correction to m4/PLAN.md 2.27), not left unbounded.
     assert(fuses(Year(AddMonths(d, i))))
     // The bound composes in both directions: a date already shifted to the edge of add_months'
     // own guarded range, plus the guarded range itself, still leaves the narrowed range by one
@@ -556,7 +556,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val atLo = DateSub(d, Literal((31L * VarkaChrono.MONTH_ARITH_MIN_MONTHS - shiftLo).toInt))
     assert(fuses(Year(AddMonths(atLo, i))))
     assert(!ir(Year(AddMonths(atLo, i))).contains("guardedDay"))
-    // One day past either edge the interval leaves the range - and since task 93 the shape is
+    // One day past either edge the interval leaves the range - and since VARKA-93 the shape is
     // re-armed rather than declined, because what carries it out is `add_months`' own column
     // count, whose worst case most batches do not reach. The bound arithmetic above is what
     // decides *where* the check goes, so it is still what these two lines pin; they assert the
@@ -568,12 +568,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("a column count over a column day offset is re-armed, not declined") {
     // The day-offset guard bounds date_add's result to [NARROW_MIN_DAYS, NARROW_MAX_DAYS], and
     // add_months can then move it 2047 years further, where `narrowed` is undefined - so the
-    // day the calendar tail decomposes is out of range. Task 60 recorded that dayRange must
+    // day the calendar tail decomposes is out of range. VARKA-60 recorded that dayRange must
     // widen the guarded producer's interval by the shift above it and decline, "rather than
     // treat the subtree as unbounded-but-guarded and admit on the producer's promise", and it
     // was right: admitting on the promise is a wrong answer.
     //
-    // Task 93 admits it on something else - a second check, inserted where the interval ran
+    // VARKA-93 admits it on something else - a second check, inserted where the interval ran
     // out, which makes the day the calendar tail decomposes in range as a fact rather than as
     // a promise. The distinction the comment above draws is exactly the one that makes this
     // safe, so it is quoted rather than deleted.
@@ -582,7 +582,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "(year (guardedDay (addMonths (addDays col:0 col:1) col:1)))",
       "the check belongs between the shift that overflowed and the node that decomposes")
     // The sibling arms take the same path. `trunc` shifts backward by a literal 365, so its
-    // own shift is not runtime-valued and it still declines - the asymmetry task 93 turns on.
+    // own shift is not runtime-valued and it still declines - the asymmetry VARKA-93 turns on.
     assert(!fuses(Year(TruncDate(DateAdd(d, i), Literal("YEAR")))))
     // A guarded producer directly under the calendar node is admitted with no second check:
     // its guarded result is already exactly the range the lowering covers.
@@ -592,7 +592,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("an upward shift over a guarded day offset fuses again, and the downward " +
       "siblings still do not") {
-    // Written by task 60's review as four pinned declines, with the note that flipping them
+    // Written by VARKA-60's review as four pinned declines, with the note that flipping them
     // was the follow-up's deliverable. This is that flip, and three of the four take it; the
     // fourth is below, with its own reason. The declines were correct and over-conservative:
     // each shifts the guarded producer's result *upward*, and the civil-from-days lowering
@@ -600,7 +600,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // step's `w < 2 ^ NARROW_ERA_K` shift domain, not of the decomposition. dayRange had only
     // the one constant, so it declined them.
     //
-    // Task 69 measured where the decomposition does stop being exact - past the multiply's own
+    // VARKA-69 measured where the decomposition does stop being exact - past the multiply's own
     // overflow too, because `eraOf`'s one-era correction carries it further - and gave the
     // upward direction its own bound. `NARROW_MAX_DAYS` still governs what a runtime guard
     // enforces on a producer's own result; `NARROW_DECOMPOSE_MAX_DAYS` governs what an
@@ -608,7 +608,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(fuses(Year(LastDay(DateAdd(d, i)))))
     assert(fuses(Year(NextDay(DateAdd(d, i), Literal("MON")))))
     assert(fuses(Year(DateAdd(DateAdd(d, i), Literal(5)))))
-    // The fourth does not flip, and PLAN_TASK_69.md 1 says why while listing it: `ThursdayOf`
+    // The fourth does not flip, and VARKA-69.md 1 says why while listing it: `ThursdayOf`
     // shifts +-3, so only its +3 side is this task's to recover. Its -3 side reaches below
     // NARROW_MIN_DAYS, where the lowering is undefined, and a shape declines on the union of
     // its directions - so loosening the upward bound alone cannot admit it.
@@ -675,7 +675,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // reaches NARROW_MAX_DAYS + k, and the admission check now compares that against
     // NARROW_DECOMPOSE_MAX_DAYS rather than against NARROW_MAX_DAYS.
     val headroom = VarkaChrono.NARROW_DECOMPOSE_MAX_DAYS - VarkaChrono.NARROW_MAX_DAYS
-    assert(headroom > 0, "task 69 rests on the decomposition outliving the guards' range")
+    assert(headroom > 0, "VARKA-69 rests on the decomposition outliving the guards' range")
     assert(fuses(Year(DateAdd(DateAdd(d, i), Literal(headroom)))))
     assert(declineReason(Year(DateAdd(DateAdd(d, i), Literal(headroom + 1)))) ===
       s"day range [${VarkaChrono.NARROW_MIN_DAYS + headroom + 1}, " +
@@ -689,11 +689,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(!fuses(Year(TruncDate(DateAdd(d, i), Literal("YEAR")))))
   }
 
-  // Task 52's compile-time range guard. `HI` and `LO` are the largest literal shifts that keep
+  // VARKA-52's compile-time range guard. `HI` and `LO` are the largest literal shifts that keep
   // a contract column inside the narrowed range, derived from the constants rather than
   // retyped, so the tests below sit at +-1 of the real bound whatever it is.
   //
-  // The two directions take different constants since task 69. Downward the narrowing is
+  // The two directions take different constants since VARKA-69. Downward the narrowing is
   // undefined below `NARROW_MIN_DAYS` and nothing rescues it. Upward the binding limit is how
   // far the decomposition stays exact on a value already in hand, which is further than the
   // era step's shift domain - so `shiftHi` derives from `NARROW_DECOMPOSE_MAX_DAYS` and the
@@ -712,7 +712,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   // -------------------------------------------------------------------------------------------
-  // Task 102: the StaticInvoke table, which is how any TIME expression is recognised at all.
+  // VARKA-102: the StaticInvoke table, which is how any TIME expression is recognised at all.
   // -------------------------------------------------------------------------------------------
 
   /** The nine and the SQL that produces each, so the table's coverage is checked against a list. */
@@ -745,7 +745,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
    * The list above against the registry, so a TIME function Spark adds cannot stay out of the
    * table unnoticed: every built-in function whose expression class is a `TimeExpression` must
    * be represented in `everyTimeExpression`, and so in the table, by an instance of its class.
-   * Section 9.3 of `PLAN_TASK_102.md` is what this guards against - five conversions that were
+   * Section 9.3 of `VARKA-102.md` is what this guards against - five conversions that were
    * in the registry and declined as `unsupported expression` because the table's own list did
    * not know them.
    */
@@ -843,7 +843,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("hour, minute and second lower to long-lane divisions under a narrowing root") {
-    // Group C's route A (`PLAN_TASK_102.md` 8.3): the three extracts are `LocalTime` field
+    // Group C's route A (`VARKA-102.md` 8.3): the three extracts are `LocalTime` field
     // reads on the row engine and constant divisions of the nanoseconds of day here, `minute`
     // and `second` taking the remainder of a further division by sixty. Each is an int column
     // computed in the long lane, so the kernel is a long-lane one whose output type is an int,
@@ -875,7 +875,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(both.outputTypes === Seq(IntegerType, TimeType(6)))
   }
 
-  test("an extract under another expression declines, until task 28 narrows inside a tree") {
+  test("an extract under another expression declines, until VARKA-28 narrows inside a tree") {
     // The narrowing is the kernel's store, so `hour(t) + 1` would put a 32-bit value under a
     // node of a 64-bit tree, which the emitter refuses; the compiler declines it first, with
     // the reason, and the entry beside it still fuses.
@@ -884,7 +884,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("time_to_millis and time_to_micros lower to a constant division of the nanoseconds") {
-    // Group E (`PLAN_TASK_102.md` 9.3): `floorDiv` of a non-negative count is the truncating
+    // Group E (`VARKA-102.md` 9.3): `floorDiv` of a non-negative count is the truncating
     // division the lane has, and the result is a bigint on the same lane.
     val millis = VarkaExpressionCompiler.compile(Seq(out(TimeToMillis(t6))), withLong).get
     assert(millis.outputs === Seq(new ConstDivide(longCol, 1000000L, nanosPerDay)))
@@ -922,7 +922,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
       val reason = declineReason(e, withLong)
       assert(reason.contains("returns a decimal"), reason)
-      assert(reason.contains("task 157"), reason)
+      assert(reason.contains("VARKA-157"), reason)
     }
   }
 
@@ -1006,15 +1006,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a TIME expression declines by name, not as `unsupported expression`") {
-    // Task 102 lowers these one group at a time, and the difference between "not lowered yet"
+    // VARKA-102 lowers these one group at a time, and the difference between "not lowered yet"
     // and "unsupported" is what tells a reader where the work stands. The same distinction task
     // 89 drew for `extract(MONTH FROM ym)`.
-    // make_time is the one still waiting on task 28's widening, now that the extracts and the
+    // make_time is the one still waiting on VARKA-28's widening, now that the extracts and the
     // conversions are lowered and the decimal-valued two decline by their own reason.
     val reason = declineReason(
       MakeTime(Literal(1), Literal(2), Literal(Decimal(3), DecimalType(16, 6))), withLong)
     assert(reason.contains("make_time"), reason)
-    assert(reason.contains("task 102"), reason)
+    assert(reason.contains("VARKA-102"), reason)
   }
 
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {
@@ -1025,7 +1025,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a year-month interval column is a date-lane leaf, whatever its unit") {
-    // The stored value is a count of months in every unit, so `d + ym` is task 60's
+    // The stored value is a count of months in every unit, so `d + ym` is VARKA-60's
     // column-count AddMonths with no conversion - one arm, three units, the same IR. The unit
     // survives only on the Spark type, which is what `outputTypes` carries.
     for (col <- Seq(ymm, ymy, ym)) {
@@ -1062,9 +1062,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(toInt.outputs === Seq(new ColumnRef(0)))
     assert(toInt.outputTypes === Seq(IntegerType))
 
-    // The YEAR unit is neither direction's identity: 12x one way, /12 the other. Task 68
+    // The YEAR unit is neither direction's identity: 12x one way, /12 the other. VARKA-68
     // widened the emitter's month-count position and takes the 12x; the reverse direction is a
-    // division, which nothing lowers and which task 89 owns.
+    // division, which nothing lowers and which VARKA-89 owns.
     assert(declineReason(Cast(ymy, IntegerType), withIntervals).nonEmpty)
   }
 
@@ -1100,8 +1100,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(Cast(i, ymy.dataType), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
 
-    // The same expression in `add_months`' month-count position, which task 68's emitter split
-    // opened. Task 67 pinned this as declining; that it now fuses is the evidence group C
+    // The same expression in `add_months`' month-count position, which VARKA-68's emitter split
+    // opened. VARKA-67 pinned this as declining; that it now fuses is the evidence group C
     // landed, and the emitter's `requireMonthCountShape` is what has to agree.
     val inCount = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, Cast(Year(d), ymy.dataType)))), withIntervals).get
@@ -1114,10 +1114,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("`d - ym` fuses, its count a checked negation the guard covers") {
     // Spark rewrites `d - ym` to DateAddYMInterval(d, UnaryMinus(ym)), so the count is a
-    // negated interval column. Task 63 lowers the negation and task 68's emitter split lets
+    // negated interval column. VARKA-63 lowers the negation and VARKA-68's emitter split lets
     // the month-count position hold it - the position `next_day`'s weekday no longer shares,
-    // because task 60's lanewise guard on the count's value covers a derived count and
-    // `next_day` has no such guard. Task 67 pinned this as declining.
+    // because VARKA-60's lanewise guard on the count's value covers a derived count and
+    // `next_day` has no such guard. VARKA-67 pinned this as declining.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, UnaryMinus(ymm, false)))), withIntervals).get
     assert(compiled.outputs === Seq(new IRAddMonths(new ColumnRef(0),
@@ -1143,10 +1143,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(neg.outputs === Seq(new IntNeg(Overflow.FAIL, new ColumnRef(0))))
 
     // `abs` is not an op the IR has: it is the blend `if (x < 0) -x else x`, whose IntNeg arm
-    // takes exactly the one input that overflows a negation. Since task 79 the guard under a
+    // takes exactly the one input that overflows a negation. Since VARKA-79 the guard under a
     // CASE arm is qualified by that arm, so only the lanes that negate can condemn.
     // `d - CAST(i AS INTERVAL MONTH)`, which the analyzer spells as a negation over the
-    // relabel cast, fuses on the same arm - task 60 pinned it as declining.
+    // relabel cast, fuses on the same arm - VARKA-60 pinned it as declining.
     val negCast = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, UnaryMinus(Cast(i, ymm.dataType))))), withIntervals).get
     assert(negCast.outputs === Seq(new IRAddMonths(new ColumnRef(0),
@@ -1224,7 +1224,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // above, so nothing about the arithmetic blocks it. The `ByteType` result does - Varka has
     // no byte lane and no Arrow vector to store one into - and the reason says so, because a
     // reader who saw "declined" here would otherwise conclude the division was the problem and
-    // that task 89 had not landed.
+    // that VARKA-89 had not landed.
     assert(declineReason(ExtractANSIIntervalMonths(ymm), withIntervals) ===
       "extract(MONTH FROM ym) returns a byte, which has no lane")
   }
@@ -1264,7 +1264,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(!fuses(e), s"$e should decline")
     }
     // The same literal that the removed runtime guard's differential used, and the exact
-    // query PLAN_TASK_52.md names as fusing wrongly after task 51.
+    // query VARKA-52.md names as fusing wrongly after VARKA-51.
     assert(!fuses(Year(DateAdd(d, Literal(20000000)))))
   }
 
@@ -1273,7 +1273,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(fuses(DateAdd(d, Literal(shiftHi + 1))))
     assert(fuses(DateDiff(DateAdd(d, Literal(shiftHi + 1)), d2)))
     // Two literals each under the bound whose sum is over it. Both derive from the bound
-    // rather than being written out: task 69 widened the ceiling by nine thousand years, and
+    // rather than being written out: VARKA-69 widened the ceiling by nine thousand years, and
     // a pair of hand-picked constants that used to straddle it now fits under it silently.
     val halfShift = shiftHi / 2 + 1
     assert(!fuses(Year(DateAdd(DateAdd(d, Literal(halfShift)), Literal(halfShift)))))
@@ -1306,7 +1306,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("the date-typed calendar outputs carry their own bound") {
-    // add_months's month count is bounded by task 40's decline, and inside that bound the
+    // add_months's month count is bounded by VARKA-40's decline, and inside that bound the
     // analysis charges up to 31 days a month on top of the child's interval.
     assert(fuses(Year(AddMonths(d, Literal(VarkaChrono.MONTH_ARITH_MAX_MONTHS)))))
     assert(fuses(Year(AddMonths(DateAdd(d, Literal(shiftHi - 12 * 31)), Literal(12)))))
@@ -1318,7 +1318,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // last_day's output is up to 30 days past an input that itself passed the check.
     assert(fuses(Year(LastDay(DateAdd(d, Literal(shiftHi - 30))))))
     assert(!fuses(Year(LastDay(DateAdd(d, Literal(shiftHi - 29))))))
-    // A trunc output (task 35) is up to 365 days before its input, so it can only leave the
+    // A trunc output (VARKA-35) is up to 365 days before its input, so it can only leave the
     // range at the bottom: the last shift that fuses is 365 short of date_sub's own.
     assert(fuses(Year(TruncDate(DateSub(d, Literal(-shiftLo - 365)), Literal("YEAR")))))
     assert(!fuses(Year(TruncDate(DateSub(d, Literal(-shiftLo - 364)), Literal("YEAR")))))
@@ -1362,7 +1362,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("trunc to WEEK is next_day over date_sub by seven, on the nodes already there") {
-    // Spark defines truncDate(d, WEEK) as getNextDateForDayOfWeek(d - 7, MONDAY); task 33's
+    // Spark defines truncDate(d, WEEK) as getNextDateForDayOfWeek(d - 7, MONDAY); VARKA-33's
     // next_day slot holds dayOfWeek - 1, and Monday is 4 in DateTimeUtils' numbering, so the
     // literal is 3. The shape is the assertion: if the rewrite is wrong, this is where it shows.
     val compiled = VarkaExpressionCompiler.compile(
@@ -1381,7 +1381,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         Seq(out(TruncDate(d, format)), out(DateAdd(d, Literal(1)))), output).get
       partial.declines(0).reason
     }
-    // A stored string column fuses since task 61 (the dynamic node); an expression over one
+    // A stored string column fuses since VARKA-61 (the dynamic node); an expression over one
     // is what "non-foldable" declines now.
     assert(reason(Upper(fmt), childOutput :+ fmt) === "trunc with a non-foldable format")
     assert(reason(Literal.create(null, StringType)) === "trunc with a null format")
@@ -1408,7 +1408,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(TruncDate(d, lcase))), childOutput :+ lcase).get
     assert(collated.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
     // Beside the literal node in one projection: the date column is shared, the literal
-    // spelling stays task 35's node, and one derived input serves both dynamic entries.
+    // spelling stays VARKA-35's node, and one derived input serves both dynamic entries.
     val both = VarkaExpressionCompiler.compile(Seq(out(TruncDate(d, dow)),
       out(TruncDate(d, Literal("MONTH"))), out(TruncDate(d2, dow))), withDow).get
     assert(both.outputs === Seq(
@@ -1452,7 +1452,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(unixDate.outputTypes === Seq(IntegerType))
     // date_from_unix_date's child is an integer column, which no general leaf can read, so
     // this declines through the ordinary non-date-column path exactly as any other read of
-    // `i` would. Task 38 has since landed and does not change that: it opens IntegerType
+    // `i` would. VARKA-38 has since landed and does not change that: it opens IntegerType
     // columns through compileOffset only - deliberately not through compileNode, per that
     // method's own javadoc - so the offset of a date_add is readable and this is not.
     assert(VarkaExpressionCompiler.compile(
@@ -1630,12 +1630,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     def inIf(base: Int): NamedExpression =
       out(If(In(d, (1 to 16).map(k => Literal(base + k, DateType))), d, d2))
     // Two 16-literal INs are exactly 64 distinct ops (2 x (16 EQ + 15 OR + 1 IfElse)); a
-    // third entry's single op would be the 65th. Before task 20 this shape reached the
+    // third entry's single op would be the 65th. Before VARKA-20 this shape reached the
     // emitter and lost the whole kernel to a silent per-batch fallback; now the overflow
     // entry demotes to residual with a recorded reason. The op cap bounds the form without a
-    // byte budget; under the default the third entry fuses too (task 190). Every case here is
+    // byte budget; under the default the third entry fuses too (VARKA-190). Every case here is
     // read with one kernel per projection: under the default `severalKernels` an entry that
-    // fits alone is another kernel's instead (PLAN_TASK_190.md 11).
+    // fits alone is another kernel's instead (VARKA-190.md 11).
     val oneKernel = VarkaEmitOptions.DEFAULTS.withSeveralKernels(false)
     val threeEntries = Seq(inIf(0), inIf(1000), out(DateAdd(d, Literal(9999))))
     val partial = VarkaExpressionCompiler.compilePartial(threeEntries, childOutput,
@@ -1676,7 +1676,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isEmpty)
     assert(VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isDefined)
-    // An IntegerType column offset now compiles (task 38); a ShortType one still declines,
+    // An IntegerType column offset now compiles (VARKA-38); a ShortType one still declines,
     // so `compile` still declines the whole projection over it.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, i))), childOutput).isDefined)
@@ -1695,7 +1695,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(
         out(DateAdd(d, Literal(3))),
         i.asInstanceOf[NamedExpression],
-        // Residual since task 63 for a narrower reason than before: an int column is
+        // Residual since VARKA-63 for a narrower reason than before: an int column is
         // unbounded, so a checked multiply over it has no int-lane overflow test. `i + 1`
         // fuses now, with the check. The mode is spelled out rather than taken from
         // `SQLConf.get`, which this suite never sets: under `SPARK_ANSI_SQL_MODE=false` the
@@ -1725,7 +1725,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("forwards and residuals alone are not eligible: nothing to fuse gains nothing") {
-    // `i * 7` under ANSI is the residual here: task 63 made `i + 1` fusible, but a checked
+    // `i * 7` under ANSI is the residual here: VARKA-63 made `i + 1` fusible, but a checked
     // multiply over an unbounded column still has no int-lane overflow test.
     assert(VarkaExpressionCompiler.compilePartial(
       Seq(out(Multiply(i, Literal(7), EvalMode.ANSI))), childOutput).isEmpty)
@@ -1773,7 +1773,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // The corpus norm: a date predicate AND a non-date one AND a validity guard. The middle
     // conjunct is over a `ShortType` column, which is a narrower lane the kernel does not
     // read, so it declines while the date ones fuse and the residual keeps its reason for the
-    // report. It was `i > 5` until task 122 made a bare int column comparable in the kernel -
+    // report. It was `i > 5` until VARKA-122 made a bare int column comparable in the kernel -
     // the shape this test needs is one that is still out of the lane's reach, not one that
     // merely was.
     val condition = org.apache.spark.sql.catalyst.expressions.And(
@@ -1807,7 +1807,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("predicates with nothing to fuse, or no columns, are not eligible") {
-    // No conjunct compiles. A short column, not an int one: task 122 admitted `i > 5`.
+    // No conjunct compiles. A short column, not an int one: VARKA-122 admitted `i > 5`.
     assert(VarkaExpressionCompiler.compilePredicate(
       GreaterThan(sh, Literal(5.toShort)), childOutput).isEmpty)
     // A conjunct compiles but references no column: nothing to vectorize over.
@@ -1840,7 +1840,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Each conjunct is one Compare op and the fold adds one And per accepted conjunct, so k
     // accepted conjuncts cost 2k - 1 distinct ops: 32 fit the 64-op budget, the 33rd would
     // make 65. The overflow conjuncts demote with the recorded budget reason. The op cap bounds
-    // the form without a byte budget; under the default all forty fuse (task 190).
+    // the form without a byte budget; under the default all forty fuse (VARKA-190).
     val condition = (1 to 40)
       .map(k => GreaterThan(d, Literal(k, DateType)): Expression)
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
@@ -1854,7 +1854,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       .fusedConjuncts.size === 40)
   }
 
-  // Task 56: date +- INTERVAL n DAY with a column interval, through the analyzer's own resolver so
+  // VARKA-56: date +- INTERVAL n DAY with a column interval, through the analyzer's own resolver so
   // the shapes asserted are the ones a query produces, not ones this suite invented.
   private val dayInterval = DayTimeIntervalType(DayTimeIntervalType.DAY)
   private def resolved(e: Expression): Expression = BinaryArithmeticWithDatetimeResolver.resolve(e)
@@ -1901,7 +1901,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaExpressionCompiler.compile(
       Seq(out(UnaryMinus(i, true))), childOutput).get.outputs ===
       Seq(new IntNeg(Overflow.FAIL, new ColumnRef(0))))
-    // The operand leaves: an int column is the task 38 leaf, an int literal a slot, and a
+    // The operand leaves: an int column is the VARKA-38 leaf, an int literal a slot, and a
     // fused int field the node itself - three kinds, one arm.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(Add(Year(d), i, EvalMode.LEGACY))), childOutput).get.outputs ===
@@ -1913,7 +1913,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "multiply declines") {
     // year(d) * 100 + month(d) under ANSI: both operands are bounded by the calendar, so the
     // product and the sum are proved to stay in the int range and every node emits as WRAP.
-    // This is the shape PLAN_TASK_63.md section 6 measures - it is fast because there is no
+    // This is the shape VARKA-63.md section 6 measures - it is fast because there is no
     // check in it, not because the check is cheap.
     val key = Add(Multiply(Year(d), Literal(100), EvalMode.ANSI), Month(d), EvalMode.ANSI)
     val compiled = VarkaExpressionCompiler.compile(Seq(out(key)), childOutput).get
@@ -1963,7 +1963,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         Seq(out(Add(shape, Literal(1), EvalMode.ANSI))), childOutput).get.outputs.head
         .asInstanceOf[IntArith].mode() === Overflow.WRAP, s"$shape should still be bounded")
     }
-    // A column offset is not bounded here either: task 52's guard is armed by a calendar
+    // A column offset is not bounded here either: VARKA-52's guard is armed by a calendar
     // consumer, and `datediff` is not one, so nothing keeps its operand in range.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(Add(DateDiff(DateAdd(d, i), d2), Literal(1), EvalMode.ANSI))), childOutput)
@@ -2009,7 +2009,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("a day offset that lowers to a non-arithmetic node declines rather than " +
       "reaching the emitter") {
-    // `weekday(d2) + 1` is an Add, but it lowers to task 57's dedicated DayOfWeekIso node,
+    // `weekday(d2) + 1` is an Add, but it lowers to VARKA-57's dedicated DayOfWeekIso node,
     // which the emitter's day-offset check does not take. Admitting it here would mark the
     // entry fused and let the refusal fire at emit time, where it becomes a silent per-batch
     // fallback under an EXPLAIN that still claims fusion.
@@ -2049,7 +2049,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("int arithmetic is admitted as a day offset, and a calendar node over it is " +
       "guarded rather than declined") {
-    // The offset was a foldable literal (task 38's predecessor) or a bare int column; task 63
+    // The offset was a foldable literal (VARKA-38's predecessor) or a bare int column; VARKA-63
     // adds arithmetic over those. The emitter's own shape check on this operand admits the
     // same three kinds.
     val shifted = VarkaExpressionCompiler.compile(
@@ -2057,7 +2057,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(shifted.outputs === Seq(new AddDays(new ColumnRef(0),
       new IntArith(IntOp.MUL, Overflow.WRAP, new ColumnRef(1), new LiteralSlot(0)))))
     assert(shifted.outputTypes === Seq(DateType))
-    // A calendar node over such a producer still fuses: task 52's range analysis reads any
+    // A calendar node over such a producer still fuses: VARKA-52's range analysis reads any
     // non-literal offset as a column shift, so the emitter guards the producer's own result at
     // run time instead of the compiler declining the shape.
     assert(VarkaExpressionCompiler.compile(
@@ -2140,7 +2140,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val stored = resolved(Add(d, iv))
     assert(intervalDeclineReason(stored, childOutput :+ iv) ===
       "day interval is not an int column cast to days")
-    // A short column under the cast is not the int leaf task 38 admits; it declines through
+    // A short column under the cast is not the int leaf VARKA-38 admits; it declines through
     // the extractor arm rather than being read as an int.
     val short = resolved(Add(d, Cast(sh, dayInterval)))
     assert(intervalDeclineReason(short) === "day interval is not an int column cast to days")
@@ -2163,7 +2163,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
 
   // ---------------------------------------------------------------------------------------------
-  // The long lane (task 29): three types, comparisons only
+  // The long lane (VARKA-29): three types, comparisons only
   // ---------------------------------------------------------------------------------------------
 
   private val l = AttributeReference("l", LongType)()
@@ -2320,7 +2320,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.isEmpty)
   }
 
-  test("long arithmetic and IN stay declined: they are tasks 104 and 102, not this one") {
+  test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {
     val add = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
     assert(add.specs === Seq(FusedOutput(0), ResidualOutput))
@@ -2331,7 +2331,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(in.specs(1).decline.get.reason === "unsupported predicate")
   }
 
-  // --- Task 169: the emitter's size decline, taken at plan time -------------------------------
+  // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
 
   /** A balanced `greatest` over `add_months(d, lo..hi)`: one output, as heavy as it is wide. */
   private def heavy(lo: Int, hi: Int): Expression =
@@ -2350,8 +2350,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("an output the emitter declines in bytes is residual at plan time, with the reason, " +
-      "and the rest of the projection still fuses (task 169)") {
-    // PLAN_TASK_169.md 3.1: the weight caps admit a balanced greatest over thirty-two
+      "and the rest of the projection still fuses (VARKA-169)") {
+    // VARKA-169.md 3.1: the weight caps admit a balanced greatest over thirty-two
     // add_months - sixty-three ops, one under MAX_FUSED_NODES - and its one group's loop method
     // is past HugeMethodLimit, which no regroup can shrink. The compiler asks the emitter and
     // demotes exactly that entry; the entries beside it fuse. Without the byte budget the
@@ -2366,7 +2366,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       reason.contains("HugeMethodLimit"), reason)
     assert(partial.fused.outputs.size === 2)
     // Read with one kernel per projection: under the default the op cap's overflow entry fits
-    // alone and is a second kernel's (PLAN_TASK_190.md 11).
+    // alone and is a second kernel's (VARKA-190.md 11).
     val legacy = VarkaExpressionCompiler.compilePartial(list, childOutput,
       VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0).withSeveralKernels(false)).get
     assert(legacy.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
@@ -2379,7 +2379,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a class-wide decline demotes the last-admitted outputs until the driver fits " +
-      "(task 169)") {
+      "(VARKA-169)") {
     // The driver sets up every output and cannot be regrouped, so over a budget the
     // single-output groups meet it is the driver that declines, naming no output, and the
     // compiler demotes from the end. Sixty make_date outputs put the unrolled driver past 2000
@@ -2388,7 +2388,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       out(MakeDate(Year(d), Month(d), Literal((k - 1) % 28 + 1), failOnError = true))
     }
     // One kernel per projection, the reference: under the default the demoted suffix is a second
-    // kernel's instead (PLAN_TASK_190.md 11).
+    // kernel's instead (VARKA-190.md 11).
     val budget = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(2000).withDriverOutputTable(false)
       .withSeveralKernels(false)
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, budget).get
@@ -2404,13 +2404,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("an output whose method the class-file format cannot hold is residual at plan time, " +
-      "with the reason, and the rest of the projection still fuses (task 219)") {
-    // PLAN_TASK_219.md 2.4: under the byte budget the op cap is off (task 190), so nothing but
+      "with the reason, and the rest of the projection still fuses (VARKA-219)") {
+    // VARKA-219.md 2.4: under the byte budget the op cap is off (VARKA-190), so nothing but
     // MAX_CHAIN_DEPTH bounds one output, and a tree of forty distinct nested make_dates over
     // eighty-one distinct add_months - ten nodes deep, and legal SQL - makes a loop method of
     // some 130 KB. The Class-File API refuses it while the class is assembled, before the byte
     // budget can measure it; the emitter reads the refusal as a decline, and the compiler demotes
-    // the tree with the cap as its reason and fuses year(d) beside it. Before task 219 the
+    // the tree with the cap as its reason and fuses year(d) beside it. Before VARKA-219 the
     // refusal was an IllegalArgumentException the compiler read as a fit: the plan claimed
     // fusion, and every task met the refusal behind the ghost fallback.
     def distinct(depth: Int, i: Int): Expression =
@@ -2428,10 +2428,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a filter whose folded condition is over the budget demotes its last-admitted " +
-      "conjunct (task 169)") {
+      "conjunct (VARKA-169)") {
     // The fused conjuncts fold into one condition root, which the emitter cannot split by name.
     // Without `splitConditions` the compiler drops the last conjunct it admitted and asks again;
-    // with it, the default since task 172, it splits the conjunction instead. The budget is set
+    // with it, the default since VARKA-172, it splits the conjunction instead. The budget is set
     // between what two of these conjuncts and all three emit, measured rather than assumed.
     val conjuncts = (1 to 3).map(k => GreaterThan(heavy(k * 10, k * 10 + 3), d2))
     val condition = conjuncts.reduceLeft[Expression](And(_, _))
@@ -2455,8 +2455,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("asking the emitter at plan time costs one emission per shape: a second compile of " +
-      "the same projection is a cache hit (task 169)") {
-    // PLAN_TASK_169.md 2.3: the compiler runs at planning, for EXPLAIN and once per task on the
+      "the same projection is a cache hit (VARKA-169)") {
+    // VARKA-169.md 2.3: the compiler runs at planning, for EXPLAIN and once per task on the
     // executor, so the question goes through the shape cache with the key the evaluator builds.
     val list = Seq(out(Year(d)), out(DayOfMonth(DateAdd(d, Literal(4321)))))
     VarkaExpressionCompiler.compilePartial(list, childOutput)
@@ -2468,9 +2468,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("a hundred four-op entries all fuse under the byte budget, two hundred from a table, and " +
       "past the unrolled driver's ceiling the last-admitted are demoted with its reason") {
-    // PLAN_TASK_190.md 1, 2 and 10: the op cap fused fifteen of these entries; the byte budget
+    // VARKA-190.md 1, 2 and 10: the op cap fused fifteen of these entries; the byte budget
     // fuses the ladder's whole range. The unrolled driver sets up every output and grows with
-    // them, so past about a hundred and forty it is over the budget, and task 169's plan-time
+    // them, so past about a hundred and forty it is over the budget, and VARKA-169's plan-time
     // decline demotes a suffix naming it, rather than any entry failing on the executor. The
     // driver from a table, the default, grows with the groups alone, and all two hundred fuse.
     def entry(k: Int): NamedExpression =
@@ -2493,7 +2493,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("under severalKernels the suffix the unrolled driver's ceiling demotes is a second " +
       "kernel, and every entry fuses") {
-    // PLAN_TASK_190.md 11: the entries task 169's bisection demotes fit, only not beside the
+    // VARKA-190.md 11: the entries VARKA-169's bisection demotes fit, only not beside the
     // others, so they are classified again as a kernel of their own.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
@@ -2539,7 +2539,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("under the defaults the split driver serves the driver's ceiling in one kernel, planned " +
       "in one emission, and several kernels serve only what one kernel cannot") {
-    // PLAN_TASK_190.md 11.5: both options on. Eight hundred ladder entries are past the driver
+    // VARKA-190.md 11.5: both options on. Eight hundred ladder entries are past the driver
     // from a table's ceiling of about 180 groups; with the split driver they are one kernel whose
     // driver calls stages, found without the bisection several kernels would need. Sixty-nine
     // more date columns then pass MAX_INPUTS, and only the entries over them are a second kernel.
@@ -2564,13 +2564,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("admission loads no class: a projection that bisects leaves none defined, and the kept " +
-      "kernel's first lookup defines it without building it again (task 237)") {
+      "kernel's first lookup defines it without building it again (VARKA-237)") {
     // Two hundred entries past the unrolled driver's ceiling, one kernel per projection: the
     // compiler bisects, asking the emitter about several prefixes, and keeps the largest that
     // fits. Each probe is built and measured; none is defined.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k + 1)), LastDay(d2))))
-    // The plan would read the cut off the driver and build nothing (task 236); the bisection
+    // The plan would read the cut off the driver and build nothing (VARKA-236); the bisection
     // whose probes this test is about runs with it off.
     val oneKernel = VarkaEmitOptions.DEFAULTS.withDriverOutputTable(false)
       .withSeveralKernels(false).withPlanSize(false)
@@ -2590,8 +2590,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("under planSize the compiler cuts a projection past the driver's ceiling in one step, " +
-      "at the bisection's kernels, with one class built per kernel (task 236)") {
-    // PLAN_TASK_236.md 3.4: with the split driver off, eight hundred ladder entries are two
+      "at the bisection's kernels, with one class built per kernel (VARKA-236)") {
+    // VARKA-236.md 3.4: with the split driver off, eight hundred ladder entries are two
     // kernels. The loop finds the first by bisection, ten or more emissions each building and
     // measuring a class; the plan reads the cut off the driver built alone and declines before
     // any build, so the first emission builds nothing and each kernel is then built once.
@@ -2611,7 +2611,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(planned.kernels.size === 2 && planned.declines.isEmpty)
     assert(cut <= planned.kernels.size + 1, s"$cut emissions for two planned kernels")
     // The plan cuts where the bisection cut: the driver's bytes are exact, so the largest prefix
-    // whose driver fits is read, not searched for (PLAN_TASK_236.md 2.3).
+    // whose driver fits is read, not searched for (VARKA-236.md 2.3).
     val Seq(first, _) = bisected.kernels.map(_.outputs.size)
     val Seq(plannedFirst, plannedRest) = planned.kernels.map(_.outputs.size)
     assert(plannedFirst === first && plannedFirst + plannedRest === 800,

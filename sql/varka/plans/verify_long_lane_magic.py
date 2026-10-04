@@ -15,11 +15,11 @@
 # limitations under the License.
 #
 
-"""The admission check behind task 49, section 2.19 of PLAN_MILESTONE_4.md.
+"""The admission check behind VARKA-49, section 2.19 of m4/PLAN.md.
 
-Task 26's calendar lowering is range-narrowed, with round-down magics and
+VARKA-26's calendar lowering is range-narrowed, with round-down magics and
 correction carries, because VectorOperators has no multiply-high and an int32
-lane cannot hold the product an exact magic division needs. Task 49 asks
+lane cannot hold the product an exact magic division needs. VARKA-49 asks
 whether that stops applying in int64 lanes, where LongVector's ordinary MUL
 returns a full 64-bit low product.
 
@@ -37,8 +37,8 @@ Fact 1 is checked exhaustively for the two small divisions and, for /146097,
 over every multiple-of-d boundary plus a dense prefix and both endpoints - the
 error of floor(n*M/2^k) - floor(n/d) is monotone between consecutive multiples
 of d, so those boundaries are where a disagreement must appear if there is one.
-The full 2^32 sweep is task 49's own commit-1 deliverable, run as a committed
-opt-in test against a long-arithmetic reference the way task 26 swept its total
+The full 2^32 sweep is VARKA-49's own commit-1 deliverable, run as a committed
+opt-in test against a long-arithmetic reference the way VARKA-26 swept its total
 variant; this script is the cheap check that says the sweep is worth writing.
 
 Run: python3 sql/varka/plans/verify_long_lane_magic.py
@@ -108,9 +108,11 @@ def main():
             continue
         k, magic, largest = found
         checked = len(boundaries(d, hi))
-        print(f"  {label:42s}  k={k:2d}  M={magic:<10d}"
-              f"  largest product 2^{largest.bit_length() - 1}"
-              f"  ({checked} boundary dividends checked)")
+        print(
+            f"  {label:42s}  k={k:2d}  M={magic:<10d}"
+            f"  largest product 2^{largest.bit_length() - 1}"
+            f"  ({checked} boundary dividends checked)"
+        )
 
     print()
     print("The margin, which is what makes this an admission check and not a formality:")
@@ -118,8 +120,10 @@ def main():
     if wider is None:
         print("  /146097 over [0, 2^33)                       NO exact (M, k) - as expected")
     else:
-        print(f"  /146097 over [0, 2^33)                       k={wider[0]} M={wider[1]}"
-              " - UNEXPECTED, section 2.19 understates the headroom")
+        print(
+            f"  /146097 over [0, 2^33)                       k={wider[0]} M={wider[1]}"
+            " - UNEXPECTED, section 2.19 understates the headroom"
+        )
         ok = False
 
     print()

@@ -32,7 +32,7 @@ for i, k in enumerate(kinds):
         80,
         48,
         fill=fills[k],
-        # The census's own readings (PLAN_TASK_62.md 11.9), not the later measuring run's:
+        # The census's own readings (VARKA-62.md 11.9), not the later measuring run's:
         # Zen 3 read 1.00, the three Zen 4s 0.91 to 1.00, the Xeons 1.33 to 1.36, and the one
         # Zen 5 1.99. The committed results file below carries 2.01 because that is a
         # different run on a different day.

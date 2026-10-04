@@ -1,4 +1,4 @@
-VarkaColdStartBenchmark under -XX:CompileThresholdScaling=0.05, the admission check of PLAN_TASK_212.md 2.
+VarkaColdStartBenchmark under -XX:CompileThresholdScaling=0.05, the admission check of VARKA-212.md 2.
 Run with build/sbt Test/runMain on the fixed benchmark of #429 (commit e50cf2b1b85), pinned to cpus
 0,12,13,14,15,1,2,3, on the quiet laptop (canary ok), JDK 25: the benchmark's tables, the sbt prefixes removed.
 

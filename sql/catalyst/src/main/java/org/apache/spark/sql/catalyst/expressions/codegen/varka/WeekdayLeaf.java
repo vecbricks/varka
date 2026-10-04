@@ -49,7 +49,7 @@ import org.apache.spark.unsafe.types.UTF8String;
  * one that must raise, and not only for the error's identity: {@code NextDay.nullSafeEval}
  * never parses the name when the date beside it is null, so {@code next_day(NULL, 'xyz')} is
  * NULL under ANSI, and a pre-pass that raised on the parse alone would err where the row engine
- * does not (PLAN_TASK_59.md 2).
+ * does not (VARKA-59.md 2).
  *
  * <p>Lives here for {@link IntRangeOps}'s reason: called from the evaluator on the batch path,
  * so it has to be on the compile classpath.
@@ -59,7 +59,7 @@ public final class WeekdayLeaf {
   /** The two parsers; both are held to the definition by {@code WeekdayLeafSuite}. */
   public enum Parser { ROW_ENGINE, ASCII }
 
-  /** The parser the evaluator uses; chosen from the parity benchmark (PLAN_TASK_59.md 9). */
+  /** The parser the evaluator uses; chosen from the parity benchmark (VARKA-59.md 9). */
   public static final Parser DEFAULT_PARSER = Parser.ASCII;
 
   /** {@link #fill}'s answer when an unrecognised name met {@code failOnError}. */

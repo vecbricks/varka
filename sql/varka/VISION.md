@@ -1,15 +1,15 @@
-> **Status (task 14).** This document is the architectural source of truth: the mission,
+> **Status (VARKA-14).** This document is the architectural source of truth: the mission,
 > principles and stack below still govern the code. Its scope and next-steps sections,
 > written before implementation started, are historical - the live roadmap is
-> `sql/varka/plans/`: `PLAN_MILESTONE_1.md` (the date MVP, done), `PLAN_MILESTONE_2.md`
-> (the fused vector loop, done), `PLAN_MILESTONE_3.md` (reach, done), `PLAN_MILESTONE_4.md`
-> (the date family and the emitter under it, done), `PLAN_MILESTONE_5.md` (64-bit lanes and
-> TIME, done), `PLAN_MILESTONE_6.md` (the compiler's foundation, closed 3 October 2026),
-> `PLAN_MILESTONE_7.md` (trust and maintainability, in flight) and `SCOPE_MILESTONE_8.md`
+> `sql/varka/plans/`: `m1/PLAN.md` (the date MVP, done), `m2/PLAN.md`
+> (the fused vector loop, done), `m3/PLAN.md` (reach, done), `m4/PLAN.md`
+> (the date family and the emitter under it, done), `m5/PLAN.md` (64-bit lanes and
+> TIME, done), `m6/PLAN.md` (the compiler's foundation, closed 3 October 2026),
+> `m7/PLAN.md` (trust and maintainability, in flight) and `m8/SCOPE.md`
 > (coverage - what the benchmark corpora say is missing); `CHANGELOG.md` at the repository
 > root records each milestone's close.
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
-> actually built. Section 13 answers the whole-stage charter question (task 22).
+> actually built. Section 13 answers the whole-stage charter question (VARKA-22).
 
 ## 1. Core Mission
 
@@ -19,12 +19,12 @@ Eliminate runtime compilation overhead (string parsing, AST generation) and unlo
 
 ## 2. Architectural Principles (Non-Negotiable)
 
-> **Status (task 22).** Principle 2's "the generated class" and "within the same method"
+> **Status (VARKA-22).** Principle 2's "the generated class" and "within the same method"
 > describe the charter's end state, not the shipped engine: today Varka is the columnar
 > fast path *beside* whole-stage codegen (its nodes are not `CodegenSupport`, and
 > whole-stage generation splits at the boundary - `docs/sql-varka.md`). Section 13 states
 > the charter decision. Principle 3's per-task loader became the bounded shape cache in
-> task 18; the unload guarantee is per eviction, proven the same way.
+> VARKA-18; the unload guarantee is per eviction, proven the same way.
 
 1. **Zero-Risk Fallback (The "Ghost" Janino):** The system never pre-generates Janino strings. If bytecode generation fails, it *lazily* generates the Janino string, compiles it, caches it, and retries. The user job never crashes.
 2. **Granular Degradation:** Failure of a single column or complex operation does NOT revert the entire `WholeStageCodegen`. The generated class will use SIMD for the supported columns and scalar loops for the unsupported ones within the same method.
@@ -123,8 +123,8 @@ We are currently implementing the **Date/Time MVP**.
 
 ### 8.2. ClassLoader (Package: `org.apache.spark.sql.varka.execution`)
 
-> **Status (task 22).** Superseded twice: the loader is Java (`VarkaClassLoader.java`),
-> and since task 18 its owner is an entry of the bounded `VarkaShapeCache` - released on
+> **Status (VARKA-22).** Superseded twice: the loader is Java (`VarkaClassLoader.java`),
+> and since VARKA-18 its owner is an entry of the bounded `VarkaShapeCache` - released on
 > cache eviction, not task completion - so one loaded class serves every task of a shape.
 
 - **File:** `VarkaClassLoader.scala`
@@ -133,7 +133,7 @@ We are currently implementing the **Date/Time MVP**.
 
 ### 8.3. Catalyst Hooks (Scala)
 
-> **Status:** this hook shipped in milestone 1 and was retired in task 17 once the
+> **Status:** this hook shipped in milestone 1 and was retired in VARKA-17 once the
 > fused loop had replaced it. Eligibility and compilation live in
 > `VarkaExpressionCompiler`, which the columnar rule and the evaluator share; the
 > expressions carry no Varka trait and `genCode` is untouched.
@@ -198,10 +198,10 @@ spark-submit \
 ## 12. Next Steps for the AI Assistant (Me)
 
 > **Status:** this list is done or superseded (step 6's `JavaClassFileEngine` was built,
-> never routed, and deliberately deleted in milestone 2 - `PLAN_TASK_9.md` section 5.4).
-> The steps since are milestones 3 to 6, all closed (`PLAN_MILESTONE_3.md` to
-> `PLAN_MILESTONE_6.md`, and `CHANGELOG.md`); milestone 7 (`PLAN_MILESTONE_7.md`) is in
-> flight, and `SCOPE_MILESTONE_8.md` scopes benchmark coverage after it.
+> never routed, and deliberately deleted in milestone 2 - `VARKA-9.md` section 5.4).
+> The steps since are milestones 3 to 6, all closed (`m3/PLAN.md` to
+> `m6/PLAN.md`, and `CHANGELOG.md`); milestone 7 (`m7/PLAN.md`) is in
+> flight, and `m8/SCOPE.md` scopes benchmark coverage after it.
 
 When proceeding to implementation:
 1. **Write `VarkaMorsel`:** Helper to map `ArrowVector` to `MemorySegment`.
@@ -216,9 +216,9 @@ When proceeding to implementation:
 
 ---
 
-## 13. The Whole-Stage Charter (task 22)
+## 13. The Whole-Stage Charter (VARKA-22)
 
-Answered in task 22, by the project owner's decision: **whole-stage code generation
+Answered in VARKA-22, by the project owner's decision: **whole-stage code generation
 stays in Varka's charter** as an eventual goal - the mission's "eliminate runtime
 compilation overhead" is not narrowed to projections. The honest present, so this
 section is never read as delivered:
@@ -226,9 +226,9 @@ section is never read as delivered:
 - Nothing built through milestone 2, and nothing planned through milestone 6, generates
   the whole-stage class. Today's engine is the columnar fast path beside whole-stage
   codegen, and the 64 KB method limit the original design cites is not yet addressed by
-  any shipped code (`PLAN_MILESTONE_2.md` records this explicitly).
+  any shipped code (`m2/PLAN.md` records this explicitly).
 - The price of full ownership is measured, not guessed: the milestone-6 census
-  (`SCOPE_MILESTONE_8.md`) counts ~400 expression classes, ~17 whole-stage operators and
+  (`m8/SCOPE.md`) counts ~400 expression classes, ~17 whole-stage operators and
   seven generators that exist to produce and compare `UnsafeRow` - which Varka does not
   produce - between here and retiring Janino.
 - When the whole-stage generator is built, it starts from the vector IR and
@@ -256,11 +256,11 @@ the pure-SIMD nano-benchmark; SIMD comb sort lost to scalar radix sort, and the
 exchange dominated the sort anyway. Its two conclusions read as a description of
 what this project later measured on its own: "to vectorize computation is
 effective... to use SIMD is also effective, but not huge improvement", and "the
-interface between computation units is important for performance". Task 62 put
+interface between computation units is important for performance". VARKA-62 put
 the 512-bit datapath's share of Varka's speedup at about 1.14x, with the rest
 coming from the loop shape - no per-row objects, no megamorphic calls, no
 branches - and the read-back floor at the columnar-to-row boundary is the
-subject of `SCOPE_MILESTONE_8.md` items 13 and 14. The deck also reports the
+subject of `m8/SCOPE.md` items 13 and 14. The deck also reports the
 Vector API losing to JNI by an order of magnitude on `daxpy` on the JDK 16 of
 its day; the kernels here run on JDK 25, where the intrinsics that were missing
 then exist, and `SKILLS.md` records where they still do not (the long-to-double
@@ -272,7 +272,7 @@ row engine.
 
 **Shen, Xiong and Jiang, "Using Vectorized Execution to Improve SQL Query
 Performance on Spark", ICPP 2021.** The third attempt, read on 16 September
-2026 (`SCOPE_MILESTONE_8.md`, item 25): a whole-engine fork of Spark 2.4 in
+2026 (`m8/SCOPE.md`, item 25): a whole-engine fork of Spark 2.4 in
 Java that relies on the JIT for any SIMD, with no Vector API and no fused
 expression loop, and vectorised shuffle, sort and aggregation beside project and
 filter. Its own decomposition is the useful result: plain X100-style
@@ -308,7 +308,7 @@ And Gandiva has no differential oracle, no fuzzer and no committed benchmarks.
 
 **Outside Spark: Trino (`core/trino-main/src/main/java/io/trino/sql/gen`).** The
 JVM engine nearest to this one in situation, surveyed on 16 September 2026
-(`SCOPE_MILESTONE_8.md`, item 19). Its columnar filter path generates a class per
+(`m8/SCOPE.md`, item 19). Its columnar filter path generates a class per
 filter with a null-checking loop and a bare one chosen per batch on
 `mayHaveNull`, runs conjuncts in an order learned from time per row eliminated,
 reorders only terms that cannot fail, evaluates a dictionary once and reuses the
@@ -321,7 +321,7 @@ C2's auto-vectoriser, the same bet as Gandiva's, and its calendar functions run
 row by row over Joda. The evaluator that emits lanes is the step neither took.
 
 **Outside Spark: DuckDB (`src/execution/expression_executor`).** Surveyed on 16
-September 2026 (`SCOPE_MILESTONE_8.md`, item 20). An interpreter over precompiled
+September 2026 (`m8/SCOPE.md`, item 20). An interpreter over precompiled
 templates with no explicit SIMD in its source, it makes the same structural
 choices in a different medium: validity in sixty-four-bit entries with a bare
 loop for an all-valid entry and a skip for an all-null one, comparisons that
@@ -334,7 +334,7 @@ unchecked one. This engine has the second of those in scope and should take the
 first.
 
 **Outside Spark: DataFusion (`datafusion/physical-expr`, `datafusion/spark`).**
-Surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`, item 21). An interpreter
+Surveyed on 16 September 2026 (`m8/SCOPE.md`, item 21). An interpreter
 over Arrow arrays in Rust whose kernels are arrow-rs's, and the home of Comet's
 Spark-compatible functions, so the nearest published attempt at this engine's
 contract. It short-circuits `AND` and `OR` per batch and narrows to the rare
@@ -342,13 +342,13 @@ side behind a measured threshold, compiles `CASE` into one of five shapes, and
 declares the preimage of `year` so that `year(d) = 2021` becomes a range on `d`,
 citing ClickHouse as the origin. What it has that this engine does not is an
 interval lattice run in both directions: bottom-up to bound an expression, as
-task 84's analysis does, and top-down from a known result to its operands, so a
+VARKA-84's analysis does, and top-down from a known result to its operands, so a
 conjunct can bound its sibling and a guard can be retired by a predicate that
 sits beside it. That second pass is the next thing the range analysis grows.
 
 **Outside Spark: ClickHouse (`src/Functions`, `src/Interpreters/JIT`).** The
 calendar was read for milestone 6's lookup-table item; the evaluator was
-surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`, item 23). It is the one
+surveyed on 16 September 2026 (`m8/SCOPE.md`, item 23). It is the one
 engine in the survey that both interprets over columns and compiles: functions
 declare their contract as flags, a generic layer strips nulls, constants and
 dictionaries before the kernel, columns carry sixty-four bytes of padding so no
@@ -362,7 +362,7 @@ scalar IR left to LLVM, Gandiva's bet with Gandiva's compiler; the emitter that
 writes lanes is the step it did not take.
 
 **Outside Spark, but for Spark: Comet (`spark/src/main/scala/org/apache/comet`,
-`native/spark-expr`).** Surveyed on 16 September 2026 (`SCOPE_MILESTONE_8.md`,
+`native/spark-expr`).** Surveyed on 16 September 2026 (`m8/SCOPE.md`,
 item 24). The one system with this engine's exact contract: a plug-in over
 Spark's physical plan that runs what it can elsewhere, falls back for the rest,
 and must answer what Spark answers under `ANSI`. It arrived at the same
@@ -389,7 +389,7 @@ as separate loops behind a batch boundary. Lang, Passing, Kipf, Boncz, Neumann
 and Kemper (VLDB Journal 2020) measured what idle lanes cost inside a fused
 pipeline and found materialising survivors at an operator boundary the best
 remedy on out-of-order cores, which is the compaction this engine does at its
-filter node. The reading notes are `SCOPE_MILESTONE_8.md` item 25, and the
+filter node. The reading notes are `m8/SCOPE.md` item 25, and the
 open-access papers are in `sql/varka/papers`.
 
 What this engine does that neither Spark attempt did: it emits the loop as bytecode with the

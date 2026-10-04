@@ -39,10 +39,10 @@ import org.apache.spark.sql.varka.memory.VarkaMorsel;
 import org.apache.spark.sql.varka.memory.VarkaMorsel.DateMorsel;
 
 /**
- * Differential tests for {@link ChronoVectorOps}, task 32's ceiling-measurement kernel: every
+ * Differential tests for {@link ChronoVectorOps}, VARKA-32's ceiling-measurement kernel: every
  * result is asserted against {@code java.time.LocalDate}, the same oracle {@code VarkaChrono}
  * and the emitted {@code year}/{@code month}/{@code dayofmonth}/{@code quarter} nodes are checked
- * against in {@code PLAN_TASK_26.md}.
+ * against in {@code VARKA-26.md}.
  *
  * <p>This samples the narrowed range - roughly 100,000 values out of its 16,777,216 - rather than
  * sweeping it. "Sweep" is reserved in this project for {@code VarkaChronoSuite}'s exhaustive

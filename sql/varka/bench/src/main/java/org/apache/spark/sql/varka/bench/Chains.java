@@ -64,7 +64,7 @@ import java.util.List;
  * runner in the pool can hold. More work per row and more rows are two ways to buy executor
  * time, and only one of them collides with memory.
  *
- * <p><b>The sizing is a prediction, and is registered as one.</b> {@code PLAN_TASK_62.md}
+ * <p><b>The sizing is a prediction, and is registered as one.</b> {@code VARKA-62.md}
  * 11.13 records it with its arithmetic and will score it against the first committed chain
  * file. The numbers behind it - a per-iteration fixed cost near 18 ms, roughly 0.02 ns per
  * emitter op over a memory floor near 0.8 ns, and so 6.7 to 10.5 ns/row for the entries here -

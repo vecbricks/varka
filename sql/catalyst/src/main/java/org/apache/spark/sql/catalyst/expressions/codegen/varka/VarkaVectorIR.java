@@ -282,7 +282,7 @@ public sealed interface VarkaVectorIR
    * compose where the analysis would otherwise have run out of range and declined the whole
    * expression. That is the node's entire purpose: a producer guard covers one producer, and a
    * second guarded shift above it has no budget left, because the first already promised the whole
-   * range (see {@code PLAN_TASK_93.md} 2).
+   * range (see {@code VARKA-93.md} 2).
    *
    * <p>Its check is unconditional, not behind {@link VarkaEmitOptions#guardDayProducers}, for
    * the reason the column-count {@code AddMonths} is: the compiler admits the expression on the
@@ -325,16 +325,16 @@ public sealed interface VarkaVectorIR
   /**
    * {@code (int) child}: a value computed in 64-bit lanes, delivered as a 32-bit column. The
    * {@code TIME} extracts are the first case - {@code hour(t)} is a division of nanoseconds of
-   * day whose quotient is an {@code IntegerType} (task 102 group C, {@code PLAN_TASK_102.md}
-   * 8.3) - and the node is task 28's, admitted ahead of that task's bi-lane kernel under one
+   * day whose quotient is an {@code IntegerType} (VARKA-102 group C, {@code VARKA-102.md}
+   * 8.3) - and the node is VARKA-28's, admitted ahead of that task's bi-lane kernel under one
    * restriction the emitter enforces: it may only be an <b>output root</b>. The loop then
    * still runs at one species, the child's, and the root narrows once, at its store, into a
-   * four-byte-per-row destination under a mask of the low half of the int lanes. Task 28
+   * four-byte-per-row destination under a mask of the low half of the int lanes. VARKA-28
    * lifts the restriction rather than adding a node.
    *
    * <p>The narrowing is a truncation of the low 32 bits, with no overflow check: the compiler
    * builds it only over values it has proven to fit - a field of a time is at most 86399 - and
-   * Spark's own {@code CAST(bigint AS int)}, which needs the ANSI decline, is task 28's to
+   * Spark's own {@code CAST(bigint AS int)}, which needs the ANSI decline, is VARKA-28's to
    * build over the same node with a guard.
    *
    * <p>The child must be on the long lane: a narrowing of an int lane is the identity and
@@ -577,7 +577,7 @@ public sealed interface VarkaVectorIR
    * is the bound, which the caller discharges structurally: a seconds-of-day column is under
    * 86400 by the leaf that made it, the seconds after the hours under 3600 by arithmetic. No
    * guard rides the node and none should; a caller that cannot prove the bound guards below it
-   * with {@link GuardedRange} or uses {@link ConstDivide} (`PLAN_TASK_102.md` 8.4).
+   * with {@link GuardedRange} or uses {@link ConstDivide} (`VARKA-102.md` 8.4).
    *
    * <p>Int lane only: the search is over 32-bit products, and the 64-bit lane has its own
    * division family. The components carry the pair so the record's equality and canonical

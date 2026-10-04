@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
  * method's parameters have a hard slot count.
  * This reads all three from the class the emitter built, so a budget can be checked against the
  * quantity it is a budget <i>of</i>, and so a tool can print it beside the op counts. See
- * {@code PLAN_TASK_87.md} section 2. A fourth measure is read the same way for a limit of the
+ * {@code VARKA-87.md} section 2. A fourth measure is read the same way for a limit of the
  * JIT's rather than the class file's: how many call sites of the Vector API's vector classes a
  * method carries, which C1's refusal of a method follows on the shapes it was calibrated on
  * ({@link VarkaEmitBudget#CALL_SITE_BUDGET}).
@@ -52,7 +52,7 @@ import java.util.regex.Pattern;
  *                        itself, by {@link #isVectorClass}; not the masks, species or operator
  *                        tokens - by method name, for every method with code. One invocation is
  *                        one call site whatever it inlines to, which is the unit C1's refusal
- *                        was measured in ({@code PLAN_TASK_209.md} 10.1); the calls it leaves
+ *                        was measured in ({@code VARKA-209.md} 10.1); the calls it leaves
  *                        out cost C1 registers too, which is why the count is a proxy
  */
 record VarkaEmittedClass(
@@ -120,7 +120,7 @@ record VarkaEmittedClass(
    * body has been built, by throwing an {@code IllegalArgumentException} - so no class exists
    * for {@link #measure} to read, and the one place the method is named is the message. The
    * emitter reads it here and hands the result to the same regroup that acts on a measured
-   * method over a limit ({@code PLAN_TASK_219.md} 2.1 and 3.1). Empty when {@code e} is not that
+   * method over a limit ({@code VARKA-219.md} 2.1 and 3.1). Empty when {@code e} is not that
    * refusal: the text is the JDK's and not an API, so an exception that does not match it, or
    * that names a length within the cap, is left to its caller as it was before. The words are
    * pinned by {@code VarkaEmitterBudgetSuite}'s test "the refusals the emitter reads are the
@@ -163,7 +163,7 @@ record VarkaEmittedClass(
    * {@link VarkaEmitBudget#CONSTANT_POOL_CAP}. Like the method cap it is enforced while the class
    * is assembled, so a class over it is never measured; unlike the method cap no regroup shrinks
    * a pool, so the emitter declines on it class-wide, naming no output, and the compiler demotes
-   * outputs from the end until it fits ({@code PLAN_TASK_219.md} 2.5). No shape the IR builds
+   * outputs from the end until it fits ({@code VARKA-219.md} 2.5). No shape the IR builds
    * has come within a fortieth of the cap; it is read here because the refusal takes the same
    * path as the method cap's, and would otherwise escape the same way.
    */

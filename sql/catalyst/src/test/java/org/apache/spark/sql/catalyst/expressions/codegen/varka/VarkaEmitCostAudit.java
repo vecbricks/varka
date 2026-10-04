@@ -123,7 +123,7 @@ final class VarkaEmitCostAudit {
         q -> round(errors[Math.min(errors.length - 1, (int) (q * errors.length))]);
     long under = scored.stream().filter(p -> p.predicted().get(pricing) < p.measured()).count();
     long within = java.util.Arrays.stream(errors).filter(e -> e <= 10.0).count();
-    // The plan's margins (task 236): a held-out method measured past its prediction by more
+    // The plan's margins (VARKA-236): a held-out method measured past its prediction by more
     // than the margin is one the plan would have to correct.
     long pastMargin = scored.stream().filter(p -> p.predicted().get(pricing)
         < p.measured() * (1 - (p.sites() ? VarkaEmitCostTable.SITES_MARGIN
@@ -206,7 +206,7 @@ final class VarkaEmitCostAudit {
 
   /**
    * The options before the plan, at the audit's width, with the prediction on or off: the
-   * weights alone, and the prediction without the plan's margins. Neither ships since task 236
+   * weights alone, and the prediction without the plan's margins. Neither ships since VARKA-236
    * made the plan the default; both stay as the arms the shipped grouping is read against.
    */
   static VarkaEmitOptions shipped(boolean predict) {
@@ -214,7 +214,7 @@ final class VarkaEmitCostAudit {
         .withPredictGrouping(predict).withPlanSize(false);
   }
 
-  /** The shipped options: the prediction and the plan on ({@code planSize}, task 236). */
+  /** The shipped options: the prediction and the plan on ({@code planSize}, VARKA-236). */
   static VarkaEmitOptions planned() {
     return shipped(true).withPlanSize(true);
   }
@@ -238,7 +238,7 @@ final class VarkaEmitCostAudit {
       List<String> rebuiltOff = new ArrayList<>();
       List<String> rebuiltOn = new ArrayList<>();
       List<String> gained = new ArrayList<>();
-      // The plan's arm (task 236): the prediction and `planSize` on, each shape built once
+      // The plan's arm (VARKA-236): the prediction and `planSize` on, each shape built once
       // unless the plan was corrected, and every correction named.
       int onePlanned = 0;
       int loopsPlanned = 0;
@@ -345,7 +345,7 @@ final class VarkaEmitCostAudit {
 
   /**
    * The audit file's text. {@code extra} are shapes only the count of builds reads, beside the
-   * held-out ones: the families {@code PLAN_TASK_236.md} 2 added. The count is of the emitter's
+   * held-out ones: the families {@code VARKA-236.md} 2 added. The count is of the emitter's
    * builds; the compiler's admission emissions, several kernels' bisection among them, are not
    * in it.
    */
@@ -367,15 +367,15 @@ final class VarkaEmitCostAudit {
             + "decline either way, every build and the reaction to a measurement that forced it, "
             + "the shapes built more than once, and a digest of the first "
             + "groupings the prediction forms, which moves whenever the prices regroup a shape. "
-            + "The count of builds also reads task 200's mixed and interleaved families, and "
+            + "The count of builds also reads VARKA-200's mixed and interleaved families, and "
             + "the size ladder past the driver's ceiling with compositions of wide draws near and "
             + "past it; it counts the emitter's builds, not the compiler's admission emissions. "
-            + "Then the same shapes with planSize on beside the prediction (task 236): the "
+            + "Then the same shapes with planSize on beside the prediction (VARKA-236): the "
             + "builds, the stages planned before the first build, the reactions, the shapes "
             + "built more than once, and every correction of a planned build with the method, "
             + "its prediction and its measurement; and the loop methods the plan's margins cost. "
             + "The accuracy section also counts, per band, the methods under-predicted past the "
-            + "margins. See PLAN_TASK_199.md and PLAN_TASK_236.md.",
+            + "margins. See VARKA-199.md and VARKA-236.md.",
         "jdk", System.getProperty("java.specification.version"),
         "accuracy", accuracy(points(shapes)),
         "grouping", grouping(built));

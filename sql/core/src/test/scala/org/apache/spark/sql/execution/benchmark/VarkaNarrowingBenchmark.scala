@@ -27,7 +27,7 @@ import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * Task 78's measurement: what a two-column predicate under a one-column consumer costs, which
+ * VARKA-78's measurement: what a two-column predicate under a one-column consumer costs, which
  * was the one shape in milestone 4's debt register where Varka ran slower than stock Spark.
  *
  * It is a file of its own rather than rungs added to [[VarkaFilterBenchmark]], for two reasons.
@@ -42,7 +42,7 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * predicate reads more columns than the consumer wants:
  *
  *  - `SELECT d ... WHERE d < d2` - the losing shape. Two columns in the predicate, one wanted.
- *    Before task 78 a Janino `Project [d]` sat above the row-producing Varka filter, and the
+ *    Before VARKA-78 a Janino `Project [d]` sat above the row-producing Varka filter, and the
  *    node converted `d2` to a row as well, whose value that projection discarded.
  *  - `SELECT d, d2 ... WHERE d < d2` - the same predicate and the same selectivity with nothing
  *    to narrow, so the projection is redundant and Spark removed it long before this rule ran.

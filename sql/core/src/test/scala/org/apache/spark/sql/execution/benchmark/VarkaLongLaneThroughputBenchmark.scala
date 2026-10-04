@@ -29,9 +29,9 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
  * What the long lane costs end to end, against the int lane and against the row engine
- * (milestone 5, the baseline task 29's `PLAN_TASK_29.md` 6.1.2 registered and could not score).
+ * (milestone 5, the baseline VARKA-29's `VARKA-29.md` 6.1.2 registered and could not score).
  *
- * Task 142 priced the lane at the kernel: a 64-bit lane costs 1.5x to 2.0x an int one in cache
+ * VARKA-142 priced the lane at the kernel: a 64-bit lane costs 1.5x to 2.0x an int one in cache
  * and a flat 2.11x to 2.20x out of it, measured over memory segments with no Spark above them.
  * This is the same question one layer up, where the Arrow cache, the batch machinery and the
  * per-batch fixed costs are included and only some of them double with the lane. Every pair of
@@ -39,8 +39,8 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
  * so the ratio of the two Varka rows is the lane's end-to-end price, and the ratio of each
  * Varka row to its baseline is what the engine is worth on that shape.
  *
- * Only comparisons, `greatest`/`least` and `CASE WHEN` appear, because that is what task 29
- * admits on the long lane: arithmetic over `bigint` is task 104, the `TIME` fields are 102 and
+ * Only comparisons, `greatest`/`least` and `CASE WHEN` appear, because that is what VARKA-29
+ * admits on the long lane: arithmetic over `bigint` is VARKA-104, the `TIME` fields are 102 and
  * the interval arithmetic is 103. A `TIME` and a day-time interval case run beside the `bigint`
  * ones because all three share the lane and none of them shares a Catalyst expression, so a
  * lowering that was accidentally type-specific would show as one row out of line.
@@ -64,7 +64,7 @@ object VarkaLongLaneThroughputBenchmark extends SqlBasedBenchmark {
   private val numRows = 2000000
 
   /**
-   * The second scale, for the one question a single row count cannot answer. Task 142 found the
+   * The second scale, for the one question a single row count cannot answer. VARKA-142 found the
    * lane's kernel cost depends on where the working set sits: 1.5x to 2.0x while both arms are
    * in cache and a flat 2.11x to 2.20x once they are not. End to end the per-batch fixed costs
    * do not double with the lane, so the ratio should sit *below* the kernel's at a small scale
@@ -101,7 +101,7 @@ object VarkaLongLaneThroughputBenchmark extends SqlBasedBenchmark {
    * One cached table carrying the same values at both widths: `i`, `i2` as ints and `l`, `l2`
    * as the same numbers in `bigint`, so the two arms of a pair compare identical data and
    * differ only in the lane. `d`, `d2` are dates, which are the int lane's *value* leaves:
-   * a bare `int` column is admitted as a comparison or arithmetic operand (task 122) and not
+   * a bare `int` column is admitted as a comparison or arithmetic operand (VARKA-122) and not
    * as a value, so `greatest(i, i2)` declines where `greatest(l, l2)` fuses, and the int-lane
    * twin of a long projection has to be the date columns. Same lane, same lane count, one
    * fewer byte of nothing - the pairing is about the width, not the Spark type.
@@ -232,7 +232,7 @@ object VarkaLongLaneThroughputBenchmark extends SqlBasedBenchmark {
       cacheTable(baseline)
       cacheTable(varka)
 
-      // The pair PLAN_TASK_29.md 6.1.2 predicts: a comparison filter, one column against
+      // The pair VARKA-29.md 6.1.2 predicts: a comparison filter, one column against
       // another, at both widths. The predicted band is 0.45x to 0.60x of the int arm.
       runPair(baseline, varka, "filter, column against column",
         "SELECT i FROM varka_long_pairs WHERE i > i2",
@@ -277,7 +277,7 @@ object VarkaLongLaneThroughputBenchmark extends SqlBasedBenchmark {
       // Which half of a filter costs the lane: the comparison, or the surviving column's
       // compaction? The four cases cross them. A Varka filter compacts every forwarded column
       // to the selected rows, and the vectorised `compress` path serves four-byte vectors only
-      // (`VarkaKernelEvaluator`, the finding `PLAN_TASK_29.md` 2 recorded as task 128's), so an
+      // (`VarkaKernelEvaluator`, the finding `VARKA-29.md` 2 recorded as VARKA-128's), so an
       // eight-byte column takes a per-row copy. If the cost follows the *output* column rather
       // than the compared one, that is the compaction and not the lane.
       runBenchmark(s"filter: where the lane's cost is, $bigRows rows") {

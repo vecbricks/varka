@@ -22,7 +22,7 @@ import java.util.Map;
 /**
  * The emit cost model's second pricing, kept for the audit: each feature measured on
  * emitted classes beside its own children rather than fitted, in the order and units of
- * {@code VarkaEmitCostTable}. It lost to the fitted prices ({@code PLAN_TASK_199.md} 9.2),
+ * {@code VarkaEmitCostTable}. It lost to the fitted prices ({@code VARKA-199.md} 9.2),
  * and {@code VarkaEmitCostAudit} keeps scoring it so the comparison stays checkable.
  *
  * <p>Generated with {@code VarkaEmitCostTable}, by the same suite and the same switch.

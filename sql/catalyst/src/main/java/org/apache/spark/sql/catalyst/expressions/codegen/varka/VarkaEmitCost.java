@@ -67,7 +67,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
  * A second pricing, each feature measured alone beside its own children, was built beside it and
  * lost: it over-prices a wide group by about half, because it charges every node for validity
  * code a wide group shares. {@code VarkaEmitCostAuditSuite} scores both against emitted classes
- * in {@code sql/varka/emit_cost_audit.json}. See {@code PLAN_TASK_199.md}.
+ * in {@code sql/varka/emit_cost_audit.json}. See {@code VARKA-199.md}.
  *
  * <p><b>What it assumes.</b> The prices are read at the default lowering options and at sixteen
  * int lanes. Other options and widths change a lowering here and there; the prediction is then a

@@ -37,7 +37,7 @@ these files by `dev/varka_toc.py`.
 ## A reciprocal's top bits are a remainder, and other things a neighbouring codebase had
 
 A review of `datealgo-rs` (Nuutti Kotivuori's Rust port of Neri-Schneider, with Cassio Neri as a
-contributor), done after task 53 had shipped the same month block. The papers in `sql/varka/papers`
+contributor), done after VARKA-53 had shipped the same month block. The papers in `sql/varka/papers`
 give the algorithms; a production port by people who have already fought the constants is a second
 source worth an hour, because it shows which corners the paper leaves to the reader. Four things
 came out of it, each checked exhaustively over Varka's day range rather than taken on trust.
@@ -50,7 +50,7 @@ bits, which is the remainder. Three ops. Today's `dayofweek(col)` body is 19 Int
 which the two-fold mod-7 is about 16; `weekday` and `next_day` carry the same fold. This is the
 largest single saving found since the calendar family started, and it is **range-bounded**: the
 fold is exact for every int32 day, the reciprocal only inside the narrow range, so it belongs
-inside the range task 52's compile-time analysis guarantees a calendar input (it would make
+inside the range VARKA-52's compile-time analysis guarantees a calendar input (it would make
 `dayofweek` a range-checked node like the extractions), as a fourth `FloorMod7` variant with the
 fold kept as the total-range reference. It is a task of its own after the emitter settles, not a
 rider on another PR.
@@ -58,12 +58,12 @@ rider on another PR.
 **The Thursday rule for the ISO week.** `weekofyear` planned as "provisional week, then two
 year-boundary corrections and a weeks-in-year helper". `datealgo-rs` does it as: move to the
 Thursday of the same week, `t = d + 3 - weekday0(d)`; the ISO week-year is that Thursday's year
-and the week is `(ordinal(t) - 1) / 7 + 1`. Varka already has the January ordinal from task 34, so
+and the week is `(ordinal(t) - 1) / 7 + 1`. Varka already has the January ordinal from VARKA-34, so
 the whole rule is the weekday, a shift, the day-of-year over `t`, and one exact division. Same op
 count as the planned design, but both boundary corrections and the helper vanish by construction,
-and the test burden with them. Row 37 in `PLAN_MILESTONE_4.md` now says so.
+and the test burden with them. Row 37 in `m4/PLAN.md` now says so.
 
-**Days-from-civil without the era split.** `emitDaysFromCivil` (task 40, used by `add_months`)
+**Days-from-civil without the era split.** `emitDaysFromCivil` (VARKA-40, used by `add_months`)
 does `era = y / 400` with a carry, then `century = yoe / 100` with a carry. `datealgo-rs` writes the
 year part as `1461 * y / 4 - c + c / 4` with `c = y / 100`: equal to the era/yoe/century form over
 all 102,500 biased years, `1461 * y` fits int32, and the `/400` division and its carry step are
@@ -77,7 +77,7 @@ needs its blend, so the net is a few ops. Recorded; not worth a task on its own.
 
 **Not taken.** `is_leap_year` there is the branchy `y % 25` form; Varka's Hueffner hash is four
 branchless ops and stays. The century and year steps of `rd_to_date` use a 64-bit multiply-high,
-which int lanes cannot express; they become borrowable verbatim when task 49 brings int64 lanes.
+which int lanes cannot express; they become borrowable verbatim when VARKA-49 brings int64 lanes.
 
 The general lesson is the admission check: every one of these was a claim about a constant over a
 range until the range was swept. The month-length identity took twelve cases; the weekday trick
@@ -103,7 +103,7 @@ field's limit. Subtract the other way against a minimum vector to reject zero, a
 separator's own value in that vector too, since an upper bound alone lets a digit sit where a dash
 belongs. OR the residues and
 test for all-zero: one mask for the row, no branch per field, and the failing rows go to the row
-engine. It is the same discipline as task 26's range guard applied to bytes - the kernel checks
+engine. It is the same discipline as VARKA-26's range guard applied to bytes - the kernel checks
 that the row is the shape it compiled for and declines the rest, rather than parsing.
 
 Two facts that make it expressible here. JDK 25's `VectorOperators` has the saturating operators
@@ -125,28 +125,28 @@ multiplies and inserting the separators with a shuffle, paired with ClickHouse's
 
 This is the calendar read. Velox's expression evaluator - encoding peeling, per-row error
 bitmaps, the conjunct metric - was surveyed separately on 16 September 2026 and is
-`SCOPE_MILESTONE_8.md` item 18.
+`m8/SCOPE.md` item 18.
 
 Read in September 2026 for the same question as ClickHouse, `datealgo-rs` and Lemire's repository:
 is there anything to borrow. There is not, and the reason is worth one paragraph so nobody reads it
 again for speed. Every Spark-compatible date function in `velox/functions/sparksql` converts the
 day to a `struct tm` through a full civil decomposition and reads one field, one decomposition per
 row per function with nothing shared. Since May 2026 (PR #17371, `velox/type/FastDate.h`) that
-decomposition is Neri-Schneider's reference code with era shift 82 - the same month block task 53
+decomposition is Neri-Schneider's reference code with era shift 82 - the same month block VARKA-53
 shipped, the same `1461 * y / 4 - c + c / 4` and `(979 * m - 2919) / 32` inverse the `datealgo-rs`
-review recorded, and the 64-bit year multiply task 49 is waiting for. Their measured gain from the
+review recorded, and the 64-bit year multiply VARKA-49 is waiting for. Their measured gain from the
 swap was 1.6-1.9x end to end on `month` and `day`, none on `year(date)`. ISO week goes through
-Howard Hinnant's `iso_week.h`; `yearofweek` keeps the two boundary corrections task 37 dropped for
+Howard Hinnant's `iso_week.h`; `yearofweek` keeps the two boundary corrections VARKA-37 dropped for
 the Thursday rule; `next_day` is `start + 1 + floorMod(dow - 1 - start, 7)` off the day number, as
-task 33 does. No datetime file contains SIMD. The only SIMD near expressions,
+VARKA-33 does. No datetime file contains SIMD. The only SIMD near expressions,
 `SIMDComparisonUtil.h`, computes 64 comparison bytes and packs them into a bitmask, which the
 Vector API gives Varka as `VectorMask.toLong()`.
 
 What Velox *is* good for: its Spark-compatibility tests were written by people who had to match
 Spark exactly, and they are a second, independent list of the edge cases worth pinning.
-`sparksql/tests/DateTimeFunctionsTest.cpp` has 56 cases; task 37's row now names the `weekOfYear`
-set as fixtures to import, and the `addMonths` and `makeDate` sets are a cross-check for tasks 40
-and 42. Its string-to-date cast is a character loop over exactly the Spark grammar milestone 4's
+`sparksql/tests/DateTimeFunctionsTest.cpp` has 56 cases; VARKA-37's row now names the `weekOfYear`
+set as fixtures to import, and the `addMonths` and `makeDate` sets are a cross-check for VARKA-40
+and VARKA-42. Its string-to-date cast is a character loop over exactly the Spark grammar milestone 4's
 item 8 sends to the fallback - optional sign, at least four year digits, optional `-[m]m` and
 `-[d]d`, then end, space or `T` - which confirms that design's shape mask covers the right subset.
 Velox also ships `DateExtractBenchmark` and `FormatDateTimeBenchmark` over 1024-row vectors fuzzed
@@ -175,9 +175,9 @@ over all 146097 days of an era against Python's calendar: zero mismatches with
 `cen = (qds * 1837) >>> 28` and `yrs = (jul * 2870) >>> 22`, largest product 1677225130, one carry
 sufficient for each (46 and 8627 of the 146097 days take it). Against `emitChronoPrefix` today
 that is century 10 ops to 7, year 13 to 10, year assembly 5 to 3, and one correction stage fewer
-on the dependent chain. It is task 54, run as task 53 was: a variant, an A/B, both widths.
+on the dependent chain. It is VARKA-54, run as VARKA-53 was: a variant, an A/B, both widths.
 
-**Measured, task 54 (`PLAN_TASK_54.md` 9).** Shipped as the default. The A/B in one run, Julian map
+**Measured, VARKA-54 (`VARKA-54.md` 9).** Shipped as the default. The A/B in one run, Julian map
 against century-then-year: `year` null-free 3444.2 against 2746.4 M rows/s at AVX-512 (+25%) and
 1333.0 against 1054.5 at 128-bit (+26%, from the committed 128-bit companion file); four fields
 unshared +19% and +20%; `add_months` +3% and +4%; the mixed-null rows +14% and +8%. The op-count prediction was 8-12% and the reason it was under
@@ -192,18 +192,18 @@ Three neighbours of the idea, for the record:
 
 - **Blend the constant, not the result.** Joffe picks the numerator's offset before the multiply
   rather than fixing the quotient after the shift. A January offset of `197913 - 12 * 65536` on
-  task 53's month numerator makes `num >>> 16` the final month, and the low half is untouched so
+  VARKA-53's month numerator makes `num >>> 16` the final month, and the low half is untouched so
   the day formula still holds (checked over all 366 days); `979 * 12 - 2919 = 8829` does the same
   for the month-start formula. The op count does not move; the blend leaves the critical path.
-  That is a change for the instruction harness of task 31 to see, not for a ratio.
+  That is a change for the instruction harness of VARKA-31 to see, not for a ratio.
 - **The rest of `fast64` needs a multiply-high.** The year multiply's low bits feed the month step
   directly, and `(yrs % 4) * constant` absorbs the leap day; four multiplies for the whole date
   where Neri-Schneider takes seven, about 40% faster in his scalar measurements. The Vector API has
-  no multiply-high on any lane, so these wait for task 49's long lanes and its exact low products,
+  no multiply-high on any lane, so these wait for VARKA-49's long lanes and its exact low products,
   where the admission check should now try the two-division form beside the three-division one.
-- **The bucket technique** is the guard-free int-lane total if task 49 fails its gate: choose an
+- **The bucket technique** is the guard-free int-lane total if VARKA-49 fails its gate: choose an
   approximate era by a shift, reduce the day into a window, fix the year up by `bucket * 2800`.
-  About 14 ops against task 26's `TOTAL` at 16, without the deliberate wrap; the eight-entry offset
+  About 14 ops against VARKA-26's `TOTAL` at 16, without the deliberate wrap; the eight-entry offset
   table in his `article_2_l1` is one lane permute on a 256-bit int species.
 
 Confirmed and left alone: `emitLeapFlag`'s Hueffner hash is the fastest leap test in Joffe's own

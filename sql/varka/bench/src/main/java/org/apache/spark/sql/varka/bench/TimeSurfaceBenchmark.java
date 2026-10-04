@@ -25,7 +25,7 @@ import java.io.IOException;
  * {@code EXPLAIN} check and the provenance block apply unchanged. Selected by
  * {@code dev/varka_bench_surface.sh --benchmark time}; its files are
  * {@code sql/varka/bench/benchmarks/TimeSurface-<label>-results.txt}
- * (PLAN_MILESTONE_5.md 2.40, PLAN_TASK_105.md).
+ * (m5/PLAN.md 2.40, VARKA-105.md).
  */
 public final class TimeSurfaceBenchmark {
 

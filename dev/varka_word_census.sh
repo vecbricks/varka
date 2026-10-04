@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# The validity-word census (PLAN_MILESTONE_5.md 2.9): what every value root's
+# The validity-word census (m5/PLAN.md 2.9): what every value root's
 # word is today and under the coalesce and absorption extensions, over the
 # Surface projections, a list of composites and the fuzzer's value grammar,
 # each single-root shape cross-checked against the emitter's own verdict.

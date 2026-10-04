@@ -35,7 +35,7 @@ import java.util.Set;
 /**
  * The reference locals an emitted class's loop and epilogue methods store and never read, read
  * off the bytecode: what {@code VarkaUnreadLocalsSuite} holds the cost corpus to. A shared slot
- * (task 223) is the store after a {@code dup} that parks a node's vector for a second use, so one
+ * (VARKA-223) is the store after a {@code dup} that parks a node's vector for a second use, so one
  * nothing loads is a slot the body's use count gave a node visited once.
  *
  * <p>No Class-File API type appears in a signature here: the Scala suites read this class's

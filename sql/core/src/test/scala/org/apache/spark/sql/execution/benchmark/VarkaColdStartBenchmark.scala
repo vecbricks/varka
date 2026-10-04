@@ -31,8 +31,9 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
   VarkaProjectExec, VarkaQ3Ranges}
 
 /**
- * What the first query costs (tasks 195 and 212): a query's first runs against its steady state,
- * on stock Spark and on Varka with and without the kernel warm-up, at the size ladder's rungs.
+ * What the first query costs (VARKA-195 and VARKA-212): a query's first runs against its steady
+ * state, on stock Spark and on Varka with and without the kernel warm-up, at the size ladder's
+ * rungs.
  *
  * Every number the ladder publishes is steady state: the harness warms each case for two seconds
  * and reports the best of its iterations. A reader who runs a query once pays something else -
@@ -46,7 +47,7 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
  * own session: vanilla Spark; Varka with `spark.sql.codegen.varka.warmup.enabled` off, where a new
  * kernel serves every batch from the first and runs interpreted until enough batches have passed
  * through it; and Varka with it on, where a new shape's batches take Spark's row path while a
- * background thread gets the kernel compiled (`PLAN_TASK_212.md` 10). Cases per arm:
+ * background thread gets the kernel compiled (`VARKA-212.md` 10). Cases per arm:
  *
  *  - **plan only**: analysis, optimization and physical planning of a shape this JVM has not
  *    seen, up to the executed plan and without running it. On the Varka arms the planner asks
@@ -69,10 +70,10 @@ import org.apache.spark.sql.execution.{SQLExecution, VarkaColumnarToRowExec, Var
  * iteration of the once-compiled case, and how many kernel calls it made.
  *
  * A second section asks the same first-query question of TPC-DS `modified-q3`'s filter, the
- * realistic query of task 172, whose two designs tie at steady state: the range set, one loop
+ * realistic query of VARKA-172, whose two designs tie at steady state: the range set, one loop
  * method under 2000 bytes over a table of bounds, and the split conditions, several methods of
  * several thousand bytes each. Which costs more on the first query is what decides whether both
- * stay (`PLAN_TASK_172.md` 9.11). The same cases as the projection's, for each design on each
+ * stay (`VARKA-172.md` 9.11). The same cases as the projection's, for each design on each
  * Varka arm, with the designs emitted exclusively - the range set with the split off, the split
  * with the range set off - so that a design that fails to lower declines rather than run as the
  * other. At the query's 200 ranges, and at 48, under vanilla's crossing, where the split design
@@ -157,7 +158,7 @@ object VarkaColdStartBenchmark extends SqlBasedBenchmark {
   private val rangeRungs = if (smoke) Seq(49) else Seq(48, 200)
 
   /**
-   * The two designs of task 172 for a disjunction of ranges, each emitted with the other off:
+   * The two designs of VARKA-172 for a disjunction of ranges, each emitted with the other off:
    * the range set, one loop over a table of bounds, and the split conditions.
    */
   private val designs = Seq(

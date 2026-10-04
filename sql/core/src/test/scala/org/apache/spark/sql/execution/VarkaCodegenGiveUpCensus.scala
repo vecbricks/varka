@@ -44,8 +44,8 @@ import org.apache.spark.sql.internal.SQLConf
  * final physical plan of the SQL golden-file suite and of the TPC-DS, TPC-H and SSB query suites,
  * with Varka off (its default), each operator counted as inside a stage or outside one, and an
  * operator outside given the reason `CollapseCodegenStages` had for leaving it out. The census
- * of task 188 lists the places Spark's code generation gives up; this counts how often the
- * plan-time ones happen (`PLAN_TASK_233.md` 2).
+ * of VARKA-188 lists the places Spark's code generation gives up; this counts how often the
+ * plan-time ones happen (`VARKA-233.md` 2).
  *
  * The reasons re-derive `CollapseCodegenStages.supportCodegen` (`WholeStageCodegenExec.scala`) on
  * the operator as it stands in the final plan: the operator is not `CodegenSupport`; it is, but

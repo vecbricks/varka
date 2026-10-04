@@ -19,7 +19,7 @@ import jdk.incubator.vector.*;
 
 /**
  * The exact Vector API calls a double-lane division needs, settled before any bytecode is
- * emitted for it (task 88, step 2). An int vector of N lanes converts into two double vectors
+ * emitted for it (VARKA-88, step 2). An int vector of N lanes converts into two double vectors
  * of N/2 lanes each - expanding parts 0 and 1 - is divided there, and converts back with
  * contracting parts 0 and -1, which is the half the plan had wrong in its first draft.
  *

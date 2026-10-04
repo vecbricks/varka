@@ -18,7 +18,7 @@
 #
 
 """
-Classify a change by the files it touches, for the build's precondition (task 160).
+Classify a change by the files it touches, for the build's precondition (VARKA-160).
 
 Reads repository-relative paths, one per line, on stdin and prints one word:
 ``spark`` (a file outside Varka's own changed, so Spark's module matrix runs), ``scoped``

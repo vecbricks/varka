@@ -34,7 +34,7 @@ import org.apache.spark.sql.types.IntegerType
 
 /**
  * How the compiler splits a filter predicate that one method cannot hold (`splitConditions`,
- * `PLAN_TASK_172.md` 3.1). A condition root is emitted into one method, so a predicate past the
+ * `VARKA-172.md` 3.1). A condition root is emitted into one method, so a predicate past the
  * 8000-byte method budget declines unless it is split across several selection outputs, which
  * the filter then combines: conjuncts packed into several conjunction roots, and a disjunction
  * too large alone cut into partial roots. These tests pin when the split happens, the clause

@@ -21,7 +21,7 @@ last two rungs of the ladder, each with the calling method's size and the time p
 
 The sizes and times are read from the committed results file when the script runs
 (sql/core/benchmarks/CaseWhenCodegenBenchmark-jdk25-results.txt), so the figure cannot drift
-from it (PLAN_TASK_210.md 9.3)."""
+from it (VARKA-210.md 9.3)."""
 
 import os
 import re

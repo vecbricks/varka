@@ -32,14 +32,14 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 
 /**
  * What the `TIME` extracts cost in the representation Spark stores - nanoseconds of day in a
- * 64-bit lane - against the split representation `SCOPE_MILESTONE_8.md` item 11 proposes:
+ * 64-bit lane - against the split representation `m8/SCOPE.md` item 11 proposes:
  * seconds of day in a 32-bit lane, with the nanoseconds within the second beside it.
  *
  * `hour`, `minute` and `second` over a `TIME` are constant divisions, and a `TIME` has no
  * calendar, so the division is the whole cost. In the stored form it is a 64-bit division:
  * three operations through the double lane on a host with the AVX-512 converts, fourteen in
- * the magic-number form the emitter takes without them (`PLAN_TASK_88.md` 9.2), and the
- * results come out in 64-bit lanes, or narrowed to 32-bit ones at the store (`PLAN_TASK_102.md`
+ * the magic-number form the emitter takes without them (`VARKA-88.md` 9.2), and the
+ * results come out in 64-bit lanes, or narrowed to 32-bit ones at the store (`VARKA-102.md`
  * 8.3). In the split form the same extracts are divisions of a number under 86400 by 3600 and
  * 60, in 32-bit lanes, twice as many to a register and half the bytes to read.
  *
@@ -52,15 +52,15 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants._
  *    `L2I` and stored at four bytes a row under an int mask;
  *  - **nanoseconds of day, int64 lanes, conversion form, narrowed store, half species** - the
  *    same root stored through the int species of half the width, whole, which is the form
- *    `PLAN_TASK_156.md` weighs against the masked one;
+ *    `VARKA-156.md` weighs against the masked one;
  *  - **nanoseconds of day, int64 lanes, magic form** - the same tree emitted with
  *    `useAVX = 2`, the lowering every AVX2-only host in the runner census takes;
  *  - **seconds of day, int32 lanes, emitted** - the split form's extracts as the emitter
- *    lowers an int-lane `ConstDivide`: the multiply-high through 64-bit lanes since task 149,
+ *    lowers an int-lane `ConstDivide`: the multiply-high through 64-bit lanes since VARKA-149,
  *    with the double route it replaced beside it as the reference arm;
  *  - **seconds of day, int32 lanes, emitted bounded multiply** - the same extracts as the
  *    emitter's `BoundedDivide` lowers them, one multiply and one shift each, the emitted twin
- *    of the hand-written arm below (`PLAN_TASK_102.md` 8.4);
+ *    of the hand-written arm below (`VARKA-102.md` 8.4);
  *  - **seconds of day, int32 lanes, hand-written magic multiply** - the split form as item 11
  *    imagines it: one multiply and one logical shift per division, exact over the bounded
  *    dividend, which is the lowering the calendar prefix uses and `ConstDivide` does not have.
@@ -152,11 +152,11 @@ object VarkaTimeBenchmark extends BenchmarkBase {
   /** The magic form of the 64-bit division, which an AVX2-only host takes without asking. */
   private val magicForm = VarkaEmitOptions.DEFAULTS.withUseAVX(2)
 
-  /** The int lane's conversion through double lanes, the reference arm since task 149. */
+  /** The int lane's conversion through double lanes, the reference arm since VARKA-149. */
   private val doubleRoute = VarkaEmitOptions.DEFAULTS.withMulHiDivide(false)
 
   /**
-   * The narrowed store through the half-width int species (`PLAN_TASK_156.md`): honoured only
+   * The narrowed store through the half-width int species (`VARKA-156.md`): honoured only
    * at a baked lane count, so the count is the host's own, which at every width this file is
    * regenerated at is what the shipped form emits for anyway.
    */
@@ -211,7 +211,7 @@ object VarkaTimeBenchmark extends BenchmarkBase {
    * The split form's extracts as the emitter now lowers a division it can bound: `hour` from
    * the seconds under 86400, `minute` from the seconds after the hours under 3600, each one
    * multiply and one shift, with the same constants the hand-written arm searches for. The
-   * emitted twin of that arm (`PLAN_TASK_102.md` 8.4).
+   * emitted twin of that arm (`VARKA-102.md` 8.4).
    */
   private def boundedIntFields: Map[String, VarkaVectorIR] = {
     val s = new ColumnRef(0, LaneType.INT)
@@ -335,7 +335,7 @@ object VarkaTimeBenchmark extends BenchmarkBase {
           ("nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)",
             emit(longRoots, 1, longLits.length, loader, kernelId(), magicForm),
             LaneType.LONG, false),
-          ("seconds of day, int32 lanes, emitted (shipped: multiply-high, task 149)",
+          ("seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)",
             emit(intRoots, 1, intLits.length, loader, kernelId()), LaneType.INT, false),
           ("seconds of day, int32 lanes, emitted (the double route it replaced)",
             emit(intRoots, 1, intLits.length, loader, kernelId(), doubleRoute), LaneType.INT,

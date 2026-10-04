@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 
 /**
  * How far the greedy output grouping is from the best partition of the outputs in their order
- * (`VarkaGroupingBound`), held to the bound `PLAN_TASK_200.md` 2 measured, over the cost model's
+ * (`VarkaGroupingBound`), held to the bound `VARKA-200.md` 2 measured, over the cost model's
  * corpus, shapes whose prefix-sharers are not adjacent, and projections composed of the coverage
  * table's rows. In ops the two are within a fraction of a percent on every family, and that is
  * the bound held here; in loop methods the greedy grouping strands cheap outputs that share
@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
 
   // The greedy walk, the baseline every arm below is held against, without the plan: its margins
-  // close groups earlier than the rule the bound admits runs by (task 236), and the bound is
+  // close groups earlier than the rule the bound admits runs by (VARKA-236), and the bound is
   // about the rule.
   private val options = VarkaEmitOptions.DEFAULTS.withLanesOverride(VarkaEmitCostCorpus.LANES)
     .withExactGrouping(false).withPlanSize(false)
@@ -121,11 +121,11 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     // the optimum on every family to within a fraction of a percent. In groups it is not: on
     // outputs that mix prefix-sharers with cheap outputs sharing nothing it strands the cheap
     // ones in groups of their own, up to twice the loop methods at the same ops
-    // (PLAN_TASK_200.md 2). The groups are reported above and are the exact grouping's to
+    // (VARKA-200.md 2). The groups are reported above and are the exact grouping's to
     // close; the ops are the bound held here.
     summaries.values.foreach { s =>
       assert(s.savedPercent <= 0.5, s"${s.family}: the best partition saves " +
-        f"${s.savedPercent}%.2f%% of the ops, past the half percent PLAN_TASK_200.md 2 measured")
+        f"${s.savedPercent}%.2f%% of the ops, past the half percent VARKA-200.md 2 measured")
     }
   }
 
@@ -137,7 +137,7 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     // groups, every group the emitter forms must be a run the rule admits - one the greedy walk
     // could have formed from its first output - and where the greedy walk is already at the
     // best the emitter must keep its partition as it is, so the switch moves only the shapes it
-    // improves (PLAN_TASK_200.md 3.1 and 4).
+    // improves (VARKA-200.md 3.1 and 4).
     for (predict <- Seq(false, true); shape <- shapes) {
       val opts = options.withPredictGrouping(predict)
       val runs = VarkaGroupingBound.runs(shape.roots, opts)

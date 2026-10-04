@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * Differential tests (Task 7): the Varka session must produce results identical to the row-based
+ * Differential tests (VARKA-7): the Varka session must produce results identical to the row-based
  * engine across a query matrix - literal offsets (including extreme values), both `datediff`
  * argument orders, null patterns, foldable offsets, ineligible projections, nested expressions,
  * filters/aggregation, multi-batch caches, multi-task scans, and a non-Arrow columnar source.
@@ -58,7 +58,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       assertFused(plan)
       checkAnswer(actual, expected)
       assertKernelsRan(plan)
-      // Task 18: execute the query a second time, so the kernel class is served from the warm
+      // VARKA-18: execute the query a second time, so the kernel class is served from the warm
       // cross-task cache - a wrong or stale hit would surface as a wrong answer right here,
       // which the ghost fallback could never catch.
       checkAnswer(actualSession.sql(query), expected)
@@ -155,14 +155,14 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("an int column cast to a day interval fuses as the column offset it is") {
-    // `d + INTERVAL n DAY` with a foldable `n` already fused before task 38 (the analyzer folds
-    // it to a DateAdd literal). Task 38 left the non-foldable interval column declined -
+    // `d + INTERVAL n DAY` with a foldable `n` already fused before VARKA-38 (the analyzer folds
+    // it to a DateAdd literal). VARKA-38 left the non-foldable interval column declined -
     // BinaryArithmeticWithDatetimeResolver rewrites it to
     // DateAdd(d, ExtractANSIIntervalDays(intervalCol)), which had no arm - and this test
-    // pinned that. Task 56 gave the int-cast form its arm: CAST(i AS INTERVAL DAY) is
+    // pinned that. VARKA-56 gave the int-cast form its arm: CAST(i AS INTERVAL DAY) is
     // DayTimeIntervalType(DAY, DAY), the extractor undoes the cast exactly, and the entry is
-    // task 38's own column-offset node under a per-batch bound. The stored interval column,
-    // which is what task 38's comment was really about, stays declined in the task 56 tests.
+    // VARKA-38's own column-offset node under a per-batch bound. The stored interval column,
+    // which is what VARKA-38's comment was really about, stays declined in the VARKA-56 tests.
     cacheDates(spark)
     cacheDates(varkaSpark)
     checkDifferential(spark, varkaSpark,
@@ -191,7 +191,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   test("a projection that only narrows a Varka filter leaves no Project above it") {
     // The milestone's one shape where Varka was slower than stock Spark end to end. The
     // predicate reads two columns and the consumer wants one, so Spark's column pruning
-    // cannot drop the projection - it is not redundant - and before task 78 a Janino
+    // cannot drop the projection - it is not redundant - and before VARKA-78 a Janino
     // `Project [d]` sat above the row-producing filter: an operator boundary out of the
     // node's row iterator, and a row conversion over `d2` as well as `d` whose second column
     // the projection immediately discarded.
@@ -215,7 +215,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
       // The one-column predicate is the control: its projection was already redundant and
       // Spark removed it before any columnar rule ran, so there is nothing to absorb and the
-      // node is the one task 21 shipped. This is the assertion that task 78 moved only the
+      // node is the one VARKA-21 shipped. This is the assertion that VARKA-78 moved only the
       // shape that was losing.
       val control = varkaSpark.sql("SELECT d FROM varka_date_pairs WHERE d < DATE'2024-02-01'")
       val controlPlan = control.queryExecution.executedPlan
@@ -230,7 +230,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a year-month interval column fuses in every unit, and its far counts decline") {
     // The type's admission, end to end. The stored value is a month count whatever the unit,
-    // so `d + ym` is task 60's column-count add_months with the same runtime guard - which is
+    // so `d + ym` is VARKA-60's column-count add_months with the same runtime guard - which is
     // why two of the fixture's rows sit outside MONTH_ARITH_MIN/MAX_MONTHS: the batch has to
     // decline and the row engine has to answer, exactly as it does for an int count.
     cacheDatesIntervals(spark)
@@ -271,17 +271,17 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
         checkAnswer(actual, spark.sql(q))
       }
 
-      // Task 68 opened the month-count position to derived counts, so `d - ymm` - which is
-      // `add_months` over a negated column count - now fuses where task 67 left it residual.
+      // VARKA-68 opened the month-count position to derived counts, so `d - ymm` - which is
+      // `add_months` over a negated column count - now fuses where VARKA-67 left it residual.
       // The far rows still decline at runtime, which is the guard doing its work on a count
       // it did not itself produce.
       val minus = varkaSpark.sql("SELECT d - ymm AS a FROM varka_dates_intervals")
       assertFused(minus.queryExecution.executedPlan)
       checkAnswer(minus, spark.sql("SELECT d - ymm AS a FROM varka_dates_intervals"))
 
-      // The one shape that stays residual, and for a different reason than task 67 recorded:
+      // The one shape that stays residual, and for a different reason than VARKA-67 recorded:
       // not the emitter's position rule any more, but the checked multiply by twelve over an
-      // unbounded int column, which has no int-lane overflow test. Task 68's group C admits
+      // unbounded int column, which has no int-lane overflow test. VARKA-68's group C admits
       // the YEAR cast only where the operand's bound rules the multiply out.
       val years = varkaSpark.sql(
         "SELECT d + CAST(m AS INTERVAL YEAR) AS a FROM varka_dates_intervals")
@@ -333,8 +333,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
         }
       }
 
-      // Group C: the same expressions in `add_months`' month-count position, which task 68's
-      // emitter split opened to a derived count. Task 67 could compile these and the emitter
+      // Group C: the same expressions in `add_months`' month-count position, which VARKA-68's
+      // emitter split opened to a derived count. VARKA-67 could compile these and the emitter
       // refused them; here they run. They are asserted apart from the group above because the
       // count is guarded lanewise on its value, so the fixture's far rows decline the batch
       // and the row engine answers - a route, not a wrong answer.
@@ -406,7 +406,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     cacheIntsOverflow(spark)
     cacheIntsOverflow(varkaSpark)
     try {
-      // Task 52's day producer. Only the 1969 row is below the cut, and it carries a small
+      // VARKA-52's day producer. Only the 1969 row is below the cut, and it carries a small
       // offset; the two rows whose offset is twenty million days are above it.
       val producerSafe =
         "SELECT CASE WHEN d < DATE'2000-01-01' THEN year(date_add(d, off)) " +
@@ -414,7 +414,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       val producerTaken =
         "SELECT CASE WHEN d >= DATE'2000-01-01' THEN year(date_add(d, off)) " +
           "ELSE year(d) END AS a FROM varka_dates_far_offset"
-      // Task 63's checked add, under the session's ANSI mode. Only the leap-day row has a
+      // VARKA-63's checked add, under the session's ANSI mode. Only the leap-day row has a
       // `big` that cannot overflow, so it is the one the first condition selects.
       val arithSafe =
         "SELECT CASE WHEN d = DATE'2024-02-29' THEN big + i " +
@@ -437,9 +437,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
       // The direction this task changes: no decline, and the answers still the row engine's.
       assert(declined(producerSafe) === 0L,
-        "task 52's producer: the far offsets are in the untaken arm, so nothing should decline")
+        "VARKA-52's producer: the far offsets are in the untaken arm, so nothing should decline")
       assert(declined(arithSafe) === 0L,
-        "task 63's checked add: the overflowing rows are in the untaken arm")
+        "VARKA-63's checked add: the overflowing rows are in the untaken arm")
 
       // The direction it must not change. For the day producer the row engine recomputes the
       // declined batch and answers - `LocalDate` handles any int day - so the metric is
@@ -448,7 +448,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       // 63's own differential pins. A decline that did not happen would show here as a wrong
       // answer rather than an exception, so the assertion still has teeth.
       assert(declined(producerTaken) > 0L,
-        "task 52's producer: the far offsets are in the taken arm, so the batch must decline")
+        "VARKA-52's producer: the far offsets are in the taken arm, so the batch must decline")
       for (session <- Seq(spark, varkaSpark)) {
         intercept[SparkArithmeticException] {
           session.sql(arithTaken).collect()
@@ -465,7 +465,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   test("a literal day shift past the calendar range is residual, with its reason, " +
       "and an in-range one fuses") {
     // The compile-time half of the range guard: `year(date_add(d, 20000000))` is the query
-    // task 51's removed differential used, and it fused - wrongly - between task 51 and this
+    // VARKA-51's removed differential used, and it fused - wrongly - between VARKA-51 and this
     // task. Now the entry declines at compile time, the row engine computes it (LocalDate
     // handles any int day, so the answer is a real year near 56770), and verbose EXPLAIN says
     // why. `near` keeps the node fused so there is a Varka node to explain at all.
@@ -494,7 +494,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a column-offset date_add under a calendar node declines the batch that " +
       "leaves the range, and the row engine answers it") {
-    // The runtime half of the range guard, restoring what task 51 removed: the far rows of the
+    // The runtime half of the range guard, restoring what VARKA-51 removed: the far rows of the
     // fixture put date_add(d, off) twenty million days past the range, the producer's guard
     // reports the batch, and the evaluator recomputes it on the row engine - the answers
     // match, and the batch lands under the declined metric, not the kernel-failure one.
@@ -521,8 +521,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("with the guard off, the far batch runs on the kernel - asserted on the " +
       "metric, never on the value") {
-    // The reference variant (guardDayProducers = false) is task 51's bytes: the far batch is
-    // computed, and computed wrongly past the range. PLAN_TASK_51.md section 3 is why no test
+    // The reference variant (guardDayProducers = false) is VARKA-51's bytes: the far batch is
+    // computed, and computed wrongly past the range. VARKA-51.md section 3 is why no test
     // encodes that answer as green - this asserts only that the batch was not declined, which
     // is what the A/B in VarkaEmitterParityBenchmark measures the cost of.
     cacheDatesFarOffset(spark)
@@ -543,7 +543,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("the width-specialised validity helpers answer what the general pair did") {
-    // Every other test in this suite runs the specialised path, because task 46's switch
+    // Every other test in this suite runs the specialised path, because VARKA-46's switch
     // defaults on - so what is left to check is the other arm, and that the two agree end to
     // end rather than only in the emitter suite's hand-built batches. Both shapes that still
     // write validity per lane group are here: a masked projection (nulls on either side) and a
@@ -586,12 +586,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     cacheDatesBig(spark, 5000)
     cacheDatesBig(varkaSpark, 5000)
     try {
-      // One query per shape that keeps a per-group write. A blend, whose word task 70's pass
+      // One query per shape that keeps a per-group write. A blend, whose word VARKA-70's pass
       // cannot serve because it is computed per lane group; a filter, whose selection bitmap is
       // not validity at all and is written per group in the dense body too; and both together,
       // which is the multi-accumulator case.
       val queries = Seq(
-        // Or(In0, And(In0, In1)): the mixed tree task 70's pass declines, so its word is
+        // Or(In0, And(In0, In1)): the mixed tree VARKA-70's pass declines, so its word is
         // computed per lane group and its validity is written there - this task's population.
         "SELECT greatest(d, date_add(d, i)) AS g FROM varka_dates_big ORDER BY g",
         "SELECT d, i FROM varka_dates_big WHERE d > DATE'2020-06-01' ORDER BY d, i",
@@ -600,8 +600,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
         // arbitrary row count rather than a multiple of anything.
         "SELECT greatest(d, date_add(d, i)) AS g, i FROM varka_dates_big " +
           "WHERE d > DATE'2020-06-01' ORDER BY g, i",
-        // And a shape the word writer must not touch: task 45 fills its validity once on a
-        // dense batch and task 70's pass writes it whole on a masked one. It is here so the
+        // And a shape the word writer must not touch: VARKA-45 fills its validity once on a
+        // dense batch and VARKA-70's pass writes it whole on a masked one. It is here so the
         // option is shown not to disturb what it does not write.
         "SELECT year(d) AS y, month(d) AS m FROM varka_dates_big ORDER BY y, m")
       for (byWord <- Seq(false, true)) {
@@ -640,7 +640,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       "SELECT year(date_add(d, off)) AS y, dayofweek(d) AS w FROM varka_dates_nullable_offset " +
         "ORDER BY y, w",
       // Or(In0, And(In0, In1)): a mixed tree, declined by BitmapPass.of - the absorption that
-      // would reduce it to In0 is not a law the folding applies (milestone 5's task 74).
+      // would reduce it to In0 is not a law the folding applies (milestone 5's VARKA-74).
       "SELECT greatest(d, date_add(d, off)) AS g FROM varka_dates_nullable_offset ORDER BY g",
       "SELECT datediff(d, date_add(d, off)) AS dd FROM varka_dates_nullable_offset ORDER BY dd",
       "SELECT d, off FROM varka_dates_nullable_offset WHERE date_add(d, off) > DATE'2000-01-01' " +
@@ -688,10 +688,10 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("a column month count matches the row engine, declining the batch whose count " +
-      "leaves the emitter's guarded range - the same route as task 52's day producer") {
+      "leaves the emitter's guarded range - the same route as VARKA-52's day producer") {
     // varka_date_months puts two rows a further 30000 months past each end of
     // MONTH_ARITH_MIN/MAX_MONTHS beside in-range and null rows; add_months' own guard on the
-    // count (task 60) declines the whole batch, and DateTimeUtils.dateAddMonths - the row
+    // count (VARKA-60) declines the whole batch, and DateTimeUtils.dateAddMonths - the row
     // engine's own definition - answers every count correctly, near or far.
     //
     // The two columns are the point. Those rows are one batch, so a query over `m` declines it
@@ -735,12 +735,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a calendar function over a column count above a column day offset is fused, "
       + "and the composition it cannot bound declines the batch instead") {
-    // Task 60's review found this shape answering year 87585 where the truth is -14848 -
-    // silently, with no metric moving - because task 52's guard bounds date_add's result and
-    // task 60's bounds add_months' count, and neither sees the day the composition produces.
-    // Task 60 closed it by declining the entry at compile time, and this test pinned that.
+    // VARKA-60's review found this shape answering year 87585 where the truth is -14848 -
+    // silently, with no metric moving - because VARKA-52's guard bounds date_add's result and
+    // VARKA-60's bounds add_months' count, and neither sees the day the composition produces.
+    // VARKA-60 closed it by declining the entry at compile time, and this test pinned that.
     //
-    // Task 93 keeps the correctness and drops the decline: a third check goes in between the
+    // VARKA-93 keeps the correctness and drops the decline: a third check goes in between the
     // month add and the decomposition, so the day the calendar tail reads is bounded as a fact
     // rather than left to a promise. The entry fuses, and a batch whose composition leaves the
     // range is reported and recomputed on the row engine rather than answered.
@@ -780,11 +780,11 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a shift above a guarded day offset fuses up to the decomposition's own " +
       "ceiling, and is residual one day past it") {
-    // The end-to-end half of task 69. The compiler suite asserts which shapes are admitted;
+    // The end-to-end half of VARKA-69. The compiler suite asserts which shapes are admitted;
     // this asserts that the admitted ones are *right*, at the exact day the new constant
     // names, against a row engine whose getYear is a LocalDate call and exact for any int day.
     //
-    // The fixture keeps every row inside the range task 52's runtime guard enforces, so no
+    // The fixture keeps every row inside the range VARKA-52's runtime guard enforces, so no
     // batch declines at run time and the kernel really answers. The literal on top is what
     // moves: `headroom` days above NARROW_MAX_DAYS is exactly NARROW_DECOMPOSE_MAX_DAYS, the
     // last day the narrowed lowering decomposes correctly, and one more is the first day it
@@ -801,7 +801,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       assert(varkaMetric(atCeiling, "numFallbackBatchesDeclined") === 0L,
         s"nothing here trips a runtime guard:\n${atCeiling.treeString}")
       assert(varkaMetric(atCeiling, "numFallbackBatchesKernel") === 0L)
-      // One day past, the compiler declines - the same reason string task 52 writes, reporting
+      // One day past, the compiler declines - the same reason string VARKA-52 writes, reporting
       // an interval whose upper end is NARROW_DECOMPOSE_MAX_DAYS + 1.
       val pastCeiling = checkDifferential(spark, varkaSpark,
         s"SELECT year(date_add(date_add(d, off), ${headroom + 1})) AS y, " +
@@ -827,12 +827,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("the producer's own guard reaches a filter predicate through the same route " +
-      "as task 52's day producer") {
-    // Unlike task 52's date_add offset, add_months' month count is never itself a filter
+      "as VARKA-52's day producer") {
+    // Unlike VARKA-52's date_add offset, add_months' month count is never itself a filter
     // operand VarkaExpressionCompiler can read - a bare int column only compiles through
-    // compileMonths/compileOffset, not through the general Compare path (task 38's scope
+    // compileMonths/compileOffset, not through the general Compare path (VARKA-38's scope
     // note), so "WHERE m BETWEEN ..." cannot fuse and is not attempted here. This instead
-    // mirrors task 52's own filter test exactly: a calendar predicate over the guarded node.
+    // mirrors VARKA-52's own filter test exactly: a calendar predicate over the guarded node.
     cacheDatesMonthCounts(spark)
     cacheDatesMonthCounts(varkaSpark)
     try {
@@ -856,11 +856,11 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("an existing nullable int column, in range, still nulls its row on either " +
       "side independently when read as a month count, and the guard stays silent") {
-    // Reuses task 38's varka_dates_nullable_offset fixture as an in-range count source, rather
+    // Reuses VARKA-38's varka_dates_nullable_offset fixture as an in-range count source, rather
     // than adding a third nullability fixture for the same "either operand null nulls the
-    // row" fact task 52's own tests already establish for a day offset. Every count here is
+    // row" fact VARKA-52's own tests already establish for a day offset. Every count here is
     // well inside MONTH_ARITH_MIN/MAX_MONTHS, so this is also where "the guard is silent on
-    // the data it exists for" (task 52's own phrase) is checked for task 60's guard.
+    // the data it exists for" (VARKA-52's own phrase) is checked for VARKA-60's guard.
     cacheDatesNullableOffset(spark)
     cacheDatesNullableOffset(varkaSpark)
     val plan = checkDifferential(spark, varkaSpark,
@@ -957,9 +957,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("a mixed-eligibility projection fuses partially and matches the row engine") {
-    // Pinned as "not fused" until task 12: one ineligible entry used to poison the whole
+    // Pinned as "not fused" until VARKA-12: one ineligible entry used to poison the whole
     // projection. Now the date entry runs on the kernels, the bare `i` forwards zero-copy, and
-    // `i % 7` is evaluated per row beside them. The residual entry was `i + 1` until task 63
+    // `i % 7` is evaluated per row beside them. The residual entry was `i + 1` until VARKA-63
     // lowered int arithmetic, which left this test with nothing residual in it.
     cacheDates(spark)
     cacheDates(varkaSpark)
@@ -998,7 +998,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("nested date expressions are fused and match the row engine") {
-    // These planned as a plain per-row Project until task 10: the recursive compiler is what
+    // These planned as a plain per-row Project until VARKA-10: the recursive compiler is what
     // makes `expectFused = true` hold here at all.
     cacheDates(spark)
     cacheDates(varkaSpark)
@@ -1054,7 +1054,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("a projection with a bare date column fuses and forwards the column zero-copy") {
-    // Pinned as "stays unfused until task 12": a bare column output compiles to nothing on
+    // Pinned as "stays unfused until VARKA-12": a bare column output compiles to nothing on
     // purpose - emitting it would be a copy loop - and now forwards as the input's own vector
     // instead (the `eq` assertion lives in VarkaKernelEvaluatorSuite).
     cacheDates(spark)
@@ -1215,7 +1215,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     checkDifferential(spark, varkaSpark,
       "SELECT unix_date(d) AS u FROM varka_dates ORDER BY u",
       expectFused = true)
-    // date_from_unix_date's child is an integer column, which no leaf can read until task 38
+    // date_from_unix_date's child is an integer column, which no leaf can read until VARKA-38
     // opens it - it declines through the ordinary non-date-column path and the projection has
     // nothing left to fuse, exactly like any other read of a bare int column today.
     checkDifferential(spark, varkaSpark,
@@ -1223,7 +1223,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       expectFused = false)
     // The actual argument for the task: a relabelled entry beside an ordinary one must not
     // demote the whole projection to Janino. Before this task the relabel became a residual
-    // (per-row) entry rather than blocking `a` too - task 12's per-entry eligibility already
+    // (per-row) entry rather than blocking `a` too - VARKA-12's per-entry eligibility already
     // covered that - but it still cost a Janino re-evaluation of every row for `b` instead of
     // riding the same vectorized loop as `a`; see VarkaExpressionCompilerSuite for the
     // compiler-level proof that both entries now fuse rather than one falling to residual.
@@ -1320,7 +1320,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a fused conjunct that can raise sees only the rows the residual conjuncts before it " +
       "let through, as Spark evaluates them") {
-    // Task 273. Spark evaluates a filter's conjuncts in order and stops at the first false one,
+    // VARKA-273. Spark evaluates a filter's conjuncts in order and stops at the first false one,
     // so `make_date(2021, i, 1)` never runs on the row whose `s` is not 'x', and that row's
     // month of 13 raises nothing under ANSI. Varka fuses the `make_date` conjunct and leaves
     // `s = 'x'`, which it cannot compile, in a row filter above its node; the kernel declines
@@ -1408,7 +1408,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
         "weekday(d) + 1 AS c, dayofweek(d) AS e, weekday(d) AS f FROM varka_dates " +
         "ORDER BY a, b, c, e, f",
       expectFused = true)
-    // weekday(d) + 2 is not this node: since task 63 it fuses too, but as int arithmetic over
+    // weekday(d) + 2 is not this node: since VARKA-63 it fuses too, but as int arithmetic over
     // the weekday field rather than as the dedicated ISO node, and the value is what says so.
     // Reading the +1 arm as "any Add over a weekday" would silently answer +1 here.
     checkDifferential(spark, varkaSpark,
@@ -1497,7 +1497,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("last_day matches the row engine across the Gregorian range") {
-    // The same boundary set task 26's own test uses, since last_day shares emitChrono's
+    // The same boundary set VARKA-26's own test uses, since last_day shares emitChrono's
     // prefix and can get the same things wrong, plus two far-future century years a DATE
     // literal cannot name (the SQL parser's year field is 4 digits): 14500, not divisible by
     // 400, and 14400, which is. emitLeapFlag's magic constants once overflowed a 32-bit lane's
@@ -1606,7 +1606,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("a projection over a Varka filter's compacted batch answers through the row " +
       "path, because the filter compacts a string column generically (recorded limitation)") {
-    // The filter's compaction (task 21) rebuilds fixed-width Arrow columns as Arrow and every
+    // The filter's compaction (VARKA-21) rebuilds fixed-width Arrow columns as Arrow and every
     // other column through the generic on-heap pass, so the string column reaches the stacked
     // projection as a non-Arrow vector and the derived leaf's batch is refused - correctly,
     // and counted under the non-Arrow cause. Pinned so the day the compaction learns strings
@@ -1648,7 +1648,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       val actual = intercept[SparkIllegalArgumentException](varkaSpark.sql(q).collect())
       assert(actual.getCondition === expected.getCondition)
       assert(actual.getMessage === expected.getMessage)
-      // The rule that decided the route (PLAN_TASK_59.md 2): a non-name beside a null date is
+      // The rule that decided the route (VARKA-59.md 2): a non-name beside a null date is
       // NULL under ANSI, because the row engine never parses it. The leaf sees the non-name,
       // declines, and the row engine answers - counted as a decline, never as a failure.
       val nq = "SELECT next_day(d, s) AS a FROM varka_dates_weekday_bad_on_nulls ORDER BY a"
@@ -1814,7 +1814,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
           expectFused = true)
         // A calendar node over such a producer fuses too: the compiler cannot bound the day
         // it produces, so it leans on the emitter's runtime range guard exactly as it does
-        // for a bare column offset (task 52), rather than declining the shape.
+        // for a bare column offset (VARKA-52), rather than declining the shape.
         checkDifferential(spark, varkaSpark,
           "SELECT year(date_add(d, off + 1)) AS a FROM varka_dates_nullable_offset ORDER BY a",
           expectFused = true)
@@ -1849,7 +1849,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     // Every Varka session disables AQE for plan determinism, so this pins the default-config
     // path. With AQE on the fused node sits inside a query stage, which a plain
     // SparkPlan.collect never descends into: the shared assertions are stage-aware since
-    // task 17, and these two tests are what keeps them that way.
+    // VARKA-17, and these two tests are what keeps them that way.
     cacheDatePairs(spark)
     cacheDatePairs(varkaSpark)
     varkaSpark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
@@ -1917,14 +1917,14 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
-  // Task 51 removed two tests here that drove a real out-of-range day through the
-  // then per-extraction guard; task 52 restored them below, anchored on the producer the
-  // guard now lives at (the "task 52" tests), so the routing is again reached with real
+  // VARKA-51 removed two tests here that drove a real out-of-range day through the
+  // then per-extraction guard; VARKA-52 restored them below, anchored on the producer the
+  // guard now lives at (the "VARKA-52" tests), so the routing is again reached with real
   // data and no hook.
 
   test("a declined batch falls back with the row engine's answers, counted as its own cause") {
-    // Task 26: a partial lowering (the narrowed civil-from-days one) reports a batch it cannot
-    // compute, and the evaluator recomputes it row by row. The task 52 tests reach that path
+    // VARKA-26: a partial lowering (the narrowed civil-from-days one) reports a batch it cannot
+    // compute, and the evaluator recomputes it row by row. The VARKA-52 tests reach that path
     // with real out-of-range days and no hook; this one uses the hook to make a whole-query
     // fallback cheap to assert without depending on any expression's range. What
     // it proves is the routing - that a declined batch answers correctly, and lands under its
@@ -2012,7 +2012,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   test("filters and aggregation match the row engine") {
     cacheDatesBig(spark, 1024)
     cacheDatesBig(varkaSpark, 1024)
-    // Until task 21 the WHERE below pinned expectFused = false - a filter blocked fusion
+    // Until VARKA-21 the WHERE below pinned expectFused = false - a filter blocked fusion
     // outright. It now fuses: the filter runs the mask kernel and the projection stacks on
     // the compacted batches.
     checkDifferential(spark, varkaSpark,
@@ -2230,7 +2230,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
       checkDifferential(spark, varkaSpark,
         s"SELECT date_add(d, $i) AS a FROM varka_dates ORDER BY a", expectFused = true)
     }
-    // Task 18 inverted what this test proves. The hundred queries differ only in their
+    // VARKA-18 inverted what this test proves. The hundred queries differ only in their
     // literal, which never enters the shape key - they are one shape, so at most one task
     // emitted a class (zero if an earlier test already cached the shape) and the rest hit the
     // JVM-wide cache. The deterministic eviction guarantee lives in VarkaShapeCacheSuite.
@@ -2300,7 +2300,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("a trunc projection over a Varka filter's compacted batch answers through the " +
-      "row path, the string-column limitation task 59 recorded") {
+      "row path, the string-column limitation VARKA-59 recorded") {
     cacheDatesTruncFormats(spark)
     cacheDatesTruncFormats(varkaSpark)
     withAnsi(false) {

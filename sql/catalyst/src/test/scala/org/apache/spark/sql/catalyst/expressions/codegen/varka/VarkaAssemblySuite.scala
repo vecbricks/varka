@@ -30,13 +30,13 @@ import scala.util.matching.Regex
 import org.apache.spark.SparkFunSuite
 
 /**
- * Task 31: assert the instructions, not the ratio.
+ * VARKA-31: assert the instructions, not the ratio.
  *
  * Every vectorization claim this project makes elsewhere is an inference from a throughput
  * ratio - the parity gate's "the emitted loop is within 0.9x of the hand-written kernel"
- * standing in for "C2 intrinsified the Vector API calls". Task 24 measured how weak that
+ * standing in for "C2 intrinsified the Vector API calls". VARKA-24 measured how weak that
  * inference is: the same kernels moved 50-190% under an inline {@code CompileCommand} aimed at
- * the incubating Vector API's package (the flag is quoted in full in {@code PLAN_TASK_31.md};
+ * the incubating Vector API's package (the flag is quoted in full in {@code VARKA-31.md};
  * it cannot be written here, because Scala comments nest and the pattern contains a slash-star)
  * in the engine's JMH harness, and under 1% under that same flag in the catalyst harness. A
  * ratio moves for reasons that have nothing to do with the instructions emitted. This suite
@@ -46,7 +46,7 @@ import org.apache.spark.SparkFunSuite
  * `-XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=print,<class>::<method>`, and asserts that
  * the *standard* (non-OSR) C2 nmethod for that method contains a member of the expected
  * instruction family on a vector register of the width the child reports. See
- * `PLAN_TASK_31.md`; the four ways this can go quietly wrong are in `SKILLS.md` beside the
+ * `VARKA-31.md`; the four ways this can go quietly wrong are in `SKILLS.md` beside the
  * hsdis notes.
  *
  * The suite skips, rather than fails, where no disassembler is available - that is the expected
@@ -59,7 +59,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * A named set of mnemonics that mean the same thing. Never a single mnemonic and never a
-   * count: the register class is a property of the host, and task 32's bimodality investigation
+   * count: the register class is a property of the host, and VARKA-32's bimodality investigation
    * found identical vector-op counts with a 2x difference in total instructions, so a count
    * assertion would go red on a register-allocation roll with nothing actually wrong.
    */
@@ -89,7 +89,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    * {@code vpcmpnled} (not-less-or-equal), and the full set runs to a dozen suffixes that vary
    * with how C2 chose to spell the comparison. Enumerating them would be a list that goes stale
    * on the next lowering change; the shape {@code [v]pcmp<predicate>d} is the actual family.
-   * This is PLAN_TASK_31.md prediction 3 landing early, and on a different case than expected.
+   * This is VARKA-31.md prediction 3 landing early, and on a different case than expected.
    */
   private val packedCompare = Family("packed integer compare", Set.empty,
     Some("""^v?pcmp[a-z]*d$""".r))
@@ -100,7 +100,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
     Set("vpgatherdd", "vpgatherqd", "vpgatherdq", "vgatherdps"))
 
   /**
-   * A heap allocation site, by the two instructions C2 emits for nothing else (task 55). These
+   * A heap allocation site, by the two instructions C2 emits for nothing else (VARKA-55). These
    * are the *diagnosis* printed with an allocation failure, not the assertion: a static count
    * cannot tell a per-call setup object from a per-iteration box (see {@link #assertNoBoxing}).
    *
@@ -129,7 +129,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private val scalarIntAdd = Family("scalar integer add", Set("addl", "addq", "leal", "leaq"))
 
-  /** x86-64 is the only table filled in; see `PLAN_TASK_31.md` 3.1 for why none is invented. */
+  /** x86-64 is the only table filled in; see `VARKA-31.md` 3.1 for why none is invented. */
   private val supportedArches = Set("amd64", "x86_64")
 
   // --- Locating a disassembler --------------------------------------------------------------
@@ -145,7 +145,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * The machine a failure is read against: the CPU model and the processors the JVM sees. A
-   * runner is one draw from a pool of CPU families and neighbours (task 150), so a message that
+   * runner is one draw from a pool of CPU families and neighbours (VARKA-150), so a message that
    * does not say which machine it came from cannot be compared with the next one.
    */
   private lazy val host: String = {
@@ -223,7 +223,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
     // compile request, not a compile: with background compilation the calls can run out before
     // the compiler thread gets a core, and the parent then reads a C1 body, or a C2 body compiled
     // early enough to be the Vector API's scalar fallback. That is what the gate's failures on
-    // contended runners were (task 150), and pinning sbt to two busy cores reproduces them. With
+    // contended runners were (VARKA-150), and pinning sbt to two busy cores reproduces them. With
     // -Xbatch the crossing call returns with the nmethod installed, on any machine.
     command.add("-Xbatch")
     command.add(s"-XX:CompileCommand=print,$printPattern")
@@ -417,7 +417,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
   private val maxBytesPerRow = 1.0
 
   /**
-   * Task 55's negative assertion: the compiled body does not allocate per lane group. A kernel
+   * VARKA-55's negative assertion: the compiled body does not allocate per lane group. A kernel
    * loop that boxes a vector keeps every packed instruction and loses 3-13x (the numbers behind
    * that are in {@code SKILLS.md}), so this is the one failure the positive families cannot see.
    *
@@ -483,7 +483,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    * reader something false.
    */
   /**
-   * Whether a missing disassembler is a failure rather than a skip (task 124).
+   * Whether a missing disassembler is a failure rather than a skip (VARKA-124).
    *
    * <p>Skipping is right on a developer's machine and on a general CI runner, and the class doc
    * above says why: a gate that goes red for missing tooling is a gate people delete. It is
@@ -528,7 +528,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private def requireSupportedArch(): Unit = {
     assume(supportedArches.contains(arch),
-      s"no instruction-family table for $arch; see PLAN_TASK_31.md 3.1")
+      s"no instruction-family table for $arch; see VARKA-31.md 3.1")
   }
 
   private def tail(s: String): String = s.linesIterator.toSeq.takeRight(40).mkString("\n")
@@ -536,7 +536,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * HotSpot's method pattern accepts `package/class.method` or `package.class::method` and
    * rejects the two spellings mixed: a slashed package with `::` fails VM startup outright with
-   * "Method pattern uses '/' together with '::'". `PLAN_TASK_31.md` 4.3 wrote the slashed form
+   * "Method pattern uses '/' together with '::'". `VARKA-31.md` 4.3 wrote the slashed form
    * with `::`, and the self-test is what caught it - the child never started, so there was no
    * disassembly to read. The dotted form is used throughout.
    */
@@ -589,7 +589,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
     assertHasFamily(nmethod, packedIntAdd, registerClass(bits))
   }
 
-  // The allocation assertion's own pair (task 55), for the same reason as the pair above: a
+  // The allocation assertion's own pair (VARKA-55), for the same reason as the pair above: a
   // measurement that reads zero for everything is indistinguishable from a body that allocates
   // nothing. The clean case must be clean; the polluted case, which differs only in having run
   // the same loop over a second int species in the same JVM, must box.
@@ -634,7 +634,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    * inlining of `VectorSupport::loadWithMap` gives up on at least one call site, the fallback
    * is inlined in its place, and the loop comes out scalar with no call to show for it. A
    * scalar body without that signature is something else, and fails rather than cancels so the
-   * job cannot go green over it. See `PLAN_TASK_165.md` section 6.
+   * job cannot go green over it. See `VARKA-165.md` section 6.
    */
   private lazy val narrowSpeciesRefusal: Option[String] = {
     // -XX:+PrintIntrinsics prints one `**` line per refused intrinsic and -XX:+PrintInlining
@@ -666,16 +666,16 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
       // scalar": a host whose gather goes scalar for some other reason is a finding, and a
       // blanket cancel would hide it behind a green job. The discriminator is the inlining
       // decisions, since the intrinsic refusals are printed by packing and refusing hosts
-      // alike; see PLAN_TASK_165.md section 6.
+      // alike; see VARKA-165.md section 6.
       if (inlining.exists(_.contains("failed to inline"))) {
         Some(s"$body C2's late inlining of VectorSupport::loadWithMap gives up on at least " +
           "one call site here, so the fallback is inlined in its place and the loop comes " +
           "out scalar with no call left to show for it. The 128-bit assertions are not " +
-          "evidence on such a host; the default-width ones still run. PLAN_TASK_165.md " +
+          "evidence on such a host; the default-width ones still run. VARKA-165.md " +
           "section 6 has the decisions this was read from.")
       } else {
         cancelOrFail(s"$body Every loadWithMap decision inlined, so row 165's cause does not " +
-          "explain this scalar body and something else does. PLAN_TASK_165.md section 6 is " +
+          "explain this scalar body and something else does. VARKA-165.md section 6 is " +
           "the reading it contradicts.")
       }
     }
@@ -744,7 +744,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("the emitted dayofweek loop is packed") {
-    // Task 14's range-narrowed magic: a multiply and a shift standing in for a division. This is
+    // VARKA-14's range-narrowed magic: a multiply and a shift standing in for a division. This is
     // the shape whose whole point is that it avoids a scalar remainder, so a scalar body here
     // would mean the lowering bought nothing.
     assertFamilies("emittedDayOfWeek", s"$emittedLoop::loopDense0",
@@ -763,7 +763,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
   // --- Both widths ----------------------------------------------------------------------------
 
   test("every shape is still packed at 128-bit lanes") {
-    // The case that catches a hard-coded zmm, and the one PLAN_TASK_31.md prediction 3 expects
+    // The case that catches a hard-coded zmm, and the one VARKA-31.md prediction 3 expects
     // to break first: xmm is also what scalar SSE uses for some operations, so a family table
     // that works by symmetry from the wide run is not good enough.
     requireNarrowSpecies()
@@ -778,10 +778,10 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
       Seq(packedLoadStore, packedCompare), narrow)
   }
 
-  // --- Forcing C2 to inline Varka's own packages (PLAN_TASK_31.md 7) --------------------------
+  // --- Forcing C2 to inline Varka's own packages (VARKA-31.md 7) --------------------------
 
   /**
-   * Task 24 measured the JDK half of this question - an inline directive aimed at the incubating
+   * VARKA-24 measured the JDK half of this question - an inline directive aimed at the incubating
    * Vector API - and found a 50-190% swing in the engine's JMH harness against under 1% in the
    * catalyst one, which turned out to be a fact about JMH rather than about Varka. This is the
    * other half: the same directive aimed at Varka's own packages and at the emitted classes'.
@@ -792,7 +792,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("forcing C2 to inline Varka's packages leaves the emitted loop body vectorized") {
     // The assertion is deliberately the weak one - the families are still there - because what
-    // this pair is really for is the finding recorded in PLAN_TASK_31.md 13, and an equality
+    // this pair is really for is the finding recorded in VARKA-31.md 13, and an equality
     // assertion over instruction counts across two configurations is exactly the brittle shape
     // this suite refuses elsewhere: a register-allocation roll would fail it with nothing wrong.
     val families = Seq(packedLoadStore, packedIntAdd, packedIntMul, packedIntShift)

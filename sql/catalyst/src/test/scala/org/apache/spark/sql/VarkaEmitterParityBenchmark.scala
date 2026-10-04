@@ -38,23 +38,23 @@ import org.apache.spark.sql.varka.vector.{ChronoScalarOps, ChronoVectorOps, Date
 import org.apache.spark.sql.vectorized.ArrowColumnVector
 
 /**
- * The emitter's gates as a benchmark (see `sql/varka/plans/PLAN_TASK_9.md`,
- * `PLAN_TASK_10.md` and `PLAN_TASK_11.md`).
+ * The emitter's gates as a benchmark (see `sql/varka/plans/m2/VARKA-9.md`,
+ * `VARKA-10.md` and `VARKA-11.md`).
  *
  * The parity gates: an emitted single-op loop must reach the hand-written kernel within noise
  * (acceptance: at least 0.9x its best-time throughput) - anything worse means C2 did not
- * intrinsify the emitted Vector API calls and the emitter is wrong. Task 9 measured `date_add`;
- * task 10 adds the two-input `datediff`. The chain cases are the fusion gate and the data
+ * intrinsify the emitted Vector API calls and the emitter is wrong. VARKA-9 measured `date_add`;
+ * VARKA-10 adds the two-input `datediff`. The chain cases are the fusion gate and the data
  * behind `MAX_CHAIN_DEPTH`: a fused depth-N chain against N sequential kernel passes over the
- * same buffers. Task 10 adds the DAG cases: a subchain shared by two outputs with CSE on, with
+ * same buffers. VARKA-10 adds the DAG cases: a subchain shared by two outputs with CSE on, with
  * the memo disabled (pricing CSE itself), and as sequential kernel passes; and the widest shape
  * the emitter accepts (`MAX_FUSED_NODES` ops), which must scale with its op count rather than
- * fall off a cliff at the cap. Task 11 adds the predication cases - a CASE WHEN blend against
+ * fall off a cliff at the cap. VARKA-11 adds the predication cases - a CASE WHEN blend against
  * the same-depth plain arithmetic - and the `dayofweek` mod-7 comparison, whose shipped
- * lowering is the two-fold magic multiply since the task 14 follow-up, priced against the
- * task 11 digit sum, the lanewise-DIV reference and the per-row `LocalDate` path.
+ * lowering is the two-fold magic multiply since the VARKA-14 follow-up, priced against the
+ * VARKA-11 digit sum, the lanewise-DIV reference and the per-row `LocalDate` path.
  *
- * Task 24 adds the batch-length alignment ladder, which is the only case here that exercises
+ * VARKA-24 adds the batch-length alignment ladder, which is the only case here that exercises
  * the loop's remainder handling at all: every other case runs one call over the whole
  * lane-aligned buffer, so `loopBound == length` and the tail has never processed a row under
  * measurement. It drives the same total row count through aligned and unaligned chunks, at two
@@ -147,12 +147,12 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
   }
 
   /**
-   * Task 70's reference arm, "words per group": the masked loop reads the input words and ORs
-   * a served root's validity in per lane group, which is what shipped until task 70's driver
-   * pass took both over (PLAN_TASK_70.md 3.1). Not to be read as task 45's "validity OR-ed per
-   * group", which is the dense body's arm. Every task 70 pair below is the shipped kernel
+   * VARKA-70's reference arm, "words per group": the masked loop reads the input words and ORs
+   * a served root's validity in per lane group, which is what shipped until VARKA-70's driver
+   * pass took both over (VARKA-70.md 3.1). Not to be read as VARKA-45's "validity OR-ed per
+   * group", which is the dense body's arm. Every VARKA-70 pair below is the shipped kernel
    * beside this one, adjacent, on the mixed-null arm the pass changes; the null-free arm is
-   * task 45's fill either way and is not paired.
+   * VARKA-45's fill either way and is not paired.
    */
   private val perGroupWrite = VarkaEmitOptions.DEFAULTS.withValidityByBitmap(false)
 
@@ -290,8 +290,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             Array(mxValidity.address(), mx2Validity.address()), Array(mxNulls, mx2Nulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
-        // Task 70's baselines, committed before that task so its pass has numbers to move
-        // (PLAN_TASK_70.md 6). The OR root is the one shape where the pass computes an OR
+        // VARKA-70's baselines, committed before that task so its pass has numbers to move
+        // (VARKA-70.md 6). The OR root is the one shape where the pass computes an OR
         // rather than a copy or an AND, and it had no committed row at all.
         val greatest = emit(
           Seq(new Greatest(new ColumnRef(0), new ColumnRef(1))), 2, 0, loader, 930)
@@ -319,18 +319,18 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             Array(0L, mx2Validity.address()), Array(numRows, mx2Nulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
-        // Task 70's A/B on the OR root: the pass writes the OR of two whole bitmaps once and
+        // VARKA-70's A/B on the OR root: the pass writes the OR of two whole bitmaps once and
         // the loop drops the root's write - but keeps both reads, since the pick's null
-        // substitution blends by the operand words for the value (PLAN_TASK_70.md 3.3).
+        // substitution blends by the operand words for the value (VARKA-70.md 3.3).
         val greatestPerGroup = emit(
           Seq(new Greatest(new ColumnRef(0), new ColumnRef(1))), 2, 0, loader, 945, perGroupWrite)
-        benchmark.addCase("greatest(d, d2), words per group (task 70 A/B), mixed nulls") { _ =>
+        benchmark.addCase("greatest(d, d2), words per group (VARKA-70 A/B), mixed nulls") { _ =>
           greatestPerGroup.run(Array(mxData.address(), mx2Data.address()),
             Array(mxValidity.address(), mx2Validity.address()), Array(mxNulls, mx2Nulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
         benchmark.addCase(
-          "greatest(d, d2), words per group (task 70 A/B), first input all-null") { _ =>
+          "greatest(d, d2), words per group (VARKA-70 A/B), first input all-null") { _ =>
           greatestPerGroup.run(Array(mxData.address(), mx2Data.address()),
             Array(0L, mx2Validity.address()), Array(numRows, mx2Nulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
@@ -386,7 +386,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("predication: CASE WHEN blend vs plain arithmetic (task 11)") {
+      runBenchmark("predication: CASE WHEN blend vs plain arithmetic (VARKA-11)") {
         // The same depth-4 arithmetic with and without a comparison + blend wrapped around
         // it - pricing predication itself, in both bodies. The arms are disjoint chains over
         // each input so the predicated case does strictly more work.
@@ -428,7 +428,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("dayofweek: magic multiply vs digit sum vs DIV vs LocalDate (tasks 11, 14)") {
+      runBenchmark(
+          "dayofweek: magic multiply vs digit sum vs DIV vs LocalDate (VARKA-11, VARKA-14)") {
         val benchmark = new Benchmark(s"dayofweek over $numRows rows", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val dow = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 500)
@@ -436,10 +437,10 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           VarkaEmitOptions.DEFAULTS.withFloorMod7(VarkaEmitOptions.FloorMod7.DIV))
         val dowDigitSum = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 502,
           VarkaEmitOptions.DEFAULTS.withFloorMod7(VarkaEmitOptions.FloorMod7.DIGIT_SUM))
-        // Task 57: extract(DAYOFWEEK_ISO), dayofweek's tail with the other offset and the same
+        // VARKA-57: extract(DAYOFWEEK_ISO), dayofweek's tail with the other offset and the same
         // add; priced beside the shipped dayofweek row, which it should match within noise.
         val dowIso = emit(Seq(new DayOfWeekIso(new ColumnRef(0))), 1, 0, loader, 507)
-        benchmark.addCase("dayofweek_iso (task 57), null-free") { _ =>
+        benchmark.addCase("dayofweek_iso (VARKA-57), null-free") { _ =>
           dowIso.run(Array(nfData.address()), Array(0L), Array(0),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
@@ -451,11 +452,11 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           dow.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
-        benchmark.addCase("digit sum (task 11 reference), null-free") { _ =>
+        benchmark.addCase("digit sum (VARKA-11 reference), null-free") { _ =>
           dowDigitSum.run(Array(nfData.address()), Array(0L), Array(0),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
-        benchmark.addCase("digit sum (task 11 reference), mixed nulls") { _ =>
+        benchmark.addCase("digit sum (VARKA-11 reference), mixed nulls") { _ =>
           dowDigitSum.run(Array(mxData.address()), Array(mxValidity.address()), Array(mxNulls),
             Array(dst.address()), Array(dstValidity.address()), Array.empty[Int], numRows)
         }
@@ -475,18 +476,18 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("year: the calendar extractions against LocalDate (task 26)") {
+      runBenchmark("year: the calendar extractions against LocalDate (VARKA-26)") {
         // The emitted civil-from-days decomposition against the scalar path Spark runs today.
         // A second lowering, which split the dividend to cover the whole int day range without
         // a guard, was measured here before being dropped for costing 14-24%; see
-        // PLAN_TASK_26.md section 11.2 for that comparison.
+        // VARKA-26.md section 11.2 for that comparison.
         //
         // Driven in 4096-row chunks - Spark's COLUMN_BATCH_SIZE - rather than one
         // million-row call, so the per-call prologue is paid at the rate production pays it,
         // and walking the buffer rather than a warm prefix so the kernel and the scalar
         // anchor below are measured in the same memory regime. The multi-field cases are here
-        // because task 26 gave calendar nodes a weight that kept each in its own loop method
-        // and task 32 step B2 lets siblings over one date share one; the separate/shared pairs
+        // because VARKA-26 gave calendar nodes a weight that kept each in its own loop method
+        // and VARKA-32 step B2 lets siblings over one date share one; the separate/shared pairs
         // below are where that is measured rather than assumed.
         val repeats = 20
         val chunk = 4096
@@ -496,7 +497,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         def nullsIn(n: Int): Int = (n + 6) / 7
         // Four outputs need four destinations; one shared buffer would have the kernels
         // overwrite each other and alias four stores onto one cache line. wideDst/wideDstValidity
-        // are the same four buffers the "widest shape" section below uses - task 32's own cases
+        // are the same four buffers the "widest shape" section below uses - VARKA-32's own cases
         // reuse them rather than allocating a second set, since nothing in either section holds
         // a result across sections.
         val dstData4 = wideDst.map(_.address())
@@ -512,7 +513,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // The chunk walk itself, shared by every case in this section: `repeats` passes over the
         // whole buffer in 4096-row chunks, handing the body each chunk's source data offset,
         // validity offset and row count. Written once because two cases measured against each
-        // other must not differ in their addressing - task 32's first pass hand-copied this loop
+        // other must not differ in their addressing - VARKA-32's first pass hand-copied this loop
         // for its own case, which is exactly the drift this prevents.
         def eachChunk(body: (Long, Long, Int) => Unit): Unit = {
           var pass = 0
@@ -553,7 +554,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           new Quarter(new ColumnRef(0)))
         val four = emit(fourFields, 1, 0, loader, 803)
         val dow = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 804)
-        // Task 45's A/B, on shapes that already exist rather than new ones: the point is what
+        // VARKA-45's A/B, on shapes that already exist rather than new ones: the point is what
         // the dense validity fill does to kernels that ship today. Each pair is adjacent, so
         // both sides run back to back under one JIT and thermal state, and the mixed-null rows
         // are the control - the masked bodies are asserted byte for byte identical under the
@@ -563,9 +564,9 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val yearWordsPerGroup =
           emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 940, perGroupWrite)
         val dowPerGroup = emit(Seq(new DayOfWeek(new ColumnRef(0))), 1, 0, loader, 832, perGroup)
-        // Task 48's A/B. The shipped year kernel skips the prefix's March-month step - four
+        // VARKA-48's A/B. The shipped year kernel skips the prefix's March-month step - four
         // lane ops a year tail never reads, since it takes the January turn off the day of
-        // year instead (PLAN_TASK_48.md section 2) - and this is the same kernel with the
+        // year instead (VARKA-48.md section 2) - and this is the same kernel with the
         // step put back. The two are adjacent, and the pairs interleaved by null pattern,
         // because that is the interleaving: one regeneration runs both sides back to back
         // under the same JIT and thermal state, and the file is compared by minimums across
@@ -579,14 +580,14 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // recomposes in one loop method - and until now it had no committed number at all,
         // which is why the leap flag's cost was argued rather than measured. One scalar arg,
         // the month count, so this cannot share `chunked`.
-        // Task 53's A/B, built the same way and for the same reason: adjacent cases, both
+        // VARKA-53's A/B, built the same way and for the same reason: adjacent cases, both
         // null patterns, so the two axes are measured back to back under one JIT and thermal
         // state. `dayofmonth` is the one with the largest op-count win (-4 of 43, the tail
         // stops running emitMonthStart forwards entirely) and `month` the smallest (-2 of 40),
         // so the pair brackets what the numerator can be worth; the four-field shape is here
         // because it pays the block once and the tails three times, which is where a win
         // should compound if it is real. `year` is deliberately absent: it reads neither axis,
-        // and PLAN_TASK_53.md 6.1 prediction 3 is that it does not move - a case that cannot
+        // and VARKA-53.md 6.1 prediction 3 is that it does not move - a case that cannot
         // move is a case that only adds runtime to this section.
         val monthNeri = emit(Seq(new Month(new ColumnRef(0))), 1, 0, loader, 820)
         val monthOld = emit(Seq(new Month(new ColumnRef(0))), 1, 0, loader, 821,
@@ -612,14 +613,14 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             }
             require(status == 0, s"the kernel declined a batch: status $status")
           }
-        // Task 54's A/B, both prefix forms named explicitly rather than one of them as "the
+        // VARKA-54's A/B, both prefix forms named explicitly rather than one of them as "the
         // default", so the labels survive the default changing. `year` is the shape that pays
         // the prefix and nothing else, so it brackets the top of what the map is worth (five
         // ops off a body of about forty, one carry stage off the dependent chain); the
         // four-field shared shape pays the prefix once and the tails thrice, so it brackets the
         // bottom; `add_months` is the widest node and the one whose year assembly runs inside a
         // recomposition. Adjacent cases, both null patterns, the same interleaving discipline
-        // as tasks 45, 48 and 53.
+        // as VARKA-45, VARKA-48 and VARKA-53.
         val julian = VarkaEmitOptions.DEFAULTS.withJulianMap(true)
         val centuryYear = VarkaEmitOptions.DEFAULTS.withJulianMap(false)
         val yearJulian = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 840, julian)
@@ -632,21 +633,21 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val addMonthsCenturyYear = emit(
           Seq(new AddMonths(new ColumnRef(0), new LiteralSlot(0))), 1, 1, loader, 845,
           centuryYear)
-        // Task 46's A/B: the same kernels emitted against the general validity helpers - the
+        // VARKA-46's A/B: the same kernels emitted against the general validity helpers - the
         // pair that takes the lane count as an argument and carries a four-arm switch on it -
-        // rather than the sibling named for the emitted width. Measured through task 45's
+        // rather than the sibling named for the emitted width. Measured through VARKA-45's
         // A/B, one refused `orValidityBitsAt` costs 1.87 to 3.24 ns per lane group at either
         // width, so the shapes here are the ones that still make the call: a masked
         // projection, the shared four-field masked shape with four writes and one read per
         // group, and the selection kernel below, which makes it in both bodies. The
         // null-free-with-per-group-OR pair isolates the write with no masked machinery around
-        // it, and is directly comparable to the task 45 row beside it.
-        // Both task 46 arms ride task 70's per-group reference variant. Under the shipped
+        // it, and is directly comparable to the VARKA-45 row beside it.
+        // Both VARKA-46 arms ride VARKA-70's per-group reference variant. Under the shipped
         // default a served root makes no per-group validity call at all, so on `year`, the
         // four fields and `dayofweek` the width-named helper and the OR's position have
         // nothing left to change and each pair would time one kernel against itself. On the
         // reference arm the call is back and the pairs price what they are named for; their
-        // comparand is the "words per group (task 70 A/B)" row beside them, not the shipped
+        // comparand is the "words per group (VARKA-70 A/B)" row beside them, not the shipped
         // one. The dense (null-free) arms and the filter kernel are unaffected either way -
         // the pass rewrites only the masked body, and a `Cond` root is never served - so the
         // same options serve them unchanged.
@@ -658,24 +659,24 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           generalHelpers)
         val fourSharedGeneral = emit(fourFields, 1, 0, loader, 883, generalHelpers)
         // The selection kernel: a Cond root's slot holds a selection bitmap, which is computed
-        // rather than known, so task 45's driver fill cannot serve it and the per-group OR
+        // rather than known, so VARKA-45's driver fill cannot serve it and the per-group OR
         // stays in the dense body too. It is the shape the columnar filter runs on every batch
-        // and the one shape with no committed parity case before task 46.
-        // The second half of task 46: the same kernels with the validity OR emitted after the
+        // and the one shape with no committed parity case before VARKA-46.
+        // The second half of VARKA-46: the same kernels with the validity OR emitted after the
         // store, which is where it was until the compiled loop showed it as a real call in every
         // arm. Both sides carry the width-named helpers, so this pair prices the order alone.
         val orAfter = perGroupWrite.withValidityOrFirst(false)
         val yearOrAfter = emit(Seq(new Year(new ColumnRef(0))), 1, 0, loader, 887, orAfter)
         val fourSharedOrAfter = emit(fourFields, 1, 0, loader, 888, orAfter)
-        // Task 76's ladder in the number of per-group validity writes, which is the quantity
+        // VARKA-76's ladder in the number of per-group validity writes, which is the quantity
         // 2.38 proposes keying the helper choice on. The two shapes that raised the question -
         // single-field `year` at one write, the four shared fields at four - differ in method
         // size and op count as well as in writes, so a threshold fitted to them alone could be
         // fitted to the wrong quantity. These four rungs hold the shape family constant and
         // vary only the count: an `IfElse` blend is unserved by construction (its word is
-        // computed per lane group, PLAN_TASK_70.md 2.1), so k blends over one date are k
+        // computed per lane group, VARKA-70.md 2.1), so k blends over one date are k
         // writes in one loop method, and each rung adds the same 145 bytes and the same ops.
-        // Both arms ride task 70's per-group reference variant, as every task 46 pair must.
+        // Both arms ride VARKA-70's per-group reference variant, as every VARKA-46 pair must.
         val blends = (1 to 4).map { k =>
           (0 until k).map { j =>
             new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(j)),
@@ -690,7 +691,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val blendGeneral = blends.zipWithIndex.map { case (roots, i) =>
           emit(roots, 1, 4, loader, 966 + i, generalHelpers)
         }
-        // Task 47's arm over the same four rungs: the shapes are 76's, the question is not.
+        // VARKA-47's arm over the same four rungs: the shapes are 76's, the question is not.
         // 76 asked which *helper* a per-group read-modify-write should call; this asks whether
         // the read-modify-write should happen at all. So the arms are `validityByWord` on and
         // off, with the width-named helpers on both sides, and the ids are a new block - 962
@@ -718,49 +719,49 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             require(status == 0, s"the kernel declined a batch: status $status")
           }
         benchmark.addCase("year, null-free") { _ => chunked(year, false) }
-        benchmark.addCase("year, validity OR-ed per group (task 45 A/B), null-free") { _ =>
+        benchmark.addCase("year, validity OR-ed per group (VARKA-45 A/B), null-free") { _ =>
           chunked(yearPerGroup, false)
         }
         benchmark.addCase(
-          "year, validity OR-ed per group, general helpers (task 46 A/B), null-free") { _ =>
+          "year, validity OR-ed per group, general helpers (VARKA-46 A/B), null-free") { _ =>
           chunked(yearPerGroupGeneral, false)
         }
-        benchmark.addCase("year, validity OR-ed per group (task 45 A/B), mixed nulls") { _ =>
+        benchmark.addCase("year, validity OR-ed per group (VARKA-45 A/B), mixed nulls") { _ =>
           chunked(yearPerGroup, true)
         }
-        benchmark.addCase("year, month step kept (task 48 A/B), null-free") { _ =>
+        benchmark.addCase("year, month step kept (VARKA-48 A/B), null-free") { _ =>
           chunked(yearMonthKept, false)
         }
         benchmark.addCase("year, mixed nulls") { _ => chunked(year, true) }
-        // Task 70's A/B: the one read and one write per group gone, the bitmap copied once.
-        benchmark.addCase("year, words per group (task 70 A/B), mixed nulls") { _ =>
+        // VARKA-70's A/B: the one read and one write per group gone, the bitmap copied once.
+        benchmark.addCase("year, words per group (VARKA-70 A/B), mixed nulls") { _ =>
           chunked(yearWordsPerGroup, true)
         }
         benchmark.addCase(
-          "year, per group + general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          "year, per group + general validity helpers (VARKA-46 A/B), mixed nulls") { _ =>
           chunked(yearGeneral, true)
         }
         benchmark.addCase(
-          "year, per group + OR after the store (task 46 A/B), mixed nulls") { _ =>
+          "year, per group + OR after the store (VARKA-46 A/B), mixed nulls") { _ =>
           chunked(yearOrAfter, true)
         }
         benchmark.addCase("dayofweek, mixed nulls") { _ => chunked(dow, true) }
         benchmark.addCase(
-          "dayofweek, per group + general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          "dayofweek, per group + general validity helpers (VARKA-46 A/B), mixed nulls") { _ =>
           chunked(dowGeneral, true)
         }
-        // Task 76's rungs, adjacent so each pair shares a JIT and thermal state.
+        // VARKA-76's rungs, adjacent so each pair shares a JIT and thermal state.
         for (k <- 1 to 4) {
           benchmark.addCase(
-            s"$k validity write(s) per body, width-named helpers (task 76), mixed nulls") { _ =>
+            s"$k validity write(s) per body, width-named helpers (VARKA-76), mixed nulls") { _ =>
             chunked(blendSpecialised(k - 1), true, k, blendLits)
           }
           benchmark.addCase(
-            s"$k validity write(s) per body, general helpers (task 76), mixed nulls") { _ =>
+            s"$k validity write(s) per body, general helpers (VARKA-76), mixed nulls") { _ =>
             chunked(blendGeneral(k - 1), true, k, blendLits)
           }
           benchmark.addCase(
-            s"$k validity write(s) per body, one write per word (task 47), mixed nulls") { _ =>
+            s"$k validity write(s) per body, one write per word (VARKA-47), mixed nulls") { _ =>
             chunked(blendByWord(k - 1), true, k, blendLits)
           }
         }
@@ -768,17 +769,17 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           chunkedFilter(filterKernel, false)
         }
         benchmark.addCase(
-          "filter d < literal, general validity helpers (task 46 A/B), null-free") { _ =>
+          "filter d < literal, general validity helpers (VARKA-46 A/B), null-free") { _ =>
           chunkedFilter(filterGeneral, false)
         }
         benchmark.addCase("filter d < literal, mixed nulls") { _ =>
           chunkedFilter(filterKernel, true)
         }
         benchmark.addCase(
-          "filter d < literal, general validity helpers (task 46 A/B), mixed nulls") { _ =>
+          "filter d < literal, general validity helpers (VARKA-46 A/B), mixed nulls") { _ =>
           chunkedFilter(filterGeneral, true)
         }
-        benchmark.addCase("year, month step kept (task 48 A/B), mixed nulls") { _ =>
+        benchmark.addCase("year, month step kept (VARKA-48 A/B), mixed nulls") { _ =>
           chunked(yearMonthKept, true)
         }
         benchmark.addCase("add_months(d, 13), null-free") { _ =>
@@ -787,61 +788,61 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.addCase("add_months(d, 13), mixed nulls") { _ =>
           chunkedAddMonths(addMonths, true)
         }
-        benchmark.addCase("year, Julian map (task 54 A/B), null-free") { _ =>
+        benchmark.addCase("year, Julian map (VARKA-54 A/B), null-free") { _ =>
           chunked(yearJulian, false)
         }
-        benchmark.addCase("year, century-then-year (task 54 A/B), null-free") { _ =>
+        benchmark.addCase("year, century-then-year (VARKA-54 A/B), null-free") { _ =>
           chunked(yearCenturyYear, false)
         }
-        benchmark.addCase("year, Julian map (task 54 A/B), mixed nulls") { _ =>
+        benchmark.addCase("year, Julian map (VARKA-54 A/B), mixed nulls") { _ =>
           chunked(yearJulian, true)
         }
-        benchmark.addCase("year, century-then-year (task 54 A/B), mixed nulls") { _ =>
+        benchmark.addCase("year, century-then-year (VARKA-54 A/B), mixed nulls") { _ =>
           chunked(yearCenturyYear, true)
         }
-        benchmark.addCase("year+month+day+quarter, Julian map (task 54 A/B), null-free") { _ =>
+        benchmark.addCase("year+month+day+quarter, Julian map (VARKA-54 A/B), null-free") { _ =>
           chunked(fourJulian, false, outputs = 4)
         }
-        benchmark.addCase("year+month+day+quarter, century-then-year (task 54 A/B), null-free") {
+        benchmark.addCase("year+month+day+quarter, century-then-year (VARKA-54 A/B), null-free") {
           _ => chunked(fourCenturyYear, false, outputs = 4)
         }
-        benchmark.addCase("add_months(d, 13), Julian map (task 54 A/B), null-free") { _ =>
+        benchmark.addCase("add_months(d, 13), Julian map (VARKA-54 A/B), null-free") { _ =>
           chunkedAddMonths(addMonthsJulian, false)
         }
-        benchmark.addCase("add_months(d, 13), century-then-year (task 54 A/B), null-free") { _ =>
+        benchmark.addCase("add_months(d, 13), century-then-year (VARKA-54 A/B), null-free") { _ =>
           chunkedAddMonths(addMonthsCenturyYear, false)
         }
-        benchmark.addCase("month, Neri-Schneider (task 53 A/B), null-free") { _ =>
+        benchmark.addCase("month, Neri-Schneider (VARKA-53 A/B), null-free") { _ =>
           chunked(monthNeri, false)
         }
-        benchmark.addCase("month, 0-based axis (task 53 A/B), null-free") { _ =>
+        benchmark.addCase("month, 0-based axis (VARKA-53 A/B), null-free") { _ =>
           chunked(monthOld, false)
         }
-        benchmark.addCase("month, Neri-Schneider (task 53 A/B), mixed nulls") { _ =>
+        benchmark.addCase("month, Neri-Schneider (VARKA-53 A/B), mixed nulls") { _ =>
           chunked(monthNeri, true)
         }
-        benchmark.addCase("month, 0-based axis (task 53 A/B), mixed nulls") { _ =>
+        benchmark.addCase("month, 0-based axis (VARKA-53 A/B), mixed nulls") { _ =>
           chunked(monthOld, true)
         }
-        benchmark.addCase("dayofmonth, Neri-Schneider (task 53 A/B), null-free") { _ =>
+        benchmark.addCase("dayofmonth, Neri-Schneider (VARKA-53 A/B), null-free") { _ =>
           chunked(domNeri, false)
         }
-        benchmark.addCase("dayofmonth, 0-based axis (task 53 A/B), null-free") { _ =>
+        benchmark.addCase("dayofmonth, 0-based axis (VARKA-53 A/B), null-free") { _ =>
           chunked(domOld, false)
         }
-        benchmark.addCase("dayofmonth, Neri-Schneider (task 53 A/B), mixed nulls") { _ =>
+        benchmark.addCase("dayofmonth, Neri-Schneider (VARKA-53 A/B), mixed nulls") { _ =>
           chunked(domNeri, true)
         }
-        benchmark.addCase("dayofmonth, 0-based axis (task 53 A/B), mixed nulls") { _ =>
+        benchmark.addCase("dayofmonth, 0-based axis (VARKA-53 A/B), mixed nulls") { _ =>
           chunked(domOld, true)
         }
-        benchmark.addCase("year+month+day+quarter, 0-based axis (task 53 A/B), null-free") { _ =>
+        benchmark.addCase("year+month+day+quarter, 0-based axis (VARKA-53 A/B), null-free") { _ =>
           chunked(fourOld, false, outputs = 4)
         }
         benchmark.addCase("year+month+day+quarter, null-free") { _ =>
           chunked(four, false, outputs = 4)
         }
-        // Task 32 step B2 (PLAN_TASK_32.md sections 7.2 and 10): siblings over one date in one
+        // VARKA-32 step B2 (VARKA-32.md sections 7.2 and 10): siblings over one date in one
         // loop method, where shareChronoPrefix runs the decomposition once, against each in
         // its own method. Since B2 the defaults *are* the shared shape - clause 2 of
         // groupOutputs admits an output that reuses the prefix, up to FUSED_CEILING - so
@@ -877,15 +878,15 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.addCase("year+month+day, shared (1 loop method), null-free") { _ =>
           chunked(yearMonthDayShared, false, outputs = 3)
         }
-        benchmark.addCase("dayofweek, validity OR-ed per group (task 45 A/B), null-free") {
+        benchmark.addCase("dayofweek, validity OR-ed per group (VARKA-45 A/B), null-free") {
           _ => chunked(dowPerGroup, false)
         }
         benchmark.addCase(
-          "year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), null-free") {
+          "year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), null-free") {
           _ => chunked(fourSharedPerGroup, false, outputs = 4)
         }
         benchmark.addCase(
-          "year+month+day+quarter, shared, validity OR-ed per group (task 45 A/B), mixed nulls") {
+          "year+month+day+quarter, shared, validity OR-ed per group (VARKA-45 A/B), mixed nulls") {
           _ => chunked(fourSharedPerGroup, true, outputs = 4)
         }
         benchmark.addCase("year+month+day+quarter, separate (4 loop methods), null-free") { _ =>
@@ -897,19 +898,19 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         benchmark.addCase("year+month+day+quarter, shared (1 loop method), mixed nulls") { _ =>
           chunked(fourShared, true, outputs = 4)
         }
-        // Task 70's A/B on the shape B2 emits by default: four writes and one read per group
-        // gone, four bitmap copies per batch - the largest predicted mover (PLAN_TASK_70.md 6.1).
+        // VARKA-70's A/B on the shape B2 emits by default: four writes and one read per group
+        // gone, four bitmap copies per batch - the largest predicted mover (VARKA-70.md 6.1).
         benchmark.addCase(
-          "year+month+day+quarter, shared, words per group (task 70 A/B), mixed nulls") { _ =>
+          "year+month+day+quarter, shared, words per group (VARKA-70 A/B), mixed nulls") { _ =>
           chunked(fourSharedWordsPerGroup, true, outputs = 4)
         }
         benchmark.addCase(
-          "year+month+day+quarter, shared, per group + general helpers (task 46 A/B), " +
+          "year+month+day+quarter, shared, per group + general helpers (VARKA-46 A/B), " +
             "mixed nulls") { _ =>
           chunked(fourSharedGeneral, true, outputs = 4)
         }
         benchmark.addCase(
-          "year+month+day+quarter, shared, per group + OR after the store (task 46 A/B), " +
+          "year+month+day+quarter, shared, per group + OR after the store (VARKA-46 A/B), " +
             "mixed nulls") { _ =>
           chunked(fourSharedOrAfter, true, outputs = 4)
         }
@@ -932,15 +933,15 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             require(status == 0, s"the kernel declined a batch: status $status")
           }
         }
-        // Task 52's A/B: the range guard, moved from every calendar extraction (task 26,
-        // removed by task 51) to the one producer the compiler cannot bound - a date_add whose
-        // offset is a column - and only under a calendar node. `year(date_add(d, off))` is the
-        // one shape that pays it, so that is what is priced, guard on against guard off,
-        // adjacent and on both null patterns like the task 48 and 53 pairs; `date_add(d, off)`
-        // alone is the control, byte-identical under both settings (VarkaEmitterBudgetSuite
-        // asserts it) and measured here so a difference in that row is run noise, not the
-        // guard. The second date buffer stands in for the offset column: its values are days in
-        // [-10000, 10000), so every sum stays in range and the status must read zero.
+        // VARKA-52's A/B: the range guard, moved from every calendar extraction (VARKA-26, removed
+        // by VARKA-51) to the one producer the compiler cannot bound - a date_add whose offset is a
+        // column - and only under a calendar node. `year(date_add(d, off))` is the one shape that
+        // pays it, so that is what is priced, guard on against guard off, adjacent and on both null
+        // patterns like the VARKA-48 and VARKA-53 pairs; `date_add(d, off)` alone is the control,
+        // byte-identical under both settings (VarkaEmitterBudgetSuite asserts it) and measured here
+        // so a difference in that row is run noise, not the guard. The second date buffer stands in
+        // for the offset column: its values are days in [-10000, 10000), so every sum stays in
+        // range and the status must read zero.
         val guardOff = VarkaEmitOptions.DEFAULTS.withGuardDayProducers(false)
         val offsetAdd = new AddDays(col0, new ColumnRef(1))
         val yearOfAddGuarded = emit(Seq(new Year(offsetAdd)), 2, 0, loader, 850)
@@ -948,7 +949,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val addAloneGuardOn = emit(Seq(offsetAdd), 2, 0, loader, 852)
         val addAloneGuardOff = emit(Seq(offsetAdd), 2, 0, loader, 853, guardOff)
         def nulls2In(n: Int): Int = (n + 10) / 11
-        // `lits` is empty for every two-column shape here; task 60's literal-count control is
+        // `lits` is empty for every two-column shape here; VARKA-60's literal-count control is
         // the one case that needs a slot, and it runs on this same runner so that the control
         // and the shape it controls for differ in the kernel alone.
         def chunkedTwo(kernel: VarkaFusedKernel, mixed: Boolean,
@@ -970,25 +971,27 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             }
             require(status == 0, s"the kernel declined a batch: status $status")
           }
-        benchmark.addCase("year(date_add(d, off)), producer guard on (task 52 A/B), null-free") {
+        benchmark.addCase("year(date_add(d, off)), producer guard on (VARKA-52 A/B), null-free") {
           _ => chunkedTwo(yearOfAddGuarded, false)
         }
-        benchmark.addCase("year(date_add(d, off)), producer guard off (task 52 A/B), null-free") {
+        benchmark.addCase("year(date_add(d, off)), producer guard off (VARKA-52 A/B), null-free") {
           _ => chunkedTwo(yearOfAddUnguarded, false)
         }
-        benchmark.addCase("year(date_add(d, off)), producer guard on (task 52 A/B), mixed nulls") {
+        benchmark.addCase("year(date_add(d, off)), producer guard on (VARKA-52 A/B), mixed nulls") {
           _ => chunkedTwo(yearOfAddGuarded, true)
         }
-        benchmark.addCase("year(date_add(d, off)), producer guard off (task 52 A/B), mixed nulls") {
+        benchmark.addCase(
+            "year(date_add(d, off)), producer guard off (VARKA-52 A/B), mixed nulls") {
           _ => chunkedTwo(yearOfAddUnguarded, true)
         }
-        benchmark.addCase("date_add(d, off) alone, guard option on (task 52 control), null-free") {
+        benchmark.addCase("date_add(d, off) alone, guard option on (VARKA-52 control), null-free") {
           _ => chunkedTwo(addAloneGuardOn, false)
         }
-        benchmark.addCase("date_add(d, off) alone, guard option off (task 52 control), null-free") {
+        benchmark.addCase(
+            "date_add(d, off) alone, guard option off (VARKA-52 control), null-free") {
           _ => chunkedTwo(addAloneGuardOff, false)
         }
-        // Task 79's pair, on the same producer as task 52's above and with the same two
+        // VARKA-79's pair, on the same producer as VARKA-52's above and with the same two
         // streams: the guarded `year(date_add(d, off))` wrapped in a CASE whose condition is a
         // comparison of the two columns, priced with the arm context on and off. What the
         // delta contains is one mask AND per guarded node per lane group - the context - and
@@ -1004,24 +1007,24 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         val armOn = emit(Seq(guardedUnderArm), 2, 0, loader, 960)
         val armless = emit(Seq(guardedUnderArm), 2, 0, loader, 961, armOff)
         benchmark.addCase(
-            "CASE over year(date_add(d, off)), arm context on (task 79 A/B), null-free") {
+            "CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), null-free") {
           _ => chunkedTwo(armOn, false)
         }
         benchmark.addCase(
-            "CASE over year(date_add(d, off)), arm context off (task 79 A/B), null-free") {
+            "CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), null-free") {
           _ => chunkedTwo(armless, false)
         }
         benchmark.addCase(
-            "CASE over year(date_add(d, off)), arm context on (task 79 A/B), mixed nulls") {
+            "CASE over year(date_add(d, off)), arm context on (VARKA-79 A/B), mixed nulls") {
           _ => chunkedTwo(armOn, true)
         }
         benchmark.addCase(
-            "CASE over year(date_add(d, off)), arm context off (task 79 A/B), mixed nulls") {
+            "CASE over year(date_add(d, off)), arm context off (VARKA-79 A/B), mixed nulls") {
           _ => chunkedTwo(armless, true)
         }
-        // Task 60's pair, the same guard block on a heavier producer: add_months' own month
+        // VARKA-60's pair, the same guard block on a heavier producer: add_months' own month
         // count, widened from a literal to a column, with a runtime guard against
-        // MONTH_ARITH_MIN/MAX_MONTHS in place of task 40's compile-time bound. nf2Data/mx2Data
+        // MONTH_ARITH_MIN/MAX_MONTHS in place of VARKA-40's compile-time bound. nf2Data/mx2Data
         // double as the count column - their values are days in [-10000, 10000), comfortably
         // inside the guard's range - so the status must read zero and this prices the shape
         // alone, not a decline.
@@ -1039,42 +1042,42 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // compiler's dayRange bounds a column count on the strength of it firing and cannot see
         // the option; an A/B against it would emit identical bytes. Isolating the guard's own
         // cost would take a measurement-only option, which is not worth reintroducing the
-        // coupling this task's review removed - see PLAN_TASK_60.md 9.
+        // coupling this task's review removed - see VARKA-60.md 9.
         val addMonthsCol = new AddMonths(col0, new ColumnRef(1))
         val addMonthsLit = new AddMonths(col0, new LiteralSlot(0))
         val addMonthsColGuarded = emit(Seq(addMonthsCol), 2, 0, loader, 950)
         val addMonthsLitControl = emit(Seq(addMonthsLit), 2, 1, loader, 855)
         val addMonthsColPerGroup = emit(Seq(addMonthsCol), 2, 0, loader, 943, perGroupWrite)
         val addMonthsLitPerGroup = emit(Seq(addMonthsLit), 2, 1, loader, 944, perGroupWrite)
-        benchmark.addCase("add_months(d, m), column count (task 60), null-free") { _ =>
+        benchmark.addCase("add_months(d, m), column count (VARKA-60), null-free") { _ =>
           chunkedTwo(addMonthsColGuarded, false)
         }
-        benchmark.addCase("add_months(d, 13), literal count (task 60 control), null-free") { _ =>
+        benchmark.addCase("add_months(d, 13), literal count (VARKA-60 control), null-free") { _ =>
           chunkedTwo(addMonthsLitControl, false, Array(13))
         }
-        benchmark.addCase("add_months(d, m), column count (task 60), mixed nulls") { _ =>
+        benchmark.addCase("add_months(d, m), column count (VARKA-60), mixed nulls") { _ =>
           chunkedTwo(addMonthsColGuarded, true)
         }
-        benchmark.addCase("add_months(d, 13), literal count (task 60 control), mixed nulls") {
+        benchmark.addCase("add_months(d, 13), literal count (VARKA-60 control), mixed nulls") {
           _ => chunkedTwo(addMonthsLitControl, true, Array(13))
         }
-        // Task 70's A/B, and its control. The column count's guard keeps both reads, so this
+        // VARKA-70's A/B, and its control. The column count's guard keeps both reads, so this
         // row moves by the write alone; the literal count's 81-op tail hides one write, so its
-        // row is predicted flat (PLAN_TASK_70.md 6.1, prediction 3).
+        // row is predicted flat (VARKA-70.md 6.1, prediction 3).
         benchmark.addCase(
-          "add_months(d, m), column count, words per group (task 70 A/B), mixed nulls") { _ =>
+          "add_months(d, m), column count, words per group (VARKA-70 A/B), mixed nulls") { _ =>
           chunkedTwo(addMonthsColPerGroup, true)
         }
         benchmark.addCase(
-          "add_months(d, 13), literal count, words per group (task 70 control), mixed nulls") { _ =>
-          chunkedTwo(addMonthsLitPerGroup, true, Array(13))
+          "add_months(d, 13), literal count, words per group (VARKA-70 control), mixed nulls") {
+          _ => chunkedTwo(addMonthsLitPerGroup, true, Array(13))
         }
-        // Task 35's A/B: trunc(date, ...) under its two lowerings, SUBTRACT (the day of year
-        // or day of month taken off the date) against RECOMPOSE (the period's first day rebuilt
-        // through emitDaysFromCivil), adjacent per level like the task 48, 53 and 54 pairs so
-        // both sides run under one JIT and thermal state. MONTH follows the switch too, though
-        // only its subtract form is expected to ship: it is the day-of-month tail with one op
-        // changed, and it prices the recomposition on the shape where it has the least to hide
+        // VARKA-35's A/B: trunc(date, ...) under its two lowerings, SUBTRACT (the day of year or
+        // day of month taken off the date) against RECOMPOSE (the period's first day rebuilt
+        // through emitDaysFromCivil), adjacent per level like the VARKA-48, VARKA-53 and VARKA-54
+        // pairs so both sides run under one JIT and thermal state. MONTH follows the switch too,
+        // though only its subtract form is expected to ship: it is the day-of-month tail with one
+        // op changed, and it prices the recomposition on the shape where it has the least to hide
         // behind. The per-row DateTimeUtils.truncDate loop is what Spark runs today.
         val recompose = VarkaEmitOptions.DEFAULTS
           .withTruncDate(VarkaEmitOptions.TruncDateForm.RECOMPOSE)
@@ -1086,22 +1089,22 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             emit(Seq(new TruncDate(col0, level)), 1, 0, loader, id + 1, recompose))
         }
         for ((name, subtract, recomposed) <- truncCases) {
-          benchmark.addCase(s"trunc $name, subtract (task 35 A/B), null-free") { _ =>
+          benchmark.addCase(s"trunc $name, subtract (VARKA-35 A/B), null-free") { _ =>
             chunked(subtract, false)
           }
-          benchmark.addCase(s"trunc $name, recompose (task 35 A/B), null-free") { _ =>
+          benchmark.addCase(s"trunc $name, recompose (VARKA-35 A/B), null-free") { _ =>
             chunked(recomposed, false)
           }
         }
         for ((name, subtract, recomposed) <- truncCases if name != "MONTH") {
-          benchmark.addCase(s"trunc $name, subtract (task 35 A/B), mixed nulls") { _ =>
+          benchmark.addCase(s"trunc $name, subtract (VARKA-35 A/B), mixed nulls") { _ =>
             chunked(subtract, true)
           }
-          benchmark.addCase(s"trunc $name, recompose (task 35 A/B), mixed nulls") { _ =>
+          benchmark.addCase(s"trunc $name, recompose (VARKA-35 A/B), mixed nulls") { _ =>
             chunked(recomposed, true)
           }
         }
-        // Task 42: make_date over three int columns - the year, month and day of nfData's own
+        // VARKA-42: make_date over three int columns - the year, month and day of nfData's own
         // dates, so every triple is valid and in range - the NULL and ANSI forms as an adjacent
         // A/B (they differ by a word store and the mask the guard receives), a mixed-null run
         // with mxData's validity on the year, and the per-row path Spark uses today.
@@ -1142,16 +1145,16 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             }
             require(status == 0, s"the kernel declined a batch: status $status")
           }
-        benchmark.addCase("make_date, NULL form (task 42 A/B), null-free") { _ =>
+        benchmark.addCase("make_date, NULL form (VARKA-42 A/B), null-free") { _ =>
           chunkedThree(makeDateNull, false)
         }
-        benchmark.addCase("make_date, ANSI form (task 42 A/B), null-free") { _ =>
+        benchmark.addCase("make_date, ANSI form (VARKA-42 A/B), null-free") { _ =>
           chunkedThree(makeDateAnsi, false)
         }
-        benchmark.addCase("make_date, NULL form (task 42 A/B), mixed nulls") { _ =>
+        benchmark.addCase("make_date, NULL form (VARKA-42 A/B), mixed nulls") { _ =>
           chunkedThree(makeDateNull, true)
         }
-        benchmark.addCase("make_date, ANSI form (task 42 A/B), mixed nulls") { _ =>
+        benchmark.addCase("make_date, ANSI form (VARKA-42 A/B), mixed nulls") { _ =>
           chunkedThree(makeDateAnsi, true)
         }
         benchmark.addCase("per-row LocalDate.of make_date (the path Spark uses today)") { _ =>
@@ -1167,24 +1170,24 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             pass += 1
           }
         }
-        // Task 37: weekofyear as the compiler builds it, the week tail over the Thursday shift,
+        // VARKA-37: weekofyear as the compiler builds it, the week tail over the Thursday shift,
         // beside the dayofyear rows above as the sibling control (the tail is dayofyear's plus
         // four ops, the shift another seventeen), the shift alone, and the per-row path.
         val weekOfYear = emit(Seq(new WeekOfYear(new ThursdayOf(col0))), 1, 0, loader, 870)
         val thursdayOf = emit(Seq(new ThursdayOf(col0)), 1, 0, loader, 872)
-        // Task 58: yearofweek is Year over the same shift; the pair is the sharing row, one
+        // VARKA-58: yearofweek is Year over the same shift; the pair is the sharing row, one
         // ThursdayOf and one prefix for both fields under CSE.
         val yearOfWeek = emit(Seq(new Year(new ThursdayOf(col0))), 1, 0, loader, 873)
         val isoPair = emit(Seq(new WeekOfYear(new ThursdayOf(col0)),
           new Year(new ThursdayOf(col0))), 1, 0, loader, 874)
-        benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
-        benchmark.addCase("yearofweek (task 58), null-free") { _ => chunked(yearOfWeek, false) }
-        benchmark.addCase("weekofyear + yearofweek, one shift (task 58), null-free") { _ =>
+        benchmark.addCase("weekofyear (VARKA-37), null-free") { _ => chunked(weekOfYear, false) }
+        benchmark.addCase("yearofweek (VARKA-58), null-free") { _ => chunked(yearOfWeek, false) }
+        benchmark.addCase("weekofyear + yearofweek, one shift (VARKA-58), null-free") { _ =>
           chunked(isoPair, false, 2)
         }
-        benchmark.addCase("weekofyear (task 37), null-free") { _ => chunked(weekOfYear, false) }
-        benchmark.addCase("weekofyear (task 37), mixed nulls") { _ => chunked(weekOfYear, true) }
-        benchmark.addCase("ThursdayOf alone (task 37), null-free") { _ =>
+        benchmark.addCase("weekofyear (VARKA-37), null-free") { _ => chunked(weekOfYear, false) }
+        benchmark.addCase("weekofyear (VARKA-37), mixed nulls") { _ => chunked(weekOfYear, true) }
+        benchmark.addCase("ThursdayOf alone (VARKA-37), null-free") { _ =>
           chunked(thursdayOf, false)
         }
         benchmark.addCase("per-row DateTimeUtils.getWeekOfYear (the path Spark uses today)") {
@@ -1214,14 +1217,14 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
               pass += 1
             }
         }
-        // Task 32's ceiling (PLAN_TASK_32.md): the same four fields from one shared
+        // VARKA-32's ceiling (VARKA-32.md): the same four fields from one shared
         // decomposition, computed by hand outside the emitter (ChronoVectorOps), against the four
         // independently emitted nodes above. It runs through the same eachChunk walk, over the
         // same buffers, writing the same four data and four validity destinations, and pays the
         // same narrow-range guard - once, where the four-node case pays it four times, which is
         // the saving being measured rather than an omission. The first version of this case
         // omitted the guard, wrote one shared validity buffer and hand-copied the chunk loop;
-        // the number it produced is why task 32 was first declined.
+        // the number it produced is why VARKA-32 was first declined.
         benchmark.addCase("year+month+day+quarter, shared decomposition (hand-written ceiling)") {
           _ =>
             eachChunk { (dataOff, validityOff, n) =>
@@ -1235,7 +1238,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // year assembly hoisted so era/century/yoc die early, and each output stored as soon as
         // it exists rather than all four at the end (which is also what emitLaneGroup does). The
         // pair prices the schedule alone, which is what decides whether the 128-bit width can
-        // reach the win the native width gets - see PLAN_TASK_32.md section 7.
+        // reach the win the native width gets - see VARKA-32.md section 7.
         benchmark.addCase("year+month+day+quarter, shared decomposition (short live ranges)") {
           _ =>
             eachChunk { (dataOff, validityOff, n) =>
@@ -1340,16 +1343,16 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
       }
 
       runBenchmark("GROUP_BUDGET: two outputs over one shared chain, split vs kept together") {
-        // Task 17's pair, and since task 71 the A/B is the rule rather than the budget. A
+        // VARKA-17's pair, and since VARKA-71 the A/B is the rule rather than the budget. A
         // shared depth-8 chain with six more ops on each of two outputs is 20 distinct nodes
         // against a budget of 16, so clause 1 splits them and the second method recomputes the
         // eight shared ops per lane group - 60 vector ops across two methods against 43 in
-        // one. Task 71 measured that the merge is strictly less work and that clause 1 rejects
+        // one. VARKA-71 measured that the merge is strictly less work and that clause 1 rejects
         // it anyway, because the budget bounds the method while the marginal cost already
         // excludes what the group holds; the fix is clause 2 counting whole-node reuse
         // (`shareWholeNodes`), not a wider budget, because the budget is what keeps compile
         // time in hand. So the arms are the rule off and on, both at the shipped budget: off
-        // is what every regeneration through task 70 measured, on is what ships.
+        // is what every regeneration through VARKA-70 measured, on is what ships.
         val benchmark = new Benchmark(
           s"two outputs over a shared chain, $numRows rows, mixed nulls", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
@@ -1383,7 +1386,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("task 32 B2: the fused-method ladder past four outputs (PLAN_TASK_32.md 10.4)") {
+      runBenchmark("VARKA-32 B2: the fused-method ladder past four outputs (VARKA-32.md 10.4)") {
         // Clause 2 of groupOutputs merges every calendar output that reuses the prefix, up to
         // FUSED_CEILING, and a projection can carry more of them than the task-26 quartet. The
         // two-, three- and four-field rows are in the "year" section; this one goes past four
@@ -1449,9 +1452,9 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
 
       runBenchmark("widest shape: MAX_FUSED_NODES ops in one kernel") {
         // Four disjoint depth-16 chains: 64 distinct ops, the cap exactly - emitted as four
-        // GROUP_BUDGET-sized loop methods since task 11, which is what keeps this case honest
+        // GROUP_BUDGET-sized loop methods since VARKA-11, which is what keeps this case honest
         // in a JVM that has compiled every other kernel in this file first (see
-        // PLAN_TASK_11.md section 6). The sequential version is the same 64 kernel passes.
+        // VARKA-11.md section 6). The sequential version is the same 64 kernel passes.
         val benchmark = new Benchmark(s"4 outputs x depth 16 over $numRows rows", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
         val roots = (0 until 4).map(k => chain(16, slotBase = k * 16))
@@ -1472,8 +1475,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
       }
 
       runBenchmark("next_day: the literal kernel, the column kernel, the derived leaf and " +
-          "the row engine's own path (task 59)") {
-        // Task 59's measurement (PLAN_TASK_59.md 6). next_day with a weekday column runs as
+          "the row engine's own path (VARKA-59)") {
+        // VARKA-59's measurement (VARKA-59.md 6). next_day with a weekday column runs as
         // the two-input kernel over an int32 column the evaluator derives per batch from the
         // string column through the row engine's own parser; the fused form is the column
         // kernel plus the leaf, and the anchor it is held to is getNextDateExact per row, the
@@ -1607,9 +1610,9 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           benchmark.addCase("next_day(d, k), column kernel, mixed nulls on the date") { _ =>
             chunkedColumn(column, true)
           }
-          // Task 70's A/B on the two-input AND: both reads and the write gone, one bitmap AND.
+          // VARKA-70's A/B on the two-input AND: both reads and the write gone, one bitmap AND.
           benchmark.addCase(
-            "next_day(d, k), column kernel, words per group (task 70 A/B), mixed nulls on the " +
+            "next_day(d, k), column kernel, words per group (VARKA-70 A/B), mixed nulls on the " +
               "date") { _ => chunkedColumn(columnPerGroup, true) }
           benchmark.addCase("weekday leaf, row-engine parser, valid names") { _ =>
             chunkedLeaf(valid, WeekdayLeaf.Parser.ROW_ENGINE)
@@ -1650,8 +1653,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
       }
 
       runBenchmark("trunc with a format column: the dynamic kernel, the literal controls, the " +
-          "level leaf and the row engine's own path (task 61)") {
-        // Task 61's measurement (PLAN_TASK_61.md 6). trunc(d, fmt) with a format column runs
+          "level leaf and the row engine's own path (VARKA-61)") {
+        // VARKA-61's measurement (VARKA-61.md 6). trunc(d, fmt) with a format column runs
         // as the two-input kernel over an int32 level column the evaluator derives per batch
         // through the row engine's own parseTruncLevel; the kernel computes all four periods
         // and blends on the level, so it is priced against the widest and the narrowest
@@ -1800,7 +1803,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         }
       }
 
-      runBenchmark("batch-length alignment: what the scalar tail actually costs (task 24)") {
+      runBenchmark("batch-length alignment: what the scalar tail actually costs (VARKA-24)") {
         // Milestone 4 open question 3, answered before the masked epilogue replaces the tail.
         // Every committed harness in this project happens to be lane-aligned - this file runs
         // one call over 1,000,000 rows, DateVectorOpsBenchmark's sizes are 32 / 10000 /
@@ -1885,10 +1888,10 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             chunked(dow, chunk, Array.empty[Int], mixed = true)
           }
         }
-        // Task 32 step B1's own case for this ladder (PLAN_TASK_32.md section 7.1). Until B2
+        // VARKA-32 step B1's own case for this ladder (VARKA-32.md section 7.1). Until B2
         // the two settings could differ only in the epilogue: the shipped grouping kept each
         // field in its own loop method whether or not shareChronoPrefix was set, and the
-        // epilogue is the one method every output shares (task 24) - invisible at chunk 4096,
+        // epilogue is the one method every output shares (VARKA-24) - invisible at chunk 4096,
         // which divides evenly at every lane count, so the unaligned arms here were the only
         // place in the file that timed it. Since B2 the shared arm holds the four fields in one
         // loop method as well, so the aligned rows show the loop's gain and the unaligned rows
@@ -1930,17 +1933,17 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
             s"year+month+day+quarter, shared, chunk $chunk ($note), null-free") { _ =>
             chunkedCalendar(fourFieldsShared, chunk, mixed = false)
           }
-          // The masked arm, added as task 70's baseline (PLAN_TASK_70.md 6, risk 2): the
+          // The masked arm, added as VARKA-70's baseline (VARKA-70.md 6, risk 2): the
           // short-batch rows are where a per-batch bitmap pass could cost more than the
           // per-group calls it replaces, and until now every four-field row here was null-free.
           benchmark.addCase(
             s"year+month+day+quarter, shared, chunk $chunk ($note), mixed nulls") { _ =>
             chunkedCalendar(fourFieldsShared, chunk, mixed = true)
           }
-          // Task 70's A/B on the short batches risk 2 is about: at 64 rows the pass is an
+          // VARKA-70's A/B on the short batches risk 2 is about: at 64 rows the pass is an
           // 8-byte bitmap against four lane groups' calls.
           benchmark.addCase(
-            s"year+month+day+quarter, shared, words per group (task 70 A/B), chunk $chunk " +
+            s"year+month+day+quarter, shared, words per group (VARKA-70 A/B), chunk $chunk " +
               s"($note), mixed nulls") { _ =>
             chunkedCalendar(fourFieldsPerGroup, chunk, mixed = true)
           }
@@ -1948,12 +1951,12 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("task 44: the epilogue's HugeMethodLimit crossing (PLAN_TASK_32.md 7.1)") {
+      runBenchmark("VARKA-44: the epilogue's HugeMethodLimit crossing (VARKA-32.md 7.1)") {
         // The four-field ladder above never shows the crossing this task is actually about:
         // sixteen calendar outputs (four date columns) sit at 7531 bytes unshared - already
         // under the 8000-byte HugeMethodLimit, so sharing there has nothing to cross, and the
         // near-identical numbers above are the honest result of that. Five date columns of
-        // four fields is twenty outputs, which PLAN_TASK_32.md's ladder measures at 9436 bytes
+        // four fields is twenty outputs, which VARKA-32.md's ladder measures at 9436 bytes
         // unshared - past the limit, so HotSpot compiles epilogueMasked at no tier at all and it
         // runs interpreted with boxed vectors on every batch whose length is not a lane
         // multiple - and 4048 bytes shared, comfortably under it. This section is where that
@@ -1972,7 +1975,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
           Seq[VarkaVectorIR](new Year(col), new Month(col), new DayOfMonth(col),
             new Quarter(col))
         }
-        // Both arms in the single-epilogue form (methodByteBudget 0): task 87's default splits
+        // Both arms in the single-epilogue form (methodByteBudget 0): VARKA-87's default splits
         // the epilogue per group, under which neither arm crosses the limit and this section
         // would price nothing. VarkaMethodSizeBenchmark measures the split form against this one.
         val single = VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0)
@@ -2011,15 +2014,15 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("task 43: one output, widening - where a single loop method stops scaling") {
+      runBenchmark("VARKA-43: one output, widening - where a single loop method stops scaling") {
         // GROUP_BUDGET bounds ops *between* outputs and never inside one, so a single root can
         // emit an arbitrarily wide loop method. The budget's javadoc calls single-output loops
         // healthy "at every width tried" and the width tried was 59 ops; this is the ladder that
-        // finds out where that stops being true (PLAN_TASK_43.md).
+        // finds out where that stops being true (VARKA-43.md).
         //
         // The shape has to vary op count and nothing else, and the three obvious constructions
-        // all fail: an AddDays chain varies dependency depth (task 25's axis), repeated calendar
-        // nodes get their prefixes shared by task 32 step B1 - which is why section 2.16's own
+        // all fail: an AddDays chain varies dependency depth (VARKA-25's axis), repeated calendar
+        // nodes get their prefixes shared by VARKA-32 step B1 - which is why section 2.16's own
         // example is 61 ops today rather than the ~190 it records - and repeated identical
         // subtrees are CSE'd away by emitValue. A greatest/least tree over independent
         // dayofweek(d + k) subtrees with distinct literal slots avoids all three, and measures
@@ -2063,8 +2066,8 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("task 88 step 4: the constant division, magic against the double lane") {
-        // The A/B `PLAN_TASK_88.md` 6 exists for. Every calendar division is a range-narrowed
+      runBenchmark("VARKA-88 step 4: the constant division, magic against the double lane") {
+        // The A/B `VARKA-88.md` 6 exists for. Every calendar division is a range-narrowed
         // magic multiply today, exact only because the emitter proves the dividend bounded; the
         // two double forms convert into double lanes instead, divide there and convert back,
         // which is exact over the whole lane and needs neither the bound nor the round-down
@@ -2078,10 +2081,10 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // three tails after it, so the same three divisions are the smallest share; and
         // `add_months` reaches the four division sites no extraction does, inside a
         // recomposition. Adjacent cases, one form after another on the same shape, the same
-        // interleaving discipline as tasks 45, 48 and 53.
+        // interleaving discipline as VARKA-45, VARKA-48 and VARKA-53.
         //
         // Null-free only, deliberately. The division sits in the arithmetic and the masked body
-        // divides identically, so a mixed-null arm would price task 45's validity machinery a
+        // divides identically, so a mixed-null arm would price VARKA-45's validity machinery a
         // second time under a name that says "division"; the shipped `year` rows above already
         // carry both patterns for the shape.
         //
@@ -2122,12 +2125,12 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         runCases(benchmark)
       }
 
-      runBenchmark("task 88 step 4: extract(YEAR FROM ym), the division with no magic form") {
+      runBenchmark("VARKA-88 step 4: extract(YEAR FROM ym), the division with no magic form") {
         // `extract(YEAR FROM ym)` is a month count divided by twelve over a column nothing
         // bounds, and the calendar's range-narrowed magic is exact over about one
         // forty-thousandth of int32, so the calendar's lowering is not available and the
         // comparand is the scalar division the row engine performs (prediction 3 of
-        // `PLAN_TASK_88.md` 6.1). Task 88 gave it the conversion through double lanes; task
+        // `VARKA-88.md` 6.1). VARKA-88 gave it the conversion through double lanes; task
         // 149 the multiply-high through 64-bit lanes, which is what a scalar compiler emits
         // for the same division and what the scalar loop below is in fact running.
         //
@@ -2140,7 +2143,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         // sibling case is named "cannot auto-vectorize" precisely because a tight loop like
         // this one may be vectorised by C2 - which is not established here, and would be the
         // JVM's own output to establish rather than a ratio's to imply. So the row bounds the
-        // advantage from below and `PLAN_TASK_88.md` 6.1's prediction 3, which is stated
+        // advantage from below and `VARKA-88.md` 6.1's prediction 3, which is stated
         // against the row engine, needs a row-engine comparand to be scored.
         val months = arena.allocate(numRows * 4L, 8)
         val step = ((1L << 32) / numRows).toInt
@@ -2149,7 +2152,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         }
         val benchmark = new Benchmark(s"extract(YEAR FROM ym) over $numRows rows, null-free",
           numRows, minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        // Task 149 gave this division a second lowering, the multiply-high through 64-bit
+        // VARKA-149 gave this division a second lowering, the multiply-high through 64-bit
         // lanes, and made it the default: the conversion form stays as the reference arm
         // behind `mulHiDivide`, so the two are adjacent here and the scalar loop is the
         // comparand for both. The shipped case keeps its id; its bytes changed, which is the

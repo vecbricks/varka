@@ -22,12 +22,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 
 /**
- * The long lane, end to end (milestone 5 task 29): a `bigint`, a `TIME(p)` or a day-time
+ * The long lane, end to end (milestone 5 VARKA-29): a `bigint`, a `TIME(p)` or a day-time
  * interval column read from Varka's Arrow cache, compared in a kernel, and written back as a
  * long column - checked against the row engine over three null patterns and under both
  * consumers, the row transition and the cache builder.
  *
- * The kernel-level proof that the long lane computes what the reference says is task 85's
+ * The kernel-level proof that the long lane computes what the reference says is VARKA-85's
  * (`VarkaEmitterLongLaneSuite`). What only this suite can catch is a lane that reads the right bits
  * in the wrong unit - a `TIME(3)` compared against a literal Catalyst cast from another
  * precision, an interval read as nanoseconds - because the kernel never sees the unit; and a
@@ -278,7 +278,7 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
   test("a long filter forwards an unread bigint column through the per-row compaction") {
     // The filter's kernel writes a selection bitmap; every surviving column is then compacted
     // to the selected rows, and an eight-byte column takes the per-row copy rather than the
-    // four-byte `compress` path (task 128). Correct, and checked here with nulls in the column
+    // four-byte `compress` path (VARKA-128). Correct, and checked here with nulls in the column
     // the filter never reads.
     fixtures.foreach { case (fixture, _) =>
       val query = s"SELECT l2, t9, dt2 FROM $fixture WHERE l > 0"

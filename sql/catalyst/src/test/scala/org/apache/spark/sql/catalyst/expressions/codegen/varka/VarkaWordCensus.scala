@@ -30,12 +30,12 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{DataType, DateType, IntegerType, YearMonthIntervalType}
 
 /**
- * A census of validity words (task 70's algebra): for every value root of a corpus, what its
+ * A census of validity words (VARKA-70's algebra): for every value root of a corpus, what its
  * word is - one input's bitmap, the constant, a single-operator chain, a tree that mixes the
  * operators, or nothing pure at all - and what two extensions of the axioms would change:
  * the coalesce axiom (an `IfElse(IsNotNull(x), x, y)` denotes `x OR y`) and the absorption
  * laws (`x AND (x OR y) = x`, `x OR (x AND y) = x`). The admission check of the milestone 5
- * follow-ups to task 70, run from `dev/varka_word_census.sh`.
+ * follow-ups to VARKA-70, run from `dev/varka_word_census.sh`.
  *
  * Three corpora: the `Surface` inventory's projections (the shapes the surface run covers),
  * a list of composites chosen to exercise the operator boundary, and `--fuzz N` shapes from
@@ -43,7 +43,7 @@ import org.apache.spark.sql.types.{DataType, DateType, IntegerType, YearMonthInt
  * `validityByBitmap` on and off, and the mirror's verdict is checked against the emitter's:
  * a served root changes `loopMasked0`'s bytes, a declined one does not. The mirror of
  * `pureOf` below exists because the emitter's analysis is private; it is the one thing here
- * that can drift, and the cross-check is what would show it. Task 74 replaces the mirror
+ * that can drift, and the cross-check is what would show it. VARKA-74 replaces the mirror
  * with the analysis itself.
  */
 object VarkaWordCensus {
@@ -149,7 +149,7 @@ object VarkaWordCensus {
       if (o.size == 1) Chain(o.head, leaves(w).size) else Mixed
   }
 
-  /** Whether today's emitter serves a root of this kind (task 70's rule). */
+  /** Whether today's emitter serves a root of this kind (VARKA-70's rule). */
   private def served(k: Kind): Boolean = k match {
     case NoExpr | Mixed => false
     case _ => true
@@ -198,7 +198,7 @@ object VarkaWordCensus {
    * *can* be carried now.
    *
    * They are not carried yet, deliberately. Adding them moves every number the census
-   * publishes, and `PLAN_MILESTONE_5.md` 2.x quotes a 7 September run of it while describing
+   * publishes, and `m5/PLAN.md` 2.x quotes a 7 September run of it while describing
    * that run as covering "the `Surface` projections". Re-running and requoting belongs to the
    * task that owns the census (74/75), not to the benchmark change that happened to find the
    * resolver bug. Until then this list is about two thirds of the surface and says so here.

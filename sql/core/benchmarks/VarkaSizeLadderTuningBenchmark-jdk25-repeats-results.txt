@@ -1,6 +1,6 @@
 Five runs of VarkaSizeLadderTuningBenchmark on an unchanged file, one after another on the quiet
 laptop, pinned to the fast cores as dev/varka_bench_repeat.sh pins them, for a comparison by
-minimums (PLAN_TASK_192.md 9.7). Each run is reproduced as the benchmark printed it.
+minimums (VARKA-192.md 9.7). Each run is reproduced as the benchmark printed it.
 
 commit:  31de6ce6cb0
 date:    2026-09-25, runs from 03:47 to 04:51 CEST

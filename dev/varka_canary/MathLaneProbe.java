@@ -143,7 +143,7 @@ public class MathLaneProbe {
   /**
    * What machine this ran on, printed first so a result can be attributed: the JVM's own view
    * of the architecture and vector width, and the AVX level where the flag exists. A row of
-   * results without this line is the thing task 150 exists to prevent.
+   * results without this line is the thing VARKA-150 exists to prevent.
    */
   static String machine() {
     String avx;

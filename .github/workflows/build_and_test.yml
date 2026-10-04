@@ -217,7 +217,7 @@ jobs:
             java25=false
           fi
           build=`./dev/is-changed.py -m "core,unsafe,kvstore,avro,utils,utils-java,network-common,network-shuffle,repl,launcher,examples,sketch,variant,api,catalyst,hive-thriftserver,mllib-local,mllib,graphx,streaming,sql-kafka-0-10,streaming-kafka-0-10,streaming-kinesis-asl,credential-aws,kubernetes,hadoop-cloud,spark-ganglia-lgpl,profiler,protobuf,yarn,connect,sql,hive,pipelines"`
-          # A change confined to Varka's own files (task 160, `modules.is_varka_scoped`) runs the
+          # A change confined to Varka's own files (VARKA-160, `modules.is_varka_scoped`) runs the
           # Varka suites of catalyst and sql/core in one job of its own and not Spark's module
           # matrix: Spark's tests run with the engine off and cannot see such a change, while the
           # matrix costs about ninety minutes and thirteen hundred job-minutes for it. Any file
@@ -246,7 +246,7 @@ jobs:
           fi
           # Documents cannot change Spark's generated documentation either; the first
           # documents-only run after this shipped spent 44 minutes in the Java 25 Maven build
-          # and 14 in documentation generation for a plan file (PLAN_TASK_160.md section 5).
+          # and 14 in documentation generation for a plan file (VARKA-160.md section 5).
           if [ "$varka_scope" = "docs" ]; then
             docs=false
           fi
@@ -283,7 +283,7 @@ jobs:
           varka_bench=`./dev/is-changed.py -m varka-bench`
           varka_docs=`./dev/is-changed.py -m varka-docs`
           # The assembly gate reads the instructions of both the emitted loops and the
-          # hand-written kernels, so it runs when either side moves (task 124).
+          # hand-written kernels, so it runs when either side moves (VARKA-124).
           varka_asm=`./dev/is-changed.py -m "catalyst,varka-engine"`
           # Disabled on this fork since 7 September 2026: the Kubernetes integration job
           # cannot build its Docker image, because booting buildx's own builder fails with
@@ -1149,7 +1149,7 @@ jobs:
       with:
         run-tests: 'true'
 
-  # The Varka benchmark drivers' own suites (task 94). `sql/varka/bench` builds against a
+  # The Varka benchmark drivers' own suites (VARKA-94). `sql/varka/bench` builds against a
   # *released* Spark at provided scope rather than against this checkout, so this job needs a
   # JDK and Maven and nothing else - no assembly, no engine jar - and runs in minutes. One
   # architecture is enough, unlike the engine's job: these suites assert inventory invariants
@@ -1186,9 +1186,9 @@ jobs:
     - name: Run the bench module's tests
       run: ./build/mvn -f sql/varka/bench/pom.xml test
 
-  # The assembly gate (task 124): the JVM's own instructions, not a throughput ratio.
+  # The assembly gate (VARKA-124): the JVM's own instructions, not a throughput ratio.
   #
-  # `VarkaAssemblySuite` has asserted since task 31 that the emitted loops and the hand-written
+  # `VarkaAssemblySuite` has asserted since VARKA-31 that the emitted loops and the hand-written
   # kernels compile to packed instructions on vector registers, and that the shapes which must
   # not box do not. It has never run anywhere but on a developer's machine, because it needs
   # hsdis and cancels without one - which is right everywhere else and exactly wrong here.
@@ -1227,7 +1227,7 @@ jobs:
     - name: Build hsdis
       run: ./dev/varka_hsdis_build.sh --out "$HOME/hsdis"
     # The runner is a lottery over CPU families, and a failure below is read against the
-    # machine it ran on (task 150): the model, its vector flags, the JVM's UseAVX and
+    # machine it ran on (VARKA-150): the model, its vector flags, the JVM's UseAVX and
     # MaxVectorSize, and the datapath readings, the same report the surface benchmark makes.
     - name: Report the machine
       run: ./dev/varka_datapath.sh --require any
@@ -1238,7 +1238,7 @@ jobs:
         export VARKA_HSDIS_DIR="$HOME/hsdis"
         ./build/sbt "catalyst/testOnly *VarkaAssemblySuite"
 
-  # The Varka documents' checks (task 106). Every performance number a Varka document quotes
+  # The Varka documents' checks (VARKA-106). Every performance number a Varka document quotes
   # must trace to a committed results file (dev/varka_quote_check.py), and SKILLS.md's index
   # must match the lesson files under sql/varka/skills (dev/varka_toc.py). Both are
   # standard-library Python and finish in seconds; before this job neither ran anywhere but
@@ -1249,9 +1249,9 @@ jobs:
   # other job. The quote check accepts a number that appears in any committed version of a
   # results file - plans quote the figure a change moved away from - and on the squashed tree
   # that history is a single commit, which turns most of the documents' quotes into orphans
-  # (PLAN_TASK_106.md, section 2). The documents are the fork's; upstream's tree has no
+  # (VARKA-106.md, section 2). The documents are the fork's; upstream's tree has no
   # bearing on whether they quote the fork's numbers.
-  # The Varka suites alone, for a change confined to Varka's files (task 160). Two jobs in
+  # The Varka suites alone, for a change confined to Varka's files (VARKA-160). Two jobs in
   # parallel, one per module, each the sbt build of that module's tests and its `*Varka*`
   # suites; the sql job adds the Arrow cache serializer's suite, which is Varka's without the
   # name. What a full run of the matrix costs for the same change is the measurement the task
@@ -1306,7 +1306,7 @@ jobs:
     # just passed: the emitter produces exactly what sql/varka/emitted_bytes.json pins. Whether
     # this change moved that file is then the difference between a refactor the oracle proves
     # byte-identical and a change to the emitted code, and a reviewer should not have to open
-    # the diff to know which (task 177, PLAN_TASK_179.md section 5).
+    # the diff to know which (VARKA-177, VARKA-179.md section 5).
     - name: The emitted-bytes oracle's verdict
       if: matrix.module == 'catalyst'
       run: |

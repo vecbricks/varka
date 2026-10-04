@@ -108,7 +108,7 @@ case class InMemoryTableScanExec(
    * generated code that consumes the batches, and that code, `ColumnarToRowExec`'s, only ever
    * reads this scan's columns; Varka's kernels read the Arrow vectors directly. Counting the whole
    * relation made a cache of more than that many columns produce rows for every query, whatever
-   * it read (`PLAN_TASK_185.md`).
+   * it read (`VARKA-185.md`).
    */
   private[sql] def fieldCountedSchema: StructType =
     if (conf.varkaEnabled &&

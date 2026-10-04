@@ -403,7 +403,7 @@ abstract class BaseSessionStateBuilder(
 
   /**
    * Columnar rules for this session: the user-injected rules plus the built-in
-   * [[VarkaColumnarRule]] (Task 8).
+   * [[VarkaColumnarRule]] (VARKA-8).
    *
    * Varka is registered here, on the designed session-state hook, rather than in
    * `SparkSession.Builder`, so that every session gets it exactly once - cloned, Connect, Hive

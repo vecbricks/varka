@@ -7,4 +7,4 @@ inputs:      class=*CaseWhenCodegenBenchmark jdk=25 scala=2.13 num-splits=1 crea
 cpu:         AMD EPYC 7763 64-Core Processor, the CPU of CaseWhenCodegenBenchmark-jdk25-results.txt
 pinned to:   none (the runner is not pinned; the file is the workflow's artifact unchanged)
 what:        the same benchmark after SPARK-59783, which groups the calls to split functions
-             past the JIT limit; compared with the file without it, PLAN_TASK_210.md 9.6
+             past the JIT limit; compared with the file without it, VARKA-210.md 9.6

@@ -19,7 +19,7 @@ time, and the rest are conditional on what the expression needs.
 | `VarkaVectorIR.java` | 10/10 | the node |
 | `VarkaLoopEmitter.java` | 10/10 | the code it emits |
 | `VarkaEmitter<Family>Suite.scala` | 10/10 | proof the emitted loop matches the reference |
-| `PLAN_MILESTONE_4.md` | 10/10 | the task row |
+| `m4/PLAN.md` | 10/10 | the task row |
 
 | | Nearly always | |
 | :--- | :--- | :--- |

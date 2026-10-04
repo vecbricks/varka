@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 # Does a kernel's dense loop compile once, or enter the C2 deoptimization cycle
-# (PLAN_MILESTONE_6.md 2.12, task 189)? Forks fresh JVMs of VarkaDeoptCycleProbe -
+# (m6/PLAN.md 2.12, VARKA-189)? Forks fresh JVMs of VarkaDeoptCycleProbe -
 # the make_date ladder's kernel at a given width, in either epilogue form, driven over
 # null-free batches - under -XX:+PrintCompilation and -Xlog:deoptimization=debug, and
 # reads the verdict per fork from those logs with dev/varka_deopt_cycle.py.
@@ -24,13 +24,13 @@
 #   dev/varka_deopt_cycle.sh                                  # 12 outputs, both forms, both widths, 20 forks
 #   dev/varka_deopt_cycle.sh --outputs 13,16,60 --forms group --forks 10
 #   dev/varka_deopt_cycle.sh --widths 16 --seconds 12
-#   dev/varka_deopt_cycle.sh --paths warmup                   # task 212's path to C2
+#   dev/varka_deopt_cycle.sh --paths warmup                   # VARKA-212's path to C2
 #   dev/varka_deopt_cycle.sh --forms group --forks 10 --fail-on-cycle   # the nightly guard
 #
 # --widths is in bytes, as the JVM's MaxVectorSize counts them: 64 is 512 bits, 16 is 128.
-# --forms: single (one epilogue over every output, the emission before task 87) and group
+# --forms: single (one epilogue over every output, the emission before VARKA-87) and group
 # (the epilogue per group, the default since). --paths: batches, the kernel's batches from its
-# first call, or warmup, the path task 212 gives a new kernel - C1 kept off the class and
+# first call, or warmup, the path VARKA-212 gives a new kernel - C1 kept off the class and
 # twelve thousand 32-row calls before the first batch. Each width is one sbt session with one
 # forked JVM per case and fork; the logs and the summary go under
 # target/varka-deopt-cycle/<date-time>/. Fresh JVMs because the cycle is decided at or

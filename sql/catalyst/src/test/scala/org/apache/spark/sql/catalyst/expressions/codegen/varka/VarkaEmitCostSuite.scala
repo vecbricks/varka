@@ -71,7 +71,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // A feature missing from a table makes every group holding it unpredictable, and the switch
     // then falls back to the weights for that group without a word. The expected set is
     // enumerated from the IR's own enums, not from what the fuzz grammar draws - the grammar
-    // did not draw NarrowLane, the root of every TIME kernel, until task 235 - and every record
+    // did not draw NarrowLane, the root of every TIME kernel, until VARKA-235 - and every record
     // type of the IR must be named in it, so a node type added later fails here until priced.
     val expected = VarkaEmitCostFit.expectedFeatures().asScala.toSet
     val unnamed = irTypes().filterNot(t => expected.exists(f => f == t || f.startsWith(t + "/")))
@@ -183,9 +183,9 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // weights decline declines under it too; what those declines cost in builds is pinned in
     // `emit_cost_audit.json`. A shape can still
     // gain a loop method where the measurement halves a group and the greedy close fills one
-    // and leaves the rest in two (PLAN_TASK_199.md 9): that list is pinned, so a new entry is
+    // and leaves the rest in two (VARKA-199.md 9): that list is pinned, so a new entry is
     // seen rather than averaged away. The greedy walk's, as the plan records it: under the exact
-    // grouping, the default since `PLAN_TASK_200.md` 8.2, `VarkaGroupingBoundSuite` holds the
+    // grouping, the default since `VARKA-200.md` 8.2, `VarkaGroupingBoundSuite` holds the
     // same wide shapes to no decline and no fallback.
     val greedy = VarkaEmitOptions.DEFAULTS.withExactGrouping(false).withPlanSize(false)
     val gained = Seq.newBuilder[String]
@@ -203,8 +203,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
       }
     }
     // The int-lane entry is that greedy close: the weights' class is built twice. The two
-    // long-lane entries are a second way to gain one, found when task 235 moved the long-lane
-    // corpus (PLAN_TASK_235.md 9): the weights build once, so the measurement never splits a
+    // long-lane entries are a second way to gain one, found when VARKA-235 moved the long-lane
+    // corpus (VARKA-235.md 9): the weights build once, so the measurement never splits a
     // group, and the prediction still closes one a method early - a prediction near the budget
     // erring high, where the greedy close is one erring low.
     assert(gained.result() === Seq("wide int 120: 31 -> 32", "wide long 59: 55 -> 56",
@@ -231,7 +231,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
     // the cheap tails at the int lane, and at the long lane forty outputs over one shared
     // division, which the call-site budget splits. Each emits under the switch in a grouping the
     // weights never form, and is run at every null pattern over lengths that leave an epilogue.
-    // The prediction alone, without the plan's margins (task 236), against the weights alone.
+    // The prediction alone, without the plan's margins (VARKA-236), against the weights alone.
     val weights = VarkaEmitOptions.DEFAULTS.withPlanSize(false).withPredictGrouping(false)
     val predicted = weights.withPredictGrouping(true)
     val tails = (0 until 64).map(VarkaEmitCostCorpus.tailEntry)

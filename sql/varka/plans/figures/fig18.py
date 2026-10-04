@@ -21,7 +21,7 @@ stay up; the two settings turn the step into a slope.
 
 Every value is read from the committed runner file when the script runs
 (sql/core/benchmarks/VarkaSizeLadderTuningBenchmark-jdk25-runner-results.txt), so the figure
-cannot drift from it (PLAN_TASK_192.md 9.5)."""
+cannot drift from it (VARKA-192.md 9.5)."""
 
 import os
 import re

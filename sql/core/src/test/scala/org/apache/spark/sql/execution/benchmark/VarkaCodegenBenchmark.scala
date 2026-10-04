@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaLoopEmitter
 import org.apache.spark.sql.types.DateType
 
 /**
- * Class-generation time benchmark (Task 7): Gen-time for the Janino string path
+ * Class-generation time benchmark (VARKA-7): Gen-time for the Janino string path
  * (`GenerateUnsafeProjection.generate`, i.e. string generation + `CodeGenerator.compile`) vs the
  * Varka Class-File path - `VarkaLoopEmitter.emit` of a representative fused kernel (two outputs
  * sharing a subchain, the shape the throughput benchmark's DAG-CSE case runs) plus define, load
@@ -37,7 +37,7 @@ import org.apache.spark.sql.types.DateType
  * work `VarkaKernelEvaluator`'s runner does. A fresh literal each Janino iteration defeats the
  * global compiler cache so every iteration is a cold compile, matching the first-query cost.
  *
- * Task 14 added the fused case beside milestone 1's per-op dispatcher case; task 17 retired the
+ * VARKA-14 added the fused case beside milestone 1's per-op dispatcher case; VARKA-17 retired the
  * dispatchers with the rest of that layer, so what remains measures only machinery that runs.
  *
  * To run this benchmark:

@@ -192,7 +192,7 @@ final class VarkaIntervalCompiler {
       // `(months % 12).toByte`. The remainder is one multiply and one subtract away from the
       // quotient above, so the division is not what blocks this: the result is a `ByteType`, and
       // Varka has neither a byte lane nor an Arrow vector to store one into. It declines until a
-      // narrowing store exists, which is its own question (PLAN_MILESTONE_5.md 2.20).
+      // narrowing store exists, which is its own question (m5/PLAN.md 2.20).
       case ExtractANSIIntervalMonths x ->
           () -> decline("extract(MONTH FROM ym) returns a byte, which has no lane", x, sink);
       case MultiplyYMInterval m -> () -> multiply(m, inputs, literals, sink);

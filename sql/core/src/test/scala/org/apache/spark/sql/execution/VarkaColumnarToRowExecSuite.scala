@@ -37,7 +37,7 @@ import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
 
 /**
- * Unit tests for [[VarkaColumnarToRowExec]] (Task 6): the SIMD kernel path over Arrow
+ * Unit tests for [[VarkaColumnarToRowExec]] (VARKA-6): the SIMD kernel path over Arrow
  * `DateDayVector` batches, the per-row fallback for non-Arrow / ineligible inputs, and the
  * per-batch fallback on an injected kernel failure.
  *
@@ -137,7 +137,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession with
     val child = TestColumnarBatchPlan(
       Seq(BatchSpec("onheap", Seq(Seq[java.lang.Integer](100, 101, 102)))), Seq(intAttr))
     // `i % 7` is not a Varka op, so no entry fuses and every batch goes through the per-row
-    // projection. It replaced `i + 1` here when task 63 lowered int arithmetic and that shape
+    // projection. It replaced `i + 1` here when VARKA-63 lowered int arithmetic and that shape
     // started fusing.
     val node = VarkaColumnarToRowExec(
       project(Alias(Remainder(intAttr, Literal(7)), "add")()), child)
@@ -271,7 +271,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession with
     // An expression whose codegen throws stands in for "Janino was invoked": under CODEGEN_ONLY
     // there is no interpreted safety net, so building the fallback projection fails loudly.
     // Constructing the evaluator must succeed anyway - a task the kernels serve end to end
-    // never pays that compile (task 15) - and the failure must surface exactly when a batch
+    // never pays that compile (VARKA-15) - and the failure must surface exactly when a batch
     // takes the fallback path.
     withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
       val factory = new VarkaColumnarToRowEvaluatorFactory(
@@ -281,7 +281,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession with
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         VarkaExecMetrics())
-      // Before task 15 this constructor compiled the fallback eagerly and threw.
+      // Before VARKA-15 this constructor compiled the fallback eagerly and threw.
       val evaluator = factory.createEvaluator()
       val column = new OnHeapColumnVector(1, IntegerType)
       column.putInt(0, 7)
@@ -419,7 +419,7 @@ class VarkaColumnarToRowExecSuite extends QueryTest with SharedSparkSession with
     val eligible = ProjectExec(
       project(Alias(DateAdd(attrD, Literal(3)), "add")()),
       ColumnarToRowExec(child))
-    // One fused entry beside a forward and a residual: eligible since task 12.
+    // One fused entry beside a forward and a residual: eligible since VARKA-12.
     val mixed = ProjectExec(
       project(
         Alias(DateAdd(attrD, Literal(3)), "add")(),
@@ -543,7 +543,7 @@ object VarkaColumnarToRowExecSuite {
       val values = spec.columns(c)
       spec.kind match {
         case "arrow" =>
-          // A `DateDayVector` for date columns, an `IntVector` for int columns (task 12's
+          // A `DateDayVector` for date columns, an `IntVector` for int columns (VARKA-12's
           // forwarded and residual entries put non-date columns into these batches).
           val vector = ArrowUtils.toArrowField(output(c).name, output(c).dataType,
             nullable = true, null).createVector(allocator).asInstanceOf[BaseFixedWidthVector]
@@ -553,7 +553,7 @@ object VarkaColumnarToRowExecSuite {
               case (_, null) => vector.setNull(i)
               case (ddv: DateDayVector, days) => ddv.setSafe(i, days)
               case (iv: IntVector, value) => iv.setSafe(i, value)
-              // Task 67: a year-month interval column, whose value is the month count. The
+              // VARKA-67: a year-month interval column, whose value is the month count. The
               // field comes from `toArrowField` like the others, so the unit is already on it.
               case (yv: IntervalYearVector, months) => yv.setSafe(i, months)
             }

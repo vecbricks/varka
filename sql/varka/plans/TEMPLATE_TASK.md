@@ -1,7 +1,7 @@
-# Task <n>: <title>
+# VARKA-<n>: <title>
 
 <!-- The sections every task plan here has converged on, in the order a reader
-     expects them (compare PLAN_TASK_53.md and PLAN_TASK_54.md). Keep the
+     expects them (compare VARKA-53.md and VARKA-54.md). Keep the
      headings; replace the guidance under each. A plan is written as the work
      happens: sections 1-8 before the code, section 9 after the measurement,
      and nothing in 1-8 is rewritten to look prescient afterwards - a correction

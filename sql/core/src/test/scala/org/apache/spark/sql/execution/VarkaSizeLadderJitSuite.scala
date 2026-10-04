@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaProbeOutput
 import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
 
 /**
- * The vanilla step of the size ladder (task 171), asserted from the JVM rather than read from a
+ * The vanilla step of the size ladder (VARKA-171), asserted from the JVM rather than read from a
  * timing. Spark generates a projection's work into one method of the stage's class - the
  * operator's consume function, `project_doConsume_0$`, which `spark.sql.codegen
  * .splitConsumeFuncByOperator` (on by default) splits out of `processNext`, leaving that a small
@@ -39,7 +39,7 @@ import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
  * projection runs in the interpreter inside a compiled loop. Spark notices, logs one INFO line
  * naming the method and its size (`VarkaCodegenCliffLogSuite` pins it), and runs the method
  * anyway; the `hugeMethodLimit` fallback that could act on it defaults to 65535 bytes, which the
- * ladder's range never reaches (`PLAN_TASK_171.md` 2.2, `PLAN_TASK_188.md` 5).
+ * ladder's range never reaches (`VARKA-171.md` 2.2, `VARKA-188.md` 5).
  *
  * Each test forks a JVM ([[VarkaSizeLadderJitProbe]]) under `-Xbatch -XX:+PrintCompilation`,
  * runs one ladder rung on stock Spark, and reads the tier HotSpot printed for the projection's

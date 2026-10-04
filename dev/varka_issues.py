@@ -15,16 +15,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Mirror the milestone plans' task tables as GitHub issues (task 183, scope item 38).
+"""Mirror the milestone plans' task tables as GitHub issues (VARKA-183, scope item 38).
 
     dev/varka_issues.py                  # dry run: print the rule and what would change
     dev/varka_issues.py --apply          # open, update and close issues through gh
-    dev/varka_issues.py --plan sql/varka/plans/PLAN_MILESTONE_6.md --repo vecbricks/varka
+    dev/varka_issues.py --plan sql/varka/plans/m6/PLAN.md --repo vecbricks/varka
 
-The task table in the current milestone's plan (the highest-numbered PLAN_MILESTONE_<n>.md
-under sql/varka/plans/, section 3) is the source of truth for what the project is doing;
+The task table in the current milestone's plan (sql/varka/plans/m<n>/PLAN.md for the highest
+<n>, section 3) is the source of truth for what the project is doing;
 the issues are the view GitHub shows a newcomer. Each open row is one issue titled
-"[Task <n>] <the row's title>", carrying the row's text, its origin and size, and links to
+"[VARKA-<n>] <the row's title>", carrying the row's text, its origin and size, and links to
 the plan and to the task's own plan file when it has one. When a row turns done or
 withdrawn, its issue is closed with the row's outcome quoted. Nothing flows the other way:
 edit the row, and this script brings the issue to it.
@@ -73,7 +73,7 @@ class Row:
     text: str
     origin: str
     size: str
-    plan: str = ""  # the PLAN_MILESTONE_<n>.md the row is in
+    plan: str = ""  # the m<n>/PLAN.md the row is in, below sql/varka/plans
     milestone: int = 0
 
 
@@ -84,32 +84,37 @@ class State:
 
 
 def all_plans(plans_dir=PLANS_DIR):
-    """Every PLAN_MILESTONE_<n>.md with its milestone number, the highest first.
+    """Every m<n>/PLAN.md with its milestone number, the highest first. A milestone folder that
+    holds only a scope catalogue (m<n>/SCOPE.md) has no plan yet and is not listed.
 
     >>> import tempfile
     >>> d = tempfile.mkdtemp()
-    >>> for n in (5, 12, 6): open(os.path.join(d, f"PLAN_MILESTONE_{n}.md"), "w").close()
-    >>> [(os.path.basename(path), n) for path, n in all_plans(d)]
-    [('PLAN_MILESTONE_12.md', 12), ('PLAN_MILESTONE_6.md', 6), ('PLAN_MILESTONE_5.md', 5)]
+    >>> for n in (5, 12, 6):
+    ...     os.makedirs(os.path.join(d, f"m{n}"))
+    ...     open(os.path.join(d, f"m{n}", "PLAN.md"), "w").close()
+    >>> [(os.path.relpath(path, d), n) for path, n in all_plans(d)]
+    [('m12/PLAN.md', 12), ('m6/PLAN.md', 6), ('m5/PLAN.md', 5)]
     """
     plans = {}
-    for path in glob.glob(os.path.join(plans_dir, "PLAN_MILESTONE_*.md")):
-        m = re.fullmatch(r"PLAN_MILESTONE_(\d+)\.md", os.path.basename(path))
+    for path in glob.glob(os.path.join(plans_dir, "m*", "PLAN.md")):
+        m = re.fullmatch(r"m(\d+)", os.path.basename(os.path.dirname(path)))
         if m:
             plans[int(m.group(1))] = path
     if not plans:
-        sys.exit(f"no PLAN_MILESTONE_<n>.md under {plans_dir}")
+        sys.exit(f"no m<n>/PLAN.md under {plans_dir}")
     return [(plans[n], n) for n in sorted(plans, reverse=True)]
 
 
 def current_plan(plans_dir=PLANS_DIR):
-    """The highest-numbered PLAN_MILESTONE_<n>.md, and its milestone number.
+    """The highest-numbered m<n>/PLAN.md, and its milestone number.
 
     >>> import tempfile
     >>> d = tempfile.mkdtemp()
-    >>> for n in (5, 12, 6): open(os.path.join(d, f"PLAN_MILESTONE_{n}.md"), "w").close()
-    >>> os.path.basename(current_plan(d)[0]), current_plan(d)[1]
-    ('PLAN_MILESTONE_12.md', 12)
+    >>> for n in (5, 12, 6):
+    ...     os.makedirs(os.path.join(d, f"m{n}"))
+    ...     open(os.path.join(d, f"m{n}", "PLAN.md"), "w").close()
+    >>> os.path.relpath(current_plan(d)[0], d), current_plan(d)[1]
+    ('m12/PLAN.md', 12)
     """
     return all_plans(plans_dir)[0]
 
@@ -173,7 +178,7 @@ def parse_rows(text):
     >>> plan = '''## 3. Task breakdown
     ... | task | what it is | where it came from | size |
     ... | ---: | :--- | :--- | :--- |
-    ... | 87 | The epilogue. **Done** (`PLAN_TASK_87.md`): one method per group | 2.18 | medium |
+    ... | 87 | The epilogue. **Done** (`VARKA-87.md`): one method per group | 2.18 | medium |
     ... | 173 | A disjointness test | item 41 | small |
     ...
     ... ## 4. Ordering
@@ -209,7 +214,7 @@ BOLD = re.compile(r"\*\*([^*]+)\*\*")
 def classify(text):
     """A row's state from its first bold marker; see the module's docstring for the rule.
 
-    >>> classify("The epilogue. **Done** (`PLAN_TASK_87.md`): per group").kind
+    >>> classify("The epilogue. **Done** (`VARKA-87.md`): per group").kind
     'done'
     >>> classify("A ladder. **Done, negative** (9.2): no").kind
     'done'
@@ -237,9 +242,9 @@ def title_of(text):
     """The row's title: its text up to the first status marker or note, else its first sentence;
     a leading italic note such as "*Research, optional.*" becomes the title's prefix.
 
-    >>> title_of("The epilogue is the one method no budget bounds. **Done** (`PLAN_TASK_87.md`)")
+    >>> title_of("The epilogue is the one method no budget bounds. **Done** (`VARKA-87.md`)")
     'The epilogue is the one method no budget bounds'
-    >>> title_of("Eight thousand, not sixty-five thousand: the JIT cliff. *Narrowed by task 87*")
+    >>> title_of("Eight thousand, not sixty-five thousand: the JIT cliff. *Narrowed by VARKA-87*")
     'Eight thousand, not sixty-five thousand: the JIT cliff'
     >>> title_of("A disjointness test for the compiler's family chain")
     "A disjointness test for the compiler's family chain"
@@ -276,8 +281,8 @@ def title_of(text):
 def first_sentence_end(body):
     """The index of the first sentence-ending mark followed by a space outside backticks, or -1.
 
-    >>> first_sentence_end("See `PLAN_TASK_1.md` first. Then this. And that")
-    26
+    >>> first_sentence_end("See `VARKA-1.md` first. Then this. And that")
+    22
     >>> first_sentence_end("Is it? Yes")
     5
     """
@@ -293,26 +298,27 @@ def first_sentence_end(body):
 def outcome_of(text):
     """The row's text from its first bold marker on, which is what a closing comment quotes.
 
-    >>> outcome_of("The epilogue. **Done** (`PLAN_TASK_87.md`): one method per group")
-    '**Done** (`PLAN_TASK_87.md`): one method per group'
+    >>> outcome_of("The epilogue. **Done** (`VARKA-87.md`): one method per group")
+    '**Done** (`VARKA-87.md`): one method per group'
     """
     m = BOLD.search(text)
     return text[m.start() :].strip() if m else text.strip()
 
 
 def issue_title(row):
-    return f"[Task {row.number}] {title_of(row.text)}"
+    return f"[VARKA-{row.number}] {title_of(row.text)}"
 
 
 def issue_body(row, state):
     plan_name, milestone = row.plan, row.milestone
-    task_plan = f"PLAN_TASK_{row.number}.md"
+    found = glob.glob(os.path.join(PLANS_DIR, "m*", f"VARKA-{row.number}.md"))
     links = [f"the milestone plan, [`{plan_name}`](sql/varka/plans/{plan_name}) section 3"]
-    if os.path.exists(os.path.join(PLANS_DIR, task_plan)):
-        links.append(f"the task's own plan, [`{task_plan}`](sql/varka/plans/{task_plan})")
+    if found:
+        task_plan = os.path.relpath(found[0], PLANS_DIR)
+        links.append(f"the task's own plan, [`VARKA-{row.number}.md`](sql/varka/plans/{task_plan})")
     return "\n".join(
         [
-            f"**Task {row.number}** of milestone {milestone}. State: {state.marker}.",
+            f"**VARKA-{row.number}** of milestone {milestone}. State: {state.marker}.",
             "",
             row.text,
             "",
@@ -364,28 +370,33 @@ def gh(args, repo, capture=True):
     return result.stdout if capture else ""
 
 
-TITLE_NUMBER = re.compile(r"^\[Task (\d+)\]")
+# "[Task <n>]" is the title the mirror wrote before 4 October 2026; such an issue is still the
+# row's, and its next update retitles it.
+TITLE_NUMBER = re.compile(r"^\[(?:VARKA-|Task )(\d+)\]")
 
 
 def existing_issues(repo):
-    """The mirrored issues by task number: those whose title starts with "[Task <n>]"."""
-    out = gh(
-        [
-            "issue",
-            "list",
-            "--state",
-            "all",
-            "--limit",
-            "1000",
-            "--search",
-            "[Task in:title",
-            "--json",
-            "number,title,state,body,labels",
-        ],
-        repo,
-    )
+    """The mirrored issues by task number: those whose title starts with "[VARKA-<n>]"."""
+    found = []
+    for query in ("VARKA in:title", "[Task in:title"):
+        out = gh(
+            [
+                "issue",
+                "list",
+                "--state",
+                "all",
+                "--limit",
+                "1000",
+                "--search",
+                query,
+                "--json",
+                "number,title,state,body,labels",
+            ],
+            repo,
+        )
+        found.extend(json.loads(out or "[]"))
     issues = {}
-    for issue in json.loads(out or "[]"):
+    for issue in found:
         m = TITLE_NUMBER.match(issue["title"])
         if m and MIRROR_LINE in (issue.get("body") or ""):
             issues[int(m.group(1))] = issue
@@ -419,10 +430,10 @@ def plan_actions(rows, issues, current, good_first):
     ...         Row(3, "Never mirrored. **Withdrawn**: no", "o", "s", "P.md", 6),
     ...         Row(4, "Open in an earlier plan", "o", "s", "Q.md", 5),
     ...         Row(5, "Moved. **Moved to milestone 6**: as row 9", "o", "s", "Q.md", 5)]
-    >>> issues = {1: {"number": 11, "state": "OPEN", "title": "[Task 1] Open one",
+    >>> issues = {1: {"number": 11, "state": "OPEN", "title": "[VARKA-1] Open one",
     ...                "body": issue_body(rows[0], classify(rows[0].text))},
-    ...           2: {"number": 12, "state": "OPEN", "title": "[Task 2] Closed one", "body": ""},
-    ...           5: {"number": 15, "state": "OPEN", "title": "[Task 5] Moved", "body": ""}}
+    ...           2: {"number": 12, "state": "OPEN", "title": "[VARKA-2] Closed one", "body": ""},
+    ...           5: {"number": 15, "state": "OPEN", "title": "[VARKA-5] Moved", "body": ""}}
     >>> [(r.number, a) for r, a, _ in plan_actions(rows, issues, 6, {})]
     [(1, 'keep'), (2, 'close'), (3, 'skip'), (4, 'skip'), (5, 'close')]
     """
@@ -542,21 +553,23 @@ def report(actions, plans_read, current, good_first):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
-    parser.add_argument("--plan", help="one PLAN_MILESTONE_<n>.md alone; every plan by default")
+    parser.add_argument("--plan", help="one m<n>/PLAN.md alone; every plan by default")
     parser.add_argument("--repo", default="vecbricks/varka", help="owner/name for gh")
     parser.add_argument("--apply", action="store_true", help="change the issues; dry run otherwise")
     args = parser.parse_args()
     if args.plan:
-        m = re.search(r"PLAN_MILESTONE_(\d+)\.md$", args.plan)
+        m = re.search(r"m(\d+)/PLAN\.md$", args.plan)
         if not m:
-            sys.exit(f"{args.plan} is not a PLAN_MILESTONE_<n>.md")
+            sys.exit(f"{args.plan} is not a m<n>/PLAN.md")
         plans = [(args.plan, int(m.group(1)))]
     else:
         plans = all_plans()
     plans_read = []
     for plan_path, milestone in plans:
         with open(plan_path, encoding="utf-8") as handle:
-            plans_read.append((os.path.basename(plan_path), milestone, parse_rows(handle.read())))
+            plans_read.append(
+                (os.path.relpath(plan_path, PLANS_DIR), milestone, parse_rows(handle.read()))
+            )
     if not plans_read[0][2]:
         sys.exit(f"{plans_read[0][0]} has no task table")
     current = plans_read[0][1]

@@ -32,14 +32,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
 
 /**
  * Which Vector API calls in Varka's kernels C2 refuses to lower, per shape and per vector
- * width, read from C2's own log rather than inferred from a rate (task 153).
+ * width, read from C2's own log rather than inferred from a rate (VARKA-153).
  *
  * A refused call is not an error: the Vector API keeps a Java implementation of every
  * operation, C2 compiles that instead, the answer is right, and the suites are green. What is
  * lost is the vector - the fallback loops over the lanes - and the only signs are a rate an
  * order of magnitude below its neighbours and a `** not supported: ...` line that C2 prints
  * under `PrintIntrinsics`. `VarkaTimeBenchmark`'s 128-bit companion found the first one this
- * way (`PLAN_TASK_152.md` 6.5): the 64-bit magic divide at one fiftieth of its sibling,
+ * way (`VARKA-152.md` 6.5): the 64-bit magic divide at one fiftieth of its sibling,
  * because at two 64-bit lanes this JVM lowers no masked long operation and no compare that
  * produces a mask. Every long-lane guard is built from exactly those.
  *
@@ -182,16 +182,16 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    * on an attempt, and only one of them is a verdict. `not supported` is architectural: the
    * matcher has no lowering for that operation at that lane count and element type on this
    * machine, and no later attempt can change it - it is the kind behind the 128-bit collapse
-   * `PLAN_TASK_152.md` 6.5 measured. `missing constant` says an argument was not yet a
+   * `VARKA-152.md` 6.5 measured. `missing constant` says an argument was not yet a
    * constant when a *late* inline was first attempted; C2 retries late inlines after further
    * optimisation, so the line is not proof of a fallback in the final code - `i + 1` prints two
    * at 128 bits and the committed 128-bit results show it fully vectorised. `unbox failed`
-   * says a vector value reached the call as a heap object, which is task 55's boxing; here it
+   * says a vector value reached the call as a heap object, which is VARKA-55's boxing; here it
    * appears only once other kernels have been through the shared templates in the same JVM.
    * The invariant below and the committed census both rest on the first alone: the other two
    * depend on when C2 got to a method in the forked JVM, and the first regenerations after
-   * task 153 saw them appear and vanish on shapes nothing had touched, so a file that carried
-   * them failed on a quiet tree and blessed whichever timing a regeneration had (task 154).
+   * VARKA-153 saw them appear and vanish on shapes nothing had touched, so a file that carried
+   * them failed on a quiet tree and blessed whichever timing a regeneration had (VARKA-154).
    */
   private def isRefusal(line: String): Boolean = line.startsWith("not supported")
 
@@ -203,12 +203,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The one refusal a host class is known to have at its own width, and the emitter already
    * knows about: below AVX-512 there is no vector lowering of the 64-bit lane's conversions to
    * and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
-   * and the magic form of the division was built (`PLAN_TASK_88.md` 9.2). C2 prints it as a
+   * and the magic form of the division was built (`VARKA-88.md` 9.2). C2 prints it as a
    * lane cast of four 64-bit lanes: `op=cast#<n>/3 vlen2=4 etype2=double|long ismask=0`.
    * The audit's first CI run confirmed it from the runner pool's EPYC 7763 at 256 bits, in
    * every shape that carries a 64-bit constant division and nowhere else. The invariant
    * expects it there rather than failing every AVX2 runner on a fact the design records;
-   * task 121 owns what to do about it.
+   * VARKA-121 owns what to do about it.
    */
   private def knownBelowAvx512(census: Census, line: String): Boolean =
     census.useAVX != VarkaEmitOptions.USE_AVX_UNKNOWN &&

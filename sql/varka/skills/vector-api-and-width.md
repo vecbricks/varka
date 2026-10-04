@@ -63,7 +63,7 @@ these files by `dev/varka_toc.py`.
   ClickHouse's 16-byte entry is six bytes of calendar - year, month, day, day of
   week, days in month - and ten of time zone. The calendar part packs into 26
   bits, so a four-field table is the same `int[]` as the year-only one and each
-  further field is a shift and a mask after the one gather: the problem task 32
+  further field is a shift and a mask after the one gather: the problem VARKA-32
   solves with a shared prefix, solved with memory instead. ClickHouse also keeps
   the inverse, a 4800-entry first-day-of-month table that makes days-from-civil
   one lookup plus `day - 1`. Neither variant is measured here; both are listed
@@ -112,14 +112,14 @@ these files by `dev/varka_toc.py`.
   `v * M < 2^31` gives `v < 2^15.5`. Past that, use a **round-down** magic
   (`M = floor(2^k/d)`), which never overestimates the quotient, and pay a fixed
   number of carry steps - one compare and two masked adjustments each, on a
-  remainder the algorithm usually wants anyway. Task 26 needed two such divisions
+  remainder the algorithm usually wants anyway. VARKA-26 needed two such divisions
   (146097 and 36524) and found no exact form at any useful range for either; what
   made the rest exact was *restructuring* - splitting an era into centuries first
   drops the `/365` dividend from 146096 to 36524, under the bound. Reach for a
   different decomposition before reaching for more carries.
 - **The `v * M < 2^31` bound is easy to check for the wrong variable and still
-  ship.** Both `PLAN_TASK_34.md`'s leap-flag derivation and, independently,
-  task 36's own local copy of it picked `M = 167773` for `/100` and `/400` by
+  ship.** Both `VARKA-34.md`'s leap-flag derivation and, independently,
+  VARKA-36's own local copy of it picked `M = 167773` for `/100` and `/400` by
   reasoning about the divisor rather than checking the bound against the actual
   dividend range: the biased year climbs to 46334 over the covered range, and
   `46334 * 167773` is over three and a half times past `2^31`, so a lane's
@@ -139,7 +139,7 @@ these files by `dev/varka_toc.py`.
   derivation's own prose - and an opt-in exhaustive sweep against the emitted
   kernel, not a curated boundary list, is what actually catches it if that
   check is skipped or miscounted.
-- Those carries are not free, and the reason is the masked ops in them. Task 26
+- Those carries are not free, and the reason is the masked ops in them. VARKA-26
   predicted that its full-range variant would cost 5-12% over its narrowed one on
   op count alone (five ops on forty) and measured 14-24%: the five extra ops are
   masked adds and subtracts, which this project has separately measured at 2.3-2.9x
@@ -151,7 +151,7 @@ these files by `dev/varka_toc.py`.
   task may have a denominator two-fold different from today's. The same trap in the
   other direction: escape analysis scalarizes the `LocalDate` allocation in a tight
   loop, so a scalar calendar loop measured in a microbenchmark is far faster than
-  the same code inside a query - task 26 predicted 15-30x over it and measured 3.7x.
+  the same code inside a query - VARKA-26 predicted 15-30x over it and measured 3.7x.
 
 - `VectorOperators` has no multiply-high on any lane type, and there is no sign that it
   will get one soon, so do not design around its arrival. Checked against JDK 25 (`javap`
@@ -171,7 +171,7 @@ these files by `dev/varka_toc.py`.
   Granlund-Montgomery magic division is not expressible on int lanes - but a
   *range-narrowed* magic is: shrink the value first until the correctness condition
   (`v * e < 2^k`) and the no-overflow condition (`v * M < 2^31`) both fit in the low
-  32 bits that `mul` does return. Mod-7 (task 14 follow-up, after a reviewer asked
+  32 bits that `mul` does return. Mod-7 (VARKA-14 follow-up, after a reviewer asked
   the right question): two 15-bit folds (`2^15 = 1 mod 7`) leave `v <= 32774` with
   the sign fixup, where `q = (v * 37450) >>> 18` is exactly `v / 7` with no final
   fixup - measured 1.6-1.8x the six-fold digit sum it replaced (which stays as a
@@ -257,11 +257,11 @@ these files by `dev/varka_toc.py`.
   than compose, and K has to be varied together with the broadcast strategy, never
   alone. (2) It multiplies the loop method's op count by K against `GROUP_BUDGET = 16`,
   which exists because C2 compile latency is ~1 ms per vector op - affordable only
-  since task 18 pays that once per shape rather than once per task. (3) It cannot
+  since VARKA-18 pays that once per shape rather than once per task. (3) It cannot
   rescue a chain built on lanewise `DIV`, which scalarizes: interleaving two scalarized
   chains is still scalar, so any such constant needs its range-narrowed magic first.
   None of this predicts that unrolling loses - it says the experiment has three known
-  confounders. Registered as `PLAN_MILESTONE_4.md` task 25 (catalogue item 13);
+  confounders. Registered as `m4/PLAN.md` VARKA-25 (catalogue item 13);
   unmeasured as of this entry, and this bullet gets rewritten with the numbers when it
   is.
 - Apply constant offsets *after* a mod, not before: `floorMod(days + 4, 7)` overflows
@@ -269,7 +269,7 @@ these files by `dev/varka_toc.py`.
   Negative inputs are where every strength-reduced mod goes wrong silently - a test
   range that never crosses zero proves nothing. The rule is about avoiding overflow,
   though, not an end in itself - it inverts when the oracle's own arithmetic already
-  overflows on purpose. `next_day` (`PLAN_TASK_33.md`) computes `k - d` *before* the
+  overflows on purpose. `next_day` (`VARKA-33.md`) computes `k - d` *before* the
   mod because Spark's `getNextDateForDayOfWeek` computes it in plain wrapping `int`
   arithmetic; reducing first disagreed with the row engine on 28 boundary cases in the
   planning pass's own check. Whose arithmetic the oracle is - exact (`LocalDate`,
@@ -289,7 +289,7 @@ these files by `dev/varka_toc.py`.
   (AVX-512 register width) misaligned start costs 1.6-1.7x throughput at a 4096-row
   (one Spark batch, L1/L2-resident) working set, and 1.2x at 128-bit - reproducible
   across repeated runs at both widths (`VarkaMilestone4MeasurementsBenchmark`,
-  `PLAN_MILESTONE_4.md` section 8). The same misalignment costs under 2% on a
+  `m4/PLAN.md` section 8). The same misalignment costs under 2% on a
   multi-megabyte streaming buffer, where DRAM bandwidth dominates and hides it -
   measure at the working-set size the real kernel runs at, not whichever size is
   convenient to allocate once. A 2-way unrolled kernel loses the same 50-60% as the
@@ -314,10 +314,10 @@ these files by `dev/varka_toc.py`.
   between the arms.
 - A hand-written kernel standing in for emitted code must not introduce a method
   boundary the emitted code does not have, and "it is a small private helper, it will
-  inline" is not something to assume. Task 32 built a kernel to price sharing one
+  inline" is not something to assume. VARKA-32 built a kernel to price sharing one
   civil-from-days decomposition across `year`/`month`/`dayofmonth`/`quarter`, wrote the
   decomposition as a `computeFields` helper returning a record of four `IntVector`s, and
-  measured it 1.9x *slower* than the four independently emitted nodes - and task 32 was
+  measured it 1.9x *slower* than the four independently emitted nodes - and VARKA-32 was
   declined on that number. `computeFields` compiles to 376 bytecode bytes; C2's
   `FreqInlineSize` is 325, so it never inlined, so escape analysis never saw the record's
   allocation and its consumers in one compilation unit, so the record and its four vectors
@@ -328,7 +328,7 @@ these files by `dev/varka_toc.py`.
   325 bytes, and `-XX:+PrintInlining` (narrowed with
   `-XX:CompileCommand=option,Class::method,PrintInlining`) for a `failed to inline` inside
   the loop. Rebuilt hand-inlined, the same kernel runs 1.5x *faster* than the four nodes.
-- An op-count ratio bounds a sharing win; it does not estimate one. The same task 32
+- An op-count ratio bounds a sharing win; it does not estimate one. The same VARKA-32
   kernel shares ~45 of each field's ~50 vector ops, so four fields cost ~200 ops separate
   against ~65 shared - a 3x op-count ratio, which was registered as a prediction of
   2.0x-3.2x throughput. Measured: **1.51x-1.54x** at AVX-512 across three runs, the
@@ -337,7 +337,7 @@ these files by `dev/varka_toc.py`.
   chunk prologue, loop control - none of which sharing touches. Predict a bound, not a number.
 - Once a lane path has no calls left in it, `-XX:CompileCommand=inline` buys nothing, and
   it was never a fix anyway - Spark cannot require a `CompileCommand` on a user's JVM, so a
-  flag that helped would only be a diagnostic pointing at a code change. Task 32 tested it
+  flag that helped would only be a diagnostic pointing at a code change. VARKA-32 tested it
   properly before concluding that: `-XX:+PrintInlining` showed the two `VarkaVectorSupport`
   validity helpers genuinely failing to inline inside the shared loop
   (`NodeCountInliningCutoff` on one compilation, `callee is too large` on another - 212
@@ -346,7 +346,7 @@ these files by `dev/varka_toc.py`.
   class (`inline,*varka*::*`). This is the third time an inlining flag has moved under 1% in
   the catalyst parity harness while the engine's JMH harness moves 50-190% on the same flag;
   a flag worth that much in only one harness is measuring the harness.
-- A kernel can have two stable machine-code outcomes and no reachable reason. Task 32's
+- A kernel can have two stable machine-code outcomes and no reachable reason. VARKA-32's
   shared kernel is bimodal at 128-bit: 121 ms or 85 ms, stdev 0 ms inside a run and 42%
   between runs, 3 fast outcomes in 14 runs. Neither forcing inlining, nor disabling
   on-stack replacement, nor rescheduling the body to keep fewer values live made either mode
@@ -354,23 +354,23 @@ these files by `dev/varka_toc.py`.
   mean describes a state no run is ever in - and treat "which compilation the JVM landed on"
   as a first-class outcome rather than as noise to be smoothed away.
 - Keeping fewer values live is not automatically faster, and the intuition is worth
-  distrusting. Task 32 built a variant of the same kernel that hoisted the year assembly so
+  distrusting. VARKA-32 built a variant of the same kernel that hoisted the year assembly so
   three intermediates died early and stored each of four outputs the moment it existed
   instead of all four at the end. It lost at both widths (633.0 against 679.0 M rows/s in
   the committed parity file, 156.5 against 165.6 at 128-bit). C2's scheduler did better with
   the wider window than with the shorter live ranges - and the losing shape is the one the
   emitter naturally produces, which is worth knowing before assuming emitted code will match
   a hand-written ceiling.
-- The same sharing win is width-dependent, and that is where task 17's register-pressure
+- The same sharing win is width-dependent, and that is where VARKA-17's register-pressure
   finding actually lives. At 128-bit the identical kernel is a wash: 1.06x in four runs of
   five, 1.50x in the fifth, stdev 0 ms inside each run and 42% between them - a
   compilation the JVM either finds or does not, so the two modes must be reported rather
   than averaged. Five live intermediates plus four outputs fit comfortably in 32 zmm plus
   8 dedicated mask registers and marginally in 16 xmm that must hold masks too; C1 refuses
   the 936-byte body outright at both widths ("out of virtual registers in linear scan").
-  Task 17's `GROUP_BUDGET` result (raising it to keep two outputs' cross-output CSE in one
+  VARKA-17's `GROUP_BUDGET` result (raising it to keep two outputs' cross-output CSE in one
   method lost 4119.9 against 2928.2 M rows/s in the parity file of the day) looked like
-  the same effect - until the rows reversed when task 46 moved the validity OR ahead of
+  the same effect - until the rows reversed when VARKA-46 moved the validity OR ahead of
   the vector work (the merged method now leads, 5482.1 against 4385.5 at AVX-512 and
   2566.5 against 1645.6 at 128-bit), which says that loss was a refused call in the wider
   method, not registers. Register pressure sets a ceiling on how much sharing can win; it
@@ -396,7 +396,7 @@ bits and compiles to the instruction one would hope for, with no call back into 
 | `selectFrom` on 8 ints | `vpermd`, alone | eight-entry tables |
 | `rearrange(ix.toShuffle())` on 8 ints | `vpermd` plus four wrap ops (`vpcmpeqd`, `vpsubd`, `vpblendmd`, `vpand`) | use `selectFrom` instead |
 | index-map gather, 8 ints | `vpgatherdd` plus a five-op Java-side index check and `kxnorw` | item 10; the check is not removable through the API |
-| `LongVector.mul` by a constant, then shift | `vpmullq`, `vpsrlq` | task 49; native here because of AVX-512DQ+VL, a three-multiply emulation on plain AVX2 |
+| `LongVector.mul` by a constant, then shift | `vpmullq`, `vpsrlq` | VARKA-49; native here because of AVX-512DQ+VL, a three-multiply emulation on plain AVX2 |
 | byte `rearrange` with a constant shuffle | `vpermb` | item 8's three-rows-to-long-lanes compaction; needs VBMI, present |
 | `IntVector.mul` then shift | `vpmulld`, `vpsrld` | the baseline everything else is measured against |
 
@@ -415,7 +415,7 @@ must exist as an object for the other branch and the box survives. Same loops, s
 polluted against clean: saturating subtract 2.06 against 0.32 ns per vector (6.4x), `selectFrom`
 3.06 against 0.24 (12.8x), gather 6.47 against 2.39 (2.7x), long multiply unchanged.
 
-**Assert it as a rate, not as sites** (task 55, `PLAN_TASK_55.md`). A count of allocation sites
+**Assert it as a rate, not as sites** (VARKA-55, `VARKA-55.md`). A count of allocation sites
 in the disassembly cannot separate a per-call setup object from a per-iteration box:
 `ChronoVectorOps.vectorFourFields` carries four `NativeMemorySegmentImpl` views C2 never
 scalar-replaces, one allocation per call, and an allocation's slow path jumps backwards to its
@@ -436,18 +436,18 @@ Varka suite shares, and any kernel compiled there afterwards can box every opera
 right, so only a test whose verdict is a JIT outcome notices, and such a test runs in a JVM of its
 own: the warm-up suite's compile tests failed one full run in three by the suites' order until
 they forked `VarkaKernelWarmupProbe`, as the assembly and cliff suites fork theirs
-(`PLAN_TASK_209.md` 13.2). Taking the second species out of the shared JVM is
-`SCOPE_MILESTONE_8.md` item 69.
+(`VARKA-209.md` 13.2). Taking the second species out of the shared JVM is
+`m8/SCOPE.md` item 69.
 `VarkaMilestone4MeasurementsBenchmark` did exactly that with its half-width int species in a
 `forks = 0` JVM, which is one named cause of the engine harness's degraded state (the debt register
-in `PLAN_MILESTONE_4.md`). Two tells, either sufficient: an allocation inside a kernel loop body in
-the disassembly (task 55 makes it an assertion), and a "callee changed to" line naming a second
+in `m4/PLAN.md`). Two tells, either sufficient: an allocation inside a kernel loop body in
+the disassembly (VARKA-55 makes it an assertion), and a "callee changed to" line naming a second
 species class in `-XX:+PrintInlining` output.
 
 ### The runtime half: the evaluator samples allocation, because nothing else can see a box
 
 A boxing kernel is correct, so the ghost fallback, the differential suites and the fuzzer are all
-blind to it; the assembly suite (task 55) catches it in the test JVM, and the test JVM is clean by
+blind to it; the assembly suite (VARKA-55) catches it in the test JVM, and the test JVM is clean by
 construction. `VarkaKernelEvaluator` therefore samples the same signal at run time: bytes the thread
 allocated across `run`, from `ThreadMXBean`, on a schedule that skips the JIT warm-up (an
 interpreted or C1 Vector API loop allocates every vector, which C2's escape analysis then removes -
@@ -465,7 +465,7 @@ test JVM box would degrade every vector suite after it.
 
 ## An overflow check is nearly free in wide lanes and expensive in narrow ones
 
-Task 63's ANSI check is a sign test: four lanewise ops and a compare for `+`
+VARKA-63's ANSI check is a sign test: four lanewise ops and a compare for `+`
 and `-`, one compare for unary minus. `VarkaArithmeticBenchmark` prices it as
 an A/B on one node - `checkIntOverflow` on against off, the same IR either way
 - and the two vector widths disagree about what it costs.
@@ -497,8 +497,8 @@ The measurement above says 3.9% for the AVX-512 masked check. The first run of
 the same benchmark said 19.0%, and this file said so, and the difference is one
 local variable that no instruction ever loaded.
 
-Task 63's checked arithmetic was allocated a `guardTmp` slot by a predicate
-written for task 52's range guard, whose emitter genuinely parks a value there.
+VARKA-63's checked arithmetic was allocated a `guardTmp` slot by a predicate
+written for VARKA-52's range guard, whose emitter genuinely parks a value there.
 The arithmetic emitter does not: it parks its operands and result in
 `intArithTmp`, and negation reads its operand back with `dup`. So every checked
 node reserved a slot, shifted every local after it, and used none of it. A
@@ -522,7 +522,7 @@ attribution that was mostly an artifact.
 
 ## This machine's AVX-512 is 256 bits wide, and every "512-bit" number in this repo is really a 256-bit one
 
-**A probe that claimed to measure this was reading the frequency control, from task 62 until
+**A probe that claimed to measure this was reading the frequency control, from VARKA-62 until
 11 September 2026.** `dev/varka_bench_surface.sh` built the `datapath` line in every committed
 surface file from `Canary.compute` at `-XX:MaxVectorSize=32` and `=64`. That loop is a scalar
 xorshift over one `long`, and `Canary`'s own javadoc says so - "Frequency-bound and touches no
@@ -599,7 +599,7 @@ Three lessons, in descending order of how far they travel:
   with `--require any`, because a census that aborts on the machines it is counting cannot count
   them.
 
-Measured, not read off a spec sheet. Task 43's committed op-count ladder - a single-output loop
+Measured, not read off a spec sheet. VARKA-43's committed op-count ladder - a single-output loop
 from 20 to 248 `IntVector` ops - was run at three widths on the development machine (AMD Ryzen
 AI 9 HX PRO 370, Zen 5 mobile, JDK 25.0.4), by setting `Test / javaOptions +=
 "-XX:MaxVectorSize=N"` to 16, 32 and 64:
@@ -622,8 +622,8 @@ twice the rows on top of the real datapath widening.
 
 **What this means for numbers already committed.** Every result in milestone 4 labelled AVX-512
 is a 256-bit-datapath result. None of the *decisions* move, because each is a comparison between
-two lowerings at one fixed width - task 45's validity fill, task 53's month numerator, task 48's
-elision, task 43's own flatness - and both arms of every comparison ran on the same hardware.
+two lowerings at one fixed width - VARKA-45's validity fill, VARKA-53's month numerator, VARKA-48's
+elision, VARKA-43's own flatness - and both arms of every comparison ran on the same hardware.
 What is overstated is the label: "at both widths" has meant "at 4 lanes and at 16 lanes issued
 through a 256-bit datapath", not "at two datapath widths".
 
@@ -646,9 +646,9 @@ throughput, smaller emitted bodies, shorter compiles.
 
 ## A default that is wrong at one width may be wrong for a reason the width creates
 
-Task 46 gave the per-group validity write a width-specialised helper and made it
+VARKA-46 gave the per-group validity write a width-specialised helper and made it
 the default, on the grounds that the general form is 212 bytes and C2 refuses to
-inline it inside a fused loop. Task 70's review then found the default losing
+inline it inside a fused loop. VARKA-70's review then found the default losing
 8-9% on a single-field kernel, and milestone 4 opened a row to key the choice on
 the number of validity writes a loop body makes. Measured, that rule is right at
 one vector width and wrong at the other two, and the justification the option was
@@ -696,7 +696,7 @@ than refuses turns a typo into a measurement of the wrong thing.
 
 ## A reciprocal multiply is not a division, even when the error bound says it is
 
-Task 88 asked whether `v / d` can be lowered through double lanes, which the
+VARKA-88 asked whether `v / d` can be lowered through double lanes, which the
 Vector API can do where it has no integer divide at all. The error bound is
 encouraging and it is not the whole answer.
 
@@ -801,7 +801,7 @@ and on aarch64 `Math` itself is fdlibm for everything but `sin` and `cos`,
 where x86 has Intel's scalar intrinsics for nine functions. The only exact
 lanes are the operators the JDK has no symbol for (`pow` at AVX2, `tanh` on
 NEON), which run the scalar call per lane at scalar speed. `SCOPE_FUNCTIONS.md`
-section 3 tabulates it and `SCOPE_MILESTONE_8.md` item 36 holds the decision it
+section 3 tabulates it and `m8/SCOPE.md` item 36 holds the decision it
 forces: a ULP contract, an emitted fdlibm, or a decline, for the family as a
 whole.
 
@@ -864,21 +864,21 @@ What SLEEF does contribute, by task:
   back with an FMA, truncate the remainder, subtract. The same idea splits a
   64-bit value into 32-bit halves and converts each with `cvtdq2pd`, which AVX2
   has - exact to 2^53, wider than the `0x4330` identity's 2^52, and no exponent
-  bit to reason about. `SCOPE_MILESTONE_8.md` item 37. `vrint2_vd_vd` is the
+  bit to reason about. `m8/SCOPE.md` item 37. `vrint2_vd_vd` is the
   2^52 add-and-subtract round-to-nearest the magic form already uses, so that
   part is confirmed prior art.
-* **Task 28's widen and narrow sequences, per ISA** (`helperavx2.h`,
+* **VARKA-28's widen and narrow sequences, per ISA** (`helperavx2.h`,
   `helperadvsimd.h`). SLEEF keeps one int species per FP species and converts
-  at the boundary, which is the shape task 28 settled on. On AVX2 widening is
+  at the boundary, which is the shape VARKA-28 settled on. On AVX2 widening is
   `cvtepi32_epi64`; **narrowing int64 to int32 has no instruction** and is a
   `shuffle_ps 0x08 / 0x80` pair and an `or`; mask narrowing is
   `permutevar8x32` over the even lanes. On AdvSIMD: `vmovl_s32` / `vmovn_s64`,
-  and `vuzpq` / `vzipq` for masks. Recorded in `PLAN_TASK_28.md` 3.1.
+  and `vuzpq` / `vzipq` for masks. Recorded in `VARKA-28.md` 3.1.
 * **Expectations keyed per ISA.** `autovec.c` asserts the compiler took the
   vector path with FileCheck lines per ISA - `// CHECK-AVX2: _ZGVdN4v_...` - not
   one universal assertion. That is the shape the assembly gate wants on a
-  runner pool spanning five CPU families, and task 124's baseline per AVX level
-  already says so. Recorded in `PLAN_TASK_124.md`.
+  runner pool spanning five CPU families, and VARKA-124's baseline per AVX level
+  already says so. Recorded in `VARKA-124.md`.
 * **Named accuracy tiers.** `_u05`, `_u10`, `_u15`, `_u35`: every function
   ships under an explicit ULP bound and the caller picks by name. The
   precedent for a standard mode that is a named tier with a stated contract,
@@ -906,7 +906,7 @@ see the section above.
 
 ## A vector divide is a divider, whatever the lane width; a multiply-high is not
 
-Task 149 (20 September 2026). The int-lane constant division converted each
+VARKA-149 (20 September 2026). The int-lane constant division converted each
 half of its lanes to doubles and divided there: seven operations, and the
 committed rows said it beat a scalar loop by 1.3x at 512 bits and lost to it at
 128. Two things about that were worth learning once.
@@ -922,7 +922,7 @@ committed rows said it beat a scalar loop by 1.3x at 512 bits and lost to it at
   signed magic through 64-bit lanes - `I2L`, multiply by the multiplier taken
   unsigned, arithmetic shift by `32 + s`, `L2I`, add the sign bit - is eleven
   operations and no divide, and it measured 2.3x the divide at 512 bits and
-  1.6x at 128 (`PLAN_TASK_149.md` 9). Taking the multiplier unsigned folds the
+  1.6x at 128 (`VARKA-149.md` 9). Taking the multiplier unsigned folds the
   book's "add the dividend when the multiplier is negative" into the product,
   which a 64-bit lane can hold; the proof is an exhaustive sweep over all 2^32
   dividends per divisor, opt-in in `VarkaEmitterDivisionSuite`, not the book.
@@ -935,7 +935,7 @@ committed rows said it beat a scalar loop by 1.3x at 512 bits and lost to it at
 
 ## A refusal at a forced width is the back end's, not the lane count's
 
-Task 153's census, taken on an x86 laptop at `-XX:MaxVectorSize=16`, found every
+VARKA-153's census, taken on an x86 laptop at `-XX:MaxVectorSize=16`, found every
 masked 64-bit operation refused at two lanes, and section 3 of its plan read that
 as what "a NEON-only aarch64 host" would do. The arm runner's own census
 (`varka-width-audit.yml`, 20 September 2026: Neoverse N2, ASIMD with SVE2, a
@@ -950,7 +950,7 @@ it, and a NEON-only JVM has not been asked.
 
 ## An intrinsic refusal line is not a verdict about this compile; the inlining decisions are
 
-Task 165 spent a day on the wrong instrument. The assembly gate's probe gathers
+VARKA-165 spent a day on the wrong instrument. The assembly gate's probe gathers
 at a forced 128-bit species, and on part of the runner pool it came out scalar -
 248 instructions, deterministically, with `-Xbatch` so it was not a missing
 compile. `-XX:+PrintIntrinsics` was the obvious tool and it pointed nowhere: the
@@ -979,7 +979,7 @@ from one that was given up on.
 
 Two consequences for how a gate is written. A precondition keyed on the symptom
 ("it came out scalar") absorbs every future cause into a green job, so key it on
-the signature of the cause and make anything else loud - `PLAN_TASK_165.md`
+the signature of the cause and make anything else loud - `VARKA-165.md`
 section 6 is the worked example. And the reason itself, an inlining budget
 running out, is a compiler-heuristic outcome rather than a capability: it varies
 with the host's processor count and compiler queue, which is why no CPU feature
@@ -987,20 +987,20 @@ and no JDK build explained it.
 
 ## A masked store through two lanes costs the loop, not the mask; a half species keeps the loop
 
-Task 102's narrowed store writes an int column from long lanes: the kernel computes at the
+VARKA-102's narrowed store writes an int column from long lanes: the kernel computes at the
 long species and stores each group's results as ints through a masked store, because the int
 species is twice as long as the long one and the group fills half of it. At 512 and 256 bits
 that costs 4% or less against the wide store. At two long lanes it cost 12% on `second` and
 18% on the three-field shape, and the direction was explained but not the size.
 
-The 128-bit assembly (`dev/varka_emit.sh --asm --width=16`, task 156) shows the difference
+The 128-bit assembly (`dev/varka_emit.sh --asm --width=16`, VARKA-156) shows the difference
 is the loop, not the store instruction: the masked-store loop is not unrolled where the
 wide-store loop is, it carries the masked store's own bounds branch inside the loop, and it
 shifted the byte offset every iteration. The offset is a small part and its fix moved
 little. The rest is loop shape, and it is recovered by storing through the *half species* of
 the int lane - `IntVector.SPECIES_64` at two long lanes, `SPECIES_128` at four, `SPECIES_256`
 at eight - which is exactly one group wide, so the store is a plain store and the loop is the
-wide store's loop again. Measured (`PLAN_TASK_156.md` section 6): equal to the wide store
+wide store's loop again. Measured (`VARKA-156.md` section 6): equal to the wide store
 within 3% at 512 and 256 bits, within 3% at 128 on `hour`, `minute` and `second`, 10% under
 on the three-field shape, and past L3 at the wide widths the fastest of the three stores,
 since it writes half the bytes with the wide store's loop. The residue at 128 bits on the

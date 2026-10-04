@@ -77,7 +77,7 @@ Each step either pins the fault or narrows it.
   fused node wearing the tag (every Varka `*ColumnarToRowExec`) carries real work
   inside it, so every tag consumer that strips must instead convert the fused node
   to its columnar sibling (identical kernels, columnar out) - the Arrow serializer
-  override does. Found in task 21 as a wrong-cached-view bug latent since task 6:
+  override does. Found in VARKA-21 as a wrong-cached-view bug latent since VARKA-6:
   every direct query stays right, and only a *cached* view materializes the
   dropped work. When adding a fused transition node, grep the tag's consumers.
 
@@ -106,7 +106,7 @@ Each step either pins the fault or narrows it.
 
 ## A second lane gets a second fuzz corpus, and its reach set comes from the constructors
 
-From task 119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
+From VARKA-119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
 
 - **Do not draw the new lane's shapes into the existing sequence.** `VarkaIrGrammar.fuzzSeed`'s
   shapes are also `VarkaEmittedBytesSuite`'s committed corpus; one more arm in the int draw
@@ -125,7 +125,7 @@ From task 119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
 - **A grammar's bounds are a contract the moment a node takes them as a range.** The int
   grammar's `TruncDate` bound was the child's, with the note that trunc "moves a date down by
   at most a year, so the child's bound holds" - true for the calendar placement, which checks
-  with slack, and false for task 102's range-guard arm, which wraps a subtree in a guard of
+  with slack, and false for VARKA-102's range-guard arm, which wraps a subtree in a guard of
   exactly its bound. A year-start 365 days below the child's bound is a live lane the guard
   condemns, correctly, and the suite asserts a zero status. The default 300 iterations never
   drew it; iteration 847 of the committed seed did, found by this task's ten-thousand-iteration
@@ -144,7 +144,7 @@ From task 119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
   *drawn value* into a null lane and `VarkaIrFuzzSuite` still did in September 2026 -
   values bounded by `columnBound` and `MONTH_ARITH_MAX_MONTHS` by construction, so a
   null lane could never reach a range guard's condemning comparison. Every guard since
-  task 42 ANDs its mask with the row's validity word; nothing in either suite could
+  VARKA-42 ANDs its mask with the row's validity word; nothing in either suite could
   have failed if one of them stopped. Poisoning null lanes with `Int.MinValue` and
   `Int.MaxValue` is what makes that AND load-bearing, and it costs nothing: the whole
   matrix passed unchanged at both widths the day it went in, which is the evidence
@@ -153,7 +153,7 @@ From task 119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
   are themselves index predicates - `i % 2 == 1` is one of them - so an `i & 1` poison
   silently writes one extreme in every null lane of that pattern, and a quarter of the
   matrix only ever probes one side of every bound. Bounds here are asymmetric
-  (`MAKE_DATE_MIN_YEAR` against `MAKE_DATE_MAX_YEAR`; task 69 widens `dayRange`
+  (`MAKE_DATE_MIN_YEAR` against `MAKE_DATE_MAX_YEAR`; VARKA-69 widens `dayRange`
   upward only), so half a guard can go missing under a green suite.
 - And poison only the slots the caller did not choose. A guard test that pins a
   boundary value at a lane it also marks null is testing that exact value; substituting
@@ -173,7 +173,7 @@ From task 119 (19 September 2026), which gave `VarkaIrFuzzSuite` the long lane.
 
 ## A closed `ArrowBuf` still answers `capacity()` and `memoryAddress()`
 
-Found reviewing task 59's per-task scratch buffers, and worth knowing before writing any
+Found reviewing VARKA-59's per-task scratch buffers, and worth knowing before writing any
 grow-and-reuse helper over Arrow memory.
 
 `ArrowBuf.close()` is one line - `referenceManager.release()`. It does not touch the buffer's
@@ -243,7 +243,7 @@ bytes, so its own bounds check throws first.
 
 ## A checklist for the next node type or mode, from what three reviews found in this one
 
-Task 63 (int32 arithmetic) shipped, was reviewed twice more after it shipped,
+VARKA-63 (int32 arithmetic) shipped, was reviewed twice more after it shipped,
 and each review found real bugs in the fixes the previous one produced. Twenty
 or so findings sort into six categories, and each has a concrete habit that
 would have caught its instance before a review had to. The unifying pattern:
@@ -265,7 +265,7 @@ overflow computing a bound means "no bound" (`None`), never a wrapped number -
 and write the property test directly: over random IR, the interval a node
 reports must contain the value the reference evaluator computes, for every
 lane pattern. That test does not exist for today's `intBound`; it is scoped
-for the lattice that replaces it (`PLAN_MILESTONE_5.md` 2.15, task 84), but it
+for the lattice that replaces it (`m5/PLAN.md` 2.15, VARKA-84), but it
 should exist for any hand-written bound function before that lands.
 
 **2. Never state one admission rule in two places.** `compileOffset` and
@@ -281,7 +281,7 @@ asserts the two accepted sets are the same set.
 **3. Before extending a predicate with more than one reader, list the readers
 and their exact question.** `guardedWord` was read by `planSlots` for "does
 this node need a scratch local" and by `liveWords` for "must this node's word
-stay alive," and task 63 assumed a third guarded kind would answer both the
+stay alive," and VARKA-63 assumed a third guarded kind would answer both the
 same way. It answered no and yes: checked arithmetic parks its own values in
 `intArithTmp` and never touches the shared scratch slot, so every checked node
 reserved a local nothing read. Do not add a case to a shared predicate by
@@ -289,10 +289,10 @@ inspection; check what each existing call site actually does with the answer.
 
 **4. A changed invariant is corrected in prose everywhere it was stated, in
 the same commit.** The most dangerous single finding across all three reviews
-was not in code: `PLAN_TASK_63.md` still told the next editor "extend
+was not in code: `VARKA-63.md` still told the next editor "extend
 `guardedWord`, do not add a condition beside it," which had become false and
 whose failure mode had gone from a loud `emitGuardCollect` refusal to a silent
-wrong date. Scaladocs and a sibling plan (`PLAN_TASK_70.md`) said the same
+wrong date. Scaladocs and a sibling plan (`VARKA-70.md`) said the same
 superseded thing. Whenever a predicate, invariant or bound rule changes, grep
 the repo - docs and comments included, not just call sites - for its old
 description before considering the change done. This is the same discipline
@@ -301,7 +301,7 @@ prose that states a rule.
 
 **5. A new mode is atomic with widening every automated net that should
 exercise it.** The IR fuzzer built `IntArith`/`IntNeg` with `Overflow.WRAP`
-only, so every emitter path task 63 added - the FAIL-only accumulator
+only, so every emitter path VARKA-63 added - the FAIL-only accumulator
 membership, the scratch-slot split, both arms of the mask disposal - sat
 outside the project's differential oracle from the day it shipped to the day
 a review noticed. A differential test that only `intercept`s an exception on
@@ -318,7 +318,7 @@ untouched).
 dynamic `trunc` and missed `add_months`, because the fix was reasoned from the
 `Chrono` sealed interface rather than from `VarkaLoopEmitter.isChrono`, which
 is `Chrono` *plus* `AddMonths` and is the actual predicate that decides
-whether a producer gets task 52's guard. Whenever new logic must agree with an
+whether a producer gets VARKA-52's guard. Whenever new logic must agree with an
 existing rule elsewhere in the codebase, grep for that rule's real definition
 and call or copy it exactly; a hand-derived approximation of a sealed
 interface's membership is not the same question as "what does the emitter
@@ -326,7 +326,7 @@ actually treat as a calendar consumer."
 
 ## Check that the place a prediction blames actually exists
 
-Task 68's prediction register asked its two interval rows to land within 3% of
+VARKA-68's prediction register asked its two interval rows to land within 3% of
 their int twins and added the clause that made it look rigorous: "a larger gap
 is a finding about the Arrow write path, not the lane". The gap came in at 5.1%
 at one width, and the argument that followed was about noise bands - how far
@@ -346,7 +346,7 @@ makes, once per output per batch.
 The lesson is about the shape of the prediction, not about Arrow. A prediction
 of the form "if X differs, the cause is Y" is two claims, and the second one is
 checkable at *write* time, for free, by reading Y. Doing that here would have
-cost one grep and would have replaced a 3% measurement question - which task 67
+cost one grep and would have replaced a 3% measurement question - which VARKA-67
 had already failed to answer and handed forward - with a code fact and a test
 that pins it. Instead the clause was carried across two tasks as if it named a
 real mechanism, and each task spent its measurement budget failing to resolve a
@@ -374,7 +374,7 @@ query in `VarkaLongLaneSuite` or the coverage differential goes through the
 optimizer first. The two can disagree, and when they do the symptom is precise:
 the query fuses end to end and the coverage row declines.
 
-Task 29 met it on `dt < INTERVAL '0' SECOND`. The analyzer types the literal
+VARKA-29 met it on `dt < INTERVAL '0' SECOND`. The analyzer types the literal
 SECOND TO SECOND and casts it to the column's DAY TO SECOND; the optimizer folds
 that cast into a literal of the column's type before any query runs, so the
 compiler never sees it end to end - and always sees it in the coverage suite. The
@@ -390,7 +390,7 @@ arrives, ask what casts type coercion inserts around its literals and columns,
 and whether each is the identity on the lane; an identity gets a relabel arm,
 anything else gets a decline with a reason.
 
-A third habit, from task 158: a coverage row is also a differential query.
+A third habit, from VARKA-158: a coverage row is also a differential query.
 `VarkaCoverageDifferentialSuite` runs every row of the table over one generic
 fixture whose columns are chosen to be extreme - `l` and `l2` span the bigint
 range, `dt` runs to a hundred thousand days - and compares the two engines. A
@@ -424,7 +424,7 @@ and 167, the knob in #316).
 - **Six arms, one finding, and it was row 87.** Twenty-nine million int-lane
   and twenty-nine million long-lane trees, with every emit option randomised
   per iteration and `useAVX` over unknown, 0, 2 and 3: the default tree; the
-  long-column bound raised from 2^46 to 2^52 - 1 on task 147's node, so the
+  long-column bound raised from 2^46 to 2^52 - 1 on VARKA-147's node, so the
   divisions state their bound and the guard-versus-claim check runs live; and
   both again under `-XX:MaxVectorSize=16` and `=32`. The long lane never
   failed, in 14.4 million trees at the raised bound across three widths - the
@@ -448,8 +448,7 @@ and 167, the knob in #316).
 ## `VarkaIrFuzzSuite` caps each test at twenty minutes, so a big `-Dvarka.fuzz.iterations` makes every JVM report failure
 
 From the campaign of 22 September 2026: 24 JVMs, 113.6 CPU-hours, seeds
-20260923001 to 024, the long-column bound raised to just under 2^52 on task
-147's tree, eight JVMs each at the default width, `MaxVectorSize=16` and `=32`.
+20260923001 to 024, the long-column bound raised to just under 2^52 on VARKA-147's tree, eight JVMs each at the default width, `MaxVectorSize=16` and `=32`.
 
 **Set the iteration count to what fits the cap, or the pass/fail signal is
 worthless.** Each of the suite's tests is wrapped in `failAfter(20 minutes)`.
@@ -485,7 +484,7 @@ is a different lie than at length 16: one null is then the whole batch, the
 prologue marks the input dead because `nullCount == length`, and every output
 computed from it is null. The reference evaluator sees no nulls and disagrees,
 and the failure reads exactly like a masked-epilogue bug on the shortest batch -
-which is what task 87's step 3a spent a run believing, on a shape the legacy
+which is what VARKA-87's step 3a spent a run believing, on a shape the legacy
 emission answered the same way.
 
 So a forced-masked matrix starts at a length above one, and length 1 is covered
@@ -497,11 +496,11 @@ another.
 
 ## A plan change tested only with adaptive execution off is untested in Spark's default
 
-The shared Varka sessions turn adaptive execution off for deterministic plans, and task 185's wide
+The shared Varka sessions turn adaptive execution off for deterministic plans, and VARKA-185's wide
 cache scan passed every test that way while doing nothing in Spark's default configuration: with
 adaptive execution on, a query with a sort, an aggregate, a join, a window or a subquery has its
 cache scan wrapped in a `TableCacheQueryStageExec` before the columnar rules run, and a rule that
-matches a bare `InMemoryTableScanExec` never sees one (`PLAN_TASK_185.md` 8.5). So a change to
+matches a bare `InMemoryTableScanExec` never sees one (`VARKA-185.md` 8.5). So a change to
 what the rule matches, or to the plan below a Varka node, gets at least one test with adaptive
 execution on and a query that makes a stage - `ORDER BY`, `GROUP BY` - as `VarkaDifferentialSuite`'s
 "under AQE" tests do.
@@ -516,20 +515,20 @@ serializer.
 
 ## Predict immunity from what the scan produces, and pin both arms of a reproducer
 
-Three findings in milestone 6 were one mistake. `PLAN_MILESTONE_6.md` 2.11 predicted Varka
+Three findings in milestone 6 were one mistake. `m6/PLAN.md` 2.11 predicted Varka
 immune to `spark.sql.codegen.maxFields`, because Varka reads batches and the limit is about
 generated code; but `InMemoryTableScanExec.supportsColumnar` counts the whole cached schema, so a
 cached table of more than a hundred columns produces no batches whatever the query reads, and
-Varka had nothing to fuse (`PLAN_TASK_185.md`). The same plan called the 8000-byte cliff silent;
-Spark logs it at INFO (`PLAN_TASK_188.md` 5). And task 192's first benchmark measured Spark's
+Varka had nothing to fuse (`VARKA-185.md`). The same plan called the 8000-byte cliff silent;
+Spark logs it at INFO (`VARKA-188.md` 5). And VARKA-192's first benchmark measured Spark's
 default cache serializer, not Arrow's, so its "vanilla" arm was never columnar
-(`PLAN_TASK_192.md` 9.4). In each case the claim was written from the operator Varka replaces,
+(`VARKA-192.md` 9.4). In each case the claim was written from the operator Varka replaces,
 and the answer lived one node below it, in what the scan hands up.
 
 So a prediction about a cliff, a fallback or an immunity is checked at the input path first:
 which node produces the batches, under which config, for which serializer, and what it counts.
 `EXPLAIN` shows the node; the fusion report and the INFO line say why a projection or filter was
-left to Spark (`PLAN_TASK_185.md` 8.4); and a benchmark's provenance names the serializer, since
+left to Spark (`VARKA-185.md` 8.4); and a benchmark's provenance names the serializer, since
 "the cache" is two different inputs.
 
 The reproducer that pins such a finding has two arms, and both are asserted. A test that makes
@@ -558,11 +557,11 @@ at 731MB.
 
 `fused.outputs` is a Scala `List` - `ArrayBuffer.toSeq` builds one - and `asJava` wraps it without
 copying, so `get(i)` walks from the head. Java code that indexes such a list in a loop turns linear
-work quadratic, and nothing in the types says so. Task 191's admission check profiled the emitter
+work quadratic, and nothing in the types says so. VARKA-191's admission check profiled the emitter
 through `VarkaEmitDump`, which passed exactly that list, while production passed the shape cache's
 copy: the probe read an emission three times slower than the benchmark and charged the difference
 to the slot planner, and the planner's loop headers held samples a loop over arrays could not have
-earned (`PLAN_TASK_191.md` 9). The emitter now copies its outputs on entry. The general rule: a
+earned (`VARKA-191.md` 9). The emitter now copies its outputs on entry. The general rule: a
 Java method that indexes a list it was given copies it first (`List.copyOf`, free for a list that
 is already immutable), and a probe that disagrees with its benchmark about the same code is
 measuring its own harness until shown otherwise.
@@ -594,8 +593,7 @@ runs of `VarkaSizeLadderJitSuite` on the fork CI (#473, 27 September 2026).
 
 `SparkFunSuite` wraps every test in ScalaTest's `failAfter(20 minutes)`, and it reads as a cap.
 It is not one: without a `Signaler`, `failAfter` only checks the clock after the body returns,
-and a body that never returns is never reported. A compiler loop that did not terminate (task
-219's demotion loop, on #456) held the fork's one Build slot for the job's whole limit, printing
+and a body that never returns is never reported. A compiler loop that did not terminate (VARKA-219's demotion loop, on #456) held the fork's one Build slot for the job's whole limit, printing
 only ScalaTest's slowpoke "still running", and named no test. Interrupting the test thread would
 not have ended it either: a CPU-bound loop checks no interrupt.
 
@@ -615,7 +613,7 @@ not have ended it either: a CPU-bound loop checks no interrupt.
 
 The IR fuzzer runs 300 iterations in the gate and 10,000 in the nightly. On the night of 29 to 30
 September 2026 twenty workers ran it at 200,000 iterations a run, and three runs in four failed on
-one emitter self-check that the default counts meet about once in 150,000 shapes (task 234). Two
+one emitter self-check that the default counts meet about once in 150,000 shapes (VARKA-234). Two
 habits follow:
 
 * **After a change to grouping, liveness or a shared fragment, fuzz at campaign scale** before
@@ -629,7 +627,7 @@ habits follow:
 
 ## A skip list without reasons rots; a marker that fails when its claim stops being true cannot
 
-From the survey of thirteen engines' testing for milestone 7 (`READING_MILESTONE_7.md` 2 and 3).
+From the survey of thirteen engines' testing for milestone 7 (`m7/READING.md` 2 and 3).
 Every engine that holds a fast path to a slower one reruns one corpus under many configurations,
 and the ones whose lists stay honest share two habits. DuckDB reruns its whole suite under
 dozens of configurations (`test/configs`), and every skipped test carries a reason, so the skip
@@ -647,8 +645,7 @@ passing.
 - `SparkFunSuite` fails any test body past twenty minutes, and `VarkaTestWatchdog` halts the
   JVM at ten. Both are right for a suite and wrong for a deliberate long run: on 3 October
   2026 the overnight fuzz jobs for SPARK-33301 (tens of thousands of queries a job) all "failed"
-  at the twenty-minute mark with nothing wrong in them, and the gate's sweep step halted on task
-  149's exhaustive division sweep, which needs hours (row 283 of milestone 7).
+  at the twenty-minute mark with nothing wrong in them, and the gate's sweep step halted on VARKA-149's exhaustive division sweep, which needs hours (row 283 of milestone 7).
 - A long run passes its own cap: `-Dspark.test.timeout=<minutes>` for `SparkFunSuite`'s and
   `-Dvarka.test.watchdog.minutes=<minutes>` for the watchdog's, set by the script that launches
   the run, with the expected duration written beside it. A run that will take hours is also

@@ -4,7 +4,7 @@
 > before any code existed. Its scope - `DATE +/- INTEGER` in days and `DATEDIFF` - is the
 > first milestone's, and four milestones have overtaken it; several of its implementation
 > hints describe an approach the code no longer takes. It is kept because the early plans
-> cite it (`PLAN_MILESTONE_1.md`, `PLAN_TASK_2.md` section 5). For what Varka does today
+> cite it (`m1/PLAN.md`, `VARKA-2.md` section 5). For what Varka does today
 > read `docs/sql-varka.md` and the coverage table in it; for the architecture that still
 > governs, `VISION.md`.
 

@@ -13,7 +13,7 @@ kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 64-Core Processor (not pinned; the inlining log is in the run's job log,
              and C2's trees for the four projection consume methods are excerpted in the
              -c2-trees.txt file beside this one)
-purpose:     task 233 (PLAN_TASK_233.md 13.4): whether C2's inlining budget, which 11.2 found spent
+purpose:     VARKA-233 (VARKA-233.md 13.4): whether C2's inlining budget, which 11.2 found spent
              in the 150-entry stage's consume method, is also spent at the 50 to 99 entries where
              11.1's stages lose to no stage, and not at 25 where the stage wins; the logging slows
              both arms, so the times are for the ratio, not to quote alone. The summary lines are

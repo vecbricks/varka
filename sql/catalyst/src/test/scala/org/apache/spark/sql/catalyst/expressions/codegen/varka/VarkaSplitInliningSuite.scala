@@ -38,7 +38,7 @@ import org.apache.spark.SparkFunSuite
  * Each test forks a JVM ([[VarkaSplitInliningProbe]]) that runs one `CASE WHEN` projection
  * outside a whole-stage codegen stage under `-Xbatch -XX:+PrintCompilation` and `PrintInlining`
  * for the generated class, and reads which of the split `caseWhen_*` methods C2 inlined into
- * their caller. The post that quotes this is `PLAN_TASK_181.md` 3.4.
+ * their caller. The post that quotes this is `VARKA-181.md` 3.4.
  */
 class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
 

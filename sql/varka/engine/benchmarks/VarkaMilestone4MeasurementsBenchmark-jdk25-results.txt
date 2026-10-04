@@ -2,13 +2,13 @@
 Milestone 4 pre-registration measurements (JMH)
 ================================================================================================
 
-Five candidate-lowering comparisons for tasks 27, 28 and 30, each over one N=4096 row buffer
+Five candidate-lowering comparisons for VARKA-27, VARKA-28 and VARKA-30, each over one N=4096 row buffer
 (one Spark COLUMN_BATCH_SIZE, L1/L2-resident). See VarkaMilestone4MeasurementsBenchmark.java for
 what each pair measures and why.
 
 This file is the forked-JVM, species-isolated measurement that replaced four in-process
 (forks=0) runs, which are in git history at a092f66d096 with their own reading. Two things were
-wrong with that harness (PLAN_MILESTONE_4.md, debt register): every benchmark ran on a JVM the
+wrong with that harness (m4/PLAN.md, debt register): every benchmark ran on a JVM the
 JUnit suites and the earlier benchmarks had already shaped, and this class's single @Setup ran
 the lane-width pair - the one measurement that uses a second int species, ISPEC_HALF - before
 every benchmark, which turns the shared IntVector templates bimorphic and can leave a heap box
@@ -68,7 +68,7 @@ VarkaMilestone4MeasurementsBenchmark.laneWidthPartLoop        thrpt    5  2050.5
 * Lane-width conversion: narrowest-drive and part-loop stay tied - narrowest-drive 1.02x ahead
   at AVX-512 (2831 against 2767), part-loop 1.02x ahead at 128-bit (2050 against 2014). This
   pair is the only one measured with two int species in its JVM, and only in
-  narrowest-drive's fork; the design decision (task 39) is the two-part convertShape from the
+  narrowest-drive's fork; the design decision (VARKA-39) is the two-part convertShape from the
   preferred species regardless, because a second species poisons every other IntVector loop in
   the same JVM.
 * Boolean trees ((a > b) AND (c < d)): mask-space is ahead at both widths but by little - 1.02x

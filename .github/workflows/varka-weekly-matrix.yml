@@ -15,8 +15,8 @@
 # limitations under the License.
 #
 
-# Spark's full module matrix on this project's master, once a week (task 177,
-# PLAN_TASK_179.md section 5). A change confined to Varka's files runs only the Varka
+# Spark's full module matrix on this project's master, once a week (VARKA-177,
+# VARKA-179.md section 5). A change confined to Varka's files runs only the Varka
 # suites on its pull request, and after the merge nothing runs at all: build_main.yml
 # skips pushes to master on forks and Spark's scheduled builds are apache/spark-only.
 # So without this file the last full matrix a Varka-scoped change ever sees is the one

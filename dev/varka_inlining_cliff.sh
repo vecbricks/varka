@@ -17,7 +17,7 @@
 #
 # Does a kernel's loop method keep its vector intrinsics, or fall to the Vector API's scalar
 # fallback - and does the same class land on either side from one JVM to the next
-# (PLAN_TASK_209.md 2)? Forks fresh JVMs of VarkaInliningCliffProbe - task 198's cheap-tail
+# (VARKA-209.md 2)? Forks fresh JVMs of VarkaInliningCliffProbe - VARKA-198's cheap-tail
 # shape, `year(d) + k` over one date, at a given output count and fused ceiling - under
 # -XX:+LogCompilation and PrintInlining and PrintIntrinsics scoped to the emitted class, and
 # reads each fork's verdict and C2's reasons with dev/varka_inlining_cliff.py. --shapes makedate

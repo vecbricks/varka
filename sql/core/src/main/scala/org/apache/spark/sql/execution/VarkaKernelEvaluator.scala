@@ -46,7 +46,7 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, Column
  * plan this evaluator serves. the emitted ''class'' is not per-task state: it
  * comes from [[VarkaShapeCache]], the JVM-wide cache keyed on the kernel's structural shape,
  * so tasks (and sessions) computing the same shape share one loaded class and skip its
- * per-task JIT warm-up - the fixed 13-50 ms `PLAN_TASK_14.md` 7.5 diagnosed. Only the kernel
+ * per-task JIT warm-up - the fixed 13-50 ms `VARKA-14.md` 7.5 diagnosed. Only the kernel
  * ''instance'' and its argument arrays stay per-task.
  *
  * eligibility is partial and the output batch is assembled column by column in
@@ -117,7 +117,7 @@ private[sql] class VarkaKernelEvaluator(
   override protected def fusedPlan: Option[CompiledVarkaProjection] = compiled.map(_.fused)
 
   // The further kernels of a projection several kernels serve (`VarkaEmitOptions.severalKernels`,
-  // `PLAN_TASK_190.md` 11), each an evaluator of its own for its runner, warm-up and scratch; this
+  // `VARKA-190.md` 11), each an evaluator of its own for its runner, warm-up and scratch; this
   // evaluator runs the first kernel and asks every one of them before a batch takes the kernels.
   // Empty for a projection one kernel serves, which then runs exactly as before.
   private lazy val parts: Seq[VarkaKernelPart] = {
@@ -230,7 +230,7 @@ private[sql] class VarkaKernelEvaluator(
 
   /**
    * Runs only the fused kernel and returns a batch of just its columns, tracked like
-   * [[project]]'s. This is the row node's entry point (merge-at-row, `PLAN_TASK_12.md` 2.3):
+   * [[project]]'s. This is the row node's entry point (merge-at-row, `VARKA-12.md` 2.3):
    * it reads fused values from this batch and evaluates residual entries during its own row
    * pass, so materialising them into vectors here would be pure waste. Nothing in it is
    * borrowed - fused columns are always freshly allocated.
@@ -317,7 +317,7 @@ private[sql] class VarkaKernelEvaluator(
       // never on the buffer, so every year-month unit writes one vector class; the row path
       // reads it back through the accessor `ArrowColumnVector` already has.
       case _: YearMonthIntervalType => new IntervalYearVector(s"varka$ordinal", allocator)
-      // The long lane's destinations (task 29), built from the same Arrow field Spark's own
+      // The long lane's destinations (VARKA-29), built from the same Arrow field Spark's own
       // writer would build for the type - `BigIntVector`, `TimeNanoVector` with the precision in
       // its field metadata, `DurationVector` in microseconds - so the row path reads them back
       // through the accessors `ArrowColumnVector` already has, and the cache serializer sees

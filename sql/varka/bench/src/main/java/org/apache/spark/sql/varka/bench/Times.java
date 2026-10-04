@@ -33,8 +33,8 @@ import java.util.List;
  *
  * <p>Two things about the list are deliberate. The three field extracts have no filter form:
  * {@code hour(t) = 12} puts the extract's narrowed int under a comparison, which the kernel
- * cannot hold until task 28, so the compiler declines it and a row timing that decline would
- * time the row engine (PLAN_TASK_102.md 8.6). And the arithmetic rows carry the shapes the
+ * cannot hold until VARKA-28, so the compiler declines it and a row timing that decline would
+ * time the row engine (VARKA-102.md 8.6). And the arithmetic rows carry the shapes the
  * coverage table already proves fuse, so the first full run is a measurement and not a search
  * for the entry that does not.
  */

@@ -171,7 +171,7 @@ private[sql] case class VarkaDecline(reason: String, expr: String) {
 
 /**
  * Collects what one entry's compilation leaves behind besides its IR: its decline, the input
- * bounds it asks the evaluator to check (see `PLAN_TASK_56.md`; keyed by child ordinal until the
+ * bounds it asks the evaluator to check (see `VARKA-56.md`; keyed by child ordinal until the
  * entry is accepted, and dropped with a declining entry the way its columns and literals are), and
  * the long lane's literal table. The
  * recursion reports a decline at the point of failure and the first note wins, so the recorded
@@ -264,7 +264,7 @@ private[sql] case class PartialVarkaProjection(
 
   /**
    * Every kernel the projection runs, the first one first: one unless the entries were over
-   * what one kernel serves and `VarkaEmitOptions.severalKernels` split them (`PLAN_TASK_190.md`
+   * what one kernel serves and `VarkaEmitOptions.severalKernels` split them (`VARKA-190.md`
    * 11).
    */
   def kernels: Seq[CompiledVarkaProjection] = fused +: more
@@ -355,7 +355,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
 
   /**
    * The most literals an `IN` list may hold and still fuse, counted after dedup.
-   * The basis, recorded in `PLAN_TASK_20.md`: 16 is depth-safe under any fold shape
+   * The basis, recorded in `VARKA-20.md`: 16 is depth-safe under any fold shape
    * (`MAX_CHAIN_DEPTH` = 16 while the balanced chain here is `ceil(log2 16) + 1` = 5
    * levels), and its 31 op nodes left half the emitter's `MAX_FUSED_NODES` = 64 budget to
    * the rest of the projection when that cap bounded every kernel; under the byte budget it
@@ -414,7 +414,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * beside the rest - classified again as a kernel of their own, round after round, until a round
    * fuses nothing or nothing is left aside. Each round is [[classify]] over the whole projection
    * with every other entry demoted, so it sees the same entries in the same order and the kernels
-   * are deterministic in the projection alone. See `PLAN_TASK_190.md` 11.
+   * are deterministic in the projection alone. See `VARKA-190.md` 11.
    */
   private def classifyKernels(
       projectList: Seq[NamedExpression],
@@ -509,7 +509,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     // The entries a class-wide decline demoted: they fit, only not in this kernel.
     var bisected = Set.empty[Int]
     // The cuts the plan has made for this kernel, each one emission that builds nothing; after
-    // two the bisection has the last word (PLAN_TASK_236.md 3.4).
+    // two the bisection has the last word (VARKA-236.md 3.4).
     var plannedCuts = 0
     while (true) {
       ask(demoted) match {
@@ -613,7 +613,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
             // residual with a reason that says so - checked here, before the budgets, because
             // `fitsBudgets` would refuse the mix too but only answers yes or no, and a lane
             // mismatch reported as a budget breach sends a reader hunting a chain-depth problem
-            // that is not there. Task 28's width conversion is what will let both lanes share a
+            // that is not there. VARKA-28's width conversion is what will let both lanes share a
             // tree; until then the mixed projection fuses one lane and leaves the other.
             case Some(ir) if outputs.nonEmpty &&
                 VarkaVectorIR.emissionLane(ir) != VarkaVectorIR.emissionLane(outputs.head) =>
@@ -677,21 +677,21 @@ private[sql] object VarkaExpressionCompiler extends Logging {
   /**
    * Whether the emitter serves `fused` in bytes, asked of the emitter itself: `None` when it
    * does, and otherwise the fused outputs to demote with the reason. The weight caps admit an
-   * entry before anything is built, and weight does not bound size (`PLAN_TASK_87.md`), so a
+   * entry before anything is built, and weight does not bound size (`VARKA-87.md`), so a
    * shape the caps admit can still be one the emitter's method budget declines - a single
    * output whose own method is past it, or a driver over it. Asking here moves that decline
-   * from every task on the executor to the plan, where EXPLAIN shows it (`PLAN_TASK_169.md`).
+   * from every task on the executor to the plan, where EXPLAIN shows it (`VARKA-169.md`).
    *
    * The question goes through the shape cache with the key the evaluator will build, so a
    * shape is built once per JVM whoever asks first: the compiler runs at planning, for
    * EXPLAIN and once per task on the executor, and a direct emission here would put a class
-   * build on every one of those. It is answered without defining a class (task 237): the cache
+   * build on every one of those. It is answered without defining a class (VARKA-237): the cache
    * builds and measures the shape and holds its bytes, and the evaluator's first lookup defines
    * the class from them, so planning on the Spark driver loads nothing, and a bisection's probes
    * leave no class behind but the one that runs. A decline names the outputs whose own group
    * cannot fit; a class-wide one names none, and the caller demotes outputs from the end,
    * since the driver it leaves over the budget grows with their number ([[classify]] bisects,
-   * or cuts in one step where the decline carries the plan's cut, task 236). Any other failure
+   * or cuts in one step where the decline carries the plan's cut, VARKA-236). Any other failure
    * of the build admits the shape as before, and is logged once per JVM: the
    * executor meets it where it always has, behind the ghost fallback. A class that builds but
    * fails to define or link is no longer met here at all, since nothing is defined: the
@@ -703,7 +703,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       options: VarkaEmitOptions): Option[(Seq[Int], String, Int)] = {
     // Asked with the budget off as well: the legacy form is built once and never measured, so
     // the only decline it can give is the class-file cap's, and that one is worth a residual
-    // at plan time rather than a per-task fallback on the executor (PLAN_TASK_219.md 10).
+    // at plan time rather than a per-task fallback on the executor (VARKA-219.md 10).
     val key = new VarkaShapeKey(
       fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options,
       VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
@@ -719,7 +719,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
         // Not a decline, so not a shape the emitter refuses by design: an emitter bug, or a
         // failure of the JVM's, which the executor meets behind the ghost fallback as before.
         // Said once per JVM here as well, so that a plan admitting a shape the emitter cannot
-        // build shows on the driver and not only in a task's log (PLAN_TASK_219.md 3.1).
+        // build shows on the driver and not only in a task's log (VARKA-219.md 3.1).
         val where = e.getStackTrace.headOption.map(_.toString).getOrElse("")
         if (loggedEmitterFailures.add(s"${e.getClass.getName}@$where")) {
           logWarning("The Varka emitter failed at plan time on a shape the compiler admitted, " +
@@ -904,7 +904,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
 
   /**
    * Splits a fused predicate that one method cannot hold across several selection outputs
-   * (`PLAN_TASK_172.md` 3.1), or `None` when no split fits and the caller demotes a conjunct as
+   * (`VARKA-172.md` 3.1), or `None` when no split fits and the caller demotes a conjunct as
    * it would without the option.
    *
    * Every extra output costs a pass over its columns and a bitmap, so the split looks for the
@@ -921,8 +921,8 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * still be named beside the others. Each question goes through [[admitBySize]] and so through
    * the shape cache, and the split runs only after the single root has been refused, so a
    * predicate that fits is compiled exactly as it is without the option. The search is exact
-   * for splits into equal pieces, not over every partition: the exact partition is task 200's
-   * dynamic program, which needs a cost cheaper to ask than an emission (task 199).
+   * for splits into equal pieces, not over every partition: the exact partition is VARKA-200's
+   * dynamic program, which needs a cost cheaper to ask than an emission (VARKA-199).
    */
   private def splitPredicate(
       pass: PredicatePass,
@@ -994,7 +994,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * The int side is what the leaf arms below already admit - a date, an int and a year-month
    * interval are all one 32-bit lane - and the long side is milestone 5's: `bigint`, `TIME`
    * (nanoseconds of day) and a day-time interval (microseconds) are one 64-bit lane
-   * (`PLAN_TASK_29.md` 3.1). The two timestamp types are that lane physically and are
+   * (`VARKA-29.md` 3.1). The two timestamp types are that lane physically and are
    * deliberately absent: see `isTimestamp` and the arm that names them.
    */
   private[codegen] def laneOf(dataType: DataType): Option[LaneType] = dataType match {
@@ -1029,7 +1029,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
   /**
    * An output root: [[compileNode]], plus the one lowering only a root may take. The three
    * `TIME` field extracts compute a 64-bit division and deliver an int, and the emitter narrows
-   * a lane at the kernel's store and nowhere else until task 28 gives it a width conversion;
+   * a lane at the kernel's store and nowhere else until VARKA-28 gives it a width conversion;
    * so `hour(t)` as an output fuses under a narrowing root, while `hour(t) + 1` and
    * `hour(t) = 12`, which put the narrowed value under another node, reach
    * [[VarkaTimeCompiler.compileTime]] through [[compileNode]] and decline with that reason.
@@ -1232,7 +1232,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * How large an int-valued node's result can be in absolute value, or `None` where nothing
    * bounds it: [[VarkaRangeAnalysis]]'s `INT` query. This exists so a checked operation that
    * provably cannot overflow needs no check - which is what makes `year(d) * 100 + month(d)`
-   * fuse under ANSI, the shape `PLAN_TASK_63.md` 6 measures. The compiler can do this and the
+   * fuse under ANSI, the shape `VARKA-63.md` 6 measures. The compiler can do this and the
    * emitter cannot: a `LiteralSlot` carries a slot index, and the value behind it only arrives in
    * `scalarArgs` at run time. Conservative by construction: a `None` costs a check or a decline
    * and never a wrong answer.
@@ -1260,7 +1260,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
    * the operands' bounds prove it cannot overflow: the overflow test for `*` needs the 64-bit
    * product or a lane division, and the emitter has neither in int lanes, so an unprovable
    * `ANSI` or `TRY` multiply stays on the row engine until milestone 5's long lanes arrive
-   * (`PLAN_TASK_63.md` 3.4).
+   * (`VARKA-63.md` 3.4).
    */
   private[codegen] def intArith(
       op: IntOp,

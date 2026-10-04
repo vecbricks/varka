@@ -9,6 +9,6 @@ jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 64-Core Processor (the runner is not pinned; the file is the workflow's
              artifact unchanged)
-purpose:     task 233 (PLAN_TASK_233.md 12.5, 13.5): whether a wide projection's loss in a stage
+purpose:     VARKA-233 (VARKA-233.md 12.5, 13.5): whether a wide projection's loss in a stage
              holds for a mix of heavier entries, and what taking the projection out recovers;
              vanilla Spark only, Varka off

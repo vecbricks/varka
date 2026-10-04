@@ -30,7 +30,7 @@ import org.apache.spark.sql.internal.SQLConf
 /**
  * What the silent give-ups of whole-stage codegen cost: the cases where an operator leaves its
  * stage with nothing logged and only a missing `*(n)` in `EXPLAIN` to show for it
- * (`PLAN_TASK_233.md` 3).
+ * (`VARKA-233.md` 3).
  *
  * Two of them. **One `CodegenFallback` expression in a projection**: `from_json` has no
  * generated code, so one of it in a projection takes the whole operator out of its stage, where
@@ -185,7 +185,7 @@ object CodegenFallbackCostBenchmark extends SqlBasedBenchmark {
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     // `-Dcodegen.cost.sections=first-minute` runs one section alone, for a run under a JIT log
-    // whose output should hold that section's compiles and nothing else's (PLAN_TASK_233.md 10.2).
+    // whose output should hold that section's compiles and nothing else's (VARKA-233.md 10.2).
     val sections = sys.props.get("codegen.cost.sections").map(_.split(",").toSet)
     def wanted(name: String): Boolean = sections.forall(_.contains(name))
     cacheTable()

@@ -73,10 +73,10 @@ import scala.jdk.javaapi.CollectionConverters;
  * <p>{@code --expect-operator REGEX} is the same check for another engine's arm: every case must
  * plan with a node whose line matches the pattern and with no row-engine {@code Filter} or
  * {@code Project} above it, or the run fails after writing the file; the {@code # plan:} line
- * then names the node it found. vecruntime's arm passes {@code Vector(Project|Filter)} (task 202),
+ * then names the node it found. vecruntime's arm passes {@code Vector(Project|Filter)} (VARKA-202),
  * so a rung the plugin left to Spark is never timed under its name.
  *
- * The row count and the partition count are the job-size rule of PLAN_MILESTONE_4.md 2.29:
+ * The row count and the partition count are the job-size rule of m4/PLAN.md 2.29:
  * enough rows in few enough tasks that the job's fixed cost is under 5% of every Varka row's
  * wall time, which the file makes checkable by printing executor time beside wall time. One
  * partition is the default because on {@code local[1]} every task costs about two
@@ -88,7 +88,7 @@ import scala.jdk.javaapi.CollectionConverters;
  * exists because that job-size rule and the six-hour limit of a GitHub Actions job pull in
  * opposite directions: the rule wants enough rows that fixed cost is under 5%, and at that row
  * count one dispatch of the whole surface across four distributions does not fit
- * (PLAN_TASK_62.md 11.11). Sharding divides the queries, not the table, so each shard still
+ * (VARKA-62.md 11.11). Sharding divides the queries, not the table, so each shard still
  * builds the full cached table in each distribution - which is why the split is worth taking
  * only as far as the per-shard table build, and no further.
  *
@@ -508,7 +508,7 @@ public final class DateSurfaceBenchmark {
   /**
    * The same table written once to a Parquet file under {@code dir} and read back from it,
    * uncached, so an arm times the path a query over a file takes - the vectorized Parquet
-   * reader into the engine - rather than a cache (task 194). Only the date tables: the
+   * reader into the engine - rather than a cache (VARKA-194). Only the date tables: the
    * {@code TIME} table's type is not one Parquet writes on every distribution.
    */
   static void buildParquetTable(SparkSession spark, long rows, int partitions, TableShape shape,
@@ -548,7 +548,7 @@ public final class DateSurfaceBenchmark {
    * null, like {@code d}; {@code t2} is a second such spread. {@code dt} is under a minute and
    * runs forward before noon and backward after it, so {@code t + dt} stays inside the day on
    * every row: a sum that crosses midnight is Spark's own error and Varka's guard declines the
-   * batch, and a surface row is meant to time the kernel rather than the decline (task 102).
+   * batch, and a surface row is meant to time the kernel rather than the decline (VARKA-102).
    * {@code dt2} is a sub-second interval; {@code l} and {@code l2} are counts under ten
    * thousand million, so the long-lane comparisons against {@code 5000000000} select about
    * half. Every 47th {@code dt} and every 53rd {@code l2} is null.

@@ -1,0 +1,383 @@
+# VARKA-10: chains, DAG-CSE and mask algebra
+
+**Status: DONE.** See `m2/PLAN.md` (task row 10) for the milestone
+context and `VARKA-9.md` for the emitter this task generalises. Sections
+1-4 are the plan as written before implementation; section 5 records what was
+built, the measurements, and the deviations - including one measured reversal
+of the plan's own prediction (5.2).
+
+## 1. Why this task, and what it inherits
+
+VARKA-9 proved the milestone's bet: a Class-File-API-emitted vector loop reaches
+the hand-written kernels' speed at both vector widths, and a fused chain leaves
+sequential kernel passes 45x behind at depth 16. But nothing reaches that
+emitter yet. VARKA-10 connects it to real queries and removes the three task-9
+restrictions that were never meant to survive it: one output, one input column,
+`AddDays`/`SubDays` only.
+
+After this task, a projection whose every entry is a nested date-arithmetic
+chain - `date_add(date_add(d, 1), 2)`, `datediff(date_add(d1, 7), d2)`, several
+such outputs sharing subchains - plans as a Varka node and runs as one emitted
+loop: each referenced column loaded once per lane group, each distinct subchain
+computed once (DAG-CSE), intermediates in vector registers, one masked store
+per output. Eligibility stays all-or-nothing at the projection level; partial
+eligibility and passthrough columns are VARKA-12, predication ops are VARKA-11.
+
+What exists and is kept as-is: the `VarkaFusedKernel.run` shape (its array
+parameters were sized for exactly this task), `VarkaGeneratedClassLoader`,
+`DateVarkaSupport.foldDaysOffset` as the single literal-folding rule, and the
+hand-written `DateVectorOps` kernels as the reference semantics and the
+benchmark baseline. The expressions' `isClassFileGenEligible` and its
+genCode-time registration stay untouched, per the milestone's section 4
+decision: they feed the Janino compile-cache key, so recursion lives in a new
+check owned by the rule and the compiler, never on the trait.
+
+## 2. Deliverables
+
+### 2.1 IR: `DateDiff` joins the sealed interface
+
+`VarkaVectorIR` gains `DateDiff(VarkaVectorIR end, VarkaVectorIR start)` (a new
+`permits` entry). Lane math is `end - start` on int lanes - the same `isub` the
+binary kernel does - but the *Spark* output type is `IntegerType` where
+`AddDays`/`SubDays` produce `DateType`. The IR does not model Spark types (lane
+type stays `INT` everywhere); the compiler tracks the Spark type per output so
+the evaluator allocates an `IntVector` instead of a `DateDayVector`.
+
+Two shapes stay out deliberately, with the milestone's reasons: integer `Add`
+over a `datediff` result (ANSI overflow semantics cannot throw row-accurately
+from a lane; `m2/PLAN.md` 2.6) and everything predication-shaped
+(VARKA-11). Nesting `date_add` *over* a `datediff` result cannot type-check in
+SQL without a cast, so it needs no special rejection - the compiler simply
+finds no rule for the cast and the projection is ineligible.
+
+### 2.2 Compiler: `VarkaExpressionCompiler` (catalyst, Scala)
+
+New `expressions/codegen/VarkaExpressionCompiler.scala`. One entry point used
+by both the rule and the evaluator, so eligibility cannot drift from execution
+- the drift risk that `VarkaKernelEvaluator.outputOp`'s comment warns about
+today is retired by construction:
+
+```scala
+case class CompiledVarkaProjection(
+    outputs: Seq[VarkaVectorIR],       // one root per projectList entry, in order
+    outputTypes: Seq[DataType],        // DateType or IntegerType, per root
+    inputOrdinals: Seq[Int],           // child ordinals, dense kernel input index = position
+    literals: Array[Int])              // scalarArgs values, slot index = position
+
+object VarkaExpressionCompiler {
+  def compile(projectList: Seq[NamedExpression],
+      childOutput: Seq[Attribute]): Option[CompiledVarkaProjection]
+}
+```
+
+The compiler binds references itself (as the evaluator does today), strips
+`Alias`, and recurses:
+
+* `BoundReference` of `DateType` -> `ColumnRef` over a dense input index (the
+  first referenced child ordinal becomes kernel input 0, and so on).
+* `DateAdd(e, days)` / `DateSub(e, days)` where `e` recursively compiles and
+  `DateVarkaSupport.foldDaysOffset(days)` is defined -> `AddDays`/`SubDays`
+  with a `LiteralSlot`.
+* `DateDiff(e1, e2)` where both children recursively compile -> `DateDiff`.
+* Anything else -> the whole projection returns `None` (all-or-nothing until
+  VARKA-12). A *bare* date column as an output entry also returns `None` here:
+  emitting it would be a copy loop, while VARKA-12 forwards it zero-copy; making
+  it eligible now would ship a regression to unship later.
+
+Literal slots are assigned per distinct *value*, not per occurrence. This is
+load-bearing for CSE: two occurrences of `date_add(d, 1)` must compile to
+identical records or no interning can see they are the same computation. It
+also keeps the chain's shape well-defined for milestone 3's cache: slots are
+numbered in first-occurrence order, so `date_add(d, 5), date_sub(d, 7)` and
+`date_add(d, 1), date_sub(d, 3)` share one shape.
+
+The roots are returned as plain trees; common-subexpression detection is the
+emitter's job (2.3), keyed on structural equality, which the records provide.
+This deviates from the milestone's "the compiler interns" wording - same
+effect, one owner, and it makes the emitter robust against any caller, not
+only the compiler.
+
+### 2.3 Emitter: multi-input, multi-output, DAG-CSE, per-node masks
+
+`VarkaLoopEmitter.emit` keeps its signature; the task-9 rejections of
+`outputs.size() != 1`, `numInputs != 1` and `ordinal != 0` are replaced by real
+support. The emitted `run` keeps the six-step kernel shape, generalised:
+
+* **Prologue.** Per input: data segment, and - unless that input's
+  `srcNullCount[i] == length` (all-null) or `== 0` (null-free) - a validity
+  segment. An all-null input's validity address is `0L` by the morsel contract,
+  so the segment must not be materialised before this check. Per output: data
+  segment, validity segment, `zero(dstValidity)` *unconditionally* - the
+  milestone's emitter invariant: a skipped output must still read as all-null.
+  An output any of whose referenced columns is all-null is *dead*: its store
+  and validity writes are skipped (compile-time, per output - the referenced
+  column set is static). If every output is dead, return after the zeroing.
+  The task-9 early `return` on the single input generalises to exactly this.
+* **Mask algebra, as long words first.** Per lane group, per *live referenced
+  input*: one validity word from `validityBitsAt` (or `-1L` for a null-free
+  input - decided per input now, not globally). VARKA-10's ops are all
+  null-intolerant, so a node's mask is the AND of the validity words of the
+  columns its subtree references - computed bottom-up over the DAG and
+  memoized, `VectorMask.fromLong` applied once per *distinct referenced-column
+  set*, not per node (a single-column chain therefore builds exactly one mask,
+  as VARKA-9 did). The bottom-up rule is structured per node so VARKA-11's
+  OR-with-substitution and blend algebras replace one case each rather than a
+  global assumption.
+* **DAG-CSE.** The emitter walks each output root with a memo table keyed on
+  record equality. First computation of a shared node stores its `IntVector`
+  in a local (`astore`); later uses are `aload`. Column loads are the same
+  mechanism: `ColumnRef` is a node like any other, so each referenced column
+  is loaded once per lane group no matter how many outputs read it. Single-use
+  intermediates stay on the operand stack exactly as in VARKA-9 - a local is
+  paid for only where sharing exists.
+* **Stores.** Per live output: masked `intoMemorySegment` with the root's
+  mask, then `orValidityBitsAt` with that mask's `toLong()`.
+* **Scalar tail.** Per row, per live output: the row is computed iff every
+  referenced column's bit is set (the same AND, in boolean form), then
+  `set`/`setBit`. Shared subtrees are simply recomputed per row - scalar
+  recomputation costs less than the bookkeeping to avoid it, and the tail is
+  at most one lane group long. Row-for-row agreement with the vector body is
+  what the differential lengths prove.
+* **Caps.** `MAX_CHAIN_DEPTH = 16` now means the longest root-to-leaf path,
+  per output. A new `MAX_FUSED_NODES = 64` bounds the *total* distinct op
+  nodes across all outputs - the method-size and register-pressure bound that
+  depth alone no longer implies once outputs multiply. Both are policy numbers
+  far past real projections; the parity benchmark's widest case (2.6) keeps
+  them honest. Inputs are capped at 64 by the referenced-column-set
+  representation (a long bitset); rejection, like every rejection here, is an
+  `IllegalArgumentException` the evaluator treats as "fall back".
+
+The descriptor table gains nothing: `DateDiff` is `sub` with the operands
+swapped (`end - start`), and every other call is already declared. The
+`misdescribeAddForTesting` hook and its test survive unchanged.
+
+### 2.4 Wiring: the rule and the evaluator
+
+* **`VarkaColumnarRule`**: `isFullyVarkaEligible` becomes
+  `VarkaExpressionCompiler.compile(projectList, child.output).isDefined`. The
+  trait-based `VarkaClassFileGen.eligibleOps` check retires from the rule (the
+  trait itself stays, per section 1). Nested projections now plan as Varka
+  nodes; everything else about the two-stage rewrite is untouched.
+* **`VarkaKernelEvaluator`**: `OutputOp`, `outputOp`, `KernelKind` and
+  `KernelRunners` give way to the compiled IR. Per task: compile once (`None`
+  never happens given the rule, but stays the safe fallback), emit and load
+  one `VarkaFusedKernel` class through a task-lifetime
+  `VarkaGeneratedClassLoader` (released by the task-completion listener, as
+  `KernelRunners` does today), and allocate the `run` argument arrays once -
+  `long[numInputs]` x2, `int[numInputs]`, `long[numOutputs]` x2, and the
+  literals array straight from the compiler - refilled per batch, never
+  reallocated. Emission failures (`IllegalArgumentException` from the caps,
+  any `LinkageError`) take the existing "assembly failed, fall back to the
+  per-row projection" path; `isCatchable` already covers both.
+* `canRun`'s Arrow check iterates the compiled `inputOrdinals` (every IR leaf
+  is a date column, so the `DateDayVector`-with-exact-valueCount rule applies
+  unchanged); `buildVector`'s type dispatch reads `outputTypes`. The morsel
+  extraction and batch-lifetime machinery do not change.
+* `VarkaClassFileGen.assembleKernelClass` and the unary/binary dispatcher
+  interfaces lose their production caller but stay: the emitter suite and the
+  parity benchmark drive the hand-written kernels through them, and they are
+  milestone 1's documented artifact. Whether they eventually fold into the
+  `VarkaProjection`-shell cleanup (`VARKA-9.md` 5.4) is decided there, not
+  here.
+
+Both exec nodes are untouched: they already talk to the evaluator through
+`canRun`/`project`/`release` only.
+
+### 2.5 The dense-path decision (measured, in-plan)
+
+The milestone left "an unmasked body selected when `nullCount == 0`" open,
+conditional on the data. VARKA-9's data says no: the emitted *masked* loop with
+a `-1L` mask already beats the hand-written kernel on null-free input at both
+widths (1.13x / 1.07x), so a masked lane op with an all-true mask costs
+nothing C2 cannot eliminate. The remaining question - masked-all-true vs a
+genuinely unmasked body - gets one throwaway A/B during development (an
+emitter test hook, three unmasked descriptor entries, one benchmark run, not
+committed). The unmasked body ships only if it wins by more than 10% on the
+null-free parity case; the numbers and the decision go in section 5 either
+way. Expectation: it does not win, and the specialisation is *recorded* as
+rejected so milestone 3 does not re-litigate it.
+
+## 3. Verification
+
+### 3.1 Emitter suite (`VarkaLoopEmitterSuite`, extended)
+
+* Differential, multi-input: `DateDiff(col0, col1)` vs
+  `DateVectorOps.vectorDateDiff` over the task-9 length matrix, with the null
+  patterns applied *independently per column* (null-free x mixed, mixed x
+  all-null, ...) - the per-input `hasNulls`/dead logic is new and this is its
+  matrix. Sentinel data and pre-set destination validity, bit-for-bit, as
+  before.
+* Differential, DAG: two outputs sharing a subchain
+  (`a = f(d), b = g(f(d), d2)`) vs the same results from sequential
+  hand-written kernel passes; and a mixed-type pair (`date_add` output next to
+  a `datediff` output) proving per-output types and masks stay independent.
+* All-dead and part-dead: one input all-null kills only the outputs that
+  reference it; their validity reads all-zero while sibling outputs are
+  served; the all-dead case returns after zeroing.
+* CSE observability: with the memo disabled through a test hook, the emitted
+  bytes differ (duplicate subchain code) but results agree - pinning that CSE
+  is an optimisation, never a semantics change.
+* Rejections: node count over `MAX_FUSED_NODES`, ordinal outside `numInputs`,
+  and the surviving task-9 rejections, each named.
+* Everything runs green at the preferred width and under
+  `-XX:MaxVectorSize=16`, as in VARKA-9.
+
+### 3.2 End-to-end (`VarkaDifferentialSuite`, extended)
+
+The suite's existing harness (`checkDifferential`, `assertFused`,
+`assertKernelsRan` via `numVarkaBatches`) takes new queries:
+
+* `date_add(date_add(d, 1), 2)` and deeper nests - fused, matching the row
+  engine (these plan as plain `Project` today, so `expectFused = true` is
+  itself the new behavior).
+* `datediff(date_add(d1, 7), d2)` both argument orders, with nulls in either
+  column.
+* The shared-subchain projection from the milestone plan:
+  `SELECT date_add(d, 1) AS a, datediff(date_add(d, 1), d2) AS b`.
+* A projection with one ineligible entry (`d + 1` over an int column, a bare
+  date column) stays unfused - all-or-nothing is still the rule until VARKA-12,
+  and the test names VARKA-12 so its flip is deliberate.
+* Extreme-offset wrap-around repeated through a nested chain (the existing
+  int32-wrap oracle pattern).
+* Negative control: `isFailKernelForTesting` still forces the fallback on the
+  new plans, results still correct, `numVarkaBatches` stays 0.
+
+### 3.3 The fusion gate and the benchmark
+
+`VarkaEmitterParityBenchmark` gains: a `datediff` parity case (emitted vs
+`vectorDateDiff`, null-free and mixed); a two-output shared-subchain case at
+depth 8 - fused-with-CSE vs fused-with-the-memo-disabled vs sequential kernel
+passes, which prices DAG-CSE itself, not just fusion; and the widest-shape
+case (`MAX_FUSED_NODES` reached) proving no cliff at the cap. The committed
+results file is regenerated at the preferred width; the four-lane numbers go
+in this file's section 5.
+
+The milestone's fusion gate - a two-op chain over 1M rows clearly beating two
+kernel passes - was already cleared in VARKA-9 (3.5x at depth 2); it is
+re-checked here from the regenerated file, now with the compiler in the loop.
+
+### 3.4 Commands
+
+```
+build/sbt "catalyst/testOnly *VarkaLoopEmitterSuite *ClassFileCodegenSupportSuite \
+  *VarkaGeneratedClassLoaderSuite"
+build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' \
+  "testOnly *VarkaLoopEmitterSuite"
+build/sbt "sql/testOnly *Varka*"
+build/mvn -f sql/varka/engine/pom.xml test          # untouched, must stay green
+SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt \
+  "catalyst/Test/runMain org.apache.spark.sql.VarkaEmitterParityBenchmark"
+build/sbt "catalyst/scalastyle" "catalyst/Test/scalastyle" "sql/scalastyle" \
+  "sql/Test/scalastyle" && dev/lint-java
+```
+
+## 4. Explicitly out of VARKA-10
+
+Predication, comparisons, `IfElse`, `greatest`/`least`, `dayofweek`/`weekday`
+and the three-valued mask pairs (VARKA-11 - the mask algebra here is
+deliberately only the null-intolerant AND case, structured so VARKA-11 replaces
+cases, not assumptions). Partial eligibility, passthrough forwarding, batch
+ownership for forwarded vectors, the row-node escape hatch (VARKA-12).
+Telemetry attributes (VARKA-13). Throughput-benchmark and docs refresh
+(VARKA-14). The `lazy val` drive-by (VARKA-15). Deleting the dispatcher
+machinery or the `VarkaProjection` shell (the `VARKA-9.md` 5.4 follow-up,
+awaiting the milestone owner's go-ahead).
+
+## 5. Outcome
+
+Everything in section 2 exists as planned, plus one feature the plan predicted
+would be rejected (5.2). All suites green: `VarkaLoopEmitterSuite` (10 tests)
+and `VarkaExpressionCompilerSuite` (4, new) at the preferred width and under
+`-XX:MaxVectorSize=16`; the sql/core Varka suites (60 tests, including the new
+nested, DAG, wrap-around and fallback differentials); the engine suite
+untouched and green (28); scalastyle and lint-java clean.
+
+The compiler unit suite caught one real bug the differential matrix would have
+hit later: binding a projection entry at `NamedExpression` type throws
+`ClassCastException` on a bare-column entry (it binds to a `BoundReference`),
+so the rule would have crashed instead of declining. The compiler binds at
+`Expression` and declines.
+
+### 5.1 The gates
+
+`VarkaEmitterParityBenchmark`, 1M rows, best-time M rows/s (AMD Ryzen AI 9 HX
+PRO 370, JDK 25.0.3, `performance` governor; committed results file carries
+the preferred width, this table both widths):
+
+| case | kernel (16) | emitted (16) | ratio | kernel (4) | emitted (4) | ratio |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| date_add, null-free | 5461 | 17751 | 3.3x | 1809 | 6726 | 3.7x |
+| date_add, mixed | 4728 | 8367 | 1.8x | 1368 | 2563 | 1.9x |
+| datediff, null-free | 3732 | 10533 | 2.8x | 1506 | 5872 | 3.9x |
+| datediff, mixed | 2653 | 3779 | 1.4x | 974 | 1634 | 1.7x |
+
+Every parity case clears 1.0x at both widths (acceptance was 0.9x); the
+null-free rows are the dense body of 5.2. The fusion gate stands re-affirmed
+with the compiler in the loop: a depth-2 chain fuses at 7715 vs 2107 for two
+kernel passes (3.7x), and the depth curve matches VARKA-9 (depth 16: 5167 fused
+vs 120 sequential, 43x).
+
+The DAG case - `a = chain8(d), b = datediff(chain8(d), d2)`, 9 distinct ops -
+runs fused at 1525 vs 194 as nine sequential kernel passes (7.9x); disabling
+the CSE memo costs 4% (1463), small here because the shared subchain stays in
+registers either way - CSE's real work is dropping 8 redundant op emissions,
+and its value grows with sharing. The widest accepted shape (4 x depth-16, 64
+ops, the `MAX_FUSED_NODES` boundary) runs at 512 vs 30 sequential (17x), so
+the cap marks no cliff against any available alternative.
+
+### 5.2 The dense path: the plan's prediction was wrong, measurably
+
+Section 2.5 predicted the unmasked body would not beat the masked body with an
+all-true mask and would be recorded as rejected. The A/B said otherwise:
+null-free 1M rows, masked 6387 M rows/s vs unmasked 14807 at depth 1, and
+5089 vs 14546 at depth 8 - 2.3x to 2.9x, an order of magnitude past the 10%
+ship threshold. A runtime mask is opaque to C2 even when every lane is on, and
+a masked store never becomes a plain store. So the specialisation shipped: the
+generated class carries `runDense` and `runMasked` as private sibling methods
+and `run` selects per batch on one loop-invariant test (all referenced inputs
+null-free). The dense body emits no null state, no all-null shortcut, no words,
+no masks, and an unchecked tail.
+
+Two structural findings along the way, both now load-bearing:
+
+* **Hoisted broadcasts pin registers.** A broadcast hoisted into a Java local
+  stays live across the whole loop; at 32 literals the spill collapse was 7x
+  (482 vs 1616 M rows/s on a two-chain shape, 168 vs 526 at 64 literals).
+  Emitted at each use, C2 hoists when registers allow and rematerializes when
+  they do not - but the single-output regime measured faster with explicit
+  hoisting (5769 vs 3925 at depth 16). The emitter therefore hoists only for
+  one output with at most `MAX_CHAIN_DEPTH` literals - exactly the regime
+  VARKA-9 measured - and inlines everywhere else.
+* **Two loops in one method starve each other.** With both bodies emitted into
+  one `run`, the second-emitted (masked) loop lost 3x to 4x on nulled batches
+  (depth-8 mixed: 6926 as a sibling method vs 1926 sharing a method) - one
+  compilation's node and inlining budgets serving two vector loops. Sibling
+  methods give each body its own C2 compilation and restored full speed.
+
+### 5.3 Deviations from the plan
+
+* Dense-path specialisation shipped instead of being rejected (5.2); the
+  emitted class is three methods, not one.
+* Dead outputs are handled by mask-zero semantics, not a per-output
+  compile-time skip: an all-null input contributes a `0L` validity word, which
+  nulls every node reading it, and the store and validity writes then write
+  nothing. Same observable behavior as 2.3's wording, less control flow; the
+  generalized all-null shortcut (return iff every output reads a dead column)
+  is kept.
+* `VectorMask.toLong` left the descriptor table: the store's validity bits are
+  the root's already-computed mask word, so nothing calls it.
+* The benchmark reaches the CSE hook through `VarkaEmitterTestSupport`
+  (test-only, same package) rather than a public flag on the emitter.
+* The four-lane benchmark numbers are recorded here (5.1) rather than in a
+  second committed results file, per the one-file-per-benchmark convention.
+
+### 5.4 For the record
+
+`MAX_FUSED_NODES = 64` stands, with its meaning sharpened by measurement: past
+roughly 32 ops the fused loop scales sublinearly with op count (register
+pressure and body size), but even at the cap it beats sequential kernel passes
+17x and per-row evaluation by far more, so falling back earlier would only
+make those shapes slower. The cap bounds pathology; it is not a performance
+edge. Milestone 3's cache design should note that the emitted class now has a
+three-method shape and that per-batch body selection happens inside the class,
+so a cached class stays batch-agnostic.

@@ -52,10 +52,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
  *
  * <p>Weight is a proxy. The quantities the JVM actually enforces - a method's bytecode length,
  * a class's constant pool, a method's parameter slots - are the limits at the top of this
- * class, and {@link #overLimits} reads an emitted class against them ({@code PLAN_TASK_87.md}).
+ * class, and {@link #overLimits} reads an emitted class against them ({@code VARKA-87.md}).
  * One more is C1's rather than the class file's: the Vector API call sites a group method
  * carries, bounded by {@link #CALL_SITE_BUDGET} and read by {@link #groupsOverCallSites}
- * ({@code PLAN_TASK_209.md}).
+ * ({@code VARKA-209.md}).
  */
 final class VarkaEmitBudget {
 
@@ -77,7 +77,7 @@ final class VarkaEmitBudget {
    * and only correlates with bytes, so such a method is interpreted until C2 compiles it - the
    * budget {@link #CALL_SITE_BUDGET} holds a wide group's methods under that count; and a loop
    * reaches C2 quickly through its backedges where a method with no loop, such as an epilogue,
-   * reaches it only by invocation count. See {@code PLAN_TASK_87.md} 2.3 and 2.6.5.
+   * reaches it only by invocation count. See {@code VARKA-87.md} 2.3 and 2.6.5.
    */
   static final int HUGE_METHOD_LIMIT = 8000;
 
@@ -204,7 +204,7 @@ final class VarkaEmitBudget {
    * until C2 compiles it, and in some JVMs then enters the deoptimization cycle for good; an
    * epilogue C1 refuses has no back edge to reach C2 by, so it runs interpreted on every batch
    * that leaves a remainder until invocation counts bring C2. A method under C1's limit is
-   * compiled at once and runs at speed from its first second. See {@code PLAN_TASK_209.md} 9
+   * compiled at once and runs at speed from its first second. See {@code VARKA-209.md} 9
    * and 10.
    *
    * <p><b>What the count is not.</b> It is C1's register need by proxy. It leaves out the
@@ -212,7 +212,7 @@ final class VarkaEmitBudget {
    * too, and a site's cost differs by shape: a {@code make_date} producer compiles at a count
    * the cheap tails are refused at. The value was read on the cheap tails, at the 512-bit and
    * 128-bit species, on JDK 25; a mask-heavy wide group, such as a split-condition filter's, and
-   * the 256-bit species are uncalibrated ({@code SCOPE_MILESTONE_8.md} item 61).
+   * the 256-bit species are uncalibrated ({@code m8/SCOPE.md} item 61).
    *
    * <p><b>What the budget does.</b> The emitter reads each group method's count off the built
    * class, beside its bytes, and a group whose loop or epilogue is over the budget is split
@@ -223,7 +223,7 @@ final class VarkaEmitBudget {
    * without them.
    *
    * <p><b>The value.</b> The last count C1 compiled, six under the first it refused
-   * ({@code PLAN_TASK_209.md} 10.1). An emit option ({@link VarkaEmitOptions#callSiteBudget}, 0
+   * ({@code VARKA-209.md} 10.1). An emit option ({@link VarkaEmitOptions#callSiteBudget}, 0
    * for off), so a retune is priced rather than argued and the arm without it stays measurable;
    * {@code VarkaInliningCliffSuite} is the guard that says when a JDK moves the boundary.
    */
@@ -240,7 +240,7 @@ final class VarkaEmitBudget {
    * group past C1 risks is its wait for C2, and the census found that bounded: narrow groups
    * settled within seconds and did not cycle, where wide groups of cheap outputs past C1 did.
    * So the budget bounds the wide groups and leaves the narrow ones. Six is the most outputs the
-   * fused ceiling packs of the heaviest calendar nodes. See {@code PLAN_TASK_209.md} 11.2 and
+   * fused ceiling packs of the heaviest calendar nodes. See {@code VARKA-209.md} 11.2 and
    * 11.3. The option is {@link VarkaEmitOptions#heavyGroupOutputs}, where 0 and 1 alike split
    * every group over the budget down to single outputs.
    */
@@ -278,7 +278,7 @@ final class VarkaEmitBudget {
 
   /**
    * The deepest op path (root to leaf, per output) the emitter accepts, fixed by measurement
-   * (VarkaEmitterParityBenchmark; details in PLAN_TASK_9.md): fused throughput declines only
+   * (VarkaEmitterParityBenchmark; details in VARKA-9.md): fused throughput declines only
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
    * produces, rather than marking a measured performance edge. Condition nodes count.
@@ -293,7 +293,7 @@ final class VarkaEmitBudget {
    * measured in bytes and regrouped until it fits, and a kernel no regroup can fit (a driver past
    * the budget, which grows with the outputs) is declined with a reason, at plan time. The cap had
    * been a proxy for that size, and it admitted a quarter of the entries a real wide projection
-   * has ({@code PLAN_TASK_190.md} 1).
+   * has ({@code VARKA-190.md} 1).
    */
   public static final int MAX_FUSED_NODES = 64;
 
@@ -317,7 +317,7 @@ final class VarkaEmitBudget {
    * <p><b>Why 16 rather than more.</b> Of nine shapes surveyed across budgets from 16 to 64,
    * three regroup at all and only one above 24 - and that one saves a single lane op out of
    * 38. Raising the budget therefore buys almost nothing while growing every method toward
-   * C1's refusal threshold. See {@code PLAN_TASK_71.md} 10.5.
+   * C1's refusal threshold. See {@code VARKA-71.md} 10.5.
    *
    * <p><b>Grouping.</b> Greedy over the output order, counting only nodes new to the group, so
    * outputs sharing subtrees tend to land together and keep their cross-output CSE. A single
@@ -336,7 +336,7 @@ final class VarkaEmitBudget {
    * appears to stall for seconds is a compile task queued behind others under load, which is a
    * scheduling property no per-method budget can bound. That measurement is one host, one JDK
    * and one shape family, so it does not license "no cliff exists": a lowering with more live
-   * values per op could still spill. See {@code PLAN_TASK_43.md} 8, and {@code SKILLS.md} for
+   * values per op could still spill. See {@code VARKA-43.md} 8, and {@code SKILLS.md} for
    * the three-width ladder.
    *
    * <p>The parity benchmark keeps the split and merged forms of the same shape side by side,
@@ -350,7 +350,7 @@ final class VarkaEmitBudget {
    * nodes; an output whose calendar prefix a group already computes joins that group past the
    * budget and up to this, because joining lets it skip emitting that prefix - the one situation
    * where a wider method is strictly less work rather than a trade (see {@code groupOutputs}). Set
-   * by the ladder in {@code PLAN_TASK_32.md} section 7.6: one method kept winning through twelve
+   * by the ladder in {@code VARKA-32.md} section 7.6: one method kept winning through twelve
    * outputs (700 ops) at both widths, so the bound comes from compile time - an eight-output method
    * of 376 ops has every method at tier 4 within 894 ms of its first compile, the twelve-output one
    * takes 1.9 s, and the rule was one second. A method near this ceiling is past what C1
@@ -388,7 +388,7 @@ final class VarkaEmitBudget {
 
   /**
    * What a calendar node weighs in place of {@link #CHRONO_PREFIX_WEIGHT} when its prefix is
-   * materialized by an earlier group (task 198): the loads of the prefix's six vectors from the
+   * materialized by an earlier group (VARKA-198): the loads of the prefix's six vectors from the
    * scratch region, one operation each, where the prefix itself is thirty-one.
    */
   static final int CHRONO_PREFIX_LOAD_WEIGHT = 6;
@@ -474,7 +474,7 @@ final class VarkaEmitBudget {
    * the {@link #CHRONO_PREFIX_SLOTS}, then the reported year, the month, the day, the
    * January-based day of year and the quarter start for the subtract form, and the eleven
    * scratch locals {@code emitDaysFromCivil} takes for the recompose form - fresh named slots
-   * rather than a reuse of the prefix's scratch, which is the lesson {@code PLAN_TASK_36.md}
+   * rather than a reuse of the prefix's scratch, which is the lesson {@code VARKA-36.md}
    * recorded after doing it the other way first. Sized for the widest case so the slot plan
    * does not depend on the option.
    */
@@ -526,7 +526,7 @@ final class VarkaEmitBudget {
   /**
    * {@code MakeDate}'s locals: the three inputs, the clamped month, the month length, the two
    * masks (validity, and the year in range), and {@code emitDaysFromCivil}'s eleven scratch
-   * slots - fresh named slots rather than a reuse, {@code PLAN_TASK_36.md}'s lesson.
+   * slots - fresh named slots rather than a reuse, {@code VARKA-36.md}'s lesson.
    */
   static final int MAKE_DATE_TMP_COUNT = 18;
 
@@ -589,7 +589,7 @@ final class VarkaEmitBudget {
    * there is no vector divide. Counting them as 1 would have let four calendar outputs share a
    * method of ~180 ops when the ~10 s compile cliff was still believed in; weighing them by what
    * they emit gave each its own sibling method instead. The cliff was then measured away (272 ms at
-   * 200 ops, {@code PLAN_TASK_32.md} 7.5) and step B2 lets siblings over one date share a method
+   * 200 ops, {@code VARKA-32.md} 7.5) and step B2 lets siblings over one date share a method
    * again - deliberately, and only where the prefix is reused, which is why every calendar weight
    * is written as {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@code GroupOps} counts the prefix
    * once.

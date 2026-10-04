@@ -5,7 +5,7 @@
 #
 # Against master 146fdeb5446: every loop and epilogue method is byte for byte the same, and
 # only the two drivers differ - runDense 5278 and runMasked 5932 bytes here, generated per
-# output, against 1120 and 1121 from a table since task 190 A0 (30 September 2026).
+# output, against 1120 and 1121 from a table since VARKA-190 A0 (30 September 2026).
 #
 method              bytes IntVector LongVector DoubleVector convert VectorMask validity lines
 epilogueDense0       3422       408          0            0       0          0        0    22

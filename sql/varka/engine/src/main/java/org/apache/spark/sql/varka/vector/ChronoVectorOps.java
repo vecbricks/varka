@@ -33,7 +33,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
 /**
- * A hand-written measurement kernel (see {@code PLAN_TASK_32.md}): the ceiling on
+ * A hand-written measurement kernel (see {@code VARKA-32.md}): the ceiling on
  * computing {@code year}, {@code month}, {@code dayofmonth} and {@code quarter} from ONE
  * civil-from-days decomposition per row, against the 445.7 M rows/s four independently emitted
  * nodes reach today ({@code VarkaEmitterParityBenchmark-jdk25-results.txt}).
@@ -561,7 +561,7 @@ public final class ChronoVectorOps {
    * The same four fields, the same arithmetic, the same guard and the same op count as
    * {@link #vectorFourFields}, with every destination validity buffer and every
    * {@code orValidityBitsAt}/{@code orPartialValidityBitsAt} call removed. Section 2.17 of
-   * {@code PLAN_MILESTONE_4.md} fits three throughput points to a per-vector-op cost and finds
+   * {@code m4/PLAN.md} fits three throughput points to a per-vector-op cost and finds
    * three quarters of the shared kernel's time unaccounted for by the decomposition - the
    * suspect named there is the validity write, on the strength of {@code -XX:+PrintInlining}
    * showing {@code orValidityBitsAt} does not inline in a wide loop, not on a timing. This

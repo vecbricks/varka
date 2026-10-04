@@ -1,4 +1,4 @@
-Task 230's admission check (PLAN_TASK_230.md 2): where the columnar node's row path spends its
+VARKA-230's admission check (VARKA-230.md 2): where the columnar node's row path spends its
 time, against the to-row node's and vanilla's row-at-a-time path.
 
 Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
@@ -37,7 +37,7 @@ into the UnsafeRow that the conversion then reads back.
   rows-54              1570 samples: allocation 0.0%, conversion  0.0%, copy 1.1%, projection 88.7% (UnsafeRow writes 9.6%), scan 1.0%, other  9.2%
   vanilla-rowwise-54   1561 samples: allocation 0.0%, conversion  0.0%, copy 0.0%, projection 89.0% (UnsafeRow writes 8.5%), scan 2.8%, other  8.2%
 
-3. The direct path (PLAN_TASK_230.md 10): the probe under JFR and -XX:+LogCompilation, twenty
+3. The direct path (VARKA-230.md 10): the probe under JFR and -XX:+LogCompilation, twenty
    seconds an arm, 27 September 2026, with the direct path (commit 817ad443825) and with
    VarkaProjectExec.scala as the plan's commit 5072e824663 had it ("convert"):
 

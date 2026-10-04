@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 /**
  * {@link VarkaVectorSupport#prepareOutputValidity} and
  * {@link VarkaVectorSupport#everyOutputReadsAnAllNullColumn}, the table form of the driver's
- * per-output work (see {@code PLAN_TASK_190.md} 10). Each plan step must write exactly what the
+ * per-output work (see {@code VARKA-190.md} 10). Each plan step must write exactly what the
  * entry point the unrolled driver calls for that output writes - so every test here runs a plan
  * through the helper and the same steps through those entry points, one output at a time, and
  * compares the destination bitmaps byte for byte, over lengths either side of a byte and a word

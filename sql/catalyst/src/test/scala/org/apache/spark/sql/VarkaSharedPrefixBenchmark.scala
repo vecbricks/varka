@@ -32,7 +32,7 @@ import org.apache.spark.sql.types.DateType
 
 /**
  * What recomputing the civil-from-days prefix costs, per group that recomputes it, against
- * computing it once per batch (task 198, `sql/varka/plans/PLAN_TASK_198.md`).
+ * computing it once per batch (VARKA-198, `sql/varka/plans/m6/VARKA-198.md`).
  *
  * A calendar output - `year(d)`, `month(d)`, `make_date(year(d), month(d), k)` - decomposes its
  * date through a prefix of about forty vector operations, and the outputs of one loop method
@@ -47,12 +47,12 @@ import org.apache.spark.sql.types.DateType
  *
  * Two shapes. Cheap tails over one date, `year(d) + k`, where the prefix is most of each
  * group's work and the ceiling is widest; and the make_date ladder's top rung, 60
- * `make_date(year(d), month(d), k)` outputs, the shape `PLAN_TASK_87.md` 3.3 counted eleven
+ * `make_date(year(d), month(d), k)` outputs, the shape `VARKA-87.md` 3.3 counted eleven
  * repeated prefixes in. Each arm's table row names its group count, read from the emitted class,
  * so the x-axis is in the file. Null-free batches of 1024 rows, which every lane count divides:
  * the loop methods are what is measured, and the epilogue returns at once.
  *
- * Two more arms at the default ceiling price the call-site budget (task 209), which splits a
+ * Two more arms at the default ceiling price the call-site budget (VARKA-209), which splits a
  * wide group whose loop method C1 refuses and leaves a narrow one: the budget off, so the cheap
  * tails are the one loop method past C1 the census measured; and the budget with its heavy-group
  * exemption off, so the make_date outputs split to one a method as the cheap tails do. The

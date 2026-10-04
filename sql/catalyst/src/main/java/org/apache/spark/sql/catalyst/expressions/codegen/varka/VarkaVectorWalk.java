@@ -392,9 +392,9 @@ final class VarkaVectorWalk {
    * lanewise ops and a compare, and neither branches.
    *
    * <p>{@code MUL} has no such test in int lanes - the honest check needs the 64-bit product,
-   * or a division the lane loop must not do (PLAN_TASK_11.md priced lanewise DIV at 8x) - so
+   * or a division the lane loop must not do (VARKA-11.md priced lanewise DIV at 8x) - so
    * the compiler declines a checked multiply outright and only {@code WRAP} reaches here.
-   * That is wider than PLAN_TASK_63.md 3.3 assumed; see the correction there.
+   * That is wider than VARKA-63.md 3.3 assumed; see the correction there.
    *
    * <p>Where the mask goes is what separates the two checked modes. {@code FAIL} folds it into
    * the batch's condemning accumulator through {@link #emitGuardCollect}, so the batch declines

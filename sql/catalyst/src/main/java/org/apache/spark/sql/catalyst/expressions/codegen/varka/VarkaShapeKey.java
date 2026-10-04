@@ -26,14 +26,14 @@ import java.util.List;
  * and with the cache, do - share one loaded class.
  *
  * <p>Equality is structural for free: the IR nodes are records, and the compiler assigns literal
- * slots and column refs dense first-occurrence indices carrying no values ({@code PLAN_TASK_10.md}
+ * slots and column refs dense first-occurrence indices carrying no values ({@code VARKA-10.md}
  * built that property for this key; {@code VarkaExpressionCompilerSuite} pins it). Literal values
  * travel as runtime {@code scalarArgs} and never enter the key - two queries with the same shape
  * and different constants must hit. {@code numLiterals} is a component in its own right because it
  * changes the emitted bytecode independently of the IR (per-slot locals are allocated whether
  * referenced or not, and it gates the broadcast-hoist regime).
  *
- * <p>Deliberately absent, recorded in {@code PLAN_TASK_18.md}: the child plan ordinals
+ * <p>Deliberately absent, recorded in {@code VARKA-18.md}: the child plan ordinals
  * ({@code ColumnRef} carries the dense kernel input index; the evaluator binds actual columns per
  * task) and the output Spark types (they size the evaluator's output vectors and never reach the
  * emitter). Neither affects the bytes, and leaving them out raises the hit rate. The class name,

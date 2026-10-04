@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar.{d
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
- * The frames a group's methods get under `groupLocalSlots` (task 191): the group's own nodes'
+ * The frames a group's methods get under `groupLocalSlots` (VARKA-191): the group's own nodes'
  * slots and no others, so a method's `max_locals` is the group's size rather than the kernel's;
  * and what the switch may and may not change - a one-group kernel's bytes not at all, a
  * several-group kernel's operations not at all.
@@ -93,10 +93,10 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("a group's method frame holds its group's slots and not the kernel's (task 191)") {
+  test("a group's method frame holds its group's slots and not the kernel's (VARKA-191)") {
     // The benchmark's four-hundred-output shape, the byte budget out of reach as the benchmark
     // sets it: with the frames planned over the kernel a loop or epilogue method carries ten
-    // thousand locals (PLAN_TASK_191.md 2.3), with them planned over the group a few hundred,
+    // thousand locals (VARKA-191.md 2.3), with them planned over the group a few hundred,
     // while the drivers - the kernel's by construction - keep theirs. The test that catches a
     // planner walking the kernel again. The lane arithmetic is the same, node for node, and no
     // method grew: locals past 255 lost their wide forms.
@@ -121,7 +121,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
   }
 
   test("a one-group kernel emits the same bytes either way, and a several-group one the same " +
-      "operations (task 191)") {
+      "operations (VARKA-191)") {
     // The first three hundred shapes of the shared fuzz grammar at its seed, under the default
     // budget - one to three roots, so both kinds of kernel occur - and the benchmark's shape at
     // 25 and 100 outputs. A one-group kernel's body set is the whole kernel, so its slots are
@@ -129,7 +129,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     // every lane operation, less the dead accumulator `sameOperations` describes - where both
     // forms group it the same way: grouping is decided by measuring bytes, and group-local
     // methods are smaller, so near the budget the two forms may split differently
-    // (PLAN_TASK_191.md 6.1, prediction 5), and then only building is compared. A shape one
+    // (VARKA-191.md 6.1, prediction 5), and then only building is compared. A shape one
     // form declines, the other declines too, or the group-local form is the one that builds.
     var oneGroup = 0
     var several = 0

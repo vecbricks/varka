@@ -1,7 +1,7 @@
 Three runs of VarkaRangeFilterBenchmark at the wide width on an unchanged file, one after another
 on the quiet laptop right after the regeneration, pinned to the fast cores as
 dev/varka_bench_repeat.sh pins them, for a comparison of the two Varka designs by minimums
-(PLAN_TASK_172.md 9.7). Each run is reproduced as the benchmark printed it.
+(VARKA-172.md 9.7). Each run is reproduced as the benchmark printed it.
 
 commit:  c1b5237740b
 date:    2026-09-25, runs from 07:42 to 07:59 CEST

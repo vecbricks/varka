@@ -45,13 +45,13 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Task 239's admission check, read off the bytecode ({@code PLAN_TASK_239.md} 2): the reference
+ * VARKA-239's admission check, read off the bytecode ({@code VARKA-239.md} 2): the reference
  * locals a loop or epilogue method stores and never reads, named by what the stored expression
  * built ({@link #census}), and a class with them removed ({@link #trim}) - each such store with
  * the expression it stored, found by walking back the stack effects, repeated until none is left,
  * since a removed load can leave the segment it read unread too. {@code VarkaUnreadLocalsBenchmark}
  * times the classes with and without them before the emitter changes; once it emits them only
- * where they are read (task 239's switch), the benchmark's section in
+ * where they are read (VARKA-239's switch), the benchmark's section in
  * {@code VarkaWideKernelBenchmark} replaces this, and so does the check {@code VarkaUnreadLocals}.
  *
  * <p>No Class-File API type appears in a signature here: the Scala suites read this class's

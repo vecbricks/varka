@@ -5,7 +5,7 @@ OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M, 24 hardware threads
 
 Each busy process is a shell loop on one core. The projection's warm-up is the suite's first test
-(PLAN_TASK_233.md 13.7); its runNanos is the time from the warm-up's start to its verdict, and the
+(VARKA-233.md 13.7); its runNanos is the time from the warm-up's start to its verdict, and the
 deadline that released it on CI is 60 seconds.
 
 busy  runs failed  suite s  warm-up median s  p95 s  max s  verdicts

@@ -63,7 +63,7 @@ final class VarkaChronoLowering {
   }
 
   /**
-   * {@code make_date(year, month, day)} (see PLAN_TASK_42.md 3.1). The three inputs go to slots;
+   * {@code make_date(year, month, day)} (see VARKA-42.md 3.1). The three inputs go to slots;
    * the month is clamped into 1..12 for the length test; the length is the closed form
    * {@code 30 | (mc - (mc >>> 3))} - equal to the review's {@code 30 | (mc ^ (mc >>> 3))} on 1..12
    * without a vector XOR - blended with {@code 28 + leap} where the clamped month is 2;
@@ -202,7 +202,7 @@ final class VarkaChronoLowering {
    * low-half multiply from overflowing, so {@code r = v - q * 7} needs no final fixup at all. The
    * multiply-high the classic trick wants is not expressible in the Vector API; pre-folding makes
    * the low half sufficient. Measured 1.6-1.8x the digit sum at buffer level and a ~10-op-smaller
-   * loop method, which also shortens the per-task JIT warm-up (PLAN_TASK_14.md 7.5). The full digit
+   * loop method, which also shortens the per-task JIT warm-up (VARKA-14.md 7.5). The full digit
    * sum behind {@link VarkaEmitOptions.FloorMod7#DIGIT_SUM} and the lanewise DIV behind
    * {@link VarkaEmitOptions.FloorMod7#DIV} are the reference variants the parity benchmark prices
    * this one against.
@@ -426,7 +426,7 @@ final class VarkaChronoLowering {
         || (shareChronoPrefix
             ? (s.fragmentReads.getOrDefault(key, 0) & Slots.READS_MONTH) != 0
             : tailReadsMarchMonth(node));
-    // A prefix materialized across groups (task 198): the first group to decompose the date
+    // A prefix materialized across groups (VARKA-198): the first group to decompose the date
     // stores the prefix's vectors into the caller's scratch after computing them, and every
     // later group loads them into this fragment's locals in place of the decomposition. The
     // driver runs the groups' loop methods in order and their epilogues after, in order, so
@@ -817,7 +817,7 @@ final class VarkaChronoLowering {
    * {@code date +- INTERVAL n MONTH/YEAR} and {@code add_months}. Decomposes
    * {@code node.days()} via {@link #emitChronoPrefix} into year, month and day; does the month
    * arithmetic over a small, non-negative dividend (folding the year in would put it near
-   * 400,000 - past the range any magic multiply admits, {@code PLAN_TASK_40.md} section 2.2);
+   * 400,000 - past the range any magic multiply admits, {@code VARKA-40.md} section 2.2);
    * then recomposes with {@link #emitDaysFromCivil}.
    *
    * <p>The day is clamped to the new month's length before recomposing, {@code min(dom,
@@ -825,7 +825,7 @@ final class VarkaChronoLowering {
    * month but the year's last is one subtraction between two {@link #emitMonthStart} calls
    * (see its javadoc); February - the March-based year's last month - needs the year's total
    * length instead, which is where {@link #emitLeapFlag} comes in, the same flag three of tasks
-   * 34-37 need per {@code PLAN_TASK_34.md} section 2.1. Both branches are computed for every
+   * 34-37 need per {@code VARKA-34.md} section 2.1. Both branches are computed for every
    * lane and blended, since a vector lane cannot skip work the way a scalar branch would.
    *
    * <p> {@code node.months()} is a {@link LiteralSlot} or a column: when it is a column,
@@ -1226,7 +1226,7 @@ final class VarkaChronoLowering {
       case SUBTRACT -> {
         // The three results are factored into helpers so the dynamic node emits the same bytes for
         // each; the literal node's own bytes did not move (its register and the byte hashes in
-        // PLAN_TASK_61.md 9).
+        // VARKA-61.md 9).
         switch (node.level()) {
           case MONTH -> emitTruncMonth(cb, days, rem, marchMonth, neri, divider);
           case YEAR -> {

@@ -27,7 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitDecline
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
- * Kernels wider than one driver method could once hold (task 190 step 2): what a projection of
+ * Kernels wider than one driver method could once hold (VARKA-190 step 2): what a projection of
  * hundreds of outputs costs per row when it runs as one fused kernel, and what each way of
  * getting there past the driver's ceiling costs against the others.
  *
@@ -37,19 +37,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * table form alone at four hundred, which the unrolled driver cannot emit. The driver's
  * per-output work runs once per batch, so the batches are the 4096 rows a columnar scan hands
  * a kernel, over a million-row date column, null-free and with every seventh row null - the
- * dense body and the masked body with its bitmap pass. See `PLAN_TASK_190.md` 9.2 and 10.
+ * dense body and the masked body with its bitmap pass. See `VARKA-190.md` 9.2 and 10.
  *
  * The second section prices the exact grouping (`VarkaEmitOptions.exactGrouping`) against the
  * greedy walk on the mixed family, where the greedy walk leaves every `date_add` in a loop method
  * of its own and the exact partition does not, at a hundred and two hundred entries, with the
  * four-hundred-entry ladder as the control, whose grouping the switch leaves as it is. The third
  * times one emission of the mixed family under each, for the partition's cost at plan time. See
- * `PLAN_TASK_200.md` 4.
+ * `VARKA-200.md` 4.
  *
  * A section prices the locals a loop or epilogue method stores and never reads
  * (`VarkaEmitOptions.elideUnreadLocals`): the size ladder at a hundred and four hundred entries
  * and the mixed family at a hundred and two hundred, with them built, elided, and built again
- * last as a control for the order of the cases. See `PLAN_TASK_239.md` 6.
+ * last as a control for the order of the cases. See `VARKA-239.md` 6.
  *
  * Two sections go past the driver from a table's own ceiling, about 180 groups: eight hundred
  * and twelve hundred ladder entries, two and three hundred groups. One kernel whose driver calls
@@ -59,10 +59,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * input again and recomputing the prefix it shares. First one emission of each, with the bytes
  * of the classes, each form as the plan builds it (`VarkaEmitOptions.planSize`, the default)
  * and as the size loop did; then the two forms at run time, on the ladder and on sixty-four
- * dates listed by field, with A' first and again last. See `PLAN_TASK_190.md` 11 and
- * `PLAN_TASK_236.md` 6 and 9.3.
+ * dates listed by field, with A' first and again last. See `VARKA-190.md` 11 and
+ * `VARKA-236.md` 6 and 9.3.
  *
- * The last section is item 71's (`SCOPE_MILESTONE_8.md`): the planned grouping, the prediction
+ * The last section is item 71's (`m8/SCOPE.md`): the planned grouping, the prediction
  * closing groups with the fit's margins, against the weights' and against the prediction
  * without the margins, on the cheap tails, the mixed family and the ladder.
  *
@@ -120,9 +120,9 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
 
   /**
    * Sixty-four dates, four fields of each, listed by field: every `year`, then every `month`,
-   * `quarter` and `dayofmonth`. The shape of `PLAN_TASK_236.md` 2.4, where several kernels' cut
+   * `quarter` and `dayofmonth`. The shape of `VARKA-236.md` 2.4, where several kernels' cut
    * in projection order parts the fields of a date, so the second kernel decomposes every date
-   * again where the one class computes each prefix once and loads it (task 198).
+   * again where the one class computes each prefix once and loads it (VARKA-198).
    */
   private[sql] val datesByField: Seq[VarkaVectorIR] = {
     val cols = (0 until 64).map(new ColumnRef(_))
@@ -331,11 +331,11 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
 
       // The two forms past the driver from a table's ceiling. Stages only where the driver is
       // over the budget, and several kernels only where one kernel cannot serve them all.
-      // Both named: the split driver is the default since `PLAN_TASK_190.md` 11.5, and each of
+      // Both named: the split driver is the default since `VARKA-190.md` 11.5, and each of
       // B's kernels is a kernel whose driver fits, which is what the compiler's split makes.
-      // Both plan their size since task 236 made the plan the default; the loop that reacted
+      // Both plan their size since VARKA-236 made the plan the default; the loop that reacted
       // to each measurement in turn is the reference arm here, named `loop`, and its classes
-      // are the planned ones byte for byte (`PLAN_TASK_236.md` 9.2), so only the plan-time
+      // are the planned ones byte for byte (`VARKA-236.md` 9.2), so only the plan-time
       // section still runs it.
       val splitDriver = VarkaEmitOptions.DEFAULTS.withSplitDriver(true)
       val oneKernel = VarkaEmitOptions.DEFAULTS.withSplitDriver(false)
@@ -388,7 +388,7 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
         require(sink != Int.MinValue)
       }
 
-      // Task 190's question (PLAN_TASK_236.md 3.6): the split driver (A') against several
+      // VARKA-190's question (VARKA-236.md 3.6): the split driver (A') against several
       // kernels (B) on the ladder, B's best case, and on sixty-four dates by field, its worst,
       // where its cut parts the fields of a date. A' runs first and again last, a control for
       // the case order 11.6 did not control. Both forms plan their size, as they do by default.
@@ -422,14 +422,14 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
         benchmark.run()
       }
 
-      // Item 71 of SCOPE_MILESTONE_8.md, brought into task 236 (PLAN_TASK_236.md 3.5): what the
+      // Item 71 of m8/SCOPE.md, brought into VARKA-236 (VARKA-236.md 3.5): what the
       // predicted grouping costs at run time against the weights', and the planned grouping
       // with the fit's margins, on the families the prediction closes groups on. The weights
       // run first and again last as the control.
       runBenchmark("the predicted grouping against the weights, and planned with the margins") {
         val benchmark = new Benchmark(s"$numRows rows in $chunk-row batches", numRows,
           minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
-        // Planned is the default since task 236; the weights alone and the prediction without
+        // Planned is the default since VARKA-236; the weights alone and the prediction without
         // the plan's margins are its reference arms.
         val planned = VarkaEmitOptions.DEFAULTS
         val predicted = planned.withPlanSize(false)

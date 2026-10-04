@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
  * and declined. The dump reported "declined" for expressions `Surface` had been timing with
  * `expectFused` for weeks, and the census worked around the same bug by hand, truncating its
  * corpus to "the `Surface` projections that resolve without the analyzer's type coercion" -
- * which silently dropped every date/interval shape task 67 added.
+ * which silently dropped every date/interval shape VARKA-67 added.
  *
  * Fixing one copy would have left the other wrong with nothing in the tree saying so, which is
  * why this is a shared object rather than a second patch.

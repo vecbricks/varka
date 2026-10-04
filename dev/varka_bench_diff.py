@@ -38,7 +38,7 @@ are marked; rows matching --control (the scalar anchors) are listed first,
 because if they moved the machine moved and nothing else in the file can be
 read. Exit status 0 always; this is a reading aid, not a gate.
 
---table LABEL=FILE ... prints the date-surface table (task 62): one row per
+--table LABEL=FILE ... prints the date-surface table (VARKA-62): one row per
 entry and shape, every distribution's wall rate and the last one's ratio
 against each of the others, then the executor-time tables the same way.
 
@@ -56,7 +56,7 @@ import re
 import subprocess
 
 DOCS = ["SKILLS.md", "README.md", "docs/sql-varka.md", "sql/varka/AGENTS.md"]
-DOC_GLOBS = ["sql/varka/plans/*.md"]
+DOC_GLOBS = ["sql/varka/plans/*.md", "sql/varka/plans/m*/*.md"]
 
 ROW = re.compile(r"^(.*?)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)X\s*$")
 HEADER = re.compile(r"^(.*?):\s+Best Time\(ms\)")
@@ -67,7 +67,7 @@ def parse(text):
 
     The occurrence index is not decoration. Four sections of the parity file share
     the table header `20000000 rows in 4096-row chunks`, and two rows inside one
-    of them share the case name `weekofyear (task 37), null-free`, so a
+    of them share the case name `weekofyear (VARKA-37), null-free`, so a
     (table, case) pair is not unique. Keyed without the index, the second row
     overwrites the first: the file's own diff then silently reports one row where
     there are two, and `--requote` treats the survivor's shifted key as absent
@@ -347,7 +347,7 @@ def per_entry(text, pattern):
 def compare_answers(labels, per_label, what):
     """Every arm must agree about `what` on every entry both of them ran.
 
-    This is the check the surface driver did not have (task 125). It asserted that a row fused
+    This is the check the surface driver did not have (VARKA-125). It asserted that a row fused
     and that no batch fell back, and it compared nothing the arms computed, so a kernel that was
     fast and wrong published a rate like any other. Entries missing from an arm are skipped
     rather than reported: a `--only` or `--shard` run is a legitimate subset, and the arms are
@@ -440,9 +440,9 @@ OpenJDK 64-Bit Server VM
 AMD Ryzen
 20000000 rows in 4096-row chunks:  Best Time(ms)   Avg Time(ms)
 ------------------------------------------------------------------
-weekofyear (task 37), null-free  14 14 0 1430.0 0.7 1.0X
+weekofyear (VARKA-37), null-free  14 14 0 1430.0 0.7 1.0X
 some other case                  20 20 0  700.0 1.4 0.5X
-weekofyear (task 37), null-free  14 14 0 1430.3 0.7 1.0X
+weekofyear (VARKA-37), null-free  14 14 0 1430.3 0.7 1.0X
 """
 
 SELFTEST_NEW = SELFTEST_OLD.replace("1430.3", "1000.0")
@@ -493,7 +493,7 @@ def selftest():
     assert label_of("t", "c", 2, False) == "c #2"
     assert label_of("t", "c", 1, True) == "[t] c"
 
-    # Task 125: the per-entry comment lines are keyed by the table above them, and two arms
+    # VARKA-125: the per-entry comment lines are keyed by the table above them, and two arms
     # that disagree about one stop the run.
     one = per_entry(SELFTEST_SUMS_A, CHECKSUM)
     assert one == {"date_add(d, 3)": "projection rows=1000 nonnull=967 fold=42"}, one
@@ -550,7 +550,7 @@ def main():
         "--table",
         nargs="+",
         metavar="LABEL=FILE",
-        help="the date-surface table (task 62) from these files, the Varka file last",
+        help="the date-surface table (VARKA-62) from these files, the Varka file last",
     )
     p.add_argument(
         "--requote",

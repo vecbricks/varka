@@ -57,7 +57,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   private val childOutput = Seq(attrD, intAttr)
 
   // One fused entry, one forwarded, one residual - the task's canonical mixed projection.
-  // The residual one was `i + 1` until task 63 lowered int arithmetic and it started fusing;
+  // The residual one was `i + 1` until VARKA-63 lowered int arithmetic and it started fusing;
   // `i % 7` is the same shape built from an operator that is still nobody's arm.
   private val mixedList: Seq[NamedExpression] = Seq(
     Alias(DateAdd(attrD, Literal(3)), "a")(),
@@ -121,7 +121,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   test("under severalKernels a projection past one kernel assembles every kernel's columns in " +
       "order, and release closes each of them") {
     // Two hundred entries are past the unrolled driver's ceiling, so the compiler serves them with
-    // two kernels (PLAN_TASK_190.md 11); the forwarded and residual entries sit between them.
+    // two kernels (VARKA-190.md 11); the forwarded and residual entries sit between them.
     val adds = (0 until 200).map(k => Alias(DateAdd(attrD, Literal(k)), s"a$k")())
     val projectList = (adds.take(100) :+ intAttr) ++ adds.drop(100) :+
       Alias(Remainder(intAttr, Literal(7)), "inc")()
@@ -215,7 +215,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
 
   test("the emit.useAVX level reaches the shape key, so a session at a level emits its own " +
       "class") {
-    // Task 121's session switch: `spark.sql.codegen.varka.emit.useAVX` is read on the driver,
+    // VARKA-121's session switch: `spark.sql.codegen.varka.emit.useAVX` is read on the driver,
     // carried to the evaluator and applied onto the emit options that form the shape key. The
     // level is part of the shape hash, so the class name moves with it - which is what keeps a
     // level-2 kernel from being served to a default-level session out of the shared cache.
@@ -242,7 +242,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       kernels.release(kernels.project(input))
       val bytes = kernels.emittedClassBytes.get
       // The custom attribute through the diagnostics reader: the bytes describe the shape
-      // (task 18) - the fused IR, the shape-hash SourceFile, `shape <hash>` as the plan
+      // (VARKA-18) - the fused IR, the shape-hash SourceFile, `shape <hash>` as the plan
       // fragment - because the class is shared and must not replay one execution's identity
       // for another.
       assert(VarkaDebugInfoReader.ir(bytes).contains("(addDays "))
@@ -267,7 +267,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
         val kernels = evaluator(classDumpDirectory = Some(dumpDir.getAbsolutePath))
         kernels.release(kernels.project(input))
         val bytes = kernels.emittedClassBytes.get
-        // Shape-named since task 18; the dump happens on hit and miss alike, so a session
+        // Shape-named since VARKA-18; the dump happens on hit and miss alike, so a session
         // that configured the directory after the shape was cached still gets its file.
         val sourceFile = VarkaDebugInfoReader.sourceFile(bytes)
         val dumped = new File(dumpDir, sourceFile.stripSuffix(".java") + ".class")
@@ -326,7 +326,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   }
 
   test("an interval output takes the int output's write path, byte for byte") {
-    // What `PLAN_TASK_68.md` 6.1 called the Arrow write path, and what is actually there.
+    // What `VARKA-68.md` 6.1 called the Arrow write path, and what is actually there.
     // The kernel never touches an Arrow vector object: `project` reads
     // `getDataBuffer().memoryAddress()` off each output and the emitted loop writes four-byte
     // lanes into that address, so the only thing `allocateVector`'s arm decides is which class
@@ -402,7 +402,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   }
 
   test("a declined offset and a missing ELSE report their own reasons") {
-    // A bare int column offset fuses since task 38 and int arithmetic over one since task 63,
+    // A bare int column offset fuses since VARKA-38 and int arithmetic over one since VARKA-63,
     // so the declining shape here is `i % 7`: an offset expression built from an operator
     // neither task lowered, which is what still reaches this reason.
     val nonLiteralOffset = Seq[NamedExpression](
@@ -443,7 +443,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Task 59: the derived weekday input.
+  // VARKA-59: the derived weekday input.
   // ---------------------------------------------------------------------------------------------
 
   private val attrS = AttributeReference("s", StringType)()
@@ -645,7 +645,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Task 61: the derived trunc-level input.
+  // VARKA-61: the derived trunc-level input.
   // ---------------------------------------------------------------------------------------------
 
   private def truncEvaluator(): VarkaKernelEvaluator =
@@ -713,12 +713,12 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
   }
 
   test("a destination validity buffer carries whole 64-bit words, at every length") {
-    // Task 47's admission check, and the reason it is a committed test rather than a comment:
+    // VARKA-47's admission check, and the reason it is a committed test rather than a comment:
     // the answer is a property of the Arrow version this repository depends on, and the whole
     // task rests on it. `VarkaLoopEmitter` writes a destination bitmap one lane group at a
     // time today - a byte, a short or an int, never a word - because `validityBitsAt`'s
     // javadoc records that addressing a whole word "would read past the end of the bitmap near
-    // it". Task 47 wants exactly that word-wide store on the destination side, which needs the
+    // it". VARKA-47 wants exactly that word-wide store on the destination side, which needs the
     // buffer behind it to own the whole last word.
     //
     // The bound is `((len + 63) / 64) * 8`: the last lane group's rows are all below `len`, so

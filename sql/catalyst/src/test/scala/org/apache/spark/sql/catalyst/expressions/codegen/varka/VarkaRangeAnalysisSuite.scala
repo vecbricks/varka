@@ -31,11 +31,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
 /**
- * The value-range lattice and the analysis over it (task 84).
+ * The value-range lattice and the analysis over it (VARKA-84).
  *
  * Three groups of tests. The lattice laws: every operation saturates to unknown instead of
  * wrapping, hull is a join, a product contains every corner, unknown absorbs. The transfer
- * functions: one test per row of `PLAN_TASK_84.md` table 3.4, each against the interval the table
+ * functions: one test per row of `VARKA-84.md` table 3.4, each against the interval the table
  * gives, so "reproduced, not tightened" is asserted rather than reviewed. And the property test
  * milestone 5's section 2.15 says the task is not done without: over random IR from the shared
  * grammar, random literal tables and random lane rows with nulls, at every node and for the
@@ -44,7 +44,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  *
  * Before the compiler was switched over, this property test was also run against the two
  * functions the analysis replaced, and an equivalence test compared the two answer for answer
- * over the same trees (`PLAN_TASK_84.md` section 9 has the numbers); both went with the old
+ * over the same trees (`VARKA-84.md` section 9 has the numbers); both went with the old
  * functions. Budget: `-Dvarka.range.trees` (default 10000) and `-Dvarka.range.seed` (default
  * fixed), on the fuzz suite's precedent.
  */
@@ -84,7 +84,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(r(Long.MinValue, 0).neg() === UNKNOWN)
     assert(r(Long.MinValue, 0).abs() === UNKNOWN)
     assert(r(Long.MinValue, 0).magnitude().isEmpty)
-    // The task 63 case stated of the type: two nested bounds whose product passes 2^63 used to
+    // The VARKA-63 case stated of the type: two nested bounds whose product passes 2^63 used to
     // come back small and positive; now they come back unknown, and unknown proves nothing.
     val big = sym(1L << 40)
     assert(big.mul(big) === UNKNOWN)

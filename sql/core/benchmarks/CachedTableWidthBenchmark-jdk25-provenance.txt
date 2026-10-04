@@ -11,4 +11,4 @@ pinned to:   none (the runner is not pinned; the file is the workflow's artifact
 what:        one column summed, and every column read, over a cached table of 100 and of 101
              int columns, two million rows; one of two runs dispatched together on 25 September
              2026 so that the two claims resting on ratios under 1.3x could be compared by
-             minimums across runs (PLAN_TASK_210.md 9.3)
+             minimums across runs (VARKA-210.md 9.3)

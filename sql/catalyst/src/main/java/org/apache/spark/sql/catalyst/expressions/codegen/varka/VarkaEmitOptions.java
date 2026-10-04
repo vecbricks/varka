@@ -195,7 +195,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        stays per group is what is not a function of input bitmaps - a {@code Cond} root's
  * selection, an {@code IfElse} 's blend, {@code make_date} 's validity test - and what still reads
  * a word: the range guards, the pick's null substitution, every condition. On, from the measurement
- * in PLAN_TASK_70.md 9: every served row
+ * in VARKA-70.md 9: every served row
  *        faster at both widths, the four-field shape by 1.59x at AVX-512 and 1.89x at 128-bit,
  *        where it lands on its dense twin. One row reads past its dense twin by more than run
  *        noise - {@code next_day} with a weekday column at 128-bit - on loop bytecode the tests
@@ -240,7 +240,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        <p><b>The default is deliberately not the host's own level</b>, although
  *        {@link #HOST_USE_AVX} reads it. Two reasons, and the second is the one that decides
  *        it. Nothing has yet measured that the alternative lowering is faster on such a host;
- *        task 88 step 4's A/B is what would, and until it has run, selecting a lowering from
+ *        VARKA-88 step 4's A/B is what would, and until it has run, selecting a lowering from
  *        the machine changes production behaviour on a reading rather than on a number. And a
  *        default that varies by host makes everything built on it vary too: `canonical()`
  *        renders the empty string for the defaults, so the committed shape hashes and the
@@ -262,7 +262,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        assume it. Meaningful only with {@link #validityByBitmap} on; off, every word is live
  *        already and the inversion has nothing to invert.
  * @param mulHiDivide whether an int-lane {@code ConstDivide} takes the multiply-high form
- *        through 64-bit lanes (task 149): each int half widened with {@code I2L}, multiplied
+ *        through 64-bit lanes (VARKA-149): each int half widened with {@code I2L}, multiplied
  *        by Granlund and Montgomery's magic, shifted, narrowed with {@code L2I}. On, which is
  *        the default and what ships; off is the conversion through double lanes it replaced,
  *        kept as the reference arm. The long lane is unaffected either way.
@@ -273,39 +273,39 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        the loop and does not unroll past. On, the conversion targets the int species of half
  *        the width - as many int lanes as the lane has long lanes - and the dense body stores it
  *        whole, the epilogue under its remainder mask; a second {@code IntVector} species,
- *        which {@code PLAN_TASK_28.md} 2.2 warns makes the shared templates bimorphic. Honoured
+ *        which {@code VARKA-28.md} 2.2 warns makes the shared templates bimorphic. Honoured
  *        only at a baked lane count, since the half of the preferred species has no named
  *        constant; at count 0 the store is the masked form either way. The A/B is
- *        {@code PLAN_TASK_156.md}'s.
+ *        {@code VARKA-156.md}'s.
  * @param methodByteBudget the bytecode length every emitted method is held to, by default
  *        {@code VarkaEmitBudget.HUGE_METHOD_LIMIT}, the length past which HotSpot never
  *        compiles a method: a group's loop and epilogue methods set up only that group's
- *        outputs and literals ({@code PLAN_TASK_87.md} 2.6.2), the epilogue is one method per
+ *        outputs and literals ({@code VARKA-87.md} 2.6.2), the epilogue is one method per
  *        group, the built class is measured and a group over the limit is split and the class
  *        built again, and a shape still over a limit when no split is left declines with the
- *        reason ({@link VarkaEmitDeclined}). {@code 0} is the form before task 87, kept as the
+ *        reason ({@link VarkaEmitDeclined}). {@code 0} is the form before VARKA-87, kept as the
  *        reference the differential tests and {@code VarkaMethodSizeBenchmark}'s first arm
  *        measure against: weight groups the loop, one epilogue holds every output, nothing is
  *        measured. A small value is how a test sees a regroup or a decline on a shape of a few
  *        outputs. Fuzzed at 0 and at the default.
  * @param rangeSets whether the compiler lowers a disjunction of ranges over one int or date
- *        column to one {@link VarkaVectorIR.InRanges} node ({@code PLAN_TASK_172.md} 9.2), on by
+ *        column to one {@link VarkaVectorIR.InRanges} node ({@code VARKA-172.md} 9.2), on by
  *        default. Off, such a disjunction compiles as the comparisons it is written as, which
  *        is the arm the split below is measured on. Read by the compiler, not by the emitter.
  * @param splitConditions whether a filter predicate that no single method can hold is split
- *        across several selection outputs rather than declined ({@code PLAN_TASK_172.md} 3.1):
+ *        across several selection outputs rather than declined ({@code VARKA-172.md} 3.1):
  *        its conjuncts are split into several conjunction roots, a conjunct too large alone into
  *        partial disjunctions when it is an {@code OR}, and the filter combines the outputs'
- *        bitmaps. On by default, since measured ({@code PLAN_TASK_172.md} 9.7 and 9.8); off is
+ *        bitmaps. On by default, since measured ({@code VARKA-172.md} 9.7 and 9.8); off is
  *        the form before it, where such a predicate declines. Read by the compiler, not by the
  *        emitter.
  * @param materializeChronoPrefix whether a civil-from-days prefix that outputs in two or more
  *        loop-method groups decompose is computed once per batch, by the first of those groups,
  *        into a scratch region the caller passes to {@code run}, and loaded by the later groups
- *        in place of the prefix (task 198). On by default since its measurement
- *        ({@code PLAN_TASK_198.md} 10): off, every group recomputes it.
+ *        in place of the prefix (VARKA-198). On by default since its measurement
+ *        ({@code VARKA-198.md} 10): off, every group recomputes it.
  * @param groupLocalSlots whether a group's loop and epilogue methods plan their frames over the
- *        nodes they emit alone ({@code PLAN_TASK_191.md} 3.1). Off, every method's frame is
+ *        nodes they emit alone ({@code VARKA-191.md} 3.1). Off, every method's frame is
  *        planned over the whole kernel - a slot per distinct node, kernel-wide - so a method
  *        serving four outputs of a four-hundred-output kernel carries ten thousand locals, its
  *        planning walks the kernel, and the class-file stack maps grow with the frames. On, a
@@ -314,11 +314,11 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@link #cse} it changes no result. Only a group's methods under the byte budget have
  *        frames of their own to plan, so with {@link #methodByteBudget} 0 it changes nothing. On
  *        by default since measured: a four-hundred-output emission in 30.5 ms where it took 107
- *        ({@code PLAN_TASK_191.md} 9); off is the form before it, kept as the reference variant.
+ *        ({@code VARKA-191.md} 9); off is the form before it, kept as the reference variant.
  * @param callSiteBudget the most Vector API call sites one emitted group method - a loop
  *        method or its epilogue - may carry, by default {@code VarkaEmitBudget.CALL_SITE_BUDGET},
  *        the count past which C1 refuses such a method and it runs interpreted until C2
- *        compiles it ({@code PLAN_TASK_209.md} 10.1). Read off the built class beside the bytes,
+ *        compiles it ({@code VARKA-209.md} 10.1). Read off the built class beside the bytes,
  *        under the byte budget only: a wide group with a method over it is split as one over
  *        the byte budget is, a narrow group over it stands, and the budget is dropped for a
  *        class its splits would make decline, so it never costs a kernel. {@code 0} is off, the
@@ -342,15 +342,15 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        families it regroups ran within the control's spread of the weights' on a runner and on
  *        the laptop, where the prediction without the margins filled a method of sixty-four
  *        cheap tails to the budget and ran thirteen times slower on the runner
- *        ({@code PLAN_TASK_236.md} 9.3); off is the weights alone, kept as the reference arm.
- *        With {@link #methodByteBudget} 0 it changes nothing ({@code PLAN_TASK_199.md}).
+ *        ({@code VARKA-236.md} 9.3); off is the weights alone, kept as the reference arm.
+ *        With {@link #methodByteBudget} 0 it changes nothing ({@code VARKA-199.md}).
  * @param driverOutputTable whether the driver's per-output work - each output's validity
  *        zeroed, filled or written by the bitmap pass, and the all-null shortcut's test - is one
  *        call reading a table baked into the class, rather than unrolled once per output. Unrolled
  *        it is about forty bytes an output, which made the driver, the one method no regroup
  *        shrinks, the cap on a kernel's width; as a table the driver grows with the groups alone.
  *        Changes no result and no loop or epilogue method. On by default since measured, when it
- *        also ran faster ({@code PLAN_TASK_190.md} 10); off is the unrolled form, kept as the
+ *        also ran faster ({@code VARKA-190.md} 10); off is the unrolled form, kept as the
  *        reference the differential tests and {@code VarkaWideKernelBenchmark} compare against.
  * @param exactGrouping whether the first grouping is the best partition of the outputs in their
  *        order rather than the greedy walk's: of the partitions whose every group the greedy
@@ -359,10 +359,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        so every group it forms is one the greedy walk could have formed, and where the greedy
  *        partition is already the best it is the partition chosen. What it changes is where the
  *        greedy walk strands a cheap output that shares nothing in a loop method of its own
- *        ({@code PLAN_TASK_200.md} 2). The measurement of the built class stays the last word,
+ *        ({@code VARKA-200.md} 2). The measurement of the built class stays the last word,
  *        and a class the exact grouping would make decline is built again greedily, keeping
  *        {@link #predictGrouping}. On by default since measured, when the mixed family ran 5 to
- *        13 percent faster a row and emitted faster too ({@code PLAN_TASK_200.md} 8.2); off is
+ *        13 percent faster a row and emitted faster too ({@code VARKA-200.md} 8.2); off is
  *        the greedy walk, kept as the reference the suites and the benchmark compare against.
  * @param splitDriver whether a driver over the byte budget moves its calls to the groups into
  *        sub-driver methods, {@code stageDense<k>} and {@code stageMasked<k>}, each calling a run
@@ -375,7 +375,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@link #severalKernels}, on the owner's decision of 30 September 2026: past the driver's
  *        ceiling one class with stages plans in one emission and keeps every output's sharing,
  *        where several kernels search for their split and recompute what they share
- *        ({@code PLAN_TASK_190.md} 11.5). Off is the driver that declines past its ceiling, kept
+ *        ({@code VARKA-190.md} 11.5). Off is the driver that declines past its ceiling, kept
  *        as the reference the suites and the benchmark compare against.
  * @param severalKernels whether the compiler serves a projection past what one kernel holds with
  *        several: the entries one kernel sets aside only for its own sake - the suffix a
@@ -386,18 +386,18 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        many a projection has. On by default beside {@link #splitDriver}, which serves the
  *        driver's ceiling first, so several kernels serve only what one kernel cannot: more than
  *        {@code MAX_INPUTS} columns, or a class over the class-file caps
- *        ({@code PLAN_TASK_190.md} 11.5). Off is one kernel per projection, whose set-aside
+ *        ({@code VARKA-190.md} 11.5). Off is one kernel per projection, whose set-aside
  *        entries are residual, kept as the reference.
  * @param elideUnreadLocals whether a loop or epilogue body builds only the reference locals it
- *        reads (task 239): an output's validity segment only where the body writes that validity,
+ *        reads (VARKA-239): an output's validity segment only where the body writes that validity,
  *        an input's data segment only where it reads the column's values, a materialized prefix's
  *        vectors only where its tails read them, and the epilogue's mask only where something
  *        loads or stores under it. On by default since a runner measured it: the masked ladder
- *        at 400 entries runs 7.4% faster, and nothing slower ({@code PLAN_TASK_239.md} 9.2).
+ *        at 400 entries runs 7.4% faster, and nothing slower ({@code VARKA-239.md} 9.2).
  *        Off is the body that builds them all, kept as the reference the suites and the
  *        benchmark compare against.
- * @param planSize whether a kernel's size is planned before its first build (task 239's
- *        successor, task 236): the driver is built alone first, so a driver past the byte budget
+ * @param planSize whether a kernel's size is planned before its first build (VARKA-239's
+ *        successor, VARKA-236): the driver is built alone first, so a driver past the byte budget
  *        is split into stages in the first build under {@link #splitDriver}, or declines before
  *        any build without it, naming the largest prefix of the outputs one class serves for the
  *        compiler to cut at; and the prediction closes a group at the budgets less the fit's
@@ -406,7 +406,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        corrected by today's reaction, and anything left runs the size loop as the last resort.
  *        On by default since 3 October 2026, when a runner planned the split driver in half
  *        its two builds' time and several kernels in one build a kernel, and both forms planned
- *        ran as the loop's classes had ({@code PLAN_TASK_236.md} 9.3); off is the loop that
+ *        ran as the loop's classes had ({@code VARKA-236.md} 9.3); off is the loop that
  *        reacts to each measurement in turn, kept as the reference.
  * @param misdescribeDriverBytes a fault injector for the plan, like the two {@code misdescribe}
  *        switches: bytes taken off what the drivers built alone measure, so a test can make the
@@ -491,8 +491,8 @@ public record VarkaEmitOptions(
    * rather than by this enum, because it is a property of the machine and not a variant a
    * caller chooses. The consequence is that on a host whose conversions fall back there is no
    * value of this enum that emits the conversion form at the long lane; a test or a benchmark
-   * that wants it asks for a level instead, which is what `withUseAVX` is for. Task 88 step 4's
-   * A/B is the reason that matters, and `PLAN_TASK_88.md` 9.2 records it.
+   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
+   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
    */
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
@@ -991,7 +991,7 @@ public record VarkaEmitOptions(
 
   /**
    * The int-lane constant division's form: the multiply-high through 64-bit lanes that ships
-   * (task 149), or, off, the conversion through double lanes it replaced - kept as the
+   * (VARKA-149), or, off, the conversion through double lanes it replaced - kept as the
    * reference arm the parity benchmark and the differential check it against. The long lane
    * has no wider lane to multiply into and is not affected.
    */

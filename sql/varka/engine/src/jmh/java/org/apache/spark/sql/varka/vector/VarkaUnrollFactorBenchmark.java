@@ -42,7 +42,7 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 /**
- * An open question (`PLAN_MILESTONE_4.md` section 2.2): does an outer-loop
+ * An open question (`m4/PLAN.md` section 2.2): does an outer-loop
  * unroll factor above 1 pay on a compute-bound chain, or does C2 plus the out-of-order engine
  * already collect the available overlap on a single-lane-group body?
  *

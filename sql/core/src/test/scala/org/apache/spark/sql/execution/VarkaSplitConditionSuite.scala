@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
  * Filters too large for one method, split across several selection outputs
- * (`splitConditions`, `PLAN_TASK_172.md` 3.1) and combined by the filter: each runs on the row
+ * (`splitConditions`, `VARKA-172.md` 3.1) and combined by the filter: each runs on the row
  * engine and on Varka over the same Arrow-cached rows, nulls and the int extremes included, and
  * must select the same rows with the kernel having run. Range sets are off, so `modified-q3`'s
  * ranges reach the split as the comparisons the query writes.

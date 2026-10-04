@@ -16,7 +16,7 @@
 #
 
 
-# Take the width audit's census (VarkaWidthAuditSuite, task 153) on each runner
+# Take the width audit's census (VarkaWidthAuditSuite, VARKA-153) on each runner
 # architecture the pool offers, and publish it as an artifact and a summary. The
 # census says, per vector width a host can run, which Vector API calls C2 refuses to
 # lower in Varka's kernels; the committed sql/varka/width_audit.json is one x86
@@ -106,7 +106,7 @@ jobs:
                 if key in line: return name
             return "other"
         # Only a 'not supported' line is a refusal; C2's 'missing constant' and 'unbox failed'
-        # lines are timing (task 154) and are counted apart so the summary cannot mistake them.
+        # lines are timing (VARKA-154) and are counted apart so the summary cannot mistake them.
         for bits, shapes in d["widths"].items():
             refused = {s: [l for l in lines if l.startswith("not supported")] for s, lines in shapes.items()}
             refused = {s: ls for s, ls in refused.items() if ls}

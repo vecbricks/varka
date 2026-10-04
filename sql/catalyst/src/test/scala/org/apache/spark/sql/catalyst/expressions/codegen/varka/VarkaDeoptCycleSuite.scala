@@ -26,7 +26,7 @@ import org.apache.spark.SparkFunSuite
 /**
  * The rule `dev/varka_deopt_cycle.py` judges a fork by, held against recorded JVM logs.
  *
- * The nightly's guard against the C2 deoptimization cycle (`PLAN_TASK_189.md` 3.3) is only as
+ * The nightly's guard against the C2 deoptimization cycle (`VARKA-189.md` 3.3) is only as
  * good as that parser: a change to its rule, or to the format HotSpot prints compiles and traps
  * in, could make it read nothing and pass every night. Each fixture under
  * `src/test/resources/varka/deopt-cycle/` is recorded from real forks of `VarkaDeoptCycleProbe`

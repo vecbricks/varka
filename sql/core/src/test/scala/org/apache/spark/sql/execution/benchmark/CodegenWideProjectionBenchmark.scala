@@ -27,11 +27,11 @@ import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Whether a wide projection's loss inside a whole-stage codegen stage holds for entries heavier
- * than an addition, and what a user can do about it (`PLAN_TASK_233.md` 12.5).
+ * than an addition, and what a user can do about it (`VARKA-233.md` 12.5).
  *
  * A projection of 50 or more cheap entries `id + k` runs slower inside a stage than outside one,
  * because C2 does not inline the row writes into the stage's consume method once it passes a few
- * thousand bytes (`PLAN_TASK_233.md` 11.1, 11.2, 13.4). Two families of shape at 50 and 99 entries:
+ * thousand bytes (`VARKA-233.md` 11.1, 11.2, 13.4). Two families of shape at 50 and 99 entries:
  * the cheap entries, and a mix of six kinds an analytic query has - an addition, `date_add`, a
  * string `concat`, a division over a cast, a null test over a nullable column and `substr` - whose
  * work per entry may hide the calls. Each runs three ways: under the defaults, in a stage; with

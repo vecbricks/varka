@@ -68,9 +68,9 @@ final class VarkaEmitCostCorpus {
 
   /**
    * The measuring options at the shipped ones, but for the greedy walk: the price tables were
-   * fitted on its groups (`PLAN_TASK_199.md`), and a model of a method's bytes from its features
+   * fitted on its groups (`VARKA-199.md`), and a model of a method's bytes from its features
    * does not change with which groups the grouping picks, so the exact grouping's default
-   * (`PLAN_TASK_200.md` 8.2) leaves the fit's sample as it was.
+   * (`VARKA-200.md` 8.2) leaves the fit's sample as it was.
    */
   static VarkaEmitOptions measuring() {
     return measuring(VarkaEmitOptions.DEFAULTS.withExactGrouping(false));
@@ -238,7 +238,7 @@ final class VarkaEmitCostCorpus {
 
   /**
    * Shapes near and past the driver from a table's ceiling of about 180 groups, where the split
-   * driver builds a class twice to size its stages ({@code PLAN_TASK_236.md} 2): the size ladder
+   * driver builds a class twice to size its stages ({@code VARKA-236.md} 2): the size ladder
    * at 800 and 1200 entries, and twenty compositions of wide draws at each lane. A composition
    * draws until 250 roots are drawn or twelve draws are made, as {@code VarkaIrFuzzSuite}'s wide
    * test does, and then drops repeated roots, so it is not always past the ceiling: the audit's

@@ -269,7 +269,7 @@ private[codegen] object VarkaChronoCompiler {
    * leaf stays `DateType`-only: widening it instead of this dedicated path would let an int column
    * reach every other position that calls `compileNode` too (`Compare`, `DateDiff`, `Coalesce`,
    * `Greatest`...), fusing plain integer-vs-integer predicates that were never part of this task's
-   * scope ("do not open it wider", `PLAN_TASK_38.md` 6).
+   * scope ("do not open it wider", `VARKA-38.md` 6).
    */
   private[codegen] def compileOffset(
       days: Expression,
@@ -361,7 +361,7 @@ private[codegen] object VarkaChronoCompiler {
    * AS INTERVAL MONTH)` reaches the compiler as the cast itself, with no extraction wrapper -
    * unlike `DayIntervalOffset`, whose micros-typed cast needs `ExtractANSIIntervalDays` to read
    * back out - because `Cast.intToYearMonthInterval` returns `v` unchanged for an end field of
-   * `MONTH` (checked in `PLAN_TASK_60.md` section 2), so the cast node's own evaluated value
+   * `MONTH` (checked in `VARKA-60.md` section 2), so the cast node's own evaluated value
    * already is the month count. `i * INTERVAL '1' MONTH` is not a second spelling, for the same
    * reason `DayIntervalOffset`'s doc gives for days: a multiplied interval leaves the date lane.
    */
@@ -377,10 +377,10 @@ private[codegen] object VarkaChronoCompiler {
    * The month count of `add_months`/`date +- INTERVAL n MONTH/YEAR`: a foldable count folds to a
    * bounded `LiteralSlot`, the same two reasons as before - not foldable, or foldable but outside
    * `VarkaChrono`'s `MONTH_ARITH_MIN/MAX_MONTHS`, the range the emitter's `/ 12` magic multiply
-   * covers (`PLAN_TASK_40.md` section 2.2). A non-foldable count is a `ColumnRef` when it is a bare
+   * covers (`VARKA-40.md` section 2.2). A non-foldable count is a `ColumnRef` when it is a bare
    * `IntegerType` column (`add_months(d, m)`) or the `MONTH`-end interval cast above (`d + CAST(m
    * AS INTERVAL MONTH)`) - the emitter bounds it lanewise at run time instead (the runtime guard on
-   * `AddMonths` itself, since the exactness domain is the count's alone, `PLAN_TASK_60.md` section
+   * `AddMonths` itself, since the exactness domain is the count's alone, `VARKA-60.md` section
    * 2). A `YearMonthIntervalType` column with no such cast declines by name: the Arrow cache holds
    * it as an `IntervalYearVector`, which `isArrowBacked` does not read, so admitting it would fuse
    * at plan time and then refuse every batch. `d - INTERVAL m MONTH` arrives as `UnaryMinus` over
@@ -495,7 +495,7 @@ private[codegen] object VarkaChronoCompiler {
    * to check: it never sees literal values, so it cannot run this arithmetic, and
    * `VarkaShapeKey` keys a cached kernel on the IR without them - so a placement carried beside
    * the IR would let one shape be served another's guards. In the IR, the shape key separates
-   * them (`PLAN_TASK_93.md` 3.3.1).
+   * them (`VARKA-93.md` 3.3.1).
    *
    * <p><b>What must still decline, and the rule is narrower than it first looks.</b> A node is
    * re-armed only when *its own* shift is runtime-valued - a column offset, a column month

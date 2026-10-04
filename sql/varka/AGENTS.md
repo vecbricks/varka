@@ -29,14 +29,14 @@ but unfinished work lives in a plan file instead, where it carries the reason it
 was deferred and what has to be true before it starts:
 
 * **Work that belongs to a task in flight** goes in that task's plan file
-  (`plans/PLAN_TASK_<n>.md`), under its "explicitly out of" section.
+  (`plans/m<n>/VARKA-<id>.md`), under its "explicitly out of" section.
 * **Work with no owner yet - the "we should really..." kind** goes in the current
-  milestone's **debt register** (`plans/PLAN_MILESTONE_2.md` section 8 is the
+  milestone's **debt register** (`plans/m2/PLAN.md` section 8 is the
   worked example, written during the task-11 audit). One bullet per debt: what it
   is, why it is a debt, and what closing it would take. A debt with a measurement
   attached is worth ten with an adjective.
 * **Work for later milestones** goes in the furthest-out scope document -
-  currently `plans/SCOPE_MILESTONE_8.md` - which keeps a scope catalogue for
+  currently `plans/m8/SCOPE.md` - which keeps a scope catalogue for
   exactly this. A milestone's catalogue moves forward when its own plan
   becomes a task plan.
 
@@ -50,8 +50,10 @@ pointer.
 
 ## Plans are records, not scratch space
 
-`plans/` holds one file per milestone and one per task, and they are written *as
-the work happens*: a task file states what was planned, then what was actually
+`plans/` holds one folder per milestone, `m<n>/`, with the milestone's own documents and one
+file per task named by the task's id, `m<n>/VARKA-<id>.md`; a task's plan lives in the folder of
+the milestone whose table holds its row (a row moved to the scope catalogue goes with it). They
+are written *as the work happens*: a task file states what was planned, then what was actually
 built, what was measured and where the plan turned out wrong. Predictions written
 before a measurement stay in the file after it, scored honestly - the project
 keeps count. Do not retro-edit a task file to look prescient; add the correction
@@ -59,18 +61,23 @@ and say what it corrects.
 
 A milestone's file is named for the stage it is in. While it is a scope
 catalogue - numbered items with design input, no task numbers assigned yet - it
-is `SCOPE_MILESTONE_<n>.md`; when it becomes a task plan with a numbered task
-table it is `PLAN_MILESTONE_<n>.md`. Milestone 3's file says in its own opening
+is `m<n>/SCOPE.md`; when it becomes a task plan with a numbered task
+table it is `m<n>/PLAN.md`. Milestone 3's file says in its own opening
 paragraph that it "is no longer the scope document it opened as", which is
 exactly the transition the two names make visible from the outside.
 
 A milestone's plan may only be renamed or renumbered if every inbound reference
 is updated with it. Other plans cite sections and items by number.
 
+**Tasks are called by their id, `VARKA-<n>`**, in plans, skills, code comments, test titles,
+benchmark labels and pull request titles (`[VARKA-<n>] <what it achieves>`); the number is the
+one the task tables have always used, and "task 128" is how the record wrote it before 4 October
+2026, when the plans moved into milestone folders and every reference was rewritten.
+
 ## Measurements, not adjectives
 
 Any performance claim in code comments, plans or docs traces to a committed
-benchmark result file. The methodology is fixed (`PLAN_TASK_14.md` 2.1): at least
+benchmark result file. The methodology is fixed (`VARKA-14.md` 2.1): at least
 five iterations over two-second windows, generated on an otherwise idle machine,
 and any claim resting on a ratio under ~1.3x is re-run and compared by minimums
 before it is written down. When a change moves committed numbers, regenerate the
@@ -210,23 +217,22 @@ opens with what its conversion lost. See `papers/README.md` before adding one.
   ScalaTest suites. Matching over Catalyst expressions is not one of them: a
   compiler family matches in a Java `switch` over type patterns with `when`
   guards, as well as in a Scala `match`, and what a port costs is at its boundary
-  with Scala code (`PLAN_TASK_175.md` 5). Existing Scala is not rewritten as a
+  with Scala code (`VARKA-175.md` 5). Existing Scala is not rewritten as a
   side effect of another task; the migration is its own work (milestone 3,
-  task 23).
+  VARKA-23).
 * Every hot loop method stays small by construction (`GROUP_BUDGET`): C2's compile
   time grows steeply with vector-op count, and a wide method is slower to compile
   *and* slower to run. Sibling methods, not longer methods. Two recorded exceptions:
   the budget partitions *between* outputs and never splits inside one, so a single
   output wider than the budget still forms one method - the capped `IN` chain
-  (task 20, up to 33 ops in the benchmarked shape) is the known case, its ~30 ms
+  (VARKA-20, up to 33 ops in the benchmarked shape) is the known case, its ~30 ms
   one-time C2 compile per fresh shape accepted because the task-18 class cache
   amortizes it and the measured win at the cap is 4.0x; and calendar outputs over
   one date share a method up to `FUSED_CEILING` (400 ops), because the
   shared civil-from-days prefix makes the wider method less work rather than more
-  (task 32, 2.15x on four fields). Nothing else widens a method: two plain
-  chains over a shared subchain stay split, and whether they still should is task
-  43's open question (task 17 measured the merge as a loss; the parity file has read
-  it as a win since task 46 moved the validity OR ahead of the vector work).
+  (VARKA-32, 2.15x on four fields). Nothing else widens a method: two plain
+  chains over a shared subchain stay split, and whether they still should is VARKA-43's open question (VARKA-17 measured the merge as a loss; the parity file has read
+  it as a win since VARKA-46 moved the validity OR ahead of the vector work).
 * The ghost fallback is a correctness contract: a Varka failure degrades to the
   row engine and never fails a query. Anything that can return a *wrong* answer
   rather than fail - a cache key, for one - gets its own differential coverage,

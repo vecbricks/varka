@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# The Varka fuzzers as a standing job (task 179, PLAN_TASK_179.md). Every night this
+# The Varka fuzzers as a standing job (VARKA-179, VARKA-179.md). Every night this
 # runs the IR fuzzer - random IR trees emitted, run and checked against the reference
 # evaluator - in one JVM per runner core with a seed of its own, and the coverage
 # composition fuzzer - random wide projections and filters of the coverage table through

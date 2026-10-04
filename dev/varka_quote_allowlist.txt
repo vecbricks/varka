@@ -16,7 +16,7 @@
 # the run behind it was superseded, where the superseding happened inside one PR, so the
 # intermediate commit that carried it never reached master and the squash-merge took its
 # provenance with it.
-# The task 70 entries below are that same category, from the third regeneration
+# The VARKA-70 entries below are that same category, from the third regeneration
 # the review of #145 forced: section 9 scores its predictions against the run the
 # default was decided from and records what two earlier runs read, and those runs
 # were committed on the task branch only.
@@ -25,112 +25,112 @@ sql/varka/skills/vector-api-and-width.md	2379.8	the gather/arithmetic/scalar tab
 sql/varka/skills/vector-api-and-width.md	2368.3	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
 sql/varka/skills/vector-api-and-width.md	3766.3	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
 sql/varka/skills/vector-api-and-width.md	4630.0	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
-sql/varka/skills/benchmarking.md	2166.5	quoted from PLAN_TASK_48.md 9.2: an interleaved re-run compared by minimums, per-iteration output not committed
+sql/varka/skills/benchmarking.md	2166.5	quoted from VARKA-48.md 9.2: an interleaved re-run compared by minimums, per-iteration output not committed
 sql/varka/skills/calendar-algorithms.md	36524.25	not a measurement: 146097 / 4, the mean Gregorian century in days
 sql/varka/skills/build-and-environment.md	26.04	not a measurement: the release number in "Ubuntu 26.04"
-sql/varka/plans/PLAN_MILESTONE_5.md	3573.9	probe figures from a throwaway run the text itself calls a scratch probe
-sql/varka/plans/PLAN_MILESTONE_5.md	2379.8	probe figures from a throwaway run the text itself calls a scratch probe
-sql/varka/plans/PLAN_MILESTONE_5.md	2368.3	probe figures from a throwaway run the text itself calls a scratch probe
-sql/varka/plans/PLAN_MILESTONE_5.md	4630.0	probe figures from a throwaway run the text itself calls a scratch probe
-sql/varka/plans/PLAN_TASK_24.md	6034.3	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	5707.8	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	4722.4	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	4603.5	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	4157.3	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	3925.5	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	18382.0	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	15544.8	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	14216.5	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	13451.9	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	7190.6	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	9531.4	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_24.md	8955.0	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_32.md	1822.2	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_32.md	2630.7	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_32.md	3445.2	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_32.md	902.2	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_32.md	1174.3	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_39.md	106.75	not a measurement: an overflow bound in days
-sql/varka/plans/PLAN_TASK_45.md	2166.5	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	2687.8	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	2749.4	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	2234.1	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	2757.0	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	2185.6	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	8378.1	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_45.md	7768.1	128-bit numbers from a scratch log, before the committed companion file
-sql/varka/plans/PLAN_TASK_48.md	2181.7	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_48.md	2161.7	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_48.md	2145.2	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_48.md	2166.5	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_48.md	1042.8	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/PLAN_TASK_48.md	7759.6	interleaved re-run compared by minimums; per-iteration output not committed
-sql/varka/plans/SCOPE_MILESTONE_8.md	1853.0	probe figure from a throwaway run the text itself calls a scratch probe
-sql/varka/plans/PLAN_TASK_37.md	1408.3	the second parity run, whose file the third run superseded on the branch; the squash-merge of #123 kept only the third, so the branch commit c3c92bed1a7 is where it traces
-sql/varka/plans/PLAN_TASK_46.md	3203.0	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	2701.5	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	1199.1	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	3468.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	1338.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	3346.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	3378.9	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	22016.0	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	15349.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	28893.1	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	22132.4	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	6498.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	6349.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	7766.5	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/plans/PLAN_TASK_46.md	7722.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
-sql/varka/skills/benchmarking.md	12754.1	the disturbed AVX-512 run of 7 September 2026, quoted on purpose to record what the re-run corrected; PLAN_TASK_70.md 2.4 explains it, and the commit that carried the number in a results file was squashed away when PR #142 merged
-sql/varka/plans/PLAN_TASK_70.md	12754.1	the disturbed AVX-512 run of 7 September 2026, quoted on purpose to record what the re-run corrected; PLAN_TASK_70.md 2.4 explains it, and the commit that carried the number in a results file was squashed away when PR #142 merged
-sql/varka/plans/PLAN_TASK_70.md	1034.6	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	1644.5	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	1662.5	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	420.1	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	792.9	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	790.5	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	3208.8	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	3455.8	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	1193.4	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	1330.9	the first of task 70's two regenerations, on which the default was decided (PLAN_TASK_70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
-sql/varka/plans/PLAN_TASK_70.md	3328.5	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	3444.8	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	4003.7	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	3494.3	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	10807.0	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	4371.0	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	12742.6	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	11492.5	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	1860.1	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_70.md	2046.4	task 70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_MILESTONE_4.md	4003.7	the debt entry quotes the regeneration that opened it, which task 70's third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_MILESTONE_4.md	3494.3	the debt entry quotes the regeneration that opened it, which task 70's third regeneration superseded inside the same PR
-sql/varka/plans/PLAN_TASK_62.md	11.10	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.11	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.10.1	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.12	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.13	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.15	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.16	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.17	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_62.md	11.18	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_78.md	11.12	a section number of PLAN_TASK_62.md cited from 9.5, not a rate
-sql/varka/plans/PLAN_TASK_78.md	11.17	a section number of PLAN_TASK_62.md cited from 9.5, not a rate
-sql/varka/plans/PLAN_MILESTONE_4.md	11.15	a section number of PLAN_TASK_62.md cited from the task row, not a rate
-sql/varka/plans/PLAN_MILESTONE_4.md	11.16	a section number of PLAN_TASK_62.md cited from the task row, not a rate
-sql/varka/plans/PLAN_MILESTONE_4.md	11.17	a section number of PLAN_TASK_62.md cited from the task row, not a rate
-sql/varka/plans/PLAN_MILESTONE_4.md	11.18	a section number of PLAN_TASK_62.md cited from the task row, not a rate
-sql/varka/plans/PLAN_TASK_62.md	11.14	a section number, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_140.md	12.76	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
-sql/varka/plans/PLAN_TASK_140.md	10.19	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
-sql/varka/plans/PLAN_TASK_140.md	13.82	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
+sql/varka/plans/m5/PLAN.md	3573.9	probe figures from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/m5/PLAN.md	2379.8	probe figures from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/m5/PLAN.md	2368.3	probe figures from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/m5/PLAN.md	4630.0	probe figures from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/m4/VARKA-24.md	6034.3	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	5707.8	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	4722.4	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	4603.5	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	4157.3	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	3925.5	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	18382.0	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	15544.8	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	14216.5	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	13451.9	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	7190.6	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	9531.4	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-24.md	8955.0	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-32.md	1822.2	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-32.md	2630.7	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-32.md	3445.2	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-32.md	902.2	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-32.md	1174.3	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m8/VARKA-39.md	106.75	not a measurement: an overflow bound in days
+sql/varka/plans/m4/VARKA-45.md	2166.5	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	2687.8	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	2749.4	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	2234.1	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	2757.0	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	2185.6	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	8378.1	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-45.md	7768.1	128-bit numbers from a scratch log, before the committed companion file
+sql/varka/plans/m4/VARKA-48.md	2181.7	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-48.md	2161.7	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-48.md	2145.2	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-48.md	2166.5	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-48.md	1042.8	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m4/VARKA-48.md	7759.6	interleaved re-run compared by minimums; per-iteration output not committed
+sql/varka/plans/m8/SCOPE.md	1853.0	probe figure from a throwaway run the text itself calls a scratch probe
+sql/varka/plans/m4/VARKA-37.md	1408.3	the second parity run, whose file the third run superseded on the branch; the squash-merge of #123 kept only the third, so the branch commit c3c92bed1a7 is where it traces
+sql/varka/plans/m4/VARKA-46.md	3203.0	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	2701.5	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	1199.1	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	3468.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	1338.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	3346.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	3378.9	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	22016.0	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	15349.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	28893.1	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	22132.4	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	6498.7	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	6349.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	7766.5	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/plans/m4/VARKA-46.md	7722.3	interleaved order/helper A/B across three runs (9.2, 9.3); the per-run numbers were never a single committed file's content
+sql/varka/skills/benchmarking.md	12754.1	the disturbed AVX-512 run of 7 September 2026, quoted on purpose to record what the re-run corrected; VARKA-70.md 2.4 explains it, and the commit that carried the number in a results file was squashed away when PR #142 merged
+sql/varka/plans/m4/VARKA-70.md	12754.1	the disturbed AVX-512 run of 7 September 2026, quoted on purpose to record what the re-run corrected; VARKA-70.md 2.4 explains it, and the commit that carried the number in a results file was squashed away when PR #142 merged
+sql/varka/plans/m4/VARKA-70.md	1034.6	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	1644.5	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	1662.5	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	420.1	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	792.9	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	790.5	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	3208.8	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	3455.8	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	1193.4	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	1330.9	the first of VARKA-70's two regenerations, on which the default was decided (VARKA-70.md 9.3); its results file was committed at 1f4d3e12404 inside PR's branch and does not survive the squash-merge
+sql/varka/plans/m4/VARKA-70.md	3328.5	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	3444.8	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	4003.7	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	3494.3	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	10807.0	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	4371.0	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	12742.6	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	11492.5	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	1860.1	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-70.md	2046.4	VARKA-70's section 9 quotes the regeneration it scored its predictions against, which the third regeneration superseded inside the same PR
+sql/varka/plans/m4/PLAN.md	4003.7	the debt entry quotes the regeneration that opened it, which VARKA-70's third regeneration superseded inside the same PR
+sql/varka/plans/m4/PLAN.md	3494.3	the debt entry quotes the regeneration that opened it, which VARKA-70's third regeneration superseded inside the same PR
+sql/varka/plans/m4/VARKA-62.md	11.10	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.11	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.10.1	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.12	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.13	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.15	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.16	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.17	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-62.md	11.18	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m4/VARKA-78.md	11.12	a section number of VARKA-62.md cited from 9.5, not a rate
+sql/varka/plans/m4/VARKA-78.md	11.17	a section number of VARKA-62.md cited from 9.5, not a rate
+sql/varka/plans/m4/PLAN.md	11.15	a section number of VARKA-62.md cited from the task row, not a rate
+sql/varka/plans/m4/PLAN.md	11.16	a section number of VARKA-62.md cited from the task row, not a rate
+sql/varka/plans/m4/PLAN.md	11.17	a section number of VARKA-62.md cited from the task row, not a rate
+sql/varka/plans/m4/PLAN.md	11.18	a section number of VARKA-62.md cited from the task row, not a rate
+sql/varka/plans/m4/VARKA-62.md	11.14	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-140.md	12.76	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
+sql/varka/plans/m5/VARKA-140.md	10.19	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
+sql/varka/plans/m5/VARKA-140.md	13.82	the best and worst of twelve ratios, each computed from two committed chain files rather than printed in one
 docs/sql-varka.md	56.789	a TIME literal in a coverage row, not a rate
-sql/varka/plans/PLAN_TASK_118.md	11.10	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_118.md	11.12	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_118.md	11.15	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_118.md	11.16	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_118.md	11.17	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_118.md	11.18	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/PLAN_TASK_164.md	11.17	a section number of PLAN_TASK_62.md, not a rate - the tool cannot tell the two apart
-sql/varka/plans/READING_MILESTONE_7.md	99.81	a transcription's share of its PDF's text-layer characters, not a measured rate
+sql/varka/plans/m5/VARKA-118.md	11.10	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-118.md	11.12	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-118.md	11.15	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-118.md	11.16	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-118.md	11.17	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-118.md	11.18	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m5/VARKA-164.md	11.17	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m7/READING.md	99.81	a transcription's share of its PDF's text-layer characters, not a measured rate

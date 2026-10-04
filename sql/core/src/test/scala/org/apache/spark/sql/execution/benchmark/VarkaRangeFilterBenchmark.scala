@@ -31,17 +31,17 @@ import org.apache.spark.sql.execution.VarkaQ3Ranges
  * keys filtered by the first n of the query's 200 `between` ranges joined by `or`, time per row
  * against n. Vanilla generates the whole chain into the scan's `processNext`, which grows with the
  * ranges and, past HotSpot's 8000-byte limit, is never compiled; the census found this the one
- * stage of TPC-DS and TPC-H that crosses it (`PLAN_TASK_193.md`).
+ * stage of TPC-DS and TPC-H that crosses it (`VARKA-193.md`).
  *
  * Varka compiles the ranges to one range set, evaluated by a loop over a table of bounds, so it
  * fuses the filter at every rung and its kernel stays the same size whatever the number of
  * ranges. Written as the tree of comparisons the query spells, the chain fit Varka's byte budget
  * only up to 48 ranges, which is why the rungs straddle 48 and 49; they reach the query's 200,
- * past vanilla's own crossing, which the notes locate (`PLAN_TASK_172.md`).
+ * past vanilla's own crossing, which the notes locate (`VARKA-172.md`).
  *
  * A third arm times the general answer to the same limit, `splitConditions`: range sets off, so
  * the ranges reach Varka as the comparisons the query writes, and the filter split across
- * several selection outputs, each within the budget, instead of declined (`PLAN_TASK_172.md`
+ * several selection outputs, each within the budget, instead of declined (`VARKA-172.md`
  * 3.1). It is what any disjunction too large for one method gets, not only one of ranges.
  *
  * Each rung writes, after its table, vanilla's largest generated method, whether it is past

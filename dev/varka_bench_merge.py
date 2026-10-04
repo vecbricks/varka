@@ -25,7 +25,7 @@ results file that is not a shard of this tool's making is skipped rather than me
 
 `DateSurfaceBenchmark --shard I/N` runs entries I, I+N, I+2N ... of the surface, so N
 dispatches between them cover it exactly once. That exists because the fixed-share rule
-and GitHub's six-hour job limit pull in opposite directions (PLAN_TASK_62.md 11.11).
+and GitHub's six-hour job limit pull in opposite directions (VARKA-62.md 11.11).
 This puts the pieces back together.
 
 **What it refuses to do, which is the point of it being a program rather than `cat`.**

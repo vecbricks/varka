@@ -59,7 +59,7 @@ import java.lang.foreign.ValueLayout;
  * day: the bias is a whole number of eras ({@code 719468 + 14699 * 146097}), which puts the
  * dividend in {@code [0, 2^32 + 719468)} where the {@code /146097} magic is exact with three
  * bits of headroom. So there is no narrow range and no guard here - the same property
- * `PLAN_MILESTONE_5.md` wants for the vector path, reachable in scalar code today
+ * `m5/PLAN.md` wants for the vector path, reachable in scalar code today
  * because a 64-bit multiply is ordinary. The constants are the ones
  * {@code sql/varka/plans/verify_long_lane_magic.py} derives and checks, and the algorithm was
  * swept against a reference over every day of years 1 to 9999 before it was written here;
@@ -69,7 +69,7 @@ import java.lang.foreign.ValueLayout;
  * <p>Both methods write the destination validity as one all-ones fill per batch rather than per
  * row, which is what a null-free scalar path would do. The emitted kernel this is compared
  * against ORs validity per lane group instead, so the two are not paying the same price for
- * that part - see PLAN_MILESTONE_4.md section 2.17, which is about exactly that cost.
+ * that part - see m4/PLAN.md section 2.17, which is about exactly that cost.
  */
 public final class ChronoScalarOps {
 

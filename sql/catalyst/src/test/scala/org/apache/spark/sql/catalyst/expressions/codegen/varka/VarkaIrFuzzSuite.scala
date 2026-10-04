@@ -62,12 +62,12 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * columns and literals and run through the kernel's eight-argument entry point against
  * `evalLong`. It is a second sequence with a second seed rather than long shapes mixed into the
  * first, because the first is also the emitted-bytes oracle's committed corpus. Its value roots
- * are narrowed to an int column where their bound fits (`LongShapes.root`, task 235), and a
+ * are narrowed to an int column where their bound fits (`LongShapes.root`, VARKA-235), and a
  * narrowing root's output is read at the store's four bytes a row. The same
  * option draws apply, which is what puts `useAVX` under the constant division and so fuzzes
  * both of its lowerings on one machine.
  *
- * Past the ceilings (task 238): the byte budget is drawn small as well as off and 8000, so the
+ * Past the ceilings (VARKA-238): the byte budget is drawn small as well as off and 8000, so the
  * regroup and the declines happen at the widths drawn here, and a third test composes
  * `drawWideShape`'s roots into kernels of at least 250 outputs, past the driver's ceiling of about
  * 180 groups, under option variants that reach every size mechanism - the regroup, the call-site
@@ -87,7 +87,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val classCounter = new AtomicInteger(0)
   private val skippedPastTheCap = new AtomicInteger(0)
-  // What the random shapes' emissions did about size, reported after each run (task 238).
+  // What the random shapes' emissions did about size, reported after each run (VARKA-238).
   private val randomTrace = new VarkaEmitTrace
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
@@ -107,7 +107,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
           // The int setters do not share a domain, so each one that has its own is named. Task
           // 46's lanesOverride is an emitted vector width: powers of two and nothing else, the
           // ones above 16 having no specialised validity helpers and so exercising the
-          // fallback. Task 88's useAVX is a machine's reported AVX level, whose interesting
+          // fallback. VARKA-88's useAVX is a machine's reported AVX level, whose interesting
           // boundary is 3 - below it a 64-bit division takes the magic-number form and at or
           // above it the conversions - so a range of large numbers would draw one of the two
           // lowerings every time and never the other. The rest is groupBudget or
@@ -118,9 +118,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
             Some(Integer.valueOf(
               Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 2, 3)(rnd.nextInt(4))))
           } else if (m.getName == "withMethodByteBudget") {
-            // Task 87's switch: off, the limit HotSpot enforces, or a smaller budget that brings
+            // VARKA-87's switch: off, the limit HotSpot enforces, or a smaller budget that brings
             // the size machinery - the regroup, the stages, the declines - down to the widths
-            // drawn here (task 238). A single output over a small budget declines, and
+            // drawn here (VARKA-238). A single output over a small budget declines, and
             // `emitOrSkip` then runs the shape without the budget, so its answers are still
             // checked. One draw whatever the list's length, so the stream is not moved.
             Some(Integer.valueOf(Seq(0, 8000, 1000, 2000, 4000)(rnd.nextInt(5))))
@@ -150,12 +150,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
 
   /**
    * The shape's class, or None for a shape no form of the emitter holds. Under the byte budget
-   * a shape whose single output is over the budget declines with a reason, by design (task 87);
+   * a shape whose single output is over the budget declines with a reason, by design (VARKA-87);
    * the heaviest trees are the ones most worth checking, so such a shape is run in the form
    * without the budget rather than skipped. When that form declines too, or the budget was off
    * and it declined at once, the reason is the class-file cap on a method's code, the one limit
    * the legacy form has: the JVM holds no method the emitter could make of the shape, the
-   * decline is the emitter's answer (task 219), and the shape is counted and skipped. Anything
+   * decline is the emitter's answer (VARKA-219), and the shape is counted and skipped. Anything
    * else the emitter throws is a failure - it rejected a shape the grammar builds.
    */
   private def emitOrSkip(context: String, options: VarkaEmitOptions)(
@@ -407,7 +407,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     // A green fuzz run says nothing about a node type the generator cannot build: the shapes
     // that would have exercised it are simply never drawn, and the suite reports success for
     // the ones it did draw. That is not hypothetical - `TruncDateDynamic` was outside this
-    // generator from task 61 until this test was written, and the gap was found by reading the
+    // generator from VARKA-61 until this test was written, and the gap was found by reading the
     // arms rather than by anything failing.
     //
     // So the reachable set is asserted rather than assumed, against the sealed hierarchy itself
@@ -466,7 +466,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Wide compositions: past the ceilings the one-to-three-root draw never reaches (task 238).
+  // Wide compositions: past the ceilings the one-to-three-root draw never reaches (VARKA-238).
   // ---------------------------------------------------------------------------------------------
 
   private val wideIterations = sys.props.get("varka.fuzz.wide").map(_.toInt).getOrElse(10)
@@ -478,7 +478,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
    * budget, and the declines themselves.
    */
   private val wideVariants: Seq[(String, VarkaEmitOptions)] = {
-    // The variants are the size loop's, with the plan and the prediction off (task 236): under
+    // The variants are the size loop's, with the plan and the prediction off (VARKA-236): under
     // both the first build is the last and no mechanism is reached. The defaults run beside
     // them, planned, so every composition is also checked as production emits it.
     val d = VarkaEmitOptions.DEFAULTS.withPlanSize(false).withPredictGrouping(false)
@@ -613,7 +613,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite {
     val skipped = skippedPastTheCap.getAndSet(0)
     if (skipped > 0) {
       info(s"$skipped shape(s) past the class-file cap on a method in every form the emitter " +
-        "has: declined, and skipped (task 219)")
+        "has: declined, and skipped (VARKA-219)")
     }
     assert(skipped <= 2 + iterations / 1000,
       s"$skipped shapes skipped as past the class-file cap in $iterations iterations")

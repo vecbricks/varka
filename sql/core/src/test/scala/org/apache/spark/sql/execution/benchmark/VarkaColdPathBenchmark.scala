@@ -34,7 +34,7 @@ import org.apache.spark.sql.util.QueryExecutionListener
 
 /**
  * What a new shape's batches cost on each path they can take before its kernel is compiled,
- * the admission check of task 228 (see row 228 of `PLAN_MILESTONE_6.md`).
+ * the admission check of VARKA-228 (see row 228 of `m6/PLAN.md`).
  *
  * While a shape's kernel warms, and whenever a batch falls back, a Varka node evaluates its
  * projection row by row, with Spark's `UnsafeProjection` over each batch's `ColumnarBatchRow`.

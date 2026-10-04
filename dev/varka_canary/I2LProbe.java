@@ -19,8 +19,8 @@
 import jdk.incubator.vector.*;
 
 /**
- * Does an int32 value widen into int64 lanes the same way it widens into double lanes? Task 88
- * settled the double round trip before any bytecode was emitted for it; task 28 needs the same
+ * Does an int32 value widen into int64 lanes the same way it widens into double lanes? VARKA-88
+ * settled the double round trip before any bytecode was emitted for it; VARKA-28 needs the same
  * answer for `I2L` and `L2I`, and the answer is not guessable from the javadoc alone.
  *
  * <p>One species per lane type, which is the constraint that decides the whole lowering: a

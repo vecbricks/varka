@@ -27,7 +27,7 @@ import org.apache.spark.sql.varka.vector.VarkaVectorSupport
  * validity zeroed, filled or written by the bitmap pass, and the all-null shortcut's test - read
  * from a table by one call, so the driver no longer grows with the outputs and stops capping a
  * kernel's width. The loop and epilogue methods are untouched, and every answer must be the
- * unrolled driver's. See `PLAN_TASK_190.md` 9.2 and 10.
+ * unrolled driver's. See `VARKA-190.md` 9.2 and 10.
  */
 class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
 

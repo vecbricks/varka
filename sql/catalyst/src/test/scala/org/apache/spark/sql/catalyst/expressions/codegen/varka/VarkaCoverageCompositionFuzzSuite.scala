@@ -33,20 +33,20 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * coverage suite compiles every documented expression alone and requires it to fuse. Between
  * the two is the path a wide query takes: many admitted entries in one projection, or many
  * admitted conjuncts in one filter, which the compiler groups, budgets in bytes, regroups and
- * partly declines. That path produced the epilogue past 64KB (`PLAN_TASK_87.md`) and the
- * `CASE WHEN` that failed to emit (`PLAN_TASK_169.md`), and nothing drew it at random.
+ * partly declines. That path produced the epilogue past 64KB (`VARKA-87.md`) and the
+ * `CASE WHEN` that failed to emit (`VARKA-169.md`), and nothing drew it at random.
  *
  * Each iteration composes a projection of one to three hundred entries drawn from the table's
  * projection rows, or a filter of one to sixty-four of its predicate rows, resolves them against
  * the table's own columns, and asks the compiler what the planner asks. The property is the
- * milestone's (`PLAN_MILESTONE_6.md` 1.3): every entry is fused or declined with a reason, the
+ * milestone's (`m6/PLAN.md` 1.3): every entry is fused or declined with a reason, the
  * compiler throws nothing, and a decline of an entry the table says fuses alone is one of the
  * two the record knows, a size decline naming the budget or the one-lane rule. Emit options
  * alternate between the default width and four lanes, the two the emitted-bytes oracle pins,
- * and the exact grouping (`PLAN_TASK_200.md`) is on or off at random, since the wide projections
+ * and the exact grouping (`VARKA-200.md`) is on or off at random, since the wide projections
  * drawn here are where it changes the partition.
  *
- * Past the columns one kernel reads (task 238): a third test spreads each of 150 to 300 rows over
+ * Past the columns one kernel reads (VARKA-238): a third test spreads each of 150 to 300 rows over
  * eighty renamed copies of the table's columns, so the compiler serves the projection with
  * several kernels (`VarkaEmitOptions.severalKernels`), holds the same property, and runs every
  * int-lane kernel without derived inputs or bounds against the reference evaluator
@@ -91,7 +91,7 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
    * The two reasons a composition may decline an entry that fuses alone: a size decline, whose
    * reason names a budget, and the one-lane rule - a kernel holds one lane, so a projection
    * that mixes the int and the long lane fuses the first lane it meets and leaves the other,
-   * which `PLAN_TASK_29.md` pins and task 28's width conversion is to lift. Any other reason on
+   * which `VARKA-29.md` pins and VARKA-28's width conversion is to lift. Any other reason on
    * an admitted row is a finding.
    */
   private def isCompositionDecline(reason: String): Boolean =
@@ -107,7 +107,7 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
     val where = s"seed $seed iteration $iteration, ${picked.size} entries, options " +
       s"${opts.canonical}:\n  ${picked.map(_.executable).mkString("\n  ")}"
     val (fused, declined) = try {
-      // A further kernel's entry is fused too (task 190's `severalKernels`, on by default).
+      // A further kernel's entry is fused too (VARKA-190's `severalKernels`, on by default).
       val fused = VarkaExpressionCompiler.compilePartial(list, columns, opts)
         .map(_.specs.zipWithIndex.collect {
           case (_: FusedOutput, i) => i
@@ -153,7 +153,7 @@ class VarkaCoverageCompositionFuzzSuite extends SparkFunSuite {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Past the columns one kernel reads (task 238).
+  // Past the columns one kernel reads (VARKA-238).
   // ---------------------------------------------------------------------------------------------
 
   /**

@@ -21,7 +21,7 @@ import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 
 /**
- * End-to-end tests for the Varka columnar execution path (Task 6). The three sessions are set up
+ * End-to-end tests for the Varka columnar execution path (VARKA-6). The three sessions are set up
  * by [[VarkaSharedSessions]]: data is cached with the Arrow serializer and the vectorized reader
  * so that `InMemoryTableScanExec` feeds real Arrow `DateDayVector` batches into a columnar-to-row
  * transition, mirroring a production columnar scan. The varka session (rule injected and
@@ -57,7 +57,7 @@ class VarkaEndToEndSuite extends QueryTest with VarkaSharedSessions with VarkaTe
   }
 
   test("a non-foldable, non-column offset is not fused but still returns correct results") {
-    // A bare int column offset fuses since task 38 and int arithmetic over one since task 63
+    // A bare int column offset fuses since VARKA-38 and int arithmetic over one since VARKA-63
     // (both have their own differential coverage in VarkaDifferentialSuite); `i % 7` is built
     // from an operator neither task lowered, so it stays declined.
     cacheDates(spark)

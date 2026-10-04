@@ -151,7 +151,7 @@ enum Lane {
     }
     this.firstLocal = this.pLength + 1;
     // The same descriptor with the scratch address after the length, for a kernel that
-    // materializes a calendar prefix (task 198): every slot before it is unchanged, so such a
+    // materializes a calendar prefix (VARKA-198): every slot before it is unchanged, so such a
     // kernel's bodies shift their locals by the long's two slots and nothing else, and every
     // other kernel keeps the descriptor above and its bytes.
     this.runDescScratch =
@@ -305,7 +305,7 @@ enum Lane {
    * exist per lane *count*: 2, 4, 8 and 16. At the int lane the two sets coincide; at the long
    * lane they do not, because a single 64-bit lane is a species that exists and a helper that
    * does not. Anything the pair of checks rejects runs on {@code SPECIES_PREFERRED} and the
-   * general helpers, which is correct at every width and no slower than before task 92.
+   * general helpers, which is correct at every width and no slower than before VARKA-92.
    */
   static int emitLanes(VarkaEmitOptions options, Lane lane) {
     if (!options.validityByWidth()) {
@@ -322,7 +322,7 @@ enum Lane {
   /**
    * Whether {@link VarkaVectorSupport} carries a width-specialised validity pair for this many
    * lanes. A width without one is emitted against {@code SPECIES_PREFERRED} and the general
-   * helpers, which is correct at any width and no slower than before task 92 existed.
+   * helpers, which is correct at any width and no slower than before VARKA-92 existed.
    */
   private static boolean hasValidityHelpers(int lanes) {
     return lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16;

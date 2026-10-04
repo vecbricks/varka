@@ -25,7 +25,7 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 
 /**
- * Task 8: config-driven activation of Varka. [[VarkaColumnarRule]] is registered by
+ * VARKA-8: config-driven activation of Varka. [[VarkaColumnarRule]] is registered by
  * `BaseSessionStateBuilder.columnarRules`, so a user enables Varka purely with
  * `spark.sql.codegen.varka.enabled` - no manual extension injection. This suite builds its
  * session through the public builder (unlike the base test session) and asserts that an eligible

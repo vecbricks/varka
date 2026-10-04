@@ -18,7 +18,7 @@ Read for what to say about concurrency in the public write-up: on a
 48-core socket, scalar threads saturate DDR5 at about twelve threads and SIMD
 only lowers the number of threads needed to reach that ceiling (Figure 1).
 Varka's committed numbers are one partition on one core, and a Spark executor
-runs one task per core, so `SCOPE_MILESTONE_8.md` Item 25 asks for a
+runs one task per core, so `m8/SCOPE.md` Item 25 asks for a
 partitions ladder that says per shape whether a win is compute-bound and
 survives full occupancy. Its page-aligned-stride finding is the same family as
 the buffer-alignment lesson in `sql/varka/skills/vector-api-and-width.md`.

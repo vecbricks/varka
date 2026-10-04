@@ -1753,7 +1753,7 @@ abstract class GeneratedClass {
  *
  * Milestone 1 also carried the Varka `ClassFileGenOp`s of the unit here, so that a future
  * Class-File router could not serve a Janino-compiled unit from the same key. That router was
- * never wired in and the ops were retired with the dispatcher layer in task 17: routing, if it
+ * never wired in and the ops were retired with the dispatcher layer in VARKA-17: routing, if it
  * ever returns, is decided outside this class and both outcomes carry the same `body`, so the
  * decision - like the active [[CodeCompiler]] backend already is - would have to be the thing in
  * the key.

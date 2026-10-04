@@ -81,7 +81,7 @@
       <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>
-    <!-- JMH kernel microbenchmarks (Task 7). maven-jmh-plugin is not resolvable on this
+    <!-- JMH kernel microbenchmarks (VARKA-7). maven-jmh-plugin is not resolvable on this
          environment's Maven mirror, so the benchmarks are registered as an extra test source
          dir (build-helper) and run programmatically via the JMH Runner (exec:java, see the
          DateVectorOpsJMHRunner). `mvn test` compiles them but surefire skips them (they do not

@@ -172,7 +172,7 @@ public final class VarkaRangeAnalysis {
       // A range guard's own bounds are what leaves it, whatever the child was - the same
       // promise the day guard makes, with the bounds the node names. Answered only for the
       // int kinds this lattice tracks; the long lane is UNKNOWN throughout, and its callers
-      // prove their bounds structurally (task 102) or through a guard like this one.
+      // prove their bounds structurally (VARKA-102) or through a guard like this one.
       case GuardedRange n -> kind == Kind.INT
           ? VarkaValueRange.of(n.lo(), n.hi()) : VarkaValueRange.UNKNOWN;
       // A 32-bit value computed in the long lane, whose ranges this lattice does not track.

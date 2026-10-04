@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expre
  * escape analysis then leaves allocations in place - one closure per `add_months`, from the
  * overflow check of Spark's `toIntExact` - that it removes when the same projection reads an
  * `UnsafeRow`, the row vanilla Spark's cache reader hands its operators. Copying the referenced
- * columns first, one read each, gives C2 vanilla's shape; see `PLAN_TASK_228.md` 7.
+ * columns first, one read each, gives C2 vanilla's shape; see `VARKA-228.md` 7.
  *
  * A column read once is read once either way, and copying it - a string's bytes, say - would be
  * pure cost, so the copy is made only when some column is referenced more than once.

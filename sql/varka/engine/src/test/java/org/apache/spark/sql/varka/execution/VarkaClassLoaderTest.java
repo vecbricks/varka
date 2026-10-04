@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 
 /**
- * Validates {@link VarkaClassLoader} (Task 3): define/instantiate semantics, the
+ * Validates {@link VarkaClassLoader} (VARKA-3): define/instantiate semantics, the
  * registry behind {@code loadClass}, the release lifecycle, and - the core Metaspace
  * guarantee - that a released loader whose references are dropped is collected by the
  * JVM so its generated classes unload.

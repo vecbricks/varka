@@ -127,7 +127,7 @@ private[sql] abstract class VarkaEvaluatorBase(
           // logged once per JVM, and as a reason rather than a stack trace. The compiler asks the
           // emitter at plan time and demotes what it declines, so this is the last resort: a
           // shape the planning JVM's vector width admitted within the byte or so another width
-          // adds (PLAN_TASK_169.md 2.2).
+          // adds (VARKA-169.md 2.2).
           if (VarkaKernelEvaluator.loggedDeclines.add(d.getMessage)) {
             logWarning(s"The Varka emitter declined $kernelIdentity: ${d.getMessage}; " +
               "falling back to the per-row path.")
@@ -620,9 +620,9 @@ private[sql] abstract class VarkaEvaluatorBase(
             // than by Spark type, so admitting the type is exactly this line: the serializer
             // already stores such a column and `ArrowColumnVector` already reads it back.
             case (v: IntervalYearVector, None) => v.getValueCount() == rows
-            // The long lane's three (task 29): a `bigint`, a `TIME(p)` - nanoseconds of day at
+            // The long lane's three (VARKA-29): a `bigint`, a `TIME(p)` - nanoseconds of day at
             // every precision - and a day-time interval in microseconds. All three are
-            // `BaseFixedWidthVector`s of width eight, and task 116 proved the two datetime ones
+            // `BaseFixedWidthVector`s of width eight, and VARKA-116 proved the two datetime ones
             // map through `extractMorsel` exactly as the int vectors do. The timestamp vectors
             // are deliberately not here: the compiler never builds a leaf for them, so admitting
             // them would only decline the batch one layer later.
@@ -664,7 +664,7 @@ private[sql] abstract class VarkaEvaluatorBase(
   private var derivedData: Array[ArrowBuf] = null
   private var derivedValidity: Array[ArrowBuf] = null
 
-  // The scratch a kernel with a materialized calendar prefix takes (task 198): one buffer for
+  // The scratch a kernel with a materialized calendar prefix takes (VARKA-198): one buffer for
   // the task, grown to the largest batch's need under the same discipline as the derived
   // inputs' buffers, and released beside them. A kernel without scratch asks for zero bytes per
   // row and is passed a zero address, which its `run` ignores.
@@ -1052,7 +1052,7 @@ private[sql] abstract class VarkaEvaluatorBase(
 
     val kernel: VarkaFusedKernel = entry.newKernel()
 
-    /** Bytes of scratch per row this kernel's `run` takes; zero for most kernels (task 198). */
+    /** Bytes of scratch per row this kernel's `run` takes; zero for most kernels (VARKA-198). */
     val scratchBytesPerRow: Int = kernel.scratchBytesPerRow()
 
     /** The shape's warm state, shared with every task that runs the shape. */

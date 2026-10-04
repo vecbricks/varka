@@ -22,7 +22,7 @@ import java.util.List;
 
 /**
  * The size ladder through the surface's driver, so that it runs on a stock Spark distribution
- * as well as on the fork (task 194): the projection of task 171's ladder widened rung by rung,
+ * as well as on the fork (VARKA-194): the projection of VARKA-171's ladder widened rung by rung,
  * {@code greatest(add_months(d, k), date_add(d, k), last_day(d))} for every {@code k} up to the
  * rung, over the surface's {@code varka_dates}, whose {@code d} is generated as the ladder's
  * date column is.
@@ -35,7 +35,7 @@ import java.util.List;
  * <p><b>Why.</b> The fork's ladder ({@code VarkaSizeLadderBenchmark}) times its vanilla arm
  * through the fork's own codegen over the fork's Arrow cache, and a stock user runs neither:
  * stock Spark 4.2.0 crosses HotSpot's 8000-byte limit between 48 and 52 entries where the fork
- * crosses between 52 and 54 ({@code PLAN_TASK_192.md} 9.2), and Spark's default cache is not
+ * crosses between 52 and 54 ({@code VARKA-192.md} 9.2), and Spark's default cache is not
  * Arrow. Here every distribution the surface runs - stock 4.2.0 on two JDKs, the fork with Varka
  * off and with it on - times the same rungs over its own default cache, or over a Parquet file
  * under {@code --input parquet}, so the ratio a reader would see against the Spark they
@@ -52,7 +52,7 @@ import java.util.List;
  */
 public final class LadderBenchmark {
 
-  /** The ladder's rungs, straddling vanilla's crossing (task 171). */
+  /** The ladder's rungs, straddling vanilla's crossing (VARKA-171). */
   static final List<Integer> RUNGS = List.of(16, 32, 48, 52, 54, 56, 64, 80, 100);
 
   /** One entry of the ladder, aliased; the rung's last entry goes unaliased for the driver. */

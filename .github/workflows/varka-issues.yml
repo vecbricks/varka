@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# The task table, mirrored as issues (task 183): whenever a milestone plan changes on
+# The task table, mirrored as issues (VARKA-183): whenever a milestone plan changes on
 # master, dev/varka_issues.py opens an issue for each row that is open, brings an existing
 # one to its row, and closes the issues of rows that turned done or withdrawn, quoting the
 # outcome. The table is the source of truth; this keeps the view GitHub shows in step.
@@ -26,7 +26,7 @@ on:
     branches:
       - master
     paths:
-      - 'sql/varka/plans/PLAN_MILESTONE_*.md'
+      - 'sql/varka/plans/m*/PLAN.md'
       - 'dev/varka_issues.py'
       - 'dev/varka_good_first_tasks.txt'
   workflow_dispatch:

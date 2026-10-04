@@ -1,5 +1,5 @@
 The kernels' compile events of VarkaColdStartBenchmark under -XX:CompileThresholdScaling=0.01, read
-from a Java Flight Recorder recording of one full run (jdk.Compilation events; PLAN_TASK_212.md 9).
+from a Java Flight Recorder recording of one full run (jdk.Compilation events; VARKA-212.md 9).
 Only the emitted kernels' loop and epilogue methods are counted.
 
 tier    compiles    median ms       p90 ms       max ms

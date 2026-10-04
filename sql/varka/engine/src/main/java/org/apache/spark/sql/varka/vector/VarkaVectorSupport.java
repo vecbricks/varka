@@ -215,7 +215,7 @@ public final class VarkaVectorSupport {
    * bytes, ORs and stores them back; at four lanes a group is half a byte, so two consecutive
    * groups read-modify-write the same byte and serialise on it. The caller accumulates a word's
    * groups in a register and calls this once, so the chain is gone rather than tuned around -
-   * see {@code PLAN_TASK_76.md} 10.6, which measured the regime.
+   * see {@code VARKA-76.md} 10.6, which measured the regime.
    */
   public static void putValidityWord(MemorySegment validity, long row, long word) {
     validity.set(UNALIGNED_LONG, (row >>> 6) << 3, word);
@@ -557,7 +557,7 @@ public final class VarkaVectorSupport {
    *
    * <p>It exists for the driver's size: unrolled, this work is about forty bytes of bytecode an
    * output, and the driver is the one method no regroup shrinks, so it was what capped a kernel's
-   * width. As a plan it is one call whatever the width. See {@code PLAN_TASK_190.md} 9.2.
+   * width. As a plan it is one call whatever the width. See {@code VARKA-190.md} 9.2.
    */
   public static void prepareOutputValidity(long[] dstValidity, long[] srcValidity,
       int[] nullCounts, String plan, int rows) {

@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
  * What int32 arithmetic costs in the fused loop, and what Spark's ANSI overflow check costs on
- * top of it (`sql/varka/plans/PLAN_TASK_63.md`).
+ * top of it (`sql/varka/plans/m4/VARKA-63.md`).
  *
  * A file of its own rather than another section in `VarkaEmitterParityBenchmark`, whose subject
  * is a lowering priced against its hand-written kernel or against a second lowering of the same
@@ -40,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  *
  * **The check's price, as an A/B on one node.** Every checked case appears twice, as the same
  * IR emitted with `checkIntOverflow` on and off. Off is not a setting any query may run under -
- * it drops an obligation ANSI mode imposes - it is the reference arm, the same device task 52
+ * it drops an obligation ANSI mode imposes - it is the reference arm, the same device VARKA-52
  * uses for `guardDayProducers`. The difference between the two rows is the sign test: four
  * lanewise ops and a compare for `+` and `-`, one compare for unary minus, which reads the
  * operand rather than the result. The wrapping form of the same operation is beside them as a
@@ -54,7 +54,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * short-circuiting a batch.
  *
  * **What the compile-time bound removes.** `year(d) * 100 + month(d)` is the shape
- * `PLAN_TASK_63.md` 6 is about. Its operands are bounded by the calendar, the compiler proves
+ * `VARKA-63.md` 6 is about. Its operands are bounded by the calendar, the compiler proves
  * the result cannot leave the int range, and every node in it is emitted `WRAP` - so under ANSI
  * this shape carries no check at all. The section prices that against the same expression with
  * its outer add checked, which is what the emitter would produce without the analysis. There is
@@ -123,7 +123,7 @@ object VarkaArithmeticBenchmark extends BenchmarkBase {
     // scalastyle:on println
   }
 
-  /** The A/B's reference arm: the same IR with task 63's overflow check switched off. */
+  /** The A/B's reference arm: the same IR with VARKA-63's overflow check switched off. */
   private val uncheckedArm = VarkaEmitOptions.DEFAULTS.withCheckIntOverflow(false)
 
   private def emit(roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int,

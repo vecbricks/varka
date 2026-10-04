@@ -92,7 +92,7 @@ public class TimeChainsTest {
   /**
    * The list demonstrates the long lane's three types in single expressions. Every entry has
    * to read a {@code TIME} column and an interval column; the {@code bigint} columns can enter
-   * only through a comparison, a null test, {@code greatest} or {@code least} until task 104
+   * only through a comparison, a null test, {@code greatest} or {@code least} until VARKA-104
    * builds their arithmetic, so they are required in a third of the list rather than all of
    * it. Counted over column references, tokenised, so that a literal never passes for a column.
    */

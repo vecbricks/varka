@@ -94,7 +94,7 @@ public final class VarkaDebugInfo {
    * marked with {@link #TRUNCATED} when it was cut. Each field is written as one such entry, and
    * a kernel of several hundred outputs renders an IR past the limit, which the class-file
    * builder refuses with "string too long" - failing the whole class for the sake of metadata
-   * the JVM never reads ({@code PLAN_TASK_190.md} 2). The count is the class file's modified
+   * the JVM never reads ({@code VARKA-190.md} 2). The count is the class file's modified
    * UTF-8: one byte for U+0001 to U+007F, two for U+0000 and up to U+07FF, three beyond.
    */
   static String bounded(String s) {

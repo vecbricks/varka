@@ -26,11 +26,11 @@
 #
 # The deopt step forks ten fresh JVMs per vector width of the default emission's twelve-output
 # make_date kernel and fails if any of them enters the C2 deoptimization cycle, reading the
-# JVM's own compile and trap log (dev/varka_deopt_cycle.sh, PLAN_TASK_189.md 3.3). The cliff
+# JVM's own compile and trap log (dev/varka_deopt_cycle.sh, VARKA-189.md 3.3). The cliff
 # step forks ten fresh JVMs of the cheap-tail shape at 24 and 40 outputs under the production
 # emitter and fails if any of them is slow at the end of twelve seconds - the loop method past
 # C1's limit, which the call-site budget is there to prevent (dev/varka_inlining_cliff.sh,
-# PLAN_TASK_209.md 11).
+# VARKA-209.md 11).
 #
 # Logs go under target/varka-nightly/<date>/; the summary names the fuzzer's
 # seed so a failure replays with -Dvarka.fuzz.seed=<seed> -Dvarka.fuzz.only=<n>.

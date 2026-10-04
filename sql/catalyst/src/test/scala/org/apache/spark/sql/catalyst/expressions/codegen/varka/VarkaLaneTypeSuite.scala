@@ -33,7 +33,7 @@ import org.apache.spark.sql.varka.vector.VarkaVectorSupport
  *
  * The lane is the width of the vector a node is emitted into, not the Spark type above it - a
  * date, an int and a year-month interval are all the same 32-bit lane. Until the emitter is
- * parameterised on it (task 85, steps 3 and 4) the int lane is the only one it can emit, so a
+ * parameterised on it (VARKA-85, steps 3 and 4) the int lane is the only one it can emit, so a
  * well-formed 64-bit tree is built here and refused there, which is what the last test pins.
  */
 class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
@@ -116,7 +116,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a value node over long leaves is on the long lane") {
-    // The lane-generic nodes: the ones task 85 ships at 64 bits. Each derives from its
+    // The lane-generic nodes: the ones VARKA-85 ships at 64 bits. Each derives from its
     // operands, so a whole subtree answers LONG without anything below it being asked twice.
     val nodes = Seq(
       new IntArith(IntOp.MUL, Overflow.WRAP, longCol, longLit),
@@ -284,14 +284,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("every node type is emittable at exactly the lanes the table admits") {
-    // The reachability claim task 85 owes, as a table rather than as a random walk: for every
+    // The reachability claim VARKA-85 owes, as a table rather than as a random walk: for every
     // concrete node type, at every lane, either the IR refuses to build it or the emitter
     // produces a class that verifies. A lane arriving without an arm fails here in
     // milliseconds, which is what the claim is for.
     //
     // It is checked by enumeration rather than by making the fuzz generator lane-parametric.
     // The long lane's subset is twelve node types, which enumeration covers exhaustively where
-    // a generator covers it by chance; and a lane-parametric `Shapes` is what task 104 needs
+    // a generator covers it by chance; and a lane-parametric `Shapes` is what VARKA-104 needs
     // for SQL-level shapes, not what this task needs for twelve.
     def instance(cls: Class[_], lane: LaneType): Option[VarkaVectorIR] = {
       val c = new ColumnRef(0, lane)
@@ -363,18 +363,18 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
     assert(atInt === types.map(_.getSimpleName).toSet, "every node type is emittable at INT")
-    // The subset PLAN_TASK_85.md 3.1 names, and nothing else: a calendar node at the long lane
+    // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
       "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide", "GuardedRange",
       "NarrowLane"),
-      "the long lane serves the lane-generic subset, task 88's division, task 102's guard and " +
+      "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard and " +
         "its narrowing root")
   }
 
   test("a narrowing is an int over a long child, emitted at the long lane, and a root only") {
-    // `PLAN_TASK_102.md` 8.3: the TIME extracts compute a 64-bit division and deliver an int,
-    // and until task 28 gives the emitter a width conversion the only place a lane changes
+    // `VARKA-102.md` 8.3: the TIME extracts compute a 64-bit division and deliver an int,
+    // and until VARKA-28 gives the emitter a width conversion the only place a lane changes
     // width is a root's store. So the node answers INT for its value and LONG for the lane it
     // is emitted at, refuses an int child where it is built (there is nothing to narrow), and
     // the emitter refuses it under another node - where its 32-bit value would meet a 64-bit

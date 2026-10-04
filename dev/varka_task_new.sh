@@ -22,8 +22,9 @@
 #   dev/varka_task_new.sh 37 "weekofyear by the Thursday rule"
 #   dev/varka_task_new.sh 37 "..." --dir /somewhere/else
 #
-# Creates ../varka-task-<n> on branch varka-task-<n> at origin/master, writes
-# sql/varka/plans/PLAN_TASK_<n>.md there from sql/varka/plans/TEMPLATE_TASK.md,
+# Creates ../varka-<n> on branch varka-<n> at origin/master, writes
+# sql/varka/plans/m<k>/VARKA-<n>.md there for the milestone in flight (the highest m<k> with a
+# PLAN.md) from sql/varka/plans/TEMPLATE_TASK.md,
 # and installs the pre-commit check in that worktree. It does not commit: the
 # first commit is the plan, once its admission check is done, per the template.
 # Refuses to overwrite an existing plan file or reuse an existing branch.
@@ -43,20 +44,22 @@ done
 [[ "$n" =~ ^[0-9]+$ ]] || { echo "task number must be an integer, got '$n'" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 remote="${VARKA_BASE_REMOTE:-origin}"
-branch="varka-task-$n"
-[ -n "$dir" ] || dir="$(dirname "$root")/varka-task-$n"
-plan="sql/varka/plans/PLAN_TASK_$n.md"
+branch="varka-$n"
+[ -n "$dir" ] || dir="$(dirname "$root")/varka-$n"
+milestone="$(ls -d "$root"/sql/varka/plans/m*/PLAN.md | sed -E 's|.*/m([0-9]+)/PLAN.md|\1|' | sort -n | tail -1)"
+plan="sql/varka/plans/m$milestone/VARKA-$n.md"
 
 if git -C "$root" show-ref --quiet "refs/heads/$branch"; then
   echo "branch $branch already exists; pick up the existing worktree instead" >&2; exit 1
 fi
 [ -e "$dir" ] && { echo "$dir already exists" >&2; exit 1; }
 git -C "$root" fetch -q "$remote" master
-if git -C "$root" cat-file -e "$remote/master:$plan" 2>/dev/null; then
+if git -C "$root" ls-tree -r --name-only "$remote/master" sql/varka/plans | grep -q "/VARKA-$n\.md$"; then
   echo "$plan already exists on $remote/master; this task has a plan" >&2; exit 1
 fi
 
 git -C "$root" worktree add -q -b "$branch" "$dir" "$remote/master"
+mkdir -p "$(dirname "$dir/$plan")"
 sed -e "s/<n>/$n/g" -e "s/<title>/$title/" "$root/sql/varka/plans/TEMPLATE_TASK.md" > "$dir/$plan"
 if [ -x "$dir/dev/varka_precommit.sh" ]; then
   (cd "$dir" && dev/varka_precommit.sh --install-hook > /dev/null)
@@ -64,7 +67,7 @@ fi
 cat <<MSG
 worktree: $dir (branch $branch at $(git -C "$dir" rev-parse --short=11 HEAD))
 plan:     $plan, from the template - fill sections 1-8 before the code
-next:     the milestone row for task $n, marked Planned with the plan file linked;
+next:     the milestone row for VARKA-$n, marked Planned with the plan file linked;
           the admission check into section 2; dev/varka_emit.sh for section 3.3's counts;
           then the first commit is the plan.
 MSG

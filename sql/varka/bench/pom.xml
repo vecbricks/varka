@@ -21,7 +21,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    The public date-surface benchmark (task 62, PLAN_TASK_62.md): one spark-submit application
+    The public date-surface benchmark (VARKA-62, VARKA-62.md): one spark-submit application
     that runs the same queries on stock Apache Spark and on this fork, so the two are timed by
     the same code. It therefore has no parent and is not in the root reactor: it compiles
     against a *released* spark-sql (provided scope, the stock release under test), uses only

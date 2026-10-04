@@ -31,8 +31,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * What a 64-bit lane costs against a 32-bit one, for the same expression over the same rows.
  *
  * The long lane is milestone 5's subject: `bigint`, `TIME`, the timestamps and day-time
- * intervals are all built on it, and task 85 made the emitter produce it before any of those
- * exist. This file is that lane's baseline, committed before task 104 adds the compiler arms
+ * intervals are all built on it, and VARKA-85 made the emitter produce it before any of those
+ * exist. This file is that lane's baseline, committed before VARKA-104 adds the compiler arms
  * that will let SQL reach it - the project's rule that a measurement precedes the change it is
  * meant to judge.
  *

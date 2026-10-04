@@ -32,14 +32,14 @@ import org.apache.spark.sql.types.DateType
 
 /**
  * The child process behind `dev/varka_inlining_cliff.sh` and [[VarkaInliningCliffSuite]]
- * (task 209): does a kernel's loop method keep its vector intrinsics, or run as the Vector API's
+ * (VARKA-209): does a kernel's loop method keep its vector intrinsics, or run as the Vector API's
  * scalar fallback, and does the same class land on either side from one JVM to the next?
  *
- * It emits task 198's cheap-tail shape - `year(d) + k` for `k` up to the output count, over one
+ * It emits VARKA-198's cheap-tail shape - `year(d) + k` for `k` up to the output count, over one
  * date column - at the given fused ceiling, which decides how many loop methods the outputs are
  * grouped into (400 puts sixty-four in one group of 225 `IntVector` call sites, 100 in two, 50 in
  * six), drives the kernel over null-free batches for a number of seconds, and prints its rate
- * every second. The verdict is the rate of the last seconds: the two sides task 198 measured are
+ * every second. The verdict is the rate of the last seconds: the two sides VARKA-198 measured are
  * about 4 and 250 nanoseconds a row apart, and `dev/varka_inlining_cliff.py` cuts between them.
  * The evidence on why is the JVM's, from the flags the launcher passes: `PrintInlining` and
  * `PrintIntrinsics` scoped to the emitted class print into this process's output, between the
@@ -71,7 +71,7 @@ import org.apache.spark.sql.types.DateType
  *  - `VARKA_CLIFF_DONE=<class> status=<status>`.
  *
  * `c1off` keeps C1 off the emitted class through a compiler directive, as the kernel warm-up
- * keeps it in production; the default is C1 on, the condition task 198 measured under.
+ * keeps it in production; the default is C1 on, the condition VARKA-198 measured under.
  */
 object VarkaInliningCliffProbe {
 
@@ -113,7 +113,7 @@ object VarkaInliningCliffProbe {
   private val columns: Seq[Attribute] = Seq(d)
 
   /**
-   * The projection: task 198's cheap tails, `year(d) + k`, the prefix most of each output's
+   * The projection: VARKA-198's cheap tails, `year(d) + k`, the prefix most of each output's
    * work; or the deopt guard's `make_date(year(d), month(d), k)` outputs.
    */
   private def shape(kind: String, n: Int): CompiledVarkaProjection = {
@@ -170,7 +170,7 @@ object VarkaInliningCliffProbe {
     val fused = shape(kind, outputs)
     val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
       fused.numLiterals, null, null,
-      // The budget is read against the measured split, not the predicted one (task 236).
+      // The budget is read against the measured split, not the predicted one (VARKA-236).
       VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withCallSiteBudget(budget)
         .withHeavyGroupOutputs(heavy).withPredictGrouping(false).withPlanSize(false))
     val measured = VarkaEmittedClass.measure(bytes)

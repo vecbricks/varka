@@ -17,10 +17,10 @@ section headers:
 |---|---:|---|---|
 | datetime | 64 | int32 and int64 lanes; the calendar algorithms | Varka's home ground; `TIME` is milestone 5's subject |
 | math | 61 | **a double lane**; the Vector API's math operators | section 2 and 3 |
-| aggregate | 76 | the aggregation operator, milestone 6's target | `SCOPE_MILESTONE_8.md` items 4 and 5 |
-| string | 67 | a string representation | `SCOPE_MILESTONE_8.md` item 80's family |
+| aggregate | 76 | the aggregation operator, milestone 6's target | `m8/SCOPE.md` items 4 and 5 |
+| string | 67 | a string representation | `m8/SCOPE.md` item 80's family |
 | predicate, conditional | 13 + 10 | compares, blend, `IS_NAN` | largely fused; `LIKE` and the regexes are strings |
-| bitwise | 6 | shifts and counts, all in the Vector API | `SCOPE_MILESTONE_8.md` item 32 |
+| bitwise | 6 | shifts and counts, all in the Vector API | `m8/SCOPE.md` item 32 |
 | hash | 9 | xxhash64 and murmur over lanes | feasible for numeric inputs; nothing scoped |
 | array, map, lambda, collection, struct | 54 | variable-length nested values per row | far; no representation |
 | window | 9 | operator-level, not expression-level | after aggregation |
@@ -67,16 +67,16 @@ double go through `BigDecimal` in Spark, which a kernel has to match digit for
 digit; `truncate` likewise.
 
 **Division by a column.** `mod`, `pmod` and `div` are the integral family. Where
-the divisor is a constant they are task 88's magic multiply; where it is a
+the divisor is a constant they are VARKA-88's magic multiply; where it is a
 column there is no magic, and the double route serves them as
-`a - trunc(a / b) * b`, exact below 2^53 under the bound task 88 states. That is
+`a - trunc(a / b) * b`, exact below 2^53 under the bound VARKA-88 states. That is
 a new lowering, not a variant of an existing one.
 
 **Not lane work.** `bin`, `hex`, `unhex`, `conv` produce strings. `rand`,
 `randn`, `random`, `uniform` are seeded per partition and Spark's answers depend
 on the row order the generator sees. `try_add`, `try_subtract`,
 `try_multiply`, `try_divide`, `try_mod` are the overflow family and belong with
-tasks 63 and 104, not here.
+VARKA-63 and VARKA-104, not here.
 
 ## 3. The measured fact: none of these is bit-exact through the Vector API
 
@@ -174,7 +174,7 @@ functions, whose row-engine bits are the same on every host: `exp` and `log`
 are a table and a short polynomial, and a lane that reproduces fdlibm's
 arithmetic reproduces its bits - bit-exact, slower than SVML by a factor to be
 measured, and a kernel to maintain. Or a **decline** of the family, since no
-function in it is exact. `SCOPE_MILESTONE_8.md` item 36 holds the decision.
+function in it is exact. `m8/SCOPE.md` item 36 holds the decision.
 
 ## 4. What is shared across the families
 

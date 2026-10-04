@@ -43,7 +43,7 @@ import org.apache.spark.sql.internal.SQLConf
  * which defaults to 65535. Spark's own `TPCDSQuerySuite` asserts that every TPC-DS stage is within
  * 8000 bytes, after turning `spark.sql.readSideCharPadding` off and excluding `modified-q3`. This
  * census walks the same stages under the settings users run and records every stage's size
- * instead of asserting it (`PLAN_TASK_193.md`).
+ * instead of asserting it (`VARKA-193.md`).
  *
  * Every whole-stage stage of every query, subqueries included, becomes one line: the query set,
  * the query, the stage id, the stage's operators top down, the largest method's bytes, the

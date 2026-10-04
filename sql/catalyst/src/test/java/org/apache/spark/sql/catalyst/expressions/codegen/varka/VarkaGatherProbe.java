@@ -35,7 +35,7 @@ import jdk.incubator.vector.VectorSpecies;
  * <p>This is a capability probe, not a kernel. Varka cannot emit either of these: the emitter
  * has no gather, and - the reason that is not merely an omission - {@code IntVector} offers an
  * index-map overload only on {@code fromArray}, never on {@code fromMemorySegment}, while every
- * Varka input is an off-heap Arrow buffer. See {@code PLAN_MILESTONE_4.md} item 9.
+ * Varka input is an off-heap Arrow buffer. See {@code m4/PLAN.md} item 9.
  */
 public final class VarkaGatherProbe {
 
@@ -79,7 +79,7 @@ public final class VarkaGatherProbe {
    * month whose only use here is the January bit. Kept close to the emitted lowering so the
    * comparison is fair, and held to {@code LocalDate} by {@code VarkaGatherProbeSuite}.
    *
-   * <p>This mirrors the lowering on master. Task 48 removes the month step from the year tail,
+   * <p>This mirrors the lowering on master. VARKA-48 removes the month step from the year tail,
    * reading the January bit off the day of year instead, which takes four lane ops off this
    * body; the gather it is measured against is unaffected, so the ratio moves in arithmetic's
    * favour by that much once it lands.

@@ -125,7 +125,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
     }.collect().toSeq
     assert(rows === Seq(List(3, 7, 0), List(null, 8, 1), List(20003, null, null)))
     assert(plan.metrics("numVarkaBatches").value === 1)
-    // Task 22: the residual entry (`inc`) is counted once, driver-side - a static plan
+    // VARKA-22: the residual entry (`inc`) is counted once, driver-side - a static plan
     // property, not multiplied by task count.
     assert(plan.metrics("numResidualEntries").value === 1)
   }
@@ -196,7 +196,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
   test("an ineligible projection still produces the right batches") {
     // `i % 7` is not a kernel op, so every batch goes through the fallback - the node is only
     // ever planned for eligible projections, but it must not produce wrong data if it is not.
-    // It replaced `i + 1` here when task 63 lowered int arithmetic and that shape started
+    // It replaced `i + 1` here when VARKA-63 lowered int arithmetic and that shape started
     // fusing; `%` has no arm, so this stays an ineligible projection.
     val plan = node(
       project(Alias(Remainder(intAttr, Literal(7)), "add")()),
@@ -214,7 +214,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
         Seq(BatchSpec("arrow", Seq(Seq(Int.box(1), null, Int.box(5))))),
         Seq(attrD))
       assert(values(plan) === Seq(4, null, 8))
-      // Task 22: the ghost fallback is counted under its own cause.
+      // VARKA-22: the ghost fallback is counted under its own cause.
       assert(plan.metrics("numFallbackBatchesKernel").value === 1)
       assert(plan.metrics("numFallbackBatchesNonArrow").value === 0)
     } finally {
@@ -223,7 +223,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
   }
 
   test("the fallback warning names the kernel it gave up on") {
-    // Before task 16 this line carried only the exception, so a log could not say which plan
+    // Before VARKA-16 this line carried only the exception, so a log could not say which plan
     // node or projection had fallen back.
     VarkaColumnarToRowExec.setFailKernelForTesting(true)
     try {
@@ -297,8 +297,8 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
   }
 
   test("an entry the emitter declines in bytes is residual in the plan, and no task fails " +
-      "to emit (task 169)") {
-    // PLAN_TASK_169.md: a balanced greatest over thirty-two add_months is one output whose loop
+      "to emit (VARKA-169)") {
+    // VARKA-169.md: a balanced greatest over thirty-two add_months is one output whose loop
     // method is past HugeMethodLimit. The compiler asks the emitter at planning and leaves it to
     // the row path with the reason, so EXPLAIN says so and the kernel the tasks emit is the one
     // the emitter serves: no emission failure, which before this task was one per task.
@@ -323,7 +323,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
   test("the fallback projection is compiled lazily, only when a batch falls back") {
     // Same construction as the VarkaColumnarToRowExecSuite counterpart: under CODEGEN_ONLY,
     // [[ExplodingCodegenExpression]] makes building the fallback projection throw, so the
-    // evaluator constructor succeeding proves the compile is deferred (task 15), and the
+    // evaluator constructor succeeding proves the compile is deferred (VARKA-15), and the
     // failure surfacing on an ineligible batch proves it is deferred exactly to the fallback.
     withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
       val factory = new VarkaProjectEvaluatorFactory(
@@ -333,7 +333,7 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
         SQLMetrics.createMetric(sparkContext, "rows"),
         SQLMetrics.createMetric(sparkContext, "batches"),
         VarkaExecMetrics())
-      // Before task 15 this constructor compiled the fallback eagerly and threw.
+      // Before VARKA-15 this constructor compiled the fallback eagerly and threw.
       val evaluator = factory.createEvaluator()
       val column = new OnHeapColumnVector(1, IntegerType)
       column.putInt(0, 7)
@@ -431,12 +431,12 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
     assert(plan.metrics("numInputBatches").value === 3)
     // Only the non-empty Arrow batch reaches the kernels; the on-heap one takes the fallback.
     assert(plan.metrics("numVarkaBatches").value === 1)
-    // Task 18: each spec is its own partition, so three tasks looked the shape up - canRun
+    // VARKA-18: each spec is its own partition, so three tasks looked the shape up - canRun
     // forces the runner on the fallback tasks too, which before the cache emitted a class it
     // never ran and now costs a hit. Hit or miss per task depends on what ran in this JVM.
     assert(plan.metrics("numVarkaCacheHits").value +
       plan.metrics("numVarkaCacheMisses").value === 3)
-    // Task 22: the on-heap fallback batch is counted under its cause; nothing else fired -
+    // VARKA-22: the on-heap fallback batch is counted under its cause; nothing else fired -
     // in particular the EMPTY Arrow batch, which canRun also refuses, is served trivially
     // and must not read as "input not Arrow-backed" (the task-21 review's cause fix).
     assert(plan.metrics("numFallbackBatchesNonArrow").value === 1)

@@ -286,7 +286,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // with the fused-output row - reads fused values, copies forwarded ones and evaluates
     // residual expressions in the same per-row pass that produces the output row anyway.
     // The alternative (assembling a full output batch and reading it back) materialises the
-    // residual columns into vectors for nothing; the head-to-head in `PLAN_TASK_12.md` 5
+    // residual columns into vectors for nothing; the head-to-head in `VARKA-12.md` 5
     // measured it at 0.5x-0.7x Janino end to end, which this shape recovers.
     // None when every entry fuses: the fused batch is then the output and `toRow` suffices.
     private lazy val mergeProjection: Option[UnsafeProjection] = kernels.partialPlan.flatMap {

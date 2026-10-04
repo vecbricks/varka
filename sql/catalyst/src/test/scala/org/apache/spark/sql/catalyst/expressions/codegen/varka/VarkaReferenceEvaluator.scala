@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
 /**
- * The reference evaluator (task 11): an independent Scala implementation of the milestone's 2.6
+ * The reference evaluator (VARKA-11): an independent Scala implementation of the milestone's 2.6
  * semantics - three-valued conditions, blend, null-skipping greatest/least, floorMod - that the
  * emitted loops are checked against row for row. Every calendar oracle is the definition
  * (`java.time`, `DateTimeUtils`) rather than `VarkaChrono`, the model the lowerings were derived
@@ -48,7 +48,7 @@ object VarkaReferenceEvaluator {
     case n: SubDays =>
       for (d <- evalValue(n.days(), row, lits); o <- evalValue(n.offset(), row, lits))
         yield d - o
-    // Task 93's range check is a status report, not a value change: the reference has no
+    // VARKA-93's range check is a status report, not a value change: the reference has no
     // notion of a declined batch, and a lane the guard would report is one the kernel does not
     // answer at all, so the differential never compares against it. The value passes through.
     case n: GuardedDay => evalValue(n.days(), row, lits)
@@ -114,7 +114,7 @@ object VarkaReferenceEvaluator {
         case TruncLevel.QUARTER => DateTimeUtils.TRUNC_TO_QUARTER
       }
       evalValue(n.days(), row, lits).map(DateTimeUtils.truncDate(_, level))
-    // The same definition over the level lane (task 61). The leaf hands the kernel no code
+    // The same definition over the level lane (VARKA-61). The leaf hands the kernel no code
     // outside the four date levels - anything else is a null lane - so a live lane with one is
     // not a shape the kernel is ever asked, and truncDate's throw on it is the right answer.
     case n: TruncDateDynamic =>
@@ -126,7 +126,7 @@ object VarkaReferenceEvaluator {
     case n: AddMonths =>
       for (d <- evalValue(n.days(), row, lits); m <- evalValue(n.months(), row, lits))
         yield DateTimeUtils.dateAddMonths(d, m)
-    // Task 63. The oracle is Java's own arithmetic, not the emitter's sign test: Math.addExact
+    // VARKA-63. The oracle is Java's own arithmetic, not the emitter's sign test: Math.addExact
     // and friends define overflow, and catching their throw is what says a lane overflowed.
     // WRAP is the wrapping operator, which is what Spark's LEGACY mode and the JVM both do.
     case n: IntArith =>
@@ -194,9 +194,9 @@ object VarkaReferenceEvaluator {
     }
 
   /**
-   * The reference at the long lane, for the subset task 85 ships there: the two leaves, the
+   * The reference at the long lane, for the subset VARKA-85 ships there: the two leaves, the
    * arithmetic and its three overflow modes, the negate, the hull ops and the conditional.
-   * Task 119's first part, landing with the lane it exists to check.
+   * VARKA-119's first part, landing with the lane it exists to check.
    *
    * It is a second method rather than a widening of `evalValue` because the two answer
    * different questions: a `DateDiff` or a `Year` has no meaning over 64-bit lanes and must
@@ -225,7 +225,7 @@ object VarkaReferenceEvaluator {
             case IntOp.ADD => exact(Math.addExact)
             case IntOp.SUB => exact(Math.subtractExact)
             // No checked multiply exists at either lane - the int one has no 64-bit product to
-            // test with and the long one would need 128 bits, which is task 104's.
+            // test with and the long one would need 128 bits, which is VARKA-104's.
             case IntOp.MUL => throw new IllegalArgumentException(
               "a checked multiply has no long-lane overflow test: " + n)
           }
@@ -261,7 +261,7 @@ object VarkaReferenceEvaluator {
       if (evalCondLong(n.cond(), row, lits).contains(true)) evalLong(n.thenNode(), row, lits)
       else evalLong(n.elseNode(), row, lits)
     case other => throw new IllegalArgumentException(
-      "no long-lane reference for " + other.getClass.getSimpleName + "; task 85 ships the "
+      "no long-lane reference for " + other.getClass.getSimpleName + "; VARKA-85 ships the "
         + "lane-generic subset only")
   }
 
@@ -328,7 +328,7 @@ object VarkaReferenceEvaluator {
         val bounds: IndexedSeq[Int] = n.bounds().asScala.map(_.intValue).toIndexedSeq
         bounds.indices.by(2).exists(i => bounds(i) <= v && v <= bounds(i + 1))
       }
-    // The first total condition (task 20): IS NOT NULL never returns unknown - a null
+    // The first total condition (VARKA-20): IS NOT NULL never returns unknown - a null
     // operand is a definite false, not a missing answer.
     case n: IsNotNull => Some(evalValue(n.child(), row, lits).isDefined)
   }

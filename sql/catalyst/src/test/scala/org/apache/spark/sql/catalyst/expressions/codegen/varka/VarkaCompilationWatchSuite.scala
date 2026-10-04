@@ -25,7 +25,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
 
 /**
- * Task 50: the compiled-size watch.
+ * VARKA-50: the compiled-size watch.
  *
  * Everything here except the last case runs without JFR compiling anything, by driving
  * `VarkaCompilationWatch.record` directly - the seam the JFR handler calls once it has read the
@@ -41,7 +41,7 @@ class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
   private def classOf(shape: String): String = prefix + shape
 
   test("the key names the method and the tier, not just the shape") {
-    // The correction in PLAN_TASK_50.md 2.1. A shape emits run, runDense, loopDense0,
+    // The correction in VARKA-50.md 2.1. A shape emits run, runDense, loopDense0,
     // epilogueMasked and more, whose compiled sizes differ by an order of magnitude - measured
     // on a probe at 576 bytes against 10552 for two methods of one class. Keyed on the shape
     // alone, the second method compiled would be reported as a divergence and the detector
@@ -84,14 +84,14 @@ class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
     watch.record(classOf(shapeA), "loopDense0", 4, 1700L)
     assert(watch.divergenceCount() === 0,
       s"a 6% difference is inside the ${VarkaCompilationWatch.DIVERGENCE_RATIO} threshold")
-    // Task 32's actual failure: 1581 instructions against 3000, about 2x, and worth 30-40%.
+    // VARKA-32's actual failure: 1581 instructions against 3000, about 2x, and worth 30-40%.
     watch.record(classOf(shapeA), "loopDense0", 4, 3000L)
     assert(watch.divergenceCount() === 1, "a 2x difference is the case this exists to catch")
   }
 
   test("a smaller later compilation counts too") {
     // The baseline is whichever came first, and the bad allocation is not guaranteed to be it -
-    // task 32 saw the fast outcome 4 times in 21 runs, so the first compilation of a JVM is more
+    // VARKA-32 saw the fast outcome 4 times in 21 runs, so the first compilation of a JVM is more
     // likely to be the slow one. The comparison is on absolute difference for that reason.
     val watch = VarkaCompilationWatch.inert()
     watch.record(classOf(shapeA), "loopDense0", 4, 3000L)
@@ -100,7 +100,7 @@ class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a second method of the same shape establishes its own baseline") {
-    // The regression PLAN_TASK_50.md 2.1 exists to prevent, asserted rather than argued.
+    // The regression VARKA-50.md 2.1 exists to prevent, asserted rather than argued.
     val watch = VarkaCompilationWatch.inert()
     watch.record(classOf(shapeA), "run", 4, 271L)
     watch.record(classOf(shapeA), "loopDense0", 4, 3000L)
@@ -213,7 +213,7 @@ class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
         "no Varka kernel compilation reached the watch within 30s - either the class-name " +
           "filter no longer matches what the emitter names its classes, or nothing compiled")
       // The measurement behind DIVERGENCE_RATIO: these are the sizes a healthy JVM produces for
-      // this shape. PLAN_TASK_50.md section 3 compares them across runs.
+      // this shape. VARKA-50.md section 3 compares them across runs.
       watch.baselines().asScala.toSeq.sortBy(_._1).foreach { case (key, size) =>
         logInfo(s"VARKA_CODESIZE $key = $size")
       }
@@ -227,7 +227,7 @@ class VarkaCompilationWatchSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("a re-emitted shape compiles twice under one key " +
       "(opt-in: -Dvarka.jfr=true)") {
     // The case that decides whether this feature can ever fire, and it is not the obvious one.
-    // Task 32's bimodality was *between* JVM runs - "stdev 0 inside a run, 42% between runs" -
+    // VARKA-32's bimodality was *between* JVM runs - "stdev 0 inside a run, 42% between runs" -
     // and a per-JVM baseline cannot see that: measured over three JVMs, every key was compiled
     // exactly once and the sizes were byte-identical, so there was nothing to compare.
     //

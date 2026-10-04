@@ -43,7 +43,7 @@ object VarkaSizeLadder {
    * Two million rows, as `VarkaThroughputBenchmark` reads: each case plans its query afresh, and
    * planning a wide projection plus its first row costs tens of milliseconds, which over a
    * hundred thousand rows was most of the Varka arm's time per row and most of its kernel's
-   * warmup (`PLAN_TASK_171.md` 9).
+   * warmup (`VARKA-171.md` 9).
    */
   private[benchmark] val numRows = 2000000
 
@@ -114,7 +114,7 @@ object VarkaSizeLadder {
 }
 
 /**
- * The size ladder (task 171): one projection widened rung by rung, on stock Spark and on
+ * The size ladder (VARKA-171): one projection widened rung by rung, on stock Spark and on
  * Varka, time per row against the number of entries.
  *
  * Every entry is `greatest(add_months(d, k), date_add(d, k), last_day(d))` for its own `k`,
@@ -126,7 +126,7 @@ object VarkaSizeLadder {
  * projection as a kernel whose every method is held under that limit by the byte budget, so no
  * rung crosses anything. The rungs straddle the crossing rather than being round, and stop at a
  * hundred: past it `spark.sql.codegen.maxFields` turns vanilla's whole-stage codegen off, which
- * is a different cliff (`PLAN_TASK_171.md` 2.2).
+ * is a different cliff (`VARKA-171.md` 2.2).
  *
  * Each rung writes what it is into the results file after its timed cases: vanilla's largest
  * generated method, whether that is past `HugeMethodLimit`, and how many entries Varka fused.

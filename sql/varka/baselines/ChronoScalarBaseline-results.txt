@@ -1,5 +1,5 @@
 ================================================================================================
-The scalar calendar baseline, on Java 17 and Java 25 (task 26)
+The scalar calendar baseline, on Java 17 and Java 25 (VARKA-26)
 ================================================================================================
 
 Source: sql/varka/baselines/ChronoScalarBaseline.java - deliberately outside the build, because
@@ -12,7 +12,7 @@ What it measures: LocalDate.ofEpochDay(d).getYear(), which is exactly what
 DateTimeUtils.getYear does and therefore what Spark's row path costs per row for year(date).
 It measures nothing else - no Arrow access, no row boundary, no query.
 
-Methodology per PLAN_TASK_14.md 2.1: 2 s warm-up, five 2 s measured windows, reported by the
+Methodology per VARKA-14.md 2.1: 2 s warm-up, five 2 s measured windows, reported by the
 minimum, on an otherwise idle machine. One million rows of `i % 20000 - 10000` days walked in
 4096-row chunks - the same data and chunking as VarkaEmitterParityBenchmark's year section, so
 the two are directly comparable. Run twice per JDK.

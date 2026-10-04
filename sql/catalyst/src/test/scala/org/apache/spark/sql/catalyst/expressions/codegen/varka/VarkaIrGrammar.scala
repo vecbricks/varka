@@ -85,7 +85,7 @@ object VarkaIrGrammar {
    * and treating them as one is what let this suite generate shapes that decline correctly
    * and then assert that they do not.
    *
-   * `VarkaLoopEmitter`'s `collectGuardedProducers` puts task 52's range guard on every
+   * `VarkaLoopEmitter`'s `collectGuardedProducers` puts VARKA-52's range guard on every
    * `AddDays`/`SubDays` with a column offset *anywhere* below a calendar node - the walk
    * descends the whole subtree and does not stop at a node that re-bases the day. So
    * `month(dayOfWeek(addDays(addDays(c, c), c)))` guards a producer whose value reaches
@@ -139,7 +139,7 @@ object VarkaIrGrammar {
       case n: DayOfWeekIso => (7L, g(n.days()))
       case n: NextDay => (satAdd(v(n.days()), 8), g(n.days(), n.offset()))
       case n: ThursdayOf => (satAdd(v(n.days()), 3), g(n.days()))
-      // Task 93: a range check beside the value, which the value itself does not feel. The
+      // VARKA-93: a range check beside the value, which the value itself does not feel. The
       // bound is the child's, so a subtree that would leave the range still shows as one -
       // the guard reports such a batch rather than making it representable.
       case n: GuardedDay => (v(n.days()), g(n.days()))
@@ -157,7 +157,7 @@ object VarkaIrGrammar {
       // decisive for the range guard's arm, which takes the bound as a guard the value must
       // not leave.
       case n: TruncDate => (satAdd(v(n.days()), 366), g(n.days()))
-      // Task 63: wrapping arithmetic can leave the day range entirely, which is what the
+      // VARKA-63: wrapping arithmetic can leave the day range entirely, which is what the
       // bound is for - a calendar node over such a subtree is refused by fitsUnderChrono.
       case n: IntArith => n.op() match {
         case IntOp.MUL => (satMul(v(n.left()), v(n.right())), g(n.left(), n.right()))
@@ -251,10 +251,10 @@ object VarkaIrGrammar {
    *  column holds day-magnitude values, which as a month count would trip the runtime guard on
    *  every batch and decline it - leaving the status-zero assertions nothing to check. Giving
    *  one ordinal a small range is what lets a *column* month count be fuzzed at all, and it is
-   *  the operand shape task 63 will want too. Its `Gen` bound stays `columnBound` wherever the
+   *  the operand shape VARKA-63 will want too. Its `Gen` bound stays `columnBound` wherever the
    *  generic leaf draws it, which over-approximates its real range in the safe direction.
    *
-   *  `levelOrdinal` is the same idea for task 61's `trunc` with a format column, or -1 when
+   *  `levelOrdinal` is the same idea for VARKA-61's `trunc` with a format column, or -1 when
    *  this iteration has fewer than three inputs. `TruncLevelLeaf` hands the kernel
    *  `DateTimeUtils.parseTruncLevel`'s codes - 6 (`WEEK`) to 9 (`YEAR`) - or a null lane, and
    *  nothing else, so a level column drawn at day magnitude would be a lane the leaf can never
@@ -268,7 +268,7 @@ object VarkaIrGrammar {
     /**
      * Whether a calendar node may sit over this subtree. Both bounds have to fit inside
      * `chronoBound`: the value the node itself decomposes, and - see `boundsOf` - the value
-     * every guarded day producer underneath reaches, because task 52's guard is placed on
+     * every guarded day producer underneath reaches, because VARKA-52's guard is placed on
      * those on their own values however far below the calendar node they sit.
      */
     private def fitsUnderChrono(a: Gen): Boolean =
@@ -317,15 +317,15 @@ object VarkaIrGrammar {
           val a = value(depth - 1)
           Gen(new WeekDay(a.node), 6)
         case 8 =>
-          // next_day's weekday as a literal slot (task 33) or, on the other draw, a column
-          // (task 59's derived weekday leaf), whose values the reference reads like any int:
+          // next_day's weekday as a literal slot (VARKA-33) or, on the other draw, a column
+          // (VARKA-59's derived weekday leaf), whose values the reference reads like any int:
           // the lowering is exact for every k, so a date column serves as the weekday column.
           val a = value(depth - 1)
           val k = if (rnd.nextBoolean()) literal()
             else Gen(new ColumnRef(rnd.nextInt(numInputs)), columnBound)
           Gen(new NextDay(a.node, k.node), satAdd(a.bound, 8))
         case 14 =>
-          // make_date (task 42) over a date's own fields: always a valid triple in range, so
+          // make_date (VARKA-42) over a date's own fields: always a valid triple in range, so
           // both modes run to status 0 and the answer is the date itself; every third one
           // takes a literal day instead under the NULL form, where an invalid day is a null
           // output and the batch still runs.
@@ -340,7 +340,7 @@ object VarkaIrGrammar {
               rnd.nextBoolean()), a.bound)
           }
         case 15 =>
-          // The Thursday of the day's week (task 37): a day-typed producer within three days.
+          // The Thursday of the day's week (VARKA-37): a day-typed producer within three days.
           val a = value(depth - 1)
           Gen(new ThursdayOf(a.node), satAdd(a.bound, 3))
         case 16 =>
@@ -354,11 +354,11 @@ object VarkaIrGrammar {
           val a = value(depth - 1)
           Gen(new DayOfWeekIso(a.node), 7)
         case 18 =>
-          // Task 63's int arithmetic. A checked mode is drawn only where the operands' own
+          // VARKA-63's int arithmetic. A checked mode is drawn only where the operands' own
           // bounds rule overflow out, which is what keeps the value comparison meaningful: the
           // kernel has to answer, not decline, and the suite asserts a zero status. Drawing
           // FAIL over unbounded operands would decline most batches and check nothing - but
-          // drawing WRAP only, as this arm did until task 63's review, leaves every checked
+          // drawing WRAP only, as this arm did until VARKA-63's review, leaves every checked
           // emission path outside the differential oracle: the guard accumulator, the FAIL
           // word's liveness, the TRY narrowing, and the slot numbering that the scratch
           // temporaries shift.
@@ -391,7 +391,7 @@ object VarkaIrGrammar {
           val checked = a.bound <= Int.MaxValue.toLong && rnd.nextBoolean()
           Gen(new IntNeg(if (checked) Overflow.FAIL else Overflow.WRAP, a.node), a.bound)
         case 21 =>
-          // Task 89's constant division. The divisors are drawn from a fixed set rather than at
+          // VARKA-89's constant division. The divisors are drawn from a fixed set rather than at
           // random: zero has no quotient and -1 overflows at Integer.MinValue, both of which the
           // node and the emitter refuse, so drawing one would make the fuzzer assert its own
           // refusal instead of the arithmetic. Both signs appear, because the lowering truncates
@@ -400,7 +400,7 @@ object VarkaIrGrammar {
           val d = ConstDivideDivisors(rnd.nextInt(ConstDivideDivisors.length))
           Gen(new ConstDivide(a.node, d), a.bound / math.abs(d.toLong))
         case 23 =>
-          // Group C's bounded division (PLAN_TASK_102.md 8.4): exact only for a non-negative
+          // Group C's bounded division (VARKA-102.md 8.4): exact only for a non-negative
           // dividend under its bound. The grammar tracks a subtree's magnitude and not its
           // sign, so the dividend is a calendar field, non-negative and bounded by what it is:
           // the day of the year under 367, the month under 13, the day of the month under 32.
@@ -414,7 +414,7 @@ object VarkaIrGrammar {
             case _ => Gen(BoundedDivide.of(new DayOfMonth(a.node), 7, 32), 5)
           }
         case 20 =>
-          // Task 93's range check, over a subtree that stays inside the narrowed range - the
+          // VARKA-93's range check, over a subtree that stays inside the narrowed range - the
           // same condition the calendar family below draws under, and for the same reason. A
           // guard over a subtree that leaves the range does exactly what it is for: it reports
           // the batch, the kernel declines, and the reference evaluator has no spelling for
@@ -424,7 +424,7 @@ object VarkaIrGrammar {
           if (!fitsUnderChrono(a)) return a
           Gen(new GuardedDay(a.node), a.bound)
         case 22 =>
-          // Task 102's range guard, with bounds that contain the child's own bound, for the
+          // VARKA-102's range guard, with bounds that contain the child's own bound, for the
           // reason the day guard's arm gives: a guard that fires declines the batch, and the
           // reference evaluator has no spelling for that. Its firing is asserted in the
           // emitter suite. The int lane's analysis refuses bounds an int cannot hold, so a
@@ -446,8 +446,8 @@ object VarkaIrGrammar {
             case _ => rnd.nextInt(4) match {
               case 0 => Gen(new DayOfYear(a.node), 366)
               case 2 if numLiterals > 0 || smallOrdinal >= 0 =>
-                // The count is a literal slot (task 40) or, when this iteration has a
-                // small-magnitude column, that column (task 60). It cannot be any other column:
+                // The count is a literal slot (VARKA-40) or, when this iteration has a
+                // small-magnitude column, that column (VARKA-60). It cannot be any other column:
                 // the rest hold day-magnitude values, vastly past MONTH_ARITH_MIN/MAX_MONTHS, so
                 // the runtime guard would decline every batch and the status-zero assertions
                 // below would have nothing left to check.
@@ -458,11 +458,11 @@ object VarkaIrGrammar {
                 }
                 Gen(new AddMonths(a.node, m.node), satAdd(a.bound, satMul(m.bound, 31)))
               case 3 =>
-                // trunc (task 35) moves a date down by at most a year, which the bound has
+                // trunc (VARKA-35) moves a date down by at most a year, which the bound has
                 // to carry (see `boundsOf`): a range guard drawn over this node takes the
                 // bound as the range the value must stay in, and a year-start below the
                 // child's own bound is a live lane the guard would condemn. The level is drawn
-                // at random so all three tails are fuzzed; the column-level form (task 61,
+                // at random so all three tails are fuzzed; the column-level form (VARKA-61,
                 // TruncDateDynamic) is drawn only when this iteration has a level column,
                 // whose lanes hold the leaf's codes 6..9.
                 if (levelOrdinal >= 0 && rnd.nextBoolean()) {
@@ -653,7 +653,7 @@ object VarkaIrGrammar {
           if (a.bound >= ConstDivide.EXACT_DIVIDEND_BOUND) return a
           val d = LongDivisors(rnd.nextInt(LongDivisors.length))
           // The grammar has tracked this subtree's bound all along; the node now carries it,
-          // which is the whole of task 147 seen from the generator's side. Plus one, because
+          // which is the whole of VARKA-147 seen from the generator's side. Plus one, because
           // the grammar's bound is the widest magnitude a value takes and the node's is one the
           // value stays under - a guard from -bound to +bound admits bound itself.
           Gen(new ConstDivide(a.node, d, a.bound + 1), a.bound / math.abs(d))
@@ -697,7 +697,7 @@ object VarkaIrGrammar {
      * truncation with no overflow check, so it is drawn, as the compiler builds it, only over
      * values proven to fit; and it is admitted at an output root alone, so it is drawn here and
      * never inside `value`. The decision draws a number only when the bound fits, so a shape
-     * none of whose roots fits is the shape it was before the arm (task 235).
+     * none of whose roots fits is the shape it was before the arm (VARKA-235).
      */
     def root(depth: Int): VarkaVectorIR = {
       val v = value(depth)

@@ -24,7 +24,7 @@ read as one colour.
 
 Every value is read from the committed runner file when the script runs
 (sql/core/benchmarks/VarkaColdStartBenchmark-jdk25-runner-xeon8370c-results.txt,
-PLAN_TASK_181.md 9.1), and the line where Spark's method passes 8000 bytes from the size
+VARKA-181.md 9.1), and the line where Spark's method passes 8000 bytes from the size
 ladder's file, which runs the same expressions; so the figure cannot drift from either."""
 
 import math

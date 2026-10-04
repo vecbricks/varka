@@ -1,10 +1,10 @@
-The C2 deoptimization cycle census (PLAN_TASK_189.md 2.1): fresh JVMs of VarkaDeoptCycleProbe,
+The C2 deoptimization cycle census (VARKA-189.md 2.1): fresh JVMs of VarkaDeoptCycleProbe,
 the make_date ladder's twelve-output kernel in each epilogue form, driven over null-free
 1024-row batches for eight seconds under -XX:+PrintCompilation -Xlog:deoptimization=debug,
 twenty forks per case. Written by dev/varka_deopt_cycle.sh; the verdict per fork is
 dev/varka_deopt_cycle.py's, from the JVM's compile and trap log: CYCLE when a loopDense method
 was made not entrant three or more times and trapped at profile_predicate more than four
-times (the rule as tightened on 26 September 2026, PLAN_TASK_189.md 2.3; it changes none of the
+times (the rule as tightened on 26 September 2026, VARKA-189.md 2.3; it changes none of the
 verdicts of the first two sections below). Per method the columns read: tier-4 compiles (of them OSR) / made not
 entrant / profile_predicate traps [trap bcis]. The rate is the probe's last second, M rows/s,
 a reading beside the verdict and not a benchmark.
@@ -106,7 +106,7 @@ summary: forks in the cycle / forks
   VarkaDeoptProbe_12_single_batches @16  20 / 20
   VarkaDeoptProbe_12_single_batches @64  19 / 20
 
-== task 212's path: dev/varka_deopt_cycle.sh --paths warmup (PLAN_TASK_189.md 2.2) ==
+== VARKA-212's path: dev/varka_deopt_cycle.sh --paths warmup (VARKA-189.md 2.2) ==
 
 commit:  ea0a7ef4237
 date:    2026-09-26T10:19:07+00:00
@@ -203,7 +203,7 @@ summary: forks in the cycle / forks
   VarkaDeoptProbe_12_single_warmup @16   0 / 20
   VarkaDeoptProbe_12_single_warmup @64   0 / 20
 
-== the default form's other rungs: dev/varka_deopt_cycle.sh --outputs 13,14,16,32,60 --forms group --forks 10 (PLAN_TASK_189.md 2.3) ==
+== the default form's other rungs: dev/varka_deopt_cycle.sh --outputs 13,14,16,32,60 --forms group --forks 10 (VARKA-189.md 2.3) ==
 
 commit:  84a1ac73196
 date:    2026-09-26T10:35:04+00:00
@@ -224,7 +224,7 @@ summary: forks in the cycle / forks
   VarkaDeoptProbe_60_group_batches @16   0 / 10
   VarkaDeoptProbe_60_group_batches @64   0 / 10
 
-== the lifetime: dev/varka_deopt_cycle.sh --outputs 12 --forms single --widths 16 --forks 3 --seconds 90 (PLAN_TASK_189.md 2.4) ==
+== the lifetime: dev/varka_deopt_cycle.sh --outputs 12 --forms single --widths 16 --forks 3 --seconds 90 (VARKA-189.md 2.4) ==
 
 commit:  86ace2e6528
 date:    2026-09-26T10:53:59+00:00
@@ -241,7 +241,7 @@ VarkaDeoptProbe_12_single_batches @16    3  CYCLE   loopDense0 3(1)/1/4[426]; lo
 summary: forks in the cycle / forks
   VarkaDeoptProbe_12_single_batches @16   3 / 3
 
-== the two halves of task 212's path: dev/varka_deopt_cycle.sh --paths c1off,shortcalls --forms single (PLAN_TASK_189.md 2.5) ==
+== the two halves of VARKA-212's path: dev/varka_deopt_cycle.sh --paths c1off,shortcalls --forms single (VARKA-189.md 2.5) ==
 
 commit:  92274132c25 (dirty)
 date:    2026-09-26T11:00:47+00:00

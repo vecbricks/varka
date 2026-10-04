@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Run the date-surface benchmark (task 62) on several Spark distributions, one
+# Run the date-surface benchmark (VARKA-62) on several Spark distributions, one
 # after another on an idle machine, and print the table that compares them.
 #
 #   dev/varka_bench_surface.sh [--rows N] [--partitions P] [--cores C] \
@@ -35,7 +35,7 @@
 # rows, where the surface needs 5e8, because more work per row buys the same executor
 # time as more rows without needing the memory to hold them.
 #
-# --benchmark time runs Times, the TIME surface (PLAN_MILESTONE_5.md 2.40), writing
+# --benchmark time runs Times, the TIME surface (m5/PLAN.md 2.40), writing
 # TimeSurface-<label>-results.txt over its own table, varka_times: TIME, day-time
 # interval and bigint columns, one 64-bit lane each. The driver switches
 # spark.sql.timeType.enabled on for every arm, since the type is off by default in
@@ -59,8 +59,8 @@
 # --force on purpose: --force says the machine is not in its measured state, which is
 # a common thing to say and has nothing to do with discarding a results file.
 #
-# --benchmark ladder runs LadderBenchmark, task 171's size ladder on every distribution
-# (task 194), writing VarkaLadder-<label>-results.txt: the same projection widened rung by
+# --benchmark ladder runs LadderBenchmark, VARKA-171's size ladder on every distribution
+# (VARKA-194), writing VarkaLadder-<label>-results.txt: the same projection widened rung by
 # rung, over the surface's date table at the ladder's row count (--rows 2000000), so a
 # stock distribution's own codegen and cache are timed against the fork's on the ladder's
 # question. --input parquet writes the table to a Parquet file once and reads it back
@@ -82,7 +82,7 @@
 #       varka-jdk25=$PWD:/usr/lib/jvm/java-25-openjdk-amd64:varka
 #
 # The defaults, 500M rows in one partition on one core under a 16g driver, are
-# the job-size rule of PLAN_MILESTONE_4.md 2.29 as PLAN_TASK_62.md 2.6 measured
+# the job-size rule of m4/PLAN.md 2.29 as VARKA-62.md 2.6 measured
 # it: one partition because every task on local[1] costs about two milliseconds
 # of scheduling and commit round trip, and 500M rows because the fastest Varka
 # rows run near half a nanosecond per row and need 250 ms of executor time
@@ -92,7 +92,7 @@
 # an occupancy ladder possible: a headline number measured on one core says
 # nothing about a machine whose executor runs one task per core, and the
 # question the ladder answers is whether a win survives the memory system being
-# shared (PLAN_TASK_134.md). Partitions and cores are separate knobs on purpose
+# shared (VARKA-134.md). Partitions and cores are separate knobs on purpose
 # - P partitions on C cores is a queue C deep - and the sensible ladder sets
 # them equal. Two things change meaning above one core and are recorded rather
 # than papered over: the fixed-share rule, (wall - executor) / wall, goes
@@ -110,7 +110,7 @@
 # stands for what the fork needs: Varka on, the Arrow cache serializer, the
 # The conf field's bare tokens name what a distribution switches on. `vecruntime` turns on the
 # vecruntime plugin, whose jar the distribution carries in its jars directory, and holds every
-# case to the plugin's own nodes (task 202); it reads Parquet only, since the plugin leaves a
+# case to the plugin's own nodes (VARKA-202); it reads Parquet only, since the plugin leaves a
 # cached table to Spark. `varka`
 # is the engine *and* the Arrow columnar cache the engine reads through, which the
 # kernels need to run at all; `arrow-cache` is that cache alone, with the row
@@ -123,7 +123,7 @@
 # `varka` puts the engine jar on the driver's class path, and `--expect-fused --max-fixed-share
 # 5` on the driver, so a run of the kernel fails when an entry the surface
 # marks as fused is not, or when a Varka row's fixed share is over the
-# job-size rule of PLAN_MILESTONE_4.md 2.29. Put the Varka run last: the
+# job-size rule of m4/PLAN.md 2.29. Put the Varka run last: the
 # table's ratios are the last file against the others.
 #
 # The engine jar: the fork's assembly does not ship sql/varka/engine (it is a
@@ -185,7 +185,7 @@ case "$benchmark" in
      exit 2 ;;
 esac
 
-# The --only truncation guard (task 100). Checked before the machine checks below, not just
+# The --only truncation guard (VARKA-100). Checked before the machine checks below, not just
 # before the first arm: it reads the arguments and one git index entry, and a run that may
 # not legally write its file should not first spend ten seconds proving the machine is quiet.
 # Failing on the fourth arm after three hours would be barely better than not failing at all.
@@ -243,7 +243,7 @@ jar="$(ls "$jar_dir"/varka-bench-*.jar 2>/dev/null | grep -v -- '-sources\|-test
 # loop is a scalar xorshift over one `long` - Canary's own javadoc calls it "the control" -
 # so MaxVectorSize cannot touch it and the ratio was 1.00 on every machine ever measured,
 # a full-width Intel Xeon 6973P-C included. Every `datapath` line committed before that date
-# is a scalar rate wearing a vector label. See PLAN_TASK_62.md 11.9.
+# is a scalar rate wearing a vector label. See VARKA-62.md 11.9.
 last="${dists[${#dists[@]}-1]}"
 probe_java="$(echo "$last" | cut -d= -f2- | cut -d: -f2)/bin/java"
 probe() {
@@ -302,7 +302,7 @@ for spec in "${dists[@]}"; do
           --driver-class-path "$(engine_jar)")
         driver+=(--expect-fused --max-fixed-share "$share") ;;
       vecruntime)
-        # vecruntime, another engine's arm (task 202): the plugin on, its fallback reasons in
+        # vecruntime, another engine's arm (VARKA-202): the plugin on, its fallback reasons in
         # the log, the Vector API module the plugin needs, and every case held to the plugin's
         # own projection or filter node, so that no rung it left to Spark is timed under its
         # name. The plugin jar is the distribution's: it goes in SPARK_HOME/jars.

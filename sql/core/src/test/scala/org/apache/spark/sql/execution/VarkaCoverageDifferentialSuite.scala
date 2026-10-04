@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 
 /**
- * Every row of the published coverage table, run through both engines (task 120).
+ * Every row of the published coverage table, run through both engines (VARKA-120).
  *
  * `VarkaCoverageSuite` proves each row of `sql/varka/coverage.json` compiles to a fused kernel
  * and that the table names every expression the compiler admits. This suite proves the kernel

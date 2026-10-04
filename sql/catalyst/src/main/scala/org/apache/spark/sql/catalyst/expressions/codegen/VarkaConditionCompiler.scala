@@ -56,7 +56,7 @@ private[codegen] object VarkaConditionCompiler {
         if sameLane(expr, sink, cond, thenNode, elseNode)
       } yield new IfElse(cond, thenNode, elseNode)
     // With no ELSE the missing branch is a null literal, which would break the dense body's
-    // all-valid invariant (`PLAN_TASK_11.md` 2.1): decline.
+    // all-valid invariant (`VARKA-11.md` 2.1): decline.
     case c @ CaseWhen(_, None) =>
       sink.note("CASE WHEN without an ELSE branch", c)
       None
@@ -306,7 +306,7 @@ private[codegen] object VarkaConditionCompiler {
    * <p>The column may be a date or an `IntegerType` one. Both are the same int32 lane and the
    * same validity word, and the int case is not optional: Spark's optimizer infers
    * `isnotnull(i)` beside any null-intolerant predicate on `i`, so refusing it would leave a
-   * residual row filter above every fused int comparison (task 122) - the kernel would do the
+   * residual row filter above every fused int comparison (VARKA-122) - the kernel would do the
    * comparison and the row engine would still visit every row to check the null.
    */
   private def compileValidity(
@@ -421,13 +421,13 @@ private[codegen] object VarkaConditionCompiler {
     // against a fused int field - `weekofyear(d) = 53`, `month(d) = 6` - is a comparison of two
     // int lanes like any other, and the literal takes a slot the way a date literal does. An
     // `IntegerType` column is the same lane read from a different place, which `intOperand`
-    // already admits for arithmetic (task 63), so `i > 0` and `i < i2` compare in the kernel
+    // already admits for arithmetic (VARKA-63), so `i > 0` and `i < i2` compare in the kernel
     // rather than leaving a residual row filter above it. Both cases are stated here rather
     // than in `compileNode`, whose value leaves stay `DateType`: a bare int has no meaning as a
     // *date* operand, and widening that would admit `date_add(d, i)`'s offset as a date.
     //
     // There is no guard question. A comparison produces a mask, not a value, so no result can
-    // leave the int range - which is why this takes one rule where task 63's arithmetic needed
+    // leave the int range - which is why this takes one rule where VARKA-63's arithmetic needed
     // an overflow mode.
     def operand(e: Expression): Option[VarkaVectorIR] = e match {
       case Literal(v: Int, IntegerType) =>

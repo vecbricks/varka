@@ -17,7 +17,7 @@
 #
 # The TPC codegen census: compiles every whole-stage codegen stage of every TPC-DS and TPC-H
 # query under six configurations and writes each stage's largest generated method against
-# HotSpot's 8000-byte HugeMethodLimit (VarkaTpcCodegenCensusSuite, PLAN_TASK_193.md).
+# HotSpot's 8000-byte HugeMethodLimit (VarkaTpcCodegenCensusSuite, VARKA-193.md).
 #
 #   dev/varka_tpc_census.sh [sources-dir]
 #

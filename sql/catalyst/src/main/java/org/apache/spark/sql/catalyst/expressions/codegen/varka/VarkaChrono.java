@@ -28,7 +28,7 @@ import java.time.LocalDate;
  * <ol>
  *   <li><b>The derivation record.</b> Each constant is named, and the comment beside it says
  *       which division it stands for and why that division admits the form it does. The whole
- *       argument is in {@code sql/varka/plans/PLAN_TASK_26.md} section 1.</li>
+ *       argument is in {@code sql/varka/plans/m4/VARKA-26.md} section 1.</li>
  *   <li><b>The single source of truth for the emitter.</b> {@link VarkaLoopEmitter} loads these
  *       fields rather than repeating their values, so a constant cannot drift between the
  *       emitted bytecode and the model that is swept against {@code java.time}.</li>
@@ -55,7 +55,7 @@ import java.time.LocalDate;
  * every date SQL can write but is reachable past by {@code date_add}. The emitted form therefore
  * carries a guard and declines a batch it cannot compute. A variant that split the dividend and
  * so covered the whole {@code int} range without a guard was built and measured against this one
- * before being dropped: it cost 14 to 24%, and the numbers are in {@code PLAN_TASK_26.md}
+ * before being dropped: it cost 14 to 24%, and the numbers are in {@code VARKA-26.md}
  * section 11.2.
  *
  * <p><b>The calendar this decomposes into.</b> All of it works in a March-based year, where the
@@ -127,7 +127,7 @@ public final class VarkaChrono {
    * to decline conservatively. It is deliberately not used downward:
    * below zero the whole narrowing is undefined and {@link #NARROW_MIN_DAYS} still binds.
    *
-   * <p>Verified in {@code VarkaChronoSuite} two ways, per {@code PLAN_TASK_69.md} 2: the era
+   * <p>Verified in {@code VarkaChronoSuite} two ways, per {@code VARKA-69.md} 2: the era
    * identity asserted exact at this bound and failing one past it, and an exhaustive sweep of
    * both lowerings against {@code java.time} from {@link #NARROW_MIN_DAYS} to here.
    */
@@ -138,7 +138,7 @@ public final class VarkaChrono {
    * admitted for, {@code [NARROW_MIN_DAYS, NARROW_DECOMPOSE_MAX_DAYS]}: year 42400 at the top,
    * year -12800 at the bottom. This is the bound the compiler's range analysis gives a lowered
    * {@code year}, which is what decides whether a checked multiply over it keeps its check. It
-   * was a typed-in 40000 until task 84, which read the narrow range's top as year 33134 and
+   * was a typed-in 40000 until VARKA-84, which read the narrow range's top as year 33134 and
    * predated {@link #NARROW_DECOMPOSE_MAX_DAYS} admitting an upward shift 9,266 years further;
    * derived from the two constants, it cannot fall behind them again.
    */
@@ -276,7 +276,7 @@ public final class VarkaChrono {
    * {@code (num & 0xFFFF) / 2141} equals {@code dayOfYear - (153 * marchMonth + 2) / 5} - the
    * two forms this file ships today. The numerator peaks at 979378, comfortably inside a
    * signed 32-bit lane, which is what makes the block expressible on {@code IntVector} where
-   * the paper's era and year steps are not (see {@code PLAN_TASK_53.md} 2.2).
+   * the paper's era and year steps are not (see {@code VARKA-53.md} 2.2).
    */
   public static final int MONTH_NUM_M = 2141;
 
@@ -712,7 +712,7 @@ public final class VarkaChrono {
    * before calling the equivalent lane-wise sequence. Round-trips with {@link #narrowed} over
    * every day from year 1 to year 9999, and over the wider year range {@code emitAddMonths}'s
    * month arithmetic can reach - see {@code verify_days_from_civil.py} and
-   * {@code PLAN_TASK_40.md}.
+   * {@code VARKA-40.md}.
    */
   public static int daysFromCivil(int year, int month, int dayOfMonth) {
     int marchYear = year - (month <= 2 ? 1 : 0);

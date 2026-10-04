@@ -98,7 +98,7 @@ object VarkaArrowSessions {
   }
 
   /**
-   * Task 172's design A for a disjunction of ranges, the split conditions, with the range set
+   * VARKA-172's design A for a disjunction of ranges, the split conditions, with the range set
    * off so that the disjunction reaches the split as the comparisons the query writes.
    */
   val splitConditionsDesign: VarkaEmitOptions =

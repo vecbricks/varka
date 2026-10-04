@@ -27,12 +27,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * slot nothing reads means the body's use count (`Slots.bodyUses`) and the walk that emits the
  * body disagree about how often a node is visited: a count too high costs a `dup` and a store, as
  * it did for dates two calendar nodes reach through one shared prefix before the count learned
- * the walk's rule (`PLAN_TASK_223.md` 9.4). Under `elideUnreadLocals` no reference local of any
- * kind goes unread (task 239).
+ * the walk's rule (`VARKA-223.md` 9.4). Under `elideUnreadLocals` no reference local of any
+ * kind goes unread (VARKA-239).
  */
 class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
 
-  // The corpus of PLAN_TASK_223.md 9.1: random shapes of both lanes, wide shapes whose groups
+  // The corpus of VARKA-223.md 9.1: random shapes of both lanes, wide shapes whose groups
   // load materialized prefixes, and the ladders.
   private lazy val corpus = VarkaEmitCostCorpus.fuzz(1000).asScala.toSeq ++
     VarkaEmitCostCorpus.wide().asScala ++ VarkaEmitCostCorpus.ladders().asScala
@@ -78,7 +78,7 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     // Without CSE the body counts its uses for the value columns alone (Slots.plan).
     val noCse = census(elided.withCse(false))
     assert(noCse.isEmpty, s"unread reference locals under the switch without CSE: $noCse")
-    // The form that builds everything keeps the four kinds task 239 found (PLAN_TASK_239.md 2.1)
+    // The form that builds everything keeps the four kinds VARKA-239 found (VARKA-239.md 2.1)
     // and no other, so a leftover of a new kind added to the reference form is seen too.
     val off = census(built)
     assert(off.keySet.subsetOf(Set("segment: output validity", "vector: prefix reload",

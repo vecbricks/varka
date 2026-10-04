@@ -25,7 +25,7 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 
 /**
- * Shared session setup and helpers for the Varka sql/core suites (Task 7). Data is cached with
+ * Shared session setup and helpers for the Varka sql/core suites (VARKA-7). Data is cached with
  * the Arrow serializer and the vectorized reader so that `InMemoryTableScanExec` feeds real Arrow
  * `DateDayVector` batches into a columnar-to-row transition. Three sessions on the shared
  * `SparkContext` are set up by [[VarkaSharedSessions#beforeAll]]:
@@ -99,7 +99,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_date_parts` temp view for task 42: three nullable int columns
+   * Builds and caches a `varka_date_parts` temp view for VARKA-42: three nullable int columns
    * `y`, `m`, `dd` - valid dates, 29 February in a leap and a common year, a month and a day
    * out of range, and nulls in each position - beside `d`, the date the valid rows spell, so a
    * test can compare `make_date(y, m, dd)` with the column it came from.
@@ -130,7 +130,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   /**
    * Runs `body` with `spark.sql.ansi.enabled` set on both sessions, restoring the previous
    * values afterwards. The setting is read when an expression is analyzed, which is inside the
-   * body's queries, so it has to be live on each session while they run (task 42).
+   * body's queries, so it has to be live on each session while they run (VARKA-42).
    */
   protected def withAnsi[T](enabled: Boolean)(body: => T): T = {
     val sessions = Seq(spark, varkaSpark)
@@ -154,7 +154,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_ints_overflow` temp view for task 63: a date `d` beside two int
+   * Builds and caches a `varka_ints_overflow` temp view for VARKA-63: a date `d` beside two int
    * columns, `i` holding ordinary magnitudes and `big` holding values at and beside the int32
    * extremes, each nullable. `big`'s rows are what make a checked add or subtract overflow -
    * `Int.MaxValue` plus a positive `i` is the whole point - while `i` alone keeps a batch that
@@ -177,7 +177,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_ints_safe` temp view for task 63: the same shape as
+   * Builds and caches a `varka_ints_safe` temp view for VARKA-63: the same shape as
    * `varka_ints_overflow` with every value small, so no checked operation can fire and a test
    * asserting "fused, nothing declined, answers equal" has a fixture that stays that way.
    */
@@ -197,7 +197,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
    * Builds and caches a `varka_dates_nullable_offset` temp view: a date column `d` and an int
    * column `off`, each nullable independently of the other. `cacheDates`'s `i` column is never
    * null (it comes from `zipWithIndex`), which is fine for a literal offset - always valid -
-   * but a day offset that is a column (task 38) can be null on its own, and that is the case
+   * but a day offset that is a column (VARKA-38) can be null on its own, and that is the case
    * this fixture exists to exercise: a null offset must still null out its row even when the
    * date beside it is not null.
    */
@@ -214,9 +214,9 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches `varka_dates_intervals` for task 67: a date `d` beside one year-month
+   * Builds and caches `varka_dates_intervals` for VARKA-67: a date `d` beside one year-month
    * interval column per unit - `ymm` (MONTH), `ymy` (YEAR) and `ym` (YEAR TO MONTH) - built
-   * from an int month count so the rows are legible as counts. The counts straddle task 60's
+   * from an int month count so the rows are legible as counts. The counts straddle VARKA-60's
    * `MONTH_ARITH_MIN/MAX_MONTHS` guard: 24565 is one past the maximum and -300000 far below
    * the minimum, so the batch declines and the row engine answers, while the rest are ordinary
    * in-range counts. Nulls sit in `d` and in the interval columns on different rows, so a null
@@ -226,7 +226,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
    * no plain Scala literal: the units come from the casts and `make_ym_interval`, which is
    * also the shape a user writes.
    *
-   * `ymm2` is task 68's second interval, for the binary algebra - genuinely a different count
+   * `ymm2` is VARKA-68's second interval, for the binary algebra - genuinely a different count
    * from `ymm` on every row, not a second call to the same generator, so `ymm - ymm2` is not a
    * disguised zero. Its `Int.MaxValue` row is what makes `ymm + ymm2` overflow, which is how
    * the checked arithmetic's error identity is tested; the other rows stay well inside the
@@ -254,7 +254,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_dates_far_offset` temp view for task 52: dates `d` and `d2`, an
+   * Builds and caches a `varka_dates_far_offset` temp view for VARKA-52: dates `d` and `d2`, an
    * int offset `off` whose two extreme rows push `date_add(d, off)` twenty million days past
    * the range the calendar lowering is exact over - the value the removed task-26 differential
    * used - beside in-range and null rows, and an int offset `small` that never leaves it. The
@@ -275,8 +275,8 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_dates_guard_compose` temp view: the rows where task 52's day
-   * guard and task 60's count guard each pass on their own, and the composition of the two
+   * Builds and caches a `varka_dates_guard_compose` temp view: the rows where VARKA-52's day
+   * guard and VARKA-60's count guard each pass on their own, and the composition of the two
    * still leaves the range the calendar lowering is exact over.
    *
    * The first row is the reproducer. `date_add(d, off)` is exactly `NARROW_MIN_DAYS`, so the
@@ -303,13 +303,13 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_dates_narrow_ceiling` temp view for task 69: a date `d` and an
-   * int `off` whose sum lands on each end of the range task 52's runtime guard enforces,
+   * Builds and caches a `varka_dates_narrow_ceiling` temp view for VARKA-69: a date `d` and an
+   * int `off` whose sum lands on each end of the range VARKA-52's runtime guard enforces,
    * `VarkaChrono.NARROW_MIN_DAYS..NARROW_MAX_DAYS`, and nowhere outside it.
    *
    * Every row therefore passes that guard, which is the point: what this fixture exercises is
    * the shift *above* the guarded producer. A `+k` on top reaches `NARROW_MAX_DAYS + k`, and
-   * task 69's question is how large `k` may be before the decomposition stops being exact.
+   * VARKA-69's question is how large `k` may be before the decomposition stops being exact.
    * Keeping every row inside the guard's range keeps the batch served by the kernel, so a
    * value that disagrees with the row engine is the lowering's answer and not a fallback's.
    *
@@ -330,7 +330,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_date_months` temp view for task 60: a date `d` and two int month
+   * Builds and caches a `varka_date_months` temp view for VARKA-60: a date `d` and two int month
    * counts, each nullable independently. `m` covers both ends of
    * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` and includes a row 30000 months past each end, far
    * enough to trip the count guard; `m_small` holds only counts inside the bound, both ends
@@ -364,15 +364,15 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   /**
    * Builds and caches a `varka_dates_big` temp view with `numRows` rows, one null every 17 rows
    * to exercise null handling, and `parts` partitions (via `repartition` when > 1) so the scan
-   * fans out over several tasks (which share one cached kernel class since task 18).
+   * fans out over several tasks (which share one cached kernel class since VARKA-18).
    */
   /**
-   * Builds and caches `varka_dates_weekday` for task 59: dates `d` and `d2` and a weekday name
+   * Builds and caches `varka_dates_weekday` for VARKA-59: dates `d` and `d2` and a weekday name
    * `s` mixing the three spellings in three case styles, THURSDAY (the negative `k`), a name
    * naming its own date's weekday (so `next_day(d, s) = d2` holds on those rows and the filter
    * route has something to count), and the rows that are not names - `'xyz'`, the empty
    * string, an untrimmed `' MON'` - beside a null name and null dates. One partition, so the
-   * ANSI error surfaces from one task and both engines raise it for the same row (task 42's
+   * ANSI error surfaces from one task and both engines raise it for the same row (VARKA-42's
    * discipline). `varka_dates_weekday_valid` is the same table without the non-name rows: the
    * one a fused ANSI query runs over with nothing to decline.
    */
@@ -412,7 +412,7 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
       (date("2024-01-05"), null, "fri")))
 
   /**
-   * `varka_dates_trunc_formats` for task 61: dates `d` beside a format string `fmt` - the
+   * `varka_dates_trunc_formats` for VARKA-61: dates `d` beside a format string `fmt` - the
    * accepted spellings in mixed case, sub-day levels, unrecognised strings, the empty string
    * and nulls, beside null dates too; dates at year, quarter, month and week boundaries in
    * both year kinds and either side of the epoch. One partition.
@@ -464,8 +464,8 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     session.catalog.cacheTable("varka_dates_big")
   }
 
-  /** Whether a node is one of the four Varka exec nodes (projections since task 6, filters
-   * since task 21). The assertions below go through this so a suite written against one node
+  /** Whether a node is one of the four Varka exec nodes (projections since VARKA-6, filters
+   * since VARKA-21). The assertions below go through this so a suite written against one node
    * kind keeps working as the rule learns new rewrites. */
   protected def isVarkaNode(plan: SparkPlan): Boolean = plan match {
     case _: VarkaColumnarToRowExec | _: VarkaProjectExec

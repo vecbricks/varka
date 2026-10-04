@@ -38,7 +38,7 @@
 # nobody could act on.
 #
 # A regeneration's diff prints "moved 14.2%" against nothing, so every task since
-# task 52 has had to run the whole file twice to tell its own change from the
+# VARKA-52 has had to run the whole file twice to tell its own change from the
 # run's noise. This measures what an unchanged file does, which is the number the
 # diff needs in order to say whether a move means anything.
 #
@@ -46,7 +46,7 @@
 # runs in two, measures each half independently, and reports how well one half's
 # per-case spread predicts the other's. If it predicts well, a per-case band is
 # meaningful and a quiet case may be held to a tighter threshold than a noisy
-# one. If it does not - which is what `PLAN_MILESTONE_4.md`'s debt register
+# one. If it does not - which is what `m4/PLAN.md`'s debt register
 # suggests, recording "a different cluster each run" - then only a single
 # file-level threshold is defensible, and claiming per-case precision would be
 # inventing it.

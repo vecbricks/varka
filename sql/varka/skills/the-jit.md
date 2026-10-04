@@ -18,7 +18,7 @@ these files by `dev/varka_toc.py`.
   "JVM history" only shifted when the compile started relative to the measurement
   window - fresh JVMs got it in during warmup, busy ones did not.
 
-  **Update, task 43: this no longer reproduces, on the same path, at four times the width.**
+  **Update, VARKA-43: this no longer reproduces, on the same path, at four times the width.**
   A ladder of single-output loops from 20 to 248 `IntVector` ops - a `greatest`/`least` tree
   over independent `dayofweek(d + k)` subtrees, which is linear at 19 ops per step - was
   measured with `-XX:+PrintCompilation` at both widths on JDK 25. Tier-4 **OSR** compile of
@@ -30,12 +30,12 @@ these files by `dev/varka_toc.py`.
   9 to ~1000 M rows/s at t=12s is not subtle - but the number describes a JDK that is no
   longer the one in use, and anything resting on it (`GROUP_BUDGET`'s javadoc, among others)
   needs re-deriving rather than re-citing. *`GROUP_BUDGET`'s javadoc was re-derived on 10
-  September 2026: the compile-time argument is gone from it, replaced by task 71's survey -
+  September 2026: the compile-time argument is gone from it, replaced by VARKA-71's survey -
   raising the budget past 24 regroups one shape of nine for one lane op, while growing every
   method toward C1's refusal threshold. The constant is unchanged at 16 and its justification
   is now a measurement of what the budget does rather than of what compiling costs.*
 
-  **And it disagreed with another number this repository already carried.** `PLAN_MILESTONE_4.md`
+  **And it disagreed with another number this repository already carried.** `m4/PLAN.md`
   section 2.3 and its debt register both price a wide loop's compile at "~1 ms per vector op",
   which at 64 ops is 64 ms rather than 10 s - a 150x disagreement that sat unremarked. The
   ladder agrees with the per-op figure. So the honest reading of the ~10 s is that it was
@@ -78,10 +78,10 @@ these files by `dev/varka_toc.py`.
 - Related cost numbers: emitting + defining + loading + instantiating a fused kernel
   class is 130-450 us even for the widest shape - class *generation* is never the
   cold-start cost; C2 compile latency is.
-- Same family, earlier finding (task 10): two vector loops emitted into one method
+- Same family, earlier finding (VARKA-10): two vector loops emitted into one method
   also degrade each other (3x-4x on the second loop). One C2 compilation per hot
   loop, always - sibling methods, not longer methods.
-- Same family, task 14's post-commit diagnosis: **a class defined per task re-pays
+- Same family, VARKA-14's post-commit diagnosis: **a class defined per task re-pays
   the whole tier ladder per task.** The per-task loader defines a fresh kernel class
   each task; HotSpot treats it as new, so every task runs interpreter, then C1 with
   boxed vectors, then the C2 OSR compile - a *fixed per-task* cost that grows with
@@ -91,28 +91,28 @@ these files by `dev/varka_toc.py`.
   delta unchanged where a per-row cost quadruples it; (2) `-XX:+PrintCompilation`
   shows one tier-4 OSR of the same-named method *per task*, each followed by
   "made not entrant: OSR invalidation" as the task's class dies. The decomposition
-  (PLAN_TASK_14.md 7.5): the C2 compile itself is ~1 ms per vector op (2/10/20-25 ms
+  (VARKA-14.md 7.5): the C2 compile itself is ~1 ms per vector op (2/10/20-25 ms
   for 3/10/20-op loops), and the interpreted and C1 profiling phases before it
   scale the same way, because tier counters advance per backedge at boxed speed -
   which is also why a scratch-batch warm spin saves nothing. Corollary for any
   cross-task cache: caching `byte[]` does not help - a re-defined class is a new
   class and re-pays the ladder; only reusing the *loaded class* preserves the C2
   code. And benchmark tasks must be long enough to amortise the ladder, or the
-  committed number prices JIT warm-up, not the kernel. Task 18 acted on the
+  committed number prices JIT warm-up, not the kernel. VARKA-18 acted on the
   corollary - `VarkaShapeCache` shares the loaded class across tasks, keyed on
   the IR shape - and the committed depth curve flattened from 2.2x-eroding-to-1.3x
   into 6.5-7.2x flat, confirming the ladder was the whole erosion.
-- Second corollary, caught by task 18's PR review after the results file was
+- Second corollary, caught by VARKA-18's PR review after the results file was
   committed: **a cache keyed on structure silently defeats a harness that
   manufactures freshness through values.** `VarkaColdStartBenchmark` made each
   iteration "fresh" via distinct columns and literals - exactly what the shape key
-  ignores by design - so after task 18 the guard query warmed the process-wide
+  ignores by design - so after VARKA-18 the guard query warmed the process-wide
   cache and every timed "cold" iteration measured a hit while the harness's own
   comments still promised a fresh emission. When a cache key changes, re-derive
   every benchmark's freshness argument from the new key rather than trusting the
   harness; the fix here invalidates the shape cache inside the timer loop.
 - **The 64-op cliff does not generalize to every wide method - it is specific to
-  what was compiling it.** Task 32 step B2 built the real thing the cliff worried
+  what was compiling it.** VARKA-32 step B2 built the real thing the cliff worried
   about, a 200-vector-op single loop method (four calendar fields fused by a
   widened `GROUP_BUDGET`), and measured its compile time directly with
   `-XX:+PrintCompilation` filtered to the generated class's own name (every Varka
@@ -135,13 +135,13 @@ these files by `dev/varka_toc.py`.
   and past it HotSpot does not compile the method slowly - it does not compile it at
   all, at any tier, so the method runs interpreted with boxed vectors forever. The two
   gates catch different shapes, and the emitter's epilogue is where the second one
-  bites: task 24 made it one method over *every* output, so its size grows with the
+  bites: VARKA-24 made it one method over *every* output, so its size grows with the
   whole projection rather than with a group, and four calendar fields over five date
   columns crossed 8000 bytes. Measure it rather than estimating - the `Code`
   attribute's length, which is exactly what HotSpot measures, is two lines through
   `java.lang.classfile` (`VarkaEmitterTestSupport.codeSize`) - and assert the crossing
   in a test, so the next wide node moves a number instead of quietly falling off.
-  Task 32 step B1's ladder is in `PLAN_TASK_32.md` section 7.1.
+  VARKA-32 step B1's ladder is in `VARKA-32.md` section 7.1.
 
 ## A forked probe's warm-up count buys a compile request, not a compile
 
@@ -151,7 +151,7 @@ it was still not enough: on GitHub's four-core runners the gate failed one run i
 a C1 body for the hand-written kernel (`saw c1`) and scalar C2 bodies for the 128-bit cases,
 byte-identical from run to run, while the same commit passed on a re-run. The laptop
 reproduces the four failures when sbt and its children are pinned to two cores that busy
-loops already occupy (task 150).
+loops already occupy (VARKA-150).
 
 Background compilation is the reason. Crossing the threshold queues a compile; the calls keep
 running in the interpreter or in C1 while the compiler thread waits for a core, and on a
@@ -162,7 +162,7 @@ inlined, which is what the identical instruction counts were.
 `-Xbatch` on the child makes the compile happen on the calling thread, so the crossing call
 returns with the nmethod installed and a count-based warm-up means what it says. Under the
 same starvation the suite goes from four failures to none. The flag is already what
-`PLAN_TASK_153.md`'s width probe runs under, for the related reason that a synchronous
+`VARKA-153.md`'s width probe runs under, for the related reason that a synchronous
 compile is one whose diagnostics attribute to the method that asked for it.
 
 The general rule for any harness that forks a JVM and reads what C2 did: either compile
@@ -177,7 +177,7 @@ JVM exiting with compiles still queued prints their `PrintCompilation` lines - t
 marked `blocked` - after its last line of its own, and every fork of a case emits a class of the
 same name, so nothing in those lines says which JVM printed them. In the deoptimization-cycle
 census at sixty outputs it moved a fourth tier-4 compile of a loop method from the fork that made
-it to the fork after (`PLAN_TASK_189.md` 10).
+it to the fork after (`VARKA-189.md` 10).
 
 Split at the marker the child prints first instead: a fork runs from its own start line to the
 next fork's, and the last marker only says whether it finished. `dev/varka_deopt_cycle.py` does
@@ -188,7 +188,7 @@ this, and `VarkaDeoptCycleSuite` pins it with two recorded consecutive forks.
 JFR's `jdk.Compilation` event carries `method`, `compileLevel`, `isOsr` and `codeSize`, and
 `jdk.jfr.consumer.RecordingStream` consumes it in-process with no agent and no diagnostic flags.
 That makes compiled size observable in any JVM, which the bimodality section above needed a
-fastdebug build and `PrintAssembly` to see. Task 50 builds this; four things it cost to learn.
+fastdebug build and `PrintAssembly` to see. VARKA-50 builds this; four things it cost to learn.
 
 * **The success field is spelled `succeded`** in the JDK's own event metadata. Asking for the
   correctly spelled name throws, and if the handler catches broadly the stream goes quietly dead
@@ -204,7 +204,7 @@ fastdebug build and `PrintAssembly` to see. Task 50 builds this; four things it 
   across two emissions inside one JVM, every key came out the same to the byte. So any threshold
   between zero and the ~2x that a bad allocation costs will do, and the choice is not delicate.
 * **A per-JVM baseline cannot see the bimodality that motivated it.** Every key is normally
-  compiled exactly once per JVM, and task 32's spread was *between* runs - "stdev 0 inside a run,
+  compiled exactly once per JVM, and VARKA-32's spread was *between* runs - "stdev 0 inside a run,
   42% between runs". What gives a second compilation of one key is **re-emission**: the same
   shape emitted into a fresh class of the same name under a different loader, which is what
   `maxEntries = 0` and cache eviction already do, and which is also the parked "resample" idea.
@@ -229,7 +229,7 @@ it - so being able to disassemble there rather than only in fastdebug is what ma
 comparison above possible at all.
 
 **Four details that decide whether a disassembly-reading test works or quietly passes.** These
-came out of task 31's feasibility check, run against the system JDK 25.0.4 product build with
+came out of VARKA-31's feasibility check, run against the system JDK 25.0.4 product build with
 the fastdebug tree's `hsdis-amd64.so` on `LD_LIBRARY_PATH`.
 
 * **Prefer `-XX:CompileCommand=print,<class>::<method>` to `-XX:+PrintAssembly`.** `print` emits
@@ -293,7 +293,7 @@ leaves every loop body byte-identical - the emitted `year` body stays at 327 ins
 `ChronoVectorOps.vectorFourFields` stays at 1174. What it changes is the method boundary: the
 emitted `run` grows from 271 instructions with no vector ops to 471 carrying the whole year
 lowering, `runDense` stops being compiled standalone, and the vectorized body then exists in two
-places. That is exactly the sibling-method structure task 24 built and `GROUP_BUDGET` exists to
+places. That is exactly the sibling-method structure VARKA-24 built and `GROUP_BUDGET` exists to
 control, so the flag works against the emitter's design - and it would have to be set on every
 executor to do so. If method fusion is ever worth measuring, produce it from the emitter with
 `withGroupBudget`, which is per-shape and needs no flag.
@@ -301,7 +301,7 @@ executor to do so. If method fusion is ever worth measuring, produce it from the
 `-XX:+PrintInlining` explains why the bodies survive: the directive overrides the size heuristic
 and lands on a harder limit. `VarkaVectorSupport::orValidityBitsAt` (212 bytes) goes from
 `failed to inline: callee is too large` to `failed to inline: NodeCountInliningCutoff`. The
-reason changes, the outcome does not - which is also evidence that task 46's inlining problem
+reason changes, the outcome does not - which is also evidence that VARKA-46's inlining problem
 cannot be solved with a flag.
 
 **Measure the caller, not only the method you are interested in.** The finding above was nearly
@@ -313,14 +313,14 @@ the method whose body moves is the one doing the calling.
 Zen 5 host at AVX-512 (JDK 25 product build). `DateVectorOps.vectorAddDays`: 5 `vpaddd`, 23 `%zmm`
 operands. `ChronoVectorOps.vectorFourFields`: 15 `vpaddd`, 13 `vpmulld`, 7 `vpsrld`. The emitted
 `year` loop body: 10 `vpaddd`, 8 `vpmulld`, 4 `vpsrld`, 63 `%zmm` operands. The emitted
-`dayofweek` body: 65 `vpaddd`, 26 `vpmulld`, 39 `vpsrld` - task 14's range-narrowed magic is
+`dayofweek` body: 65 `vpaddd`, 26 `vpmulld`, 39 `vpsrld` - VARKA-14's range-narrowed magic is
 packed, which is the whole reason that lowering exists. An emitted comparison: 15 `vpcmpnled` and
 15 `vpblendmd`, no branch. Everything Varka emits or hand-writes for date work vectorizes; that
-was an assumption until task 31.
+was an assumption until VARKA-31.
 
 ## A bimodal kernel is usually the register allocator, and here is how to prove it
 
-Task 32's shared four-field calendar kernel ran at either 165 or 236 M rows/s under
+VARKA-32's shared four-field calendar kernel ran at either 165 or 236 M rows/s under
 `-XX:MaxVectorSize=16` - stdev 0 ms *inside* a run, 42% *between* runs, 4 fast outcomes in 21.
 Six hypotheses were tested and all failed: shorter live ranges, forcing the validity helpers to
 inline, forcing every Varka class to inline, disabling on-stack replacement, raising
@@ -375,7 +375,7 @@ drift. Prefer the structural fix - do not put four outputs in one method at a wi
 register file cannot hold them - and use the JFR signal as a *diagnostic*, so that a
 badly-allocated kernel is reportable rather than invisible, instead of as a control loop.
 
-**Update, task 32 step B2: the "structural fix" above turns out to be a property of this
+**Update, VARKA-32 step B2: the "structural fix" above turns out to be a property of this
 one hand-written kernel's bytecode, not of "four outputs in one method at 128-bit."** Once
 the emitter's own fragment mechanism made the *real* shared-loop-method shape buildable
 (`VarkaEmitOptions.withGroupBudget(200)`, four calendar outputs genuinely fused into one
@@ -385,7 +385,7 @@ all** - stable to a few milliseconds every time, at every field count from two t
 two hand-written kernels this task also built (`ChronoVectorOps.vectorFourFields`, the
 "ceiling", and `vectorFourFieldsNoValidity`) remain bimodal on the same three runs, one of
 them in a new flavor - flipping between fast and slow *within* a single run's iterations
-rather than settling into one mode for the run's duration (`PLAN_TASK_32.md` section 7.4).
+rather than settling into one mode for the run's duration (`VARKA-32.md` section 7.4).
 So: a register allocation this fragile is a property of one specific compiled method's
 bytecode (here, `javac`'s output for a hand-written 936-byte body), not an inherent cost of
 the technique it demonstrates. Do not generalize "four outputs in one method is unsafe at
@@ -394,7 +394,7 @@ same shape - measure the actual generated path before declining a design on this
 
 ## Two things share the name `uncommon_trap`, and only one of them happened
 
-`PLAN_MILESTONE_4.md` 2.39 read `-XX:+LogCompilation` and reported that a kernel
+`m4/PLAN.md` 2.39 read `-XX:+LogCompilation` and reported that a kernel
 was taking nine `profile_predicate` traps per method with action
 `maybe_recompile`, thirty-six for the kernel, 494 across the file, and concluded
 that a polluted profile was making C2 speculate, fail and rebuild. A whole task
@@ -464,11 +464,11 @@ and under `methodByteBudget` every loop and epilogue method at tier 4.
 
 ## A hand-written comparison kernel needs every fast path the real one has
 
-`ChronoVectorOps.vectorFourFields` was built as task 32's throughput ceiling: same
+`ChronoVectorOps.vectorFourFields` was built as VARKA-32's throughput ceiling: same
 arithmetic, same guard, same op count as the emitted kernel it stands in for. It has no
 dense/masked split, though - it always builds a `VectorMask` and uses masked load/store
 overloads, even when the caller reports every row non-null. On null-free data the emitted
-kernel dispatches to a genuinely unmasked dense body (task 10's split), so the "ceiling" was
+kernel dispatches to a genuinely unmasked dense body (VARKA-10's split), so the "ceiling" was
 silently measuring the masked-body cost the whole time. Once step B2 made the true emitted
 dense-shared kernel buildable, it beat the "ceiling" by 1.15-1.20x, reproducibly across three
 runs. The lesson generalizes past this one kernel: a hand-written stand-in for an emitted
@@ -479,7 +479,7 @@ or looks wrong, the "ceiling" just quietly is not one.
 
 ## A kernel clean at 512 bits can be a per-lane loop at 128, and only the narrow companion shows it
 
-Task 152's `VarkaTimeBenchmark` (20 September 2026): the 64-bit magic divide -
+VARKA-152's `VarkaTimeBenchmark` (20 September 2026): the 64-bit magic divide -
 fourteen operations, reviewed, tested against the reference at both long
 widths, green - measured 0.84x of the conversion form at the wide width and
 0.02x at 128 bits, 48.8 against 2377.2 M rows/s. `-XX:+PrintIntrinsics` under
@@ -496,7 +496,7 @@ Three things to carry.
   either.** The differential ran the magic form at 2 and 8 lanes and was green
   both times, because a per-lane Java loop computes the right answer. Only a
   rate, or the JIT's own log, tells a vector op from its fallback - which is
-  task 124's whole argument for the assembly gate, now with a second example.
+  VARKA-124's whole argument for the assembly gate, now with a second example.
 - **Read the narrow companion for collapses, not for ratios.** The wide file
   cannot show this class of failure at all; the 128-bit file is where a masked
   or width-specific lowering falls off a cliff, and a row in it at one fiftieth
@@ -505,10 +505,10 @@ Three things to carry.
   of the same sequence vectorised at two lanes; every masked one did not. A
   long-lane construction that needs a mask - a guard, an overflow test, a
   blend - should be assumed scalar at 128 bits until `PrintIntrinsics` at
-  `MaxVectorSize=16` says otherwise (`PLAN_MILESTONE_5.md` 2.89 is that audit).
+  `MaxVectorSize=16` says otherwise (`m5/PLAN.md` 2.89 is that audit).
 ## Ask C2 which vector calls it refused, per shape, and know which of its three answers is a verdict
 
-Task 153 (20 September 2026) turned one measured collapse into a table by
+VARKA-153 (20 September 2026) turned one measured collapse into a table by
 forking a probe per vector width under `-Xbatch` and a `PrintIntrinsics`
 directive scoped to the emitted classes (`-XX:CompileCommand=PrintIntrinsics,
 <class prefix>*::*`), with a marker printed before and after each shape.
@@ -537,7 +537,7 @@ machinery and `sql/varka/width_audit.json` the census; three things to carry.
 - **The first CI run of the audit answered a question two tasks had carried.**
   On the runner pool's EPYC 7763 at 256 bits C2 refuses `L2D` and `D2L` at
   four 64-bit lanes (`op=cast#510/512 vlen2=4`), in every shape with a 64-bit
-  constant division and nowhere else - task 88's "the converts do not
+  constant division and nowhere else - VARKA-88's "the converts do not
   intrinsify under AVX2" confirmed from the log on real hardware, where the
   laptop, whose AVX-512VL converts work at every width, could never show it.
   An invariant that runs on every runner class is a census of the fleet for
@@ -561,12 +561,12 @@ thousand rows - ten batches of the cache's default 10,000 rows, about 625 iterat
 sixteen lanes - the cold-start benchmark's kernels were never compiled at any tier:
 `-XX:+PrintCompilation` shows no `loopDense` or `epilogueDense` event in the whole run, while
 vanilla's generated `processNext` compiles in the same log, because its one loop over every row
-runs in a single invocation and the JIT compiles it partway through (`PLAN_TASK_195.md` 5.2).
+runs in a single invocation and the JIT compiles it partway through (`VARKA-195.md` 5.2).
 Interpreted Vector API code is a library call per operation, so such a query is slower on Varka
 than on vanilla. Two things follow for anyone measuring: a "second run" of a newly emitted class
 is not steady state, and a benchmark that wants steady state has to push enough batches through
 the class first, as the size ladder's two-second warmup does. With
-`spark.sql.codegen.varka.warmup.enabled`, the default since task 212, a new shape's
+`spark.sql.codegen.varka.warmup.enabled`, the default since VARKA-212, a new shape's
 batches take the row path while a background thread compiles the kernel instead (the
 two sections below).
 
@@ -586,7 +586,7 @@ HotSpot asks C1 for tier 2, limited profiling, instead - and tier 2 fits where t
 not. The method now runs C1 code, boxing every vector operation. Its next request is tier 3,
 which fails; from tier 2 the policy climbs only to tier 3, and tier-2 code does not update the
 method's profile, so the direct climb to C2 that the interpreter path takes never comes. The
-method stays on C1 code for the life of its class (`PLAN_TASK_212.md` 10.2).
+method stays on C1 code for the life of its class (`VARKA-212.md` 10.2).
 
 It is intermittent because it depends on what else C2 is doing at one moment - a new query's
 own compiles are enough - which is why a 54-entry kernel compiled in one JVM and was stranded
@@ -607,14 +607,14 @@ failure leaves it anyway, so every warmed kernel method goes from the interprete
 
 It has a price. The failed tier-3 request is also what creates a method's profile; with C1
 excluded the interpreter creates it only at twice the tier-3 threshold, so a kernel fed by
-625-iteration batches reaches C2 about a hundred batches later (`PLAN_TASK_212.md` 10.6). A
+625-iteration batches reaches C2 about a hundred batches later (`VARKA-212.md` 10.6). A
 warm-up does not pay it, because its thousands of short calls create the profile at once; a
 kernel fed by its own batches does. And a directive matches by class name, so it reaches
 every class of that name from the moment it is added, whoever emitted it: installed at the
 first warm-up, it went on to reach the kernels of sessions with the warm-up off, in the same
 JVM. So the decision to warm is made when the kernel is emitted, and a warmed kernel gets a
 name of its own (`VarkaFusedProjection_w...`, a letter no hex hash contains) that the
-directive matches and no other kernel has (`PLAN_TASK_212.md` 10.7). A benchmark's best time
+directive matches and no other kernel has (`VARKA-212.md` 10.7). A benchmark's best time
 hides a price like this and its average does not.
 
 The general rules: for generated code too large for C1's tier 3, exclude C1 outright rather
@@ -631,7 +631,7 @@ temporary directory with a space in its name makes the command fail.
 
 `VarkaKernelWarmup` runs a new kernel on a copy of its shape's first batch until it is
 compiled, while the shape's batches take the row path. Five things it took to make that
-reliable (`PLAN_TASK_212.md` 10).
+reliable (`VARKA-212.md` 10).
 
 * **Short calls, not long ones.** HotSpot's thresholds count invocations and back edges.
   Calls of about 48 rows advance the invocation counters hundreds of times faster per row
@@ -671,7 +671,7 @@ group's loop can still run interpreted. A verdict that reads the whole kernel's 
 the heavy group's drop, and if its probe calls are short, the light loop's boxing - a few hundred
 bytes a call - hides under an allowance that exists to excuse per-call memory segments. The
 warm-up called such a kernel compiled, and the first real 1024-row batches boxed about twenty
-bytes a row in the light loop (`PLAN_TASK_221.md` 2, found by JFR allocation samples on the test
+bytes a row in the light loop (`VARKA-221.md` 2, found by JFR allocation samples on the test
 thread; `PrintInlining` showed every compile of that loop fully intrinsified, so it was late, not
 bad). The rule: measure what grows with rows over calls long enough that it dominates what grows
 with calls - the warm-up's probe now runs whole-snapshot calls - and make each probe reach every
@@ -700,11 +700,11 @@ row path ran at about 1.6 times vanilla's row-at-a-time path.
 * **Compare what C2 eliminated, not only what it inlined.** The inlining at `withOverflow` was
   the same on both paths; `dev/varka_c2_report.py` over a `-XX:+LogCompilation` log counts the
   eliminated allocations per compile, and that is where the paths differed. See
-  `PLAN_TASK_228.md` 7.
+  `VARKA-228.md` 7.
 
 ## A wide loop method's cliff is the time before C2, and a six-second verdict cannot see past it
 
-Task 209 forked the cheap-tail kernel (`year(d) + k` in one loop method) twenty times per output
+VARKA-209 forked the cheap-tail kernel (`year(d) + k` in one loop method) twenty times per output
 count under `-XX:+LogCompilation`, and the same class landed fast or slow from one JVM to the
 next. Reading each fork's compile log beside its rate settled what the timing could not:
 
@@ -737,13 +737,13 @@ next. Reading each fork's compile log beside its rate settled what the timing co
   the last must stay within 2% to 40% of the limit or the JVM refuses to start.
 * **Six groups of the same outputs are fast in every fork**, C1 compiling every method, at 4.1
   to 4.4 ns a row, where the one group that lands well runs at 1.2 to 1.4 and the one that
-  cycles at 115. See `PLAN_TASK_209.md` 9.
+  cycles at 115. See `VARKA-209.md` 9.
 
 
 ## The deoptimization cycle is profiled loop predication's, and the wait before C2 is nobody's
 
-The night after task 209's admission check ran its arms at 24, 40 and 48 cheap-tail outputs,
-ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
+The night after VARKA-209's admission check ran its arms at 24, 40 and 48 cheap-tail outputs,
+ten forks of 24 seconds each (`VARKA-209.md` 10):
 
 * **`-XX:-UseProfiledLoopPredicate` ends the cycle**: no fork of 30 cycled under it against 10
   of 30 with the default, with the same compiled code to the intrinsic and the same settle
@@ -767,10 +767,10 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
   4; the cheap shape's 99- to 177-site methods cycled for good in a tenth to a half. Which
   loop keeps re-hoisting a failing predicate is not read from its size.
 * **Every `MemorySegment` a loop keeps live is a set of checks C2 hoists before the loop**, and
-  their count is one thing that decides the cycle (`PLAN_TASK_198.md` 12). The Vector API's
+  their count is one thing that decides the cycle (`VARKA-198.md` 12). The Vector API's
   segment loads and stores carry the segment's class, read-only flag, length, session state and
   the session's confined-owner test; C2 hoists them per segment as profiled predicates once it
-  no longer scalar-replaces the segments. Task 198's producer loop went from six live segments
+  no longer scalar-replaces the segments. VARKA-198's producer loop went from six live segments
   to twelve - one per prefix vector stored - and cycled at 8 to 60 outputs at both widths on
   the batches path; one segment over the whole scratch, addressed by offset, brought it back
   to seven and to compiling once. So a kernel body should hold as few segment objects as its
@@ -782,7 +782,7 @@ ten forks of 24 seconds each (`PLAN_TASK_209.md` 10):
 
 ## A call-site budget keeps wide groups under C1, and a narrow heavy group runs under C2 alone
 
-Task 209's remedy for the cliff above (`PLAN_TASK_209.md` 11 and 13): the emitter reads each
+VARKA-209's remedy for the cliff above (`VARKA-209.md` 11 and 13): the emitter reads each
 group method's Vector API call sites off the built class, beside the bytes it already measures,
 and splits a group whose loop or epilogue is over 93 - C1's last compiled count on JDK 25 -
 through the same regroup the byte budget uses. What the build and its review taught, beyond the
@@ -796,14 +796,14 @@ census:
   output move no grouping.
 * **A budget in C1's unit is a rule for wide groups only.** Applied to every group over it, the
   budget split the `make_date` ladder to one output a method - 2.3 times slower at steady state
-  for sixty outputs, the shared-prefix file's sixty-group arm - and declined task 190's
+  for sixty outputs, the shared-prefix file's sixty-group arm - and declined VARKA-190's
   hundred-entry kernel, whose single-entry methods were still past C1 at 150 sites each. A
   group of few heavy outputs gains no C1 from a split and pays a call, a loop and the prefix's
   loads per method per batch for good; so the budget splits a group only while it holds more
   than `HEAVY_GROUP_OUTPUTS` (six) outputs. The census's numbers back the exemption: five
   `make_date` outputs a method, 313 sites, settled by second 4 and cycled in no fork of 116,
   where the cheap tails past C1, with over twenty output segments live, cycled in a sixth to a
-  half - the segment count task 198 tied the cycle to.
+  half - the segment count VARKA-198 tied the cycle to.
 * **Under materialization a split's producer carries six stores more than its prefix**, so the
   first half of a split group can sit over the budget by exactly those stores (a `make_date`
   pair split by force: 99 and 68), and a later group loads the prefix in six sites where the
@@ -845,11 +845,11 @@ each row still pays a real call per refused method, with no optimisation across 
 * **On vanilla Spark's projection outside a stage**, a `CASE WHEN` of 16 branches splits into
   6 methods and C2 inlines 5; at 300 branches it splits into 101, grouped into one caller, and
   C2 inlines 11 and refuses 90 for the budget, identically in every fork under `-Xbatch`.
-  `VarkaSplitInliningSuite` pins both ends; see `PLAN_TASK_181.md` 10.
+  `VarkaSplitInliningSuite` pins both ends; see `VARKA-181.md` 10.
 
 ## A method filled to the byte budget by prediction cost thirteen times its neighbours on a four-core runner, and a margin is what bought it back
 
-- Task 236's item 71 section ran sixty-four cheap tails under three groupings: the weights
+- VARKA-236's item 71 section ran sixty-four cheap tails under three groupings: the weights
   (four loop methods), the cost model's prediction without a margin (three, each filled to
   near the 8000-byte budget) and the prediction with the fit's margins (four again). On the
   laptop the three read 6, 8 and 7 ms, a millisecond apart. On the GitHub runner, an Intel Xeon
@@ -869,4 +869,4 @@ each row still pays a real call per refused method, with no optimisation across 
   can be wrong by the compile window on the machine the number is published from, so a
   grouping default is decided on the runner's reading, and with the margin the fit derives,
   never at the budget's edge. `predictGrouping` ships with `planSize` for this reason and
-  neither alone (`PLAN_TASK_236.md` 9.3).
+  neither alone (`VARKA-236.md` 9.3).

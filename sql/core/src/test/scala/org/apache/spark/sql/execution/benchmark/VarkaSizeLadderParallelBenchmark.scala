@@ -26,7 +26,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
 
 /**
- * The size ladder on every core (task 197): [[VarkaSizeLadderBenchmark]]'s rungs, data and
+ * The size ladder on every core (VARKA-197): [[VarkaSizeLadderBenchmark]]'s rungs, data and
  * query, with both sessions on `local[*]` instead of `local[1]`, to ask whether the gap the
  * one-core ladder measures survives parallelism.
  *
@@ -45,7 +45,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
  * ladder, so both files come from the same machine.
  *
  * Its own class and files rather than a switch on the ladder, so the one-core file stays what
- * it is and the two are read side by side (`PLAN_TASK_197.md`).
+ * it is and the two are read side by side (`VARKA-197.md`).
  *
  * To run this benchmark:
  * {{{

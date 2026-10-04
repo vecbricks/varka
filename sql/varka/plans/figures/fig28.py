@@ -20,7 +20,7 @@ outside one for a reason (every such reason is silent), and outside because a se
 whole-stage codegen off.
 
 Every value is read from the census's committed file when the script runs
-(sql/core/benchmarks/VarkaCodegenGiveUps-jdk25-results.txt, PLAN_TASK_233.md 9.1)."""
+(sql/core/benchmarks/VarkaCodegenGiveUps-jdk25-results.txt, VARKA-233.md 9.1)."""
 
 import os
 import re

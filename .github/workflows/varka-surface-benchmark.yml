@@ -16,8 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-# Task 62's PR (B): the date surface, run against three Spark distributions on a
-# GitHub runner, per PLAN_TASK_62.md section 11.
+# VARKA-62's PR (B): the date surface, run against three Spark distributions on a
+# GitHub runner, per VARKA-62.md section 11.
 #
 # Why this is a sibling of benchmark.yml and not a mode of it (2.2): that one builds
 # this checkout's test jars and submits them through its own bin/spark-submit under a
@@ -47,7 +47,7 @@ on:
           - 'run'
       require-datapath:
         type: choice
-        description: 'Abort the measurement unless the datapath probe, run on the measuring machine itself, says the vector unit is this wide. Ignored by "stop-after: gate", which surveys the pool and so must not abort on the machines it is counting. See PLAN_TASK_62.md 11.15.'
+        description: 'Abort the measurement unless the datapath probe, run on the measuring machine itself, says the vector unit is this wide. Ignored by "stop-after: gate", which surveys the pool and so must not abort on the machines it is counting. See VARKA-62.md 11.15.'
         required: true
         default: '512'
         options:
@@ -59,11 +59,11 @@ on:
         required: false
         default: ''
       rows:
-        description: 'Rows in the cached table. 1e8 is the only count measured resident on a runner - 2e8 is not, at any partition count or driver memory tried, and a non-resident run times the disk (PLAN_TASK_62.md 11.12). The laptop files are 1e9.'
+        description: 'Rows in the cached table. 1e8 is the only count measured resident on a runner - 2e8 is not, at any partition count or driver memory tried, and a non-resident run times the disk (VARKA-62.md 11.12). The laptop files are 1e9.'
         required: true
         default: '100000000'
       partitions:
-        description: 'Partitions. One, per PLAN_TASK_62.md 2.6, unless memory forces more.'
+        description: 'Partitions. One, per VARKA-62.md 2.6, unless memory forces more.'
         required: true
         default: '1'
       driver-memory:
@@ -77,7 +77,7 @@ on:
         default: ''
       benchmark:
         type: choice
-        description: 'Which expressions. "surface" is one entry per expression, the coverage document, whose lightest rows are memory-bandwidth-bound and so cannot show a datapath difference. "chains" composes them three and four deep until the kernel is compute-bound, which is what a 512-bit run has to measure. See PLAN_TASK_62.md 11.13. "time" and "timechains" are the same pair over the TIME table (PLAN_TASK_164.md).'
+        description: 'Which expressions. "surface" is one entry per expression, the coverage document, whose lightest rows are memory-bandwidth-bound and so cannot show a datapath difference. "chains" composes them three and four deep until the kernel is compute-bound, which is what a 512-bit run has to measure. See VARKA-62.md 11.13. "time" and "timechains" are the same pair over the TIME table (VARKA-164.md).'
         required: true
         default: 'surface'
         options:
@@ -88,7 +88,7 @@ on:
           - 'ladder'
       input:
         type: choice
-        description: 'Where the table rows come from. "cache" is each distribution default cache (Arrow on the Varka arm). "parquet" writes the table to a Parquet file once and reads it back uncached, the path a query over a file takes; task 194 asks the ladder both ways. The file name gains "-parquet".'
+        description: 'Where the table rows come from. "cache" is each distribution default cache (Arrow on the Varka arm). "parquet" writes the table to a Parquet file once and reads it back uncached, the path a query over a file takes; VARKA-194 asks the ladder both ways. The file name gains "-parquet".'
         required: false
         default: 'cache'
         options:
@@ -96,7 +96,7 @@ on:
           - 'parquet'
       shard:
         type: string
-        description: 'I/N - run entries I, I+N, I+2N of the surface, so N dispatches cover it once. For the row count the fixed-share rule wants, the whole surface does not fit one job. Merge with dev/varka_bench_merge.py. See PLAN_TASK_62.md 11.11.'
+        description: 'I/N - run entries I, I+N, I+2N of the surface, so N dispatches cover it once. For the row count the fixed-share rule wants, the whole surface does not fit one job. Merge with dev/varka_bench_merge.py. See VARKA-62.md 11.11.'
         required: false
         default: ''
       max-fixed-share:
@@ -106,12 +106,12 @@ on:
         default: '5'
       extra-confs:
         type: string
-        description: 'Comma-separated key=value settings appended to every arm, stock and fork alike, e.g. spark.driver.extraJavaOptions=-XX:UseAVX=2,spark.sql.codegen.varka.emit.useAVX=2 for task 121 (in local[1] the driver is the executor, so the JVM flag reaches the kernels). Empty appends nothing.'
+        description: 'Comma-separated key=value settings appended to every arm, stock and fork alike, e.g. spark.driver.extraJavaOptions=-XX:UseAVX=2,spark.sql.codegen.varka.emit.useAVX=2 for VARKA-121 (in local[1] the driver is the executor, so the JVM flag reaches the kernels). Empty appends nothing.'
         required: false
         default: ''
       vecruntime:
         type: boolean
-        description: 'Add two arms on Spark 4.1.3, the release vecruntime supports: stock, and with the vecruntime plugin, every case held to the plugin''s own nodes (task 202). Parquet input only, since the plugin leaves a cached table to Spark.'
+        description: 'Add two arms on Spark 4.1.3, the release vecruntime supports: stock, and with the vecruntime plugin, every case held to the plugin''s own nodes (VARKA-202). Parquet input only, since the plugin leaves a cached table to Spark.'
         required: false
         default: false
       create-commit:
@@ -121,7 +121,7 @@ on:
         default: false
 
 jobs:
-  # Three jobs, not one, and PLAN_TASK_62.md 11.10 is why. The qualifying runner turned
+  # Three jobs, not one, and VARKA-62.md 11.10 is why. The qualifying runner turned
   # out to be one in eighteen, so asking it to do a cold build *and* the four runs inside
   # one six-hour limit risks forfeiting both - and the cache with them, since a cancelled
   # job never reaches its post step. The build does not care what machine it lands on;
@@ -166,7 +166,7 @@ jobs:
 
     # The survey, with no verdict attached: `require-datapath` is deliberately not
     # passed here. This job exists to census the pool (it is how the eighteen-runner
-    # table in PLAN_TASK_62.md 11.9 was taken), and a census that aborts on the machines
+    # table in VARKA-62.md 11.9 was taken), and a census that aborts on the machines
     # it is trying to count is not a census. The gate that decides a measurement lives in
     # `measure`, on the machine that measures.
     - name: Survey the machine and probe its datapath
@@ -252,7 +252,7 @@ jobs:
     env:
       SPARK_LOCAL_IP: localhost
       STOCK_VERSION: 4.2.0
-      # vecruntime's arm (task 202): its release, the Spark release it supports, and the Hadoop
+      # vecruntime's arm (VARKA-202): its release, the Spark release it supports, and the Hadoop
       # client that release needs on JDK 25 in place of the one it bundles.
       VECRUNTIME_VERSION: 0.0.3
       VECRUNTIME_SPARK_VERSION: 4.1.3
@@ -281,7 +281,7 @@ jobs:
     # after the JDKs, because the probe needs `jdk.incubator.vector`, and before the
     # 400 MB jar restore and the stock distribution download, because a `512` dispatch
     # is expected to miss seventeen times out of eighteen and a miss should cost
-    # seconds. A gate in any other job gates the wrong machine - PLAN_TASK_62.md 11.15.
+    # seconds. A gate in any other job gates the wrong machine - VARKA-62.md 11.15.
     - name: Gate - is this the machine this measurement needs?
       id: probe
       env:
@@ -434,7 +434,7 @@ jobs:
         # compares this machine against dev/varka_canary/baseline-<host>.txt and exits 2
         # when there is none, which is every runner, since the hostname is per-dispatch.
         # The file's canary line then reads OFF, which tells a reader what the absolute
-        # numbers are worth. See PLAN_TASK_62.md 11.4.
+        # numbers are worth. See VARKA-62.md 11.4.
         ARGS+=(--force --skip-build)
         [ -n "$MAX_FIXED_SHARE" ] && ARGS+=(--max-fixed-share "$MAX_FIXED_SHARE")
         [ -n "$ONLY" ] && ARGS+=(--only "$ONLY")
@@ -446,7 +446,7 @@ jobs:
         # An arm's third field is a comma list of confs, `varka` among them: extra confs open
         # that field on the arms that have none and extend it on the one that does.
         OPEN="${EXTRA_CONFS:+:$EXTRA_CONFS}"; MORE="${EXTRA_CONFS:+,$EXTRA_CONFS}"
-        # vecruntime's two arms when asked for, on the Parquet input it reads (task 202).
+        # vecruntime's two arms when asked for, on the Parquet input it reads (VARKA-202).
         OTHERS=()
         if [ "$VECRUNTIME" = true ]; then
           [ "$INPUT" = parquet ] \

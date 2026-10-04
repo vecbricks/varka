@@ -41,14 +41,14 @@ parsing) and unlocks SIMD by operating on whole columnar batches at once.
 Since milestone 2 it does not dispatch to per-op kernels: an eligible
 projection is compiled to a vector IR and *fused* - however many expressions
 and however deep their nesting, the emitted class runs one loop with one load
-per input column and one store per output. Since task 21 the same machinery
+per input column and one store per output. Since VARKA-21 the same machinery
 serves filters: an eligible predicate becomes a mask kernel whose single
 output is the selection bitmap, and the batch is compacted - or its rows
 skipped at the row boundary - by that mask.
 
 Varka reads three Spark types, and they are the three that are int32 both in
 Spark and in the Arrow cache: `DateType` (stored as `INT` days since epoch),
-`IntegerType`, and `YearMonthIntervalType` in every unit (task 67), whose value
+`IntegerType`, and `YearMonthIntervalType` in every unit (VARKA-67), whose value
 is a count of months whether it is spelled `INTERVAL YEAR`, `INTERVAL MONTH` or
 `INTERVAL YEAR TO MONTH`. An interval column reaches the same lanes as a date
 one; where it may appear is decided by Spark's own typing, so it fuses in
@@ -57,32 +57,31 @@ one; where it may appear is decided by Spark's own typing, so it fuses in
 `MONTH`-unit interval is a relabel in both directions and emits nothing, as is
 the cast between two year-month units that ends at `MONTH` - the one type
 coercion inserts when two units meet, so `ymm + ymy` fuses like `ymm + ymm2`.
-Since task 68 the `INT`-to-`YEAR` cast, which multiplies by twelve, fuses
+Since VARKA-68 the `INT`-to-`YEAR` cast, which multiplies by twelve, fuses
 wherever the compile-time bound rules that multiply's overflow out - over a
 calendar field it does, over a bare int column it does not. The direction that
 divides by twelve, which is `EXTRACT(YEAR FROM ym)`, `ym / k` and a cast that
-narrows a year-month interval to a `YEAR`-ended unit, stays residual and is task
-89's: the emitter's exact magic division covers about a
+narrows a year-month interval to a `YEAR`-ended unit, stays residual and is VARKA-89's: the emitter's exact magic division covers about a
 forty-thousandth of a full int32 month count.
 
-Task 68 also admits the algebra whose operands and result are both intervals:
+VARKA-68 also admits the algebra whose operands and result are both intervals:
 `ym + ym`, `ym - ym`, `-ym`, `abs(ym)`, `ym * k` and `make_ym_interval(y, m)`,
 and, in `ADD_MONTHS`' month-count position, `d - ym_col`. None of these has a
 wrapping form - Spark computes every one with `addExact`, `subtractExact`,
 `negateExact` or `multiplyExact` whatever the session's ANSI mode - so the check
 is unconditional and only a compile-time bound takes it off. A checked `*` has
 no int-lane overflow test, so `ym * k` fuses only where the bound proves it safe
-and is residual otherwise, exactly as task 63's int multiply is; `abs` is not an
+and is residual otherwise, exactly as VARKA-63's int multiply is; `abs` is not an
 op the IR has but the blend `if (ym < 0) -ym else ym`, whose negation arm alone
 can condemn a batch. `try_add(ym, ym)` and the other `try_*` spellings are
 residual, having no null-on-overflow lowering.
 
 The supported expression surface, then, over those columns and day offsets that
 are a foldable integer literal, an
-`IntegerType` column (task 38; a `ShortType`/`ByteType` offset column still
-declines) or int arithmetic over those (task 63), including that column
+`IntegerType` column (VARKA-38; a `ShortType`/`ByteType` offset column still
+declines) or int arithmetic over those (VARKA-63), including that column
 spelled as a day interval,
-`d + CAST(i AS INTERVAL DAY)` and `d - CAST(i AS INTERVAL DAY)` (task 56; a
+`d + CAST(i AS INTERVAL DAY)` and `d - CAST(i AS INTERVAL DAY)` (VARKA-56; a
 literal interval folds to `date_add` before planning). The cast throws past
 106751991 days in every mode, so the evaluator checks the offset column per
 batch and a batch holding such a value is recomputed on the row engine, which
@@ -96,25 +95,25 @@ becomes timestamp arithmetic) decline:
   their `AND` / `OR` / `NOT` combinations - executed branch-free by mask
   blend, with SQL's three-valued null semantics. `BETWEEN` arrives from the
   optimizer as its paired comparisons and fuses the same way.
-* `IN` over date literals in condition position (task 20): an EQ chain
+* `IN` over date literals in condition position (VARKA-20): an EQ chain
   joined by OR, capped at 16 deduplicated literals - a longer list declines
   with a recorded reason rather than risking the emitter's budgets.
 * `COALESCE` / `NVL` / `IFNULL` / `NVL2` and the `IS [NOT] NULL` predicates
-  (task 20), lowered onto a validity-reading condition. Every guarded
+  (VARKA-20), lowered onto a validity-reading condition. Every guarded
   operand must be a bare date column; a non-column operand declines.
 * `GREATEST` / `LEAST` (null-skipping) and `DAYOFWEEK` / `WEEKDAY`.
 * `YEAR` / `MONTH` / `DAYOFMONTH` / `QUARTER`, and the `EXTRACT` spellings that
-  desugar to them (task 26). One civil-from-days decomposition per date,
+  desugar to them (VARKA-26). One civil-from-days decomposition per date,
   lowered entirely to magic multiplies because no vector divide exists, and
   shared between the fields over it: `year(d), month(d), dayofmonth(d),
   quarter(d)` run one decomposition and four short tails in one loop method
-  (task 32). The lowering is defined over years -12800 to 33134 -
+  (VARKA-32). The lowering is defined over years -12800 to 33134 -
   every date SQL can write, and then some - and the range is enforced where a
-  day can leave it, not at every extraction (tasks 51 and 52). It stays exact
+  day can leave it, not at every extraction (VARKA-51 and VARKA-52). It stays exact
   for a further nine thousand years, to 42400, which is what an *intermediate*
   may reach: a value the compiler has already bounded below and is only
   shifting upward is admitted against that wider ceiling rather than the
-  enforced one (task 69). A date column
+  enforced one (VARKA-69). A date column
   is taken to hold `0001-01-01..9999-12-31`, the project's column contract,
   and is not checked at ingestion. The compiler bounds how far the arithmetic
   under a calendar function can shift such a day - literal `DATE_ADD` offsets,
@@ -134,9 +133,9 @@ becomes timestamp arithmetic) decline:
   consumer's, so a bare `add_months(d, m)` carries it too. A `DATE_ADD` with
   no calendar consumer is never checked - it returns what 32-bit addition
   returns, as Spark's does.
-* `NEXT_DAY` (task 33) with a literal weekday, resolved at compile time so
+* `NEXT_DAY` (VARKA-33) with a literal weekday, resolved at compile time so
   one kernel class serves every weekday; a null or unrecognized literal
-  declines. Since task 59 a weekday *column* fuses too, through a derived
+  declines. Since VARKA-59 a weekday *column* fuses too, through a derived
   input: before the kernel runs, the evaluator maps the string column to the
   weekday number per batch by the row engine's own parser, so the kernel reads
   an int column and the semantics are the row engine's by construction - an
@@ -145,11 +144,11 @@ becomes timestamp arithmetic) decline:
   non-null date sits beside the name and returns NULL where the date is null,
   exactly as it does alone. Any collation is admitted, since the parser
   ignores it. A weekday that is an expression over a column stays residual.
-* `DAYOFYEAR` (task 34), `LAST_DAY` (task 36) and `ADD_MONTHS` / `date +
-  INTERVAL n MONTH` (task 40), all over the same civil-from-days prefix;
+* `DAYOFYEAR` (VARKA-34), `LAST_DAY` (VARKA-36) and `ADD_MONTHS` / `date +
+  INTERVAL n MONTH` (VARKA-40), all over the same civil-from-days prefix;
   `LAST_DAY` and `ADD_MONTHS` return dates. `ADD_MONTHS`' month count is a
-  literal, (task 60) an integer column, (task 67) a stored year-month
-  interval column, or (task 68) arithmetic over any of those - the negation
+  literal, (VARKA-60) an integer column, (VARKA-67) a stored year-month
+  interval column, or (VARKA-68) arithmetic over any of those - the negation
   behind `d - ym_col`, and the `CAST(m AS INTERVAL YEAR)` whose value is
   twelve times the column rather than the column itself. What lets a derived
   count in is that the range check below is lanewise on the count's *value*
@@ -160,31 +159,31 @@ becomes timestamp arithmetic) decline:
   a lane outside `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` (about 2047 years
   either way, where the lowering's magic division by 12 stops being exact)
   declines the batch to the row engine rather than compute past it.
-* `MAKE_DATE(year, month, day)` (task 42) over int columns and literals, in
+* `MAKE_DATE(year, month, day)` (VARKA-42) over int columns and literals, in
   both evaluation modes: an invalid month or day is a null date with ANSI
   off and, with ANSI on, sends the batch to the row engine, which raises
   Spark's own error at that row; a year outside the whole years of the
   calendar range goes to the row engine in both modes, so the kernel never
   publishes a date the lowering is not exact for.
-* `WEEKOFYEAR`, `EXTRACT(WEEK FROM d)` and `DATE_PART('WEEK', d)` (task 37), the ISO-8601 week
+* `WEEKOFYEAR`, `EXTRACT(WEEK FROM d)` and `DATE_PART('WEEK', d)` (VARKA-37), the ISO-8601 week
   by the Thursday rule: the day is moved to the Thursday of its Monday-based
   week and the week is that Thursday's ordinal day in sevens, so the year
   boundaries need no correction. The shift is its own node and the week tail's
   prefix runs over it, which is what makes `EXTRACT(YEAROFWEEK FROM d)`
-  (task 58) `YEAR` over the same shift, sharing the shift and its prefix with
+  (VARKA-58) `YEAR` over the same shift, sharing the shift and its prefix with
   `WEEKOFYEAR` of the same date; a projection mixing either with `YEAR` or
   `MONTH` of the same date decomposes twice, once per side.
-* `EXTRACT(DAYOFWEEK_ISO FROM d)` / `DATE_PART('DOW_ISO', d)` (task 57),
+* `EXTRACT(DAYOFWEEK_ISO FROM d)` / `DATE_PART('DOW_ISO', d)` (VARKA-57),
   Monday 1 to Sunday 7, as one node: the analyzer spells it `weekday(d) + 1`,
-  and that spelling by hand fuses the same way. Since task 63 any other
+  and that spelling by hand fuses the same way. Since VARKA-63 any other
   integer arithmetic over a field fuses too, but as arithmetic over the
   weekday rather than as this node, so `weekday(d) + 2` answers 2 more than
   the weekday and not 1.
-* `TRUNC(date, fmt)` at the date levels. With a literal format (task 35),
+* `TRUNC(date, fmt)` at the date levels. With a literal format (VARKA-35),
   `YEAR`/`YYYY`/`YY`, `MONTH`/`MON`/`MM` and `QUARTER` are one node each with
   the level as part of the kernel's shape, and `WEEK` is rewritten onto
   `NEXT_DAY` over `DATE_SUB`, which is Spark's own definition of it. With a
-  stored string column as the format (task 61), one node computes all four
+  stored string column as the format (VARKA-61), one node computes all four
   periods per row and selects on the level, which the evaluator parses per
   batch through the row engine's own `parseTruncLevel` into a derived int32
   input (the mechanism `NEXT_DAY` uses for a weekday column), so any collation
@@ -197,10 +196,10 @@ becomes timestamp arithmetic) decline:
   a column decline: the row engine answers the literal cases with a NULL
   column, which no kernel can produce.
 * `UNIX_DATE` relabels a date column to its underlying `INT` day count with no
-  new node and no emitted code (task 41); the paired `DATE_FROM_UNIX_DATE`
+  new node and no emitted code (VARKA-41); the paired `DATE_FROM_UNIX_DATE`
   compiles the same way but still declines, since its child is an integer
-  column and only a `date_add`/`date_sub` offset position reads one (task 38).
-* `+`, `-`, `*` and unary `-` over int32 values (task 63): an `IntegerType`
+  column and only a `date_add`/`date_sub` offset position reads one (VARKA-38).
+* `+`, `-`, `*` and unary `-` over int32 values (VARKA-63): an `IntegerType`
   column, an int literal, any fused int field (`YEAR`, `MONTH`, `DATEDIFF`,
   the weekday family) or nested arithmetic over those. The evaluation mode
   travels with the node. Under `LEGACY` the lanes wrap, as `DATE_ADD` always
@@ -225,7 +224,7 @@ becomes timestamp arithmetic) decline:
 
 A projection does not have to be fully eligible: eligible entries fuse,
 untouched input columns are forwarded zero-copy, and the remaining entries run
-the standard row path per row, merged with the kernel outputs (task 12).
+the standard row path per row, merged with the kernel outputs (VARKA-12).
 
 Explicitly out of scope are `CalendarInterval` (a struct of months, days and
 microseconds), `DayTimeIntervalType` (int64 microseconds), strings, decimals and
@@ -267,7 +266,7 @@ VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'
 ```
 
 <!-- BEGIN generated coverage table -->
-The *128-bit lanes* column is `sql/varka/width_audit.json`'s census on AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M at a forced 128-bit species: `vector` means C2 refused no Vector API call in the row's kernel there; `per-lane` names the constructions it had no lowering for, which then run as Java loops over the lanes (task 153). It is this x86 JVM's table below its own width: the pool's aarch64 runner, whose native species is 128 bits, refuses nothing (`PLAN_TASK_153.md` 6).
+The *128-bit lanes* column is `sql/varka/width_audit.json`'s census on AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M at a forced 128-bit species: `vector` means C2 refused no Vector API call in the row's kernel there; `per-lane` names the constructions it had no lowering for, which then run as Java loops over the lanes (VARKA-153). It is this x86 JVM's table below its own width: the pool's aarch64 runner, whose native species is 128 bits, refuses nothing (`VARKA-153.md` 6).
 
 #### Day arithmetic
 
@@ -354,8 +353,8 @@ The *128-bit lanes* column is `sql/varka/width_audit.json`'s census on AMD Ryzen
 | `year(d) = 2021` |  | vector |
 | `NOT (d = d2)` |  | vector |
 | `d IN (DATE '2021-01-01', DATE '2021-06-01')` | up to 16 literals | vector |
-| `year(d) = 2021 AND i > 0` | every conjunct of an AND fuses or the predicate is not in this table; the int column compares in the kernel rather than leaving a residual row filter (task 122) | vector |
-| `i > 0` | a bare int column compares in the kernel (task 122) | vector |
+| `year(d) = 2021 AND i > 0` | every conjunct of an AND fuses or the predicate is not in this table; the int column compares in the kernel rather than leaving a residual row filter (VARKA-122) | vector |
+| `i > 0` | a bare int column compares in the kernel (VARKA-122) | vector |
 | `i IS NOT NULL` | the same column's validity word, which the optimizer infers beside `i > 0` | vector |
 | `i = 5` |  | vector |
 | `month(d) > i` | an int column against a fused int field | vector |
@@ -397,7 +396,7 @@ The *128-bit lanes* column is `sql/varka/width_audit.json`'s census on AMD Ryzen
 | `time_diff('microsecond', t2, t)` | units are read case-insensitively, as DateTimeUtils reads them | vector |
 | `time_trunc('MINUTE', t)` |  | vector |
 | `time_trunc('MILLISECOND', t2)` |  | vector |
-| `hour(t)` | an int computed in the 64-bit lane and narrowed at the kernel's store, the one place a lane changes width until task 28; so the extract fuses as an output and declines under another expression | vector |
+| `hour(t)` | an int computed in the 64-bit lane and narrowed at the kernel's store, the one place a lane changes width until VARKA-28; so the extract fuses as an output and declines under another expression | vector |
 | `minute(t2)` |  | vector |
 | `second(t)` |  | vector |
 | `time_to_millis(t)` |  | vector |
@@ -562,9 +561,9 @@ class has a deliberate method anatomy:
 
 * A per-batch dispatch picks one of two twin bodies: a *dense* body with
   unmasked loads and stores when every input is null-free (measured 2.3-2.9x
-  the masked body in task 10), and a *masked* body that builds a
+  the masked body in VARKA-10), and a *masked* body that builds a
   `VectorMask` per lane group from the bit-packed validity words otherwise.
-  Since task 70 the masked *driver* writes an output's validity bitmap once
+  Since VARKA-70 the masked *driver* writes an output's validity bitmap once
   per batch wherever it is a pure AND/OR of the input bitmaps - which is every
   calendar field, every date arithmetic node, `datediff` and the picks - and
   the loop then neither writes it per group nor, where nothing else reads
@@ -580,17 +579,17 @@ class has a deliberate method anatomy:
   keeps its per-group write.
 * The vector walk is split into sibling loop methods of at most
   `GROUP_BUDGET` (16) IR nodes each - or up to `FUSED_CEILING` (400) vector
-  ops where the outputs in a method share a calendar prefix (task 32) - one
+  ops where the outputs in a method share a calendar prefix (VARKA-32) - one
   output group per method, plus a shared *epilogue* method for the remainder
   rows. Separate methods, not one big loop: each gets its own C2 compilation,
-  so no method's inlining budget can starve another's intrinsics - task 10
-  measured 3-4x on exactly that cliff, and task 24 measured the same cliff
+  so no method's inlining budget can starve another's intrinsics - VARKA-10
+  measured 3-4x on exactly that cliff, and VARKA-24 measured the same cliff
   from the other side when it tried leaving the epilogue inline in a kernel's
   loop method.
 * Each body's *driver* - the method that prepares every output's validity,
   takes the all-null shortcut and calls the loop and epilogue methods in turn -
   does its per-output work in one call reading a table baked into the class,
-  rather than as code repeated for each output (task 190). So it grows by two
+  rather than as code repeated for each output (VARKA-190). So it grows by two
   calls per loop-method group, 44 bytes, and not with the outputs, the columns
   or the literals: repeated per output it passed the 8000-byte
   `HugeMethodLimit` at about 140 outputs, which capped how wide one kernel
@@ -604,7 +603,7 @@ class has a deliberate method anatomy:
   decomposition: `year(d)`, `month(d)`, `dayofmonth(d)`, `quarter(d)` and
   `add_months(d, n)` are distinct IR nodes, but a method that emits several of
   them over one date runs the 31-op decomposition once and gives each output
-  only its own tail (task 32). The grouping puts such outputs in one loop
+  only its own tail (VARKA-32). The grouping puts such outputs in one loop
   method for exactly that reason - an output joins a method past
   `GROUP_BUDGET` only when it reuses a prefix the method already computes,
   and never past `FUSED_CEILING` - so the hot loop pays the decomposition
@@ -617,19 +616,19 @@ class has a deliberate method anatomy:
   input columns per kernel. A projection over more columns is served by
   several kernels, run in turn over each batch into one output batch: the
   compiler compiles the entries one kernel sets aside into a further kernel,
-  and verbose `EXPLAIN` names the kernel of each such entry (task 190). A
+  and verbose `EXPLAIN` names the kernel of each such entry (VARKA-190). A
   kernel's size is bounded by the byte budget rather than by ops;
   `MAX_FUSED_NODES` (64 ops) applies only with the budget off. A chain past
   its depth falls back.
 
 Date arithmetic wraps on overflow, matching Spark's `DateAdd`/`DateSub`,
-which check nothing in any mode. The int arithmetic nodes task 63 added are
+which check nothing in any mode. The int arithmetic nodes VARKA-63 added are
 the exception and carry their evaluation mode instead, described in the
 surface list above; where a checked one is emitted, the sign test's mask joins
-the same accumulator task 52's range guard uses, so both kinds of refusal
+the same accumulator VARKA-52's range guard uses, so both kinds of refusal
 leave the loop through one status bit. The rows past `loopBound` are one more iteration of the
 same lane-group body under the mask `VectorSpecies.indexInRange` builds for a
-partial group (task 24): the loop stays unmasked, only the epilogue's loads and
+partial group (VARKA-24): the loop stays unmasked, only the epilogue's loads and
 stores take their masked overloads, and the lane count becomes the remainder so
 every validity access stays bounded by the group. This replaced a scalar tail
 that lowered every IR node a second time - the half of the emitter that would
@@ -641,15 +640,14 @@ The milestone-1 per-op kernels (`DateVectorOps.vectorAddDays` and friends)
 remain in the engine as reference code and as the differential oracle for the
 emitter's tests. The per-op dispatcher machinery they were once called through -
 the `ClassFileCodegenSupport` trait, the `VarkaClassFileGen` assembler and the
-kernel-shape interfaces - was retired in task 17, along with the
-`CodeAndComment` cache-key field it fed (`PLAN_MILESTONE_2.md` section 8).
+kernel-shape interfaces - was retired in VARKA-17, along with the
+`CodeAndComment` cache-key field it fed (`m2/PLAN.md` section 8).
 
 ### The IR in pictures
 
 Three Graphviz drawings of `VarkaVectorIR` live under `docs/img/varka/`, each
 as a `.dot` source and the `.svg` rendered from it (`dot -Tsvg x.dot -o x.svg`;
-`-Tpng`/`-Tjpg` for a raster). They are a snapshot of the node set as of task
-61 (5 September 2026) and are re-rendered when a node is added, in the same
+`-Tpng`/`-Tjpg` for a raster). They are a snapshot of the node set as of VARKA-61 (5 September 2026) and are re-rendered when a node is added, in the same
 change that re-pins the shape hash.
 
 * `varka-ir-hierarchy.svg`: what a node *is* - the sealed `permits` lists as a
@@ -680,10 +678,10 @@ change that re-pins the shape hash.
 
 ### The shape cache, class loaders and Metaspace
 
-Task 14 measured the cost of the original per-task lifecycle: every task
+VARKA-14 measured the cost of the original per-task lifecycle: every task
 defined a fresh class, so HotSpot re-ran the whole tier ladder - interpreter,
 C1 with boxed vectors, C2 OSR - a fixed 13-50 ms per task that emission (~80
-us) never was. Since task 18 the loaded class is shared instead:
+us) never was. Since VARKA-18 the loaded class is shared instead:
 `VarkaShapeCache` is a JVM-wide LRU keyed on the kernel's structural shape -
 the IR (whose literal slots carry indices, never values), the input count and
 the literal count, exactly the inputs the emitted bytes are a function of -
@@ -734,13 +732,13 @@ as it did before the warm-up existed.
 ### Null semantics and predication
 
 The vector loop cannot branch per row, so SQL's null and conditional
-semantics are implemented in mask algebra; `PLAN_MILESTONE_2.md` section 2.6
+semantics are implemented in mask algebra; `m2/PLAN.md` section 2.6
 is the normative statement of the rules. In brief:
 
 * Arithmetic is null-intolerant: an output row is valid only where every
   referenced input is valid, tracked as per-lane-group validity words in the
   loop, and written whole by the driver where the word is a pure function of
-  the input bitmaps (task 70).
+  the input bitmaps (VARKA-70).
 * Comparisons and `AND`/`OR`/`NOT` follow three-valued logic as a
   *known-true / known-false* mask pair (`unknown` is neither), so
   `null AND false = false` comes out right without a branch.
@@ -753,14 +751,14 @@ is the normative statement of the rules. In brief:
   digit-sum folds (`2^15 = 1 mod 7`) narrow the value until Granlund-Montgomery
   magic division by 7 is exact in the low 32 bits, with no final fixup - the
   full-range multiply-high the classic trick needs does not exist in the
-  Vector API, but pre-folding makes the low half sufficient. The task 11
+  Vector API, but pre-folding makes the low half sufficient. The VARKA-11
   six-fold digit sum and the lanewise-DIV lowering are kept as reference
   variants (the parity benchmark's dayofweek section prices all three).
 
 ### Telemetry and debuggability
 
-Every emitted class is self-describing (task 13, reconciled with sharing in
-task 18): a `SourceFile` attribute named for the shape
+Every emitted class is self-describing (VARKA-13, reconciled with sharing in
+VARKA-18): a `SourceFile` attribute named for the shape
 (`VarkaFusedProjection_<hash>.java`, 16 hex chars of the shape's SHA-256), so
 stack traces, profilers and heap dumps name the kernel with no mapping table,
 and a `VarkaDebugInfo` custom attribute carrying the vector IR and the shape
@@ -768,7 +766,7 @@ identity. The class is shared across tasks, so the per-execution identity -
 operator, stage, the projection list - is not in the bytes: the cache records
 it per lookup in a bounded side table, and
 `VarkaShapeCache.executionsFor(hash)` joins a shape name seen in a profile
-back to the plan nodes that ran it. Task 16 extends that to the questions the
+back to the plan nodes that ran it. VARKA-16 extends that to the questions the
 attributes alone did not answer:
 
 * **Bytecode maps back to IR nodes.** The class carries a `LineNumberTable`
@@ -790,40 +788,40 @@ attributes alone did not answer:
   projection node lists every projection entry as fused, forwarded (naming the
   child column) or residual with the compiler's decline reason - "unsupported
   expression", "CASE WHEN without an ELSE branch", "non-date column of
-  type ..." - in the query's own column names. Since task 38, a `date_add`/
+  type ..." - in the query's own column names. Since VARKA-38, a `date_add`/
   `date_sub` day offset that is neither a foldable literal nor a supported
   column gets its own reasons: "non-integer day offset column of type ..."
   for a `ShortType`/`ByteType` column, "day offset is not a foldable literal,
   an integer column or int arithmetic" for anything else (e.g. `i % 7`, whose
-  operator no arm lowers). Since task 63, "checked int multiply whose operands
+  operator no arm lowers). Since VARKA-63, "checked int multiply whose operands
   do not rule out overflow" names an ANSI or TRY `*` the compile-time bound
-  cannot prove safe - which since task 68 is also how an unbounded `ym * k`
+  cannot prove safe - which since VARKA-68 is also how an unbounded `ym * k`
   reports, the interval multiply being that same node - and "day offset
   arithmetic that lowers to a node the offset
   position does not take" names arithmetic in a `date_add`/`date_sub` offset
   that lowers to something other than an arithmetic node - `weekday(d) + 1`,
-  which is task 57's own node. (`intOperand` carries a third, "int arithmetic
+  which is VARKA-57's own node. (`intOperand` carries a third, "int arithmetic
   operand of type ...", which a resolved plan cannot reach: Spark requires both
   operands of an `Add` to share a type, so an `IntegerType` one has two int
-  operands by construction.) Since task 59, a `next_day` whose weekday is neither a literal
+  operands by construction.) Since VARKA-59, a `next_day` whose weekday is neither a literal
   nor a stored string column reports "next_day with a weekday that is neither
-  a literal nor a column"; since task 68, a multiplier that is not an int32
+  a literal nor a column"; since VARKA-68, a multiplier that is not an int32
   lane reports "interval multiplier of type ... is not an int32 lane", naming
   the type rather than reporting it as a bad int operand, so `ym * 2.5` cannot
   be read as a `ym * i`; a `trunc` whose format is neither foldable nor a
-  stored string column keeps task 35's "trunc with a non-foldable format"
-  (task 61). Since task 52, a calendar function over arithmetic
+  stored string column keeps VARKA-35's "trunc with a non-foldable format"
+  (VARKA-61). Since VARKA-52, a calendar function over arithmetic
   that can leave the lowering's range reports "day range [lo, hi] leaves the
   calendar lowering's range", with the interval in epoch days, and one over a
   producer
   the range analysis does not know reports "day producer the calendar range
-  analysis does not bound"; since task 56, "day interval is not an int column
+  analysis does not bound"; since VARKA-56, "day interval is not an int column
   cast to days" names a day interval that is not `CAST(i AS INTERVAL DAY)`
-  over an int column. A Varka filter node (task 21) reports its predicate the same
+  over an int column. A Varka filter node (VARKA-21) reports its predicate the same
   way, one line per conjunct. The same account goes to the debug log once per
   task.
 
-Task 22 extends the account to the SQL UI and to JDK Flight Recorder:
+VARKA-22 extends the account to the SQL UI and to JDK Flight Recorder:
 
 * **Fallback causes are SQL metrics.** Every Varka node carries, beside the
   row/batch counts and the class-cache hits and misses, cause-keyed
@@ -893,7 +891,7 @@ Arrow batches with no transition at all, while a row consumer gets the single
 fused node. The rule is registered on every `SparkSession` but is inert while
 the config is off.
 
-Since task 21 the same two-stage rewrite serves filters - the engine's first
+Since VARKA-21 the same two-stage rewrite serves filters - the engine's first
 plan-shape change. An eligible predicate's compilable conjuncts fuse into a
 mask kernel (one fused loop whose single output root is the condition; the
 selection bitmap lands in the output-validity slot, a set bit meaning known
@@ -933,7 +931,7 @@ Per task and Arrow-supported batch:
    fused entries (the IR), forwarded entries (bare input columns, passed
    through zero-copy) and residual entries (everything else).
 2. Look the fused shape up, lazily, in the JVM-wide class cache
-   (`VarkaShapeCache`, task 18): a miss emits and defines the class - named
+   (`VarkaShapeCache`, VARKA-18): a miss emits and defines the class - named
    by its shape hash - in its own `VarkaGeneratedClassLoader`, and every
    task (or session) computing the same shape reuses the loaded class, C2
    code and all, skipping the fixed per-task JIT warm-up. The literals never
@@ -947,7 +945,7 @@ Per task and Arrow-supported batch:
 4. Run the kernel: one vector loop writes every fused output into freshly
    allocated Arrow vectors. Forwarded columns are re-wrapped, not copied.
    Residual entries are evaluated per row and merged - at-row on the
-   row-consumer node (the escape hatch task 12 measured both ways), into a
+   row-consumer node (the escape hatch VARKA-12 measured both ways), into a
    writable batch on the columnar one.
 5. Track `numVarkaBatches`, which only counts batches where the kernels
    succeeded, and the class-cache hit/miss per task. A class's loader is
@@ -955,7 +953,7 @@ Per task and Arrow-supported batch:
    (`spark.sql.codegen.varka.cache.maxEntries`, default 100) evicts it, so
    Metaspace is bounded by cache capacity; running tasks keep their instance
    until they finish. The Janino fallback projection is compiled lazily,
-   only if a batch actually needs it (task 15).
+   only if a batch actually needs it (VARKA-15).
 
 Neither node is `CodegenSupport`; whole-stage codegen splits at the boundary
 with the columnar producer. They depend on the engine only by kernel
@@ -1005,7 +1003,7 @@ descriptors (strings), so a missing engine jar degrades to the fallback.
 | `sql/varka/engine` | Standalone Java 25 module (`varka-engine`, Arrow 19.0.0): `VarkaMorsel`, `DateVectorOps`, `VarkaClassLoader` and their tests. |
 | `sql/catalyst` | The vector IR, loop emitter, emit options, shape cache and telemetry attribute under `codegen/varka/`, all Java; `VarkaGeneratedClassLoader`, also Java; `VarkaExpressionCompiler` and the shape cache's Spark-facing facade, which stay Scala; `DateVarkaSupport`'s day-offset folding; the Varka configs. |
 | `sql/core` | `VarkaColumnarRule`, `VarkaColumnarToRowExec`, end-to-end test suites and benchmarks. |
-| `sql/varka` | `VISION.md`, `ADDING_AN_EXPRESSION.md` (the contributor path for a new expression), `Varka_MVP.md`, and `plans/` with the milestone plans (`PLAN_MILESTONE_1.md` is the MVP) and per-task plans. |
+| `sql/varka` | `VISION.md`, `ADDING_AN_EXPRESSION.md` (the contributor path for a new expression), `Varka_MVP.md`, and `plans/` with the milestone plans (`m1/PLAN.md` is the MVP) and per-task plans. |
 
 ## Configuration
 
@@ -1014,10 +1012,10 @@ All Varka configurations are internal:
 | Config | Default | Description |
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.enabled` | `false` | When true, an eligible projection (at least one fusable entry) over Arrow `DateDayVector` columns runs the fused SIMD kernel instead of per-row codegen - as `VarkaProjectExec` where the consumer takes batches, and as `VarkaColumnarToRowExec` where it wants rows; ineligible entries run the row path per row and merge, and non-Arrow batches fall back entirely. |
-| `spark.sql.codegen.varka.classDumpDirectory` | (none) | Diagnostics (task 16). When set, every emitted kernel class is written to this directory under its `SourceFile` name, for `javap`. A failed write is logged and never fails the query; every task of a shape holds identical bytes and overwrites one file. |
-| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (task 121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions below AVX-512; `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine. The level is part of the shape hash, so a session that sets it emits and caches its own classes. For benchmarks and A/Bs. |
-| `spark.sql.codegen.varka.cache.maxEntries` | `100` | Static (task 18). Capacity of the JVM-wide cache of loaded fused-kernel classes, keyed on the kernel's structural shape; the least recently used class is released on eviction, bounding Metaspace by this size. `0` restores the per-task emit-and-unload lifecycle. |
-| `spark.sql.codegen.varka.warmup.enabled` | `true` | Task 212. When true, a newly emitted kernel serves no batch until C2 has compiled it: the shape's batches take the per-row path while a background thread runs the kernel on a copy of the first batch, and every task of the shape switches to the kernel once it runs without allocating. When false, a new kernel serves batches from the first and runs interpreted until enough batches have gone through it. |
+| `spark.sql.codegen.varka.classDumpDirectory` | (none) | Diagnostics (VARKA-16). When set, every emitted kernel class is written to this directory under its `SourceFile` name, for `javap`. A failed write is logged and never fails the query; every task of a shape holds identical bytes and overwrites one file. |
+| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions below AVX-512; `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine. The level is part of the shape hash, so a session that sets it emits and caches its own classes. For benchmarks and A/Bs. |
+| `spark.sql.codegen.varka.cache.maxEntries` | `100` | Static (VARKA-18). Capacity of the JVM-wide cache of loaded fused-kernel classes, keyed on the kernel's structural shape; the least recently used class is released on eviction, bounding Metaspace by this size. `0` restores the per-task emit-and-unload lifecycle. |
+| `spark.sql.codegen.varka.warmup.enabled` | `true` | VARKA-212. When true, a newly emitted kernel serves no batch until C2 has compiled it: the shape's batches take the per-row path while a background thread runs the kernel on a copy of the first batch, and every task of the shape switches to the kernel once it runs without allocating. When false, a new kernel serves batches from the first and runs interpreted until enough batches have gone through it. |
 
 The rule is registered on every `SparkSession` but does nothing while the
 config is off, so enabling the config is all that is needed:
@@ -1065,12 +1063,12 @@ exist.
 * **Metaspace proof** (`VarkaGeneratedClassLoaderSuite`,
   `VarkaShapeCacheSuite`) verifies with weak references that a released
   loader is collected, that a batch of 1000 loaders is fully collected, and -
-  since task 18 - that a 10k-distinct-shape stress stays at cache capacity
+  since VARKA-18 - that a 10k-distinct-shape stress stays at cache capacity
   with every evicted loader collected.
 
 Benchmark highlights from the committed runs - the throughput file from
-task 19's run, which extended the row-consumer matrix with heavy-op twins;
-cold start and class generation from task 18 (AMD Ryzen AI 9 HX PRO 370,
+VARKA-19's run, which extended the row-consumer matrix with heavy-op twins;
+cold start and class generation from VARKA-18 (AMD Ryzen AI 9 HX PRO 370,
 JDK 25, Linux, machine otherwise idle; every number below is the best of at
 least five two-second-windowed iterations and lives in the committed results
 files, which are the source of truth as the code moves):
@@ -1088,16 +1086,16 @@ files, which are the source of truth as the code moves):
   data-oblivious, 8-9 ms best in the committed cases); the gap is Janino's
   branch misprediction on the unpredictable data.
 * **Chain depth** (alternating `date_add`/`date_sub`, columnar consumer):
-  6.4-6.9x, *flat* from depth 1 to depth 8. Task 14 committed this curve as
+  6.4-6.9x, *flat* from depth 1 to depth 8. VARKA-14 committed this curve as
   2.2x eroding to 1.3x and diagnosed the erosion as the fixed per-task JIT
-  warm-up that grew with the loop method's op count (`PLAN_TASK_14.md` 7.5);
-  task 18's cross-task class cache removed exactly that term - every task
+  warm-up that grew with the loop method's op count (`VARKA-14.md` 7.5);
+  VARKA-18's cross-task class cache removed exactly that term - every task
   now runs the C2-compiled loop from its first row - and the end-to-end
   curve became what the buffer-level numbers always predicted (depth 8
   within 10% of depth 1).
 * **The row-consumer cost, stated plainly**: assemble-then-read costs a
   flat ~25 ns/row on an all-fused single-output projection, whatever the
-  fused work - task 19's extended matrix pinned the floor (the ~16 ns/row
+  fused work - VARKA-19's extended matrix pinned the floor (the ~16 ns/row
   previously quoted was contaminated by the pre-cache JIT warm-up). Fusion
   through rows wins exactly where Janino's own per-row cost exceeds that
   floor: `dayofweek` 1.2x and unpredictable `CASE WHEN` 1.1x, against the
@@ -1105,22 +1103,22 @@ files, which are the source of truth as the code moves):
   There is no break-even depth, and no plan-time cost gate separates the
   winners from the losers - an 8-op chain loses while the ~6-op `CASE WHEN`
   wins, because the differencer is Janino's cost, not Varka's - so the rule
-  keeps fusing row consumers: task 19's recorded decision.
+  keeps fusing row consumers: VARKA-19's recorded decision.
 * **`dayofweek`**: 8.8x - the largest committed
-  win, and the shape that pays even through a row consumer (1.2x there). This case shipped as the honest loss of the original task 14 run
+  win, and the shape that pays even through a row consumer (1.2x there). This case shipped as the honest loss of the original VARKA-14 run
   (0.9x, the magic-multiply lowering of 7.7 took it to 1.2x): its ~12-op
   loop method paid the heaviest per-task warm-up (~50 ms), so removing the
   ladder moved it furthest.
-* **Filters** (`VarkaFilterBenchmark`, tasks 21 and 24, `d < DATE` over 2M
+* **Filters** (`VarkaFilterBenchmark`, VARKA-21 and VARKA-24, `d < DATE` over 2M
   rows at a 0-100% selectivity ladder): the compacting `VarkaFilterExec` wins
-  2.5x at 0% selected, rising to 5.4x at 100%. The rise is task 24's
+  2.5x at 0% selected, rising to 5.4x at 100%. The rise is VARKA-24's
   `compress(mask)` compaction and it is the interesting part: the typed
   scalar copy it replaced was one Arrow call per *selected row*, so its cost
   grew across the ladder (5.4 ns/row at 15% selected to 8.6 at 100%), while
   `IntVector.compress` is one instruction per lane group whatever the group
   holds and stays flat at 3.8-4.2 ns/row. Compaction has stopped being a
   function of selectivity, which is why there is still no compaction
-  threshold - there is now less reason for one than when task 21 declined it.
+  threshold - there is now less reason for one than when VARKA-21 declined it.
   The mask-skip row node wins 2.3x at low selectivity, decaying to 1.1x at
   all-selected as the task-19 read-back floor takes over. The stacked
   filter-then-fused-projection shape holds 3.5x-4.7x, and the
@@ -1138,7 +1136,7 @@ files, which are the source of truth as the code moves):
   defining, loading and instantiating a fused two-output kernel takes
   ~99 us against ~6.5 ms for one Janino projection compile - 66x. (The
   milestone-1 single-op dispatcher case that used to sit beside it, at
-  ~420x, went with the dispatchers in task 17.)
+  ~420x, went with the dispatchers in VARKA-17.)
 
 ## Deployment and requirements
 
@@ -1164,9 +1162,9 @@ The real current edges, stated with their numbers where they have one:
   compiler question rather than an engine one. No `CalendarInterval`, strings,
   decimals, timestamps or nested types, and a day offset must be a foldable
   integer literal or an `IntegerType` column - `ShortType`/`ByteType` offset
-  columns decline (task 38).
+  columns decline (VARKA-38).
 * **A SIMD lane cannot throw row-accurately**, which shapes how ANSI overflow
-  works rather than excluding it. Task 63 fuses integer arithmetic over a
+  works rather than excluding it. VARKA-63 fuses integer arithmetic over a
   `datediff` result and over the calendar fields; where the operands' ranges do
   not rule overflow out, the kernel marks the overflowing lanes and declines the
   batch, and the row engine recomputes it and raises. So the error is Spark's
@@ -1176,8 +1174,8 @@ The real current edges, stated with their numbers where they have one:
   chains commit at 0.8x and residual-heavy at 0.6x, while heavy shapes win
   through rows (`dayofweek` 1.2x, `CASE WHEN` 1.1x) - the ~25 ns/row
   assemble-then-read floor decides which (`VarkaThroughputBenchmark`).
-  Task 19 measured both sides and recorded the acceptance: no decline rule,
-  because no plan-time number separates the shapes and task 21's filters
+  VARKA-19 measured both sides and recorded the acceptance: no decline rule,
+  because no plan-time number separates the shapes and VARKA-21's filters
   keep more output columnar.
 * **Vectorized Parquet falls back**: `OnHeap`/`OffHeapColumnVector` batches
   are not Arrow. The Arrow cache serializer is the production source of
@@ -1185,7 +1183,7 @@ The real current edges, stated with their numbers where they have one:
 * **No whole-stage codegen integration.** The Varka nodes are not
   `CodegenSupport`; whole-stage codegen splits at the boundary.
 * **Emitter caps**: chain depth 16, 64 distinct ops, 64 input columns per
-  kernel, and 16 literals per fused `IN` list. Since task 20 the compiler
+  kernel, and 16 literals per fused `IN` list. Since VARKA-20 the compiler
   mirrors the depth and op budgets and demotes an overflowing entry to
   residual with a recorded reason, instead of the whole kernel silently
   falling back per batch at emission. A capped `IN` still lands in one
@@ -1239,13 +1237,13 @@ Every one answers `--help` with its own usage; what follows is what each is
 | Tool | What it is for |
 | :--- | :--- |
 | `varka_emit.sh` | The main introspection tool. Give it SQL expressions and it prints what they compile to - the IR, the shape hash, and per emitted method the bytecode size and vector-op counts. `--asm` adds C2's assembly for the dense loop, `--table` prints the op-count table a plan registers, `--options k=v` selects an emitter variant, `--repeat N` re-emits the shape N times and reports the median, a loop a profiler can sample. Start here when asking "why did this not fuse" or "how expensive is this shape". |
-| `varka_jfr_frames.py` | Where the time goes inside one code path: reads a JFR recording's execution samples (`jfr print --events jdk.ExecutionSample --stack-depth 64`) and attributes each to the emitter phase whose frame the stack holds and to the nearest Varka frame to the top, so the JDK's work on Varka's behalf is charged to the method that asked for it. Task 191's admission check is its first use. |
+| `varka_jfr_frames.py` | Where the time goes inside one code path: reads a JFR recording's execution samples (`jfr print --events jdk.ExecutionSample --stack-depth 64`) and attributes each to the emitter phase whose frame the stack holds and to the nearest Varka frame to the top, so the JDK's work on Varka's behalf is charged to the method that asked for it. VARKA-191's admission check is its first use. |
 | `varka_hsdis_build.sh` | Builds `hsdis`, the disassembler plugin `-XX:+PrintAssembly` needs and no JDK ships, in seconds from the JDK's own source and the distribution's capstone library. Needed by `varka_emit.sh --asm`. |
 | `varka_trap_census.py` | Splits HotSpot's `LogCompilation` output into the two different things called `uncommon_trap` and reports per-method deoptimisation and compile counts - for when a kernel is fast in isolation and slow in a query. |
-| `varka_c2_report.py` | What the JIT made of one class's methods, from `-XX:+LogCompilation`: per compilation, which compiler made it or failed, the bytes of callees inlined, the intrinsics applied and the calls left in the graph, the allocations and boxes escape analysis eliminated, and the inlines refused with their reasons; then a per-method summary with the traps and discards that hit its C2 code - for when the same generated code allocates on one path and not on another (`PLAN_TASK_228.md` 7), or is compiled again and again (`PLAN_TASK_209.md` 9). |
-| `varka_inlining_cliff.sh`, `varka_inlining_cliff.py` | Task 209's census: fresh JVMs of `VarkaInliningCliffProbe`, the cheap-tail kernel at a given output count and fused ceiling, under `-XX:+LogCompilation` and `PrintInlining`/`PrintIntrinsics` scoped to the emitted class; the reader gives every fork a fast-or-slow verdict, the second it settled, and what C1 and C2 made of its loop method, and splits C2's words by verdict - for the cliff a loop method meets past C1's limit (`PLAN_TASK_209.md` 9). |
+| `varka_c2_report.py` | What the JIT made of one class's methods, from `-XX:+LogCompilation`: per compilation, which compiler made it or failed, the bytes of callees inlined, the intrinsics applied and the calls left in the graph, the allocations and boxes escape analysis eliminated, and the inlines refused with their reasons; then a per-method summary with the traps and discards that hit its C2 code - for when the same generated code allocates on one path and not on another (`VARKA-228.md` 7), or is compiled again and again (`VARKA-209.md` 9). |
+| `varka_inlining_cliff.sh`, `varka_inlining_cliff.py` | VARKA-209's census: fresh JVMs of `VarkaInliningCliffProbe`, the cheap-tail kernel at a given output count and fused ceiling, under `-XX:+LogCompilation` and `PrintInlining`/`PrintIntrinsics` scoped to the emitted class; the reader gives every fork a fast-or-slow verdict, the second it settled, and what C1 and C2 made of its loop method, and splits C2's words by verdict - for the cliff a loop method meets past C1's limit (`VARKA-209.md` 9). |
 | `varka_word_census.sh` | Reports what validity word each IR value root produces, over the whole corpus - the audit behind the null-handling algebra. |
-| `varka_deopt_cycle.sh` | Does a kernel's dense loop compile once, or enter the C2 deoptimization cycle (task 189)? Forks fresh JVMs of the `make_date` ladder's kernel at a width and in an epilogue form under `-XX:+PrintCompilation` and `-Xlog:deoptimization=debug`, since the cycle is decided at a method's first C2 compile and then stable for the JVM's life, so forks are the sample. |
+| `varka_deopt_cycle.sh` | Does a kernel's dense loop compile once, or enter the C2 deoptimization cycle (VARKA-189)? Forks fresh JVMs of the `make_date` ladder's kernel at a width and in an epilogue form under `-XX:+PrintCompilation` and `-Xlog:deoptimization=debug`, since the cycle is decided at a method's first C2 compile and then stable for the JVM's life, so forks are the sample. |
 | `varka_deopt_cycle.py` | Reads those logs and gives the verdict per fork from the JVM's own words - a loop method made not entrant three or more times and trapped at `profile_predicate` more than four times - never from a rate. With `--fail-on-cycle` it exits non-zero when any fork cycles, fails to finish, or no fork is read; `VarkaDeoptCycleSuite` holds the rule against recorded logs. |
 
 ### Refactoring and porting

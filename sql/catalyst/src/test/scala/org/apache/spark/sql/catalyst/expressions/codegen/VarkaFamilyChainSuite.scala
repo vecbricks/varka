@@ -30,12 +30,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 
 /**
- * The compiler's family chain is disjoint (task 173, scope item 41).
+ * The compiler's family chain is disjoint (VARKA-173, scope item 41).
  *
  * `VarkaExpressionCompiler.compileNode` dispatches a node through a chain of groups - the date
  * leaves, the calendar, interval, time and condition families, then the int arithmetic - and
  * the first group whose arms are defined at the node compiles it. The chain is order-safe only
- * if no node is claimed by two groups; that was an argument in `PLAN_TASK_159.md`, and a fifth
+ * if no node is claimed by two groups; that was an argument in `VARKA-159.md`, and a fifth
  * family or a widened guard would break it silently, the first group winning. This suite holds
  * it as a fact: every node of every expression of the coverage table, and of a few shapes the
  * compiler suite watches, is asked of each group's `isDefinedAt`, and at most one answers. A

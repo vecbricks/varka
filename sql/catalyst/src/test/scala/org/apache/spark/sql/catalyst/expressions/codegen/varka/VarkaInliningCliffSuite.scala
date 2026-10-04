@@ -27,11 +27,11 @@ import scala.collection.mutable
 import org.apache.spark.SparkFunSuite
 
 /**
- * The machinery of task 209's admission check, kept working: [[VarkaInliningCliffProbe]] forks,
+ * The machinery of VARKA-209's admission check, kept working: [[VarkaInliningCliffProbe]] forks,
  * prints its markers under the flags `dev/varka_inlining_cliff.sh` passes, and
  * `dev/varka_inlining_cliff.py` reads one fork into one row of its table. The census itself -
  * twenty forks per case, the sweep over output counts - is the script's, run when the machine is
- * free (`PLAN_TASK_209.md` 2); this suite runs one short fork and asserts nothing about which
+ * free (`VARKA-209.md` 2); this suite runs one short fork and asserts nothing about which
  * side of the cliff it landed on.
  */
 class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
@@ -111,8 +111,8 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("under the call-site budget the probe forks twenty-two tails as two loop methods, and " +
-      "with the budget off as the one method past C1 the census measured (task 209)") {
-    // The census of PLAN_TASK_209.md 10.1 put C1's limit between 93 and 99 vector call sites,
+      "with the budget off as the one method past C1 the census measured (VARKA-209)") {
+    // The census of VARKA-209.md 10.1 put C1's limit between 93 and 99 vector call sites,
     // twenty and twenty-two cheap tails in one loop method. The probe's default arm is now the
     // production emitter, whose call-site budget splits the second shape; the `0` arm is the
     // census's own, kept so the cliff stays reproducible with the budget in place.

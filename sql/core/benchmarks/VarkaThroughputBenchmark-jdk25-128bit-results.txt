@@ -35,113 +35,113 @@ date_sub over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(m
 ------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                    47             51           5         42.8          23.4       1.0X
 varka (SIMD)                                         12             15           4        173.1           5.8       4.0X
-Running benchmark: date_add, column offset (task 56 control) over 2000000 Arrow-cached rows
+Running benchmark: date_add, column offset (VARKA-56 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 36 iterations, 2041 ms
   Running case: varka (SIMD)
   Stopped after 165 iterations, 2007 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-date_add, column offset (task 56 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+date_add, column offset (VARKA-56 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                    54             57           3         36.7          27.2       1.0X
 varka (SIMD)                                                                         10             12           2        192.4           5.2       5.2X
-Running benchmark: date + CAST(i AS INTERVAL DAY), bound checked (task 56) over 2000000 Arrow-cached rows
+Running benchmark: date + CAST(i AS INTERVAL DAY), bound checked (VARKA-56) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 35 iterations, 2011 ms
   Running case: varka (SIMD)
   Stopped after 173 iterations, 2008 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-date + CAST(i AS INTERVAL DAY), bound checked (task 56) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+date + CAST(i AS INTERVAL DAY), bound checked (VARKA-56) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                                  54             57           5         36.7          27.2       1.0X
 varka (SIMD)                                                                                        9             12           3        212.4           4.7       5.8X
-Running benchmark: add_months, literal (task 60 control) over 2000000 Arrow-cached rows
+Running benchmark: add_months, literal (VARKA-60 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 28 iterations, 2060 ms
   Running case: varka (SIMD)
   Stopped after 104 iterations, 2015 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-add_months, literal (task 60 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+add_months, literal (VARKA-60 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                70             74           6         28.6          34.9       1.0X
 varka (SIMD)                                                                     16             19           2        122.6           8.2       4.3X
-Running benchmark: add_months, column count (task 60) over 2000000 Arrow-cached rows
+Running benchmark: add_months, column count (VARKA-60) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 25 iterations, 2016 ms
   Running case: varka (SIMD)
   Stopped after 98 iterations, 2009 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-add_months, column count (task 60) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+add_months, column count (VARKA-60) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                             77             81           2         25.9          38.6       1.0X
 varka (SIMD)                                                                  18             21           2        111.0           9.0       4.3X
-Running benchmark: add_months, int count (task 67 control) over 2000000 Arrow-cached rows
+Running benchmark: add_months, int count (VARKA-67 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 26 iterations, 2068 ms
   Running case: varka (SIMD)
   Stopped after 99 iterations, 2002 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-add_months, int count (task 67 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+add_months, int count (VARKA-67 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                  76             80           2         26.2          38.1       1.0X
 varka (SIMD)                                                                       18             20           2        112.3           8.9       4.3X
-Running benchmark: d + interval column (task 67) over 2000000 Arrow-cached rows
+Running benchmark: d + interval column (VARKA-67) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 21 iterations, 2024 ms
   Running case: varka (SIMD)
   Stopped after 101 iterations, 2016 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-d + interval column (task 67) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+d + interval column (VARKA-67) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                        93             96           3         21.5          46.6       1.0X
 varka (SIMD)                                                             18             20           2        112.5           8.9       5.2X
-Running benchmark: interval add, int count (task 68 control) over 2000000 Arrow-cached rows
+Running benchmark: interval add, int count (VARKA-68 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 34 iterations, 2018 ms
   Running case: varka (SIMD)
   Stopped after 172 iterations, 2001 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-interval add, int count (task 68 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+interval add, int count (VARKA-68 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                    57             59           2         35.0          28.5       1.0X
 varka (SIMD)                                                                          8             12           3        248.3           4.0       7.1X
-Running benchmark: interval add, interval columns (task 68) over 2000000 Arrow-cached rows
+Running benchmark: interval add, interval columns (VARKA-68) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 35 iterations, 2044 ms
   Running case: varka (SIMD)
   Stopped after 184 iterations, 2009 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-interval add, interval columns (task 68) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+interval add, interval columns (VARKA-68) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                   55             58           5         36.5          27.4       1.0X
 varka (SIMD)                                                                         8             11           2        261.0           3.8       7.1X
-Running benchmark: month composite, int form (task 68 control) over 2000000 Arrow-cached rows
+Running benchmark: month composite, int form (VARKA-68 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 35 iterations, 2033 ms
   Running case: varka (SIMD)
   Stopped after 170 iterations, 2010 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-month composite, int form (task 68 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+month composite, int form (VARKA-68 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                      55             58           2         36.2          27.7       1.0X
 varka (SIMD)                                                                            9             12           2        223.0           4.5       6.2X
-Running benchmark: make_ym_interval (task 68) over 2000000 Arrow-cached rows
+Running benchmark: make_ym_interval (VARKA-68) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 35 iterations, 2036 ms
   Running case: varka (SIMD)
   Stopped after 172 iterations, 2006 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-make_ym_interval (task 68) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+make_ym_interval (VARKA-68) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                     55             58           2         36.4          27.5       1.0X
 varka (SIMD)                                                           9             12           3        222.1           4.5       6.1X
@@ -222,58 +222,58 @@ dayofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(
 ------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                    62             64           2         32.3          31.0       1.0X
 varka (SIMD)                                          6              8           2        342.0           2.9      10.6X
-Running benchmark: next_day, literal weekday (task 59 control) over 2000000 Arrow-cached rows
+Running benchmark: next_day, literal weekday (VARKA-59 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 43 iterations, 2045 ms
   Running case: varka (SIMD)
   Stopped after 228 iterations, 2003 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-next_day, literal weekday (task 59 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+next_day, literal weekday (VARKA-59 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                      44             48           4         45.2          22.1       1.0X
 varka (SIMD)                                                                            6              9           2        328.3           3.0       7.3X
-Running benchmark: next_day, weekday column (task 59) over 2000000 Arrow-cached rows
+Running benchmark: next_day, weekday column (VARKA-59) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 15 iterations, 2055 ms
   Running case: varka (SIMD)
   Stopped after 58 iterations, 2033 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-next_day, weekday column (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+next_day, weekday column (VARKA-59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                            135            137           2         14.9          67.3       1.0X
 varka (SIMD)                                                                  32             35           1         61.7          16.2       4.2X
-Running benchmark: next_day, weekday column reused by two outputs (task 59) over 2000000 Arrow-cached rows
+Running benchmark: next_day, weekday column reused by two outputs (VARKA-59) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 11 iterations, 2180 ms
   Running case: varka (SIMD)
   Stopped after 57 iterations, 2013 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-next_day, weekday column reused by two outputs (task 59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+next_day, weekday column reused by two outputs (VARKA-59) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                                  195            198           2         10.2          97.7       1.0X
 varka (SIMD)                                                                                        33             35           2         60.4          16.6       5.9X
-Running benchmark: trunc, literal format (task 61 control) over 2000000 Arrow-cached rows
+Running benchmark: trunc, literal format (VARKA-61 control) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 41 iterations, 2039 ms
   Running case: varka (SIMD)
   Stopped after 213 iterations, 2008 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-trunc, literal format (task 61 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+trunc, literal format (VARKA-61 control) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                  47             50           2         42.5          23.5       1.0X
 varka (SIMD)                                                                        7              9           2        285.3           3.5       6.7X
-Running benchmark: trunc, format column (task 61) over 2000000 Arrow-cached rows
+Running benchmark: trunc, format column (VARKA-61) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 13 iterations, 2015 ms
   Running case: varka (SIMD)
   Stopped after 28 iterations, 2003 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-trunc, format column (task 61) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+trunc, format column (VARKA-61) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                        153            155           2         13.1          76.6       1.0X
 varka (SIMD)                                                              70             72           2         28.6          35.0       2.2X
@@ -299,47 +299,47 @@ yearofweek over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev
 -------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                     62             65           2         32.2          31.1       1.0X
 varka (SIMD)                                           8             10           2        249.5           4.0       7.8X
-Running benchmark: year * 100 + month (task 63) over 2000000 Arrow-cached rows
+Running benchmark: year * 100 + month (VARKA-63) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 36 iterations, 2036 ms
   Running case: varka (SIMD)
   Stopped after 193 iterations, 2001 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-year * 100 + month (task 63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+year * 100 + month (VARKA-63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                       55             57           2         36.7          27.3       1.0X
 varka (SIMD)                                                             8             10           3        264.8           3.8       7.2X
-Running benchmark: datediff + 1 (task 63) over 2000000 Arrow-cached rows
+Running benchmark: datediff + 1 (VARKA-63) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 44 iterations, 2016 ms
   Running case: varka (SIMD)
   Stopped after 257 iterations, 2007 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-datediff + 1 (task 63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+datediff + 1 (VARKA-63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                 43             46           4         46.7          21.4       1.0X
 varka (SIMD)                                                       5              8           2        370.2           2.7       7.9X
-Running benchmark: try_add over datediff (task 63) over 2000000 Arrow-cached rows
+Running benchmark: try_add over datediff (VARKA-63) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 30 iterations, 2007 ms
   Running case: varka (SIMD)
   Stopped after 227 iterations, 2008 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-try_add over datediff (task 63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+try_add over datediff (VARKA-63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                          64             67           2         31.1          32.1       1.0X
 varka (SIMD)                                                                6              9           1        317.4           3.2      10.2X
-Running benchmark: mixed projection, arithmetic entry fused (task 63) over 2000000 Arrow-cached rows
+Running benchmark: mixed projection, arithmetic entry fused (VARKA-63) over 2000000 Arrow-cached rows
   Running case: baseline (Janino)
   Stopped after 30 iterations, 2036 ms
   Running case: varka (SIMD)
   Stopped after 219 iterations, 2003 ms
 OpenJDK 64-Bit Server VM 25.0.4+7-1-26.04-Ubuntu on Linux 7.0.0-31-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-mixed projection, arithmetic entry fused (task 63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+mixed projection, arithmetic entry fused (VARKA-63) over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 baseline (Janino)                                                                             64             68           5         31.1          32.2       1.0X
 varka (SIMD)                                                                                   7              9           2        307.6           3.3       9.9X

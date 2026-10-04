@@ -62,7 +62,7 @@ import java.util.stream.Collectors;
 public final class VarkaEmitterTestSupport {
 
   /**
-   * The scratch address a kernel's {@code run} takes for {@code rows} rows (task 198): zero for
+   * The scratch address a kernel's {@code run} takes for {@code rows} rows (VARKA-198): zero for
    * a kernel that asks for none, otherwise the thread's fallback buffer, the one the kernel's
    * own seven-argument form takes ({@link VarkaScratch}).
    */
@@ -84,7 +84,7 @@ public final class VarkaEmitterTestSupport {
   /**
    * Whether the class carries an attribute with the given name, parsed <i>without</i> any
    * custom mapper - the view a third-party class-file tool gets, where an unregistered custom
-   * attribute is opaque but still present under its name (the task 13 telemetry tests).
+   * attribute is opaque but still present under its name (the VARKA-13 telemetry tests).
    */
   public static boolean hasAttributeNamed(byte[] bytes, String name) {
     return ClassFile.of().parse(bytes).attributes().stream()
@@ -96,7 +96,7 @@ public final class VarkaEmitterTestSupport {
    * HotSpot measures against {@code HugeMethodLimit} (8000 bytes by default) when it decides
    * whether to compile the method at all. Past that limit the method is never compiled by C1 or
    * C2 and runs interpreted with boxed vectors, so this is the number a wide emitted body has to
-   * stay under; see {@code PLAN_MILESTONE_4.md}'s task 44. Fails when the method does not
+   * stay under; see {@code m4/PLAN.md}'s VARKA-44. Fails when the method does not
    * exist: a zero would let a test that names a method the layout no longer emits compare zero
    * with zero and pass while asserting nothing, which is how a renamed method goes unnoticed.
    */
@@ -106,7 +106,7 @@ public final class VarkaEmitterTestSupport {
 
   /**
    * A method's {@code max_locals}: the size of its frame, which is what the slot planner decides
-   * and what the class-file stack maps are computed over (task 191). Fails when the method does
+   * and what the class-file stack maps are computed over (VARKA-191). Fails when the method does
    * not exist, for {@link #codeSize}'s reason.
    */
   public static int maxLocals(byte[] bytes, String methodName) {
@@ -180,14 +180,14 @@ public final class VarkaEmitterTestSupport {
    * many lane ops", which is the right question for {@code jdk.incubator.vector.IntVector} and
    * the wrong one for {@code VarkaVectorSupport}: {@code loadSegment} emits an
    * {@code ofAddress} for every segment the body touches, in every body mode, so a count that
-   * includes it can never reach zero however much validity work is removed, and task 70's
+   * includes it can never reach zero however much validity work is removed, and VARKA-70's
    * registered targets of "0" would be unreachable with the tool that is supposed to read them.
    * Excluding {@code ofAddress} leaves exactly the validity work - the {@code validityBitsAt*}
    * reads, the {@code orValidityBitsAt*} and {@code orPartialValidityBitsAt*} writes, and
-   * task 70's whole-batch {@code copyValidity}/{@code andValidity}/{@code orValidity}.
+   * VARKA-70's whole-batch {@code copyValidity}/{@code andValidity}/{@code orValidity}.
    *
    * <p>The match is exact, never a prefix, for {@link #invokedNames}' reason: the helpers carry
-   * a lane-count suffix since task 46, and {@code orValidityBitsAt} is a prefix of
+   * a lane-count suffix since VARKA-46, and {@code orValidityBitsAt} is a prefix of
    * {@code orValidityBitsAt16}. An excluded name that the method does not invoke is not an
    * error - the exclusion list says what the metric is, not what the body contains.
    */
@@ -221,7 +221,7 @@ public final class VarkaEmitterTestSupport {
 
   /**
    * The distinct methods the whole class invokes on {@code owner}, sorted - the callee names
-   * behind {@link #invocationCount}'s count. Task 46 picks a validity helper by the emitted
+   * behind {@link #invocationCount}'s count. VARKA-46 picks a validity helper by the emitted
    * lane count, so which name a body carries is the assertion, and a substring test would not
    * do it: {@code orValidityBitsAt} is a prefix of {@code orValidityBitsAt16}.
    */
@@ -243,7 +243,7 @@ public final class VarkaEmitterTestSupport {
 
   /**
    * The distinct static fields the whole class reads from {@code owner}, sorted. The emitted
-   * species constant is one of these, and since task 46 it is the concrete
+   * species constant is one of these, and since VARKA-46 it is the concrete
    * {@code SPECIES_512} rather than {@code SPECIES_PREFERRED} wherever a width was baked.
    */
   public static List<String> staticFieldsRead(byte[] bytes, String owner) {
@@ -265,7 +265,7 @@ public final class VarkaEmitterTestSupport {
 
   /**
    * The line numbers the named method's {@code LineNumberTable} attributes its instructions to,
-   * in ascending order and without duplicates - the task 16 mapping, read the way a debugger or
+   * in ascending order and without duplicates - the VARKA-16 mapping, read the way a debugger or
    * a stack trace reads it. Empty when the method carries no table (or does not exist).
    */
   public static List<Integer> lineNumbers(byte[] bytes, String methodName) {
@@ -320,7 +320,7 @@ public final class VarkaEmitterTestSupport {
 
   /**
    * Every method's body as a canonical text, keyed by name and descriptor, for the emitted-bytes
-   * oracle (task 85). One line per instruction: the opcode and its operands rendered
+   * oracle (VARKA-85). One line per instruction: the opcode and its operands rendered
    * symbolically - a callee by owner, name and descriptor, a constant by its value, a branch by
    * a label numbered in order of first appearance - never by constant-pool index. So two
    * classes whose constant pools are laid out differently but whose methods do the same thing

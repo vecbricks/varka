@@ -39,8 +39,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * what makes "the refactor costs nothing at emit time" a claim that can be checked rather than
  * asserted.
  *
- * Two sections, and two for wide kernels: the task 190 ladder, and the grouping priced by the
- * emit cost model (see `PLAN_TASK_199.md`).
+ * Two sections, and two for wide kernels: the VARKA-190 ladder, and the grouping priced by the
+ * emit cost model (see `VARKA-199.md`).
  *
  * **Emission alone** calls `VarkaLoopEmitter.emit` and throws the bytes away. It isolates the
  * emitter: the IR walk, the analysis pass, the loop and epilogue bodies, the constant pool. The
@@ -53,7 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * Varka's to improve.
  *
  * Every case emits a fresh class each iteration - the shape cache is deliberately not involved,
- * since its hit path is task 18's subject and costs a map lookup.
+ * since its hit path is VARKA-18's subject and costs a map lookup.
  *
  * {{{
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark"
@@ -128,15 +128,15 @@ object VarkaEmissionBenchmark extends BenchmarkBase {
       benchmark.run()
     }
 
-    // Task 190: kernels as wide as a real projection gets once the op cap no longer bounds them.
+    // VARKA-190: kernels as wide as a real projection gets once the op cap no longer bounds them.
     // One emission per iteration - a four-hundred-output emission is not microseconds - and the
     // byte budget set out of reach at 200 and 400 outputs, where the default would decline the
     // driver: the rungs price emission itself, which the designs past the driver's ceiling
-    // (PLAN_TASK_190.md 3.2) both pay, and prediction 2 there reads them. Task 191 adds the
+    // (VARKA-190.md 3.2) both pay, and prediction 2 there reads them. VARKA-191 adds the
     // second arm at every rung: the frames planned over the whole kernel, the form before it,
     // against frames planned over each group's own nodes; both named, so the labels survive
     // the default changing.
-    runBenchmark("emitting a wide kernel: four-op outputs (task 190)") {
+    runBenchmark("emitting a wide kernel: four-op outputs (VARKA-190)") {
       val benchmark = new Benchmark("one emission", 1,
         minNumIters = 5, warmupTime = 2.seconds, minTime = 2.seconds, output = output)
       def entry(k: Int): VarkaVectorIR = new Greatest(new Greatest(

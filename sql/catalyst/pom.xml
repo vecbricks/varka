@@ -193,7 +193,7 @@
         </configuration>
       </plugin>
       <!--
-        The incubating Vector API on catalyst's own compile path (Varka task 24).
+        The incubating Vector API on catalyst's own compile path (Varka VARKA-24).
         SelectionVectorOps - the columnar filter's compaction kernel - lives in this module
         rather than beside the engine's kernels because `varka-engine` is a *test*-scope
         dependency here and in sql/core: production code never links it, and generated

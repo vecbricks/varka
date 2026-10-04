@@ -49,7 +49,7 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * later one that differs by more than {@link #DIVERGENCE_RATIO} is the report. No table, no
  * drift, and it gets more accurate the longer a JVM lives.
  *
- * <p><b>The key is a method, not a shape</b> ( {@code PLAN_TASK_50.md} 2.1). A generated kernel is
+ * <p><b>The key is a method, not a shape</b> ( {@code VARKA-50.md} 2.1). A generated kernel is
  * not one method: it is deliberately split into {@code run}, {@code runDense},
  * {@code runMasked}, {@code loopDense}<i>g</i>, {@code loopMasked}<i>g</i>,
  * {@code epilogueDense}<i>g</i> and {@code epilogueMasked}<i>g</i>, whose compiled sizes
@@ -63,7 +63,7 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * not what the steady-state path runs, and they are identical across both modes anyway.
  *
  * <p><b>It is a diagnostic and never a control loop.</b> Re-emitting a shape under a new class
- * name would give the allocator a fresh roll, and {@code PLAN_MILESTONE_4.md}'s debt register
+ * name would give the allocator a fresh roll, and {@code m4/PLAN.md}'s debt register
  * records why that is not built: each resample costs another class, another compile and another
  * warm-up, against a shape a short query may run a handful of times.
  *
@@ -92,7 +92,7 @@ public final class VarkaCompilationWatch implements AutoCloseable {
    * <p>Two facts bound this and neither leaves much room for taste: healthy recompilations of the
    * same method at the same tier are compiling identical bytecode and should differ by nothing,
    * while the allocation failure this exists to catch is about 2x. Measured rather than assumed
-   * ({@code PLAN_TASK_50.md} section 3): one {@code year} kernel across three JVMs, and across
+   * ({@code VARKA-50.md} section 3): one {@code year} kernel across three JVMs, and across
    * two emissions inside one JVM, produced byte-identical sizes for every key - the healthy
    * spread is zero. So this sits four times above anything observed and four times below the
    * failure it hunts. It is not tightened, because three runs on one host does not prove the
@@ -181,7 +181,7 @@ public final class VarkaCompilationWatch implements AutoCloseable {
    * The baseline size recorded for each (shape, method, tier) key so far, read-only.
    *
    * <p>Package-private, and it exists for the measurement rather than for the feature: section 3
-   * of {@code PLAN_TASK_50.md} has to establish what the *healthy* spread of these sizes is
+   * of {@code VARKA-50.md} has to establish what the *healthy* spread of these sizes is
    * before {@link #DIVERGENCE_RATIO} can be defended, and that means reading them out of real
    * JVMs rather than reasoning about them.
    */
@@ -257,7 +257,7 @@ public final class VarkaCompilationWatch implements AutoCloseable {
           + compileLevel + " to " + codeSize + " bytes, against " + baseline + " for the same "
           + "bytecode earlier in this JVM. Identical bytecode compiling to a materially "
           + "different size is a register allocation difference, not a different lowering; "
-          + "see PLAN_TASK_50.md.");
+          + "see VARKA-50.md.");
     }
     VarkaCompilationDivergenceEvent divergence = new VarkaCompilationDivergenceEvent();
     if (divergence.shouldCommit()) {

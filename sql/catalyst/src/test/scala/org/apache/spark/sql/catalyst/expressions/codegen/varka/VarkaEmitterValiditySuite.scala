@@ -52,7 +52,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // word it stored was loaded at least once and each word it loaded was stored, through the
     // one call every consumer reads a word by. Both run under every test in this suite and
     // every fuzz iteration. This test exists so a failure names itself here first, on the
-    // shapes PLAN_TASK_70.md 3.3 registers op counts for, rather than inside whichever other
+    // shapes VARKA-70.md 3.3 registers op counts for, rather than inside whichever other
     // test happens to build the shape - and so that the two corners the agreement check
     // deliberately allows (greatest over two literals, greatest over one input twice: a slot
     // written with `-1 | -1` where the algebra says the constant or the input) are exercised on
@@ -89,7 +89,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Task 70: validity as bitmap algebra in the driver.
+  // VARKA-70: validity as bitmap algebra in the driver.
   // ---------------------------------------------------------------------------------------------
 
   private val bitmapOn = VarkaEmitOptions.DEFAULTS.withValidityByBitmap(true)
@@ -100,7 +100,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
 
   /** The validity work in a method: every VarkaVectorSupport call but the segment mapping,
    *  which every body mode emits per segment and which would keep this off zero for ever
-   *  (PLAN_TASK_70.md 3.3). */
+   *  (VARKA-70.md 3.3). */
   private def validityOps(bytes: Array[Byte], method: String): Int =
     VarkaEmitterTestSupport.invocationCount(bytes, method, supportClass, Seq("ofAddress").asJava)
 
@@ -111,7 +111,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
       "and length, over the shapes the plan names") {
     // The existing oracle is the assertion: checkMatrix compares every output's validity byte
     // for byte against the reference evaluator and asserts status 0, and makeInputData poisons
-    // every null lane, so this is also the guard-under-nulls test (PLAN_TASK_70.md 5) - a
+    // every null lane, so this is also the guard-under-nulls test (VARKA-70.md 5) - a
     // lowering that dropped a guard's word AND would decline a batch here. Each shape names
     // the corner it is for.
     val d = new ColumnRef(0)
@@ -161,7 +161,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("the validity work per masked loop method, as PLAN_TASK_70.md 3.3 registered " +
+  test("the validity work per masked loop method, as VARKA-70.md 3.3 registered " +
       "it, and no IntVector op moves") {
     val d = new ColumnRef(0)
     val d2 = new ColumnRef(1)
@@ -177,7 +177,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
       ("next_day(d, k), column kernel", Seq(new NextDay(d, d2)), 2, VarkaEmitOptions.DEFAULTS,
         3, 0),
       // The pick's null substitution reads both operand words for the value, whether or not
-      // its own word is wanted - the consumer PLAN_TASK_70.md 2.2 did not list - so its two
+      // its own word is wanted - the consumer VARKA-70.md 2.2 did not list - so its two
       // reads stay and only the write goes. The plan's 3.3 registered 0 here off 2.2's
       // inventory; this assertion is what corrected it.
       ("greatest(d, d2)", Seq(new Greatest(d, d2)), 2, VarkaEmitOptions.DEFAULTS, 3, 2),
@@ -228,7 +228,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   test("the served and declined root counts, per shape") {
-    // The safety net PLAN_TASK_70.md 3.1 promised. Without it a regression that stopped
+    // The safety net VARKA-70.md 3.1 promised. Without it a regression that stopped
     // serving every root would revert the whole lowering to the per-group path and pass the
     // suite: the byte-identity test compares the two settings, which agree when nothing is
     // served; the differential compares against a reference evaluator, and the per-group path
@@ -310,7 +310,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // nor the range check of the guard over it - the first group ran that check over the same
     // lane groups. Over a bare column the guard's word is the column's, and the liveness walk kept
     // it live for the check, so the lane group stored a word nothing loaded and the emitter's own
-    // check refused the body (PLAN_TASK_234.md 2).
+    // check refused the body (VARKA-234.md 2).
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
     val guarded = new GuardedDay(c1)
@@ -393,7 +393,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // Days that stay inside the narrowed range at every index these lengths reach.
     // `calendarDays` walks out of it past about index 1180 (i * 9973 - 400000), and since task
     // 51 removed the per-extraction guard an out-of-range day no longer declines - it returns a
-    // plausible wrong year. That is a real hazard, but it is task 52's, and a validity test
+    // plausible wrong year. That is a real hazard, but it is VARKA-52's, and a validity test
     // that trips over it is testing the wrong thing.
     def inRangeDays(c: Int, i: Int): Int = 19000 + (i % 9973)
     for (once <- Seq(true, false)) {
@@ -417,7 +417,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   test("the masked path's bytes do not move, and the dense path's shrink") {
-    // The guard that keeps this task off the masked path, asserted the way task 32 asserted
+    // The guard that keeps this task off the masked path, asserted the way VARKA-32 asserted
     // its own: the masked bodies are byte for byte as they were, so no masked case can have
     // changed, and only the dense loop is allowed to have lost anything.
     val col = new ColumnRef(0)
@@ -452,7 +452,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // "orValidityBitsAt16", so a substring test would pass on the form this task removes.
     val roots = Seq[VarkaVectorIR](new Year(new ColumnRef(0)))
     for ((lanes, bits) <- Seq(2 -> 64, 4 -> 128, 8 -> 256, 16 -> 512)) {
-      // Since task 70 the shipped year(d) makes no per-group validity call at all - its
+      // Since VARKA-70 the shipped year(d) makes no per-group validity call at all - its
       // bitmap is copied once by the driver - so the helpers this test names are reached
       // through the per-group reference variant, which is what the naming is pinned on.
       val bytes = emitMulti(roots, 1, 0,
@@ -477,7 +477,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // 32 int lanes is a 1024-bit shape: SVE reaches it, the Vector API has no named species
     // constant for it, and VarkaVectorSupport has no pair. The fallback is what keeps such a
     // machine correct, so it is emitted and asserted rather than reasoned about.
-    // The per-group reference arm since task 70: the shipped year(d) makes no per-group
+    // The per-group reference arm since VARKA-70: the shipped year(d) makes no per-group
     // validity call, and it is the general pair's naming this test pins.
     val bytes = emitMulti(Seq[VarkaVectorIR](new Year(new ColumnRef(0))), 1, 0,
       VarkaEmitOptions.DEFAULTS.withLanesOverride(32).withValidityByBitmap(false))._2
@@ -491,7 +491,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   test("with the option off the emission is the pre-task form") {
     // The A/B's other arm, and the reference variant: no width anywhere - not in a callee name
     // and not in the species - so what the benchmark compares against is what shipped before.
-    // Both of task 46's arms are reached through task 70's per-group reference arm now.
+    // Both of VARKA-46's arms are reached through VARKA-70's per-group reference arm now.
     val bytes = emitMulti(Seq[VarkaVectorIR](new Year(new ColumnRef(0))), 1, 0,
       VarkaEmitOptions.DEFAULTS.withValidityByWidth(false).withValidityByBitmap(false))._2
     val called = VarkaEmitterTestSupport.invokedNames(bytes, support).asScala
@@ -526,8 +526,8 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
       new AddDays(new ColumnRef(0), new LiteralSlot(0)),
       new SubDays(new ColumnRef(0), new LiteralSlot(0)))
     // A Cond root is the filter kernel, and it is in this task's population on *every* batch:
-    // its slot holds a selection bitmap rather than validity, so task 45's driver fill cannot
-    // serve it and task 70's pass does not run in a dense body at all. Leaving it out would
+    // its slot holds a selection bitmap rather than validity, so VARKA-45's driver fill cannot
+    // serve it and VARKA-70's pass does not run in a dense body at all. Leaving it out would
     // leave the project's most common shape untested at both arms.
     val filter: VarkaVectorIR = new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0))
     val lits = Array(3)
@@ -604,16 +604,16 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
 
   test("the word writer reaches the outputs that keep a per-group write, and only " +
       "those") {
-    // The blast radius, asserted rather than described. An output task 45 fills once, and one
-    // task 70's pass writes whole, must emit the same bytes under both arms - the word writer
+    // The blast radius, asserted rather than described. An output VARKA-45 fills once, and one
+    // VARKA-70's pass writes whole, must emit the same bytes under both arms - the word writer
     // has nothing to do for them - while an output that still writes per lane group must not.
     // This is also what stops the two arms collapsing into one kernel, which is exactly how
-    // task 46's A/B silently began timing itself (see the task 76 test below).
+    // VARKA-46's A/B silently began timing itself (see the VARKA-76 test below).
     val lanes = 16
     val perGroup = VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes)
     val byWord = perGroup.withValidityByWord(true)
-    // `year(d)` on a dense batch is task 45's fill; on a masked batch with the bitmap pass on
-    // it is task 70's whole-bitmap write. Neither keeps a per-group write, so both arms agree.
+    // `year(d)` on a dense batch is VARKA-45's fill; on a masked batch with the bitmap pass on
+    // it is VARKA-70's whole-bitmap write. Neither keeps a per-group write, so both arms agree.
     val year: VarkaVectorIR = new Year(new ColumnRef(0))
     assert(bodySizes(emitMulti(Seq(year), 1, 0, perGroup)) ===
       bodySizes(emitMulti(Seq(year), 1, 0, byWord)),
@@ -627,7 +627,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     assert(bodySizes(emitMulti(Seq(blend), 1, 1, perGroup)) !==
       bodySizes(emitMulti(Seq(blend), 1, 1, byWord)),
       "a per-group write must change under the word writer, or the A/B times one kernel twice")
-    // And a filter, whose per-group OR survives task 45 in the dense body too.
+    // And a filter, whose per-group OR survives VARKA-45 in the dense body too.
     val filter: VarkaVectorIR = new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0))
     assert(bodySizes(emitMulti(Seq(filter), 1, 1, perGroup)) !==
       bodySizes(emitMulti(Seq(filter), 1, 1, byWord)),
@@ -644,8 +644,8 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   test("the write-count ladder really is one shape family, so its steps are runtime") {
-    // Read the ladder's own emissions before reading its numbers. PLAN_TASK_76.md 3.2 built
-    // these four rungs to "hold the shape family constant and vary only the count", and task 47
+    // Read the ladder's own emissions before reading its numbers. VARKA-76.md 3.2 built
+    // these four rungs to "hold the shape family constant and vary only the count", and VARKA-47
     // measured a step at k=3 that neither task's model predicts: both arms that write per lane
     // group fall away sharply there while the word writer does not. The first thing to rule out
     // is a layout change - a rung crossing GROUP_BUDGET into two loop methods would pay every
@@ -653,7 +653,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     //
     // It does not happen. All four rungs emit one masked loop method and the body grows by a
     // steady ~130 bytes per write. So the k=3 step is a property of how the JVM runs these
-    // bytes, not of which bytes are emitted - which is what points at task 46's mechanism, the
+    // bytes, not of which bytes are emitted - which is what points at VARKA-46's mechanism, the
     // caller's node count crossing C2's inlining cutoff so that one more OR call stops being
     // inlined. The word writer has no call at that site to refuse, and its curve is smooth.
     // Asserted here so the next reader of either ladder meets the fact before the number.
@@ -680,10 +680,10 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   test("every arm of the width-specialisation A/B still emits two different kernels") {
-    // The failure this task is downstream of, made loud. Task 70's pass removed the per-group
-    // validity call for a served root, which left both of task 46's arms emitting the same
+    // The failure this task is downstream of, made loud. VARKA-70's pass removed the per-group
+    // validity call for a served root, which left both of VARKA-46's arms emitting the same
     // bytes - each pair timed one kernel against itself, and the committed numbers said so for
-    // a regeneration before anyone noticed. The arms were rebuilt on task 70's per-group
+    // a regeneration before anyone noticed. The arms were rebuilt on VARKA-70's per-group
     // reference variant; this is the assertion that they stay rebuilt.
     //
     // Asserted on the loop methods rather than the whole class, since `emitMulti` gives each
@@ -711,7 +711,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
       assert(layout(emitMulti(roots, inputs, lits, specialised))
         !== layout(emitMulti(roots, inputs, lits, other)),
         s"$name: the two arms emit the same loop methods, so their benchmark pair times one " +
-          "kernel against itself - which is exactly what task 70 did to this A/B once")
+          "kernel against itself - which is exactly what VARKA-70 did to this A/B once")
     }
 
     // The filter pair is the one whose two arms differ in two flags nominally, `DEFAULTS`
@@ -730,7 +730,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     // helpers' own equivalence is pinned in the engine's VarkaVectorSupportWidthTest; this is
     // the emitted loop calling them with the rows and words it really produces.
     // On the per-group reference arm, for the reason the naming tests above give: both of
-    // these roots are served by task 70's bitmap pass, so under the shipped default neither
+    // these roots are served by VARKA-70's bitmap pass, so under the shipped default neither
     // arm makes a per-group validity call and the two would be the same kernel - a
     // self-comparison that could not fail. The default path's own coverage of these helpers
     // is the declined-root test below, where the per-group write survives.
@@ -772,7 +772,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
   }
 
   test("a Cond root's selection bitmap is identical under both settings") {
-    // The shape this task helps that task 45 could not: a filter kernel ORs its selection
+    // The shape this task helps that VARKA-45 could not: a filter kernel ORs its selection
     // bitmap per lane group in both bodies, because those bits are computed rather than known.
     // Identical bitmaps under both settings is what says the specialised writer's lane mask is
     // right where the word carries bits above the group.
@@ -801,7 +801,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     val roots = Seq[VarkaVectorIR](new Year(col), new Year(blend), new Greatest(col, blend))
     def inRangeDays(c: Int, i: Int): Int = 19000 + (i % 9973)
     // On the per-group reference arm: `validityOrFirst` moves the per-group OR, and under
-    // task 70's default the first root makes no such OR at all while the other two hold
+    // VARKA-70's default the first root makes no such OR at all while the other two hold
     // computed words that were never known before the compute - so all three arms would be
     // one kernel and the comparison would be with itself.
     for (orFirst <- Seq(true, false)) {

@@ -22,7 +22,7 @@ The stage runs C1's code until C2's arrives, and the point where each settles is
 Every value is read from committed files when the script runs: the runner's from
 sql/varka/demo/silent-giveups/compile_wait-jdk17-output.txt, the laptop's from the first-minute
 section of sql/core/benchmarks/CodegenFallbackCostBenchmark-jdk25-laptop-results.txt
-(PLAN_TASK_233.md 11.3, 13.6)."""
+(VARKA-233.md 11.3, 13.6)."""
 
 import os
 

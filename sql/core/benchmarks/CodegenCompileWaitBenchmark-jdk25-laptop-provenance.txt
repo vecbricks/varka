@@ -7,4 +7,4 @@ date:        2026-10-02, 00:44 to 01:05 CEST
 jdk:         OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
 kernel:      7.0.0-34-generic
 cpu:         AMD Ryzen AI 9 HX PRO 370 (Zen 5, 12 cores, 24 threads)
-purpose:     task 233: the wait for C2 under default settings on a laptop (PLAN_TASK_233.md 13.6); vanilla Spark only, Varka off
+purpose:     VARKA-233: the wait for C2 under default settings on a laptop (VARKA-233.md 13.6); vanilla Spark only, Varka off

@@ -3,7 +3,7 @@
 > **Status: closed (September 2026).** A code review of the Varka code as it stood at
 > commit `b56e9f7f34a`, kept as the record of that review. Every finding in it has been
 > fixed and merged, so nothing here is a list of open work: open work lives in `plans/` -
-> a task's own plan file, the current milestone's debt register, or `SCOPE_MILESTONE_8.md`.
+> a task's own plan file, the current milestone's debt register, or `m8/SCOPE.md`.
 > Later plans cite findings below by number and by line, so the body is not reordered.
 
 Review of the Varka code as of `b56e9f7f34a` (`sql/varka/`, the catalyst hooks, the
@@ -80,7 +80,7 @@ masked load and store use the same bad mask.
 it simply never runs on a 4-lane host. Anyone on Graviton, Ampere, or an Apple-silicon
 laptop gets wrong query results with no error.
 
-Remaining caveat, narrowed by task 23: the aarch64 CI job added in `1cf964c9abe` runs
+Remaining caveat, narrowed by VARKA-23: the aarch64 CI job added in `1cf964c9abe` runs
 the engine module's JUnit classes on `ubuntu-24.04-arm`, at the host width and again
 under `-XX:MaxVectorSize=16`, so the hand-written kernels' `IntVector` path now does
 execute at 4 lanes on real ARM hardware. The emitted loops still do not: the catalyst
@@ -294,16 +294,16 @@ test - with no duplication.
 **Status: FIXED**, by the first of the two fixes below: the funnel routing is gone.
 `CodeGenerator.compile`'s cache loader is back to a plain `backend.compile(code)`, and
 `assembleOrFallback`, `routingEnabledForTesting` and `failAssemblyForTesting` are deleted
-with it. `assembleGeneratedClass` and `assembleAndLoad` stay - they are Task 5's
+with it. `assembleGeneratedClass` and `assembleAndLoad` stay - they are VARKA-5's
 deliverable and the piece a later change will wire up - and `assembleAndLoad` no longer
 takes the `CodeAndComment` it never used.
 
 *(Later, milestone 2: nothing ever wired them up. The whole shell - engine, assembler
 and their suites - was deleted after the task-10 loop emitter shipped the real
-Class-File-API-generated compute; see `plans/PLAN_TASK_9.md` section 5.4.)*
+Class-File-API-generated compute; see `plans/m2/VARKA-9.md` section 5.4.)*
 
 Removal was chosen over guarding because the routing has no production caller at all:
-Task 6 wired the live path elsewhere (`VarkaColumnarToRowExec` assembles per-op kernel
+VARKA-6 wired the live path elsewhere (`VarkaColumnarToRowExec` assembles per-op kernel
 dispatchers with `VarkaClassFileGen.assembleKernelClass`). Every guard that keeps the
 funnel also makes the funnel's own fallback tests vacuous, because nothing can reach the
 catch any more.
@@ -544,7 +544,7 @@ interfaces, so a drifted one would silently mis-dispatch.
   would also cost real coverage: `VarkaClassLoaderTest` pins the define/release semantics
   and the Metaspace-unload proof against it, and `DateVectorOpsEmissionTest` loads its
   probe class through it. Both javadocs now say the duplication is deliberate and that a
-  change to one belongs in the other. Task 23 ported the catalyst copy from Scala to Java,
+  change to one belongs in the other. VARKA-23 ported the catalyst copy from Scala to Java,
   so the two bodies now differ only in class name and package.
 * ~~**Non-local return in a closure**: `buildOutputPlan`
   (`VarkaColumnarToRowExec.scala:382`) uses `return None` inside a `map`. It works on
@@ -607,15 +607,15 @@ note. That candour is worth keeping.
    runner exists: `1cf964c9abe` gave the `varka-engine` job a matrix over
    `ubuntu-latest` and `ubuntu-24.04-arm`, and it ran green on PR #51. It runs the
    engine module alone, so what it closes is the kernels' half. The emitter's half is
-   still open, and task 23 split the record accordingly (`PLAN_MILESTONE_3.md`
+   still open, and VARKA-23 split the record accordingly (`m3/PLAN.md`
    section 5): the catalyst and sql/core Varka suites are x86_64 only, so an emitted
    loop has never executed on ARM - only under `-XX:MaxVectorSize=16`, which is the
    narrow species on the same instruction set.
 
 ### 12. The engine jar is not in the distribution
 
-Found by task 62's driver, the first thing to run Varka through `bin/spark-submit`
-of a packaged tree rather than under sbt (PLAN_TASK_62.md 2.5). `sql/varka/engine`
+Found by VARKA-62's driver, the first thing to run Varka through `bin/spark-submit`
+of a packaged tree rather than under sbt (VARKA-62.md 2.5). `sql/varka/engine`
 is a test-scope dependency of the build, so `build/sbt package` and the assembly
 leave its jar out, yet every kernel the emitter produces links against
 `VarkaVectorSupport` from it. A distribution with `spark.sql.codegen.varka.enabled`

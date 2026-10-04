@@ -83,7 +83,7 @@ public interface VarkaFusedKernel {
    * The same call for a kernel whose lanes are 64 bits wide, with a scalar array of its own:
    * a {@code bigint} or {@code TIME} literal does not fit the {@code int[]} above, and widening
    * that array for every kernel would change the descriptor and the loads of every 32-bit
-   * kernel already emitted - see {@code PLAN_TASK_85.md} 3.1.
+   * kernel already emitted - see {@code VARKA-85.md} 3.1.
    *
    * <p>A class implements the one its lane needs, and the other throws: one emitted class is
    * one species, so calling a long kernel through the int entry point is a caller error rather
@@ -103,7 +103,7 @@ public interface VarkaFusedKernel {
 
   /**
    * How many bytes of scratch a call must pass per row: zero for every kernel that materializes
-   * no calendar prefix (task 198), which ignores the address. A caller allocates
+   * no calendar prefix (VARKA-198), which ignores the address. A caller allocates
    * {@code scratchBytesPerRow() * length} bytes and passes their address to the two overloads
    * below; a kernel with scratch owns none of it, so a call still allocates nothing. A caller
    * that uses the forms without the address on such a kernel gets the thread's fallback buffer

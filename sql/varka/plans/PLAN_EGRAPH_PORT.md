@@ -9,6 +9,6 @@ egg (Willsey et al., POPL 2021) as a product of its own for scope item 11,
 the admission check, the egg-to-Java mapping, the determinism Varka needs,
 the size by component, the tests, the predictions and the sequencing - is
 unchanged there; this file stays so that the references to it in
-`SCOPE_MILESTONE_8.md` resolve. Varka's side of the work is item 11's: a
+`m8/SCOPE.md` resolve. Varka's side of the work is item 11's: a
 pinned dependency on a released version and the client mapping, when a second
 physical representation exists to choose between.*

@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
  * The plan of a kernel's size before its first build (`VarkaEmitOptions.planSize`,
- * `PLAN_TASK_236.md` 3): the driver read off a driver built alone, the stages sized from it in
+ * `VARKA-236.md` 3): the driver read off a driver built alone, the stages sized from it in
  * the first build, the decline before any build that names the compiler's cut, and the size
  * loop left as the last resort.
  */
@@ -81,7 +81,7 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
   test("the planned split driver is the two-build class, byte for byte, in one build") {
     // Past the driver's ceiling the loop builds the class whole, reads the stage size off its
     // driver and builds it again; the plan reads the same size off the driver built alone, so
-    // its one build is that second build (`PLAN_TASK_236.md` 2.2). The compositions of wide draws
+    // its one build is that second build (`VARKA-236.md` 2.2). The compositions of wide draws
     // the audit counts are the shapes near and past the ceiling the fuzzer draws.
     val shapes = Seq(("three hundred one-output groups", dateAdds(300), 1, 300, oneEach(_)),
       ("fifteen hundred one-output groups", dateAdds(1500), 1, 1500, oneEach(_))) ++
@@ -124,7 +124,7 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
     val cut = declined.plannedCut()
     assert(cut > 600 && cut < 800, s"cut at $cut")
     // The prefix it names is one class, built once, and one entry more is not: the driver's
-    // bytes are exact, so the cut is the largest prefix one class serves (PLAN_TASK_236.md 2.3).
+    // bytes are exact, so the cut is the largest prefix one class serves (VARKA-236.md 2.3).
     val (_, prefixTrace) = emitted(roots.take(cut), 1, cut, whole)
     assert(prefixTrace.builds === 1 && prefixTrace.plannedDeclines === 0)
     intercept[VarkaEmitDeclined](emitted(roots.take(cut + 4), 1, cut + 4, whole))
@@ -157,7 +157,7 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
 
   test("under the plan no shape of the audit's corpus builds a third time") {
     // The audit file names the shapes the plan corrects; here, over the same shapes, the loop
-    // never has to run past the correction (`PLAN_TASK_236.md` 3.2).
+    // never has to run past the correction (`VARKA-236.md` 3.2).
     val shapes = VarkaEmitCostAudit.heldOut().asScala ++ VarkaEmitCostCorpus.pastCeiling().asScala
     var corrected = Seq.empty[String]
     for (s <- shapes) {

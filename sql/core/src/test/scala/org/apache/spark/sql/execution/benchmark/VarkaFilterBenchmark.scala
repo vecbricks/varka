@@ -27,7 +27,7 @@ import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * The filter benchmark (task 21): the survey's `d_date BETWEEN`-style shape - here `d < DATE`,
+ * The filter benchmark (VARKA-21): the survey's `d_date BETWEEN`-style shape - here `d < DATE`,
  * the same paired-comparison lowering with one leg - over Arrow-cached dates, at a selectivity
  * ladder from none-selected to all-selected, against the same Janino session. This is the
  * committed measurement behind the milestone's open question 2 (the selected-batch contract):

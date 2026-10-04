@@ -23,7 +23,7 @@ import java.lang.foreign.MemorySegment;
 /**
  * The scratch a kernel with a materialized calendar prefix takes when its caller passes none:
  * the seven-argument {@code run} of such a kernel asks here for a buffer of its rows and calls
- * its own eight-argument form with it (task 198).
+ * its own eight-argument form with it (VARKA-198).
  *
  * <p>One buffer per thread, from the global arena, regrown to at least twice its size when a
  * longer call comes, so the replaced buffers' sum stays under the largest; never freed, which

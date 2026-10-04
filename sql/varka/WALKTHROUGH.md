@@ -44,7 +44,7 @@ root, where the loop keeps running at the long species and narrows once, at
 the store. Nothing is guarded: every dividend is under a day of nanoseconds
 and every quotient under 24, so the division cannot overflow and the
 narrowing cannot truncate. The compiler's comment above the arm says so, and
-a reader who wants the reasoning finds it in `PLAN_TASK_102.md` 8.3.
+a reader who wants the reasoning finds it in `VARKA-102.md` 8.3.
 
 `dev/varka_emit.sh` prints what the compiler produced:
 
@@ -117,8 +117,8 @@ the divide is the double-lane route the emitter chose. `VarkaAssemblySuite`
 asserts exactly this in CI: that the emitted loops and the hand-written
 kernels compile to packed instructions on vector registers of the width the
 host reports, and that the shapes which must not allocate do not. The masked
-store at the end is the narrowing store as shipped; task 156 measured a
-cheaper half-species form for it and task 162 ships it.
+store at the end is the narrowing store as shipped; VARKA-156 measured a
+cheaper half-species form for it and VARKA-162 ships it.
 
 Run the same dump with `--width=16` and the loop is two rows an iteration on
 `xmm` registers, which is how a 128-bit machine's kernel is read on a 512-bit
@@ -137,6 +137,6 @@ holds every number a document quotes to one of those committed files.
 ## What to read next
 
 The nine files in the README's "Reading the source", in order. Then
-`PLAN_TASK_102.md`, the plan that built the `TIME` extracts, for how a
+`VARKA-102.md`, the plan that built the `TIME` extracts, for how a
 lowering is chosen, predicted and measured; and `SKILLS.md` for the lessons
 the measurements left behind, the long-lane division above among them.

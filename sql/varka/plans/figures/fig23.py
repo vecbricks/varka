@@ -22,7 +22,7 @@ the scan's processNext passes 8000 bytes, since the filter is generated into the
 
 Every value is read from the committed runner file when the script runs
 (sql/core/benchmarks/VarkaRangeFilterBenchmark-jdk25-runner-9v45-results.txt,
-PLAN_TASK_172.md 9.10), so the figure cannot drift from it."""
+VARKA-172.md 9.10), so the figure cannot drift from it."""
 
 import math
 import os

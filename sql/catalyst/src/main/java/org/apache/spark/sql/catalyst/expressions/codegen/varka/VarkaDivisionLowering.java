@@ -118,7 +118,7 @@ final class VarkaDivisionLowering {
    * <p>{@link VarkaVectorIR.ConstDivide} exists for dividends the emitter cannot bound, so the
    * calendar's range-narrowed magic is not an option however {@link VarkaEmitOptions#division()}
    * is set. At the int lane it takes the multiply-high through 64-bit lanes
-   * ({@link #emitMulHiDivide}, task 149), which is exact over the whole lane, or - with
+   * ({@link #emitMulHiDivide}, VARKA-149), which is exact over the whole lane, or - with
    * {@link VarkaEmitOptions#mulHiDivide()} off, the reference arm - the conversion through
    * double lanes it replaced. At the long lane it is the conversion form, or the magic-number
    * form on a host whose converts do not intrinsify. The conversion is always the true divide:
@@ -150,7 +150,7 @@ final class VarkaDivisionLowering {
   }
 
   /**
-   * Whether an int-lane constant division takes the multiply-high form (task 149): the lane
+   * Whether an int-lane constant division takes the multiply-high form (VARKA-149): the lane
    * is the int one, the divisor is not the identity, the option is on, and the width names a
    * species to widen into - the same condition under which the conversion form can convert,
    * since both widen each int half into a lane of twice the width.
@@ -218,9 +218,9 @@ final class VarkaDivisionLowering {
   }
 
   /**
-   * {@code [v] -> [v / d]} at the int lane by a multiply-high through 64-bit lanes (task 149),
+   * {@code [v] -> [v / d]} at the int lane by a multiply-high through 64-bit lanes (VARKA-149),
    * the lowering a scalar compiler gives {@code n / 12} and the one the conversion form's
-   * divider-bound rate asked for (`PLAN_TASK_149.md` 3).
+   * divider-bound rate asked for (`VARKA-149.md` 3).
    *
    * <p>Each int half widens with {@code I2L} into a long vector of half the lanes - the same
    * two-part split the conversion form makes into doubles - multiplies by the unsigned magic,
@@ -275,7 +275,7 @@ final class VarkaDivisionLowering {
    * instructions. {@code L2D} and {@code D2L} do not intrinsify under {@code -XX:UseAVX=2}:
    * {@code dev/varka_canary/L2DProbe.java} reads 22 refused conversions there against none at
    * the default level, which is a fact about lowering and not about speed. Which of the two
-   * forms is faster on such a host is task 88 step 4's A/B and is not yet measured; this
+   * forms is faster on such a host is VARKA-88 step 4's A/B and is not yet measured; this
    * predicate is written on the reading that a conversion falling back to Java puts scalar
    * code inside a vector loop, and step 4 is what confirms or overturns it.
    *
@@ -323,7 +323,7 @@ final class VarkaDivisionLowering {
    * {@code trunc(v/d) = sign(v)*sign(d)*floor(|v|/|d|)}. The divisor's sign is known at
    * emission and folds into which comparison selects the lanes to negate, so it costs nothing.
    * This is what lets the form serve a signed dividend rather than only {@code TIME}, and it is
-   * the choice {@code PLAN_TASK_88.md} 3.1 left open between sign correction and declining.
+   * the choice {@code VARKA-88.md} 3.1 left open between sign correction and declining.
    */
   private static void emitMagicDivide(CodeBuilder cb, Analysis analysis, ConstDivide n, Slots s) {
     int[] t = s.constDivideTmp.get(n);

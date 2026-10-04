@@ -26,7 +26,7 @@ import jdk.incubator.vector.*;
  * Output is a checksum so nothing is dead. The diagnosis is read from -XX:+PrintIntrinsics
  * (does the cast intrinsify at this width?) and, with hsdis, -XX:CompileCommand=print.
  *
- * How to run (PLAN_MILESTONE_5.md section 7, question 3):
+ * How to run (m5/PLAN.md section 7, question 3):
  *   javac --add-modules jdk.incubator.vector -d /tmp/p dev/varka_canary/L2DProbe.java
  *   java --add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics \
  *     [-XX:UseAVX=2] -cp /tmp/p L2DProbe 3000 2>&1 | grep 'VectorSupport::convert'

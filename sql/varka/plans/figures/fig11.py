@@ -21,9 +21,9 @@ defaults Spark steps where its generated method passes HotSpot's 8000-byte limit
 compiled again; tuned, the step is a slope; Varka is a line through the same rungs.
 
 Every value is read from the committed results files of the published machine when the script
-runs, so the figure cannot drift from them (PLAN_TASK_171.md 9.3). Spark's defaults and Varka
+runs, so the figure cannot drift from them (VARKA-171.md 9.3). Spark's defaults and Varka
 come from one run; the tuned line from a run on the same CPU model, and the note under the
-legend gives how far that run's defaults are from this one's (PLAN_TASK_181.md 14)."""
+legend gives how far that run's defaults are from this one's (VARKA-181.md 14)."""
 
 import math
 import os

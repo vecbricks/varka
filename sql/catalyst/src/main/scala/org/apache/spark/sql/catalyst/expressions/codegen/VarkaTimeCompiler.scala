@@ -75,7 +75,7 @@ private[codegen] object VarkaTimeCompiler {
     // precision - the one type coercion inserts when two precisions meet in a comparison -
     // returns its operand unchanged and compiles to the child, as the year-month MONTH relabel
     // does above. Narrowing drops digits, which is a floor division the lane has no exact form
-    // of yet (task 88); it declines with its reason rather than falling through as unsupported.
+    // of yet (VARKA-88); it declines with its reason rather than falling through as unsupported.
     case Cast(child, TimeType(to), _, _)
         if child.dataType.isInstanceOf[TimeType]
           && to >= child.dataType.asInstanceOf[TimeType].precision =>
@@ -105,7 +105,7 @@ private[codegen] object VarkaTimeCompiler {
 
   /**
    * Whether the type is one of the two timestamps, which milestone 5 leaves out by decision
-   * (`SCOPE_MILESTONE_8.md` item 31): a zoned `TIMESTAMP`'s differences and interval additions
+   * (`m8/SCOPE.md` item 31): a zoned `TIMESTAMP`'s differences and interval additions
    * are computed on local date-times in the session zone and are not lane arithmetic, and the
    * NTZ family, whose arithmetic would be plain, waits with it. The decline names the milestone
    * so EXPLAIN shows a decision rather than a gap.
@@ -129,7 +129,7 @@ private[codegen] object VarkaTimeCompiler {
    * own `replacement`, and the `(staticObject, functionName)` pair is read off that. Both sides
    * therefore move together: if upstream renames `getHoursOfTime`, this table renames with it,
    * where a hardcoded string would have stopped matching silently and left nothing behind but a
-   * benchmark that got slower. `PLAN_TASK_102.md` 2.1 is the argument; `VarkaTimeTargetsSuite`
+   * benchmark that got slower. `VARKA-102.md` 2.1 is the argument; `VarkaTimeTargetsSuite`
    * is the check that the table still describes what Spark produces for real SQL.
    *
    * <p>A replacement that stops being a `StaticInvoke` fails here, at class initialisation,
@@ -152,7 +152,7 @@ private[codegen] object VarkaTimeCompiler {
       SubtractTimes(t, t) -> "t1 - t2",
       TimeDiff(u, t, t) -> "timediff",
       TimeAddInterval(t, dt) -> "t + interval",
-      // Group E (task 158): the conversions, and the one of them that returns a decimal.
+      // Group E (VARKA-158): the conversions, and the one of them that returns a decimal.
       TimeToSeconds(t) -> "time_to_seconds",
       TimeToMillis(t) -> "time_to_millis",
       TimeToMicros(t) -> "time_to_micros",
@@ -175,23 +175,23 @@ private[codegen] object VarkaTimeCompiler {
    * The reason a `TIME` expression declines, naming the expression rather than reporting it as
    * unsupported.
    *
-   * <p>Task 102 lowers these one group at a time, and the difference between "not lowered yet"
-   * and "unsupported" is what tells a reader which. The same distinction task 89 drew for
+   * <p>VARKA-102 lowers these one group at a time, and the difference between "not lowered yet"
+   * and "unsupported" is what tells a reader which. The same distinction VARKA-89 drew for
    * `extract(MONTH FROM ym)`, where a bare decline would have suggested the division was still
    * missing when the output type was the blocker.
    */
   private def timeNotLoweredYet(label: String): String =
-    s"$label is a TIME expression Varka does not lower yet (task 102)"
+    s"$label is a TIME expression Varka does not lower yet (VARKA-102)"
 
   /**
    * The reason the two decimal-valued `TIME` expressions decline, which is the representation
    * and not the arithmetic: their value is an unscaled long the lane already computes, and the
    * column Arrow holds it in is sixteen bytes a row, which no Varka output writes yet
-   * (`PLAN_TASK_102.md` section 9, task 157).
+   * (`VARKA-102.md` section 9, VARKA-157).
    */
   private def decimalColumnNotYet(label: String): String =
     s"$label returns a decimal, whose Arrow column is sixteen bytes a row and which no Varka " +
-      "output writes yet; the value is an unscaled long the lane holds (task 157)"
+      "output writes yet; the value is an unscaled long the lane holds (VARKA-157)"
 
   private[codegen] def compileTime(
       si: StaticInvoke,
@@ -214,7 +214,7 @@ private[codegen] object VarkaTimeCompiler {
         long(time).map(t => new NarrowLane(build(t)))
       } else {
         sink.note(s"$label is an int computed in the long lane, which the kernel narrows at " +
-          "its store: only an output can take it until task 28 narrows inside a tree", si)
+          "its store: only an output can take it until VARKA-28 narrows inside a tree", si)
         None
       }
     def literalUnit(e: Expression, table: Map[String, Long], what: String): Option[Long] =
@@ -250,7 +250,7 @@ private[codegen] object VarkaTimeCompiler {
       // minute and second a division and the remainder of a further division by sixty, each
       // built the way `DateTimeUtils` computes it through `LocalTime` and delivered as an int
       // column by a narrowing root - the value stays in the long lane and narrows at the store
-      // (`PLAN_TASK_102.md` 8.3). Every dividend is nanoseconds of day or a quotient of it,
+      // (`VARKA-102.md` 8.3). Every dividend is nanoseconds of day or a quotient of it,
       // under the type's bound and so under `ConstDivide.EXACT_DIVIDEND_BOUND` structurally,
       // and every result is under 86400, so nothing overflows and nothing is guarded.
       case ("getHoursOfTime", Seq(time)) =>
@@ -305,7 +305,7 @@ private[codegen] object VarkaTimeCompiler {
         for (t <- long(time); n <- nanos) yield
           new GuardedRange(new IntArith(IntOp.ADD, Overflow.WRAP, t, n), 0L,
             DateTimeConstants.NANOS_PER_DAY - 1)
-      // Group E (task 158): the conversions. `timeToMillis` and `timeToMicros` are floor
+      // Group E (VARKA-158): the conversions. `timeToMillis` and `timeToMicros` are floor
       // divisions of a non-negative count, so a truncating constant division; the three
       // `timeFrom*` are `multiplyExact` under the conversion's own range check, which throws
       // unless the result is inside the day - so the count is guarded to the day's worth of its

@@ -10,5 +10,5 @@ jdk:         OpenJDK 64-Bit Server VM 25.0.4+7-LTS
 kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 64-Core Processor (the runner is not pinned; the file is the workflow's
              artifact unchanged)
-purpose:     task 233's second investigation (PLAN_TASK_233.md 3): what the silent give-ups of
+purpose:     VARKA-233's second investigation (VARKA-233.md 3): what the silent give-ups of
              whole-stage codegen cost; vanilla Spark only, Varka off

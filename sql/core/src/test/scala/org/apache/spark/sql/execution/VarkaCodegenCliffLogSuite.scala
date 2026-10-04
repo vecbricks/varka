@@ -27,7 +27,7 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 /**
  * What vanilla Spark says when a whole-stage codegen method passes HotSpot's 8000-byte JIT
- * limit: a reproducer for the census's entry G26 (`PLAN_TASK_188.md`). Spark computes every
+ * limit: a reproducer for the census's entry G26 (`VARKA-188.md`). Spark computes every
  * generated method's bytecode size when it compiles a class and logs "Generated method too long
  * to be JIT compiled: <class>.<method> is N bytes" for a method past the limit - at INFO, which
  * the shells' WARN level hides, and nothing else acts on it at the default settings. This pins

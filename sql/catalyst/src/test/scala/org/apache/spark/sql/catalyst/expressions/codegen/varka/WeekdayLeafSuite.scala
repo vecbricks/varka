@@ -33,7 +33,7 @@ import org.apache.spark.unsafe.types.UTF8String
 
 /**
  * [[WeekdayLeaf]] against its definition, `DateTimeUtils.getDayOfWeekFromString`, under both
- * parsers (task 59). The domain is the one an ASCII fast path can get wrong: every case
+ * parsers (VARKA-59). The domain is the one an ASCII fast path can get wrong: every case
  * pattern of every accepted spelling, every short ASCII string, every one-byte mutation of
  * every spelling, the untrimmed and empty strings, and the non-ASCII rows whose
  * `Locale.ROOT` upper case is a weekday name. The fill contract - data, validity, null

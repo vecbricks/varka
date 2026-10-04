@@ -15,13 +15,13 @@
 # limitations under the License.
 #
 
-"""The arithmetic behind task 40, checked before it was handed over - and
+"""The arithmetic behind VARKA-40, checked before it was handed over - and
 re-checked, in a way the first version of this script did not do, after the
 first version turned out to have a real bug.
 
-Two things, both of which PLAN_TASK_40.md depends on being true:
+Two things, both of which VARKA-40.md depends on being true:
 
-  1. days_from_civil, the inverse of the task 26 decomposition, round-trips to
+  1. days_from_civil, the inverse of the VARKA-26 decomposition, round-trips to
      the identity over every day from year 1 to year 9999, and over the wider
      year range add_months's own month arithmetic can reach.
   2. add_months, built from that inverse, matches LocalDate.plusMonths
@@ -56,7 +56,7 @@ about 25599, which every year past roughly 12400 reaches once the bias
 added in. The functions below simulate the actual 32-bit lane arithmetic
 (mul32/ushr32) rather than trusting Python's unbounded integers, which is
 what catches this the way the first version could not - and the fix takes
-the same shape task 26's own large divisors already use: a round-down magic
+the same shape VARKA-26's own large divisors already use: a round-down magic
 plus one correction step, not a claimed-exact one.
 """
 
@@ -81,7 +81,7 @@ def ushr32(v, k):
 ERA, CEN, BIAS = 146097, 36524, 5394572
 
 
-def decompose(d):                      # VarkaChrono.narrowed, as shipped
+def decompose(d):  # VarkaChrono.narrowed, as shipped
     w = to_i32(d + BIAS)
     era = ushr32(mul32(w, 114), 24)
     r = to_i32(w - era * ERA)
@@ -115,8 +115,8 @@ def month_start(mp):
 # Hinnant's days_from_civil, with every division done as a magic multiply on a
 # biased (non-negative) operand, the way the emitter does it.
 #
-# YBIAS is 15200, not task 34's 13200: add_months can push a year up to
-# MONTH_ARITH_MAX_MONTHS/12 (about 2047 years) past either end of task 26's
+# YBIAS is 15200, not VARKA-34's 13200: add_months can push a year up to
+# MONTH_ARITH_MAX_MONTHS/12 (about 2047 years) past either end of VARKA-26's
 # narrow day range, so the year this function must cover is roughly
 # -14848..35181, not -12800..33134 - and 15200 is the smallest multiple of
 # 400 that keeps every one of those biased.
@@ -171,11 +171,11 @@ MONTH_M, MONTH_K = 43691, 19
 def add_months(d, months):
     y, m, dom = decompose(d)
     k = to_i32((m - 1) + months + 12 * MBIAS_UNITS)
-    q = ushr32(mul32(k, MONTH_M), MONTH_K)          # k / 12, exact magic
-    nm = to_i32(k - q * 12)                          # 0..11
+    q = ushr32(mul32(k, MONTH_M), MONTH_K)  # k / 12, exact magic
+    nm = to_i32(k - q * 12)  # 0..11
     ny = to_i32(y + q - MBIAS_UNITS)
     le1 = 1 if nm <= 1 else 0
-    mp = to_i32((nm - 2) + (12 if le1 else 0))       # March-based month
+    mp = to_i32((nm - 2) + (12 if le1 else 0))  # March-based month
     mp_next = min(mp + 1, 11)
     start, start_next = month_start(mp), month_start(mp_next)
     regular_length = to_i32(start_next - start)
@@ -198,14 +198,16 @@ print("round trip over", 2932897 + 719162, "days -> mismatches:", bad_rt)
 NARROW_MIN_DAYS, NARROW_MAX_DAYS = -BIAS, (1 << 24) - 1 - BIAS
 bad_rt_wide = 0
 n_wide = 0
-for d in list(range(NARROW_MIN_DAYS, NARROW_MIN_DAYS + 5000)) + \
-         list(range(NARROW_MAX_DAYS - 5000, NARROW_MAX_DAYS + 1)):
+for d in list(range(NARROW_MIN_DAYS, NARROW_MIN_DAYS + 5000)) + list(
+    range(NARROW_MAX_DAYS - 5000, NARROW_MAX_DAYS + 1)
+):
     y, m, dom = decompose(d)
     n_wide += 1
     if days_from_civil(y, m, dom) != d:
         bad_rt_wide += 1
-print("round trip near the narrow range's own edges over", n_wide,
-      "days -> mismatches:", bad_rt_wide)
+print(
+    "round trip near the narrow range's own edges over", n_wide, "days -> mismatches:", bad_rt_wide
+)
 
 # 2. add_months against LocalDate.plusMonths semantics, on a broad sample -
 # including, deliberately, large years crossed with large offsets, which is
@@ -232,7 +234,7 @@ for d in range(-719162, 2932897, 37):
     for months in (0, 1, -1, 12, -12, 13, -13, 100, -100, 1200, -1200, 24564, -24576):
         total = dt.year * 12 + (dt.month - 1) + months
         if not (1 <= total // 12 <= 9999):
-            continue                              # outside datetime's own range
+            continue  # outside datetime's own range
         want = ref_add(dt, months)
         got = add_months(d, months)
         n += 1

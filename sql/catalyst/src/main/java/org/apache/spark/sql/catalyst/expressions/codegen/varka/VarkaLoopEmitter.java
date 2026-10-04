@@ -89,7 +89,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  * {@code loopBound} every access is in bounds, an all-null column still has an allocated data
  * buffer, and the engine contract declares invalid destination lanes undefined - so masks
  * carry no correctness inside the loop, and masked ops measure 2.3x-2.9x slower even with an
- * all-true mask (see {@code PLAN_TASK_10.md}). Truth lives in the <i>validity words</i>
+ * all-true mask (see {@code VARKA-10.md}). Truth lives in the <i>validity words</i>
  * instead: per lane group each referenced input contributes one long ({@code 0L} all-null,
  * {@code -1L} null-free, {@code validityBitsAt} otherwise), and each node's validity is
  * computed from its children's words by the mask algebra - AND for the null-intolerant ops, OR
@@ -104,7 +104,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  * validity, lane-wise, nothing ANDed globally.
  *
  * <p>{@code dayofweek}/{@code weekday} lower to a full-range mod-7 by base-8 digit sum, which
- * measures 8x the lanewise-DIV variant that x86 scalarizes (see {@code PLAN_TASK_11.md}): fold
+ * measures 8x the lanewise-DIV variant that x86 scalarizes (see {@code VARKA-11.md}): fold
  * 15-, 6- and 3-bit chunks ({@code 2^(3k) = 1 mod 7}), correct by {@code +3} where the input is
  * negative ({@code 2^32 = 4 mod 7}), one compare-subtract fixup, then the constant offset
  * applied after the mod so it cannot overflow.
@@ -329,15 +329,15 @@ public final class VarkaLoopEmitter {
     // GROUP_BUDGET, or FUSED_CEILING where the group's outputs share a calendar prefix - see
     // groupOutputs) and finally the *epilogue*. Separate methods, not one big one: each gets its
     // own C2 compilation, so no method's node and inlining budgets can starve another's
-    // intrinsics (measured 3x to 4x; see `PLAN_TASK_10.md`).
+    // intrinsics (measured 3x to 4x; see `VARKA-10.md`).
     //
     // The epilogue is one method per group beside its loop method, `epilogueDense<g>` and
-    // `epilogueMasked<g>`; with methodByteBudget 0, the form before task 87, it is one method
+    // `epilogueMasked<g>`; with methodByteBudget 0, the form before VARKA-87, it is one method
     // for every output. One method was the right shape while GROUP_BUDGET was the only bound:
     // the epilogue runs once per batch, so a hot method's C2 cost had nothing to bound there.
     // It is the wrong shape for the JVM's size limit, which reads bytes rather than heat: a
     // single epilogue carries every output's tail and crosses HugeMethodLimit at thirteen
-    // make_date outputs, after which it is never compiled at all (`PLAN_TASK_87.md` 2.2).
+    // make_date outputs, after which it is never compiled at all (`VARKA-87.md` 2.2).
     // Split by the loop's groups it is bounded by what bounds the loops, and the split kernel
     // measured faster on even batches too (9.5 there).
     //
@@ -351,10 +351,10 @@ public final class VarkaLoopEmitter {
     // gains a call per group, so no regroup shrinks it - or a class over the class-file caps.
     // The cap on one method's code is met before any measurement: the Class-File API refuses
     // such a method while the class is assembled, so the refusal is read in place of the class
-    // and takes the same path, budget or not (task 219).
+    // and takes the same path, budget or not (VARKA-219).
     //
     // The same measurement reads each group method's Vector API call sites, and a group whose
-    // loop or epilogue is over the call-site budget is split the same way (task 209): past that
+    // loop or epilogue is over the call-site budget is split the same way (VARKA-209): past that
     // count C1 refuses the method, which then runs interpreted until C2 compiles it. Only a
     // group of more than HEAVY_GROUP_OUTPUTS outputs is split: a narrower group over the
     // budget is one of heavy outputs, which no split brings under C1 and which would pay a
@@ -370,12 +370,12 @@ public final class VarkaLoopEmitter {
     // Under `predictGrouping` the first grouping also asks the emit cost model (VarkaEmitCost)
     // whether each candidate group would measure over either budget, so the common case is built
     // once; the measurement above still decides, and a class the predicted grouping would make
-    // decline is built again with the weights alone (see `PLAN_TASK_199.md`). Under
+    // decline is built again with the weights alone (see `VARKA-199.md`). Under
     // `exactGrouping` the first grouping is the best partition of the outputs under the same
     // rule rather than the greedy walk's; a class it would make decline is built again without
-    // it, keeping the prediction, before the prediction is dropped (see `PLAN_TASK_200.md`).
+    // it, keeping the prediction, before the prediction is dropped (see `VARKA-200.md`).
     //
-    // Under `planSize` the first build is planned (task 236). The driver is the one method no
+    // Under `planSize` the first build is planned (VARKA-236). The driver is the one method no
     // regroup shrinks and the one whose bytes are known before the class exists: from a table it
     // is its calls alone, a fixed number of bytes a group, so it is built by itself over the
     // first grouping and measured. A driver over the budget is split into stages sized off that
@@ -386,7 +386,7 @@ public final class VarkaLoopEmitter {
     // less the fit's margins (VarkaEmitCostTable), so a method it under-predicts still measures
     // within them. The measurement keeps the last word: a reaction to the planned build is a
     // correction, counted and named in the trace, and anything still over after it runs the loop
-    // above as the last resort, unchanged (`PLAN_TASK_236.md` 3).
+    // above as the last resort, unchanged (`VARKA-236.md` 3).
     ClassDesc classDesc = ClassDesc.of(className);
     String source = sourceFile != null
         ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
@@ -403,7 +403,7 @@ public final class VarkaLoopEmitter {
     Set<Integer> forcedStarts = new HashSet<>();
     // The options the grouping reads: the caller's, with the call-site budget dropped when the
     // loop drops it, and without the prediction once a class the predicted grouping produced
-    // would decline (see `PLAN_TASK_199.md`).
+    // would decline (see `VARKA-199.md`).
     VarkaEmitOptions grouping = options;
     // The exact grouping's runs, priced once per grouping options: between rebuilds only the
     // forced starts change, and they cut the runs rather than change them.
@@ -430,7 +430,7 @@ public final class VarkaLoopEmitter {
           exactRuns);
       // Decided per grouping, since a regroup can move a prefix across a group boundary; empty
       // unless the option is on and a prefix crosses one, and then the class takes the scratch
-      // address as an eighth argument (task 198).
+      // address as an eighth argument (VARKA-198).
       analysis.planMaterialized(outputs, groups);
       boolean nearBudget = readGroups > 0 && groups.size() > readGroups
           && readWidest + (long) (groups.size() - readGroups) * readWidest / readGroups > budget;
@@ -481,7 +481,7 @@ public final class VarkaLoopEmitter {
         // as the measurement of that one method and judged against the cap - whatever the
         // budget, since the cap is the JVM's and binds the legacy form as well - and the loop
         // below splits its group or declines exactly as for a measured method over a limit
-        // (PLAN_TASK_219.md 3.1). The constant pool's cap is enforced the same way and read
+        // (VARKA-219.md 3.1). The constant pool's cap is enforced the same way and read
         // here too, but no regroup shrinks a pool, so it declines class-wide at once. Any other
         // refusal of the build is not a size and is rethrown.
         Optional<VarkaEmittedClass> refusal = VarkaEmittedClass.refused(e);
@@ -968,7 +968,7 @@ public final class VarkaLoopEmitter {
    * the shape and holds whatever the register pressure of the day; whether a merely-shared subchain
    * pays is an empirical question that has already answered both ways (the merge measured a 1.4x
    * loss before the validity OR moved ahead of the vector work the same committed rows show it
-   * winning by 1.3x - see {@code PLAN_TASK_32.md} 7.6), so it stays {@code GROUP_BUDGET} 's own
+   * winning by 1.3x - see {@code VARKA-32.md} 7.6), so it stays {@code GROUP_BUDGET} 's own
    * retuning question rather than riding on this clause. With
    * {@link VarkaEmitOptions#shareChronoPrefix} off no prefix is ever shared, so the clause never
    * fires and the weights count whole.</li> </ol>
@@ -1054,12 +1054,12 @@ public final class VarkaLoopEmitter {
     List<List<Integer>> groups = new ArrayList<>();
     List<Integer> current = new ArrayList<>();
     // The prefixes the closed groups compute. Under `materializeChronoPrefix` a later group
-    // loads such a prefix rather than recomputing it, and weighs it so (task 198); the set is
+    // loads such a prefix rather than recomputing it, and weighs it so (VARKA-198); the set is
     // shared by every GroupOps of this partition and grows as groups close.
     Set<VarkaVectorIR> earlier = new HashSet<>();
     boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
     // Under `predictGrouping` each candidate group is also priced by the emit cost model, in the
-    // units the byte and call-site budgets are read in after the build (see `PLAN_TASK_199.md`).
+    // units the byte and call-site budgets are read in after the build (see `VARKA-199.md`).
     boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
     Function<VarkaVectorIR.LaneType, VarkaEmitCost.Tally> newTally =
         record != null ? lane -> new VarkaEmitCost.Tally(lane, record.prices(), record.keepCounts())
@@ -1115,7 +1115,7 @@ public final class VarkaLoopEmitter {
    * ({@link ExactRuns}); a forced start only cuts them, since a run may not cross one. The best
    * partition of the outputs from a start is the best, over its runs, of the run plus the best
    * partition of what follows it, chosen from the last start backward. See
-   * {@code PLAN_TASK_200.md}.
+   * {@code VARKA-200.md}.
    */
   private static Set<Integer> bestPartitionStarts(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Set<Integer> forcedStarts, int[][] runs) {
@@ -1232,7 +1232,7 @@ public final class VarkaLoopEmitter {
    * exception, under the plan. Its store is a call site, and it counts toward the group's width,
    * so a group of heavy outputs exempt from the call-site budget by its width can pass the
    * exemption on such outputs alone and be split after the build on what the prediction already
-   * said (item 71 of {@code SCOPE_MILESTONE_8.md}, answered in {@code PLAN_TASK_236.md}): under
+   * said (item 71 of {@code m8/SCOPE.md}, answered in {@code VARKA-236.md}): under
    * {@code planSize} the prediction judges that step too, so the group closes before it instead.
    */
   private static boolean closes(Admission step, VarkaEmitOptions options) {
@@ -1400,7 +1400,7 @@ public final class VarkaLoopEmitter {
       }
       // Under the plan the budgets are kept with the fit's margins to spare, so a method the
       // prices under-predict by as much as they did on their own groups still measures within
-      // them (task 236).
+      // them (VARKA-236).
       double bytesMargin = options.planSize() ? VarkaEmitCostTable.BYTES_MARGIN : 0;
       if (VarkaEmitCost.maxBytes(predicted) > options.methodByteBudget() * (1 - bytesMargin)) {
         return false;
@@ -1523,7 +1523,7 @@ public final class VarkaLoopEmitter {
    * destination. Every other unserved root - a computed word, a {@code Cond}, the whole shape
    * with {@link VarkaEmitOptions#validityByBitmap} off - is in neither count.
    *
-   * <p>This is the safety net PLAN_TASK_70.md 3.1 and 5 promise and the counter alone did not
+   * <p>This is the safety net VARKA-70.md 3.1 and 5 promise and the counter alone did not
    * provide: with only an increment inside a private class, a regression that stopped serving
    * every root would revert the whole lowering to the per-group path and pass every test, since
    * the byte-identity tests compare the two settings (equal when nothing is served), the
@@ -1569,7 +1569,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * The public {@code run}: one loop-invariant test per batch - are all referenced inputs
-   * null-free? - selecting {@code runDense} or {@code runMasked} (`PLAN_TASK_10.md` 2.5).
+   * null-free? - selecting {@code runDense} or {@code runMasked} (`VARKA-10.md` 2.5).
    */
   private static void emitDispatch(CodeBuilder cb, ClassDesc classDesc, Analysis analysis) {
     if (analysis.hasScratch()) {

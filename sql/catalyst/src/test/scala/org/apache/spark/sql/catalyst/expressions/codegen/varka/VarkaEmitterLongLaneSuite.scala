@@ -31,7 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
 
   test("the long lane computes what the reference says, at both its widths") {
-    // Task 85 step 4's proof: the lane-generic subset of the IR emitted against LongVector and
+    // VARKA-85 step 4's proof: the lane-generic subset of the IR emitted against LongVector and
     // run over 64-bit buffers, at the long lane's own 2 and 8 counts - 128 and 512 bits, the
     // same two widths the int matrix uses at 4 and 16. The values straddle the int range on
     // purpose: `1L << 40` and its neighbours are numbers a 32-bit lane cannot hold, so a
@@ -122,7 +122,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
         combos(1), smallLong, "neg FAIL inside the long range", lanes)
     }
     // The two refusals the int lane pins, re-pinned at this one: a checked multiply has no
-    // correct emission at either lane - the 128-bit product task 104 needs is missing at both
+    // correct emission at either lane - the 128-bit product VARKA-104 needs is missing at both
     // - and `try_negative` is not a Spark function, so a NULL negate is a shape nothing can
     // produce and is refused rather than lowered into a multiply by -1.
     for (mode <- Seq(Overflow.FAIL, Overflow.NULL)) {
@@ -189,7 +189,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
   }
 
   test("a narrowing root stores four bytes a row of what the long lane computed, at both widths") {
-    // Route A of `PLAN_TASK_102.md` 8.3: the extracts of a TIME are 64-bit divisions whose
+    // Route A of `VARKA-102.md` 8.3: the extracts of a TIME are 64-bit divisions whose
     // results are ints, and a `NarrowLane` root stores the low half of each lane at `i * 4`
     // where a wide root stores the whole lane at `i * 8`. A narrowed root shares its kernel
     // with a wide one here on purpose, since the offset is per root; the rows reach both ends
@@ -323,7 +323,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
 
   test("a guarded long-lane division declines the batch on a dividend past the bound its " +
       "caller stated, under both lowerings") {
-    // Task 147's acceptance line. A caller with no structural bound discharges `ConstDivide`'s
+    // VARKA-147's acceptance line. A caller with no structural bound discharges `ConstDivide`'s
     // dividend obligation by guarding, and the guard is what makes the claim true at run time:
     // a lane past it condemns the batch and the row engine answers it. Both lowerings are run,
     // because they fail differently above the bound - the conversion form by one, the magic

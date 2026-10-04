@@ -241,7 +241,7 @@ final class Slots {
    * the word slots this body stored ( {@code storeWord} ) and how often it loaded each (
    * {@code loadWord} ). {@code assertWordsLive} reads them at the end of a loop or epilogue
    * body: every word the body defines must be read at least once, and every word it reads must be
-   * one it defined. The inventory of word consumers in {@code PLAN_TASK_70.md} 2.2 is how the
+   * one it defined. The inventory of word consumers in {@code VARKA-70.md} 2.2 is how the
    * liveness rule was designed; these counters are what keep a consumer that inventory missed
    * from being missed silently, since {@code loadWord} is the one call every consumer reads a
    * word through.
@@ -259,17 +259,17 @@ final class Slots {
   /**
    * The loop-method group this body is planned for, or -1 for the driver and for the single
    * epilogue of the form without a byte budget. A calendar node reads it to tell whether its
-   * group produces a materialized prefix or consumes one (task 198).
+   * group produces a materialized prefix or consumes one (VARKA-198).
    */
   int group = -1;
   /**
-   * Under a materialized prefix (task 198): the one {@code MemorySegment} local over the whole
+   * Under a materialized prefix (VARKA-198): the one {@code MemorySegment} local over the whole
    * scratch, which a body that stores or loads a region addresses at
    * {@code byteOffset + (region * SCRATCH_VECTORS + k) * dataBytes}; -1 in a body that touches
    * no region. One segment rather than one per vector: every segment object a loop method
    * keeps live is a set of session and bounds checks C2 hoists before the loop once it stops
    * scalar-replacing them, and six per region were enough to tip the producer's loop into the
-   * profiled-predicate deoptimization cycle (`PLAN_TASK_198.md` 12). Allocated after every
+   * profiled-predicate deoptimization cycle (`VARKA-198.md` 12). Allocated after every
    * other slot, so no other local moves.
    */
   int scratchSeg = -1;
@@ -277,7 +277,7 @@ final class Slots {
    * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
   final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
   /**
-   * The dates whose materialized prefix this body loads (see {@code PLAN_TASK_198.md}) and which it
+   * The dates whose materialized prefix this body loads (see {@code VARKA-198.md}) and which it
    * visits all the same, for a validity word that is their own and read by something it emits.
    * Decided with the word liveness in {@link #liveWords} and read by
    * {@code VarkaChronoLowering.emitChronoPrefixOnce}, so the walk that decides which words are
@@ -373,9 +373,9 @@ final class Slots {
    * As above; with {@code perGroup} the body gets slots only for the outputs in {@code outputIdx}
    * and the literals their trees reference, and every other output or literal slot is {@code -1}
    * so that an emission which reaches for one fails to build rather than reading a stale local.
-   * A group's loop and epilogue methods plan this way (task 87): setting up every output of the
+   * A group's loop and epilogue methods plan this way (VARKA-87): setting up every output of the
    * kernel in every group was the term that grew each group's methods with the whole kernel
-   * ({@code PLAN_TASK_87.md} 2.6.2). The driver keeps planning for every output, since it
+   * ({@code VARKA-87.md} 2.6.2). The driver keeps planning for every output, since it
    * zeroes and serves them all.
    */
   static Slots plan(boolean dense, BodyMode mode, List<VarkaVectorIR> outputs,
@@ -428,8 +428,8 @@ final class Slots {
     final Set<VarkaVectorIR> body = emitted;
     s.liveWordOwners = live;
     // How often this body visits each node; see bodyUses. Only a loop or epilogue body walks
-    // vectors, and the count decides two things there: its shared slots under CSE (task 223), and
-    // under elideUnreadLocals which columns it reads for their values (task 239). No other plan
+    // vectors, and the count decides two things there: its shared slots under CSE (VARKA-223), and
+    // under elideUnreadLocals which columns it reads for their values (VARKA-239). No other plan
     // pays for it.
     boolean elide = analysis.options.elideUnreadLocals();
     final Map<VarkaVectorIR, Integer> bodyUses =
@@ -469,7 +469,7 @@ final class Slots {
     for (int o : outputIdx) {
       planned.set(o);
     }
-    // Group-local frames (task 191): see the body node set below. Decided here because it
+    // Group-local frames (VARKA-191): see the body node set below. Decided here because it
     // decides which inputs get slots, and the input slots come before the nodes'. A one-group
     // kernel's columns are the kernel's, so its input slots are numbered exactly as before.
     boolean groupLocal = perGroup && analysis.options.groupLocalSlots();
@@ -534,9 +534,9 @@ final class Slots {
       slot += analysis.lane.localWidth;
     }
     // Broadcasts are hoisted into vector locals only where they are used - the loop methods - and
-    // only in the regime where the hoist measures as a win (see `PLAN_TASK_9.md`): one output, at
+    // only in the regime where the hoist measures as a win (see `VARKA-9.md`): one output, at
     // most a chain's worth of literals. Any wider body inlines them at each use and lets C2
-    // rematerialize under register pressure (PLAN_TASK_10.md).
+    // rematerialize under register pressure (VARKA-10.md).
     s.broadcastSlot = mode == BodyMode.LOOP
         && outputs.size() == 1 && numLiterals <= MAX_CHAIN_DEPTH ? new int[numLiterals] : null;
     if (s.broadcastSlot != null) {
@@ -551,7 +551,7 @@ final class Slots {
     slot += 2;
     s.maskTmp = slot++;
     s.status = slot++;
-    // Group-local frames (task 191): a group's loop and epilogue methods plan over the nodes they
+    // Group-local frames (VARKA-191): a group's loop and epilogue methods plan over the nodes they
     // emit - their own outputs' subtrees - and no others, so a frame and the planning of it are
     // the group's size and not the kernel's. The driver keeps the kernel: it zeroes every output
     // and runs the bitmap pass. The body's nodes are visited in the kernel's topological order,
@@ -762,7 +762,7 @@ final class Slots {
         }
       }
     }
-    // A materialized prefix's scratch segment (task 198), in a body whose calendar nodes store
+    // A materialized prefix's scratch segment (VARKA-198), in a body whose calendar nodes store
     // into or load from a region. Last, so that every slot above keeps its number, and only in
     // the loop and epilogue methods, which are the bodies that run the vector walk.
     if (analysis.hasScratch() && vectorWalk
@@ -909,7 +909,7 @@ final class Slots {
   private static boolean guardScratch(Analysis analysis, VarkaVectorIR node,
       boolean producersGuarding, boolean selfGuarding) {
     // GuardedDay is unconditional - not behind either flag - because the compiler admits the
-    // expression on the strength of this check (see `PLAN_TASK_93.md` 3.4). A flag that removed it
+    // expression on the strength of this check (see `VARKA-93.md` 3.4). A flag that removed it
     // would leave the compile-time bound standing over a value nothing bounds, which is the
     // wrong-answer case the column-count AddMonths javadoc names.
     return node instanceof GuardedDay || node instanceof GuardedRange
@@ -921,7 +921,7 @@ final class Slots {
    * Word liveness for one loop or epilogue body: the set of words some consumer in the body still
    * reads once the bitmap pass has taken over the served roots' writes. A word is <i>demanded</i>
    * by a consumer and then <i>propagated</i> to the operands its computation reads, to a fixpoint.
-   * The consumers, from PLAN_TASK_70.md 2.2 plus the one that inventory missed - the null-skipping
+   * The consumers, from VARKA-70.md 2.2 plus the one that inventory missed - the null-skipping
    * pick's value substitution, which blends by the operands' words whether or not its own word is
    * wanted: <ul> <li>a value root the pass does not serve: its own word, for the per-group
    * write;</li> <li>a guarded producer or self-guarding {@code AddMonths}: its own word, which
@@ -954,7 +954,7 @@ final class Slots {
       }
     }
     w.run();
-    // A date whose materialized prefix this body loads (see PLAN_TASK_198.md) is not emitted by
+    // A date whose materialized prefix this body loads (see VARKA-198.md) is not emitted by
     // the calendar node that reaches it: the producing group ran it, and its range checks with
     // it. The lowering visits such a date only when its validity word is its own and something
     // this body emits reads that word - a tail's root write, a comparison above the tails - since
@@ -996,7 +996,7 @@ final class Slots {
   }
 
   /**
-   * How often a body visits each node it emits, which decides the node's shared slot (task 223):
+   * How often a body visits each node it emits, which decides the node's shared slot (VARKA-223):
    * a node visited twice is computed once into its slot and loaded after, and a node visited once
    * is computed in place, where a slot would cost a {@code dup} and a store nothing reads. Once per
    * output root the body serves, and once per edge from a node it emits: a node is emitted once,
@@ -1077,7 +1077,7 @@ final class Slots {
   /**
    * The date whose materialized prefix a body of {@code group} loads when it emits {@code node}:
    * the date a calendar node decomposes, when another group computes its prefix (see
-   * {@code PLAN_TASK_198.md}). Null for every other node. The planning walks and
+   * {@code VARKA-198.md}). Null for every other node. The planning walks and
    * {@code VarkaChronoLowering.emitChronoPrefixOnce} all ask this, and the lowering emits such a
    * date only when {@link #visitedMaterializedDates} names it.
    */
@@ -1418,7 +1418,7 @@ final class Slots {
       if (!seen.add(node)) {
         continue;
       }
-      // Without the switch the key is computed for month readers alone, as before task 239.
+      // Without the switch the key is computed for month readers alone, as before VARKA-239.
       if (isChrono(node) && (elide || tailReadsMarchMonth(node))) {
         int reads = (tailReadsMarchMonth(node) ? READS_MONTH : 0)
             | (elide ? VarkaChronoLowering.prefixReads(node, analysis.options) : 0);

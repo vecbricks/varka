@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditShapes.Shape
 
 /**
- * The child process behind [[VarkaWidthAuditSuite]] (task 153). Launched in a forked JVM under
+ * The child process behind [[VarkaWidthAuditSuite]] (VARKA-153). Launched in a forked JVM under
  * `-Xbatch` and a `PrintIntrinsics` directive scoped to the emitted classes, it emits every
  * audited shape, runs each one hot enough for C2 to compile both its bodies, and prints a
  * marker before and after. What HotSpot prints in between - the `** not supported: ...` lines

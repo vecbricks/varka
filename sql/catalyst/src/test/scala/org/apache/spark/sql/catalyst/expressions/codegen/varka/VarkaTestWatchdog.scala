@@ -29,7 +29,7 @@ import org.apache.spark.util.Utils
  * cannot stop a running body: it reports the overrun after the body returns, and a body that
  * never returns is never reported. A compiler loop that does not terminate therefore held the
  * fork's one Build slot for the job's whole limit, printing only ScalaTest's "still running",
- * and named no test (`PLAN_MILESTONE_6.md` row 226). Interrupting the test thread would not
+ * and named no test (`m6/PLAN.md` row 226). Interrupting the test thread would not
  * stop such a loop either, since a CPU-bound loop checks no interrupt.
  *
  * So each test runs beside a watchdog thread. At the cap it interrupts the test thread, which

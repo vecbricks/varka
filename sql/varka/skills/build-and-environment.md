@@ -14,7 +14,7 @@ these files by `dev/varka_toc.py`.
 - A test-only source that redefines a class at the same FQCN as a dependency silently
   shadows the real jar: the code "runs", produces no exception, and reinstalling the
   jar changes nothing.
-- Varka kept a no-op stub `DateVectorOps` in `sql/catalyst/src/test/java` (Task 5) so
+- Varka kept a no-op stub `DateVectorOps` in `sql/catalyst/src/test/java` (VARKA-5) so
   catalyst tests could resolve the kernel owner FQCN without the engine jar. It
   shadowed the real kernel on the sql/core test classpath and made the kernel path
   appear to write nothing.
@@ -55,11 +55,11 @@ these files by `dev/varka_toc.py`.
   Guava type compiles against a method that does not exist in the shaded artifact, so
   it is a latent runtime failure rather than a safe alternative. Keep Guava types
   inside the module that owns them; when a `core` utility cannot be reached without
-  one, reimplement the few lines locally (task 23 did this for the shape cache's
+  one, reimplement the few lines locally (VARKA-23 did this for the shape cache's
   single-flight gate). Verifiable in seconds without a Maven run: `javac` the file
   against `~/.m2/.../spark-core_2.13-*.jar` and see it fail.
 - **A Java class with an incubator-module type in a field needs `--add-modules` twice
-  under Maven, and again only Maven can tell you.** Task 24 put `SelectionVectorOps` -
+  under Maven, and again only Maven can tell you.** VARKA-24 put `SelectionVectorOps` -
   a `jdk.incubator.vector` kernel - in catalyst's main sources. Adding
   `--add-modules jdk.incubator.vector` to `scala-maven-plugin`'s `javacArgs` compiles
   it, and the build then fails *after* a successful compile with

@@ -28,7 +28,7 @@ import java.util.List;
  * output whose method exceeds the budget or a driver over it; and whatever the budget, a method
  * the class-file format cannot hold - which the Class-File API refuses while the class is
  * assembled, and the emitter reads as the measurement it never got to take
- * ({@code PLAN_TASK_219.md}) - or a class over the format's other caps. It is an
+ * ({@code VARKA-219.md}) - or a class over the format's other caps. It is an
  * {@link IllegalArgumentException} so that every caller's existing contract
  * holds - the emitter refused, fall back to the row engine - and a type of its own so that a
  * caller can tell a size decline from a structural one and report it as such. {@link #outputs}
@@ -36,12 +36,12 @@ import java.util.List;
  * cannot fit, which it demotes to the row path with this reason so that the rest of the
  * projection fuses without them; it is empty for a class-wide limit, where no output is to blame
  * on its own. The emitter's other refusals are not declines: they reject IR the compiler never
- * builds, and stay plain {@code IllegalArgumentException}s ({@code PLAN_TASK_169.md} 2.1).
+ * builds, and stay plain {@code IllegalArgumentException}s ({@code VARKA-169.md} 2.1).
  *
  * <p>Under {@link VarkaEmitOptions#planSize} a class-wide decline on the driver also carries
  * {@link #plannedCut}: how many of the outputs, from the first, one class serves by the plan's
  * reading of the driver over the grouping the emitter formed, so that the compiler cuts the
- * projection there in one step rather than bisecting it (task 236). It is -1 where the plan has
+ * projection there in one step rather than bisecting it (VARKA-236). It is -1 where the plan has
  * no cut: a decline on a limit the plan cannot read, such as the class-file caps.
  */
 public final class VarkaEmitDeclined extends IllegalArgumentException {

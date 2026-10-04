@@ -18,7 +18,7 @@
 year of filing. They peak while Spark still failed loudly at 64 KB and fall away after the
 split machinery of 2.3.0; the 8000-byte step leaves no such trail, because it does not fail.
 
-The counts are the search of PLAN_TASK_210.md 7.1, read from the tracker on 25 September 2026
+The counts are the search of VARKA-210.md 7.1, read from the tracker on 25 September 2026
 with `project = SPARK AND text ~ "grows beyond 64 KB"`; they are a record of that day and are
 kept here with their date rather than re-queried, so the figure matches the post."""
 

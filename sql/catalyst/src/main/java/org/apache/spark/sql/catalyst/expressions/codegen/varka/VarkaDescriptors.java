@@ -92,7 +92,7 @@ final class VarkaDescriptors {
    * input, {@code and|orColumnValidity(dst, aAddr, aNulls, bAddr, bNulls, rows)} for the first two
    * of several, {@code and|orColumnValidityInto(dst, bAddr, bNulls, rows)} for each one after. The
    * operand states - a bitmap, all ones, all zeros - are resolved inside the engine
-   * (PLAN_TASK_70.md 2.3), so the driver passes what it holds and emits no branch.
+   * (VARKA-70.md 2.3), so the driver passes what it holds and emits no branch.
    */
   static final MethodTypeDesc COPY_COLUMN_VALIDITY = MethodTypeDesc.of(
       ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_long, ConstantDescs.CD_int,

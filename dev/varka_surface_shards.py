@@ -21,7 +21,7 @@
     dev/varka_surface_shards.py collect --shards 8 --out sql/varka/bench/benchmarks
 
 The measurement wants a runner whose 512-bit datapath is real, and about one runner in
-eighteen is (PLAN_TASK_62.md 11.9), so a shard cannot simply be dispatched and awaited: most
+eighteen is (VARKA-62.md 11.9), so a shard cannot simply be dispatched and awaited: most
 dispatches stop at the gate in about a minute. This dispatches the shards that are still
 outstanding, watches which of them cleared the gate, and dispatches the rest again, until
 every shard has a `measure` job that ran. GitHub allows twenty jobs at once, which is what

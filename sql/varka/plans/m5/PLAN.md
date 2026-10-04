@@ -1,0 +1,4549 @@
+# Varka Milestone 5 Plan: 64-bit lanes and TIME
+
+**Re-scoped on 15 September 2026**, after its first four tasks (94, 97, 99, 100)
+merged, to one lane and the types that share it. The owner's brief: "focus on
+64-bit lanes and the related types: Long (int64), time and day-time intervals",
+take "some infrastructure related tasks", and "close the gaps in already supported
+data types". The milestone ends the way milestone 4 did, in a public message - that
+Varka supports the new `TIME` data type, which Apache Spark is about to enable by
+default, and that operations over it are much faster with Varka on. That message
+is what "done" means here: a committed, banded benchmark of `TIME` expressions
+against stock Spark with `spark.sql.timeType.enabled=true` on both arms, and
+coverage-table rows for what is supported.
+
+Fourteen open rows had no bearing on that and moved to `m8/SCOPE.md`
+item 15, text and task numbers unchanged, on the 4 and 11 September precedents:
+the int32 performance work (25, 64, 72, 73), the calendar algorithms (49, 65,
+66), the validity-algebra optimisations (74, 75), strings (80), two
+micro-optimisations (82, 87) and the read-back floor (98); boolean outputs (27)
+went with them as the one borderline call, recorded in 1.1.
+
+Eleven rows were added. 102 to 106 (sections 2.37 to 2.41) are the `TIME`
+expressions, the day-time interval expressions, `Long` arithmetic, the `TIME`
+benchmark and the quote check in CI; 116 (2.51) is the proof that a `TIME`
+column survives Varka's Arrow cache, which comes before any lane code; and 117
+(2.52) is the sync of the fork with `apache/spark` master, which it trails by 375
+commits and which the owner made the milestone's first task; and 118 (2.53),
+the closing task in VARKA-62's shape - the final benchmarks on a proven
+full-width runner, the README, and the post - last by definition; and, from the
+review of what the plan assumed, 119 (2.54, the long-lane oracle), 120 (2.55,
+the coverage table as a differential corpus) and 121 (2.56, the `TIME` surface
+under `-XX:UseAVX=2`, the timing 2.19 owes). VARKA-29 was widened
+rather than replaced: `TIME` nanoseconds, day-time interval microseconds,
+timestamp microseconds and `bigint` are one lane. *Narrowed on 17 September
+2026: the timestamps left the milestone (section 8, `m8/SCOPE.md` item
+31), and 29 is the plumbing for the three types that stayed, plus comparisons.*
+
+Rows 107 to 115 were opened the same day for `TIME` features vanilla Spark lacks,
+surveyed against the upstream umbrella
+[SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550), and then
+**withdrawn from the milestone** on the owner's decision that it takes only what
+Varka needs - vectorised expressions and benchmarking - and not vanilla Spark's
+row-engine work. Their numbers stay, their sections are one-line stubs, and
+section 8 keeps the survey with its tickets, because a gap Varka meets later
+starts from that record. Section 1.1 has the order; the sections below it are as they were,
+with a note under each moved heading so citations still resolve.
+
+
+Milestone 4 opened as *breadth* - the engine learning the types, expressions
+and loop schedules a query contains - and grew, task by task, into the date
+family and the emitter under it. On 4 September 2026 the owner re-scoped it to
+exactly that: milestone 4 is `DateType` plus the emitter and evaluator
+infrastructure, and every task whose subject is another lane or output type
+moved here, unchanged. This file is those tasks. It is a task plan, not a scope
+catalogue: each task below was designed in milestone 4's plan, several with
+measurements already committed, and they keep the numbers they were given
+there. The coverage milestone that used to be called milestone 5 - decimals,
+strings as keys, grouped aggregation, published benchmark numbers - is now
+milestone 6, and its scope document is `m8/SCOPE.md`.
+
+## 1. What moved, and why this order
+
+*The list below is the 4 September 2026 framing, when this milestone was "the
+other lanes"; section 1.1 supersedes its order and its scope as of 15 September.
+It is kept because it records where each row came from in milestone 4.*
+
+Six tasks, in the dependency order milestone 4's plan already gave them:
+
+* **27, boolean outputs** - comparisons and connectives as projection results.
+  Independent of the rest; the one pure continuation of milestone 3's mask
+  machinery. Its `toVector`-against-`blend` measurement is committed.
+* **28, lane-width conversion** - the width machinery 29, 30 and 39 lean on.
+  Its loop-shape measurement (narrowest-drive against part loops) is
+  committed and decided: narrowest-drive.
+* **29, int64 lanes** - `TimestampNTZ`, `bigint`, `LongType` and `TimestampType`
+  comparisons and differences: the second `LaneType`.
+* **30, ANSI-correct integer arithmetic** - `try_*` first, the throw path
+  second, `Multiply` overflow through 28's widening; the blend-then-`DIV`
+  mechanism for the masked epilogue's zero-safety invariant is pre-measured.
+* **39, `date - date`** - the first mixed-width kernel, an int32 input pair and
+  an int64 output; depends on 28 and 29. Its recipe (`VARKA-39.md`) was
+  written against machinery that does not exist yet and says so.
+* **49, exact civil-from-days in long lanes** - depends on 29; its admission
+  check is committed (`verify_long_lane_magic.py`) and its gate registered.
+* **65, Joffe's `fast32` civil-from-days in int lanes** - added 5 September
+  2026 (section 2.7): the int32-lane alternative to 49, admitted or declined
+  by a sweep before any emitter change. Independent of 29.
+* **66, second-level chrono fragments** - added 5 September 2026 (section
+  2.8): the calendar tails' shared parts (year and leap flag, January month,
+  month start) factored the way VARKA-32's prefix was, behind the same
+  fragment mechanism. Pays only inside one lane group, so it follows VARKA-32's step B2 grouping decision, which it does not change.
+* **74, the validity-word algebra's missing axioms** - added 7 September
+  2026 (section 2.9) from the owner's question, over VARKA-70's PR, of what
+  the word algebra is mathematically and which of its laws the emitter does
+  not yet use. Two it does not: the coalesce axiom and absorption. Not a
+  lane, but an emitter follow-up the owner placed in this milestone so that
+  milestone 4 can close.
+* **75, zero-copy validity for leaf words** - added the same day (section
+  2.10): an output whose word *is* an input's bitmap shares the buffer
+  instead of copying it. Small and bounded by a committed number - and the
+  number moved under it when VARKA-70 was regenerated a third time, to 0.4%,
+  below this task's own decline line, so read 2.10 before starting it.
+* **81, Spark's own date tests as a differential corpus** - added the same day
+  (section 2.11), from the owner's question about estimating test coverage:
+  every oracle this project checks itself against, it also wrote, so the
+  expressions Spark's own suites exercise are run over Arrow-cached fixtures in
+  both engines with the plan classified fused, partial or declined. The
+  golden-file inputs are the first source, once each statement's literals are
+  rewritten into columns - without that they constant-fold and reach no
+  kernel. Follows VARKA-74 and nothing else.
+
+What stays true from milestone 4's plan and is not repeated here: the three
+invariants (one lane width per kernel, every value lane-shaped, no lane reads
+its neighbour), the standing gates in `m4/PLAN.md` section 5, and the
+debt register there, which these tasks keep sweeping. Cross-references inside
+the moved text were repointed: "2.5's committed results file" now reads 2.1,
+the catalogue's "see 2.x" pointers follow the new section numbers, and the
+old milestone 5 is named milestone 6 where the text meant the coverage
+milestone.
+
+### 1.1 The re-scope of 15 September 2026: the spine, and what left it
+
+Five facts, checked against the tree on the day, decided the shape:
+
+* `TIME` is a long. `TimeType(precision)` is eight bytes of nanoseconds since
+  midnight, range 0 to 86 399 999 999 999, physical type `PhysicalLongType` like
+  `bigint`, `TimestampType`, `TimestampNTZType` and `DayTimeIntervalType`. One
+  lane serves all of them physically; the milestone takes three of the five -
+  `bigint`, `TIME`, day-time intervals - and the timestamps left it on 17
+  September 2026 (section 8). It is `@Unstable` since 4.1.0 and gated by
+  `spark.sql.timeType.enabled`, whose default is `Utils.isTesting` - off in
+  production, which is the "about to enable by default" window the message is
+  aimed at.
+* The stock 4.2.0 distribution the benchmarks compare against ships the type
+  *and* every `TIME` function this milestone lowers (`HoursOfTime`, `MakeTime`,
+  `TimeTrunc`, `TimeAddInterval`, `SubtractTimes`, `TimeDiff`, and the
+  `TimeFrom*`/`TimeTo*` pairs are all in its catalyst jar), so the baseline arm
+  exists with the flag turned on.
+* Arrow can carry it: `ArrowUtils.isSupportedByArrow` admits `TimeType`
+  (`Time64`, precision in field metadata, [SPARK-57661](https://issues.apache.org/jira/browse/SPARK-57661)) and
+  `DayTimeIntervalType` (`Duration(MICROSECOND)`), and
+  `ArrowCachedBatchSerializer`'s column-stats switch has a `LongColumnStats` arm
+  for each. *An earlier draft of this section said it had neither; that read
+  stopped one line short, and the correction is recorded here rather than
+  erased.* What nothing has done is cache a `TIME` column through Varka's
+  serializer path and map its buffer as eight-byte lanes, so that proof is a
+  task (116) rather than a formality.
+* The emitter's `LaneType` enum has one member, `INT`. Everything above sits
+  behind widening it, which is VARKA-85, which its own row says follows 84.
+* Long lanes have no division. The Vector API has no 64-bit divide, and a
+  64-bit magic multiply needs a 128-bit product it does not have. But
+  nanoseconds-of-day lie below 2^47, and a floor division through doubles is
+  exact well past that: the true quotient's fractional part is either 0 or at
+  least `1/d`, the computed quotient errs by at most `v * 2^-53` under a true
+  division (twice that under 2.19's reciprocal multiply), so `floor` is safe
+  while `v < 2^53` - `2^52` in 2.19's form - and `TIME`'s `v` is under both by
+  a factor of thirty. That is why VARKA-88's double-lane division stops being a
+  curiosity and becomes the way `hour(t)`, `minute(t)`, `time_trunc` and the
+  interval extracts are computed at all. For day-time interval microseconds,
+  which span the whole int64, the same bound is a real one - `2^52`
+  microseconds is about 52 000 days - and above it the division is the recorded
+  decline VARKA-29's row already anticipated as "range-narrowed constants or a
+  recorded decline". Fitting a double exactly is necessary and not sufficient;
+  the error bound is the argument, and 2.19's admission check owes the constant.
+
+**The spine, in dependency order:** 117 first (the sync with `apache/spark`
+master, so everything below is built on the tree the message is about) -> 84
+(the lattice) -> 85 (the lane parameter)
+-> 29 (the long lane: the plumbing for the three types, and comparisons) with 28
+(width conversion) and 92 beside it - 92
+because `VarkaEmitOptions.DEFAULTS` has `validityByWord = false` today, so at the
+four lanes a 256-bit long vector holds, the emitter takes the byte
+read-modify-write that VARKA-47 measured as a 6 to 9% loss against the word
+write; `wordWrites` already accepts four lanes mechanically (`64 % lanes == 0`),
+so 92 is the `lanes < 8` default 2.23 specifies and nothing structural -> 88 (division) -> 102 (`TIME` expressions), 103 (day-time interval
+expressions, absorbing 39), 104 (`Long` arithmetic, VARKA-30's int64 half) ->
+105 (the `TIME` benchmark) -> 101 (the band, required before any per-entry
+number is quoted) -> 121 (the AVX2 arm of the `TIME` surface) -> 118 (the closing task: the
+final measurement on a proven full-width runner, the README, and the post -
+VARKA-62's shape, last by definition). Two testing rows sit beside the spine
+rather than on it: 119, the long-lane oracle, lands with the nodes it checks -
+its comparison arms with 85 (done), the rest with 102, 103 and 88, since 29 as
+narrowed adds no node beyond 85's subset; 120, the coverage
+table as a differential corpus, starts today and grows with 102 to 104. Gaps in the supported types - 95, 96, 89, and 83/86 folded in
+as 85 touches them - run alongside; 81 extends to `time.sql` and `interval.sql`
+once the first `TIME` expression fuses; 106 (the quote check in CI) can go any
+time.
+
+**The vanilla gaps (107 to 115) - surveyed, then withdrawn.** The owner
+first asked that `TIME` features vanilla Spark lacks become rows here, then that
+they be checked against the upstream umbrella [SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550) ("Extend
+support for the TIME data type", 58 subtasks), and then - with the survey in hand
+- that the milestone keep only what Varka needs: vectorised expressions and
+benchmarking. So the rows were withdrawn the same day - their sections cut to
+one-line stubs - and what the survey found is kept in section 8 with a ticket per
+line, because it is the record a later gap starts from. Two of its findings matter to the rows that stay. **The fork
+carries nearly every resolved subtask of the umbrella, and one it does not.** Of
+the 42 resolved tickets, 36 trace to commits in both histories (three of them
+inside other tickets' commits - 51403 under 57587, 57552 and 57554 under 57551);
+[SPARK-53368](https://issues.apache.org/jira/browse/SPARK-53368), reading Parquet `TIME` written with `isAdjustedToUTC`, is
+in `upstream/master` and **not** in the fork; and five (52617, 53520, 57553,
+57559, 53579) leave no commit message in either history - 57559's feature is
+present anyway through `TimeTypeOps`, and the other four are checked by feature
+in 116 rather than by ticket. So the expressions 102 lowers are the ones
+vanilla Spark has today, and VARKA-117 carries one piece of `TIME` work after
+all. *An earlier draft of this paragraph said the fork carried every resolved
+subtask; that rested on a title-prefix grep that passed silently for tickets
+absent from both histories, and the correction stands here.* And two readings made while opening those rows
+were wrong and are corrected in place rather than erased: Avro `TIME` is
+implemented ([SPARK-54473](https://issues.apache.org/jira/browse/SPARK-54473), [SPARK-57581](https://issues.apache.org/jira/browse/SPARK-57581), under `sql/core`'s
+Avro code rather than `connector/avro`, where the grep looked), and the
+Arrow-cache stats switch has its `TimeType` and `DayTimeIntervalType` arms - the
+read that said otherwise stopped one line short. One row came back from the
+withdrawal because it is Varka's own: 117, the sync with upstream, which the
+owner then made the milestone's first task. 116, the cache proof, was never
+among them - it is Varka's path and nobody else's.
+
+**Boolean outputs (27) is the borderline call.** `SELECT t1 < t2 AS flag` is a
+projection output, distinct from filters, which already run through masks.
+Nothing in the message needs it; it is also the first thing a `TIME` user might
+type. It moved out, and a `TIME` benchmark row is what argues it back in.
+
+Section 2 carries the six design sections as milestone 4 wrote them, section 3
+the task table, sections 4 to 8 what milestone 4's files, verification, risks,
+open questions and exclusions said about these tasks, and section 9 the scope
+catalogue items about other lanes, item numbers preserved because other plans
+cite them.
+
+## 2. Design
+
+### 2.1 Boolean outputs (VARKA-27, item 5)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: the one borderline call: a projection output the `TIME` message does not need, argued back in by a benchmark row if one wants it. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Moved from `m4/PLAN.md` section 2.5 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+The cheapest item and the only pure continuation of milestone 3: comparisons
+and `And`/`Or`/`Not` as projection *results*, built on VARKA-21's mask-as-value
+machinery. `VectorMask.toVector` against a `blend` of one and zero was
+pre-registered as a measurement, not a debate, and it is now measured
+(`VarkaMilestone4MeasurementsBenchmark`, committed forked-JVM run in
+`sql/varka/engine/benchmarks/VarkaMilestone4MeasurementsBenchmark-jdk25-results.txt`,
+which superseded four in-process runs; their reading is in git history and
+the file lists what moved): `toVector` is ahead by 1.12x at AVX-512 and
+`blend` by 1.04x at 128-bit - a small, width-dependent gap where the
+in-process runs had reported a tie, and not the clear winner the
+pre-registration expected either way. The real,
+width-dependent finding is a different question the pre-registration did not
+ask: whether to materialize an int column at all. Skipping it - packing
+`VectorMask.toLong()` straight into the output bitmap - wins by 1.18x at
+AVX-512 but *loses* by 1.34x-1.39x at 128-bit. A compound predicate, `(a > b)
+AND (c < d)` kept in mask space the whole way through versus materialized as
+an int column at every node, shows the same direction with a smaller margin
+than the in-process runs claimed: mask-space is ahead at both widths, by 1.02x
+at AVX-512 and 1.07x at 128-bit - never worse; the 1.24x-1.37x the earlier
+runs reported at 128-bit was the harness. Two consequences for the task: walk
+boolean sub-expressions in mask space and materialize only once at the output
+boundary (never worse, at either width), and the single-comparison bits-only
+shortcut needs a width check rather than a single
+committed choice, since its sign flips between the two vector widths this
+project already tests at. The two real questions the pre-registration also
+named are format and nulls: Spark's bit-packed boolean vector against
+Arrow's validity-style bitmap at the output boundary, and the three-valued
+rules holding there exactly as they hold in the interior - a null input
+produces a null output, never a false one. The differential runs every null
+pattern for exactly that reason.
+
+*Added 7 September 2026, from section 2.9's reading of VARKA-70's word
+algebra.* A boolean output is where that algebra's domain ends, and the task
+has to say so in code. VARKA-70's bitmap pass serves a root whose validity is
+a pure function of the inputs' validity bitmaps, which holds for every date
+node because each is either strict (null in, null out) or null-skipping.
+SQL's connectives are neither: `a AND b` is *false*, not null, when one side
+is false and the other null, so the validity of a boolean output depends on
+the operands' values as well as their bitmaps - Kleene's three-valued
+lattice, not the bitmap lattice. `Analysis.pureOf` falls to `null` for any
+node without an arm, so a boolean root is fail-safe today by omission; VARKA-27 makes it fail-safe by statement: a test that every boolean root - a
+comparison, `And`, `Or`, `Not` over nullable operands - has no pure word and
+is never served, and a sentence in the emitter's algebra javadoc naming the
+boundary. Mask space, where 2.1 already keeps the connectives, is the right
+place for the known-true and known-false pair the connectives need.
+
+### 2.2 Lane-width conversion (VARKA-28, item 1)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: the widening cast; nothing in the message needs it, and VARKA-104 that would have leaned on it moves too.*
+
+*Moved from `m4/PLAN.md` section 2.6 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+The width machinery items 2 and 4 lean on. The hard part is not the
+conversion, it is the lane count: at one shape an int32 species holds twice
+the lanes of an int64 species, so a mixed-width kernel either drives the loop
+at the narrowest lane count and leaves wide lanes half empty, or emits a part
+loop per conversion and carries two trip counts. That is the one decision in
+this item that is expensive to reverse, so the scope's open question 2 was
+pre-registered as a measurement before the task opens: both shapes on a
+`cast(int AS long) + long` chain. Measured
+(`VarkaMilestone4MeasurementsBenchmark`, same committed results file as 2.1):
+narrowest-drive and part-loop are statistically tied at both vector widths,
+on every run - four total - narrowest-drive slightly ahead most of the time
+(within 1.01x-1.07x, inside this file's own noise band). The recorded
+fallback if a wider mixed-type shape measures differently once VARKA-28 is
+under way: items 2 and the multiply half of 4 can be built width-locked and
+retrofitted.
+
+*Corrected 18 September 2026 when VARKA-28 was planned (`VARKA-28.md` 2).
+This section previously concluded "VARKA-28 opens already knowing the winner:
+narrowest-drive, for the simpler build (one trip count) at the same
+throughput". Both halves of that were wrong. `laneWidthPartLoop` strides by the
+int lane count and has **one** trip count, the same as narrowest-drive; what it
+spends is two conversions, two loads and two stores per iteration over twice the
+rows, which is the same work per row and is why the two tie. And narrowest-drive
+is only implementable through a **second int species**, which is what the
+benchmark's own state class isolates in its own fork: two species of one lane
+type make the shared `IntVector` templates bimorphic and cost a heap box per
+iteration in every other loop in the JVM - 6.4x, 12.8x and 2.7x on the shapes
+`SKILLS.md` measured. A forked per-benchmark run cannot see that cost, because
+narrowest-drive imposes it on every other kernel rather than on itself. The
+results file's own reading already says so: "the design decision is the two-part
+convertShape from the preferred species regardless". That is what VARKA-28
+builds.*
+
+### 2.3 int64 lanes: `TimestampNTZ` and `bigint` (VARKA-29, item 2)
+
+*Widened on 15 September 2026: the long lane this section designs also carries
+`TIME` (nanoseconds of day) and `DayTimeIntervalType` (microseconds), which are
+`PhysicalLongType` like the two types named in the heading. The expressions over
+those two types are 2.37 and 2.38; what this section owns is the lane itself -
+the species, the loads and stores, the halved headroom, and the division rule -
+and its "range-narrowed magic constants for 1000000 and 86400 or a recorded
+decline" is now decided by 2.19's double-lane division (exact for `TIME` by
+range, bounded for intervals). The heading stays so citations resolve.*
+
+*Narrowed on 17 September 2026, on the owner's decision: the timestamp types
+named in this heading and in the 15 September note are not in milestone 5, and
+VARKA-29 is the lane plumbing for `bigint`, `TIME` and day-time intervals with
+comparisons only - see `VARKA-29.md` 2.1, section 8 below, and
+`m8/SCOPE.md` item 31. The text below is unchanged.*
+
+*Moved from `m4/PLAN.md` section 2.7 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+The first new lane type, and the natural one: the only type whose semantics
+are already written down (milestone 2 section 2.6 quality, for dates) and
+whose expressions Varka already compiles at another width. `TimestampNTZType`
+is pure int64 microseconds; comparisons, differences and literal arithmetic
+come with it, plus comparisons and diffs on `TimestampType` and `LongType`
+columns generally. Zoned day and month arithmetic stays out until its
+semantics are written down with the same care - the tzdata-as-interval-arrays
+technique is recorded in the catalogue for that day.
+
+`LongVector` halves the lanes, so every parity gate reruns at both widths and
+the same expression has roughly half the headroom it had at int32 - a number
+to commit, not a surprise to discover. Micros-to-second and second-to-day are
+divisions by invariant constants (1000000, 86400); there is no multiply-high
+on long lanes, so the range-narrowed magic multiply is the first thing to try
+(the parity file prices `DIV` at roughly an eighth of the magic rate, 652
+against 5657 M rows/s on the `dayofweek` case). This task also lands the field
+differential mode VARKA-22 explicitly left to it, because this is where the
+correctness surface widens.
+
+### 2.4 ANSI-correct integer arithmetic (VARKA-30, item 4)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: the int32 arithmetic remainder (`/`, `div`, `%`); the 64-bit half is VARKA-104 and moves with it.*
+
+*Narrowed on 4 September 2026:* the int32 add, subtract, multiply and negate, in both
+evaluation modes and the `try_*` forms, are milestone 4's VARKA-63 (`m4/PLAN.md`
+2.30); this section's design carries over to it, and what remains here is division,
+remainder and the int64 forms.
+
+*Moved from `m4/PLAN.md` section 2.8 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+Most arithmetic in most queries, and the `datediff(d2, d1) + 1` shape that
+keeps appearing in date work. The order inside the task is the risk order:
+
+* **`try_add`, `try_subtract`, `try_multiply` first.** They want nulls, not
+  throws: the wrap-versus-saturate difference mask *is* the output validity,
+  no branch needed. If the ANSI path prices badly, `try_*` alone still ships.
+* **The ANSI throw path second**: compute the wrapping op and the saturating
+  op over the same inputs, `compare(NE, ..).anyTrue()` decides whether to
+  leave the vector loop, and a scalar re-walk of the offending lane group
+  raises the error against the right row - the ghost-fallback discipline the
+  project already runs on. On the no-overflow path that is one vector op and
+  one well-predicted branch, and the prediction to register is that this
+  prices acceptably.
+* **`Multiply` overflow rides VARKA-28's widening** - there is no saturating
+  multiply, so detection widens to long lanes and compares against the
+  narrowed result. It lands only if 28's machinery makes it cheap.
+
+`date_add` stays exempt: it wraps by spec. The validation is a kind of
+assertion the suites have never made: an error-*identity* differential - the
+same `SparkException` as the row engine, attributed to the same row.
+
+One obligation VARKA-24 left at this task's door, sharpened by its review: the
+masked epilogue's invariant that **no operation in the walk may trap on `0`**
+(inactive lanes read `0` from a masked load) currently lives only in the
+emitter's class doc, and division is the first node that will violate it. This
+task must not just remember the paragraph - it should make the invariant
+structural when the first trapping node lands: an explicit zero-safety member on
+the sealed `VarkaVectorIR` (no default), so a node that can trap does not
+compile until the epilogue emitter blends a safe divisor or takes the masked
+lanewise form. A prose invariant fails only on unaligned batch lengths, which
+VARKA-24 measured as the lengths no committed harness ever runs.
+
+Which of those two mechanisms the enforcement should reach for is
+pre-measured (`VarkaMilestone4MeasurementsBenchmark`, same committed results
+file as 2.1): blend-then-`DIV` beats masked `DIV` at both vector widths, on
+every run - four total - 1.08x-1.10x at AVX-512, 1.18x-1.19x at 128-bit by
+minimum. The smallest margin of the five measurements in that file, but the
+only one where all eight data points (two widths times four runs) agree in
+both direction and rough magnitude, which is the interleaved comparison the
+under-1.3x rule asks for. Blend a safe divisor into inactive lanes; the
+structural check exists to make sure some such mechanism runs before an
+unmasked `DIV`, not to leave the choice open each time.
+
+### 2.5 `date - date`, the first mixed-width kernel (VARKA-39)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: absorbed by VARKA-103 and moves with it.*
+
+*Moved from `m4/PLAN.md` section 2.13 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+The natural first consumer of VARKA-28 and VARKA-29, and a better one than the
+synthetic `cast(int AS long) + long` chain their measurement used: int32 inputs,
+an int64 output, exactly one width conversion, one output, and an error path.
+The smallest real expression with that shape.
+
+It is not `datediff`, which Varka already compiles and which returns an
+`IntegerType` day count. Since Spark 3.2 the `-` operator between two dates
+returns `DayTimeIntervalType(DAY)` - physically **long microseconds** - as
+`Math.multiplyExact(Math.subtractExact(l, r), MICROS_PER_DAY)`. Two facts about
+that line shape the task: it throws unconditionally, not only under ANSI, since
+`SubtractDates` carries no `failOnError`; and the legacy
+`CalendarIntervalType` variant behind `spark.sql.legacy.interval.enabled` is a
+different result type that must decline.
+
+**The finding that made this worth writing down now is that it does not need
+VARKA-30.** A lane cannot throw, but it does not have to: VARKA-26 built the
+channel where a kernel notices what it cannot compute, returns a status, and
+the row engine recomputes the batch - and the row engine then raises the
+identical exception at the identical row, because it *is* the row engine. Both
+overflow tests are cheap and branchless (`((l ^ r) & (l ^ diff)) < 0` for the
+subtraction, and a comparison against `Long.MAX_VALUE / MICROS_PER_DAY =
+106751991` for the multiply), and overflow needs a date range of 292,000 years,
+so the fallback costs nothing anyone will measure. VARKA-30 exists for
+expressions where declining is too expensive; this is not one, and the recipe
+says so rather than reaching for machinery because it is there.
+
+The recipe is the first written **against machinery that does not exist yet**,
+so it names VARKA-28's and 29's plumbing provisionally and tells the executing
+agent to stop and report if the real thing differs rather than adapt on the
+fly. The gap between what it assumed and what 28 and 29 actually build is the
+most useful thing its outcome section can record - and it is a cheap trial of
+whether a recipe can usefully be written ahead of its dependencies at all.
+
+### 2.6 Exact civil-from-days in long lanes (VARKA-49)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: date-algorithm precision; it uses long lanes but serves dates. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Moved from `m4/PLAN.md` section 2.19 on 4 September 2026, text
+unchanged except for the cross-references noted in section 1.*
+
+VARKA-26's whole design rests on one absence: `VectorOperators` has no
+multiply-high on any lane type, so a full-range Granlund-Montgomery magic
+division is not expressible on int lanes, and what ships instead is a
+*range-narrowed* round-down magic with correction carries, a narrow-range guard,
+a batch-decline path and a `VarkaChrono` constant table to support it. That
+absence was re-checked during VARKA-32 and is not temporary: no `MUL_HIGH` in
+JDK 25 or in openjdk/jdk master, and JDK-8219881, the nearest request, has been
+Open at P4 since February 2019 on `repo-panama` (`SKILLS.md` has the detail).
+
+**But multiply-high was never the only route to an exact magic. A 64-bit low
+product is enough, and `LongVector`'s `MUL` provides one today.** Widen the
+dividend to int64 lanes and the product of a 32-bit value and a ~30-bit magic
+lands well inside a signed 64-bit lane, so the quotient is exact with a single
+multiply and a shift - no round-down, no carries, no range restriction.
+
+Checked, over the range the lowering actually needs rather than a round number.
+Days are int32 and the March-based bias makes the dividend
+`w = days + 2^31 + 719468`, so `w` spans `[0, 2^32 + 719468)`:
+
+| division | dividend range | k | M | largest product |
+|---|---|---|---|---|
+| `/146097` | `[0, 2^32 + 719468)` | 47 | 963315389 | 2^61 |
+| `/36524` | `[0, 2^24)` | 38 | 7525953 | 2^46 |
+| `/365` | `[0, 2^24)` | 31 | 5883517 | 2^46 |
+
+Three bits of headroom on the widest one, and none to spare beyond it: the same
+search over `[0, 2^33)` finds no exact pair at all. So the margin is real but
+thin, and the admission check is not a formality.
+
+That table is reproducible rather than asserted:
+`sql/varka/plans/verify_long_lane_magic.py` searches for each pair, checks it at
+every multiple-of-`d` boundary in range - which is where an inexact magic must
+first disagree, the error being monotone between them - and fails loudly if the
+`[0, 2^33)` search unexpectedly succeeds, since that would mean this section
+understates the headroom. It is committed for the same reason
+`verify_chrono_tails.py` and `verify_days_from_civil.py` are.
+
+**What it deletes.** The narrow-range guard and its two compares; both
+round-down magics and their correction carries; `STATUS_CHRONO_RANGE` as a
+reason a chrono batch declines, with the evaluator fallback and metric that
+serve it; the `NARROWED` variant and the range constants in `VarkaChrono`; and
+the standing caveat that `year(date_add(d, n))` can decline for a large enough
+`n`. The status ABI itself stays - VARKA-30's ANSI path wants its own bit - but
+the calendar family stops being a reason a batch is recomputed on the row
+engine.
+
+**Update: the guard half of this is already gone (VARKA-51).** Before this task
+was picked up, the owner had the emitter's per-extraction guard removed for a
+different reason - it re-verified a fact CSE and VARKA-32's fragment sharing had
+usually already established, on every calendar node, when the one case that
+actually needs a fresh check is a value a *producer* node manufactured from
+unbounded runtime arithmetic (`date_add`/`date_sub` with a column offset, not a
+literal). `VARKA-51.md` and `VARKA-52.md` have the detail; VARKA-52 is
+where the check returns, at the producer, not the extraction. So by the time
+VARKA-49 is picked up, `emitEra` no longer carries the two compares or the
+`s.guardAcc` wiring, `hasChrono` is gone, and `STATUS_CHRONO_RANGE` already goes
+unset - what remains for *this* task to delete is the round-down magics and
+their carries, the `NARROWED` variant, and `VarkaChrono`'s range constants,
+plus reconciling with whatever VARKA-52 has done to the producer nodes by then
+(an exact lowering needs no range check for the calendar extraction itself, but
+VARKA-52's producer-side check is about the query's arithmetic, not the
+extraction, and stays relevant regardless of which lowering reads its output).
+
+**What it costs.** Half the lanes: eight per vector at AVX-512 instead of
+sixteen, four instead of eight at 128-bit. Plus an `I2L` on the way in and an
+`L2I` per output on the way out. Counting ops out of what `emitChronoPrefix`
+would become, this is roughly 25-28 ops over eight lanes against today's ~45
+over sixteen - about 3.2 against 2.8 ops per row before conversions - so the
+honest expectation is a **small throughput loss bought with a large
+simplification**, not a win. That is a legitimate trade and it is the owner's
+call, but it has to be made on a number.
+
+**Sequencing.** Depends on VARKA-29, which brings int64 lanes and the second
+`LaneType`; there is no cheap way to prototype this before it lands, and no
+reason to try. It is also an *alternative* to VARKA-32's step B rather than a
+complement: the fragment mechanism is lane-type agnostic and would compose
+mechanically, but the two wins overlap, since a long-lane prefix is a different
+prefix to share. Whichever lands second inherits the smaller half, and the
+milestone should not pretend otherwise.
+
+**The gate, and it is the strict one.** VARKA-26 verified its narrowed lowering
+against `LocalDate` over all 16,777,216 days of its range and its total variant
+against a long-arithmetic reference over **all 2^32 days**, as an opt-in
+committed test, on the grounds that a vector kernel at sixteen lanes makes that
+seconds rather than hours. This lowering claims exactness over a wider range
+than either, on a three-bit margin, so it inherits that standard and not a
+smaller one: the sweep is commit 1, before any emitter change, and the
+boundary set gains `2^31 - 1`, `-2^31`, and both ends of the biased dividend.
+
+**Predictions, registered here.** The lowering lands at 25-30 emitted ops; it
+runs 0.75x to 1.0x the shipped narrowed lowering on `year` at AVX-512 and
+relatively better at 128-bit, where halving an already-small lane count costs
+less than the corrections it removes; and no committed number for a non-calendar
+shape moves. If it clears 1.0x anywhere, that is a surprise worth writing down
+rather than a result to assume.
+
+**Declined if** the sweep finds any day where the exact form disagrees, or the
+measured cost at AVX-512 is worse than 0.75x - at which point the simplification
+is not worth a quarter of the calendar family's throughput, and the entry goes
+to the debt register with the number attached.
+
+### 2.7 Joffe's `fast32` civil-from-days in int lanes (VARKA-65)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: a calendar algorithm for the int32 date path. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 5 September 2026, from a reading of the Habr translation of Ben Joffe's
+"fast-date-64" post and of the `benjoffe_fast32_v2.hpp` (2026) and
+`benjoffe_fast32_v1_wide.hpp` files in `benjoffe/fast-date-benchmarks`, on the
+owner's request. The same repository was read in September 2026 for VARKA-54
+(`SKILLS.md`, "The Julian map"); what follows is what that review did not
+cover, because the `fast32_v2` file postdates it.*
+
+**What the prefix already took from this source.** The Julian map (VARKA-54,
++25% on `year` at both widths) and the month numerator whose low half is the
+day (VARKA-53). What the earlier review set aside was the rest of `fast64`: it
+reads the *fractional* part of the year division - the low word of a 64x64
+product - as the year-part, and folds the leap day into `(yrs % 4) * 512`, so
+the month/day split never computes a day of year at all. That is four
+multiplies for the whole date against Neri-Schneider's seven, and the review
+filed it under VARKA-49's long lanes because every multiply reads a high half.
+
+**What is new: `fast32_v2`.** Joffe's own 32-bit rewrite of the same chain
+("based on the 64-bit algorithm, but using smaller constants throughout,
+avoiding umulh"), backwards-counting, with the year-part read off the low word
+of a 32x32 product and the month/day split as `m_num = (yrs & 3) * 64 + shift +
+ypt`, `month = m_num >> 8`, `day = ((m_num & 255) * DAY_MUL) >>> 32`. His
+option A is exact from -284,449-07-13 to +284,449-01-30, wider than the
+narrowed prefix's range by an order of magnitude; the scalar measurement puts
+it at 1.18-1.38x Neri-Schneider's time against `fast64`'s 1.00x, on three
+machines. The `fast32_v1_wide` file is the bucket technique the VARKA-54 review
+already recorded as the guard-free fallback (full int32 range, 100% overflow
+safe, at more ops).
+
+**Why it is not a port.** Each of his multiplies is still a 32x32->64 product
+read from the high half (`>> 47`, `>> 32`): scalar-friendly, but the Vector
+API has no multiply-high on any lane, which is the absence VARKA-49 works
+around by halving the lanes. So the transfer to int lanes is what VARKA-53 and
+VARKA-54 did by hand - re-derive each stage as a low-32-bit magic with its own exact
+range - and it is not obvious that every stage survives it: the year-part is
+*defined* as a high-half fraction, and the `(yrs & 3)` absorption of the leap
+day depends on the year-part's scale. The two ideas that transfer without that
+question are the backwards count (no `+ 3` alignment terms and one subtraction
+off the critical path) and the split's shape, in which the month and the day
+come out of one add and one shift.
+
+**Why it may be worth it.** The prefix is latency-bound on its dependent chain
+(VARKA-54's lesson: count stages, not ops), and this chain is one stage shorter
+than the prefix's - no day of year before the month/day split - with one fewer
+correction. Registered expectation: 5-15% on the prefix at both widths if the
+low-product derivation holds over at least the narrowed range, and a wider
+covered range as the second prize, which would shrink what VARKA-52's producer
+guard has to protect. Against that: the numerator of VARKA-53 already gives
+month and day from one multiply, so part of the gain may already be banked.
+
+**The admission check, before any emitter change.** As for VARKA-49, a sweep
+first, committed as a script beside `verify_long_lane_magic.py`:
+
+1. Transcribe the two files' algorithm text and constants into
+   `sql/varka/papers` under the BSL-1.0 notice they carry, with the reading
+   notes; they are code, not a paper, so the notes are the load-bearing part.
+2. Derive, for each stage, a low-32-bit magic (round-down plus at most one
+   carry, as `emitChronoPrefix` does today) and its exact range, and sweep the
+   whole chain against `LocalDate` over the union of the derived ranges. The
+   gate is the narrowed range at minimum
+   (`VarkaChrono.NARROW_MIN_DAYS..NARROW_MAX_DAYS`); a wider exact range is
+   recorded, a narrower one declines the task.
+3. Count the dependent stages of the surviving chain against the prefix's.
+   If it is not shorter, decline: the op count alone did not predict VARKA-54.
+
+**If admitted:** a `VarkaEmitOptions` variant and an A/B in
+`VarkaEmitterParityBenchmark` beside the VARKA-53 and VARKA-54 pairs, at both widths;
+the register and the `HugeMethodLimit` ladder re-pinned, since every prefix
+change moves them; the default chosen from the committed numbers.
+
+**Relation to VARKA-49.** An alternative, not a complement, in the same sense
+2.6 gives for VARKA-32's step B: both shorten the prefix, and whichever lands
+second inherits the smaller half. This one needs no int64 lanes and can run
+before VARKA-29; if it admits and measures well, VARKA-49's own expectation
+(0.75x-1.0x) gets harder to justify on throughput and stands on the
+simplification alone.
+
+**Declined if** step 2's exact range is narrower than today's, or step 3 finds
+no shorter chain, or the A/B is under 1.0x at either width; the numbers go to
+the debt register either way.
+
+### 2.8 Second-level chrono fragments (VARKA-66)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: a calendar refactor for the int32 date path. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 5 September 2026, from the owner's question over the IR data-flow
+drawing (`docs/img/varka/varka-ir-levels.svg`): where the prefixes are, and
+whether there are only two.*
+
+**What exists.** One shared fragment kind: `FragmentKind.CHRONO_PREFIX`, VARKA-32's step B1 - the civil-from-days decomposition run once per distinct date
+per lane group into eight locals that every `Chrono` tail and `AddMonths` read.
+The mod-7 lowering is not a fragment; `emitFloorMod7` is emitted inside each
+node that needs it. And the calendar tails are in the same state: their
+helpers are factored in the Java source (VARKA-35 and VARKA-61 did it for
+`trunc`) but every node re-emits them against the prefix's locals.
+
+**The register of repeated tails**, read off `VarkaLoopEmitter` on the VARKA-61
+branch as call sites of each helper, each site a node that recomputes the same
+value when it sits beside another consumer over the same date:
+
+| shared value | helper | emitted by |
+|---|---|---|
+| plain year, then the leap flag, then the January day of year | `emitChronoYear` (6 sites), `emitLeapFlag` (4), `emitJanuaryDayOfYear` (2) | `Year`; `DayOfYear`; `TruncDate` YEAR and QUARTER; `TruncDateDynamic`; `LastDay` and `AddMonths` (the leap flag only) |
+| January-based month | `emitChronoMonth` (6 sites) | `Month`; `Quarter`; `TruncDate` QUARTER; `TruncDateDynamic`; `AddMonths`; the recompose `trunc` form |
+| month start, zero-based day of month | `emitMonthStart` (6 sites), `emitZeroBasedDayOfMonth` (2) | `DayOfMonth`; `TruncDate` MONTH; `TruncDateDynamic`; `LastDay`; `AddMonths` |
+| `floorMod(d, 7)` over the same date | `emitFloorMod7` (4 sites) | `DayOfWeek`; `WeekDay`; `TruncDateDynamic`'s week result. Not `NextDay`, whose mod is over `k - d`; the week-rule tasks (37, 57, 58) add consumers through their Thursday shift, which node-level CSE already shares |
+
+So `year(d), dayofyear(d), trunc(d, 'YEAR')` runs the year-and-leap chain three
+times, `month(d), quarter(d)` the month step twice, and `dayofweek(d),
+weekday(d)` the twelve-op mod twice.
+
+**The design is the existing one, one level down.** Three or four more
+`FragmentKind`s (`YEAR_PARTS`, `JANUARY_MONTH`, `MONTH_START`, `FLOOR_MOD_7`),
+keyed by the same decomposed child, body mode and lane group as the prefix
+(`fragmentKey`), allocated once per fragment in `planSlots` and emitted once
+per lane group by the first consumer (`emittedFragments`), the later consumers
+reading the locals. The prefix's slot discipline carries over unchanged: a
+fragment writes only its own locals and never a sibling's, which is the lesson
+`VARKA-36.md` recorded after doing it the other way first. The tails'
+helpers already take their inputs and outputs as slot numbers, so the change is
+in the planning and the once-per-group check, not in the arithmetic. The
+`elideChronoMonth` question repeats one level down: a fragment is emitted only
+if some consumer in the group reads it, decided over the group as
+`fragmentsReadingMonth` decides the month step today.
+
+**What it is worth, honestly.** A tail is 4-12 ops against the prefix's ~30,
+so this pays only when three or more fields of one date sit in one lane group -
+which is exactly the shape VARKA-32's step B2 makes common by relaxing
+`GROUP_BUDGET` for calendar outputs, and no other. Registered expectation:
+10-25% on the four-field shared row, under 5% on any two-field one, nothing on a
+single-field query. The register test's counts move for every shared shape and
+the `HugeMethodLimit` ladder may move again (every prefix change has), so both
+are re-pinned as fixtures, not as findings.
+
+**Sequencing.** After B2's grouping decision is in (`VARKA-32.md` 7.2 says
+its gate cleared; the default is a policy the owner sets from both widths'
+numbers). Independent of VARKA-29 and VARKA-65; if 65 replaces the prefix, the
+year-parts fragment changes shape but not its existence.
+
+**The gate.** The four-field parity row shared under the new fragments against
+the same row under B1 alone, both widths, three runs, minimum best-time, on the
+shape `year(d), dayofyear(d), trunc(d, 'YEAR'), month(d)` and on the committed
+`year+month+day+quarter` row. Under 1.05x at AVX-512 on both: decline, and the
+register above goes to the debt register as the record of what re-emission
+costs.
+
+**Beyond dates.** The next first-level prefixes are milestone 5's timestamp
+work, where sharing will matter more than here because every field pays the
+split first: micros to days plus micros-of-day (under `date(ts)`, the calendar
+tails and the time-of-day tails), seconds-of-day under `hour`/`minute`/`second`,
+and the per-timestamp zone offset once item 2's tzdata design lands. They are
+recorded in section 9's item 2 as the shape to design the fragment keys for,
+not as tasks.
+
+### 2.9 The validity-word algebra's missing axioms (VARKA-74)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: an optimisation of the existing validity pass. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 7 September 2026. The owner, reading VARKA-70's PR (#145), asked what
+the word algebra is from a mathematical point of view and whether known laws
+of that structure could be applied to more complex expressions. This section
+is the answer, with the census that turned it into a task.*
+
+**What the algebra is.** VARKA-70's `WordExpr` is the `{AND, OR, 1}`-reduct
+of a finite Boolean algebra: the validity bitmaps of a batch are the direct
+power of the two-element Boolean algebra over the batch's rows, and the
+emitter uses only the two lattice operations and the top element. For each
+operator alone that is a bounded semilattice - associative, commutative,
+idempotent, with `1` as AND's unit and OR's annihilator - and the free
+bounded semilattice on the input ordinals is exactly the set of leaves plus
+the operator that `BitmapPass` stores as a served root's normal form. The
+pass's soundness (`VARKA-70.md` 3.1) is the fact that a direct power's
+operations are componentwise, so evaluating a word per lane group and
+concatenating equals evaluating it over the whole batch. Two laws of the
+lattice the folding does not use: **absorption** (`x AND (x OR y) = x` and
+its dual) and the fact that `coalesce`, which the compiler builds as
+`IfElse(IsNotNull(x), x, y)`, denotes `x OR y` - the compiler's own comment
+on `compileCoalesce` proves this (`(kT AND v(x)) OR (NOT kT AND v(y))` with
+`kT = v(x)` reduces to `v(x) OR v(y)`), and `pureOf` still returns nothing
+for it because `IfElse` has no arm.
+
+**The census, and a caveat found on 12 September 2026.** Its `surface` corpus is
+not the whole surface: `resolve` had no analyzer pass, so every date/interval
+shape VARKA-67 added parsed to an `Add` the compiler declined, and the corpus was
+truncated by hand to "the `Surface` projections that resolve without the
+analyzer's type coercion". The figures below are therefore over about two thirds
+of the surface while reading as though they were over all of it. The resolver is
+fixed and the interval columns are declared, so widening the corpus is now a
+matter of adding the entries and requoting this paragraph - work for whichever of
+VARKA-74 and VARKA-75 next touches the census, since it moves every number here.
+
+`VarkaWordCensus` (catalyst test scope,
+`dev/varka_word_census.sh`) classifies every value root of three corpora by
+its word today and under the two extensions, and checks its verdict against
+the emitter's by emitting each single-root shape with the pass on and off:
+a served root changes `loopMasked0`'s bytes. Run on 7 September 2026 over
+the `Surface` projections, sixteen composites on the operator boundary, and
+20000 shapes from the fuzzer's value grammar (seed 7): 6686 single-root
+shapes cross-checked, 0 disagreements. What it found:
+
+| corpus | leaf | chain | no expression | mixed |
+|---|---|---|---|---|
+| `Surface` projections (30) | 22 | 5 | 3 (`if`, `CASE`, `coalesce`) | 0 |
+| fuzzer grammar (39742 roots) | 25584 | 6405 | 6183 | 1570 |
+
+* **The coalesce axiom** turns `coalesce(d, d2)` - the one `Surface` entry
+  with no expression that is not a comparison blend - into an OR chain, and
+  with it `coalesce(d, d2, d3)` (a chain of three), `year(coalesce(d, d2))`
+  and `greatest(coalesce(d, d2), d3)`. In the fuzzer's grammar it gives a
+  word to 1674 of the 6183 roots that have none; the rest are comparison
+  blends and `make_date`, which are not pure and stay so.
+* **Absorption** turns `datediff(greatest(d, d2), d)` and
+  `greatest(date_add(d, i), d)` from mixed trees into a single leaf, and
+  `datediff(coalesce(d, d2), d)` likewise once the coalesce axiom is in. In
+  the grammar it resolves 1014 of the 1570 mixed roots. No `Surface` entry is
+  mixed, so on the inventory alone this law is worth nothing; it is two
+  rewrite rules, and it is what makes the coalesce axiom compose.
+* **What stays mixed** after both: 556 of 39742 grammar roots, 1.4%, and
+  composites such as `datediff(greatest(d, d2), greatest(d3, d4))` and
+  `date_add(greatest(d, d2), i)`. Their Strahler numbers are 2 or 3 in all
+  but two of the 40000; section 9's item 14 is the evaluator that would
+  serve them, and this census is its admission threshold.
+
+**Two things the reading found already done or not worth doing.** The unit
+and annihilator laws have a run-time half - a null-free column is the top
+element and drops out of an AND or decides an OR - and the engine's five
+pass entry points already resolve it per batch from the null counts, before
+touching a bitmap. And cross-output sharing, which the normal form makes
+exact (two roots want the same bitmap iff their leaf sets and operator
+agree), is not worth a mechanism: in the grammar's 13284 multi-root shapes
+only 403 served roots repeat a *non-leaf* form of a sibling and 62 pairs
+stand in the subset relation under one operator; a repeated leaf is already
+a copy. Recorded so that nobody designs it twice.
+
+**The design.** Two `pureOf` arms and two folding rules, no new node, no
+new option component:
+
+* `IfElse(IsNotNull(x), x, y)` denotes `or(w(x), w(y))`, matched
+  structurally (the condition's child is the then-branch, by reference).
+  `WordOwner` stays `Own` for the node, since the blend still computes its
+  slot when a consumer wants it; Theorem 1's one-directional check therefore
+  constrains nothing new. Liveness already demands both operand words for
+  the blend's known-true mask, so serving the root removes its write and
+  nothing else.
+* `andExpr(a, Or(p, q))` with `p == a` or `q == a` folds to `a`, and the
+  dual in `orExpr`. `andRef`, the slot-level folding, is deliberately left
+  without absorption: the emitter may stay more conservative than the
+  algebra (the plan's Theorem 1), and the agreement assertion already
+  allows an `Own` owner under any expression.
+
+Behind no switch of its own: both are extensions of `validityByBitmap`'s
+rule and ride its option. The census tool loses its mirror: VARKA-74's first
+commit exposes the emitter's own classification through a test hook and
+re-runs the census through it, which is also the test that the mirror was
+right.
+
+**A third arm, held as a question.** A filter whose predicate is a null
+test - `WHERE d IS NOT NULL`, `IS NULL`, and their conjunctions - has a
+selection mask that is a pure function of the input bitmaps too, with
+complement: the `Cond` sub-algebra over `IsNotNull` leaves is the full
+Boolean algebra, De Morgan gives it a negation normal form, and the driver
+could write the selection with the same pass plus an and-not entry point.
+It is not in this task's deliverables because the filter's masked loop for
+that predicate is already a load and a store per group, and compaction, not
+the mask, is where the filter's time goes. Measured before it is built:
+one row in `VarkaFilterBenchmark`.
+
+**Validation.** `coalesce(d, d2)` served: `loopMasked0` and
+`epilogueMasked` byte-equal to the dense twins, the way VARKA-70 pinned the
+four-field shape; the parity benchmark gains a `coalesce(d, d2)` A/B pair
+(pass on against the per-group reference arm) beside VARKA-70's, both
+widths; the differential over the nullable fixtures for `coalesce` with two
+and three operands, `datediff(greatest(d, d2), d)` and
+`greatest(date_add(d, i), d)`, values byte-identical to the row engine over
+every null pattern; the fuzzer with both extensions randomised, two million
+shapes clean; the census re-run through the emitter's analysis with the
+composites' verdicts unchanged. Registered expectation: `coalesce(d, d2)`
+masked with mixed nulls lands on its dense row at both widths, as `year`
+and the four fields did; no other committed row moves.
+
+### 2.10 Zero-copy validity for leaf words (VARKA-75)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: an optimisation below its own decline line. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 7 September 2026, from the same reading.*
+
+**The observation.** After VARKA-70, VARKA-22 of the 30 `Surface` projections have
+a leaf word: the output's validity *is* one input's bitmap, and the driver's
+pass is a copy of it - `copyColumnValidity`, `(rows + 7) / 8` bytes per
+output per batch. Arrow lets a vector share a buffer instead: the fork's
+`ArrowCachedBatchSerializer` already hands vectors buffers it does not own,
+and `BaseFixedWidthVector.loadFieldBuffers` retains a foreign validity buffer
+through its `ReferenceManager` when the null count is strictly between zero
+and the row count (checked against `arrow-vector` 19.0.0's bytecode: the
+retain at the end of `BitVectorHelper.loadValidityBuffer`; the all-valid and
+all-null cases allocate a constant buffer instead). So an output with a leaf
+word can be assembled from a fresh data buffer and the input's own validity
+buffer, retained, and the copy disappears. The null count travels with it,
+which removes the second thing this task is about: Arrow's `getNullCount`
+is a scan of the bitmap on every call (`BitVectorHelper.getNullCount`, no
+cache in 19.0.0), and the evaluator asks for it once per input per batch in
+`extractMorsel` and once per compacted column in the filter - on a vector
+Varka itself just wrote, whose count the pass could have kept.
+
+**What it is worth, bounded before it is built.** *Requoted on 7 September
+2026, and the requote moves the bound. This paragraph was written against
+VARKA-70's second regeneration; the review of #145 forced a third, and the
+gap it rested on fell from 3.4% to 0.4%. The superseded figures are in this
+file's history and in `VARKA-70.md` 9.2, which scores its predictions
+against the run they came from.*
+
+The committed parity file puts masked `year(d)` at 3446.7 M rows/s against
+its dense twin at 3459.3 at AVX-512, adjacent rows in one run: a **0.4% gap**
+on identical loop bytes, where the earlier run read 3.4%. At 128-bit the
+masked row is 1332.5 against the dense 1331.4, which is to say ahead of it.
+The four-field shape's masked row also sits above its dense row, 1703.9
+against 1687.4. So the ceiling this task could recover is 0.4% on the
+cheapest single-field kernel at the wide width and nothing anywhere else, and
+the null-count scans are of that same order (a `popcount` per 64 rows).
+
+**Which is below this task's own decline threshold**, stated in the next
+paragraph as 2% at AVX-512. On today's committed numbers the admission check
+would decline before it ran. Two things follow rather than one. The
+*zero-copy validity* half is, on this evidence, already answered: the copy it
+would remove is not visible in the file, and the honest outcome is a recorded
+decline unless someone wants the probe for its own sake. The *cached null
+count* half is untouched by that arithmetic, because the masked-against-dense
+gap does not measure it at all - `getNullCount` is a bitmap scan the evaluator
+pays per input per batch and again per compacted column in the filter, on
+vectors Varka itself just wrote, and no row in the parity file prices it. If
+this task survives, that is what it is about, and it wants its own
+measurement rather than this one.
+
+**The admission check.** In the parity harness, the masked `year(d)` row
+with the destination validity pre-filled and the copy skipped, against the
+row as committed, both widths, three runs, minimum best-time. Under 2% at
+AVX-512: decline, and the bound above goes to the debt register as the
+record. At or above: the task is the buffer sharing in `computeFused` (the
+leaf case of the pass resolved to a retained input buffer, keyed off the
+same `served` table the driver reads), a cached null count on
+`VarkaOwnedArrowColumnVector` for every output the pass wrote, and the
+filter's compaction reading it; validated by the differential over every
+null pattern (a shared buffer must never be written by the kernel - the
+loop's skipped write for a served root is what makes this safe, and a test
+asserts the output's validity address equals the input's) and by Arrow's
+allocator accounting closing to zero at task end with the retained buffers
+released.
+
+**Sequencing.** After #145 (VARKA-70), which it reads; independent of VARKA-74, though the two share the driver's `served` table and merge trivially in
+either order.
+
+### 2.11 Spark's own date tests as a differential corpus (VARKA-81)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: the date lane's differential corpus; a newcomer's task through the task template.*
+
+*Added 7 September 2026, from the owner's question about how test coverage
+could be estimated, and his agreement with the shape the answer proposed:
+"run them under both engines and assert both the answers and that Varka
+actually ran".*
+
+**Why this and not line coverage.** Every oracle this project checks itself
+against, it also wrote: `VarkaReferenceEvaluator` for the fuzzer, the hand-built
+matrices in the emitter suite, the fixtures in the differential suite. They are
+good instruments and they share one weakness - an assumption held by the author
+of the lowering is held by the author of the oracle. Spark's own date tests are
+the corpus this project did not write, encoding what the engine is supposed to
+do rather than what we thought it did. That is worth more than a coverage
+percentage, and it is the only instrument here that can find a misreading of
+Spark's semantics rather than a slip in their implementation.
+
+**What can be reached, and what cannot.** Two kinds of date test exist upstream
+and only one can meet Varka at all.
+
+* `DateExpressionsSuite` (catalyst, 105 tests) drives Catalyst expressions
+  through `checkEvaluation`. There is no plan, no physical operator and no
+  columnar batch in that path, so Varka is structurally absent. Nothing to do
+  here, and saying so is the point: a task that set out to "run Spark's date
+  tests under Varka" would otherwise spend its first day discovering it.
+* `DateFunctionsSuite` (sql/core, 68 tests) and the date parts of
+  `ColumnExpressionSuite` go through SQL and the DataFrame API, so they reach a
+  physical plan. They still miss Varka as written, because Varka needs an
+  Arrow-backed columnar source and these build 77 DataFrames from local
+  sequences and cache none of them - the same gap `m8/SCOPE.md`'s
+  benchmark survey found in Spark's benchmarks.
+
+**The design: harvest the corpus, not the suite.** The obvious approach -
+subclass the suite with the Arrow cache serializer set - founders on the
+fixtures: the data is built inline at 77 sites and never cached, so the
+subclass would run every test through the row engine and pass, measuring
+nothing. Making it work by rewriting every `LocalRelation` into a cached Arrow
+relation is a session-extension change wide enough to alter what the rest of
+the suite tests.
+
+So the task harvests instead: extract the date expressions and SQL the upstream
+tests exercise, as a committed list, and run each over the differential suite's
+own Arrow-cached fixtures in both engines. `VarkaSharedSessions` already builds
+the pair of sessions and sets `SPARK_CACHE_SERIALIZER`; the corpus is the new
+part. A harvested entry that Varka cannot fuse is kept and marked, because the
+count of what is in and what is out is itself the coverage number this task
+exists to produce - and unlike a percentage it says *which* expressions.
+
+**The golden files are the better source, and they need a rewrite step.**
+`sql-tests/inputs/date.sql` and its siblings are the same semantics corpus
+written as SQL text rather than Scala, which makes them far cheaper to harvest
+than a suite body: the statement is already a string and the expected answer is
+already committed beside it in the `.sql.out`. Seven date-family inputs carry
+254 `select` statements between them.
+
+They cannot be run under Varka as they stand, and it is worth writing down why
+so that nobody tries: **the files carry no data.** In `date.sql`, 94 of the 101
+statements are literal expressions - `make_date(2019, 1, 1)`, `date '2019-01-01'`
+- which constant folding evaluates during optimisation, so no scan, no columnar
+batch and no physical operator ever exists for the rule to rewrite. The seven
+that do read a relation read `date_view`, one row of two *string* columns built
+from literals. Across the seven files, 40 of 254 statements have a `FROM` at all,
+and those read views of the same kind. Running them under Varka today would
+exercise exactly zero kernels, and every test would pass.
+
+So the harvest's real work is a **rewrite**: turn each statement's literal
+operands into columns of an Arrow-cached fixture, so `make_date(2019, 1, 1)`
+becomes `make_date(y, m, d)` over a fixture whose rows include that triple. That
+rewrite is not incidental - it is precisely what moves an expression out of
+constant folding and into a kernel, which is the whole reason the corpus is
+worth having.
+
+One consequence to state plainly: **the golden `.sql.out` files stop being the
+oracle** once the operands become columns, because the answers change with the
+data. The oracle remains the row engine over the same fixture, as everywhere
+else in the differential suite. What the golden corpus contributes is the list
+of expressions and edge cases Spark's own maintainers thought worth pinning -
+the part this project cannot write for itself - not the expected values.
+
+**Asserting that Varka ran is half the task.** A declined entry falls back to
+the row engine and answers correctly, so a corpus run that only compares
+answers passes whether or not Varka executed a single kernel. VARKA-62 met this
+exactly and built the classification for it: `Fusion.PARTIAL` when a row-engine
+`Filter` or a non-empty `Project` sits above the Varka node, and a partial shape
+fails a run that asked for fusion. This task inherits that rather than
+reinventing it, and the per-entry verdict - fused, partial, declined - is what
+gets committed beside the answers.
+
+**What it will not catch, stated so nobody reads more into a green run.** These
+tests use a handful of rows each, so they exercise the epilogue and never a full
+lane group, which is where several of this project's bugs have lived - the
+fuzzer and the emitter suite's length matrices stay the instrument for that. And
+the corpus is only as good as the harvest: an expression the harvest misses is
+invisible, so the extraction is committed and reviewable rather than done once
+by hand.
+
+**Sequencing.** After VARKA-74, because the fuzzer covers shape space far more
+densely than 68 hand-written tests will and its one node-type gap should close
+first. Independent of everything else in this milestone.
+
+### 2.12 The mask-to-long disposal in a checked kernel (VARKA-82)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: a micro-optimisation of the int32 checked path. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 8 September 2026, from VARKA-63's measurement.*
+
+**The observation.** VARKA-63's ANSI overflow check is five lanewise
+operations, and in a dense body it costs what five operations cost: 1.4% on
+`i + 1` at AVX-512 and 26.6% at 128-bit (`VarkaArithmeticBenchmark`, requoted
+from `80d06a51560`). In a masked body at 128 bits the same node costs 65.8% -
+6522.9 M rows/s against 19073.8 with the check off - on arithmetic that did not
+change. At AVX-512 the masked cost is 3.9% - though 2.21 finds the cross-run
+diff behind that reading is inside the file's noise band, and asks this task to
+re-take it pinned before scoping itself on it. The first run read 19.0%, and
+that turned out to be a dead local slot rather than the disposal, so this task
+is a 128-bit finding and the wide width is not evidence for it. The
+difference is not the sign test. It is what happens to the mask afterwards:
+`emitGuardCollect` converts it to a `long` through `VectorMask.toLong`, ANDs
+it with the node's validity word, and ORs the result into the batch
+accumulator, once per lane group. `try_add`, which disposes of the same mask
+by narrowing the word rather than accumulating it, is slower again - 3780.6
+against the wrapping add's 18946.9 at 128-bit.
+
+**Why it is worth its own task.** `emitGuardCollect` is not VARKA-63's code.
+VARKA-52's range guard on a column-offset day producer uses the same helper and
+the same accumulator, and VARKA-42's `make_date` year check and VARKA-60's
+month-count check reach it too. So every runtime refusal Varka emits pays this
+in its masked body, and none of them has ever been priced against a version
+that does not - VARKA-52's A/B measured the guard whole, mask and disposal
+together, at 10-15%, which is consistent with this but does not separate them.
+
+**The shape of a fix, to be decided by measurement rather than here.** Three
+candidates, cheapest first. Keep the accumulator as a `VectorMask` and OR the
+masks lanewise, converting once per batch at `emitStatusReturn` instead of
+once per lane group - which is a smaller change than it sounds, because the
+accumulator is already a local. Or keep a `long` but skip the AND where the
+node's word is `WORD_DEAD` or all-ones, which VARKA-70's algebra can already
+say. Or hoist the whole collect out of the group when the analysis proves the
+mask empty for the batch, which is VARKA-64's statistics-directed selection
+arriving at the same place from the other side, and the reason these two want
+to be read together.
+
+**The admission check.** `VarkaArithmeticBenchmark`'s masked rows, which
+exist and are committed, are the before. A candidate has to move the checked
+mixed-null `i + 1` row at 128-bit by more than 10% without moving the dense
+rows or any unguarded shape's bytes - and at AVX-512 there is only 3.5% to win,
+so that width decides nothing here, and `VarkaEmitterParityBenchmark`'s
+VARKA-52 guard pair has to move with it or the change is not what it claims.
+
+### 2.13 What a new node type costs, and which of it is avoidable (VARKA-83 to VARKA-86)
+
+*Added 8 September 2026, from what VARKA-63 cost to build and what its review
+found afterwards.*
+
+**The observation, measured rather than remembered.** VARKA-63 added two node
+types to a mature emitter, which makes it a natural experiment in where the
+cost of a new type actually falls. The emitter holds **seventeen switches over
+the IR: ten exhaustive, seven carrying a `default`**. Sorting VARKA-63's own
+mistakes by where the decision lived predicts what each cost almost exactly:
+
+| where the decision lives | a missing arm | what it cost this task |
+|---|---|---|
+| an exhaustive switch - `childrenOf`, `analyze`, `emitValue`, `liveWords` twice, `assertWordAlgebraAgrees` | a compile error | minutes, at the keyboard |
+| a switch with a `default` - `ownerOf`, `pureOf`, `planWordRef`, `chronoChild`, `emitChrono`, `tailReadsMarchMonth`, `collectColumnOffsetProducers` | a silent pessimisation: right answer, worse code | never noticed; found by reading |
+| **no switch at all** - the bound analysis, and `requireDayOffsetShape` against `compileOffset` | **a wrong answer, or a ghost fallback** | a max-effort review, after the PR was open |
+
+All three of VARKA-63's wrong answers and its one ghost fallback came from the
+last row. That is the ranking rule these four tasks are ordered by: not how
+much code a refactor removes, but how far the decision it touches sits from an
+exhaustive match. The rule matters twice over because the expression-porting
+work is meant to be delegated to cheaper agents - the "recipe for a cheap
+agent" shape VARKA-33, VARKA-39 and VARKA-40 are written in, and the reason VARKA-70 chose
+the form that "keeps the emitter smaller, which the delegation goal wants"
+(`VARKA-70.md` 3). For that reader the goal is not that a weak model
+writes less, it is that a weak model **cannot fail quietly**; `SKILLS.md`'s
+"a recipe for a cheap agent ages at the rate of the emitter" is the same
+lesson from the other side.
+
+**What is deliberately not here.** The chrono fragment machinery. Thirty-odd
+lane ops behind a shared prefix is genuinely unlike every other node, and
+folding it into a general scheme would cost more than it returns - the same
+judgement `VarkaVectorIR`'s own javadoc already records.
+
+### 2.14 One refusal, instead of four (VARKA-83)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an engine refactor on the int32 refusal paths; not the lane the milestone ships.*
+
+**The observation.** Four node kinds now refuse lanes at run time: VARKA-42's
+`make_date` year check, VARKA-52's range guard on a column-offset day producer,
+VARKA-60's month-count guard, and VARKA-63's overflow check. Each arrived with
+its own analysis set - `guardedProducers`, `selfGuarding`, `checkedArith` -
+its own slot rule, and its own arm in `planSlots`, and all four dispose of
+their mask through the same `emitGuardCollect` into the same accumulator and
+report the same `STATUS_CHRONO_RANGE`.
+
+The accretion is visible in one predicate. `guardedWord` was written for VARKA-52, gained a disjunct for VARKA-60, gained a third for VARKA-63, and its javadoc
+argued that keeping it single is what stops the next kind being added to one
+reader and forgotten in the other. VARKA-63's review then found that the two
+readers were asking different questions - `planSlots` wants "does this node
+need a scratch local", `liveWords` wants "must this node's word stay alive" -
+and that checked arithmetic answers yes to the second and no to the first, so
+every checked node had been reserving a local nothing ever loaded. The
+predicate had to split, which is the argument for a real abstraction rather
+than a fourth disjunct.
+
+The shared status bit is the same story at the telemetry end: an ANSI overflow
+decline reports "chrono range", and `VarkaFusedKernel`'s own javadoc invites a
+new lowering to take its own bit. VARKA-63 left this registered rather than
+fixed (`VARKA-63.md` 9.7, from its 7.4).
+
+**The shape.** Refusal becomes a property a node declares - the mask it
+computes, the word that qualifies it, and the reason it refuses - with one
+analysis set, one slot rule, one collect, and a status bit per reason. A fifth
+refusing node is then one arm, and the "which of the four fired" question that
+telemetry cannot answer today becomes free.
+
+**The admission check.** No emitted byte moves for any shape that exists
+today: the pinned line map, the shape hash and every `codeSize` assertion hold
+unchanged, and `dev/varka_emit.sh --table` shows the same op counts for
+`year(date_add(d, off))`, `add_months(d, m)`, `make_date` and `i + 1` under
+ANSI. That is the whole check - this task buys legibility and a status bit,
+not speed, and if it moves a byte it has changed something it should not have.
+
+### 2.15 One value-range lattice, instead of two overlapping analyses (VARKA-84)
+
+**The observation.** Two analyses compute overlapping facts about what a node
+can hold. `dayRange` answers "which epoch days can this subtree produce", for
+admitting a calendar node's child (VARKA-52). `intBound` answers "how large can
+this int be in absolute value", for removing an overflow check (VARKA-63). They
+disagree about what a runtime guard proves, they duplicate the literal-slot
+lookup, and VARKA-63 had to bridge them - `intBound`'s `datediff` arm now calls
+`dayRange` with a flag that turns the guard assumption off.
+
+That bridge is where the bugs were. Of the three wrong answers VARKA-63's
+review found, two were in exactly this seam: `datediff`'s bound assumed the
+date contract for operands that a literal shift had already pushed out of int
+range, and nested bounds were combined with wrapping `Long` arithmetic, so a
+bound that passed 2^63 came back small and positive and proved anything at all
+safe. The third was an off-by-one in the comparison the bound feeds. Three
+bugs, one region, and none of them reachable by a missing switch arm - which
+is why they survived to a review.
+
+**The shape.** One interval domain over lane values, with the two questions as
+queries on it rather than as separate traversals. Two properties do the work.
+The lattice's operations saturate by construction, so the `Math.addExact`
+discipline VARKA-63 had to add by hand is not something a later arm can forget.
+And "what does a runtime guard prove" becomes an explicit parameter of a query
+rather than a fact baked into one traversal's arms, because that is the
+distinction both the calendar admission and the overflow check need and only
+one of them had.
+
+It is also the natural first piece of the compiler to write in Java: a sealed
+interval type and its lattice operations are pure data, with no Catalyst
+surface to speak of.
+
+**The admission check.** Every shape the compiler admits or declines today is
+admitted or declined identically - the compiler suite's decline reasons and
+fused shapes are the oracle, unchanged - and the differential's fusion
+classification does not move on any committed query. Then one new property
+test the current code cannot pass: over randomly generated IR, the interval a
+node reports contains the value the reference evaluator computes, for every
+lane pattern. If that test is not written, the task has not been done, because
+it is the only thing standing where three bugs already stood.
+
+### 2.16 Lane type as a parameter (VARKA-85)
+
+**The observation.** `INT_VECTOR` appears **204 times** in
+`VarkaLoopEmitter.java`, beside sixteen four-byte stride assumptions and
+eighteen species references. Every one is a place int64, boolean or decimal
+lanes have to reach, and milestone 5's own headline tasks - 28's lane-width
+conversion and 29's int64 lanes - are blocked behind exactly this.
+
+The IR does not carry a lane type at all: `ColumnRef(int ordinal)` names a
+column and nothing else, and the emitter supplies int32 by assumption. That
+worked while every node was int32 and will not survive the second lane.
+
+**The forcing function, which is cheap and already wanted.** Year-month
+intervals are int32 months - the *same* physical lane as DATE and INT (the
+owner's standing interest, `m4/PLAN.md` 2.x). Three logical types
+over one physical lane is precisely the case that decides the design question:
+it shows that the lane belongs to the node's physical representation and not
+to its Spark type, which is also what `m8/SCOPE.md`'s "several
+representations per logical type" will need. So that type can land before this
+refactor and be its test rather than wait behind it.
+
+**The option space.** (a) Parameterise the emitter on a lane descriptor -
+vector class, species field, byte stride, load and store descriptors - and
+switch on it at the sites that genuinely differ. (b) Generate a per-lane
+emitter from a template. (c) Duplicate the emitter per lane. The count above
+is the argument: of 204 sites most are mechanical and roughly twenty carry
+real per-lane behaviour, which favours (a); (b) and (c) both re-create the
+"two copies drift" failure this milestone is trying to remove. Measure before
+committing, since (a) risks a megamorphic descriptor call in the hot path and
+that is a benchmark question, not an argument.
+
+**The admission check.** The int32 lane's emitted bytes are unchanged - the
+pinned oracles again - and a second lane type reaches the same green
+differential and fuzz matrices as the first, at both vector widths. The fuzz
+suite's reachability test, which today asserts the generator can build every
+node type in the sealed hierarchy, is widened to node type times lane type;
+that test is what will fail when a later type arrives without an arm, and it
+is the cheapest thing in this whole section.
+
+### 2.17 One operand admission, stated once (VARKA-86)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an int32 admission refactor; not the lane the milestone ships.*
+
+**The observation.** Four near-copies decide whether an expression may be an
+operand: `intOperand`, `compileIntOperand`, `compileOffset` and `compare`'s
+own `operand`. VARKA-63's review found them independently and called them
+duplicated. Worse, the emitter restates their conclusions in four
+`require*Shape` helpers, and those are a second, independent statement of the
+same rule.
+
+They drifted, exactly as a second statement does. VARKA-63 widened
+`compileOffset` to admit arithmetic but `requireDayOffsetShape` admits only
+three node kinds, so `date_add(d, weekday(d2) + 1)` - which lowers to VARKA-57's `DayOfWeekIso` - was accepted by the compiler, marked fused in EXPLAIN,
+and then refused at emit time, where the evaluator turns the refusal into a
+silent per-batch fallback. That is the ghost fallback `sql/varka/AGENTS.md`
+forbids, and it shipped in the PR until a review found it.
+
+**The shape.** One admission function taking what the position accepts, and an
+emitter check *derived from the same table* rather than written beside it -
+so that widening the compiler either widens the emitter or fails to compile.
+The check's fail-fast value is worth keeping; what is not worth keeping is
+stating the rule twice in two languages.
+
+**A widening this task carries, added 8 September 2026 from VARKA-79's admission
+check.** `compare`'s `operand` admits an int *literal* - which is what makes
+`month(d) = 6` fuse - and sends everything else to `compileNode`, whose value
+leaf is `DateType` and the year-month interval, so a bare `IntegerType` column
+in predicate position declines. One case for an `IntegerType` `BoundReference`
+fuses `CASE WHEN m > 0 THEN d ELSE d2 END` and
+`CASE WHEN m >= -1000 AND m <= 1000 THEN add_months(d, m) ELSE ... END`,
+verified by patching the compiler and reverting; `VARKA-79.md` 2.2 has the
+IR.
+
+It belongs here rather than in a row of its own precisely because it is a
+widening of one of the four copies. Doing it standalone is the move that
+produced the ghost fallback this task exists to prevent, and the reasoning that
+it is safe standalone - `Compare` takes arbitrary IR operands, both lanes are
+int32, so the emitter probably needs nothing - is the same shape of reasoning
+that was wrong last time. Under this task the table decides and the enumeration
+test proves it. It is also the natural first exercise of the unified table: a
+position gains a kind, and nothing else in the file has to be touched for the
+emitter to agree.
+
+`BETWEEN` comes along for free and needs no arm of its own, which is worth
+saying because the first reading of it said the opposite. `Between`'s
+replacement is `With(input) { ref => And(...) }`, and the compiler has no arm
+for `With`/`CommonExpressionRef` - so `dev/varka_emit.sh` declines it. That tool
+resolves names and functions and nothing else; it never optimizes, and
+`RewriteWithExpression` inlines a binding whose child is `CollapseProject.isCheap`,
+which an `Attribute` or `BoundReference` is. `d BETWEEN <lit> AND <lit>` fusing
+whole at 7.96x in VARKA-62's run is the standing proof. A `BETWEEN` over an input
+`isCheap` refuses is a different question - the rewrite hoists it into a
+`Project` rather than inlining - and nobody has looked at it.
+
+Int arithmetic in predicate position stays out and where VARKA-63's comment put
+it, since a widened *leaf* is not a widened *tree*.
+
+**The admission check.** A test that enumerates the operand positions and,
+for each, asserts that the set the compiler admits and the set the emitter
+accepts are the same set - the assertion whose absence let the drift above
+ship. Then every decline reason in the compiler suite unchanged *except* the
+one the widening above removes, which is the single shape this task is allowed
+to move from residual to fused, and which its own test names.
+
+### 2.18 The epilogue is the one method no budget bounds (VARKA-87)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: kept for a future fix at the owner's request; noted in section 6 because 64-bit lanes widen every node and may make it bite sooner. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Added 8 September 2026, from a 35-million-iteration fuzz run. **Absorbs
+milestone 4's row 44, "the epilogue's size", on 11 September 2026**: that row
+asked for a size ladder that can see the problem - 4095 and 63 rather than only
+4096 - and the epilogue measured against `HugeMethodLimit`, with the mechanism
+chosen on the numbers. This section has the same defect at a harder threshold,
+with a one-iteration reproducer, and the mechanism it needs - partitioning the
+epilogue the way `GROUP_BUDGET` partitions the loop - is the one row 44 would
+have had to choose. Two rows would have designed one partitioning twice. Row
+44's size ladder and its `HugeMethodLimit` measurement become requirements
+here: the 65535-byte cap says the epilogue must be split, and
+`HugeMethodLimit` (8000 bytes, past which C2 declines to compile at all) says
+how small the pieces have to be for the split to be worth anything.*
+
+**The observation.** `VarkaLoopEmitter.emit` built a 67244-byte
+`epilogueMasked` for a nested `make_date` tree and the Class-File API refused
+it: the JVM caps a method at 65535 bytes. It reproduces as one iteration,
+`-Dvarka.fuzz.seed=2026092800 -Dvarka.fuzz.only=73411`, and the tree that
+produced it contains no arithmetic node at all - this is a date-op finding that
+predates VARKA-63 and was reached by volume rather than by anything new.
+
+**Why the existing caps did not catch it.** There are three, and each bounds
+something other than the bytes of the method that failed. `MAX_CHAIN_DEPTH` (16)
+bounds the depth of one output. `MAX_FUSED_NODES` (64) bounds the distinct ops
+in the whole kernel after CSE. `GROUP_BUDGET` (16) bounds the weight of one
+*loop* method, and the emitter partitions the loop into `loopDense<g>` and
+`loopMasked<g>` accordingly - which is exactly what `MAX_FUSED_NODES`' javadoc
+leans on when it says the ops "are spread over loop methods of at most
+GROUP_BUDGET ops each, so this caps the kernel, not any one compiled method".
+
+The epilogue is not partitioned. `emitBody` is called once for it with
+`group = -1`, so every group's ops land in a single `epilogueMasked`, and the
+one bound that was supposed to keep a method small is the one that does not
+apply to it. The claim quoted above is therefore true of the loop methods and
+false of the epilogue, which is the sentence to correct along with the code.
+
+Weight is also not bytes, and `make_date` is where the two diverge most:
+`MAKE_DATE_WEIGHT` is 60 against a `GROUP_BUDGET` of 16, so a single
+`make_date` already exceeds a group on its own and rides the `FUSED_CEILING`
+escape. Sixty-four of the heaviest op the emitter has, all in one method, is
+about 67KB - which is the number observed. A budget counted in weight cannot
+bound bytes unless the weight-to-bytes ratio is bounded too, and across the op
+set it spans more than an order of magnitude.
+
+**What a user sees today, which is why this is not urgent.** Nothing wrong.
+`VarkaKernelEvaluator.fusedRunner` catches the emission failure by name - its
+comment already says "an IR shape past the emitter's caps" - logs a warning,
+counts `numEmissionFailures`, emits an `EMISSION_FAILURE` fallback event, and
+every batch takes the per-row path. Answers are the row engine's. The costs are
+that the kernel is built and thrown away once per task, and that a shape inside
+the documented caps degrades silently rather than being declined at compile
+time with a reason, which is the outcome the ghost-fallback contract in
+`sql/varka/AGENTS.md` asks for everywhere else.
+
+**The task.** Either partition the epilogue the way the loop is partitioned, or
+give the emitter a byte budget it can check before it hands the class to the
+Class-File API - and in both cases turn the failure into a decline with a
+reason rather than an exception the evaluator has to catch. The choice is worth
+measuring rather than arguing: partitioning adds a call per group to a body that
+runs once per batch, and the epilogue is the tail, so the per-batch cost lands
+on short batches hardest.
+
+**The admission check.** The fuzz iteration above, as a pinned emitter test,
+declining with a reason instead of throwing; every shape that fits today
+emitting the same bytes, against the pinned line map and the `codeSize`
+assertions; and `MAX_FUSED_NODES`' javadoc corrected to say which methods its
+guarantee covers.
+
+### 2.19 An exact division through double lanes (VARKA-88)
+
+*Added 9 September 2026, from VARKA-68's admission check.*
+
+**The observation.** VARKA-26's whole design, and VARKA-65's replacement for it,
+rest on one absence: `VectorOperators` has no multiply-high on any lane type, so
+an exact Granlund-Montgomery magic is not expressible on int lanes. 2.7 takes
+that as given and routes around it by widening the dividend to int64, where a
+64-bit low product is enough.
+
+There is a second route, and nothing in this repository has considered it: widen
+to *double* lanes instead. `(double) v` is exact for every int32, IEEE
+multiplication is correctly rounded, and `D2I` narrows by truncating toward zero
+- which is Java's `/` exactly. So `trunc((double) v * (1.0 / d))` is a candidate
+lowering for `v / d` with no magic constant, no round-down correction and no
+range restriction.
+
+**Why it is exact, which decides whether this is worth a task at all.**
+If `d` divides `v` the quotient is an integer under 2^31, exactly representable,
+and the multiply is correctly rounded to it. If it does not, the true quotient
+`v / d` has denominator `d` in lowest terms, so it lies at least `1 / d` from
+every integer; the floating error is at most about `2^31 / d * 2^-52`, which is
+`2^-21 / d`. Truncation therefore lands on the same integer for every divisor
+below roughly 2^21. The margin does not thin out at the top of the range - it
+scales with the quotient - which is the difference from an int-lane magic, whose
+exact range is a fixed fraction of the type's.
+
+Checked as well as argued: over structured and random int32 dividends, for
+divisors 12, 3, 7 and 100, both `(double) v / (double) d` and the faster
+`(double) v * (1.0 / d)` matched Java's `/` on every case, and an `I2D` /
+multiply / `D2I` round trip runs on this machine's preferred species - sixteen
+int lanes to two eight-lane double halves.
+
+*Corrected 17 September 2026 by the admission check (`VARKA-88.md` 2,
+`verify_double_division.py`): the sampled claim above does not generalise. The
+faster reciprocal form is wrong for `/146097` at its very first multiple -
+`146097 * fl(1/146097)` truncates to 0, the `49 * fl(1/49)` failure - because at
+an exact multiple the reciprocal's own rounding error can push the product below
+the integer. The true division is exact for every division over its range,
+including `/12` over all of signed int32. The constant the section owed is on the
+dividend, not the divisor: `|v| < 2^52` for the reciprocal form, `2^53` for the
+divide. Two further corrections from the review of that plan's first draft: which
+form may be used is a property of the (divisor, dividend *range*) pair - the same
+`/146097` is inexact over the era step's `w` and exact over the Julian century's
+`quadDays = 4*doe+3`, whose dividends are only the values congruent to 3 mod 4 -
+and it is settled by a closed form, not by sampling: a rounded-up reciprocal
+never fails at a multiple, a rounded-down one fails iff
+`trunc(d * fl(1/d)) != 1`.*
+
+**What it would delete, if it wins.** The same list 2.7 offers - the round-down
+magics and their correction carries, the `NARROWED` variant, `VarkaChrono`'s
+range constants - but without VARKA-65's precondition, since it needs no int64
+lane and therefore none of milestone 5's lane-width work. It also removes the
+range bound from `extract(YEAR FROM ym)`, which VARKA-68 deferred for exactly
+that bound (`VARKA-68.md` 2.2: the int-lane magic for `/12` is exact over
+0..49,151, about one forty-thousandth of a year-month interval's range). It does
+not rescue `extract(MONTH FROM ym)`, whose output is a `ByteType` Varka cannot
+emit; that is VARKA-89's other blocker and no division removes it.
+
+**Why it is an A/B and not a decision.** It costs what 2.7 costs and possibly
+more: half the lanes, two conversions in and two out per int vector, and a
+double multiply rather than an integer one. 2.7's own estimate for the int64
+route is "a small throughput loss bought with a large simplification"; this one
+has the same shape of cost and must be measured against both the shipped magic
+*and* VARKA-65's widening, on the same shapes, before either is chosen. Three
+arms, one benchmark.
+
+**The admission check.** The exactness argument above, verified exhaustively
+rather than sampled - for `/12` over the whole int32 range, and for the calendar
+divisors 146097, 36524, 1461 and 365 over the dividend ranges
+`emitChronoPrefix` actually produces - by a committed script beside
+`verify_long_lane_magic.py`, which is the precedent. Then the op counts for one
+extraction under each of the three lowerings, from `dev/varka_emit.sh --table`,
+before any measurement is taken.
+
+**What would reject it.** *(Rewritten 17 September 2026: the first version's
+criterion was "a divisor at or above 2^21 (none of Varka's are)", which the
+admission check refuted - the bound is on the dividend, and the form that fails
+fails at 146097, fourteen times below 2^21.)* A dividend past `2^52` for the
+reciprocal form or `2^53` for the divide; a (divisor, range) pair whose
+reciprocal is inexact, which `VARKA-88.md` 2 settles by a closed form rather
+than by a bound; a lowering that needs the *remainder* at full width, where the
+double route gives the quotient and the remainder costs a multiply back - which
+is what rules out three of the four day-time interval extracts, whose Spark
+implementations are a modulo *then* a divide with `ByteType` results; and the
+conversion cost exceeding the magic it replaces on the shapes that matter, which
+is what the A/B is for. `Float16` and single-precision floats are not candidates - 24 mantissa
+bits cannot hold an int32 dividend - so this is a double-lane question only.
+
+### 2.20 The year-month interval divisions (VARKA-89)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: the year-month divisions beyond `extract(YEAR FROM ym)`, which landed; int32 date-lane work.*
+
+*Added 9 September 2026, split out of VARKA-68 by its admission check.*
+
+**The observation.** Of the eight expressions `m4/PLAN.md` 2.33 gave
+VARKA-68, two need division by a constant: `extract(YEAR | MONTH FROM ym)` and
+`ym / num`. `VARKA-68.md` 2.2 to 2.4 found three things about them the
+section had assumed away. The exact int-lane magic for `/12` is the one the
+emitter already has, `MONTH_ARITH_M`, and it is exact over `0..49,151` - about
+one forty-thousandth of a year-month interval's int32 range. That magic
+computes a floor, and `extract` is Java's `/`, which truncates; they differ on
+every negative with a remainder. And `ym / num` rounds `HALF_UP`, ties away
+from zero, which needs the remainder as well as the quotient, over an exact
+range that depends on the divisor.
+
+A fourth blocker is not about division at all: `extract(MONTH FROM ym)` returns
+a **`ByteType`** (`ExtractIntervalPart[Int](ByteType, getMonths, ...)`), and
+Varka has no byte lane and no `ByteType` arm in `allocateVector`. A perfect
+division still leaves that expression un-emittable.
+
+**Why it waits.** Two routes in this milestone remove the range bound outright:
+VARKA-65's int64 widening and VARKA-88's double lanes. Building a range-guarded
+int-lane version first means building the thing either exists to delete, and
+then owning both. So this task is sequenced after whichever of 65 and 88 the
+three-arm A/B chooses, and takes its division from that.
+
+**The task, once a route is chosen.** `extract(YEAR)` as the chosen division
+with a truncation correction on the negative side; `extract(MONTH)` as
+`months - 12 * q` over it, *once a byte output exists* - which is its own
+question and may leave `extract(MONTH)` residual for longer than its twin;
+`ym / num` for a literal `num` as the chosen division plus the `HALF_UP` step,
+with a power-of-two `num` taking the shift; `ym / col` declining, since the
+divisor is then not a constant.
+
+**The admission check.** The truncation and `HALF_UP` corrections verified over
+the full int32 month range against `IntervalUtils.getYears`, `getMonths` and
+`IntMath.divide`, by a committed script; the byte-output question answered - an
+`IntVector` narrowed at the store, or a decline with a reason - before
+`extract(MONTH)` is attempted; and a throughput pair per shape against the row
+engine, since these are new lowerings and not, as VARKA-68's group A is, old
+kernels under a new type.
+### 2.21 The benchmark files are not reproducible run to run (VARKA-90)
+
+*Added 9 September 2026, from the investigation VARKA-79's section 9 asked for.
+The band this section asks for was measured on 10 September and is committed
+beside each results file; the numbers below come from three runs and understate
+it, and the row records what ten runs per width give instead.*
+
+**The observation.** Two regenerations of `VarkaEmitterParityBenchmark` with no
+code change between them disagree, on rows nothing touched. Pinned to one core
+complex the median case moves 1.6%, but 73 of 211 cases move more than 3%, 22
+move more than 10%, and the worst reaches 26%. Unpinned the worst reaches 75%.
+VARKA-79's 9.1 refused to commit a regeneration on that evidence; this is what
+the evidence turned out to be.
+
+**What it is not**, each eliminated by measurement rather than argument:
+
+* *Within-run noise.* Across all 207 cases of a committed run, the ratio of the
+  average iteration to the best iteration has a median of 1.007 and never
+  exceeds 1.5. Every case is tight inside its own run - the harness reports the
+  best of tens of thousands of iterations, and the average is the same number.
+  So the compiled code is in place before measurement starts, which rules out
+  compiler-queue saturation, code-cache exhaustion and deopt storms.
+* *The clock.* Sampling `scaling_cur_freq` through six runs of one case gives
+  5.08 to 5.14 GHz, a 1.2% spread, while the throughput of those same runs
+  moves 31%. At a fixed clock, the work per cycle is what changed.
+* *Address layout.* Disabling ASLR with `setarch -R` does not narrow the
+  spread; interleaved, the randomised runs were tighter than the fixed ones.
+* *Contention.* The machine is idle; nothing but the JVM is on the pinned cores.
+
+**What it is, and VARKA-32 got here first.** A per-fork JIT and code-layout
+lottery: the same bytecode produces slightly different machine code and
+placement in each JVM. `-Xbatch`, which removes the compilation timing races,
+narrows one case's spread from 49% to 14% and does not remove it.
+
+`VARKA-32.md` 11 investigated this and went further on the JIT side than
+this section does. It found the upstream report - JDK-8380195, "Vector API
+produces bimodal performance - nondeterministic C2 intrinsification across JVM
+forks", roughly 2x across identically configured forks, closed **Not an Issue**
+in April 2026 - and it tested and refuted the obvious levers: buffer alignment
+raised to 64 bytes, which pinned the *slow* mode rather than the fast one;
+`-XX:-UseOnStackReplacement`; `-XX:LoopUnrollLimit` at 250; and forced
+inlining. Its conclusion was that whatever picks the mode is inside C2's code
+generation and is not reachable from those levers, and it measured one kernel
+21 times at 128-bit, landing the fast mode 4 times. Nothing here contradicts
+it. What this section adds is the size of the effect across a whole file, the
+proof that it is not within-run, and the machine half below.
+
+**The machine half is new, and it is the fixable part.** The Ryzen AI 9 HX 370
+is heterogeneous: four Zen5 cores at 5.16 GHz and eight Zen5c at 3.29 GHz, on
+two separate 16 MB L3 slices. An unpinned thread is rescheduled between them
+during a 40-minute run, so each case is measured wherever it happened to be.
+The clock alone is worth 1.57x - and the datapath is not the difference, since
+the measured ratio of 1.5632 matches the clock ratio of 1.5680 to 0.3%, so both
+core types retire this code at the same rate per cycle. Migration also costs L3
+residency where the working set fits one slice: `fused, depth 1` reads 154 GB/s
+resident and 37.7 GB/s after, the 4x collapse that started this. Pinning to the
+fast complex takes the worst case from 75% to 26%. That is done, in
+`dev/varka_bench_regen.sh`, and recorded in each provenance file.
+
+**What follows, and it is mostly reassuring.** An A/B whose two arms sit in the
+same run is sound: they share a JVM, a layout and a clock. Every A/B in this
+project is built that way, which is why VARKA-79's arm-context pair read 0.5%
+and 1.4% across two runs whose absolute rates disagreed by 75%, and why VARKA-67's interval pair was trustworthy. The project's *decisions* are not in
+question wholesale. What is in question is a number compared against a previous
+run, below the band - and the regeneration diff's "moved by at least 3%" report
+is below the band for every memory-bound row.
+
+**One decision does rest on such a diff**, and it is named here so it is
+re-tested rather than inherited: `VARKA-63.md` 9.7 attributes 26.1%
+(14706.5 to 18542.2 M rows/s at AVX-512) to removing a dead local slot, from a
+comparison of two *unpinned* regenerations, and 2.12 above narrows VARKA-82 to
+"a 128-bit task" on the strength of it. 26.1% is at the very top of the band
+measured here, from runs where the worst case is 75%. The mechanism may be real
+- the emitted bytes did change, and a dead local does change register pressure
+- but the magnitude is not evidence until it is re-measured pinned.
+
+**The task.** Establish the band per file with `dev/varka_bench_repeat.sh`,
+commit it beside the results, and make the regeneration diff report against the
+band rather than a flat 3%. Then decide, with numbers, whether the absolute
+rates are worth buying back: N forks per case with a median, which is what JMH
+does and would cost N times a regeneration. The alternative is to stop treating
+absolute rates as comparable across runs and let the A/Bs carry every claim,
+which is close to what the plans already do in practice.
+
+**The admission check.** The band measured for the parity, arithmetic and
+throughput files, three runs each, committed; and one shape whose A/B is known
+tight - VARKA-79's arm context - shown to stay tight across those same runs
+while its absolute rate wanders, which is the evidence that the two kinds of
+number deserve different treatment.
+
+**Outcome, 23 September 2026.** Seven band files are committed - the parity
+and throughput benchmarks at both widths, then the date surface, the date
+chains and the `TIME` surface, at four to twelve runs each - and
+`dev/varka_bench_diff.py --band` reads a case's tier rather than a flat 3%,
+which cut held-out false alarms on an unchanged file from 32.9% of rows to
+5.6% at AVX-512 and 11.4% to 2.1% at 128-bit.
+
+Their census is what closes the row, because it narrows the problem:
+
+| file | cases | tier 0 | tier 1 | tier 2 | tier 3 |
+|---|---:|---:|---:|---:|---:|
+| `VarkaEmitterParityBenchmark` 512-bit | 211 | 60 | 85 | 49 | 17 |
+| `VarkaEmitterParityBenchmark` 128-bit | 211 | 140 | 46 | 20 | 5 |
+| `VarkaThroughputBenchmark` 512-bit | 84 | 27 | 31 | 26 | 0 |
+| `VarkaThroughputBenchmark` 128-bit | 84 | 33 | 37 | 14 | 0 |
+| `DateSurface` | 126 | 107 | 9 | 8 | 2 |
+| `DateChain` | 24 | 24 | 0 | 0 | 0 |
+| `TimeSurface` | 86 | 38 | 38 | 10 | 0 |
+
+**The lottery is concentrated in the microbenchmarks.** The files that carry
+public claims are quiet - the date chains are entirely tier 0, the date surface
+is 85% tier 0 with two unreadable cases, and neither `TIME` file has an
+unreadable case. The parity benchmark at 512 bits is the outlier of the
+repository: 17 cases that cannot be read from a diff at all and 49 more above
+10%. That is consistent with the mechanism rather than a surprise, and
+`benchmarking.md` states why - a parity case is a short in-JVM loop where the
+per-fork lottery is most of the variance, a surface or chains case is a whole
+Spark job over hundreds of millions of rows where it averages out. The row was
+opened on the parity file and generalised from it; the generalisation does not
+hold.
+
+**The N-fork median is declined**, which is the decision the task was waiting
+for, and it is taken from that census rather than from taste. Buying absolute
+cross-run comparability costs N times every regeneration - seventeen hours for
+a ten-run surface band on this machine, against one hour forty per arm - and it
+would buy it for the files that do not need it, since a benchmark whose cases
+are already inside 3% is comparable across runs without help. What is left is
+the fallback, and it is stated here so that it is a rule rather than a habit:
+
+* Absolute rates from different runs are not compared. Where a claim needs a
+  comparison, it is a within-run A/B, which shares a JVM, a layout and a clock.
+* A number quoted across runs carries its band, and a tier-3 case is not
+  quoted at all.
+* The regeneration diff is a reading aid, not a gate. The gate is
+  `dev/varka_bench_gate.py`'s invariants, which check the properties a run must
+  have rather than the rate it produced.
+
+**What is not closed here** is measurement that needs a quiet machine and no
+longer belongs to this milestone: the arithmetic benchmark's band, and
+`VARKA-63.md` 9.7's 26.1% dead-local attribution re-taken pinned before
+anything leans on it again. Both move to `m8/SCOPE.md` item 49. The
+cause stays where `VARKA-32.md` 11 left it - JDK-8380195, closed *Not an
+Issue* upstream in April 2026, with buffer alignment, on-stack replacement,
+the unroll limit and forced inlining all tested and refuted - and this project
+has no further lever to pull on it.
+
+### 2.22 A guard bound the shift above it chooses (VARKA-91)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an int32 guard-bound tuning.*
+
+*Added 10 September 2026, from VARKA-69's outcome.*
+
+**The observation.** VARKA-69 gave the upward direction its own limit and three
+of four conservatively-declining shapes fused again. The fourth did not:
+`weekofyear(date_add(d, off))` and its `yearofweek` twin, which
+`m4/PLAN.md` 9 named as the ordinary query shape the debt was really
+about. `ThursdayOf` shifts `+-3`, and the `-3` side reaches
+`NARROW_MIN_DAYS - 3`, where the narrowing is not conservative but genuinely
+undefined: `w = days + NARROW_BIAS` goes negative and `(w * NARROW_ERA_M) >>>
+NARROW_ERA_K` reads it as about 4.29e9. No headroom exists below the way it
+did above, because `NARROW_MIN_DAYS` is exactly `w = 0`.
+
+**The lever is the guard, not the constant.** VARKA-52's runtime guard on a
+column-offset `date_add`/`date_sub` compares its result against
+`[NARROW_MIN_DAYS, NARROW_MAX_DAYS]` and falls the batch back when it leaves.
+Those two bounds are already *parameters*: `emitRangeGuard` takes `lo` and
+`hi`, because VARKA-60 reuses the same block for the month count against
+`MONTH_ARITH_MIN/MAX_MONTHS`. Only `emitAndValidatedOp`'s call site hardcodes
+the day pair. Nothing requires them to be *those* constants: the compiler
+knows, from `dayRange`, exactly how far the subtree above the producer shifts
+the day, and
+could ask the guard to enforce `[NARROW_MIN_DAYS + 3, NARROW_MAX_DAYS]` for a
+`ThursdayOf` consumer, or `[NARROW_MIN_DAYS + 365, ...]` for a `trunc` one. The
+run-time cost is identical - the same compare against a different immediate -
+and the compile-time decline becomes a batch fallback only for the batches that
+actually contain a day in the last three (or 365) of a thirteen-thousand-year
+window, which is to say never, in practice.
+
+**Why it is worth a row.** It closes the debt register entry VARKA-69 swept only
+half of, it turns two more ordinary shapes from residual into fused, and it
+generalises: every downward-shifting consumer over a guarded producer becomes
+admissible by the same rule, which is the whole `trunc` family. It also
+subsumes the asymmetry VARKA-69 shipped, since the upward side is the same idea
+with the shift added to the ceiling instead of the floor.
+
+**Why it is not free.** The guard's bound stops being a constant of
+`VarkaChrono` and becomes a per-node property the emitter reads, which touches
+`VarkaEmitOptions`' canonical form and the shape key: two subtrees identical
+except for the shift above them must not share a kernel. That is the same
+question VARKA-84's value-range lattice answers for `dayRange` and `intBound`,
+so this task belongs after 84 and should take its interval representation
+rather than inventing a second one.
+
+**The admission check.** Half of it is already answered: `NARROW_MIN_DAYS`
+appears three times in `VarkaLoopEmitter`, and only one is a call site - the
+guard block itself is parameterised. What remains is a `VarkaEmitDump`
+op-count diff between a guard at the floor and one three days above it,
+showing the kernel differs by an immediate and nothing else, and the shape key
+shown to separate two otherwise-identical subtrees whose shifts differ, both
+before any downward consumer is admitted.
+### 2.23 The validity write, keyed on the bit layout (VARKA-92)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an int-lane validity option, measured and defaulting off.*
+
+*Added 10 September 2026, from VARKA-47's measurement.*
+
+**What VARKA-47 established.** The per-group validity write is a
+read-modify-write, and at four lanes a validity group is half a byte, so two
+consecutive groups rewrite the same byte and serialise on it - the regime
+VARKA-76 found its helper choice inverting inside. VARKA-47 built the writer
+that removes it: the bits accumulate in a register and the whole 64-bit word
+is stored, with no read. Over ten pinned runs it is a **6 to 9% win at 4
+lanes** at one and two writes, and the inversion disappears with it. It is an
+**11 to 20% loss at 8 and 16 lanes**, where a group owns whole bytes and
+there was no chain: an eight-byte store plus an accumulator, a mask, a shift
+and a branch is more work than a one-byte read-modify-write whose helper
+already inlines.
+
+**The rule that follows, and why it is not VARKA-76's rejected one.** VARKA-76
+declined a rule keyed on the write count because it would be two thresholds
+fitted to one machine. This is one condition and it is not fitted: **a
+validity group smaller than a byte**, which is `lanes < 8` - 2 and 4 lanes,
+and nothing else, forever, because a group is `lanes` bits. It is the
+mechanism written down rather than a number tuned. `widthSpecialised` already
+reads `analysis.lanes`, so the plumbing exists.
+
+**Why it is a task and not a line of VARKA-47.** Not because the rule is
+academic - this section said that at first and it was wrong, corrected here
+rather than tidied away. `SPECIES_PREFERRED` for an int lane is 128 bits on
+every NEON-only aarch64, Apple Silicon among them, and on x86 without AVX2:
+four lanes, which is exactly the regime VARKA-47 measured its 6 to 9% win in,
+and the reason this project commits 128-bit companion results files at all.
+The rule is a real target's default, not a `MaxVectorSize` flag's.
+
+What it is a task for is confirmation. VARKA-47's four-lane numbers come from
+`-XX:MaxVectorSize=16` on an x86 whose preferred width is 16 lanes, which
+simulates the lane count and not the store behaviour of a machine that has
+only 128-bit registers. A default worth 6 to 9% on a whole class of hardware
+should be measured on that hardware once. That makes this task's admission
+check a hardware question, and it shares one with `m4/PLAN.md` row
+62's pinned runner - though not the same machine: 62 wants a wider one than
+this laptop and this wants a narrower one.
+
+**Two more items ride with it, because they share a ladder run.** Option B of
+`VARKA-47.md` 3.1 - store once per word rather than once per group - is
+where the two widths that lose might be recovered, since what they pay for is
+the wider store and not the removed read; it is a branch per group against
+three stores in four saved at 16 lanes. And `VARKA-47.md` 3.4's driver
+item, the masked driver's dead null-state prologue (`VARKA-70.md` 9.5),
+which pays per batch rather than per group and is the whole of the remaining
+gap on a 64-row batch at AVX-512 - 1080.1 against the dense 1549.6.
+
+**One thing to settle first, and it is cheap.** VARKA-47's ladder has a step
+at three writes that neither task's model predicts: both per-group arms fall
+away sharply there and the word writer does not, so its advantage reads 22 to
+38% at every width against 5 to 9% at its neighbours. The emitted code is
+ruled out - all four rungs are one loop method growing ~130 bytes per write,
+asserted in `VarkaLoopEmitterSuite`. The leading hypothesis is VARKA-46's own
+mechanism, the caller's node count crossing C2's inlining cutoff so one more
+OR call stops being inlined. `-XX:+PrintInlining` on the k=2 and k=3 rungs
+answers it in one run, and until it does, no rule may be fitted across k=3 in
+either task's table.
+
+### 2.24 Instruction-level parallelism (VARKA-25, item 13)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: tuning of the int32 paths, with a harness that first has to be re-established. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+The debt register's rule applies: a prediction goes in writing before the
+first measurement, and the honest null hypothesis is that C2 plus the
+out-of-order engine already collect most of the available overlap on a 16-op
+body, so K pays only on the long chains. The three confounders move together,
+never one at a time: K, the broadcast strategy (pinned locals collapsed
+throughput 7x at ~32 broadcasts, so unrolling and pre-broadcasting *compete*),
+and `GROUP_BUDGET`, which unrolling multiplies against a ~1 ms-per-vector-op
+C2 compile (**confirmed by VARKA-43**: 1.1 ms per op at AVX-512 and 2.0 at
+128-bit, measured across a 20-to-248-op ladder - see `VARKA-43.md` 8.2, and
+the reconciliation note in 2.16). The candidates are the shapes that are compute-bound and already
+carry a committed number to beat: `dayofweek` (a 20-op fold), `CASE WHEN` on
+an unpredictable condition, and the depth-8 chain. Row-consumer shapes are
+bounded by the ~25 ns/row read-back floor and the filter path by compaction;
+no kernel-side ILP moves either, so neither is a candidate. One negative
+result worth carrying in: a 2-way unrolled add kernel over a misaligned
+buffer still lost 50-60% to the aligned case (section 8's buffer-alignment
+entry) - unrolling does not incidentally hide the alignment penalty, so this
+task's outcome and that entry's are independent questions, not one deferring
+to the other.
+
+Open question 4 is answered, ahead of the task and with the broadcast
+confounder held fixed at "emitted per use" so it does not contaminate the
+result (`VarkaUnrollFactorBenchmark`, committed results file in
+`sql/varka/engine/benchmarks/`, four runs total including two taken after
+merging VARKA-24's PR and enabling the machine's performance mode, neither of
+which changed a conclusion): on an 8-op chain, K = 1, 2 and 4 are flat at
+both vector widths, on every run - within 4% either way, no consistent
+winner. The honest null hypothesis holds exactly on a body this short. On a
+20-op chain (the `dayofweek`-length candidate), K = 2 wins reproducibly at
+both widths and on every run - +2.6% to +9.2% at AVX-512, +1.2% to +6.2% at
+128-bit - and K = 4 adds no further, consistent benefit over K = 2 on either
+width (the sign varies run to run, always within a few percent). So "K pays
+only on the long chains" is confirmed rather than merely predicted, and the
+planner version below should cap K at 2 rather than search further: 4 was
+measured to buy nothing on the one shape where unrolling helped at all, while
+still paying `GROUP_BUDGET`'s doubled cost over K = 2. This measurement is
+also where a real methodology trap surfaced and was caught: comparing K = 1
+(straight-line unrolled source, the shape a real emission carries) against an
+earlier K = 2/4 written as a small constant-bound runtime loop over the op
+index produced a spurious 30-60% *loss* at K = 4 - an artifact of the loop
+shape, not of unrolling. Rewriting K > 1 as straight-line interleaved code,
+matching K = 1's shape exactly, is what produced the numbers above (`SKILLS.md`
+carries the general lesson).
+
+Re-measured in forked JVMs after the harness debt closed (the results file's
+header says how): the same picture. Depth 8 flat at both widths; depth 20
+gains +4.4% from K = 2 at AVX-512 and +4.3% at 128-bit by min, and K = 4 over
+K = 2 is +3.4% at one width and -1.9% at the other. The conclusion did not
+depend on the harness, which is what a plain add/sub chain should show.
+
+If a factor above 1 pays, the deliverable is the planner version: the emitter
+already knows the DAG's live-temporary count per lane group, so K is chosen
+per shape, and a shape whose live set fills the register file declines to
+unroll. That version exists only because the loop is generated - it is the
+whole reason this item belongs to Varka rather than to hand-written kernels.
+
+VARKA-24 goes first because an unrolled body's remainder is `K * lanes - 1`
+rows, so the tail question and the unroll question share a harness (open
+questions 4 and 5) - and the batch-size knee sweep (question 6) rides the same
+harness for the wide-shape case. Whatever the outcome, the `SKILLS.md`
+unrolling bullet is rewritten with the numbers, as it promises itself.
+
+### 2.25 Output order for prefix affinity (VARKA-72)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: tuning of the calendar prefix. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+Added 7 September 2026, from B2's one pinned limitation (`VARKA-32.md`
+10.2 and 7.6). `groupOutputs` is greedy in output order, so in
+`year(d), year(d2), month(d)` the month is offered to the group holding
+`year(d2)`, whose prefix it cannot reuse, and forms a third loop method that
+recomputes the decomposition of `d` the first method already ran; adjacent,
+the same three outputs take two methods. B2 pinned that as a limitation
+rather than fixing it, because the driver's output order is the projection's
+and other things key on it.
+
+**The admission check, which is most of the task.** Nothing in the emitter
+requires a group's output indices to be contiguous: `groupOutputs` already
+returns lists of indices, each loop method takes its list, and the driver
+calls the methods in group order while the destinations stay indexed by
+output. So the change may be a two-pass grouping - gather each calendar
+output into the group whose prefix it reuses, wherever that group is, then
+fill the rest greedily as today - with no change to the evaluator's per-output
+vectors or to `VarkaDebugInfo`'s line map, both of which key on the output
+index and not on which method computes it. The check is to establish that:
+every consumer of a group walked, the line map and the pinned oracles asserted
+unmoved, and the differential suite run with a deliberately permuted grouping
+before the rule is written. If a consumer does depend on contiguity, the task
+says which and stops, and the debt entry stays.
+
+**What it is worth.** The shapes B2 measured, with one output between the
+siblings: `year(d), year(d2), month(d)` against `year(d), month(d), year(d2)`
+in the parity harness, at both widths, with the prediction registered that
+the permuted grouping matches the adjacent one within noise. Date columns in
+a projection are usually adjacent, so this is a small task with a bounded
+win; it is a row because the limitation is pinned in a test that should be
+flipped by a change, not silently.
+
+### 2.26 A stopping rule for the guard walk (VARKA-73)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: tuning of the int32 guard walk. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+Added 7 September 2026, out of VARKA-70's fuzz run (see the debt register).
+
+**The observation.** `Analysis.collectGuardedProducers` calls
+`collectColumnOffsetProducers(chronoChild(node), ...)` for every `isChrono`
+node, and that walk descends the entire subtree, adding every
+`AddDays`/`SubDays` with a column offset it meets. It has no stopping rule.
+So in `month(dayOfWeek(date_add(date_add(d, off), off)))` the producer is
+guarded against `[NARROW_MIN_DAYS, NARROW_MAX_DAYS]` on its own value, when
+the value `month` actually decomposes is the `dayOfWeek` result and is always
+1 to 7. `weekday`, `dayofweek_iso`, `weekofyear` and `datediff` behave the
+same way: each bounds its output, and none of them stops the walk.
+
+The guard is not wrong, it is unnecessary. A batch whose producer leaves the
+range is declined and recomputed on the row engine, so the answers are right;
+what is lost is the fusion.
+
+**Why the task starts with an admission check, like VARKA-69.** Through the
+compiler this shape never reaches the emitter. `dayRange` has no rule for a
+mod-7 node, so it returns `Unknown`, and `checkedForCalendar` declines the
+entry at compile time with "day producer the calendar range analysis does not
+bound". The entry is residual either way, and only a caller that builds IR
+directly - `VarkaIrFuzzSuite`, and any future planner-side rewrite - reaches
+the over-guard. So the first question is whether any SQL shape observes the
+difference at all. If none does, the honest outcome is to record that and
+close the task, exactly as VARKA-69's section 2 is allowed to.
+
+If the check finds the shape does matter, the two halves have to move
+together, and the compiler half is the one that changes what a user sees:
+`dayRange` would gain a rule that a mod-7 node re-bases its child to a known
+small interval regardless of what the child's interval was, which is the same
+observation stated on the other side of the compiler. Then
+`year(dayofweek(date_add(d, off)))` fuses instead of going residual.
+
+**What closing the emitter half takes.** A stopping rule on the walk: descend
+only through nodes that pass a day through to the decomposition - `AddDays`,
+`SubDays`, `Greatest`, `Least`, `IfElse`, `NextDay`, `ThursdayOf`, `LastDay`,
+`AddMonths`, `TruncDate`, `MakeDate` - and stop at any node whose output is a
+bounded quantity of its own: the mod-7 family, `DateDiff`, `WeekOfYear` and
+every calendar field extraction. The set is the same one `dayRange` would
+need, which is the argument for taking both halves in one task rather than
+letting the two analyses drift apart again - drift between them is what this
+finding is.
+
+**How it was found, which is part of what it is.** Not by reading the
+emitter: by running `VarkaIrFuzzSuite` at 1.84 million iterations across
+twenty jobs on 7 September 2026, where every one of the twenty stopped on a
+shape of this form. At the shipped budget of 300 iterations it is
+unreachable. The suite's own half of the mismatch - a `Gen.bound` of 7 on a
+mod-7 node hid the producers beneath it from the `chronoBound` check - was
+fixed with VARKA-70, because the fuzzer is unusable past about ten thousand
+iterations without it.
+
+### 2.27 String-column compaction that keeps the Arrow layout (VARKA-80)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: strings. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+Added 7 September 2026, out of VARKA-59's review (see the debt register).
+
+**The observation.** A derived int32 leaf (VARKA-59's weekday, VARKA-61's trunc
+level) reads its source through a `VarCharVector`. A fused Varka filter ahead
+of the projection hands it a compacted batch whose string columns went through
+the generic on-heap compaction, so the leaf's source is no longer Arrow-backed
+and the projection refuses the batch: a stacked `next_day(d, s)` over a Varka
+filter is counted in `numFallbackBatchesNonArrow` and computed on the row
+path, with correct answers.
+
+**Why it is a task now.** Every future derived leaf over a string column
+inherits it, and milestone 6's item 3 puts string columns under filters and
+group keys, so the shape stops being a corner exactly when that milestone
+starts. Fixing it late means fixing it under a benchmark rather than under a
+differential.
+
+**The design.** A string-column compaction that keeps the Arrow layout,
+writing offsets and data buffers rather than materialising rows - VARKA-21's
+`filterCompact` for fixed-width columns is the pattern, and the shape of the
+work is one pass to sum the selected lengths, one to write offsets, one to
+copy bytes. Measured on the VARKA-59 differential's own fixture, with the
+metric as the gate: the stacked shape must stop counting
+`numFallbackBatchesNonArrow` at all.
+
+### 2.28 Statistics-directed guard selection (VARKA-64)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: tuning of the int32 guard path. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+Added on 4 September 2026 from a question the owner asked about VARKA-52's
+runtime guard: the input batch, or the node before, may already know the
+range of a column, and then the per-lane check is work the batch has proved
+unnecessary. VARKA-52 (#115) puts a per-lane range check on a `date_add` whose
+offset is a column and whose result a calendar node reads, at a measured 5-15%
+of that kernel null-free and 13-14% with mixed nulls (`VARKA-52.md` 11).
+The check exists because the compiler cannot bound a column at compile time;
+a batch can.
+
+**Three sources of the bound, in order of plumbing.** First, compute it: a
+vector minimum and maximum over the offset column before the kernel runs,
+which VARKA-56 already does for the interval bound through
+`IntRangeOps.allWithin` and which the throughput benchmark could not measure.
+A date column holds the contract range (`CONTRACT_MIN_DAYS..CONTRACT_MAX_DAYS`),
+so if every offset of the batch lies in `[NARROW_MIN_DAYS - CONTRACT_MIN_DAYS,
+NARROW_MAX_DAYS - CONTRACT_MAX_DAYS]` no lane of `date_add(d, off)` can leave
+the calendar range and the batch runs the **unguarded** kernel - the class
+VARKA-52's option already emits, since the shape cache keys on options. Second,
+read it: the cached-batch serializers, the Arrow one included, compute count,
+null count, lower and upper bound per column for every cached batch, and use
+them today only to prune batches under a filter at the scan; the fork owns the
+serializer and the scan-to-batch iterator, so the bounds can ride with the
+`ColumnarBatch` to the exec node, where the check costs nothing - the null
+count already travels that way for the null-free fast path. Third, the file:
+Parquet row-group and page statistics, which the Arrow-native datasource
+(`m8/SCOPE.md`, item 8's neighbourhood) is the place to attach.
+
+**The design, in two steps.** Step one, the pre-pass: the evaluator, for each
+compiled projection whose plan carries a guarded producer, runs
+`IntRangeOps.allWithin` over the offset input with the bound above and picks
+the unguarded kernel when it holds, the guarded one when it does not - both
+from the shape cache, both already tested by VARKA-52's suite, so the change is
+in `VarkaKernelEvaluator` alone and the emitter does not move. The in-kernel
+guard stays as the answer for the batch whose offsets say "maybe", which in
+the corpus is never. Step two, the statistics: `ArrowCachedBatchSerializer`'s
+per-batch bounds attached to the batch it deserializes, read by the evaluator
+before it computes anything, so the pre-pass is skipped when the bound is
+already known; the same channel answers VARKA-56's interval bound for free and
+opens batch pruning inside the fused pipeline later. Both steps behind their
+own switch, with the pass and the lookup priced against the guard on the
+parity benchmark's `year(date_add(d, off))` pair and on the throughput
+benchmark's `date_add(d, i)` control.
+
+**What it does not change.** VARKA-52's compile-time analysis is what says
+which producers need a check at all; this task decides per batch whether a
+given one does. A batch with a far offset still declines, through the same
+route, and the differential's far-offset fixtures hold that. Depends on #115
+and on VARKA-56's kernel, both on master before it starts.
+
+**Why this moved out of milestone 4** (11 September 2026). The milestone's
+remaining subject is VARKA-62's closing measurement and the README written from
+it, and this task cannot reach either. `DateSurfaceBenchmark`'s surface has 39
+entries and exactly two carry a column offset: `date_add(d, i)`, which has no
+calendar consumer and so is never given VARKA-52's guard - the parity file's own
+`VARKA-52 control` pair is the proof, being the same number with the option on
+and off - and `add_months(d, i)`, whose guard is VARKA-60's count guard, which
+3.2 of `VARKA-64.md` excludes by name. There is no `year(date_add(d, i))`
+in the surface at all.
+
+So this task changes no number the public table will show. Its own section 6
+proposes *adding* a surface entry for the shape, and that entry should be
+justified as coverage if it is wanted - "the surface should cover a calendar
+node over a column offset" is a good reason; "so that this task has somewhere
+to appear" is not, and conflating them would put a shape in the public table
+because it flatters us.
+
+Two smaller reasons point the same way. Landing it would move the parity and
+throughput files, so after VARKA-62 (B) runs the committed companions go stale,
+and before it the closing measurement waits on a task that adds nothing to its
+output. And the prize is shrinking on the width that matters: the requote of
+`VARKA-64.md` 1 found the masked 16-lane row had already lost a third of
+the guard's share to VARKA-70's bitmap pass, and a genuine 512-bit datapath
+makes the surrounding compute faster again while the guard stays two vector
+compares.
+
+It sits here beside row 82, which its own text says "shares its ground with
+VARKA-64".
+
+### 2.29 The bench module's tests are enforced by hand or not at all (VARKA-94)
+
+*Opened 12 September 2026, by the review of VARKA-62's chains PR.*
+
+`sql/varka/bench` holds the benchmark drivers and their suites - `SurfaceTest`,
+`ChainsTest`, `PlanCheckTest`, `ProvenanceTest`, the two harness tests - and
+nothing runs them. `git grep 'bench/pom.xml' -- dev/ .github/` finds three call
+sites and all three are `-DskipTests package`: the surface workflow's build step,
+`dev/varka_bench_surface.sh`, and the jar-cache warm. `build_and_test.yml` has a
+`varka-engine` job and no bench one, and `dev/varka_precommit.sh` does not reach
+the module either.
+
+What that leaves unenforced is not decoration. `ChainsTest` is where the chain
+list's invariants live - every entry fuses, every entry carries a date, an int
+and an interval column, every entry clears `MIN_OPS`, no entry duplicates the
+surface - and `SurfaceTest` is where the surface's do. An edit that breaks any of
+them merges green. The review that opened this found two such invariants already
+weakened (a bound of 8 where all twelve qualified, and a predicate counting the
+`INTERVAL` type keyword as a column), which is the shape of the problem: the
+tests were right when written and nothing would have said when they stopped
+being.
+
+A `bench` step in `dev/varka_gate.sh` landed with that review as a stopgap - it
+runs in about fourteen seconds - but a gate step is a thing a person remembers to
+run. The task is the CI job: a `varka-bench` module in
+`dev/sparktestsupport/modules.py` so `dev/is-changed.py -m varka-bench` answers,
+the `precondition` wiring that consumes it, and a job modelled on `varka-engine`
+(which is the worked example, including its own comment about having had no
+condition and so building on every prose-only PR).
+
+### 2.30 Two int32 shapes decline that a reader would expect to fuse (VARKA-95)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: two int32 date shapes; the date lane is milestone 4's.*
+
+*Opened 12 September 2026, while choosing VARKA-62's chain entries.*
+
+`datediff(d2, d) * i` declines, and so does `i % 20`. Multiplying by a *literal*
+is fine - `CAST(month(d) AS INTERVAL YEAR) * 3` is in the surface - so the gap is
+an int multiply whose right operand is a column, and an int remainder at all.
+
+Both are ordinary arithmetic over the int32 lane the engine already owns, and
+both are spellings a reader reaches for immediately: "how many months between
+these dates, times a factor from the row", "bucket this by seven". The task is to
+find out which of the two is worth the lowering and what the guard costs -
+`IntArith` already carries VARKA-63's checked/wrapping overflow discipline, so the
+question is that discipline's shape for `MUL` with a runtime operand and for
+`REM`, not whether the lane exists.
+
+It is scoped here rather than in milestone 4 because nothing in the date surface
+or the chains needs it: they are why it was found, not why it matters.
+
+### 2.31 `make_ym_interval` takes only arguments derived from a date (VARKA-96)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: a year-month interval argument rule on the date lane.*
+
+*Opened 12 September 2026, the same way.*
+
+`make_ym_interval(year(d), month(d))` fuses and is in the surface;
+`make_ym_interval(i, i)` declines. So the constructor for the third type cannot
+be fed from the int columns the engine already reads - only from ints it derived
+from a date itself.
+
+That is a narrow hole with a wide-looking edge, because year-month intervals are
+part of the public claim that Varka covers three types: a reader who writes
+`make_ym_interval(years, months)` over two int columns, which is the obvious
+spelling, falls back. The task is to establish whether the restriction is the
+compiler's admission rule or something the emitted lowering genuinely needs -
+VARKA-67 built the type's arithmetic and this is the one shape of it that is
+column-hostile - and to lift it if it is only the former.
+
+
+### 2.32 A bandwidth-bound row lost 22.6% and nothing in its lowering changed (VARKA-97)
+
+*Opened 14 September 2026, out of VARKA-78's regeneration.*
+
+`date_add(d, 3)` read 1811.6 M rows/s in the surface committed on 7 September and
+1401.4 M/s in the one committed on 13 September - **-22.6%** - with a clean
+machine canary on both runs and the same host, governor and row count.
+
+**It is not the lowering.** The expression emits four `IntVector` operations
+today, which is what it has always emitted; `date_add(d, i)` emits four as well.
+Of the fifty-five commits between the two runs, one touches the `AddDays`
+neighbourhood at all, and every hunk of it is a `case GuardedDay` arm or a slot
+allocation behind `reachesGuardedDay`, which a literal-offset tree never reaches.
+The column-offset support that the shape might otherwise be blamed on predates
+the first of the two runs.
+
+**The hypothesis to test, and it is only that.** This is the most
+memory-bandwidth-bound entry in the surface - about 0.7 ns/row, four bytes in and
+four out, roughly single-core DRAM speed - so it is the row where the arithmetic
+is irrelevant and the memory system is everything. Between the two runs the
+benchmark table went from three int32 columns to six, because VARKA-67 added the
+year-month interval columns, and the cached table grew from about 12 GiB to
+23.2 GiB. The kernel still reads only `d`, the same four gigabytes, but that
+column is now interleaved among twice as much data across the batch sequence.
+
+**What the task is.** Build the table at three columns and at six, time the same
+entry against both, and settle it. If the working set explains it, then every
+bandwidth-bound row in the surface - roughly a third of the entries - is being
+measured against a table shaped by columns those rows never read, and the
+surface's fixture needs a decision rather than a drift. If it does not, fifty-four
+other commits are in scope and the question is a real regression hunt.
+
+This is worth doing before the numbers are quoted publicly, because it decides
+whether a third of the coverage table is understated.
+
+### 2.33 Two filter rows stay under 1.0x, and the boundary is why (VARKA-98)
+
+*Moved to `m8/SCOPE.md` item 15 on 15 September 2026, when the milestone was re-scoped to 64-bit lanes and `TIME`: the read-back floor, which is large and not a type. The text below is unchanged and the heading stays so citations of this section number still resolve.*
+
+*Opened 14 September 2026, out of VARKA-78's outcome.*
+
+VARKA-78 fixed the loss it was opened for - `WHERE d < d2` with a columnar
+consumer went 0.59x to 1.14x - and two counted rows stayed below stock Spark:
+`WHERE d < d2` counted at 0.80x, and `WHERE d IS NOT NULL` counted at 0.45x.
+They are the only losses left in the surface.
+
+**The cause is the same for both and it is not the kernel.** The same
+`d IS NOT NULL` predicate runs at 1.2 ns/row with a columnar consumer - 9.5x over
+stock - and at 11.7 ns/row counted. Identical kernel, identical data; the only
+difference is what happens after the filter. The results file names the reason on
+the next line: the predicate selects 96.8% of a billion rows, so about 968 million
+of them cross into Spark's row world at roughly 25 ns each, which is VARKA-19's
+read-back floor and very nearly the whole 11.7 ns.
+
+What makes these two rows the worst in the table rather than middling is that
+both variables are at their extremes at once: **the maximum number of rows
+crossing the floor, and the minimum amount of work saved before it**. A null-bit
+test is nearly free for stock Spark, so a vector loop has almost nothing to win
+back. Move either variable and the loss goes: a columnar consumer gives 9.5x, and
+a heavier predicate counted (`d < d2 AND month(d) = 6`) gives 3.4x with the same
+crossing.
+
+**What the task is.** Price the one lever that removes the boundary rather than
+narrowing it: making the filter node `CodegenSupport`, so an aggregate consuming
+it fuses into the vector loop instead of reading rows back. That is milestone 4's
+scope item 13, which VARKA-78's outcome explicitly declined to inherit on the
+evidence that the narrowing fix alone was enough for the shapes it owned. It is
+not enough for these two, and they are what is left.
+
+The debt register's `COUNT(*)` entry - the kernel at 0.9x and 0.8x on a
+fully-selecting range with nothing crossing the boundary - belongs to the same
+owner, because both questions are about what a predicate kernel is worth when the
+consumer counts rather than reads.
+
+
+### 2.34 The Varka arm may be measured in the session's worst memory state (VARKA-99)
+
+*Opened 14 September 2026, out of VARKA-97's measurement.*
+
+VARKA-97 eliminated three explanations for a 22.6% swing in `date_add(d, 3)`
+between two committed surfaces, with numbers for each: the lowering is
+unchanged, the six-column table costs about 6% and costs it nearly uniformly
+across a four-op and a sixty-four-op entry alike, and running the Varka arm
+fourth rather than first costs 1% in the favourable direction.
+
+**The control is what makes the remainder worth a task.** Stock Spark measured
+82.9 M rows/s for that entry on 13 September and 82.7 today, a difference of
+0.2%. The machine was in the same state. The Varka arm on the same entry, same
+fixture and same ordinal position reads 28% higher today than it did then.
+
+The one variable VARKA-97 did not hold fixed is *how long the machine had been
+working when the arm began*: five hours and twenty minutes on 13 September,
+forty minutes in VARKA-97's run. Ordinal position and elapsed duration are
+different things and only the first was controlled.
+
+The mechanism that would fit is memory. The Varka arm allocates a 56g heap and
+holds 23.2 GiB of Arrow-cached data; the stock arms hold 1.2 GiB. Hours of
+allocation churn degrade huge-page availability and fragment the address space,
+and the entry most exposed to the resulting TLB cost is exactly the one that
+reads four bytes per row and does almost no arithmetic - which would also
+explain why the stock arm shows nothing.
+
+**What this would mean if it holds.** The committed surface understates Varka
+rather than flattering it: every Varka number is taken in the most degraded
+memory state of the session and divided by a baseline taken in the least. A
+ratio wrong in the unflattering direction is not a lie, but it is not the
+engine's number either, and it should be settled before the surface is quoted
+publicly.
+
+**The experiment.** Two full-length surface runs differing only in what precedes
+the Varka arm - one in the committed order, one with the Varka arm first - on the
+same host on the same day. About eleven hours of a quiet machine. *`VARKA-99.md`
+runs this as one session with the Varka arm measured first and last instead, which
+holds the day fixed rather than arguing it away and costs six and a half hours; see
+its section 3.1.* If the two
+Varka arms disagree by anything like 28%, the arm order in
+`dev/varka_bench_surface.sh` is a measurement artefact and the script needs to
+say so or stop producing it.
+
+### 2.35 An `--only` run silently truncates its label's committed file (VARKA-100)
+
+*Opened 14 September 2026, found while running VARKA-97's measurement.*
+
+`dev/varka_bench_surface.sh --only <regex>` writes `DateSurface-<label>-results.txt`
+for the entries it ran. It does not merge into the existing file and it does not
+refuse: the file is replaced. So a three-entry partial run in a checkout turns
+that label's committed fifty-two-entry coverage table into a three-entry one, and
+`git status` reports an ordinary modification.
+
+This happened during VARKA-97. The measurement's Varka arms used custom labels and
+wrote new files, but its two stock arms were passed under the canonical
+`spark-4.2.0-jdk17` and `spark-4.2.0-jdk25` names and truncated both committed
+files. They were restored before staging, and only because the working tree was
+read before the commit rather than after.
+
+The sharded path already solves this: VARKA-62 gave `--shard I/N` a filename
+suffix precisely so shards of one run could share a directory without
+overwriting each other. `--only` never got the same treatment, and it is the flag
+a person reaches for by hand.
+
+**The fix is small.** With `--only` set, either refuse a label whose committed
+file holds more entries than this run will write, or write to a name that says
+the file is partial. The first is better: it fails at the start rather than
+leaving a file to notice.
+
+A partial file that looks complete is the same class of defect as the ones VARKA-62 spent a week on - a run that reports success and measures something other than
+what its name says.
+
+### 2.36 The surface's per-entry numbers have a tail that one run cannot see (VARKA-101)
+
+*Opened 15 September 2026, out of VARKA-99's measurement.*
+
+VARKA-99 ran five surface arms in one session to test whether elapsed time
+degrades the Varka arm. It does not - the two Varka arms, five hours and twenty
+minutes apart, differ by a median of 0.1%. What the session did show is a
+property of the benchmark rather than of the engine.
+
+Each of the four arms with a committed counterpart reproduced it almost exactly
+at the median - `varka` -0.1%, `varka-off` -0.2%, stock JDK 25 +0.0%, stock
+JDK 17 -0.1%, over 52 entries each - and each carried **exactly one entry** 8%
+to 27% away from it, a different entry in every arm, in both directions:
+`date_add(d, 3)` +27.3%, `d = d2` +8.5%, `weekofyear(d)` +14.2%,
+`trunc(d, 'MONTH')` -9.1%.
+
+**Stock Spark carries these as readily as Varka does**, which is what settles
+what they are. A 14.2% swing on stock's `weekofyear(d)` is not about a Varka
+heap, a Varka kernel or a Varka arm's position. The 22.6% that opened VARKA-97,
+and the 27.3% on the same entry here, are draws from this distribution rather
+than events with causes of their own - four independent measurements of
+`date_add(d, 3)` over the identical fixture read 1780.6, 1763.5 and 1783.7,
+and the committed 1401.4.
+
+**What to do about it.** `dev/varka_bench_repeat.sh` and
+`dev/varka_bench_band.py` already answer exactly this question per case, and
+`band.py`'s own documentation records the finding that makes a band worth
+committing: over ten runs, *which* cases are noisy reproduces strongly - 37 of
+52 in the worst quartile - while *how* noisy a given case is reproduces only
+weakly. Neither has ever been pointed at the surface. Doing so gives the
+surface a band file, lets `dev/varka_bench_diff.py` stop reporting a
+single-entry move inside the band as a change, and decides what the README does
+with its per-entry rows.
+
+**What this does not mean.** The aggregate figures are unaffected and were
+confirmed by this session: four arms, two days apart, reproducing their
+committed medians to within 0.2%. The rule this yields is narrow - do not quote
+a *single entry's* ratio without a band behind it - and it is not a licence to
+re-run a benchmark until a number looks better.
+
+
+*Answered in half, 18 September 2026 (`VARKA-101.md` 9): the chains reproduce
+far better than this section assumed from VARKA-99's surface arms - twelve runs put
+every one of the 24 cases inside 2.55%, with none above 3% - so the band the diff
+reads is committed for that benchmark. The surface's own band is still owed, and
+its cost is the reason: 1h40m per arm, which makes ten runs seventeen hours at one
+width. The split-half check that decided the parity benchmark's tiers cannot
+decide anything here, because where every case is inside the tightest tier there
+is no spread for two halves to agree about.*
+
+### 2.37 `TIME` expressions over the long lane (VARKA-102)
+
+*Opened 15 September 2026 by the re-scope; the milestone's subject. Adjusted 17
+September 2026: comparisons and `CASE WHEN` over a `TIME` column, and the
+coverage columns, land with VARKA-29 as narrowed that day; the expressions below
+are otherwise unchanged.*
+
+`TimeType(p)` stores nanoseconds since midnight in a long whatever `p` is - the
+precision changes casting and formatting, not the lane - so every `TIME` value
+lies in `[0, 86 399 999 999 999]`, below 2^47. Two things follow. The lane is VARKA-29's long lane with nothing added, and every division a `TIME` expression needs -
+by 3 600 000 000 000 for the hour, 60 000 000 000 for the minute, 1 000 000 000
+for the second, and the truncation levels - is exact through 2.19's double-lane
+division, by the bound in 1.1: the computed quotient's error is under `v * 2^-52`
+and the gap between a non-integer quotient and the integer above it is at least
+`1/d`, so `floor` cannot cross an integer while `v < 2^52`, and `TIME`'s `v` is
+thirty times smaller than that. VARKA-29's "or a recorded decline" does not apply
+here; it applies to intervals.
+
+**The expressions Spark has, and what each is in the lane.** `HoursOfTime`,
+`MinutesOfTime`, `SecondsOfTime` are a division and a `floorMod`, the second with
+`SecondsOfTimeWithFraction` returning a decimal that this milestone declines.
+`MakeTime(h, m, s)` is the reverse: two multiplies and adds under the range check
+that `make_date` already has for dates, with the fractional-second argument a
+decimal and therefore declined unless it is a literal. `TimeTrunc(level, t)` is a
+division and a multiply at a level that must be foldable, `trunc(d, fmt)`'s rule.
+`TimeAddInterval(t, dt)` is `t + micros * 1000` under a range guard, because
+vanilla's `timeAddInterval` does **not** wrap: it is `addExact` and a check that
+the result lies in `[0, 24h)`, throwing otherwise (`timeAddIntervalOverflowError`;
+SPARK-57853 is open on whether that becomes ANSI's modulo-24). So the lowering is
+`make_date`'s pattern - the guard fails the batch into the ghost fallback, which
+raises the same error, or returns null under `TRY` - and it changes to a
+`floorMod` by `NANOS_PER_DAY` the day 57853 says so. `SubtractTimes(t1, t2)` and
+`TimeDiff`
+produce a day-time interval in microseconds, a division by 1000 that is again
+exact by range. `TimeFromSeconds/Millis/Micros` and `TimeToSeconds/Millis/Micros`
+are multiplies and divisions by powers of ten. Comparisons, `IN`, `CASE WHEN`,
+`coalesce`, `greatest` and `least` arrive through the generic arms once the
+compiler admits a long-lane column where it admits a date one. Out: `ToTime`
+(string parsing), `CurrentTime` (foldable anyway), and `DateFormatClass` over
+`TIME` (a string result).
+
+**The admission check, first - VARKA-116.** The serializer's stats switch has
+`LongColumnStats` arms for both `TimeType` and `DayTimeIntervalType` (an earlier
+draft here said it did not; 1.1 records the correction), and upstream's
+[SPARK-54203](https://issues.apache.org/jira/browse/SPARK-54203) put `TimeType` through `RowToColumnConverter`. What no test
+has done is cache a `TIME` column under `spark.sql.cache.serializer` set to the
+Arrow serializer, read it back, and map its buffer through the morsel as
+eight-byte lanes at the declared precision. VARKA-116 is that test, for both
+types, and nothing else in this section is built until it passes.
+
+**Coverage.** `VarkaCoverageSuite` enforces that every Catalyst class the
+compiler matches is documented, so the new arms cannot land undocumented; the
+suite's column list gains `t` and `t2` (`TIME`), `l` (`bigint`) and `dt`
+(`INTERVAL DAY TO SECOND`) at the same time, and `sql/varka/coverage.json` grows
+the families with it.
+
+*Group C planned, 20 September 2026 (`VARKA-102.md` 8).* VARKA-152 and
+VARKA-153 priced the three ways an int32 field leaves a long-lane kernel. The
+narrowing store - VARKA-28's `NarrowLane` admitted as an output root, four
+bytes a row under an int mask, no second int species - ships the three
+extracts at the conversion form's rate with one contained emitter change and
+is the next step. The split form pays its 5x to 14x only when the seconds
+column is stored, which is the cache's representation and item 11's; its
+pieces, a `BoundedDivide` node and a split leaf filled by a vector kernel, are
+designed there for that day.
+
+### 2.38 Day-time interval expressions (VARKA-103)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: day-time interval arithmetic; the milestone claims comparisons, selections and the interval as an operand of `TIME` arithmetic, as the coverage table states them.*
+
+*Opened 15 September 2026 by the re-scope; absorbs VARKA-39. Adjusted 17
+September 2026: comparisons over an interval column land with VARKA-29, and
+`TimestampAddInterval` and `SubtractTimestamps` left the milestone with the
+timestamp types (`m8/SCOPE.md` item 31).*
+
+`DayTimeIntervalType(start, end)` is microseconds in a long across the whole
+int64, which makes it the lane's harder type: no range bound comes free, so a
+division is exact through 2.19 only where a bound proves the operand below 2^53,
+and is otherwise the recorded decline VARKA-29 anticipated. The arithmetic that
+needs no division is the bulk of it: `+`, `-`, negate and `abs` (the year-month
+interval's arms at the other width), comparisons, and `MultiplyDTInterval` by an
+int literal or a bounded column with the same checked-multiply rule int32 has.
+`DivideDTInterval` is division and follows the bound. `ExtractANSIIntervalDays/
+Hours/Minutes/Seconds` are divisions by 86 400 000 000, 3 600 000 000, 60 000 000
+and 1 000 000, and every one of them needs the bound: in 2.19's reciprocal form
+the floor is exact while the operand is under 2^52 microseconds, about 52 000
+days, so even the days extract is exact only below that - most intervals a
+query holds, and not all of them.
+`MakeDTInterval` is multiplies and adds under overflow checks.
+
+**VARKA-39 lands here.** `date - date` is Catalyst's `SubtractDates`, and its result
+is a day-time interval: int32 days in, `days * 86 400 000 000` out in a long. It
+is the milestone's first mixed-width kernel exactly as `VARKA-39.md` says, and
+what it needs from 28 (the width conversion) and 29 (the long lane) is unchanged;
+what changes is that it is one row of this family rather than a task of its own,
+because `DateAddInterval` (a date plus a whole-day interval; anything finer
+becomes a timestamp and declines), `TimestampAddInterval` and
+`SubtractTimestamps` are the same kernel with the operands swapped around - an
+observation that stands for the day the two timestamp forms return from
+`m8/SCOPE.md` item 31; in this milestone the family is `SubtractDates`
+and `DateAddInterval`.
+
+### 2.39 `Long` arithmetic, VARKA-30's int64 half (VARKA-104)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: bigint arithmetic; the milestone claims comparisons and selections over bigint, as the coverage table states them.*
+
+*Opened 15 September 2026 by the re-scope. Adjusted 17 September 2026:
+comparisons over a `bigint` column land with VARKA-29; this task keeps every
+arithmetic form, `bi + 1` included, because the overflow-mode decision is its
+subject.*
+
+VARKA-30 was narrowed on 4 September to the int32 forms and shipped them in VARKA-63; what it deferred was the int64 half, and the long lane makes it due: checked
+and wrapping `+`, `-`, `*` and negate over `bigint` columns and literals under the
+same value-range lattice (2.15), comparisons, and `Cast` between int and long as
+2.2's conversion. `div`, `%` and `pmod` are divisions and take 2.19's rule - exact
+under a proven bound, declined otherwise - which for `bigint` columns with no
+statistics means declined until VARKA-64's statistics-directed bounds return from
+milestone 6. `/` is a double and stays out with item 3.
+
+### 2.40 The `TIME` benchmark: its own class and its own files (VARKA-105)
+
+*Opened 15 September 2026 by the re-scope; the number the message quotes.
+Upstream's [SPARK-57562](https://issues.apache.org/jira/browse/SPARK-57562) ("Add benchmarks for the TIME data type") is
+open, and milestone 6's item 8 already argues for extending Spark's benchmarks
+rather than only writing our own - so the inventory built here is shaped to be
+offered there as well.*
+
+A new feature family gets its own benchmark class and its own committed results
+files, not rows in `DateSurfaceBenchmark`: `TimeSurfaceBenchmark` in
+`sql/varka/bench`, with a `Surface`-shaped inventory of one entry per `TIME` and
+day-time interval expression 2.37 and 2.38 admit, the projection and the filter
+form of each, over a table of `TIME`, `bigint` and interval columns generated
+the way `varka_dates` is. Both arms run with `spark.sql.timeType.enabled=true`;
+the stock arm is the same 4.2.0 distribution the date surface uses, which
+carries the type and the functions. Run through `dev/varka_bench_surface.sh`
+with a `--benchmark time` selector beside `surface` and `chains`, so the
+canary, the datapath probe, the fixed-share rule and VARKA-100's guard all apply
+unchanged; `TimeChains` follows once the single expressions are measured - with one
+expectation registered now. The date chains reached `MIN_OPS = 280` because every
+calendar field pays the 31-op civil-from-days prefix and the chains compose four
+of them; a `TIME` field is a division - four or five ops in either lowering - so
+`hour(time_trunc('MINUTE', t + INTERVAL '90' MINUTE))` is perhaps twenty ops and
+nothing over `TIME` reaches the compute-bound regime the date chains live in. The
+`TIME` story's number is the surface's, not a chain's, and `TimeChains` exists to
+show the composition works rather than to set the headline.
+
+**What the stock arm is made of, and the prediction that forces.** Vanilla
+Spark's `TIME` field extraction goes through `java.time`: `getHoursOfTime(nanos)`
+is `nanosToLocalTime(nanos).getHour`, `getMinutesOfTime` and `getSecondsOfTime`
+likewise, `timeTrunc` builds a `LocalTime`, truncates it and converts back, and
+`makeTime` constructs one - each a `StaticInvoke` per row, each allocating. The
+rest is integer arithmetic already: `timeAddInterval`, `subtractTimes`,
+`timeDiff`, `getSecondsOfTimeWithFraction` and the `time_to_*` / `time_from_*`
+family. So the surface will split in two: rows where Varka beats an allocation,
+and rows where it beats arithmetic - and the honest message quotes them apart. The date family's baseline was integer arithmetic; this
+one is object construction. So the registered prediction, written before any
+`TIME` kernel exists: **the `hour(t)`/`minute(t)`/`time_trunc` rows read a larger
+ratio than `year(d)` did, and most of the difference is the baseline's
+allocation, not the lane.** The message says so, the way the README explains
+the date surface's 38x as per-row overhead rather than arithmetic - and the
+honest companion number is the ratio against the fork with the engine off, which
+runs the same `LocalTime` path and isolates what Varka adds. Whether vanilla
+should compute those fields in integer arithmetic is upstream's question
+(section 8's rule), and worth a ticket from whoever benchmarks it first; until
+then the plan records that a chunk of the `TIME` ratio is vanilla's to close.
+
+**Before the message, the band.** VARKA-99 showed one entry in every arm of a
+surface landing 8% to 27% from its committed value with stock as exposed as
+Varka, and VARKA-101 exists to give the surface a band. The `TIME` surface is
+measured under that band from its first regeneration, and the message quotes a
+median and a banded range, never a single row.
+
+### 2.41 The quote check runs in no workflow (VARKA-106)
+
+*Opened 15 September 2026, found while closing VARKA-94.*
+
+`dev/varka_quote_check.py` is the guard behind "every number the documents quote
+traces to a committed results file", and no CI job runs it: its guarantee rests on
+whoever ran it locally - PR #208 (VARKA-99) merged its numbers on the strength of
+one local run, and said so. VARKA-94 built the pattern - a module entry in
+`dev/sparktestsupport/modules.py` and a small job gated on it - and the same
+pattern covers this: a `varka-docs` module over `sql/varka/plans/`,
+`sql/varka/skills/`, `docs/sql-varka.md`, `README.md` and `SKILLS.md`, whose job
+runs the quote check and `dev/varka_toc.py --check SKILLS.md --from
+sql/varka/skills`. Minutes, no Spark build, and the first documentation-only
+pull request after it proves the skip half of VARKA-94 in passing.
+
+### 2.42 `time_add(unit, quantity, time)` (VARKA-107) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: no upstream ticket; the wrap rule is [SPARK-57853](https://issues.apache.org/jira/browse/SPARK-57853)'s open question. Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.43 `try_make_time` (VARKA-108) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: [SPARK-57846](https://issues.apache.org/jira/browse/SPARK-57846). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.44 `sequence()` over `TIME` (VARKA-109) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: [SPARK-57852](https://issues.apache.org/jira/browse/SPARK-57852). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.45 `avg` over `TIME` (VARKA-110) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: [SPARK-58044](https://issues.apache.org/jira/browse/SPARK-58044). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.46 Avro `TIME` (VARKA-111) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: not a gap - present by [SPARK-54473](https://issues.apache.org/jira/browse/SPARK-54473) and [SPARK-57581](https://issues.apache.org/jira/browse/SPARK-57581), under `sql/core`'s Avro code; the row was opened on a grep of `connector/avro` and withdrawn when the umbrella showed it done. Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.47 `DATE + TIME` as an operator (VARKA-112) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: no upstream ticket; the function form is [SPARK-53579](https://issues.apache.org/jira/browse/SPARK-53579). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.48 The survey of what else vanilla Spark lacks for `TIME` (VARKA-113) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: the umbrella [SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550); the lines and their tickets are section 8's table. Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.49 `time_bucket` over `TIME` (VARKA-114) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: [SPARK-54507](https://issues.apache.org/jira/browse/SPARK-54507). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.50 `time_format` (VARKA-115) - withdrawn
+
+*Opened and withdrawn on 15 September 2026: vanilla Spark's row-engine work, which this milestone does not take - it keeps vectorised expressions and benchmarking. Upstream: [SPARK-54588](https://issues.apache.org/jira/browse/SPARK-54588). Section 8 has the survey; the heading stays so citations resolve.*
+
+### 2.51 A `TIME` column through Varka's Arrow cache, proven (VARKA-116)
+
+*Opened 15 September 2026 at the owner's request, from 1.1's admission check.*
+
+The pieces exist upstream and in the fork - `isSupportedByArrow` admits the
+type, the cache serializer's stats switch has its `LongColumnStats` arm,
+[SPARK-54203](https://issues.apache.org/jira/browse/SPARK-54203) put it through `RowToColumnConverter`,
+[SPARK-57661](https://issues.apache.org/jira/browse/SPARK-57661) preserves its precision across the Arrow boundary - and no
+test composes them along Varka's path. The task is that test, in `sql/core`'s
+Varka suites: a `TIME(p)` column for p in {0, 3, 6, 9} and a day-time interval
+column cached under `spark.sql.cache.serializer` set to the Arrow serializer,
+read back equal, and the batch's buffers mapped through the morsel as
+eight-byte lanes with the validity word right at every null pattern the date
+fixtures use. Two facts from reading the path on 15 September shape the test.
+The serializer writes the Arrow schema with `losslessInternalTypes = true`, so
+the precision rides in field metadata under `SPARK::time::precision`; but the
+*read* side rebuilds column vectors from the Spark schema
+(`DataTypeUtils.fromAttributes`), not from that metadata - so precision reaches
+Varka through Catalyst's `DataType`, and the test asserts it on the output of
+`time_trunc` at each `p`, where a wrong `p` would show. And
+`VarkaKernelEvaluator`'s output allocation switches on `DateType`,
+`IntegerType` and `YearMonthIntervalType` only (line ~1087): the `LongType`,
+`TimeType` and `DayTimeIntervalType` arms are VARKA-29's, and this test is what
+they are written against. It passes before any long-lane code is written, or it
+fails and becomes the milestone's first fix; either way it is known rather than
+assumed.
+
+### 2.52 Sync the fork with `apache/spark` master (VARKA-117) - the milestone's first task
+
+*Opened 15 September 2026, found while checking the umbrella; withdrawn with the
+vanilla rows for an hour, then made **the first task of the milestone** on the
+owner's instruction - a sync is Varka's own infrastructure, not vanilla Spark's
+feature work, and everything after it merges more easily from a tree that
+matches upstream.*
+
+`origin/master` is 375 commits behind `upstream/master` and 209 ahead of it.
+One of the missing commits is `TIME` work - [SPARK-53368](https://issues.apache.org/jira/browse/SPARK-53368), reading Parquet
+`TIME` written with `isAdjustedToUTC`, is upstream and not here (1.1 has the
+count) - and a milestone that ends in a message
+about tracking vanilla Spark should not be a month behind it, and the record in
+section 8 is easier to act on from a tree that matches. There is a second
+reason: the fork's CI already tests the branch *merged with upstream master*
+(the `Auto-merging` lines at the top of every Precompile log), so for a month
+the tree CI has tested has not been the tree in the repository - which is how an
+upstream test that exists nowhere in this repository has been failing every
+pull request. After the sync, local and CI test the same tree. The task is the
+merge and the gate green after it. A dry run on 15 September - `git merge-tree
+--write-tree origin/master upstream/master` - reports **no conflicting file**
+across the 375 upstream and 209 fork commits: the `Auto-merging` lines CI prints
+are clean three-way merges of `modules.py`, the workflows and `AGENTS.md`, not
+conflicts. The same day the merged tree was built and run as a scratch commit:
+`build/sbt catalyst/Test/compile sql/Test/compile` in 276 seconds, then the
+gate's `wide` step - every `*Varka*` suite in catalyst and `sql/core` at the
+host width - in 199 seconds, **297 and 183 tests succeeded, 0 failed**, the ten
+canceled being the opt-in sweep and JFR cases that cancel on master too. So the
+task is an afternoon of gate rather than days of resolution, and its real risk
+is the behavioural one below: whether a committed Varka number moves, which only
+a regeneration under the canary answers. Two things it can move: the committed
+Varka numbers, since both fork arms run on the merged tree while the stock arm
+is a fixed 4.2.0 distribution - so the canary runs and the requote rule applies
+if a surface has to be regenerated - and the `TIME` functions themselves, if
+upstream changed one, which is why 117 precedes 102 rather than following it.
+Infrastructure, and the first thing the milestone does: before 84 opens, so
+that the lane work, the `TIME` rows and the benchmark are all built on the tree
+the message will be about.
+
+**Done, 15 September 2026, by the owner by hand.** `origin/master` is
+`2219f51c76a`, "Merge branch 'apache:master' into master": **0 commits behind
+`upstream/master`, 212 ahead**, and SPARK-53368 - the one resolved `TIME`
+subtask the fork lacked - is present. The dry run's prediction held: the merge
+had no conflicting file. The gate was then run on the real merged master rather
+than the scratch commit: `compile` in 218 seconds, `wide` in 220 seconds,
+**297 + 183 tests succeeded, 0 failed**, the ten canceled being the opt-in sweep
+and JFR cases that cancel on every master. Two things it brought besides the
+sync: the fork's `CLAUDE.md`/`AGENTS.md` and the workflows took upstream's
+edits, and local and CI now test the same tree, so the upstream Avro test that
+had been failing "on code not in this repository" is now failing on code that
+is - which makes it, for the first time, something this repository can look at.
+The behavioural risk named above - a committed Varka number moving - is not
+settled by the gate and is left to the canary at the next regeneration, which
+the first `TIME` surface (105) will be.
+
+
+
+### 2.53 The closing task: final benchmarks, the README, and the post (VARKA-118)
+
+*Opened 15 September 2026 on the owner's instruction: the milestone ends the way
+milestone 4 did, with VARKA-62's shape.*
+
+VARKA-62 closed milestone 4 in three parts - (A) the plan of the measurement,
+(B) the measurement itself on a runner proven full-width by the datapath probe,
+(C) the README written from those files - and the LinkedIn post followed from
+(C). This task is the same three parts for the `TIME` story, plus the post,
+because the milestone's stated exit is the message and nothing before this task
+produces it.
+
+**(A) The plan of the measurement.** Which arms: stock 4.2.0 on JDK 17 and JDK
+25 with `spark.sql.timeType.enabled=true`, the fork with the engine off, and
+Varka - the four the date surface has, so the two tables read alike. Which
+benchmarks: the `TIME` surface (105) and, if it exists by then, `TimeChains`;
+and the date surface and chains again only if VARKA-117's merge or anything since
+is suspected to have moved a committed number, decided by the canary and a
+`dev/varka_bench_diff.py --git` against the committed files rather than by
+assumption. Which machine: the same rule as 62 - a runner the datapath probe
+proves full-width at 512 bits (`require-datapath=512` through
+`varka-surface-benchmark.yml`, the Zen 5 lottery), because that is where the
+lane story is true without qualification; the laptop's double-pumped 1.14 is
+recorded beside it as the other end of the range, as it was for dates.
+
+**(B) The measurement.** Under VARKA-101's band from the first regeneration, so
+every per-entry figure carries its tier and no single row is quoted bare; the
+fixed-share rule met; provenance complete (CPU, flags, datapath, canary, rows,
+table shape, both flags' values). Two numbers the message needs that the date
+close did not: the split of the surface into rows where Varka beats an
+allocation (`hour`, `minute`, `second`, `time_trunc`, `make_time` - vanilla's
+`LocalTime` path) and rows where it beats arithmetic (the rest), reported apart;
+and the engine-off ratio beside the stock ratio on every row, which is what
+isolates Varka's part from vanilla's baseline.
+
+**(C) The README and the docs.** The benchmark section gains the `TIME` table
+beside the date ones - one row per expression, the query text beside the
+number, losses printed beside wins, the median and the banded range leading and
+the per-row figures under them - and the "which figure generalises" paragraph
+says plainly that the allocation rows measure vanilla's baseline as much as
+Varka's lane. The reproduction guide gains the flag on both arms and the
+`--benchmark time` selector. The coverage table and `coverage.json` are already
+current by construction (`VarkaCoverageSuite`), so (C) checks them rather than
+edits them. "Reading the source" gains the long-lane entry points.
+
+**The post.** Ideas first, numbers last, the shape the milestone 4 post took:
+what a 64-bit lane is in this engine and why one lane serves five types; why
+`TIME` is the type to show it on (a new type, about to be on by default, whose
+vanilla implementation allocates per row); the honest split of the ratio; and
+the median, never the best row. A short and a long variant, as before; the
+short one is what gets posted, the long one is the blog. The draft lives in a
+file the way `LINKEDIN_POST_VARKA.md` did, quotes only committed figures, and is
+checked by `dev/varka_quote_check.py` like every other document before it is
+pasted anywhere.
+
+**Done when** the four results files per benchmark are committed with the band,
+the README quotes them and nothing else, the quote check is at zero orphans,
+and the two post drafts exist and name their sources. The message itself is the
+owner's to send.
+
+### 2.54 The oracle for the long lane: reference evaluator and fuzzer at `long` (VARKA-119)
+
+*Opened 15 September 2026, from the review of what VARKA-29's validation assumes.*
+
+`VarkaReferenceEvaluator` is `Option[Int]` end to end - `row: Seq[Option[Int]]`,
+`lits: Array[Int]` - and `VarkaIrFuzzSuite`'s grammar generates int32 trees only.
+VARKA-29's validation says "every parity gate re-run at the long species", and
+nothing says who teaches the *oracle* long semantics. Without this, the fuzzer
+covers the new lane not at all and the differential against the row engine is
+the only oracle - the situation VARKA-63's review found bugs in. The task: the
+reference evaluator over `long` lanes including the exact-division nodes (2.19,
+in both lowerings), the range guards, `TIME`'s day-modular arithmetic and the
+interval overflow checks; the fuzz grammar generating long, `TIME` and day-time
+interval trees over random null patterns, lengths and `VarkaEmitOptions`
+variants; and the fuzzer asserting it reaches every long-lane node type, as it
+does for int32, so a node the generator cannot build is a gap it reports rather
+than one it silently skips. Sequenced with 29: the evaluator arms land with the
+nodes they check. *Re-sequenced 17 September 2026: the arms for 85's subset -
+which is all 29 uses, now that it is comparisons only - landed with 85; what
+remains here lands with 102, 103 and 88.*
+
+*Closed 19 September 2026, `VARKA-119.md`.* The evaluator turned out to be
+complete: the "day-modular arithmetic" anticipated above became a range guard
+over a wrapping add under VARKA-102's SPARK-57853 reading, and every `TIME` and
+interval expression is a tree of nodes `evalLong` already spells. What was
+missing was the corpus - no long shape had ever been drawn - and the oracle's
+long half. Both landed, as a second sequence beside the int one so the committed
+int32 digests did not move, with the reach set derived from the constructors
+rather than listed.
+
+### 2.55 The coverage table as a differential corpus (VARKA-120)
+
+*Opened 15 September 2026, from the review of what the published table proves.*
+
+`VarkaCoverageSuite` proves every row of the coverage table *compiles*;
+`VarkaDifferentialSuite` (96 tests) never reads `coverage.json`, so the rows a
+reader trusts are not the corpus the differential checks. One `sql/core` suite
+that runs every `coverage.json` row through both engines over the null-pattern
+fixtures - projection form and predicate form as the table says, columnar and
+row consumer - closes that, and it inherits every future row automatically: a
+new arm cannot be documented without being differentially tested, because the
+coverage suite forces the row and this suite runs it. Cheap, starts today on the
+57 int32 rows, and grows with 102 to 104 without a further change. It does not
+replace the differential suite's hand-chosen shapes; it is the floor under them.
+
+### 2.56 The AVX2 arm: the `TIME` surface under `-XX:UseAVX=2` (VARKA-121)
+
+*Opened 15 September 2026, from section 6's owed timing.*
+
+Section 6 records that C2 does not intrinsify the long-to-double casts under
+AVX2 and that the magic-number conversion is the vectorised answer there, and
+that the one thing 2.19 still owes is a timing: the magic form's cost against
+the native casts. The CI pool's Zen 3 runners are AVX2-only, so half the
+machines the benchmark workflow lands on take the second lowering. This task is
+that measurement, as its own committed companion files the way the date
+benchmarks have their 128-bit ones: the `TIME` surface (105's inventory) run
+under `-XX:UseAVX=2` on the laptop, and on a Zen 3 runner through
+`varka-surface-benchmark.yml` with `require-datapath=any`, which lands there most
+dispatches; the datapath probe and CPU flags in the provenance so a reader can
+tell which lowering a file measured. The decision it feeds: one lowering
+everywhere if the magic form is within the band of the native casts at AVX-512,
+two lowerings selected by `UseAVX` if it is not. VARKA-118 quotes the AVX2 file
+beside the full-width one, so the message does not quote a Zen 5 number for a
+path that is a different lowering on the machines most readers have.
+
+*Evidence, 20 September 2026, from VARKA-153's audit on the runner pool.* On
+an EPYC 7763 at 256 bits (`UseAVX=2`) C2 prints `** not supported: op=cast#510
+vlen2=4 etype2=double` and `cast#512 ... etype2=long` - `L2D` and `D2L` - for
+every shape carrying a 64-bit constant division, and for no other shape. The
+conversion form is per-lane on that host class; the magic form, which is fine
+at four lanes (`VARKA-152.md` 6.6), is its only vector lowering. The
+timing this task owes is now the number that decides whether `useAVX` selects
+the magic form on such hosts, against `VARKA-88.md` 9.3's shape-hash
+argument for a host-independent default.
+
+### 2.57 A comparison over a bare int column stays on the row engine (VARKA-122)
+
+*Opened 16 September 2026 by VARKA-120, when the coverage suite's predicate check
+was tightened to require every conjunct to fuse.*
+
+`year(d) = 2021 AND i > 0` was in the coverage table, and the table's check
+accepted it because *one* conjunct fused. Run end to end, the plan is a row
+`Filter (i > 0)` above `VarkaFilterColumnarToRow (year(d) = 2021)`: the
+compiler's `compare` compiles a non-literal operand through `compileNode`, whose
+value leaves are date columns and fused int fields, so a bare `IntegerType`
+column - `i > 0`, `i = 5`, `i < i2` - declines with "not a date column" while
+`month(d) > 6` fuses. The int32 lane already owns the column (VARKA-63's arithmetic
+reads it through `intOperand`); the gap is one operand rule in `compare`, and the
+guard question is nil, since a comparison cannot overflow. The table's row became
+`year(d) = 2021 AND month(d) > 6` with a note naming this; the row engine
+correctness of the split is covered by `VarkaCoverageDifferentialSuite` either
+way, since the residual conjunct runs above the fused one.
+
+### 2.58 The module gates measure the pull request, not the fork's delta (VARKA-123)
+
+*Opened 16 September 2026 by VARKA-106, whose documents-only run - #222, one plan
+file changed - was required to run all 36 jobs.*
+
+`checkout-and-sync` checks out apache/spark master, squash-merges the fork
+branch on top and exports the apache commit as `APACHE_SPARK_REF`; `Check
+changes` then runs `git diff --name-only "$APACHE_SPARK_REF" HEAD`, which is
+this fork's whole
+delta from upstream - 331 files on 16 September - and not the pull request's own
+change. So `determine_modules_for_files` sees every Varka source, every module
+gate answers true whatever the pull request touched, and a plan-file edit costs
+about 36 jobs and about an hour while its job list says nothing about what
+changed. The three gates that do skip - SparkR, buf, the UI - skip because the
+fork's delta happens to contain no R, protobuf or UI file.
+
+The reference the gates want is the pull request's own base on this repository.
+It is available before the squash: the precondition already fetches the branch
+as `FETCH_HEAD`, and a pull-request event carries its base in
+`github.event.pull_request.base.sha`, so `Check changes` can diff against
+`git merge-base <base sha> FETCH_HEAD` and fall back to today's reference for a
+push event, which has no base. `APACHE_SPARK_REF` stays where an upstream
+comparison is the point - the dependency-exception check at
+`build_and_test.yml` 1068 is one - and a pull request opened from this fork
+against apache/spark keeps the upstream reference, so the choice is by base
+repository rather than unconditional.
+
+**Done when** a documents-only pull request on this fork runs the documents jobs
+and skips the engine, bench and module shards; VARKA-94's open half, a bench-only
+change running the bench job alone, can be shown; and the lesson in
+`working-in-this-repo.md` is rewritten to say what a job list means once it
+means something. Size: small.
+
+### 2.59 The no-fallback proof: `PrintIntrinsics` in CI (VARKA-124)
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+The Vector API ends a call in one of three places - one instruction, a C2
+sequence, or a silent Java fallback - and only `-XX:+PrintIntrinsics` says
+which (item 26). The datapath probe measures ratios; this is the JVM's own
+statement that every emitted operation was lowered, and it is the only way a
+fallback on a new runner or a new lane type shows itself before a benchmark
+does. **How.** A `sql/core` test forks a JVM with the diagnostic flags over the
+emitter and kernel suites, greps the compiler log for `** not supported` and
+`** Rejected` lines, and fails on any whose method is under a Varka package;
+`dev/varka_datapath.sh` prints the `EnableVectorSupport` line from
+`-Xlog:compilation` beside `MaxVectorSize`. **Done when** the CI job carries it
+and a kernel given an operation the match rules refuse fails it. Size: small.
+
+*Corrected 18 September 2026 when the task was planned (`VARKA-124.md` 2),
+from running the flag over this repository's own probes rather than from what
+such a check usually looks like. The "How" above is wrong in three ways. There is
+no `** Rejected` in this JDK's vocabulary; there is a third category,
+`** missing constant`, which is **background** - identically present in a healthy
+run and an unhealthy one, because it reports a species argument not yet
+constant-folded at that compilation attempt - so the check reads
+`** not supported` alone, which is 0 lines clean against 22 refused. And the line
+carries no method name, while the log is interleaved across compiler threads and
+arrives spliced, so "fails on any whose method is under a Varka package" is not
+something a line-oriented read can do: attribution has to be process-level, over
+a workload that is Varka's kernels and nothing else. One further finding, which
+matters to VARKA-121: `MagicProbe` - the kernel written because the converts fail
+under AVX2 - itself emits two `op=store ... atype=byte` lines at that level, so a
+blanket rule would fail the AVX2 arm on its own reference kernel, and the check
+needs a committed baseline per AVX level instead.*
+Milestone 5's long lanes are the first customers (item 26 lists the operations
+that are sequences or Java on AVX2).
+
+### 2.60 A checksum per arm in the surface driver (VARKA-125)
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+The surface driver asserts fusion and counts fallen-back batches but never
+compares the arms' answers (item 18, Raasveldt's pitfall 3.8 in item 27). A
+checksum per entry per arm, computed once outside the timed loop and required
+equal, catches a fast wrong kernel the differential suites happen not to
+cover. **How.** `DateSurfaceBenchmark` folds each entry's result into a
+checksum after the timed iterations, writes it beside the timing, and the
+driver fails when two arms disagree. **Done when** a deliberately wrong kernel
+fails the run and the committed files carry the checksums. Size: small.
+
+### 2.61 The fifth arm: Arrow cache on, engine off (VARKA-126)
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+`dev/varka_bench_surface.sh` sets both `spark.sql.codegen.varka.enabled` and
+the Arrow cache serializer from the one `varka` token, while the README says the
+third and fourth arms "differ only by that flag" (item 27). The engine needs the
+Arrow cache to run at all, so the missing control is the Arrow cache with the
+engine off, which attributes the cache format's share of the published ratio.
+**How.** Two tokens, a fifth distribution, the README sentence corrected, and
+cache build time named as excluded from the hot-cache numbers. **Done when**
+the results attribute the ratio and the quote check passes. Size: small. It
+changes a number the write-up quotes, so it precedes 118.
+
+### 2.62 The 64-bit operations table on AVX2 (VARKA-127)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Item 26 read the match rules: without AVX-512DQ long multiply is a five-
+instruction sequence, long absolute value and long minimum and maximum
+reductions are refused and fall to Java, and sub-word masked access needs
+AVX-512BW; Benson (item 25) measured the multiply emulation losing on
+Skylake. The Zen 3 runners are AVX2-only. **How.** JMH rows under
+`-XX:UseAVX=2` on the Zen 5 first, then on the Intel and Zen 3 runners through
+the workflow, for each operation above plus `Long.compress` and vector compress
+at 128 and 256 bits. **Done when** this plan has a table per runner class
+saying one instruction, sequence, or Java, agreeing with item 26. Size:
+medium. Precedes 105.
+
+### 2.63 64-bit compaction with a sparse guard (VARKA-128)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+`SelectionVectorOps` is 32-bit today. StarRocks's compaction (item 29) copies
+survivors one by one below six set bits in thirty-two for 8-byte lanes because
+"vpcompressq ... on down-clocking Intel parts, loses to a plain scalar copy
+once only a few lanes survive", while the 4-byte path always vectorises; the
+compress gate (items 19, 22, 26) adds the AVX2 permute lowering and `PEXT`.
+**How.** The long-lane compaction, a popcount guard on the mixed group behind
+a flag, a log-scale selectivity ladder from one in ten thousand to one, on the
+Zen 5 under both AVX levels and on the Intel runners. **Done when** the guard's
+threshold is a number in a committed file or the guard is rejected by one.
+Size: medium. Precedes 105.
+
+*Sharpened 17 September 2026 by VARKA-29's admission check (`VARKA-29.md`
+2).* The gap is already paid for: when a Varka filter passes a batch on, every
+column is compacted to the selected rows, and the `compress` path is a width
+check that serves four-byte vectors only (`VarkaKernelEvaluator.scala:1304`), so
+an eight-byte column - a `bigint` that merely sits in a filtered table, whatever
+the filter is on - takes `compactFixed`'s per-row `copyFromSafe` today. The
+baseline this task's ladder measures against is therefore that per-row path, and
+the first rung to commit is a filter over a table carrying two eight-byte columns
+it does not read.
+
+### 2.64 Selectivity policy re-measured at 64-bit lanes (VARKA-129)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Raducanu (item 25) found full computation paying from 30 percent selectivity
+on 32-bit lanes and never on 64-bit ones, and Data Blocks (item 27) gained at
+most 1.5x on 64-bit codes where 32-bit gained several times. **How.** The
+filter and `CASE` ladders run over `LONG` columns at both widths. **Done when**
+every long-lane selectivity decision in this plan has a 64-bit number beside
+it. Size: small once 128 exists. Precedes 105.
+
+### 2.65 Narrowing, built four ways (VARKA-130)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+The surveys converged on the same rule from five directions (items 18 to 21,
+23, 25, 27): narrowing pays only under a heavy remainder, the threshold is all
+lanes for one vector and lower per extra vector refilled, a selection vector
+that feeds gathers loses its SIMD gain, and where to skip - per lane group or
+per batch - is the open disagreement between Polychroniou 2019 and ByteSlice.
+VOILA's Q6 (item 27) is the loss case for today's all-lanes conjunction: 2.2x on
+a selective filter. **How.** Four arms in the emitter behind one flag: blend as
+today; lane-group skip on the running conjunction word; batch-granular
+compress, evaluate, expand; in-register refill. `VarkaNarrowingBenchmark`
+extended to a log-scale ladder with a thirty-op calendar remainder, at both
+widths, with stall cycles beside time where `perf stat` runs, since Kersten
+warns IPC misleads and Ross's appendix says each skip point serialises the
+blocks around it. **Registered predictions.** Lang's threshold: the refill arm
+wins only when idle lanes times remainder ops exceed the skip's cost; Ngom's
+crossover above about fifteen ops; Raducanu's loss: forced narrowing costs on
+cheap remainders; the disagreement: the batch-granular arm beats the
+lane-group arm at random selectivity and loses on clustered data. **Done when**
+the emitter's decision rule cites the file and the predictions are scored
+here. Size: large; its own plan. After 84.
+
+### 2.66 The batch-size sweep (VARKA-131)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Kersten's optimum is one to four thousand rows and this engine runs ten
+thousand; Shen derives the length from the working set a step touches against
+the last-level cache; Photon sizes the output pool from the plan's fixed
+allocations per batch (item 25). **How.** Arrow cache batches from one to
+sixteen thousand rows on the surface and the chains; the touched set per shape
+computed at emission; the pool sized from the plan. **Done when** item 14 has a
+chosen default with the curve committed. Size: medium.
+
+### 2.67 Kernel time split from conversion time, and a pivot budget (VARKA-132)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Photon never starts an island mid-plan because each costs a pivot; Comet and
+Gluten count transitions per stage and revert past a threshold; StarRocks
+admits a subtree to its JIT only when a benefit vote clears a ratio (items 24,
+25, 28, 29). This engine fuses any Project or Filter over a columnar child, and
+items 13 and 14 measured the row boundary at most of the cost of a small
+entry. **How.** Per-node metrics for kernel time and conversion time; a "would
+add a pivot" decline reason; a benefit score over an entry's nodes, weighted by
+the emitter's op counts, against a threshold. **Done when** a one-cheap-node
+project over a row consumer declines with that reason and the metric shows the
+share. Size: medium. After 131, which supplies the numbers.
+
+### 2.68 The frequency-licence probes (VARKA-133)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Gottschlag (item 27) gives the licence mechanism: three per-core frequency
+levels on Intel server parts, the middle entered by heavy 256-bit or light
+512-bit instructions, the lowest by heavy 512-bit ones, held for about two
+milliseconds after the last such instruction; the calendar kernels are
+multiply-heavy and the datapath probe uses only adds. Neither paper measures
+AMD or anything after Skylake-SP, so the census machines are outside its
+evidence, and HotSpot itself defaults to AVX2 on the Skylake steppings it
+measured (item 26). **How.** Three effect-based probes in the survey job, no
+root needed: a heavy-multiply datapath variant beside the light one; a tail
+probe timing the scalar canary in short windows after a 512-bit burst; a
+sibling probe with a scalar control pinned to the other hyperthread. **Done
+when** the census has a licence column per CPU family, with the Zen 5 as the
+negative control. Size: small.
+
+### 2.69 The partitions ladder (VARKA-134)
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Schmidt (item 25) shows a 48-core socket's DRAM saturating at about twelve
+scalar threads, with SIMD only lowering that count; Kersten's branch-free
+selection lost a fifth at twenty threads from bandwidth. This engine's
+headline numbers are one partition on one core, and a Spark executor runs one
+task per core. **How.** The surface benchmark at 1, 6, 12 and 24 partitions on
+the Zen 5, and at physical-core and hardware-thread counts on an SMT runner
+(Gottschlag's sibling channel), as committed files. **Done when** the write-up
+states per shape whether a win is compute-bound. Size: small to medium; needs
+a quiet machine window.
+
+### 2.70 The backward interval pass (VARKA-135)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+DataFusion's constraint solver runs its interval lattice in both directions
+(item 21); this engine's `VarkaRangeAnalysis` has only the bottom-up pass.
+The top-down pass, from a known interval on a node to tighter intervals on its
+operands, lets a conjunct bound a sibling: under `d >= DATE'2020-01-01' AND d
+< DATE'2022-01-01' AND year(date_add(d, i)) = 2021`, the first two conjuncts
+narrow `d` and the guard on the third is decided from that. **How.** A second
+traversal over the same `Range` lattice with the same saturating arithmetic
+and `VarkaValueRange`'s intersect; `VarkaRangeAnalysisSuite` and the IR fuzzer
+extended with sibling-bound cases. **Done when** a guard the forward pass
+cannot remove is removed by a sibling bound in a coverage row and the
+differential agrees. Size: medium. After 84.
+
+### 2.71 The preimage rewrite (VARKA-136)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Three engines rewrite `f(col) OP c` into a range on `col` for monotone `f`:
+ClickHouse declares the preimage per function, DataFusion declares it as a
+half-open interval, DuckDB bisects the column's domain with only a
+monotonicity flag (items 20, 21, 23). Spark's optimizer has no such rule, and
+this engine serves `year(d) = 2021` with the full per-lane decomposition.
+**How.** A rule that declares the preimage where `VarkaChrono` has a closed
+form and bisects where it does not, covering the six comparisons, `IS NOT
+DISTINCT FROM` with its null case, and short `IN` lists as disjunctions of
+ranges. **Done when** the surface's year-equality row runs as two compares and
+the differential and fuzzer agree. Size: medium. **Milestone 6** scope (items
+20 and 21); the row is here so its plan sits beside 135.
+
+### 2.72 Batch bounds at cache-write time, and a bounds check ahead of `IN` (VARKA-137)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Data Blocks keeps a minimum and maximum per attribute per block and a
+positional table per value byte; BLU puts a cheap minimum-maximum check ahead
+of a long `IN` list; this engine's item 15 already asks for the batch's own
+bounds as a guard source (items 15, 27). **How.** `ArrowCachedBatchSerializer`
+writes a minimum and maximum per column per batch; the guard decision becomes
+an interval compare instead of `allWithin`'s pass; `compileInList` emits a
+bounds test before the chain so a batch outside the literals' span skips it.
+**Done when** a sorted date column retires its guards on every batch without a
+pass over the data and the `IN` benchmark shows the bounds test's cost and
+skip. Size: medium. The cache half is **milestone 6** scope (item 15); the
+`IN` half is this milestone's and lands first.
+
+### 2.73 Three test forms (VARKA-138)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Photon runs one expected table through every specialisation of a kernel;
+Comet's test base has a form asserting both engines throw or both agree;
+SQLancer's ternary-logic partitioning needs no second engine at all (items
+24, 25, and the follow-up list). **How.** In `VarkaCoverageDifferentialSuite`:
+every row through the dense body, the masked body and a lane tail with
+poisoned null lanes; a "maybe throws" form in `VarkaSharedSessions` for `ANSI`
+rows; and for every filter row the three queries `p`, `NOT p` and `p IS NULL`,
+whose counts must sum to the table. **Done when** all three run on every row.
+Size: small; lands with the next coverage change.
+
+### 2.74 A per-expression switch, and the tier ladder (VARKA-139)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from.*
+
+*Opened 16 September 2026, from the September surveys (`m8/SCOPE.md` items 16 to 29, #223).*
+
+Comet disables one expression alone and StarRocks's runtime check names the
+switch in its message (items 24, 29); Kohn tracks per-morsel rates and Kersten
+shows the JVM's cheap tier is a hundred times off, so time-to-C2 per shape is
+the only lever (item 27). **How.** `spark.sql.codegen.varka.expression.<Class>.enabled`
+producing a decline reason that names the flag, which is **milestone 6**
+scope (item 24) and is recorded here for the message form; and, this
+milestone's, a time-to-tier-4 ladder per shape and a batches-below-C2 counter
+through the telemetry attribute and JFR, extending `VarkaColdStartBenchmark`.
+**Done when** a disabled class declines with the reason and the cold-start
+file carries batches executed before each kernel's tier-4 compile landed.
+Size: small to medium.
+
+
+### 2.75 The chains at occupancy (VARKA-140)
+
+*Opened 17 September 2026 by VARKA-134, whose ladder measured the surface only.*
+
+VARKA-134 found the engine's advantage narrowing from 19.0x at one core to 16.2x
+at twelve on the date surface, and explained it as a fast implementation
+reaching the shared bottleneck sooner. `Chains` is the surface's opposite - the
+same operations three and four deep until the kernel is bound by what it
+computes - and the write-up's headline comes from it, so the explanation's
+prediction was worth testing there. **How.** Two rungs, one and twelve cores,
+two arms each, measured on the laptop in one session because the committed chain
+files are the EPYC 9V45 runner's. **Done when** the write-up can state the
+occupancy behaviour of both halves of the benchmark rather than one. Size:
+small; needs a quiet machine window.
+
+### 2.76 The module map claims Varka's own files (VARKA-141)
+
+*Opened 17 September 2026 by VARKA-123's first demonstration.*
+
+VARKA-123 made the gate diff the pull request's own files, and the first pull
+request opened after it merged showed the base working and the narrowing not
+happening: two committed data files under `sql/varka/` matched no module and so
+selected `root`. **How.** Claim them for the module whose suites read them, and
+the bench drivers under `dev/` for `varka-bench`; leave the developer-only
+scripts alone, since no CI job runs them. **Done when** a bench-only change runs
+the bench job alone and a catalyst change stops requiring `yarn` and
+`kubernetes`. Size: small.
+
+### 2.77 What a 64-bit lane costs (VARKA-142)
+
+*Opened 17 September 2026 by VARKA-85, which built the lane and priced nothing.*
+
+Every remaining task on the long lane - 104's `bigint` arithmetic, 102's `TIME`
+expressions, 29's widened loads - will be judged by a ratio against the row
+engine, and a ratio has two factors: if the lane's own cost is not known
+separately, a disappointing `TIME` number cannot be told apart from a lane that
+is simply twice as wide. Section 2.3 already calls the halved headroom the
+lane's own property and 2.39 asks for it "committed per shape, not discovered".
+**How.** The same eight shapes emitted at both lanes and driven straight over
+memory segments, as `VarkaArithmeticBenchmark` drives the int ones, over a row
+ladder chosen so that at least one rung has both arms inside the same cache
+level - otherwise the number prices a cache boundary rather than the lane.
+**Done when** the per-shape ratio is committed with the rung it was measured at.
+Size: small; needs a quiet machine window.
+
+### 2.78 The pre-commit hook judges the commit, not the file (VARKA-143)
+
+*Opened 17 September 2026 by a finding in VARKA-142's own merge commit.*
+
+A merge that changed no Python drew four findings from
+`dev/varka_precommit.sh`, all of them against lines master owns and the merge
+carried; correcting a paragraph of `CLAUDE.md` drew twenty-two, against the
+file's own long-standing prose. Both could only be committed with
+`--no-verify`, which switches off every other check in the same breath, so the
+hook was training the habit it exists to prevent. **How.** Raise a line-anchored
+finding only for a line in the commit's own diff, and exempt the Python line the
+linters themselves exempt - one whitespace-separated chunk, ruff's `E501` rule,
+which Spark's configuration does not even select. **Done when** the hook's own
+self-test pins both directions of each rule and runs whenever the hook is
+committed. Size: small.
+
+### 2.80 What the long lane costs end to end (VARKA-144)
+
+*Opened 17 September 2026 by VARKA-29's registered prediction, which nothing had
+scored.*
+
+VARKA-142 priced the lane at the kernel and VARKA-29 predicted what that would be
+worth in a query - 0.45x to 0.60x of the int lane for a comparison filter - and
+then could not measure it, because the number it needed is an end-to-end one.
+Four tasks are about to be built on this lane and judged by ratios. **How.** One
+shape at two widths over identical values, Varka on and off, at two row counts,
+with every case asserting it fused. **Done when** the per-shape ratio is
+committed with the scale it was measured at. Size: small; needs a quiet machine.
+
+### 2.81 A narrowed filter loses the columnar path (VARKA-145)
+
+*Opened 18 September 2026 by VARKA-144's crossed experiment, then twice corrected
+the same night - first by a five-case separation, then by the control that
+refuted the separation's own reading. `VARKA-144.md` 9.3 carries the record.*
+
+The first reading was "forwarding a column costs ten times", the second "a filter
+that narrows its output costs eight times". Both are wrong, and the control that
+says so is forcing the row read-back with `toRdd`: there the narrowed and
+un-narrowed shapes are within 1% of each other (144.4 against 142.8 M rows/s),
+and VARKA-78 had already measured that shape at three selectivities and both
+widths, finding the narrowed form slightly *faster* than the two-column control.
+
+What is left, measured under a `noop` sink over twenty million rows:
+
+| query | node | columnar sink | row path forced |
+| :--- | :--- | ---: | ---: |
+| `SELECT i FROM t WHERE i > 50000` | no narrowing | 862.3 | 144.4 |
+| `SELECT i2 FROM t WHERE i > 50000` | narrowing | 120.3 | 142.8 |
+| `SELECT i, i2 FROM t WHERE i > 50000` | no narrowing | 901.3 | 109.5 |
+
+The un-narrowed shapes are seven times faster than themselves under a forced row
+path; the narrowed one is not faster at all. So the gap is not a cost the
+narrowing pays - it is a cost the others *avoid*, by staying columnar end to end
+where the narrowed node does not. That is VARKA-19's read-back floor, reached
+through a plan difference.
+
+**How.** Find out why the narrowed node does not take the columnar path under a
+columnar consumer, given that `VarkaFilterColumnarToRowExec.columnarSibling`
+already builds `VarkaProjectExec(narrowing, filter)` for exactly this case; then
+either route it there or record why it cannot be. **Done when** a columnar
+consumer over a narrowed filter is measured beside an un-narrowed one and the
+difference is explained. Size: small to medium. Relevant to 105, whose surface
+entries narrow, and to the Arrow cache builder, which is a columnar consumer.
+
+### 2.82 The upstream ticket `TIME + INTERVAL` waits on (VARKA-146)
+
+*Moved to `m8/SCOPE.md` item 50 on 23 September 2026: the answer is
+upstream's to give, a patch for it is open and unreviewed, and row 102 closed
+with its guard intact and built to be easy to delete.*
+
+*Opened 18 September 2026 on the owner's instruction, from VARKA-102's section
+4.1 and `SCOPE_STANDARD_MODE.md` section 3.3.*
+
+Vanilla's `timeAddInterval` is `addExact` plus a check that the result lies in
+`[0, 24h)`, throwing `timeAddIntervalOverflowError` otherwise. A lane cannot
+throw, so `VARKA-102.md` 4.1 lowers `t + dt` as `make_date`'s pattern: a
+guard that fails the whole batch into the ghost fallback, where the row engine
+raises the identical error on the identical row.
+[SPARK-57853](https://issues.apache.org/jira/browse/SPARK-57853) asks whether
+ANSI's modulo-24 replaces the throw. If it does, the lowering becomes a
+`floorMod` by `NANOS_PER_DAY` with no guard, no decline channel and no batch
+ever falling back - and a declined batch costs the whole batch on the row
+engine, which is far more than the guard's own compare.
+
+This is one deliberate exception to the rule rows 107 to 115 were withdrawn
+under (section 8), that upstream's `TIME` gaps are upstream's work. Those rows
+were expressions vanilla does not have, whose absence costs Varka nothing until
+they land. This one is a semantics decision on an expression VARKA-102 is
+lowering now, and it decides whether that lowering carries a fallback channel at
+all. It is also the only one of the surveyed tickets that is open and
+unassigned, so reviewing or writing the patch is the way to learn the answer
+rather than wait for it. *Correction, 23 September 2026: it is not without a
+patch. `apache/spark#57044`, "[SPARK-57853][SQL] Use ANSI modulo-24 semantics
+for TIME +/- INTERVAL", has been open since 6 July - 153 lines added over
+eleven files, `DateTimeUtils`, `TryEval`, the error class, `TimeExpressionsSuite`
+and the `TIME` golden files, which is the ticket's own acceptance list - and its
+author asked this repository's owner to review it on 20 July. Nothing has moved
+on it since. The row was scoped on a survey that missed it.*
+
+**How.** Read the ticket and its umbrella
+([SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550)) for a patch
+to review; if there is none, take the position the standard supports - ANSI's
+HOUR arithmetic on `TIME` is modulo-24 - and open the pull request against
+`apache/spark` master, covering `DateTimeUtils.timeAddInterval`,
+`TimeAddInterval`, `sequence` over `TIME` and TRY eval mode, with
+`TimeExpressionsSuite` and the `TIME` golden files, which are the ticket's own
+acceptance criteria. Whichever way it goes, the answer is recorded in section
+7's open question 4 and in `VARKA-102.md` 4.1.
+
+**Done when** the ticket has a resolution Varka can lower against - a merged
+patch, or a recorded decision to keep the throw - and `VARKA-102.md` 4.1
+says which, with its guard deleted or kept accordingly. Size: small in Varka and
+unbounded upstream, which is why the milestone does not block on it: 102's guard
+is built to be easy to delete.
+### 2.83 The 64-bit dividend bound is stated and not enforced (VARKA-147)
+
+*Opened 19 September 2026 by the review of VARKA-88 step 3.*
+
+`VarkaVectorIR.ConstDivide` documents a precondition - the dividend's magnitude
+below 2^52 - and names the constant, and nothing anywhere checks it. There is no
+constructor check, no analysis check and no emitted guard, and
+`VarkaRangeAnalysis.range` answers UNKNOWN for every non-INT lane, so the
+lattice could not discharge the obligation even if it were asked.
+
+Past the bound the two lowerings fail differently and neither fails safely. The
+conversion form is off by one, which is the ordinary rounding story. The
+magic-number form is not: bit 52 is the low bit of the exponent field its
+`0x4330000000000000` identity depends on, so the OR drops it and the value read
+back is the dividend modulo 2^52 - wrong by about 4.5e12 for a nanosecond
+divisor rather than by one.
+
+This is not hypothetical. `TIME` is structurally safe, nanoseconds of day being
+under 2^47, but section 2.38 records that a day-time interval is signed
+microseconds across the whole int64, and VARKA-103's `extract(DAY FROM dt)` is a
+division over exactly that.
+
+**How.** The kernel already declines batches: `STATUS_CHRONO_RANGE` is one bit of
+a status bitmask and `emitRangeGuard` is a general two-compare helper already
+used at two different bounds. A division at the long lane takes the same
+treatment, with the bound read from the node rather than restated beside it.
+**Done when** a dividend past the bound declines the batch under both lowerings
+and the row engine answers it. Size: small.
+
+### 2.84 The group budget under-counts an int-lane division sevenfold (VARKA-148)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an emitter budget finding on the int lane; recorded, not the message.*
+
+*Opened 19 September 2026 by the same review.*
+
+`weightOf` approximates lane operations - a checked `IntArith` is 5, "one
+lanewise op plus the four the sign test costs" - and `ConstDivide` falls through
+to the default 1 while its int-lane conversion form emits seven. Sixteen of them
+therefore fit one loop method under `GROUP_BUDGET`, carrying about a hundred and
+twelve operations into it and the same again into the epilogue, which is the one
+method no byte budget bounds.
+
+VARKA-88 step 3 corrected the long lane, where the magic form is fourteen, and
+deliberately left this alone: the under-count predates the 64-bit lane, and
+correcting it moves `emitted_bytes.json`. A byte movement wants a change whose
+subject it is, not a side effect of one about a different lane.
+
+**How.** Weigh an int-lane `ConstDivide` at 7, regenerate the oracle and read the
+diff. **Done when** the regenerated file is green and the movement is explained
+shape by shape. Size: small.
+### 2.85 `extract(YEAR FROM ym)` loses to a scalar loop at 128-bit lanes (VARKA-149)
+
+*Opened 19 September 2026 by VARKA-88 step 4's own measurement.*
+
+The A/B that scored VARKA-88's predictions measured one row it had not been built
+to question. `extract(YEAR FROM ym)` is a month count divided by twelve, the
+calendar's range-narrowed magic is exact over about one forty-thousandth of
+int32, so `ConstDivide`'s conversion through double lanes is the only lowering
+the expression has. Against a scalar loop over the same memory it reads 3897.6
+against 3003.5 at 512-bit lanes - 1.30x - and **2102.7 against 2857.7 at
+128-bit**, which is 0.74x.
+
+The comparand is a floor on the row engine rather than the row engine, so the
+true ratio against Spark is better than either number. That does not rescue the
+narrow arm: a kernel slower than a plain loop over the same buffers has lost
+whatever the row engine costs on top, and 128-bit lanes are not a corner - they
+are every NEON-only aarch64 and every x86 without AVX2, which is the width
+`SPECIES_PREFERRED` answers there.
+
+Nothing in the admission looks at the width. The expression fuses on those
+machines and is a pessimisation on them.
+
+**How.** Find where the conversion form's seven operations stop paying at four
+lanes - the two converts and the join are a fixed cost against a quotient that
+does not get cheaper - and either decline the shape below a width or find the
+lowering that pays there. The measurement is a scalar-loop comparand at both
+widths, as here; the comparand that decides admission is the row engine, which
+is what a decline routes to. **Done when** a committed 128-bit row shows the
+kernel is not slower than a plain loop, or the shape declines with the width in
+its reason. Size: small to medium.
+
+*A lead, 20 September 2026, from VARKA-153's audit.* At every width, alone or
+in sequence, this shape's kernel prints `** missing constant ... bitwise=ConI`
+under `PrintIntrinsics`: the int-lane conversion form divides with
+`DoubleVector.div(double)`, whose broadcast of the divisor runs on the vector
+instance's own species, and after a half-width `convertShape` C2 cannot prove
+that species constant on its first late-inline attempt. If the retry also
+fails, the divisor is broadcast by a Java loop once per lane group, which would
+account for a division that loses to a scalar loop at 128 bits. The fix is one
+line in `emitDoubleConvert` - broadcast the divisor once, from the species
+constant, and divide by the vector - and moves emitted bytes, so it is this
+task's to make and to measure, not the audit's.
+
+*Admission check, 20 September 2026, `VARKA-149.md`.* VARKA-153's audit
+offered a lead - a `missing constant` line on the conversion form's divisor
+broadcast - and the one-line fix for it was built, measured and reverted:
+the int form ran within noise of its committed rows, and the line is the
+retried kind, not a refusal. The real limit is the divider: two double
+divides per lane group at any width, against a scalar loop that C2 has
+strength-reduced into a multiply-high. The plan designs that same
+multiply-high for the int lane through 64-bit lanes, with an exhaustive proof
+script, and registers its predictions; the build is the task's next step.
+
+*Closed 20 September 2026, `VARKA-149.md` 9.* The multiply-high through
+64-bit lanes ships as the int-lane `ConstDivide`: 9057.5 against the conversion
+form's 3908.7 M rows/s at 512 bits and 3330.8 against 2102.8 at 128, where it
+now beats the scalar loop's 2851.5. The conversion form stays as the reference
+arm; the long lane is untouched and did not move.
+
+### 2.86 The assembly gate fails on part of the runner pool, and cannot say which part (VARKA-150)
+
+*Opened 19 September 2026, on the gate's second failure in its first two days.*
+
+`Varka assembly gate` (VARKA-124's first half, #250) has now failed twice with the
+same four tests and passed in between on a re-run of the same commit: on #255's
+first run (job 105848128855) and on #258 (job 105904839194). Each time the
+tests that fail are the 128-bit self-test, `ChronoVectorOps.vectorFourFields`,
+the 128-bit sweep and the hand-written kernel under forced inlining; each time
+every emitted loop at the default width passes; and each time
+`VarkaEmittedBytesSuite` is green on the same commit, so the bytes under the
+gate are identical to the bytes that passed elsewhere.
+
+The second run's message is the one that settles what kind of failure this is:
+`VarkaAssemblyProbe::gatherLookup: expected at least one packed gather on a %xmm
+register and found none`. That is the suite's **own probe** - a fixture with no
+Varka code in it - not producing a gather at 128-bit lanes on that runner. A
+self-test failing is a statement about the machine, or about the JVM's choices
+on it, not about the code under test. The pool is the one `VARKA-62.md`
+section 11 censused: Zen 3, Zen 4, two Intel generations and Zen 5, and the
+gate's assertions are written for a machine that packs these shapes at every
+width.
+
+**And the gate cannot say which machine it was on.** Its log carries no CPU
+model, no `UseAVX`, no `MaxVectorSize`, nothing from the datapath probe - the
+one machine fact in it is the `hsdis-amd64.so` it built - and GitHub's runner
+names are ephemeral ids. So a failure today is diagnosed by re-running and
+hoping for a different machine, which is what happened both times and is not a
+method.
+
+**How.** Two changes, the first of which makes the second possible. Print the
+machine at the top of the gate job - CPU model, `UseAVX`, `MaxVectorSize`, the
+datapath probe's three readings - the way the surface workflow already does, so
+a failure names its runner class. Then give the gate expectations per machine
+class rather than one universal assertion: VARKA-124's baseline per AVX level is
+the shape, `VARKA-124.md` records SLEEF's per-ISA `CHECK-` lines as the
+precedent, and the self-tests are the natural precondition - a machine whose
+own gather probe does not pack at 128 bits should *cancel* the 128-bit and
+hand-written assertions with that reason, not fail them. **Done when** a gate
+failure names the CPU it ran on, and the gate is green on one run from each
+family in the census, including the ones it fails on today. Size: small.
+
+*Closed 20 September 2026.* The machine class was the wrong suspect. Pinning
+the suite to two busy cores on the laptop reproduces the same four failures,
+and the probe child under `-Xbatch` passes all fourteen cases under that same
+starvation (`VARKA-150.md`). The probe's count-based warm-up assumed the
+background C2 compile finishes before the calls run out, which holds on an idle
+machine and not on a contended runner, so the parent read a C1 body or an early
+scalar C2 body. The child now compiles synchronously, the gate job prints the
+machine before the assertions, and every failure message names the host. The
+per-class expectations were not built: the evidence says no class was ever
+refusing these shapes.
+
+### 2.87 The math lanes, re-read with the library reached (VARKA-151)
+
+*Opened and closed 19 September 2026, from the owner's choice of "decide the FP
+contract on all hosts" as the next investigation.*
+
+`SCOPE_FUNCTIONS.md` section 3 (#257) said the Vector API's math lanes were
+`java.lang.Math` bit for bit on x86. Extending its probe to `pow` and running it
+on the aarch64 runner produced an all-zero table there too, which was one zero
+too many: SLEEF's `exp` agreeing with fdlibm's on every one of 262144 inputs is
+not a thing that happens. C2's log said why - `** missing constant: opr=LoadL`
+for `libraryUnaryOp`. The probe passed the operator as a method parameter, C2
+compiled the per-lane scalar fallback, and the probe had compared `Math` with
+itself on every host, the laptop included. Rewritten with one loop per operator
+constant, the first CI reading then showed a second way to the same fallback:
+operators warmed one after another through one method left some of them
+compiled before the JDK had bound their symbol, with the load and the fallback
+baked in - which operators depended on compile timing, and so on the host.
+Binding every operator once before any is warm closed that, and a forced
+fallback control pass, a nanoseconds-per-element column and the JDK's own
+binding log now sit in every run so the same mistake cannot pass unnoticed.
+
+**What the true reading is.** On Zen 5 at AVX-512, EPYC 7763 at AVX2 and
+Neoverse N2 with NEON, no operator reproduces the row engine's bits: against
+the library Spark calls, one ULP on up to thirteen percent of inputs, two for
+`log10` everywhere and `tanh` on x86; the three library builds disagree with
+each other; on aarch64 `Math` is fdlibm for all but `sin` and `cos`; and the
+speed-up is width-bound, 5x to 14x at eight lanes down to 1.1x to 3.9x at two.
+Section 3 carries the tables, item 36 the decision they force - for the whole
+family now, not for six functions. The outputs are committed beside the probe
+as `dev/varka_canary/mathlane-*.txt`.
+
+**What was built to get it.** `varka-canary.yml`: a workflow that runs any
+`dev/varka_canary/*.java` on `ubuntu-latest` and `ubuntu-24.04-arm` with the CPU
+model, the JDK and the vector-library binding printed beside the output, on
+dispatch or on a push touching the directory. It is the cheap way to ask a
+per-host question - no Spark build, seconds per runner - and VARKA-150's
+per-machine gate can start from the same "print the machine first" step.
+### 2.88 The `TIME` split form priced before any engine exists (VARKA-152)
+
+*Opened and closed 20 September 2026, from the owner's choice of "whether
+representation as a compiler decision pays" as the next investigation after
+VARKA-151.*
+
+`m8/SCOPE.md` item 11 is a long argument with no number under it, and
+its `TIME` row - seconds of day and nanoseconds within the second in two 32-bit
+lanes, instead of nanoseconds of day in one 64-bit lane - is the first case that
+needs no engine to price: the extracts are constant divisions either way, and
+the only question is what each form's division costs, at each width, against
+the price of the split. `VARKA-102.md` 2.5 asks the same question from the
+store side, where the extracts wait on a narrowing store or on VARKA-28.
+
+`VarkaTimeBenchmark` answers it as a baseline committed before any lowering
+changes: four arms per shape on the same instants, the split itself as an
+upper bound, the copy floors, four rungs. `VARKA-152.md` carries the
+predictions, registered and committed before the first regeneration, and the
+scoring. What follows from the numbers is item 11's to decide and VARKA-102
+group C's to build, not this task's.
+
+### 2.89 Masked 64-bit operations have no 128-bit lowering, and every long-lane guard is one (VARKA-153)
+
+*Opened 20 September 2026, from `VarkaTimeBenchmark`'s 128-bit companion
+(VARKA-152); closed the same day, `VARKA-153.md`.*
+
+The wide run of that file says the 64-bit magic divide costs at most nothing
+against the conversion form; the narrow run says it runs at one fiftieth of
+it, and `PrintIntrinsics` names the cause: at `vlen=2` C2 refuses the masked
+`NEG`, the masked `SUB`, both compares that feed them and the mask broadcast,
+and the Vector API runs each as a Java loop over the lanes (`VARKA-152.md`
+6.5). The magic form is opt-in; the open question was everything else built
+the same way at the long lane, on a fleet whose NEON-only hosts run at exactly
+that species.
+
+**Answered by the audit.** `VarkaWidthAuditSuite` reads C2's refusals per shape
+and per width from its own log rather than from a rate. At the host's 512 bits
+and at 256 there is no refusal in any shape. At 128 bits every long-lane
+construction that touches a mask is refused - compare to mask, blend, the
+validity word's cast to and from a mask, mask broadcast, mask logic, the
+`anyTrue` test - and no int-lane construction is; seventeen of the twenty
+long coverage rows are per-lane at two 64-bit lanes, and the three that are
+not are the mask-free divisions. The coverage table now carries that verdict
+per row, and the invariant that nothing is refused at a host's own width runs
+on every runner class in the catalyst shard - where its first run, on an EPYC
+7763 at 256 bits, found the other half: the 64-bit lane's `L2D` and `D2L`
+refused at four lanes in every division shape, which is VARKA-88's AVX2 premise
+confirmed on real hardware and now VARKA-121's decision. What remains is the design
+choice per construction - a mask-free form or a decline below 256 bits - which
+goes with the next long-lane kernel (VARKA-102 group C), and the NEON
+confirmation, which needs a catalyst run on the arm runner. *Taken on 20
+September 2026 (`VARKA-153.md` 6): on the pool's Neoverse N2, ASIMD with
+SVE2 at a 128-bit species, C2 refuses nothing in any of the hundred shapes. The
+two-lane refusal is the x86 matcher's below its own width, and the fleet's
+aarch64 hosts run the long-lane guards vectorised.*
+
+### 2.90 The width-audit census pins lines it calls non-verdicts (VARKA-154)
+
+*Opened 20 September 2026, from VARKA-102 group C's regeneration of the census
+(`VARKA-102.md` 8.6, #268).*
+
+`sql/varka/width_audit.json` records, per shape and width, the lines C2 prints
+under `PrintIntrinsics` for the shape's Vector API calls. Its own description
+separates three kinds: `not supported` is a refusal and the verdict the suite
+exists for; `missing constant` is a first late-inline attempt that C2 may
+retry; `unbox failed` is a vector reaching a call as a heap object once the
+shared templates have seen other kernels. The last two are named as "not a
+verdict on its own", and they are pinned all the same. The consequence showed
+on the first regeneration after VARKA-153: two `missing constant` lines moved
+on rows the change had not touched, one appearing under `add_months(d, i)` at
+128 bits and one disappearing under `greatest(l, l2)` at 256, and an earlier
+run of the same tree had moved a third. The lines depend on JIT timing in the
+forked probe, so the local census check fails on a quiet tree and a
+regeneration blesses whichever timing the run had.
+
+The fix is to pin what the suite means: the `not supported` lines per shape,
+with the other two kinds either dropped from the file or kept in a separate
+advisory block the comparison ignores. Either way two regenerations on the
+same host must agree byte for byte, which is the test that the census is a
+property of the CPU and the JDK and not of a run.
+
+### 2.91 Route A's end-to-end prediction is scored by the `TIME` surface, not by a new benchmark (VARKA-155)
+
+*Opened 20 September 2026, from `VARKA-102.md` 8.3's third prediction;
+narrowed the same day on re-reading VARKA-105.*
+
+Route A's plan predicted `hour(t)` at least 15x faster than the row engine end
+to end, and its outcome could not score it: `VarkaTimeBenchmark` times kernels
+over raw buffers, and nothing committed runs a `TIME` expression through the
+engine against the row path. The first draft of this row asked for a new
+sql/core benchmark. VARKA-105 already is that benchmark - `TimeSurfaceBenchmark`,
+the fork with the engine on and off against stock 4.2.0, every entry
+`--expect-fused`, its own band under VARKA-101 - and the closing task (118)
+quotes it. A second class measuring a subset of the same thing would be two
+files for one number.
+
+So this row is only the hook: when 105's files are committed, score 8.3's
+prediction 3 from the `hour(t)` row's engine-off ratio and write the result
+into `VARKA-102.md` 8.6, which today says "not scored". No benchmark is
+added here.
+
+### 2.92 The narrowed store costs more than its share at two 64-bit lanes (VARKA-156)
+
+*Opened 20 September 2026, from `VARKA-102.md` 8.6 (#268).*
+
+At 512 bits the narrowed store is within 4% of the wide store on every shape
+and a quarter faster past L3, where it writes half the bytes. At 128 bits
+`hour` and `minute` are within 5%, but `second` reads 12% under the wide
+store and the three fields together 18% under, at every rung. The direction
+has an explanation - two long lanes amortise the `L2I` and the masked int
+store over two rows rather than eight - but not the shape dependence: `second`
+has two divisions to `hour`'s one, so the store should be a smaller share of
+it, not a larger one, and the three-field shape narrows three roots where the
+wide form stores three, which is the same count.
+
+So the cause is not established, and the task is to establish it the way the
+project establishes JIT facts, from the JVM's own output rather than from the
+rate: the generated assembly of the 128-bit narrowed body against the wide
+one, and `PrintIntrinsics` for the `convertShape` and the masked store at
+`vlen=2`. Then either accept the cost with the cause recorded, or take the
+cheaper store the cause points to - a plain store where the lane group is
+full, a different conversion at two lanes - and re-measure on the same file.
+
+*Closed 21 September 2026.* The cause is read in the assembly and recorded in
+`VARKA-156.md` sections 3 and 4: the masked narrowed loop is not unrolled,
+carries the masked store's in-loop bounds branch, and shifted its offset. The
+offset fix shipped and moved little, as predicted. A store through the half
+species of the int lane, measured as a new arm, is equal to the wide store
+within 3% at 512 and 256 bits and within 3% at 128 on `hour`, `minute` and
+`second`, 10% under it on the three-field shape, and better than the masked
+form on every shape at every width. Shipping it is row 162.
+
+### 2.93 The widening store: a decimal output is sixteen bytes a row (VARKA-157)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: the decimal store; the two decimal declines are named in the coverage table, which is the honest form for the message.*
+
+*Opened 20 September 2026, from `VARKA-102.md` section 9.*
+
+VARKA-102's section 2.3 said `second(t)` with its fraction and
+`time_to_seconds(t)` were blocked on a representation and not on a lane; section
+9 read the representation. Every decimal the `TIME` family produces has
+precision 18 or less, so its value is an unscaled long the long lane already
+computes; what does not fit is the column, which Arrow holds as sixteen bytes a
+row at every precision. For an output that is a store's worth of work: the
+mirror image of route A's narrowing store, a root-only node whose store writes
+the value word and its sign extension into each sixteen-byte slot - two lane
+operations and a second store per group, with the loop, the validity and the
+tree beneath unchanged - and a `DecimalVector` destination in the evaluator.
+
+The row is the store, measured the way route A was: against the form that needs
+no emitter change, the evaluator widening a long output into the decimal
+buffer in a scalar loop per batch, which is the baseline the store has to beat;
+and with the exhaustive check that the unscaled-long form of the fraction agrees
+with the row engine's `Double` round trip on every nanosecond of a minute. The
+decimal *input* - `make_time` over a decimal column - is milestone 6's item 1,
+the de-interleave, and is not here.
+
+### 2.94 Group E: the `time_to_*` and `time_from_*` conversions, and two honest declines (VARKA-158)
+
+*Opened 20 September 2026, from `VARKA-102.md` 9.3.*
+
+`time_to_millis`, `time_to_micros`, `time_from_seconds`, `time_from_millis` and
+`time_from_micros` are not in the compiler's `StaticInvoke` table: the nine it
+was built from predate them, so they decline as `unsupported expression` and the
+table's completeness guard, which checks the table against its own list, does
+not see them. They are group B's shapes - a truncating constant division by
+10^6 or 10^3, a multiply by a constant under the conversion's overflow and range
+rules - and five rows for the `TIME` surface at group B's price. The same change
+gives the two decimal expressions of group D the decline section 2.3 asked for,
+naming the Arrow representation rather than saying the expression is not
+lowered yet.
+### 2.95 Refactor for readability, with the bytes oracle as the proof (VARKA-159)
+
+*Opened 20 September 2026 from the owner's review of the week's pull requests.*
+
+The classes a newcomer opens first are the longest: the emitter at 6860 lines
+and 86 methods, the compiler at 2211 with one 478-line match, the cache
+serializer at 1775, the evaluator at 1527, and the emitter's suite at 5297.
+Adding a node this week touched about twelve emitter sites each time, and two
+of them were found only by a clean compile. The task splits each file along the
+seams it already draws - the emitter by its five phases, the compiler by
+expression family (where VARKA-86's one operand admission lands), the evaluator
+by responsibility, the suite by family, the serializer one class per file - and
+ends with one place per IR node, which is 2.13's rule made structure. What makes
+it safe is the instrument the project already has: a step is a refactor exactly
+when `emitted_bytes.json` and the shape hashes do not move, so no benchmark is
+rerun and no behaviour can change unnoticed. `VARKA-159.md` names the seams
+and the order; every step waits for the pull requests open at the time to merge.
+
+### 2.96 Run only the CI a change can reach (VARKA-160)
+
+*Opened 20 September 2026 on the owner's question whether the build's ninety
+minutes were necessary for every Varka pull request.*
+
+A full Build on the fork is 35 jobs and 1283 job-minutes, about ninety minutes
+of wall time, dominated by the `sql` shards, the connect and streaming shard,
+Docker and TPC-DS. The precondition already selects by module; what defeats it
+for Varka is that any change under `sql/catalyst` sets `build=true`, and that
+runs the whole matrix, because catalyst is upstream of everything Spark tests.
+Varka's code lives in files named for it and in `varka` directories, its hooks
+into Spark are six shared files, and Spark's suites run with the engine off, so
+a change confined to Varka's files cannot change what they see. The task
+classifies a change by its paths - `spark`, `scoped`, `docs`, `none` - runs the
+Varka suites of catalyst and sql/core in one job for a `scoped` change and the
+matrix for a `spark` one, and proves the classification by the runs it
+produces (`VARKA-160.md`).
+
+### 2.97 The quote check reads the merge it is asked to commit (VARKA-161)
+
+*Opened and closed 20 September 2026, from a merge commit the hook refused.*
+
+The quote check holds every number a plan quotes to a committed results file,
+current or historical, and the pre-commit hook runs it on every commit. Its
+history walk started at `HEAD`, which during a merge is the branch alone: a
+number that only master's side of the merge ever committed was an orphan to the
+hook and correct the moment the merge was committed. VARKA-154's branch met it
+after VARKA-149's numbers left the current files (`VARKA-161.md`): 13
+orphans on the uncommitted merge, 0 on master and 0 on the same merge once
+committed past the hook. The walk now takes `MERGE_HEAD` beside `HEAD` when it
+exists, so the hook judges the tree and history the merge commit will have.
+
+### 2.98 Ship the half-species narrowed store (VARKA-162)
+
+*Opened 21 September 2026, from VARKA-156's outcome.*
+
+VARKA-156 built the half-species store as an arm and measured it against the
+masked store it was meant to replace: never worse, better by 7% to 11% on the
+shapes that hurt at 128 bits, and past L3 at the wide widths the best of the
+three stores, `hour` 44% over the wide store at 512 bits. The masked form is
+still what ships. This task flips the default where the emitter bakes the lane
+count, builds the general case for the path that does not - the half of the
+preferred species as a static final of the emitted class, so the kernel picks
+it at load time on the machine it runs on - and regenerates the oracles. The
+10% the three-field shape still gives up at 128 bits is read in the assembly
+with VARKA-156's dump, and either named as the per-store overhead two lanes
+cannot amortise or closed.
+
+### 2.99 The emitted three-field int kernel trails its hand-written twin in cache (VARKA-163)
+
+*Moved to `m8/SCOPE.md` item 39 on 21 September 2026, from planning the closing task: an emitter performance finding on the int lane; recorded, not the message.*
+
+*Opened 21 September 2026, from `VARKA-102.md` 8.8.*
+
+`BoundedDivide` made the emitted int-lane extracts the same arithmetic as the
+hand-written kernel: one multiply and one shift per division. Measured, the
+single fields agree within 5% at every width, and the three-field shape agrees
+past L3, where the stores set the rate. In cache it does not: 18% under the
+hand-written kernel in L3 at 512 bits and 20% at 256. The arithmetic being
+equal, the difference is the emitter's own - how it loads once and stores three
+times, and what it keeps live across three roots - and it is the first place
+the emitter is measurably behind a hand-written loop on equal instructions.
+That is worth knowing before the calendar prefix is made of these nodes.
+
+### 2.100 A `TIME` chains benchmark, for the full-width number (VARKA-164)
+
+*Opened 21 September 2026, from planning the closing task.*
+
+Milestone 4 learned that the surface cannot be measured on a CI runner: its
+lightest rows are memory-bound, a runner's per-job constant is about 36 ms,
+and the rows the 5% rule would need do not fit a 15 GiB machine. The chains
+were the answer, doing enough work per row to clear the rule at 200M rows, and
+they are the only full-width numbers the README has. The `TIME` surface is in
+the same position with a heavier table, so the message's 512-bit number needs
+a `TIME` twin of the chains: chained divisions, truncations and interval
+arithmetic over `varka_times`, twelve entries at most, the same `MIN_OPS`
+floor, the same driver, its own files and band. `VARKA-118.md` section 4
+predicts what it reads and what the width is worth on it.
+
+### 2.101 A forced 128-bit species compiles scalar on the runners and packed on the laptop (VARKA-165)
+
+*Opened 21 September 2026, from the first assembly gate run that named its machine.*
+
+VARKA-150 fixed the half of the gate's failures that was compilation finishing
+too late. The other half survived the fix and now has a name: on an EPYC 9V45
+runner, the laptop's own CPU family, C2 compiles the assembly probe's gather at
+`-XX:MaxVectorSize=16` to a scalar body of 248 instructions, the same count the
+Intel Xeon runners read, while this laptop compiles it packed. The gate now
+cancels its 128-bit assertions where the probe's own gather comes out scalar,
+naming the host, so no pull request waits on it; but a JVM that refuses the
+Vector API at a forced species on the machines most readers have is a fact
+about where Varka's 128-bit numbers can be reproduced, and the reason has to be
+read from the JVM rather than guessed. `PrintIntrinsics` says why an intrinsic
+was refused; the width-audit workflow already runs the census on the pool and
+can carry the probe.
+
+### 2.102 The two 64-bit division forms have never been run through the JVM near the bound (VARKA-166)
+
+*Opened 22 September 2026, from the milestone's closing review, on the owner's
+instruction.*
+
+`ConstDivide`'s dividend bound is 2^52, and the claim that the conversion form
+is exact under it and the magic form exact under it and wrong above it rests on
+`sql/varka/plans/verify_double_division.py`, a numpy model of the two lowerings
+over their divisors. VARKA-147 made the bound a stated obligation on the node;
+nothing has ever run the *emitted* kernel near it. The long-lane fuzzer's
+column bound is 2^46, one bit above a day of nanoseconds and six bits below
+where the lowerings break, so the emitted magic form has been checked exact
+under 2^52 and run under 2^46. If the model and the JVM's arithmetic disagree
+anywhere - a rounding mode, an intrinsic the JIT substitutes, a masked lane -
+the disagreement is in the six bits no test has visited, and the milestone's
+message about `TIME` divisions would be resting on a Python script.
+
+**How.** One test in `VarkaEmitterDivisionSuite` that emits both long-lane
+forms - the conversion form at the default level and the magic form at
+`useAVX=2` - at both widths, and drives them over dividends in `[2^51, 2^52)`
+and `[2^52, 2^53)` at both signs, comparing against Java's `/`: exact below
+the bound, and above it the documented failures, the conversion form off by
+one on a non-multiple and the magic form reading the dividend modulo 2^52. The
+test asserts the *shape* of each failure and not merely its presence, because a
+failure of a different shape would mean the model is wrong. **Done when** the
+kernel's own bytes confirm what the script models for every divisor Varka
+divides by, or the script is corrected to what they do. Size: small.
+
+*A first campaign, 22 September 2026.* With the long-lane fuzzer's column bound
+raised to 2^52 - 1 on VARKA-147's tree (`#316`'s knob), 14.4 million random
+long-lane trees at the default width and under `-XX:MaxVectorSize=16` and
+`=32` found no disagreement with the reference evaluator, with `useAVX`
+randomised so the magic form ran near the bound. That is evidence the six bits
+hold, not the deliverable: a random draw cannot promise it visited the last
+bit below the bound, and the deterministic test above can. The campaign's
+record is in `sql/varka/skills/testing-and-debugging.md`.
+
+*Done, 22 September 2026.* The test emits both forms - the conversion form at
+the default level, the magic form at `useAVX=2` - at two and eight lanes, over
+seven divisors (the four `TIME` units, a day of micros, and 60 at both signs)
+and dividends at the ends, the first multiple boundary and one point deep
+inside each of `[2^51, 2^52)`, `[2^52, 2^53)` and `[2^53, 2^54)`, at both
+signs, and compares every lane with Java's `/`. Below 2^52 both forms are
+exact. The conversion form stays exact to 2^53, where a correctly rounded
+quotient cannot cross an integer, and beyond it is within one of Java's, as
+the dividend itself rounds; the magic form reads the dividend through the
+`0x4330000000000000` identity, whose mantissa is 52 bits, so from 2^52 on its
+quotient is that of the magnitude's low 52 bits with the sign applied
+afterwards - the shape the script models, confirmed in the kernel's own bytes.
+The one correction is to this section's opening: the conversion form's
+off-by-one begins at 2^53, not at the bound, and the bound is 2^52 because the
+magic form's is. The test passed on the first run, on master after VARKA-147
+landed.
+
+### 2.103 The bytes oracle pins shapes, not options (VARKA-167)
+
+*Opened 22 September 2026, from the same review.*
+
+`emitted_bytes.json` proved eight refactoring seams byte-identical in one
+morning, which is what it is for. What it covers is the coverage table's
+shapes and the fuzz blocks at `VarkaEmitOptions.DEFAULTS`, plus the A/B arms
+a handful of tests pin by hand. Whether every option a user or a benchmark
+can reach - `division`, `useAVX`, `shareChronoPrefix`, `validityByBitmap`,
+`narrowHalfSpecies`, the guard switches - emits what the suites believe it
+does is not a question the oracle answers, and VARKA-121's session switch makes
+one of them reachable from SQL for the first time.
+
+**How.** An inventory first: which options the committed blocks and the
+pinned A/B tests hold at which values, read from the suites rather than
+recalled. Then a decision from the inventory: either a small block per option
+arm over a fixed shape set, so an option's off and on bytes are both pinned,
+or a recorded reason that the defaults and the existing arms suffice, with the
+options that are test-only named as such in `VarkaEmitOptions`' javadoc.
+**Done when** the oracle's coverage of the option space is stated in the
+suite that regenerates it, and every option reachable from production is
+either pinned at each value or declared test-only. Size: small to medium.
+
+## 3. Task breakdown
+
+*The order that applies since 21 September 2026, from planning the closing
+task (`VARKA-118.md`): twenty-eight open rows left for `m8/SCOPE.md`
+item 39, each marked in the table below with the reason. What remains is the
+spine to the message - 105, 164, 121, 118 - with 101's band under it, and
+beside it the rows the message's honesty depends on: 162 (a measured win the
+quoted extracts should carry), 147 (the dividend bound enforced), 155 (scored
+in 118), 145, 146 and 159. Rows 88, 90 and 102 close with what landed.*
+
+The rows as milestone 4's table carried them, task numbers unchanged. *(The order
+in this paragraph is the 4 September one; the paragraph after it has the order
+that applies since 15 September.)* 28 opens
+the milestone; 29 and 30 follow it; 39 and 49 wait on 29; 27 can run at any
+point; 65 waits on nothing and is an admission check before it is a task; 66
+follows VARKA-32's B2 grouping decision; 74 and 75 follow #145 (VARKA-70) and
+nothing else, 75 being an admission check before it is a task; 81 follows 74.
+83 to 86 are the engine refactors VARKA-63 argued for (section 2.13), ordered by how
+far the decision each touches sits from an exhaustive match rather than by size: 84
+before 85, because the lattice is what makes a new lane safe and the lane parameter
+only makes one possible - **the owner confirmed that order on 8 September 2026**,
+against the alternative of taking 85 first to unblock VARKA-28 and VARKA-29 sooner and
+following it with 84, which would have ported today's two bound functions into a
+third and let the next lane inherit the bugs VARKA-63's review found. 83 and 86 are
+independent of both and of each other.
+
+**After the 15 September 2026 re-scope** (section 1.1) the order that matters is
+the long-lane spine: 117 first, then 84, 85, then 29 with 28 and 92 beside it,
+then 88, then 102, 103 and 104, then 105, with 101 before anything from 105 is
+quoted. 116 comes before any lane code. Rows marked
+*moved to milestone 6* are kept in this table so the numbers and the citations
+into their design sections stay valid; their text is unchanged and
+`m8/SCOPE.md` item 15 has the reason for each.
+
+### 3.1 The dependency graph, and the order it sorts to
+
+*Built 15 September 2026 from the rows' own "after / blocked on / before" text
+and 1.1's spine; every edge below is stated in a row or in 1.1, none is
+inferred.* An arrow reads "must land before".
+
+    117 sync ----+
+                 +--> 84 lattice --+--> 85 lane param --+--> 28 width conv ---+--> 39 date-date --+
+    116 cache ---+                 |                    |                     |   (closes w/ 103) |
+      proof      |                 +--> 91 guard bound  +--> 29 long lane ----+--> 88 division ---+--> 102 TIME exprs --+
+                 |                                      ^                     |                   |                     |
+                 +--------------------------------------+                     +--> 104 Long arith |--> 103 DT exprs ----+--> 105 TIME bench --> 121 AVX2 arm --> 118 close
+                                                                                  (closes 30)     |                     ^
+                                                                                                  +--> 89 YM divisions  |
+    101 band -----------------------------------------------------------------------------------------------------------+
+
+    beside the spine:  119 long-lane oracle (arms with 85, 102, 103, 88)   120 coverage differential (starts now)
+    no predecessor, any time:  106 quote check in CI   83 one refusal   86 one admission (fold into 85)
+                               92 validity at 4 lanes (land with 29)    95, 96 int32 gaps
+                               81 differential corpus (its TIME half after 102)   90 -> absorbed by 101
+
+Sorted by dependency, independent tasks first (a wave holds tasks with no edge
+between them; within a wave the order is free):
+
+| wave | tasks | why they wait |
+| ---: | :--- | :--- |
+| 0 | **117**, **116**, 101, 106, 120, 122, 83, 86, 92, 95, 96, 81 | nothing - 117 and 116 are first by decision, the rest by independence; 120 starts on the int32 rows and grows |
+| 1 | 84 | after 117: the lattice is built on the merged tree |
+| 2 | 85, 91 | after 84: the lane parameter and the guard bound both take the lattice's interval type |
+| 3 | 28, 29, 119 | after 85 (its row: 85 blocks both); 29 also after 116; 119's evaluator arms for 85's proof subset landed with 85, and since 29 adds no node beyond that subset (narrowed 17 September 2026) the rest land with 102, 103 and 88, whose nodes they check |
+| 4 | 88, 104, 39 | 88 at the long lane needs 29; 104 needs 29, 84 and 28's cast; 39 needs 28 and 29 |
+| 5 | 102, 103, 89 | 102 and 103 need 29 and 88 (and 103 absorbs 39); 89 needs 88 |
+| 6 | 105 | after 102 and 103, under 101's band |
+| 7 | 121 | after 105: the same inventory under `-XX:UseAVX=2`, the timing 2.19 owes |
+| 8 | 118 | last by definition: the final measurement, the README and the post need every number above it committed, 121's AVX2 file included |
+
+Three rows are not nodes of their own: 30 closes when 104 does (its int32
+half shipped in VARKA-63), 39 closes when 103 does, and 90 is absorbed by 101.
+The critical path is 117 -> 84 -> 85 -> 29 -> 88 -> 102 -> 105 -> 121 -> 118,
+nine tasks deep, and it is serial: each of those needs the previous one's code. The ten
+wave-0 tasks are what fills the time while it runs, and three of them belong
+*with* a spine task rather than merely before it: 86 folds into 85 (the same
+code), 92 lands with 29 (its default only matters once four-lane vectors
+exist), and 101 has to exist before 105 quotes anything. 81's date corpus can
+start at once; its `TIME` half waits for 102.
+
+Rows 124 to 139, opened on 16 September 2026 from the surveys recorded in
+`m8/SCOPE.md` items 16 to 29 (#223), join the waves as follows: 124,
+125 and 126 are wave 0 (evidence, a day each, no dependency); 127, 128 and 129
+precede 105, since no 64-bit number is published without them; 130 is its own
+node after 84 (it consumes the lattice's op counts); 131 then 132 are wave 0
+with 132 waiting on 131; 133 and 134 run in any quiet-machine window and are
+quoted by 118; 135 follows 84 and 136 and 137's cache half are milestone 6
+scope rows kept here so their measurement plans sit beside the rows that need
+them; 138 lands with the next coverage change; 139's ladder extends the
+cold-start benchmark and its switch is milestone 6. The critical path is
+unchanged; 127 to 129 add a gate in front of 105.
+
+**The first week, read off the graph:** 117 and 116 in parallel - one is a
+merge, the other a test, and they touch nothing in common - with 106 and 101
+alongside, since neither touches the engine; then 84 the moment 117's gate is
+green. Nothing on the critical path can start before that, and everything that
+can start has.
+
+
+| # | Task | Deliverables | Validation |
+|---|---|---|---|
+| 25 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): int32 tuning with a harness to re-establish first. ILP: the unroll factor as a plan decision (section 2.24). **Not started** and **moved from milestone 4** (11 September 2026), where nothing waited on it: its harness stopped measuring a degraded JIT state with PR #105, so its first job is re-establishing what it measures rather than measuring | The registered prediction, then the three-confounder matrix (K x broadcast strategy x `GROUP_BUDGET`) on `dayofweek`, unpredictable `CASE WHEN`, and the depth-8 chain; if K > 1 pays, per-shape K chosen from the live-temporary count the emitter already computes; the `SKILLS.md` bullet rewritten with the numbers; the batch-size knee sweep (question 6) on a wide fused shape | A committed number per candidate shape against its existing baseline; prediction scored honestly; no committed number regresses on shapes where K stays 1 |
+| 27 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): a projection output the TIME message does not need; the borderline call, see 1.1. Boolean outputs | Mask-to-column materialisation (`toVector` against `blend`, measured); the bit-packed format decision at the Spark/Arrow boundary; three-valued rules holding at the output boundary | Differential over every null pattern - a null input never becomes false; `SELECT d > DATE '2000-01-01' AS flag` and filter-leftover boolean columns compile; committed number on one boolean-output shape |
+| 28 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): the widening cast; nothing in the message needs it, and VARKA-104 that would have leaned on it moves too. Lane-width conversion. **Planned** (`VARKA-28.md`, 18 September 2026), which corrected section 2.2's loop-shape conclusion: the shape is the two-part `convertShape` from the preferred species, because narrowest-drive needs a second int species and that poisons every other `IntVector` loop in the JVM | The loop-shape question is settled rather than outstanding - see 2.2 as corrected. `WidenLane`/`NarrowLane` IR nodes; the lane becoming a property of the node rather than of the emission, across the emitter's 85 `analysis.lane` sites, with the emitted-bytes oracle green and no byte moved at each step; a long value in a mixed kernel represented as a pair of halves, with per-half masks and validity; numeric `Cast` and Catalyst's implicit promotions over the supported types, which is what makes `i + l` stop declining on a lane mismatch | Differential on mixed int32/int64 trees at both widths; the loop-shape decision recorded with its numbers; no regression on single-width shapes |
+| 29 | The long lane: `bigint`, `TIME` and day-time intervals (section 2.3). **Done** (`VARKA-29.md` 9, 17 September 2026): a column of any of the three types reaches a kernel from the Arrow cache and the comparisons, `greatest`/`least` and `CASE WHEN` over it fuse - 34 end-to-end shapes under both consumers, 16 coverage rows, zero emitter lines; the timestamps decline by name, a mixed-lane projection fuses one lane and names the other. **Planned** the same morning and **narrowed the same day** on the owner's reading that one task covered "almost entire milestone and even more": the plumbing that lets a column of the milestone's three long types reach a kernel - the compiler's type gates, `isArrowBacked`'s vector classes, `allocateVector`'s destinations, the eight-argument `run` and a long literal table - and comparisons over them, which are the smallest operation that proves the plumbing end to end. The two timestamp types leave the milestone (`m8/SCOPE.md` item 31); all arithmetic is 102's, 103's and 104's. *History:* widened on 15 September 2026 from "int64 lanes: `TimestampNTZ`, `bigint`" to all five `PhysicalLongType` types; the timestamps in that widening were the assistant's, not the owner's, and section 8 records their exit | The second `LaneType` serving `LongType`, `TimeType` and `DayTimeIntervalType`; the five comparisons, `IS [NOT] NULL`, `AND`/`OR`/`NOT`, `greatest`/`least` and `CASE WHEN` over them; a lane-mismatch decline that names the lane; a timestamp decline that names the milestone | Every parity gate re-run at the long species and both vector widths; the emitted int32 bytes unchanged against the oracle; the halved-headroom number already committed by VARKA-142; a timestamp comparison demonstrably declined, not wrong |
+| 30 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): the int32 arithmetic remainder (`/`, `div`, `%`); the 64-bit half is VARKA-104 and moves with it. ANSI integer arithmetic - **narrowed on 4 September 2026**: the int32 add, subtract, multiply and negate over fused fields, int columns and literals, with the ANSI overflow decline and the `try_*` validity form, moved into milestone 4 as VARKA-63, **which shipped** (`VARKA-63.md` 9); what stays here is the rest | `/` (a double), `div` (VARKA-29's long lane), `%` and `pmod` with the divide-by-zero rule, the int64 forms, and `Multiply` overflow through 28's widening where VARKA-63's saturating check is not enough | The error-identity differential: same `SparkException`, same row, as the row engine under ANSI; `try_*` differential over overflow-dense and overflow-free data; committed number on the no-overflow path against Janino |
+| 39 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): absorbed by VARKA-103 and moves with it. `date - date`. **Planned** (`VARKA-39.md`), blocked on VARKA-28 and VARKA-29; **retargeted** (15 September 2026): `SubtractDates` yields a day-time interval, so it lands as a row of VARKA-103 rather than a kernel of its own, its recipe unchanged, and this row closes when 103 does | The node, the int32-to-int64 conversion, the eight-byte output, and both overflow tests routed through VARKA-26's decline channel rather than VARKA-30's throw path; the legacy `CalendarInterval` variant declining. The int-to-long step is the two-part `convertShape` from the preferred int species, never a load through a half-width int species: two species of one lane type in one JVM turn the shared `IntVector` templates bimorphic and C2 keeps a heap box per loop iteration (`SKILLS.md`, "Every operator the plans rely on"), and the lane-width "tie" in `VarkaMilestone4MeasurementsBenchmark-jdk25-results.txt` was measured in exactly such a JVM | The overflow boundary exact in both directions (106751991 succeeds, 106751992 declines); Varka's exception identical to the row engine's, compared by running both; `datediff` unaffected; green at both widths, where an int64 lane holds a different number of rows |
+| 49 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): date-algorithm precision in long lanes. Exact civil-from-days in long lanes. **Planned in section 2.6** (PR #69; there is no `VARKA-49.md`), blocked on VARKA-29 | The admission check first, over all 2^32 days against a long-arithmetic reference: exact magic division with a 64-bit low product and no correction carries, run for **both** decompositions - the three-division era/century/year form (146097, 36524, 365) and VARKA-54's two-division Julian map (146097 on `4 * d + 3`, then 1461), which Ben Joffe's `fast64` shows reaching four multiplies for the whole date where Neri-Schneider needs seven; then the lowering, and the guard, the decline path, the `NARROWED` variant and `VarkaChrono`'s range constants removed with it. Verified before starting (`SKILLS.md`, "Every operator the plans rely on"): `LongVector.mul` by a constant compiles to one `vpmullq` on this CPU (AVX-512DQ with VL), not the three-multiply emulation plain AVX2 gets, and unsigned long compares are one `vpcmpuq` into a k-mask. Plan B if the 0.75x gate fails: Joffe's bucket technique for a guard-free int-lane total - `bucket = (d + 2^31) >>> 20`, reduce by `bucket * 1022679`, add `bucket * 2800` to the year - about 14 ops against VARKA-26's `TOTAL` at 16 and without the deliberate wrap; his `article_2_l1` variant replaces two of those multiplies with an eight-entry offset table, one lane permute on a 256-bit int species | The exhaustive sweep as a committed opt-in test, at both widths; the parity `year` case measured against the shipped narrowed lowering in one run; declined on the record if the sweep disagrees anywhere or AVX-512 costs more than 0.75x |
+| 64 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): int32 guard tuning. Statistics-directed guard selection (section 2.28). **Planned** (`VARKA-64.md`, requoted 11 September 2026) and **moved from milestone 4** the same day: the surface VARKA-62 measures carries no shape that pays VARKA-52's producer guard, so this task cannot change a number the public table shows | Step one: the evaluator runs `IntRangeOps.allWithin` over a guarded producer's offset column against `[NARROW_MIN_DAYS - CONTRACT_MIN_DAYS, NARROW_MAX_DAYS - CONTRACT_MAX_DAYS]` and picks the unguarded or the guarded kernel from the shape cache per batch; step two: the Arrow cache's per-batch column bounds attached to the `ColumnarBatch` and read before the pass, answering VARKA-56's bound too; each behind a switch | The guarded kernel never runs on the differential's in-range fixtures and the far-offset fixtures still decline; the pass and the lookup priced against the guard on the parity `year(date_add(d, off))` pair, both widths, with a registered prediction that the null-free and mixed-null cost of VARKA-52's guard is recovered; byte identity of the emitter |
+| 65 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): a calendar algorithm. Joffe's `fast32` civil-from-days in int lanes. **Scoped in section 2.7** (5 September 2026); independent of 29 | The admission check first: the two source files transcribed into `sql/varka/papers` with reading notes; a committed script deriving a low-32-bit magic and its exact range per stage and sweeping the chain against `LocalDate`; the dependent-stage count against the prefix's. If admitted, an emit-option variant, the A/B beside the VARKA-53 and VARKA-54 pairs at both widths, the register and the `HugeMethodLimit` ladder re-pinned, and the default chosen from the numbers | Exact over at least the narrowed range, or declined; a shorter dependent chain than the prefix's, or declined; the A/B at or above 1.0x at both widths, or the numbers go to the debt register |
+| 66 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): a calendar refactor. Second-level chrono fragments. **Scoped in section 2.8** (5 September 2026); after VARKA-32's B2 grouping decision | `FragmentKind`s for the year parts, the January month, the month start and `floorMod(d, 7)`, keyed and planned as the prefix is; emitted once per lane group, elided when no consumer in the group reads them; the register and the `HugeMethodLimit` ladder re-pinned; the A/B beside VARKA-32's shared rows at both widths | The matrix and the whole-range sweep under a widened group budget over every pair and triple of calendar outputs; the byte identity of every single-field kernel; the gate in 2.8 (at or above 1.05x at AVX-512 on both shapes), or the register goes to the debt register |
+| 72 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): calendar-prefix tuning. Output order for prefix affinity (section 2.25): `year(d), year(d2), month(d)` takes three loop methods where the adjacent order takes two | The admission check first - no consumer of a group depends on contiguous output indices - then a two-pass grouping that gathers a calendar output into the group whose prefix it reuses wherever that group is; the evaluator and the line map untouched | The pinned limitation in `VarkaLoopEmitterSuite` flipped to two methods; the pinned oracles unmoved; the permuted and adjacent orders within noise in the parity harness at both widths; the differential suite green with the two orders |
+| 73 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): int32 guard-walk tuning. A stopping rule for the guard walk (section 2.26). **Planned** (`VARKA-73.md`), and its admission check is **done and overturns the premise of `m4/PLAN.md` 2.37** (this file's 2.26): the section expected no SQL shape to reach the over-guard, but `dayRange` bounds `make_date` from VARKA-42's published years without looking at its children, so `year(make_date(2020, 1, dayofweek(date_add(d, off))))` fuses and the emitted kernel carries a guard the shape cannot need - 1274 to 1317 bytes in the masked loop. The task is therefore a fix rather than the decline 2.37 expected: a column-offset day producer is guarded on its own value even when a mod-7 node between it and the calendar node has already re-based the day (VARKA-70's fuzz run; see the debt register) | The admission check first - whether any SQL shape observes the difference, given that `dayRange` returns `Unknown` for a mod-7 child and declines the entry at compile time before the emitter is reached, which can legitimately close the task with the finding recorded. If it does: a stopping rule on `collectColumnOffsetProducers` that descends only through nodes passing a day to the decomposition and stops at any node whose output is bounded in itself, and the matching rule in `dayRange`, taken together so the two analyses cannot drift apart again | The reproducer from the fuzz run served rather than declined at both widths (seed 20260907005 iteration 61379's shape, and the nine siblings substituting `weekday`, `dayofweek_iso` and `datediff`); the compiler suite's decline for `year(dayofweek(date_add(d, off)))` flipped to `fuses` if the compiler half moves, or the reason requoted if it does not; every guarded shape VARKA-52 and VARKA-60 pin still declining, since the rule may only remove guards a bounded node stands under; `VarkaIrFuzzSuite` at a million iterations per width with the `chronoBound` check relaxed to match, which is the oracle that found it |
+| 74 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): a validity-pass optimisation. The validity-word algebra's missing axioms. **Scoped in section 2.9** (7 September 2026); after #145 | The coalesce axiom (`IfElse(IsNotNull(x), x, y)` denotes `x OR y`) and absorption in `pureOf`'s folding, behind VARKA-70's switch; the census tool re-run through the emitter's own analysis rather than a mirror; the `coalesce(d, d2)` parity A/B pair | `coalesce(d, d2)` masked byte-equal to its dense twin and on its dense row at both widths; the differential over the nullable fixtures for two- and three-operand `coalesce`, `datediff(greatest(d, d2), d)` and `greatest(date_add(d, i), d)`; two million fuzz shapes with both extensions randomised; no other committed row moves |
+| 75 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): an optimisation below its decline line. Zero-copy validity for leaf words. **Scoped in section 2.10**, and **the bound moved under it** (7 September 2026): VARKA-70's third regeneration puts the masked-against-dense gap on `year(d)` at 0.4% at AVX-512 and below zero at 128-bit, under this task's own 2% decline line, so the zero-copy half is answered before the probe runs and what may survive is the cached null count, which that gap does not measure | The probe: masked `year(d)` with the copy skipped against the committed row, both widths. If admitted, the leaf case of the pass resolved to the input's validity buffer retained through Arrow's reference manager, a cached null count on Varka-owned output vectors, and the filter's compaction reading it | Under 2% at AVX-512 on the probe: declined on the record. Otherwise the differential over every null pattern with the output's validity address asserted equal to the input's, allocator accounting closing to zero with the retained buffers released, and the `year(d)` masked row on its dense row |
+| 80 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): strings. String-column compaction that keeps the Arrow layout (section 2.27): a derived int32 leaf over a string column is refused per batch when a fused Varka filter sits under it, because the filter's compaction leaves the column on-heap (VARKA-59's review; see the debt register) | The compaction writing offsets and data buffers rather than materialising rows, on VARKA-21's `filterCompact` pattern; sized before milestone 6's item 3 puts string columns under filters and group keys | The stacked `next_day(d, s)` over a Varka filter counting no `numFallbackBatchesNonArrow` at all on VARKA-59's own fixture, answers unchanged, and the fixed-width compaction's numbers not moving |
+| 81 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): the date lane's differential corpus; a newcomer's task through the task template. Spark's own date tests as a differential corpus (section 2.11). **Planned** (`VARKA-81.md`, 16 September 2026): a harvest of the seven date-family golden inputs through upstream's own splitter, a rewrite of each statement's date, int and year-month literals into columns of an Arrow-cached fixture, VARKA-62's plan classification ported, and a committed `golden_corpus.json` whose per-file counts of fused, partial, plain and error entries are the coverage number; the Scala suites are left for a decision, since they cannot be harvested re-runnably. Originally scoped (7 September 2026) | The harvest, from the golden-file inputs first - `sql-tests/inputs/date.sql` and its six date-family siblings, 254 `select` statements already written as SQL text - and from `DateFunctionsSuite` and `ColumnExpressionSuite` after them; `DateExpressionsSuite` excluded on the record, because `checkEvaluation` never reaches a physical plan. Then the rewrite that makes the corpus reachable at all: each statement's literal operands turned into columns of an Arrow-cached fixture, since 94 of `date.sql`'s 101 statements are constant-folded before any operator exists and the rest read one row of strings. Per entry: the answers compared against the row engine on the same fixture, and the plan classified fused, partial or declined on VARKA-62's `Fusion` rule, so a declined entry cannot pass as a silent fallback | Every harvested entry agreeing with the row engine; the fused/partial/declined split committed as the coverage number, naming which expressions are out rather than a percentage; a harvest and rewrite that are re-runnable rather than a hand-copied list, so an upstream statement added later is picked up; and the limits stated in the plan - the golden `.sql.out` files stop being the oracle once operands become columns, and a handful of rows per entry reaches the epilogue and never a full lane group |
+| 82 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): a checked-path micro-optimisation. The mask-to-long disposal in a checked kernel (section 2.12). **Scoped** (8 September 2026); reads VARKA-63's committed numbers and shares its ground with VARKA-64 | `emitGuardCollect`'s per-lane-group `VectorMask.toLong`, the AND with the node's word and the OR into the accumulator, which every runtime refusal shares - VARKA-52's range guard, VARKA-42's year check, VARKA-60's month-count check and VARKA-63's overflow check; the candidates are a mask-typed accumulator converted once per batch, skipping the AND where the algebra says the word is dead or all-ones, and hoisting the collect where the batch's statistics prove the mask empty | The checked mixed-null `i + 1` row at 128-bit (63.7% of the unchecked row today) moves by more than 10% while the dense rows and every unguarded shape's bytes do not, and VARKA-52's guard pair in the parity file moves with it |
+| 83 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an engine refactor on the int32 refusal paths; not the lane the milestone ships. One refusal, instead of four (section 2.14). **Scoped** (8 September 2026), from VARKA-63's review; independent of 84 to 86 | The four runtime refusals - VARKA-42's `make_date` year check, VARKA-52's range guard, VARKA-60's month count, VARKA-63's overflow check - behind one node property carrying its mask, its qualifying word and its reason, with one analysis set, one slot rule, one collect and a status bit per reason, replacing `guardedProducers`/`selfGuarding`/`checkedArith`, the `guardedWord`/`guardScratch` pair and the shared `STATUS_CHRONO_RANGE` | No emitted byte moves for any shape that exists today: the pinned line map, the shape hash, every `codeSize` assertion and `dev/varka_emit.sh --table`'s op counts for `year(date_add(d, off))`, `add_months(d, m)`, `make_date` and ANSI `i + 1` all unchanged - this task buys a status bit and legibility, not speed |
+| 84 | One value-range lattice (section 2.15). **Done** (`VARKA-84.md`, 16 September 2026): `VarkaValueRange` and `VarkaRangeAnalysis` in Java replace `intBound` and `dayRange`; the query takes the operand kind and the guard policy, every operation saturates, and every `INT` answer is symmetric so the old magnitude rule is reproduced (the tightening is registered as debt). The property test 2.15 asked for exists, over the shared fuzz grammar; run first against the old pair it passed, and 129,412 answers compared identical. Writing the transfer table found a live bug - `year` bounded at 40000 while the admitted range reaches year 42400 - fixed first in its own commit. Originally scoped (8 September 2026), from the three bugs VARKA-63's review found in the seam between `dayRange` and `intBound`; before 85 | One saturating interval domain over lane values, with the calendar admission (VARKA-52) and the overflow check (VARKA-63) as queries on it rather than two traversals, and "what a runtime guard proves" as an explicit parameter of a query rather than a fact baked into one traversal's arms; written in Java, being pure data | Every shape the compiler admits or declines today unchanged, decline reasons included, and the differential's fusion classification unmoved; plus the property test the current code cannot pass - over random IR, the interval a node reports contains the value the reference evaluator computes, for every lane pattern |
+| 85 | Lane type as a parameter (section 2.16). **Done** (20 September 2026): the sixth step was this row's own closing, and everything it waited for has landed - `VARKA-85.md` section 9 is written through 9.6, VARKA-119's long-lane oracle landed in #262, and the long lane has since carried VARKA-88, VARKA-102 and VARKA-149 - so the row reads done rather than in progress. As recorded on 17 September (`VARKA-85.md` 9.1 to 9.5): steps 1 to 5 of six landed - the emitted-bytes oracle (`VarkaEmittedBytesSuite` and `sql/varka/emitted_bytes.json` pin every method the emitter produces for all 57 coverage rows and ten thousand fuzz shapes at two widths, so the refactor's int32-bytes-unchanged rule is checkable at each step), then the lane itself in the IR: carried by `ColumnRef` and `LiteralSlot`, derived at every other node, and refused in the constructors where a calendar node meets a wider child or a node's operands disagree, with the int lane's bytes and shape hashes unmoved. **Planned** (15 September 2026; second on the spine, after 84, ships `LONG` for the arithmetic-and-comparison proof subset and stops where 29 begins). Originally scoped (8 September 2026); after 84, and blocking milestone 5's own VARKA-28 and VARKA-29. **Step 3**: a `Lane` enum whose every descriptor is derived from the vector class and the scalar type, the emission carrying one on its `Analysis`, twenty-eight emitting sites reading it - the prologue, the loads and stores, the broadcasts, the blend, the arithmetic and its overflow test, the range guard and the hull ops - and the calendar family keeping the int descriptors behind a `requireInt` at the three entry points every one of its hundred and forty sites is reached through. The oracle stayed green after every batch with no regeneration. Step 4 is the second lane itself: `LONG` with its own permitted counts and `SPECIES_PREFERRED`, a second scalar array with `laload` and two-wide locals, the parameter and local slots that array shifts, and the negate's sentinel as the lane's own most negative value. The arithmetic, comparisons, blend and hull ops needed **no new arms** - they read the descriptor - which is step 3's answer to 2.16's descriptor-against-generated-emitter question. A long kernel is proved by `checkLongMatrix` against `evalLong` (VARKA-119's first part, landed here): ten shape families, four lengths, every null pattern, at 128 and 512 bits, over values past the int range. Step 5's lane-in-key and wrong-overload tests landed with it. | The emitter parameterised on a lane descriptor - vector class, species, byte stride, load and store descriptors - against the 204 `INT_VECTOR` references, 16 four-byte stride assumptions and 18 species references it carries today; the lane on the node's physical representation rather than inferred from the Spark type, with year-month intervals (int32 months, the same lane as DATE and INT) as the forcing function that can land first; measured against a generated-per-lane emitter, since a descriptor risks a megamorphic call in the hot path | The int32 lane's emitted bytes unchanged against the pinned oracles; a second lane type reaching the same green differential and fuzz matrices at both vector widths; and the fuzz reachability test widened from every node type to node type times lane type |
+| 86 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an int32 admission refactor; not the lane the milestone ships. One operand admission, stated once (section 2.17). **Scoped** (8 September 2026), from the ghost fallback VARKA-63's review found; independent of 83 to 85 | `intOperand`, `compileIntOperand`, `compileOffset` and `compare`'s `operand` as one function taking what the position accepts, and the emitter's four `require*Shape` checks derived from that same table rather than restated beside it, so widening the compiler either widens the emitter or fails to compile; carrying one widening as the table's first exercise - a bare `IntegerType` column in comparison operand position, which declines today and which VARKA-79's admission check verified fuses with one case added, and which is folded in here rather than taken alone because widening one copy in isolation is what produced the ghost fallback | A test enumerating the operand positions and asserting that the set the compiler admits and the set the emitter accepts are the same set - the assertion whose absence let `date_add(d, weekday(d2) + 1)` ship as fused in EXPLAIN and a silent per-batch fallback at run time; every compiler decline reason unchanged, since no shape may move |
+| 87 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): kept for a future fix at the owner's request; see section 6. The epilogue is the one method no budget bounds (section 2.18). **Scoped** (8 September 2026), from a 35-million-iteration fuzz run; independent of 83 to 86. **Absorbs milestone 4's row 44** (11 September 2026), which asked for the same partitioning at a softer threshold - its size ladder (4095 and 63, not only 4096) and its `HugeMethodLimit` measurement are requirements here | The epilogue emitted as one method holding every group, so a tree inside `MAX_FUSED_NODES` can pass 65535 bytes and the Class-File API refuses the class - `epilogueMasked` at 67244 bytes for nested `make_date`, replaying at `-Dvarka.fuzz.seed=2026092800 -Dvarka.fuzz.only=73411`; either partition it as the loop is partitioned or give the emitter a byte budget, and in both cases decline with a reason rather than throw | The pinned fuzz iteration declining with a reason instead of throwing; every shape that fits today emitting identical bytes against the pinned line map and the `codeSize` assertions; and `MAX_FUSED_NODES`' javadoc no longer claiming a per-method guarantee it only has for the loop |
+| 88 | An exact division through double lanes (section 2.19). **Done** (`VARKA-88.md` 9.5, 23 September 2026): all four sequenced steps landed and the row closes on what they decided - the `division` switch with its per-lane default, the int32 and long-lane converts behind it, the (divisor, range) deny-list, `useAVX` in the emit options so the shape key sees the AVX2 fallback, and the A/B that keeps **`MAGIC` the default on every calendar shape at both widths**. The successor the step 4 line names, VARKA-89, moved to milestone 6, so nothing in this row waits on anything. Its two lasting corrections: the dividend bound is 2^52, the tighter of the two lowerings', because the tree is built before either is chosen; and the conversion form is three operations at the long lane against the int lane's seven, since a long lane and a double lane are the same width and there are no halves to rejoin - the number the `TIME` chains later turned into 4.7x of lowering. **Step 2 landed** (18 September 2026): the `division` switch, the int32 converts behind it and the (divisor, range) deny-list, with the calendar prefix's fifteen division sites emitting under all three settings; parity at every width and over every day the prefix covers, op counts registered, the oracle unmoved because the default stays `MAGIC`. **Step 3 landed** (18 September 2026, `VARKA-88.md` 9.2): the 64-bit divide is three operations to the int lane's seven, since a long lane and a double lane are the same width and there are no halves to rejoin; `useAVX` is an emit option that reaches `canonical()`, and its default names no level, so every host emits the same bytes under the same shape hash - which is what closes risk 6, after a first repair that read the machine's level into the default and moved the committed hashes on an AVX2 runner (`VARKA-88.md` 9.3); and the AVX2 magic form serves both signs, which decides 3.1's open question by removing it - the sign correction needs no proof about the dividend, where a non-negative-only form would have needed a new obligation on the IR. Two corrections: the dividend bound is 2^52 rather than 2^53, the tighter of the two lowerings', because a tree is built before either is chosen; and 3.3's AVX2 op count is 15 rather than 9, the table having been written for an unsigned dividend. **Step 4 landed** (19 September 2026, `VARKA-88.md` 6.2 and 9.4): ten cases regenerated at both widths with every control flat, and the answer is that **the magic stays the default** on every calendar shape at both widths. The true divide reads 0.27x to 0.31x of it and the reciprocal 0.41x to 0.48x, width-independent to within two points, so prediction 1 holds and prediction 2 - which put the reciprocal at 0.7x to 1.0x - is wrong by about a factor of two. Prediction 3 is unscorable as written and its number is worse than predicted: against a scalar loop, which is a floor on the row engine rather than the row engine, `extract(YEAR FROM ym)` reads 1.30x at 512-bit and **0.74x at 128-bit**, which is section 2.85. **Planned** (`VARKA-88.md`, 17 September 2026) with the admission check run, and **revised the same day** after its review: the true division is exact for every division Varka performs over the range it performs it on, `/12` over all of signed int32 included, so `extract(YEAR FROM ym)` loses its bound; the cheaper reciprocal form is wrong for `/146097` over the era step's dividend and right for the same divisor over the Julian century's, which is why admissibility is keyed on the (divisor, range) pair and settled by a closed form rather than a sample. **Scoped** (9 September 2026), from VARKA-68's admission check; independent of 65 but competes with it | `trunc((double) v * (1.0 / d))` or `trunc((double) v / d)` as lowerings for integer division by a constant - no magic, no correction carries, and a bound on the dividend (`2^52`, `2^53`) rather than on the divisor. Double lanes as a conversion target inside one node's lowering, not a third `LaneType`; a deny-list of (divisor, range) pairs the reciprocal form may not serve; `useAVX` in the emit options, since the AVX2 fallback is a different lowering and the shape key must see it. Three of the four day-time interval extracts are out of scope: Spark computes them as a modulo then a divide with `ByteType` or `Decimal` results, so their blocker is the output type | The check committed beside `verify_long_lane_magic.py`, with every row's verdict pinned so a change fails the run; op counts per lowering from `dev/varka_emit.sh --table` before any timing; then the A/B against the shipped magic as the control row, the choice made from the numbers rather than from the simplification each offers | **Planned** (`VARKA-88.md`, 17 September 2026) with the admission check run, and **revised the same day** after its review: the true division is exact for every division Varka performs over the range it performs it on, `/12` over all of signed int32 included, so `extract(YEAR FROM ym)` loses its bound; the cheaper reciprocal form is wrong for `/146097` over the era step's dividend and right for the same divisor over the Julian century's, which is why admissibility is keyed on the (divisor, range) pair and settled by a closed form rather than a sample. **Scoped** (9 September 2026), from VARKA-68's admission check; independent of 65 but competes with it | `trunc((double) v * (1.0 / d))` or `trunc((double) v / d)` as lowerings for integer division by a constant - no magic, no correction carries, and a bound on the dividend (`2^52`, `2^53`) rather than on the divisor. Double lanes as a conversion target inside one node's lowering, not a third `LaneType`; a deny-list of (divisor, range) pairs the reciprocal form may not serve; `useAVX` in the emit options, since the AVX2 fallback is a different lowering and the shape key must see it. Three of the four day-time interval extracts are out of scope: Spark computes them as a modulo then a divide with `ByteType` or `Decimal` results, so their blocker is the output type | The check committed beside `verify_long_lane_magic.py`, with every row's verdict pinned so a change fails the run; op counts per lowering from `dev/varka_emit.sh --table` before any timing; then the A/B against the shipped magic as the control row, the choice made from the numbers rather than from the simplification each offers |
+| 89 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): the year-month divisions beyond `extract(YEAR FROM ym)`, which landed; int32 date-lane work. The year-month interval divisions (section 2.20). **`extract(YEAR FROM ym)` landed** (`VARKA-89.md`, 18 September 2026) on VARKA-88's double-lane division: a `ConstDivide` IR node, always emitted through the double route because it has no other lowering, exact over the whole int32 month range and truncating toward zero without the correction 2.20 expected - `D2I` is the `(int)` cast, so only a floor-producing magic would owe one. The admission check `verify_ym_division.py` is committed and exhaustive, and refused its own first draft: the reciprocal form is wrong for `d = 49` at 40,848,894 of its 87,652,394 multiples, so the deny-list for `ym / num` is not empty. `extract(MONTH FROM ym)` declines on its `ByteType` output rather than on its division. Still open: `ym / num` with the HALF_UP step the script verifies, `ym / col` declining, and the YEAR-ended casts, which are the same division. **Scoped** (9 September 2026), split out of VARKA-68; after whichever of 65 and 88 the A/B chooses | `extract(YEAR FROM ym)` and `ym / num` on the chosen exact division, with the truncation correction `extract` needs and the `HALF_UP` step `ym / num` needs; `extract(MONTH FROM ym)` behind the further question of a `ByteType` output the evaluator does not have; `ym / col` declining, the divisor not being a constant | The two rounding corrections verified over the full int32 month range against Spark's own `getYears`, `getMonths` and `IntMath.divide` by a committed script; the byte-output question settled before `extract(MONTH)` is built; a throughput pair per shape against the row engine, these being new lowerings |
+| 90 | The benchmark files are not reproducible run to run (section 2.21). **Done** (23 September 2026, section 2.21's outcome): the row closes on what its band programme landed and on the decision it was waiting for. Seven band files are committed across five benchmark families - parity and throughput at both widths, then the date surface, the date chains and the `TIME` surface - and `dev/varka_bench_diff.py --band` classifies every regeneration against them. Their census answers the question the row was really asking, and the answer is narrower than the row feared: **the lottery is concentrated in the microbenchmarks, and the files that carry public claims are quiet.** The date chains are 24 of 24 cases in tier 0, the date surface 107 of 126, the `TIME` surface has no unreadable case at all; the parity benchmark at 512 bits has 17 of 211 unreadable and 49 more above 10%, and is the worst file in the repository by a wide margin. So the N-fork median is **declined**, with its fallback stated rather than assumed: absolute rates are not compared across runs, every claim rests on a within-run A/B or on a number quoted with its band, and the regeneration diff is a reading aid rather than a gate. The residue is measurement that needs a quiet machine and is not this milestone's - the arithmetic benchmark's band and `VARKA-63.md` 9.7's 26.1% dead-local figure re-taken pinned - and moves to `m8/SCOPE.md` item 49. The cause stays where VARKA-32 left it: JDK-8380195, closed Not an Issue upstream, with the obvious levers tested and refuted. **Partly done** (10 September 2026): the band is measured and committed for the parity and throughput benchmarks at both widths, and the regeneration diff classifies against it. That half landed under VARKA-77, which had re-scoped itself onto this row's work without noticing this row existed - recorded here rather than quietly absorbed. Scoped 9 September 2026 from the investigation VARKA-79's section 9 asked for; the pinning half was already done | Two regenerations with no change between them disagree on 73 of 211 cases by more than 3% and 22 by more than 10%, pinned; unpinned the worst is 75%. Measured out: within-run noise (avg/best median 1.007), the clock (constant to 1.2% while throughput moves 31%), ASLR, contention. What remains is the per-fork C2 lottery `VARKA-32.md` 11 already traced to JDK-8380195. `dev/varka_bench_repeat.sh` measures the band; `dev/varka_bench_regen.sh` now pins to the fast core complex and records it. **Measured, 10 September 2026**, over ten runs per width on an idle pinned machine: the parity file's median spread is 5.34% at AVX-512 and 1.72% at 128-bit, p90 22.30% and 11.88%, worst 227.15% and 39.06%; the throughput file 5.31% and 3.67%. Two findings the section did not predict. The narrow width is the *quieter* of the two by a factor of three at the median, so collapses have been found at 128-bit because that file is quiet enough for one to stand out, not because it is unstable - and the two widths need separate bands for that reason. And three runs understate the band: this row's own 1.6% median comes from three runs, where ten give 5.34% at the same width | The band committed per file for the parity and throughput benchmarks: **done**. The regeneration diff reported against the band rather than a flat 3%: **done**, cutting held-out false alarms on an unchanged file from 32.9% of rows to 5.6% at AVX-512 and 11.4% to 2.1% at 128-bit. Still open: the arithmetic benchmark's band; VARKA-63's 9.7 dead-local figure re-taken pinned before VARKA-82 scopes itself on it; the decision on N-fork medians taken from the cost, with the fallback stated - that absolute rates stop being compared across runs and the within-run A/Bs carry the claims; and the cause itself, which VARKA-77's census leaves open with one method taking 100 runtime deoptimisations across 194 compiles and the `task_queued` records unread |
+| 91 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an int32 guard-bound tuning. A guard bound the shift above it chooses (section 2.22). **Scoped** (10 September 2026), from VARKA-69's outcome: it closed the upward half of `m4/PLAN.md` 9's conservative-decline entry and left the half that motivated it, `weekofyear`/`yearofweek` over a column offset, still residual because `ThursdayOf` shifts downward and there is no headroom below `NARROW_MIN_DAYS`; after 84, whose interval representation it should take | VARKA-52's runtime guard comparing against a bound the compiler chooses from the shift `dayRange` already computes for the subtree above the producer - `[NARROW_MIN_DAYS + 3, NARROW_MAX_DAYS]` under a `ThursdayOf` consumer, `+ 365` under a `trunc` one - so every downward-shifting consumer over a guarded producer becomes admissible at the same run-time cost, one compare against a different immediate | The guard's compare shown to be the only place `NARROW_MIN_DAYS` enters these kernels, by grep and a `VarkaEmitDump` op-count diff; the shape key shown to separate two subtrees identical but for the shift above them; `weekofyear(date_add(d, off))` fused with a differential over a batch that straddles the moved bound |
+| 92 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an int-lane validity option, measured and defaulting off. The validity write, keyed on the bit layout (section 2.23). **Scoped** (10 September 2026), from VARKA-47's measurement: its word writer wins 6 to 9% at 4 lanes and loses 11 to 20% at 8 and 16, so it shipped as an option defaulting off. **Worth more than it was first written as** (corrected 11 September 2026): four int lanes is `SPECIES_PREFERRED` on every NEON-only aarch64 and on x86 without AVX2, so this is a real target's default rather than a `MaxVectorSize` flag's; what it needs is one confirming run on such a machine, since VARKA-47's four-lane numbers simulate the lane count on a 16-lane x86 | `validityByWord` defaulting on where a validity group is smaller than a byte (`lanes < 8`) - one condition read off the bit layout rather than two thresholds fitted to a machine, which is what VARKA-76 declined; plus option B of `VARKA-47.md` 3.1, storing once per word rather than once per group, and 3.4's masked-driver liveness item, both of which share this task's ladder run | The k=3 step in VARKA-47's ladder explained from `-XX:+PrintInlining` before any rule is fitted across it - the emitted code is already ruled out - and the width rule's win reproduced on a machine that runs at that width rather than under a `MaxVectorSize` flag |
+| 94 | The bench module's tests are enforced by hand or not at all (section 2.29). **Done** (`VARKA-94.md`, 15 September 2026): a `varka-bench` module in `modules.py` and a CI job gated on it, which also stops a bench-only change falling through to `root` and running the whole matrix. Originally scoped (12 September 2026), from the review of VARKA-62's chains PR: `sql/varka/bench` is only ever `-DskipTests package`d - three call sites, all of them - so `ChainsTest` and `SurfaceTest` run when someone types the Maven line and never in CI. The review found two of their invariants already weakened, which is the shape of it: right when written, and nothing to say when they stopped being | A `varka-bench` module in `dev/sparktestsupport/modules.py`, the `precondition` wiring that consumes `dev/is-changed.py -m varka-bench`, and a job modelled on `varka-engine` | The suites run on a pull request that touches `sql/varka/bench` and not on one that does not; a deliberately broken `ChainsTest` invariant fails that job |
+| 95 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): two int32 date shapes; the date lane is milestone 4's. Two int32 shapes decline that a reader would expect to fuse (section 2.30). **Scoped** (12 September 2026), while choosing VARKA-62's chain entries: `datediff(d2, d) * i` and `i % 20` both decline, though multiplying by a *literal* is fine - so it is an int multiply whose right operand is a column, and an int remainder at all | Whichever of `MUL` with a runtime operand and `REM` is worth the lowering, under VARKA-63's existing checked/wrapping overflow discipline rather than beside it | Both spellings fuse or one is declined with a reason a reader can act on; the differential covers the overflow edge of whichever lands |
+| 96 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): a year-month interval argument rule on the date lane. `make_ym_interval` takes only arguments derived from a date (section 2.31). **Scoped** (12 September 2026), the same way: `make_ym_interval(year(d), month(d))` fuses and is in the surface, `make_ym_interval(i, i)` declines - so the constructor for the third type cannot be fed from the int columns the engine already reads, which is the obvious spelling and part of the three-types claim | Establish whether the restriction is the admission rule or something the lowering needs, and lift it if it is the former | `make_ym_interval` over two int columns fuses and matches the row engine over the ANSI overflow edge, or declines with a reason that says why it must |
+| 97 | A bandwidth-bound row lost 22.6% between two surface regenerations and nothing in its lowering changed (section 2.32). **DONE** (`VARKA-97.md` 9): three explanations eliminated with numbers - the lowering is unchanged, the six-column table costs about 6% and costs it near-uniformly across a four-op and a sixty-four-op entry, and ordinal arm position costs 1% in the favourable direction. The control settles the rest: stock read 82.9 M rows/s on 13 September and 82.7 today while the Varka arm reads 28% higher, so the machine was not slower and only the Varka arm was. The surviving hypothesis - elapsed session time before the arm - becomes VARKA-99, and a hazard found on the way becomes VARKA-100. Scoped 14 September 2026, out of VARKA-78's run: `date_add(d, 3)` went 1811.6 to 1401.4 M rows/s with a clean canary both times, while emitting the same four `IntVector` ops it always has and taking none of the paths the one nearby commit added. The table it is measured over grew from three int32 columns to six between the runs, and from about 12 GiB to 23.2 GiB cached, which is the hypothesis to test on the row where memory is everything and arithmetic is nothing | Time the same entry over a three-column and a six-column table, same host and row count, and attribute the 22.6% | Either the working set explains it - in which case a third of the surface is measured against a fixture shaped by columns those rows never read, and the fixture needs a decision - or fifty-four other commits are in scope |
+| 98 | **Moved to milestone 6** (15 September 2026, `m8/SCOPE.md` item 15): the read-back floor, not a type. Two filter rows stay under 1.0x because the consumer counts (section 2.33). **Scoped** (14 September 2026), out of VARKA-78's outcome: `WHERE d < d2` counted at 0.80x and `WHERE d IS NOT NULL` counted at 0.45x are the only losses left in the surface, and the same `d IS NOT NULL` predicate reads 9.5x with a columnar consumer at 1.2 ns/row against 11.7 ns counted - identical kernel, and 968 million of a billion rows crossing the read-back floor at about 25 ns each | Price making the filter node `CodegenSupport` so a counting consumer fuses into the vector loop instead of reading rows back - milestone 4's scope item 13, which VARKA-78 declined to inherit and these two rows now need | The two rows at or above 1.0x, or a recorded measurement saying what the boundary costs and why it cannot go; the debt register's `COUNT(*)` entry belongs to the same owner |
+| 99 | The Varka arm may be measured in the session's worst memory state (section 2.34). **Done, negative** (`VARKA-99.md`, 15 September 2026): the two Varka arms of one session, five hours and twenty minutes apart, differ by a median of 0.1% and by 1.1% on the entry in question, so elapsed time is not the variable. What the five arms did show is section 2.36's finding. Originally, out of VARKA-97: three explanations for a 22.6% swing in `date_add(d, 3)` are eliminated with numbers, and the control is what makes the rest worth a task - stock Spark read 82.9 M rows/s on 13 September and 82.7 today, 0.2% apart, while the Varka arm on the same entry, fixture and ordinal position reads 28% higher today. The uncontrolled variable is elapsed session time before the arm: five hours twenty on 13 September, forty minutes in VARKA-97's run, against a 23.2 GiB Arrow-cached table where the stock arms hold 1.2 GiB | Two full-length surface runs on one host on one day, differing only in whether the Varka arm runs first or last, about eleven hours | The two Varka arms agree, or they do not and the arm order is a measurement artefact the script must stop producing; either way the committed surface's ratios get a stated confidence |
+| 100 | An `--only` run silently truncates its label's committed results file (section 2.35). **Done** (`VARKA-100.md`, 15 September 2026): refused before the machine checks for any label whose results file is tracked by git, with `--replace` as the deliberate override, kept separate from `--force`. Originally scoped (14 September 2026), found while running VARKA-97: the driver replaces `DateSurface-<label>-results.txt` rather than merging, so a three-entry partial run turned two committed fifty-two-entry files into three-entry ones and `git status` showed an ordinary modification. Restored before staging, and only because the tree was read first | With `--only` set, refuse a label whose committed file holds more entries than this run will write, or write a name that says the file is partial - the sharded path already suffixes filenames for exactly this reason | A partial run cannot overwrite a fuller committed file; a test covers the refusal |
+| 101 | The surface's per-entry numbers have a tail that one run cannot see (section 2.36). **Done** (`VARKA-101.md` section 10, 22 September 2026: the date surface's band, twelve runs in one night at 34 minutes each, the projections within a 3% tier and the counted filters up to tier 3). The `TIME` surface's band measured (`VARKA-105.md` section 7, 21 September 2026: median 3.38%, the quoted projections under 3%, the filters up to 17%; the date surface's own band is still unmeasured and its rows keep their caveat). **Partly done** (`VARKA-101.md` 9, 18 September 2026): the chains' band is measured and committed - twelve runs, 24 cases, median spread 0.77%, p90 1.53%, max 2.55%, not one case above 3%, so on that benchmark a move above 3% is not the run. The surface's band is not, and 9.2 says why: 1h40m per arm at the committed 1e9 rows makes ten runs seventeen hours at one width, so it needs the sharded form or a runner rather than a night. **Scoped** (15 September 2026), out of VARKA-99: each of four arms measured overnight reproduced its committed twin to within 0.2% at the median over 52 entries, and each carried exactly one entry 8% to 27% away from it, in both directions, stock Spark as readily as Varka | Point `dev/varka_bench_repeat.sh` and `dev/varka_bench_band.py` at the surface the way they are pointed at the parity benchmark: N repeats per arm, the per-case band written and committed, and the split-half check run to see whether *which* entries are noisy reproduces here as it does there | A committed band file for the chains (done) and for the surface at both widths (owed); the README's per-entry rows either carry their band or are replaced by the aggregate figures; `dev/varka_bench_diff.py` reads the band so a single-entry move inside it stops being reported as a change |
+| 102 | `TIME` expressions over the long lane (section 2.37). **Done** (`VARKA-102.md` 10, 23 September 2026): the row closes on what it delivers - groups A, B and C, which is `t1 - t2`, `time_diff`, `time_trunc`, `t + dt` under two range guards, and the `hour`/`minute`/`second` extracts as long-lane divisions narrowed at the store - with every second of the day agreeing with the row engine through both consumers at both widths. `BoundedDivide` was built and priced beside group C and is the int lane's bounded division family, at the hand-written rate for one field and short of it for three while cache-resident, which row 163 carries. Nothing left over is unhomed: the split leaf and the cache encoding are the representation question and belong to `m8/SCOPE.md` item 11, the decimal outputs are a widening store and went to row 157, `make_time` needs the decimal lanes of item 1, and group E shipped as row 158. What the milestone claims for `TIME` is what the coverage table states, with `to_time`, decimal seconds and string formatting declined by name and by reason. **Group C's extracts landed** (20 September 2026, `VARKA-102.md` 8.6): `hour`, `minute` and `second` as long-lane divisions under a `NarrowLane` root, an int output computed in the 64-bit lane and narrowed at the kernel's store with an int mask that C2 lowers at every width; admitted at a root only, declined under another expression until VARKA-28. The bytes oracle gained three rows and moved none. Group D (`make_time`, the fractional second) and the split form (8.4) remain. **Groups A and B landed** (19 September 2026, `VARKA-102.md` 7.1): `t1 - t2`, `time_diff` and `time_trunc` as a subtraction and a constant division whose bound is the type's, and `t + dt` as a wrapping add under two range guards - a new `GuardedRange` node, `GuardedDay`'s twin at either lane - with the precision step proved the identity in code rather than emitted. Every second of the day agrees with the row engine through both consumers, and a sum that crosses midnight raises Spark's own `DATETIME_OVERFLOW` under Varka rather than a wrapped time. Groups C and D remain. **Planned** (`VARKA-102.md`, 18 September 2026), which found that five of the nine expressions - the hour, minute and second extracts, the fractional second and `make_time` - are `RuntimeReplaceable` and reach the compiler as a `StaticInvoke` on a `DateTimeUtils` helper, never under their own class name, and the compiler has never matched a `StaticInvoke`. Their reference is `java.time.LocalTime` rather than a division, so Varka re-derives the arithmetic and the oracle must be `LocalTime` itself. VARKA-88's step 3 lands here, because its long-lane converts have no other caller and its stated test needs this task's nodes. **Revised twice on 18 September 2026.** Starting the implementation found that **all nine** expressions are `RuntimeReplaceable`, not five - the first check read only the first `extends` on each declaration - so the `StaticInvoke` table is the task's entry fee rather than one group's cost; and reading the `DateTimeUtils` helpers found that three of the four called blocker-free need the long-lane division, while `t + dt`, which had been deferred, needs nothing beyond the table. The groups now follow that dependency map. Earlier the same day, after review: the three headline extracts return `IntegerType` from an int64 lane, so they are mixed-width kernels and depend on VARKA-28, which an earlier draft denied; the task is now three groups, shipping `time_trunc`, `t1 - t2` and `timediff` first because they need neither VARKA-28 nor the `StaticInvoke` mechanism, deferring `make_time` (a constructor with a decimal operand) and `t + dt` (semantics in flux under SPARK-57853), and settling first whether a narrowing store can serve the extracts without VARKA-28's full bi-lane kernel. **Scoped** (15 September 2026) | After VARKA-116 has passed (the cache proof, which this row does not repeat): `hour`/`minute`/`second`, `make_time`, `time_trunc`, `t + INTERVAL`, `t - t`, `time_diff`, the `time_from_*`/`time_to_*` pairs, and `IN` and the choice arms over a `TIME` column - the comparisons and `CASE WHEN` land with 29, and the coverage columns `t`, `t2`, `l`, `dt` are 29's too (17 September 2026); this row adds rows to them | Differential against the row engine over every shape and null pattern at both vector widths with `spark.sql.timeType.enabled=true`; every arm documented, which the coverage suite enforces; `to_time`, decimal seconds and string formatting demonstrably declined |
+| 103 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): day-time interval arithmetic; the milestone claims comparisons, selections and the interval as an operand of `TIME` arithmetic, as the coverage table states them. Day-time interval expressions, absorbing VARKA-39 (section 2.38). **Scoped** (15 September 2026) | `+`, `-`, negate, `abs`, `MultiplyDTInterval` under the checked-multiply rule (the comparisons land with 29); `DivideDTInterval` and the `extract` family under 2.19's bound or a recorded decline; `MakeDTInterval`; `date - date` (`SubtractDates`) and `DateAddInterval` for whole days as one mixed-width kernel family - `TimestampAddInterval` and `SubtractTimestamps` left with the timestamp types on 17 September 2026 (`m8/SCOPE.md` item 31) | Differential at both widths over intervals spanning the int64 including the overflow edges; each division either exact under its bound or declined with the reason in the plan; `VARKA-39.md`'s recipe outcome written here |
+| 104 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): bigint arithmetic; the milestone claims comparisons and selections over bigint, as the coverage table states them. `Long` arithmetic, VARKA-30's int64 half (section 2.39). **Planned** (`VARKA-104.md`, 18 September 2026), which found the emitter half largely already built: `emitIntArith` and `emitIntNeg` carry no int32 assumption since VARKA-85 step 3, so checked add, subtract and negate already emit at the long lane and what stops `bi + 1` fusing is the compiler, which VARKA-29 narrowed to comparisons. The real work is the value-range lattice, which answers UNKNOWN for every non-INT node by explicit decision and so can never take a check off at this lane, and the checked multiply, which has no lanewise test at int64 at all - three candidates to build and measure. Depends on VARKA-28 only for the cast clause, which is 28's own deliverable. **Scoped** (15 September 2026) | Checked and wrapping `+`, `-`, `*`, negate over `bigint` under the 2.15 lattice (the comparisons land with 29); int-to-long `Cast` through 28's conversion; `div`, `%`, `pmod` only under a proven bound | The error-identity differential from section 5 at the long width; the halved-headroom number committed per shape, not discovered |
+| 105 | The `TIME` benchmark: `TimeSurfaceBenchmark`, its own files (section 2.40). **Done** (`VARKA-105.md` section 7, 21 September 2026: the band of twelve runs committed, the quoted projections all within a 3% tier and the filters carrying the spread up to 17%); four arms measured (21 September 2026, `VARKA-105.md` section 6: 500000000 rows in 48g, the extracts 13x to 17x against stock and the truncations 34x and 38x, the band pending); built (20 September 2026, `VARKA-105.md`): the `varka_times` table, the twenty-three-entry `Times` inventory over the coverage table's own shapes, the driver's `TableShape.TIMES`, the `--benchmark time` selector in the shell driver, the merge tool and the workflow, and `TimesTest` on the stock release; predictions registered in the plan's section 4. The first run waits for #268 (the extracts) and the row count is found by the fixed-share and residency rules, not inherited from the date surface (plan section 5). **Scoped** (15 September 2026); the number the message quotes; upstream's [SPARK-57562](https://issues.apache.org/jira/browse/SPARK-57562) is open for the same | The class and inventory in `sql/varka/bench`, a `--benchmark time` selector in `dev/varka_bench_surface.sh`, both arms with the flag on against stock 4.2.0, committed results files per label, **the `TIME` surface's own band file built with VARKA-101's tooling** (a band is per benchmark, and 101's is the date surface's), `TimeChains` after | Every entry `--expect-fused`; the fixed-share rule met; measured under VARKA-101's band before any figure is quoted, and the message quotes a median and a banded range |
+| 106 | The quote check runs in no workflow (section 2.41). **Done** (`VARKA-106.md`, 15 September 2026): a `varka-docs` module claiming the documents and the two checks, exempted from the ignore list so the root READMEs reach it, and a job that checks out the branch with its full history - not the squash-merged tree, on which most quotes would be orphans - and runs the quote check and the index check. The quote check now also reads the four `sql/varka/*.md` it did not. The gate is proven by the first documents-only PR after it. Originally scoped (15 September 2026), found while closing VARKA-94 | A `varka-docs` module in `modules.py` over the plans, the lesson files, the docs and the READMEs, and a job on VARKA-94's pattern running `dev/varka_quote_check.py` and the `SKILLS.md` index check | The job green on its own PR in minutes; the next documentation-only PR shows `Varka bench drivers` skipped, closing VARKA-94's open half |
+| 107 | `time_add(unit, quantity, time)` (section 2.42). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 108 | `try_make_time` (section 2.43). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 109 | `sequence()` over `TIME` (section 2.44). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 110 | `avg` over `TIME` (section 2.45). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 111 | Avro `TIME` (section 2.46) - not a gap, present. **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 112 | `DATE + TIME` as an operator (section 2.47). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 113 | The survey of what else vanilla Spark lacks for `TIME` (section 2.48). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 114 | `time_bucket` over `TIME` (section 2.49). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 115 | `time_format` (section 2.50). **Withdrawn** (15 September 2026): vanilla Spark's work, not Varka's; section 8 has the survey and the ticket | - | - |
+| 116 | A `TIME` column through Varka's Arrow cache, proven (section 2.51). **Done** (`VARKA-116.md`, 15 September 2026): `VarkaTimeArrowCacheSuite`, fifteen tests, `TIME(p)` for p in {0, 3, 6, 9} and a day-time interval at three null patterns - the type keeps its precision, the vector is `TimeNanoVector` or `DurationVector`, the raw buffers map as eight-byte lanes with the right validity bits; no production code changed. The first run failed on the harness (a memoised `queryExecution`), not the cache | A `sql/core` Varka suite caching `TIME(p)` for p in {0, 3, 6, 9} and a day-time interval column under the Arrow serializer, reading back equal, and mapping the buffers through the morsel as eight-byte lanes | Passes at every null pattern the date fixtures use before any long-lane code is written, or fails and becomes the first fix |
+| 117 | Sync the fork with `apache/spark` master (section 2.52). **Done** (15 September 2026, by the owner, by hand): `origin/master` is now `2219f51c76a`, a merge of `apache:master`, 0 commits behind upstream and 212 ahead; SPARK-53368 is present; the gate's `compile` (218 s) and `wide` (220 s) steps are green on it, 297 + 183 tests, 0 failed, the 10 canceled being the opt-in sweep and JFR cases. Was: first in the milestone by the owner's instruction, infrastructure before 84 opens | The merge of the 375 upstream commits (dry run 15 September: no conflicting file; the merged tree compiles and passes the wide Varka suites, 480 tests, 0 failed), the gate green, a surface regeneration under the canary if any Varka number is suspected to have moved | `dev/varka_gate.sh` green on the merged tree; [SPARK-53368](https://issues.apache.org/jira/browse/SPARK-53368) present afterwards, and the 36 traceable [SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550) subtasks still present, by a full-message grep of the log rather than a title prefix |
+| 118 | The closing task: final benchmarks, the README, and the post (section 2.53). **Done** (`VARKA-118.md` 6, 23 September 2026): the `TIME` chains measured on GitHub Actions at both ends of the datapath - an EPYC 9V45 at probe 1.97 for the number and an EPYC 7763 at 1.00 for the width subtraction - and the `TIME` surface's four arms and band kept on the laptop, because a third of its entries cannot clear a runner's 36 ms constant inside 15 GiB. The README carries a `TIME` chains table and a `TIME` surface table beside the date ones, both answers in the datapath section, and the dispatch recipe at `max-fixed-share=11`. The long read is published at <https://vecbricks.github.io/eight-rows-per-instruction/> and the trailer posted. Predictions 1 and 5 held; 2 was half withdrawn when laptop runs left the critical path of a published number; **3 and 4 are wrong, and wrong the same way** - both priced a 64-bit lane as the same work with more lanes, and on this type the wider machine also emits a different division, so lane count and lowering multiply. The datapath is worth 8.3x on the chains against a predicted 1.3x, and the AVX2 arm reads 0.09x to 0.16x of full width against a predicted third to two thirds. **Planned** (`VARKA-118.md`, 21 September 2026: the support claim read from the coverage table, thirteen controls from milestone 4's close, the `TIME` chains of row 164 as the full-width number, five predictions); scoped (15 September 2026) on the owner's instruction - the milestone ends as milestone 4 did, with VARKA-62's shape; **last in the milestone**, after 105 and 101 | (A) the measurement's plan - arms, benchmarks, the full-width runner; (B) the `TIME` surface and chains measured under the band on a runner the datapath probe proves, with the allocation/arithmetic split and the engine-off ratio beside stock; (C) the README's `TIME` table and reproduction guide, the docs checked; the short and long post drafts, ideas first, numbers last | Four results files per benchmark committed with provenance and band; the README quotes them and nothing else; `dev/varka_quote_check.py` at zero orphans; both drafts exist and name their sources |
+| 119 | The oracle for the long lane: reference evaluator and fuzzer at `long` (section 2.54). **DONE** (19 September 2026, `VARKA-119.md`): the evaluator arms landed with 85 and needed no addition, since every `TIME` and interval lowering is a tree of the lane-generic nodes it already spells; this task added the long-lane grammar (`LongShapes`, its own seed and corpus), the fuzzer at the long lane with a reach test that reads the lane-generic set off the constructors, and the bytes oracle's long half - the twenty long coverage rows un-skipped and a `fuzz_long` sequence. Ten thousand iterations clean at both widths; a wrong `ConstDivide` arm is caught. The run also found the int grammar's `TruncDate` bound short by a year under VARKA-102's guard arm (iteration 847), fixed here | `VarkaReferenceEvaluator` over long lanes including both exact-division lowerings, the range guards, `TIME`'s day-modular arithmetic and the interval checks; the fuzz grammar over long, `TIME` and day-time interval trees; the reaches-every-node assertion at the long lane | The fuzzer at ten thousand iterations clean at both vector widths over the long-lane grammar; a deliberately wrong evaluator arm is caught by the fuzzer, not only by the differential |
+| 120 | The coverage table as a differential corpus (section 2.55). **Done** (`VARKA-120.md`, 16 September 2026): `VarkaCoverageDifferentialSuite` runs every `coverage.json` row on three fixtures under both consumers, 58 tests in 42 seconds. Its first run found the table carrying `year(d) = 2021 AND i > 0` while `i > 0` ran in a row filter above the Varka node - the coverage suite had accepted a predicate if any conjunct fused; it now requires all, the row is `year(d) = 2021 AND month(d) > 6`, and the gap is VARKA-122. Originally scoped (15 September 2026); independent, started on the 57 rows | A `sql/core` suite running every `coverage.json` row through both engines over the null-pattern fixtures, projection and predicate forms, both consumers | Every row of the committed table passes; adding an arm without a row fails `VarkaCoverageSuite`, adding a row without correctness fails this suite - the two together are the guarantee |
+| 121 | The AVX2 arm: the `TIME` surface under `-XX:UseAVX=2` (section 2.56). **Switch landed** (22 September 2026, `VARKA-121.md` 2): `spark.sql.codegen.varka.emit.useAVX` reaches the shape key through the evaluators, so a session at level 2 emits and caches the magic form under its own class names, with the workflow's `extra-confs` carrying the flag and the switch to a runner; the second arm's night run is what remains. *First arm measured* (22 September 2026, `VARKA-121.md` 5.1: the shipped lowering under the flag reads `hour(t)` at 132.4 M rows/s against 1041.4, every division row under a sixth, the rows without a division unchanged; the magic-form arm waits on the session switch). **Planned** (`VARKA-121.md`, 21 September 2026: a session switch for the level, four laptop arms under the flag and the same through the workflow on a Zen 3 runner, five predictions registered); scoped (15 September 2026); after 105, quoted by 118 | Companion results files for the `TIME` surface under `UseAVX=2` on the laptop and on a Zen 3 runner via the workflow, provenance naming the lowering; the one-or-two-lowerings decision for 2.19 recorded from the numbers | Files committed with datapath and flags; the decision written in 2.19 with its numbers; 118's README table shows the AVX2 column beside the full-width one |
+| 122 | A comparison over a bare int column stays on the row engine (section 2.57). **Done** (`VARKA-122.md`, 17 September 2026): one operand rule in `compare`, and a second in `compileValidity` that the differential's first run showed was not optional - Spark infers `isnotnull(i)` beside any null-intolerant predicate on `i`, so admitting the comparison alone left the kernel doing the compare and the row engine still visiting every row for the null. Five coverage rows, 61 through the differential under both consumers, and the emitter untouched, which the unmoved fuzz digests confirm. Two older tests were re-pointed at a `ShortType` column, having used `i > 5` as their example of something that cannot fuse. Originally scoped (16 September 2026) | `compare`'s non-literal operand accepts an `IntegerType` column the way `intOperand` does; `i > 0`, `i = 5` and `i < i2` fuse, alone and as conjuncts; a coverage row for each | The three shapes in the coverage table and through `VarkaCoverageDifferentialSuite`; the end-to-end plan for `year(d) = 2021 AND i > 0` has no row filter above the Varka node |
+| 123 | The module gates measure the pull request, not the fork's delta (section 2.58). **Done** (`VARKA-123.md`, 17 September 2026): `checkout-and-sync` exports the pull request's own diff as a pair - the fetched branch head and its merge base with the upstream's master - computed **before** the squash that destroys the ancestry, which is what defeated the reverted PR #91; `is-changed.py` and `run-tests.py` prefer that pair, and every failure path falls back to today's reference, so a mistake is wasteful rather than unsafe. Measured over four real branches, the changed-file count falls from about 2133 to between 3 and 11, and a catalyst-only branch stops requiring `yarn` and `kubernetes`. Left for a follow-up: `dev/varka_*.sh` maps to `root`, so benchmark tooling still runs everything. Originally scoped (16 September 2026) | `Check changes` diffs against the merge base of the pull request's head and its base on this repository, taken before `checkout-and-sync` squashes, and keeps `APACHE_SPARK_REF` where an upstream comparison is the point | A documents-only pull request runs the documents jobs and skips the engine, bench and module shards; VARKA-94's bench-only half can be shown |
+| 124 | The no-fallback proof: the assembly gate in CI (section 2.59). **Done** (`VARKA-124.md` 2.5 and 2.6, 18 September 2026). `PrintIntrinsics` was the wrong instrument - it logs every compilation *attempt*, and healthy Varka kernels emit `** operation not supported` for `VECTOR_OP_MUL` and `VECTOR_OP_AND` on int lanes, which `SKILLS.md`'s disassembly shows the shipped loop does lower. The asm mnemonic scan was already built: `VarkaAssemblySuite` (VARKA-31) reads the final C2 nmethod, and only cancelled for want of a disassembler. A `varka-asm` job now builds hsdis (6s) and runs the suite (36s, 14 cases), with `VARKA_HSDIS_REQUIRED` turning the cancel into a failure so a broken hsdis build cannot leave the job green while asserting nothing | A test that runs the emitter and kernel suites in a forked JVM under `-XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics` and fails on any `** not supported` or `** Rejected` line whose method is a Varka class; a line in `dev/varka_datapath.sh` asserting `EnableVectorSupport=true` from `-Xlog:compilation` | The Varka engine CI job carries the test; a kernel deliberately given an operation the match rules refuse fails it |
+| 125 | A checksum per arm in the surface driver (section 2.60). **Done** (`VARKA-125.md`, 18 September 2026), except for the regeneration: the driver now writes `rows`, `nonnull` and an order-independent `fold` per entry per shape, and `dev/varka_bench_diff.py` fails the run - before printing any table - when two arms disagree about either that or the selectivity it was already reading from every arm and silently discarding. The selectivity half is live on the committed files today and they agree; the checksum half prints an honest note that it has nothing to compare until a surface regeneration puts the line in the files. **Scoped** (16 September 2026) | `DateSurfaceBenchmark` computes one checksum per entry per arm outside the timed loop and asserts the arms agree; the checksum is written beside the timing in the results file | A deliberately wrong kernel fails the run; the committed results files carry the checksums |
+| 126 | The fifth arm: Arrow cache on, engine off (section 2.61). **Done** (`VARKA-126.md` 9, 17 September 2026): the `arrow-cache` token, the corrected README sentence, and three arms in one session at twelve cores. The decomposition: the Arrow cache alone is **0.78x** - a tax on the row engine, which pays a columnar-to-row conversion the on-heap cache does not, worst on predicates at 0.52x - and the kernels on top of it are **21.8x**, so the published 16.9x is conservative rather than inflated by the cache format. The two numbers answer different questions and VARKA-118 must say which it quotes. The prediction that the cache would be worth a small gain was wrong in sign. Originally scoped (16 September 2026) | `dev/varka_bench_surface.sh` takes the engine flag and the Arrow-cache flag as separate tokens; a fifth distribution runs the Arrow cache with the engine off; the README sentence saying the arms "differ only by that flag" is corrected and cache build time is named as excluded | The surface results attribute the published ratio between cache format and kernel; `dev/varka_quote_check.py` passes on the rewritten README |
+| 127 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. The 64-bit operations table on AVX2 (section 2.62). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | JMH rows under `-XX:UseAVX=2` for long multiply, long absolute value, long minimum and maximum reductions, masked sub-word loads and stores, `Long.compress`, and vector compress at 128 and 256 bits, on the Zen 5 and, through the workflow, on the Intel and Zen 3 runners | A table in this plan saying per runner class which operation is one instruction, a sequence or a Java fallback, checked against `m8/SCOPE.md` item 26's reading of the match rules |
+| 128 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. 64-bit compaction with a sparse guard (section 2.63). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223); **sharpened** (17 September 2026) by VARKA-29's admission check: every eight-byte column forwarded through a Varka filter already takes the per-row `copyFromSafe` path, because the `compress` compaction is a width check serving four-byte vectors only (`VarkaKernelEvaluator.scala:1304`) - a cost the engine pays today, not one the long lane introduces | `SelectionVectorOps` extended to long lanes, measured on a log-scale selectivity ladder with and without a popcount guard on the mixed group, on the Zen 5 under both AVX levels and on the Intel runners | The guard threshold is a measured number in a committed results file, or the guard is rejected by that file |
+| 129 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. Selectivity policy re-measured at 64-bit lanes (section 2.64). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | The filter and `CASE` ladders of `VarkaFilterBenchmark` and the narrowing benchmark run over `LONG` columns at both widths | No int32 selectivity threshold is inherited by a long-lane decision without a 64-bit number beside it in this plan |
+| 130 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. Narrowing, built four ways (section 2.65). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | Four arms in the emitter behind one flag - blend as today, lane-group skip on the running conjunction word, batch-granular compress-evaluate-expand, in-register refill - measured by `VarkaNarrowingBenchmark` on a log-scale ladder from one in ten thousand to one with a thirty-op calendar remainder, at both widths, with stall cycles where `perf stat` is available | The decision rule in the emitter cites the results file; the registered predictions (Lang's and Ross's threshold, Raducanu's forced-narrowing loss) are scored in section 2.65 |
+| 131 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. The batch-size sweep (section 2.66). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | Arrow cache batches from one to sixteen thousand rows; the per-shape working set computed at emission against the last-level cache; the output pool sized from the plan's fixed allocations per batch | Item 14 of `m8/SCOPE.md` has a chosen default with the curve committed |
+| 132 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. Kernel time split from conversion time, and a pivot budget (section 2.67). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | Per-node metrics for kernel and conversion; a "would add a pivot" decline reason; a benefit score over an entry's nodes, weighted by the emitter's op counts, against a threshold | A one-cheap-node project over a row consumer is declined with that reason and the metrics show the conversion share; the coverage differential is unchanged |
+| 133 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. The frequency-licence probes (section 2.68). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | A heavy-multiply variant of the datapath probe beside the light one; a tail probe timing the scalar canary in short windows after a 512-bit burst; a sibling probe with a scalar control pinned to the other hyperthread; all in the survey job across the runner census | The runner census in `VARKA-62.md` section 11 has a licence column per CPU family, with the Zen 5 as the negative control |
+| 134 | The partitions ladder (section 2.69). **Done** (`VARKA-134.md` 9, 17 September 2026): the date surface at 1, 6, 12 and 24 cores on the laptop, two arms per rung, eight committed files. The engine's median advantage over the row engine is 19.0x at one core, 18.1x at six, 16.2x at twelve and 17.4x at twenty-four threads, so it survives full occupancy and the worst shape improves under load. The finding is the split: two-column shapes with little arithmetic lose a third of their ratio, calendar shapes hold or gain - `weekofyear(d)` climbs 24.8x to 35.7x - because a fast implementation reaches the shared bottleneck sooner, so a one-core ratio overstates a loaded machine on bandwidth-bound shapes and understates it on compute-bound ones. The prediction that SMT would buy little was wrong: it buys 8% at the median and costs 1% on four shapes of 52, because these kernels are latency-bound (`VARKA-62.md` 11.13) and a sibling fills gaps. `dev/varka_bench_surface.sh` gained the `--cores` knob the ladder needed, since it hard-coded `local[1]`. Originally scoped (16 September 2026) | The surface benchmark at 1, 6, 12 and 24 partitions on the Zen 5, and at physical-core and hardware-thread counts on an SMT runner, as committed results files | The write-up states per shape whether a win is compute-bound and survives full occupancy, citing the files |
+| 135 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. The backward interval pass (section 2.70). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | A second traversal over `VarkaValueRange` from a known result interval to tighter operand intervals, so a conjunct can retire a sibling's guard; `VarkaRangeAnalysisSuite` and the IR fuzzer extended | A guard the forward pass cannot remove is removed by a sibling bound in a coverage row, and the differential agrees |
+| 136 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. The preimage rewrite (section 2.71). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | `year(d) = c`, `date_trunc`, `unix_date` and the casts rewritten into ranges on the column, declared where `VarkaChrono` has a closed form and bisected where it does not, covering `IS NOT DISTINCT FROM` and short `IN` lists. **Milestone 6** (`m8/SCOPE.md` items 20 and 21, #223) | The surface's year-equality row runs as two compares; the differential and the fuzzer agree |
+| 137 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. Batch bounds at cache-write time, and a bounds check ahead of `IN` (section 2.72). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | Minimum and maximum per column per batch written by `ArrowCachedBatchSerializer`; a guard decided by interval compare; `compileInList` emitting a bounds test before the chain. **Milestone 6** for the cache half (`m8/SCOPE.md` items 15 and 27, #223); the `IN` half is this milestone's | A sorted date column retires its guards on every batch without a pass over the data; the `IN` benchmark shows the bounds test's cost and skip |
+| 138 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. Three test forms (section 2.73). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | Every coverage row through the dense body, the masked body and a lane tail with poisoned null lanes; a "both engines throw or both agree" form in `VarkaSharedSessions` for `ANSI` rows; a ternary-logic-partitioning oracle running `p`, `NOT p` and `p IS NULL` for every filter row | All three run in `VarkaCoverageDifferentialSuite`; the partition oracle needs no second engine |
+| 139 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): one of the thirteen rows scoped on 16 September from this catalogue's own items 16 to 29; it returns to where it came from. A per-expression switch, and the tier ladder (section 2.74). **Scoped** (16 September 2026) from the September surveys, `m8/SCOPE.md` items 16 to 29 (#223) | `spark.sql.codegen.varka.expression.<Class>.enabled` producing a decline reason that names the flag - **Milestone 6** (`m8/SCOPE.md` item 24, #223); and, this milestone's, a time-to-tier-4 ladder and a batches-below-C2 counter extending `VarkaColdStartBenchmark` | A disabled class declines with the reason; the cold-start file carries batches executed before each kernel's tier-4 compile landed |
+| 140 | The chains at occupancy (section 2.75). **Done** (`VARKA-140.md` 9, 17 September 2026) from VARKA-134's own finding: the compute-bound half of the benchmark at 1 and 12 cores, two arms per rung, four committed files. The advantage **grows** under occupancy - 10.29x at one core, 11.42x at twelve - where the surface lost 15%, and not one of the twelve chains falls, the worst improving from 8.93x to 10.19x. The mechanism is VARKA-134's seen from the other side: on the surface the row engine scaled better (5.62x against 5.35x), on the chains the engine does (7.09x against 6.18x), because there is arithmetic to hide latency behind. So the write-up's headline, which comes from the chains, is conservative for a loaded executor rather than flattering | The `chains` benchmark through the same driver at `--cores` 1 and 12, measured in one session on the laptop, since the committed chain files are the EPYC 9V45 runner's | Four files with `cores` in their provenance, every row fused, and the per-shape split stated beside VARKA-134's |
+| 141 | The module map claims Varka's own files (section 2.76). **Done** (`VARKA-141.md`, 17 September 2026) from VARKA-123's first demonstration: the base was right - #234 printed `changed files vs base: 9` - and every gate still answered true, because `sql/varka/coverage.json` and `sql/varka/emitted_bytes.json` sit under a path no module claimed and so selected `root`, which means test everything. They belong to catalyst, whose suites generate and compare them, and the bench drivers under `dev/` belong to `varka-bench`. #234's files now answer false for `yarn`, `kubernetes` and `varka-bench`, and **a bench-only change runs the bench job alone**, which is VARKA-94's open half | Four regexes on two modules, each naming the suite that reads the file | The next pull request's job list, with `yarn` and `kubernetes` absent for the first time |
+| 142 | What a 64-bit lane costs (section 2.77). **Done** (`VARKA-142.md` 9, 17 September 2026) from VARKA-85's own finding: the long lane is priced against the int one for eight shapes over a four-rung row ladder, so the halved headroom is a committed number before VARKA-104 is judged against it | A committed `VarkaLongLaneBenchmark` results file whose rungs put both arms in the same cache level, and a per-shape ratio the milestone's later long-lane tasks can be read against |
+| 143 | The pre-commit hook judges the commit, not the file (section 2.78). **Done** (`VARKA-143.md`, 17 September 2026) from a finding in VARKA-142's own merge commit: line-anchored findings are scoped to the commit's diff, and the Python column scan takes ruff's own single-chunk exemption | A hook self-test that fails in both directions for each rule and runs whenever the hook is among the committed files; the merge commit that started it reports nothing |
+| 144 | What the long lane costs end to end (section 2.80). **Done** (`VARKA-144.md` 9, 18 September 2026) from VARKA-29's unscored prediction: the lane costs 0.73x to 0.96x of the int lane at two million rows and 0.31x to 0.97x at twenty million - never the kernel's 2.1x, and never one band, so VARKA-29's predicted 0.45x-0.60x is wrong in both directions depending on the shape | `VarkaLongLaneThroughputBenchmark` in `sql/core`, one shape at two widths over identical values, Varka on and off, at two row counts, every case asserting it fused | The committed results file, VARKA-29's 6.1.2 scored, and the per-shape ratios the long-lane tasks are read against |
+| 145 | A narrowed filter loses the columnar path (section 2.81). **Done** (`VARKA-145.md` 5, 23 September 2026): the six plan trees confirmed the hypothesis exactly - a projection that only narrows is not Varka-eligible, so the post stage absorbed it into the filter's to-row node and the narrowed shape had no columnar plan at all, its two trees identical. Arm A was taken: the pre stage now builds `VarkaProjectExec(narrowing, VarkaFilterExec(...))`, the pair `columnarSibling` already built for the cache path, and the post stage collapses it back into the fused row node wherever a to-row transition was inserted anyway, so no row-consumer plan changes. **That alone reached 164.6 against a predicted 862**, because a projection that computes nothing compiles to no kernel and every batch went to the per-row fallback - an allocation and a copy to rebuild columns the input already held. A projection that only forwards columns is a selection, so the evaluator now emits the input's own vectors through `forwardColumns`, tracked owning nothing so `release` closes none of them. With both, **B runs at 883.7 against the un-narrowed 907.4**, a 7.35x within 2.6% of the shape it was eight times behind; D gains 9.4x and G 42.6%, neither predicted, because the mechanism serves a family rather than one query. All four predictions hold, and prediction 4 is scoreable only because this file gained a band: A through `toRdd` is tier 3 at a 30.6% spread, and its -23.1% sits inside it. **Planned** (`VARKA-145.md`, 22 September 2026: step 1 is to print the six plan trees before changing anything, since two readings of this row have already been taken from a rate and refuted; the hypothesis the code suggests is that a projection which only narrows is not Varka-eligible, so the post stage absorbs it into the *to-row* filter node and the existing `columnarSibling` is never consulted outside the cache path, with three arms and the ordering risk of the one worth building). *Scoped* (18 September 2026) from VARKA-144's crossed experiment, and twice corrected the same night: not the forwarding, not the narrowing's own cost - with the row read-back forced the narrowed and un-narrowed shapes are within 1% (144.4 against 142.8 M rows/s) and VARKA-78 had already measured that shape at both widths. Under a columnar sink the un-narrowed shapes run at 862.3 and 901.3 while the narrowed one runs at 120.3, so what differs is that they stay columnar and it does not | Find why the narrowed node does not take the columnar path under a columnar consumer, when `columnarSibling` already builds `VarkaProjectExec(narrowing, filter)` for the case; route it there or record why not | A columnar consumer over a narrowed filter measured beside an un-narrowed one, with the difference explained |
+| 146 | **Moved to milestone 6** (23 September 2026, `m8/SCOPE.md` item 50): the answer is upstream's to give and row 102 closed with its guard intact. The survey the row was scoped on missed a patch: `apache/spark#57044` has been open since 6 July with ANSI's modulo-24 over eleven files, and its author asked this repository's owner to review it on 20 July. Reviewing it is the fastest route to the answer and is not milestone 5's work. The upstream ticket `TIME + INTERVAL` waits on (section 2.82). **Scoped** (18 September 2026) on the owner's instruction: [SPARK-57853](https://issues.apache.org/jira/browse/SPARK-57853) is open, unassigned and carries no patch, and its answer decides whether VARKA-102's `t + dt` keeps a range guard and a decline channel or becomes a plain `floorMod` by `NANOS_PER_DAY`. It is the one deliberate exception to section 8's rule that upstream's `TIME` gaps are upstream's work, because it is a semantics decision on an expression 102 lowers now rather than an expression vanilla lacks | Review the upstream patch if one exists; otherwise open one against `apache/spark` master for ANSI's modulo-24, covering `DateTimeUtils.timeAddInterval`, `TimeAddInterval`, `sequence` over `TIME` and TRY eval mode, with `TimeExpressionsSuite` and the `TIME` golden files | The ticket has a resolution Varka can lower against, and `VARKA-102.md` 4.1 says which, with its guard deleted or kept |
+| 147 | The 64-bit dividend bound is stated and not enforced (section 2.83). **Done** (22 September 2026, `VARKA-147.md` 5): `ConstDivide` carries the dividend bound its caller proved and cannot be built at the long lane without one, the two-argument form serving the int lane alone; the eight TIME divisions state the day's worth of nanoseconds, which their type gives them, and a quotient derives its bound from the node it divides so that equal subtrees stay one common subexpression; the analysis refuses a guard that admits more than the division above it claims. No emitted byte moved and no shape hash changed. Four findings are in the plan's section 5, the load-bearing one being that the bound is part of the record's equality. *Planned* (`VARKA-147.md`, 22 September 2026: the obligation is carried on the node and checked where it is built, the way `BoundedDivide` already carries its bound at the int lane, rather than guarded unconditionally - every current long-lane division proves its bound structurally from `TIME`'s type, so no guard is emitted and no committed byte moves, and a caller with no proof wraps `GuardedRange`; the row's new status bit is deliberately not built, since a second decline reason needs a second accumulator and return in every guarded body for a distinction the plan already makes). *Scoped* (19 September 2026) from VARKA-88 step 3's review: `ConstDivide.EXACT_DIVIDEND_BOUND` is 2^52 and nothing checks it - no constructor check, no analysis check, no emitted guard - while `VarkaRangeAnalysis.range` answers UNKNOWN for every non-INT lane, so nothing could discharge it either. Above the bound the conversion form is off by one and the magic form returns the dividend modulo 2^52, and VARKA-103's `extract(DAY FROM dt)` runs over signed microseconds across the whole int64, so out-of-range dividends are expected rather than hypothetical | A per-batch guard at the long lane declining an out-of-range dividend to the row engine, on `emitRangeGuard`'s two-compare pattern and a new status bit beside `STATUS_CHRONO_RANGE`; the bound read from the node rather than restated | A dividend past 2^52 declines the batch and the row engine answers it, under both lowerings, with the decline rate visible in the metrics |
+| 148 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an emitter budget finding on the int lane; recorded, not the message. The group budget under-counts an int-lane division sevenfold (section 2.84). **Scoped** (19 September 2026) from the same review: `weightOf` prices `ConstDivide` at the default 1 while its conversion form emits seven lane operations, so sixteen of them pack into one loop method carrying about a hundred and twelve. VARKA-88 step 3 corrected the long lane, where the magic form is fourteen, and left this one alone deliberately - it predates the lane and correcting it moves committed bytes, which belongs in a change whose subject that is | A weight of 7 for an int-lane `ConstDivide`, with `emitted_bytes.json` regenerated and the diff reviewed | `VarkaEmittedBytesSuite` green on a regenerated file, and the byte movement explained shape by shape |
+| 149 | `extract(YEAR FROM ym)` loses to a scalar loop at 128-bit lanes (section 2.85). **DONE** (20 September 2026, `VARKA-149.md`): the int-lane `ConstDivide` now takes a multiply-high through 64-bit lanes - each half widened with `I2L`, multiplied by Hacker's Delight's magic taken unsigned, shifted, narrowed with `L2I`, the sign bit added - with the conversion form kept as the reference arm behind `mulHiDivide`. Exact over all 2^32 dividends for every divisor in use by an opt-in sweep; 2.32x the conversion form at 512 bits (9057.5 against 3908.7 M rows/s) and 1.58x at 128, where the kernel now beats the scalar loop (3330.8 against 2851.5). The first lead, a `missing constant` on the divisor broadcast, was built, measured at no effect and reverted before the plan was written | The lowering, the option, the sweep, the op counts, both benchmark files regenerated, the coverage note | A committed 128-bit row shows the kernel faster than a plain loop |
+| 150 | The assembly gate fails on part of the runner pool, and cannot say which part (section 2.86). **Done, with a second finding** (21 September 2026, `VARKA-150.md` section 6: the first named run, an EPYC 9V45 at four processors, still compiled the probe's own 128-bit gather scalar with `-Xbatch` in place, so the 128-bit assertions now cancel where the probe does not pack and row 165 investigates); done (`VARKA-150.md`, 20 September 2026; the cause was runner contention, not a CPU class: the probe child now compiles under `-Xbatch`, the gate job reports its machine, and failures name the host). Scoped (19 September 2026) on the gate's second failure in two days: the same four tests on #255's first run and on #258, a pass in between on a re-run of the same commit, identical bytes under it each time, and on the second run the suite's own gather self-test not packing at 128-bit lanes - a statement about the runner, whose CPU the gate's log does not record | The machine printed at the top of the gate job - CPU model, `UseAVX`, `MaxVectorSize`, the datapath readings - and expectations per machine class on VARKA-124's baseline, with the self-tests as the precondition that cancels rather than fails the 128-bit and hand-written assertions | A gate failure names its CPU, and the gate is green on one run from each family in `VARKA-62.md` 11's census |
+| 151 | The math lanes re-read with the library reached, on both runner architectures (section 2.87). **Done** (19 September 2026): `MathLaneProbe` had been measuring the scalar fallback against itself - the operator arrived as a method parameter, which C2 refuses with "missing constant", and then the lazy library binding was compiled in before it existed - so `SCOPE_FUNCTIONS.md` section 3's "bit for bit" reading was wrong. Re-taken on Zen 5 (AVX-512), EPYC 7763 (AVX2) and Neoverse N2 (NEON) through a new `varka-canary.yml` workflow: no operator matches the row engine's bits on any host, one ULP against `Math`, two against `StrictMath` for `log10` and x86 `tanh`, and the three library builds differ among themselves | One loop per operator constant, a pre-binding pass, a forced-fallback control pass and a nanoseconds-per-element column in the probe; a workflow that runs any canary on `ubuntu-latest` and `ubuntu-24.04-arm` on dispatch or on a push touching `dev/varka_canary`; the three outputs committed as `dev/varka_canary/mathlane-*.txt`; section 3, item 36 and the skills entry rewritten | The tables in `SCOPE_FUNCTIONS.md` section 3 carry three hosts, and the FP-contract decision in `m8/SCOPE.md` item 36 is stated for the whole family |
+| 152 | The `TIME` split form priced before any engine exists (section 2.88). **DONE** (20 September 2026, `VARKA-152.md`): `VarkaTimeBenchmark`, a file of its own on the long-lane ladder, prices `hour`, `minute`, `second` and the three together in four arms - nanoseconds of day in 64-bit lanes under the conversion form and under the AVX2 magic form, seconds of day in 32-bit lanes under the emitter's double route and under a hand-written magic multiply whose constants are proven exact by exhaustion - beside the cost of the split itself and each lane's copy floor. The predictions are registered in the plan's section 3 and scored in its section 6 | A benchmark and its three committed files, no engine: the numbers decide whether a conversion node, a bounded int-lane magic divide or a second cache encoding is worth building | `m8/SCOPE.md` item 11's `TIME` row cites a committed number, and `VARKA-102.md` 2.5's three options are priced side by side |
+| 153 | Masked 64-bit operations have no 128-bit lowering in this JVM, and every long-lane guard is built from one (section 2.89). **DONE** (20 September 2026, `VARKA-153.md`): `VarkaWidthAuditSuite` forks a probe per vector width under a scoped `PrintIntrinsics` and reads C2's own refusals per shape - every coverage row and fifteen hand-built constructions - asserting on every host that nothing is refused at the host's preferred width, and pinning the per-width census as `sql/varka/width_audit.json` with the host named. The census: no refusal at 512 or 256 bits; at 128 bits every long-lane construction that touches a mask - compare to mask, blend, mask cast, broadcast, logic and test - is refused and no int-lane one is, so seventeen of the twenty long coverage rows are per-lane at two 64-bit lanes, which the coverage table now says per row. The audit's first CI run added the AVX2 half: on the pool's EPYC 7763 at 256 bits C2 refuses the 64-bit lane's `L2D` and `D2L` in every division shape, VARKA-88's premise confirmed from the log, so the invariant expects that one refusal below AVX-512 and VARKA-121 owns the answer | The three test files, the census, the coverage table's *128-bit lanes* column; the mask-free forms or the decline below 256 bits are left to the long-lane kernel design they inform (VARKA-102 group C), and the NEON confirmation to a catalyst run on the arm runner - **taken on 20 September 2026** (`VARKA-153.md` 6, `varka-width-audit.yml`): the pool's Neoverse N2 with SVE2 at a 128-bit species refuses nothing, so the two-lane refusal is the x86 matcher's below its own width and not the fleet's aarch64 hosts' | Every long-lane coverage row names, in the coverage table, whether it vectorises at 128-bit lanes |
+| 154 | The width-audit census pins `missing constant` and `unbox failed` lines its own description calls non-verdicts, and they flip between runs on unrelated rows, so the local check fails on a quiet tree and a regeneration blesses a timing (section 2.90). **DONE** (20 September 2026, `VARKA-154.md`): the file carries the `not supported` lines alone, a new test holds two probes at one width to the same verdicts, two regenerations on this host are byte-identical, and against the previous census the diff removes the timing lines and moves no refusal. **Scoped** (20 September 2026) from the first regeneration after VARKA-153, in VARKA-102 group C | Pin the `not supported` lines only, with the other kinds dropped or kept in an advisory block the comparison ignores; the file's description updated; the census regenerated | Two regenerations on the same host agree byte for byte; the suite passes without regeneration on a tree that changes no shape |
+| 155 | Route A's end-to-end prediction is scored by the `TIME` surface, not by a new benchmark (section 2.91). **Done** (22 September 2026): prediction 3 held at 17.1x, `hour(t)` reading 1041.4 M rows/s in `TimeSurface-varka-jdk25-results.txt` against 60.8 with the engine off and 61.3 on stock 4.2.0, both rows tier 0 in the band; `VARKA-102.md` 8.6 carries the scoring in prediction order, with the caution that a surface ratio moves with the row engine's cost for that expression as much as with the kernel's saving - `time_trunc('MINUTE', t)` scores 34.7x at a kernel rate within 7% of `hour(t)`'s. No benchmark class was added, as the row asked. *Scoped* (20 September 2026) from `VARKA-102.md` 8.3's third prediction, which the outcome could not score; narrowed the same day because VARKA-105's `TimeSurfaceBenchmark` is the end-to-end measurement and 118 quotes it | When 105's files exist, prediction 3 scored from the `hour(t)` row's engine-off ratio and written into `VARKA-102.md` 8.6; no benchmark class added | 8.6 no longer says "not scored", and the figure it quotes is in a committed results file |
+| 156 | The narrowed store costs 12% to 18% at two 64-bit lanes on `second` and the three-field shape, where `hour` and `minute` are within 5% and every shape is within 4% at 512 bits (section 2.92). **Done** (`VARKA-156.md`, 21 September 2026): the cause read in the 128-bit assembly, the offset fix shipped, and a half-species store measured as a new arm: equal to the wide store within 3% at 512 and 256 bits, 3% and 10% under it at 128 on `second` and the three fields, better than the masked form everywhere; shipping it is row 162. Scoped (20 September 2026) from `VARKA-102.md` 8.6: the direction is explained by the per-group cost over two rows, the shape dependence is not | The cause from the JVM's own output - the 128-bit assembly of the narrowed body against the wide one, `PrintIntrinsics` for the `L2I` and the masked store at `vlen=2` - and either the cost accepted with the cause recorded or the cheaper store it points to, re-measured on `VarkaTimeBenchmark`'s 128-bit file | The 128-bit narrowed rows within 5% of the wide rows on every shape, or the cause written in the plan and the census |
+| 157 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): the decimal store; the two decimal declines are named in the coverage table, which is the honest form for the message. The widening store: a decimal output is sixteen bytes a row (section 2.93). **Scoped** (20 September 2026) from `VARKA-102.md` section 9: every `TIME` decimal is an unscaled long in the lane the family already uses, and the column is the only blocker | A root-only `WidenDecimal` node whose store writes the value word and its sign extension per sixteen-byte slot; a `DecimalVector` destination in the evaluator; `second(t)` with its fraction and `time_to_seconds` lowered through it; measured against the evaluator widening a long output in a scalar loop, which is the baseline; the fraction's unscaled-long form checked against the row engine's `Double` round trip over every nanosecond of a minute | Both expressions agree with the row engine over every second of the day through both consumers; the store beats the scalar widening on `VarkaTimeBenchmark`'s ladder or the plan says by how much it does not |
+| 158 | Group E: the five `time_to_*`/`time_from_*` conversions the table does not know, and the two decimal declines that do not name their reason (section 2.94). **DONE** (20 September 2026, `VARKA-158.md`): the two divisions as a truncating `ConstDivide`, the three multiplies as a wrapping multiply under a `GuardedRange` to the day's worth of the unit, the table's guard driven by the registry's `TimeExpression` classes, and the decimal declines naming the sixteen-byte column and VARKA-157; every second of the day agrees with the row engine through both consumers and a count outside the day raises Spark's error. **Scoped** (20 September 2026) from `VARKA-102.md` 9.3 | The five in `timeTargets` and the compiler as group B's shapes, with the conversion's overflow and day-range rules read before choosing a guard or a checked multiply; the table's completeness guard widened to the registry's `TIME` functions; `second` with fraction and `time_to_seconds` declining by name with the Arrow representation as the reason | Five new coverage rows fusing; every `TIME` function in the registry either lowers or declines by name, which the coverage suite states |
+| 159 | Refactor for readability: the emitter split by its phases, the compiler by expression family, the evaluator by responsibility, the emitter suite by family, the serializer one class per file, the options as a builder, and last one place per IR node (section 2.95). **Done** (22 September 2026: steps 3.1 to 3.6 landed one pull request per seam - the options builder, the emitter's six seams into `Slots`, `Analysis`, the two lowering classes, `VarkaBodyEmitter` and `VarkaVectorWalk`, the suite by family, the compiler by family with VARKA-86, the evaluator by responsibility, the serializer one class per file - with `emitted_bytes.json` and the shape hashes unchanged at every step; step 3.7, one place per node, is deferred to milestone 6 as `m8/SCOPE.md` item 47). **In progress** (21 September 2026: step 3.1, the options builder, landed; the emitter split follows seam by seam). **Scoped** (20 September 2026) from the owner's review; after the pull requests open at the time (#267 to #275) merge | One PR per seam, each a pure move, in `VARKA-159.md`'s order: options builder, the emitter's six seams, the suite, the compiler with VARKA-86, the evaluator, the serializer, the per-node dispatch | `emitted_bytes.json` and the shape hashes unchanged at every step, checked by the flattened-key diff; no results file, band or docs table moves; every new file opens with its purpose |
+| 160 | Run only the CI a change can reach (section 2.96). **Done** (`VARKA-160.md`, 21 September 2026: a Varka-only change runs in 35 minutes and 94 job-minutes against 90 and 1283; the documents-only run found the Java 25 build and documentation generation still on, and the precondition now turns them off). Scoped and implemented (20 September 2026): a full Build is 35 jobs and 1283 job-minutes for a Varka change because any catalyst file sets `build=true` | `varka_change_scope` in `sparktestsupport.modules` with doctests; the precondition running the `varka-scoped` job (the `*Varka*` suites of catalyst and sql/core in parallel) instead of the matrix for a change confined to Varka's files, and the matrix for any other | Three recorded runs on the fork: a Varka-only change (the two scoped entries, about a third of the matrix's wall time), a documents-only change (the docs checks and the linters), and a workflow change (the full matrix) |
+| 161 | The quote check reads the merge it is asked to commit (section 2.97). **Done** (`VARKA-161.md`, 20 September 2026) from VARKA-154's merge commit, which the hook refused for 13 numbers that master's history holds: the history walk starts at `MERGE_HEAD` beside `HEAD` while a merge is in progress | A merge of master started with `--no-commit` on a branch that predates VARKA-149 reads 0 orphans with the change and 13 without; a plain tree reads what it read before |
+| 162 | Ship the half-species narrowed store (section 2.98). **Planned** (`VARKA-162.md`, 21 September 2026: a half-of-preferred species constant in the engine's support class for the unbaked count, the default flipped with the masked form kept as the reference, the second-species risk measured on the int benchmarks, the 128-bit residue read in the assembly); scoped (21 September 2026) from VARKA-156's measurement: the half-species arm is the best narrowed store at every width and the best store of all past L3 at 512 and 256 bits, and the masked form is still the shipped one | The default flipped where the lane count is baked; the general case, half of the preferred species as a static final of the emitted class, for the unbaked path; `emitted_bytes.json` and the census regenerated; the 128-bit residue on `second` and the three-field shape read in the assembly with VARKA-156's dump | `VarkaTimeBenchmark`'s three files regenerated with the shipped rows at the half-species arm's rates; the assembly gate green; the residue named or closed |
+| 163 | **Moved to milestone 6** (21 September 2026, `m8/SCOPE.md` item 39): an emitter performance finding on the int lane; recorded, not the message. The emitted three-field int kernel trails its hand-written twin by 10% to 20% while cache-resident (section 2.99). **Scoped** (21 September 2026) from `VARKA-102.md` 8.8: the same multiplies and shifts, the single fields within 5%, the three-field shape 18% and 20% under in L3 at 512 and 256 bits and within 3% past L3 | Both kernels' assembly at 512 bits with `dev/varka_emit.sh --asm`: the loads, the three stores and the liveness around three roots against the hand-written loop, and the cost named or closed in the emitter | The emitted three-field bounded arm within 5% of the hand-written one in L3 at 512 and 256 bits in `VarkaTimeBenchmark`'s files, or the cause written in the plan and the skills file |
+| 164 | A `TIME` chains benchmark, for the full-width number (section 2.100). **Built** (22 September 2026: `TimeChains` and `TimeChainBenchmark` with twelve entries at 36 to 48 lane ops, `MIN_OPS` 36 derived from the `TIME` surface file at 0.05 ns per op over a two-column floor near 0.9 ns - prediction 1 failed, the lane's reachable depth is an order of magnitude below the date lane's, capped by VARKA-28, VARKA-103 and VARKA-104 - the emit tool fixed in three places it had never been asked to work in, and the runner's fixed-share arithmetic recorded ahead of any dispatch: 1e8 rows fit and want about 7 ns/row where the entries give 3; `VARKA-164.md` section 5). **Planned** (`VARKA-164.md`, 22 September 2026: `TimeChainBenchmark` and `TimeChains` mirroring the date pair, with the op floor re-derived rather than inherited - every input to `Chains`'s model changes at the long lane, where a row is eight bytes and a division is seven or fourteen lane operations - the entries mixing `TIME`, day-time intervals and `bigint` as the date chains mix their three types, and the job size priced by an ungated ladder before any gated dispatch). *Scoped* (21 September 2026) from `VARKA-118.md` section 3, item 5: the `TIME` surface cannot be measured honestly on a runner, as the date surface could not, and the chains are what the full-width machine measures | `TimeChainBenchmark` beside `DateChainBenchmark`: at most twelve chained `TIME` entries over the `varka_times` table under the same `MIN_OPS` floor, the `chains` machinery reused, its own results files and band; the laptop's four arms first, then the runner through the workflow | Every entry fuses with no fallback batch; the job-size rule met at 2e8 rows in 12g on a runner; the band measured before any figure is quoted |
+| 165 | C2 compiles the probe's own gather scalar at a forced 128-bit species on the runner pool and not on the laptop (section 2.101). **Done** (`VARKA-165.md` 6, 23 September 2026): two gate jobs on an Intel Xeon Platinum 8370C at four processors printed the `VectorSupport::loadWithMap` inlining decisions, and they name the mechanism. C2's late-inline pass gives up on at least one of the gather's two call sites - `failed to inline (intrinsic)` with `static call node changed: trying again` between the attempts - and the body it settles on is 248 instructions with zero calls, so the site it gave up on did not stay a call: the Java implementation of `loadWithMap`, a scalar loop over the index map, was inlined in the intrinsic's place. The laptop's decisions at the same species read `late inline succeeded` throughout. The intrinsic refusals discriminate nothing - both hosts print the same three `missing constant` lines and neither prints `not supported` - so predictions 1 and 3, which put the cause in the matcher and then in a missing CPU feature, are both wrong; 2 and 4 hold. The gate now cancels for that one signature and `cancelOrFail`s for any other scalar body, which under the job's `VARKA_HSDIS_REQUIRED` is a red job rather than a silent skip. Why the budget runs out on a four-processor Xeon and not on a Zen 5 is a JVM question the gate no longer needs answered. **Narrowed** (22 September 2026, `VARKA-165.md` 5): the refusing runners quote the same three `missing constant` lines the laptop prints while packing and no `not supported` line, and their body is shorter than the laptop's packed one, so the gather's intrinsic is not refused by the matcher but never applied; the laptop reproduces a *different* scalar compile under `UseAVX=1` (the matcher's refusal, a 565-instruction loop) and packs under `UseAVX=2` and at four processors, which rules out the processor count and a missing instruction. The gate's probe now runs with `PrintInlining` and quotes the `loadWithMap` decisions, which name the mechanism on the next refusing run. *Planned* (`VARKA-165.md`, 21 September 2026: the gate's cancel quotes C2's refusal, then Zulu 25 and a four-processor count tried on the laptop, the VM's feature set read against the laptop's; four predictions); scoped (21 September 2026) from `VARKA-150.md` section 6: an EPYC 9V45 at four processors and the Intel Xeons read the same 248-instruction body under `-XX:MaxVectorSize=16` with `-Xbatch`, the laptop's Zen 5 packs it | The probe on a runner under `-XX:+PrintIntrinsics` and `-XX:+PrintInlining` at the forced species, through the width-audit workflow or a dispatch of the gate, against the laptop's output; the reason C2 gives read, and either a JVM condition named (a flag, a processor count, a vendor build) or a Varka assumption corrected | The refusal's reason quoted from the JVM's own output in the plan; the 128-bit assertions' cancel condition narrowed to that reason or removed |
+| 166 | The two 64-bit division forms have never been run through the JVM near the bound (section 2.102). **Done** (22 September 2026: one `VarkaEmitterDivisionSuite` case drives both emitted forms at two and eight lanes over seven divisors and the regions `[2^51, 2^52)`, `[2^52, 2^53)` and `[2^53, 2^54)` at both signs against Java's `/` - exact below 2^52 for both, the conversion form exact to 2^53 and within one beyond it, the magic form from 2^52 on equal to the quotient of the magnitude's low 52 bits with the sign restored; the script's verdicts stand, and the section's own sentence placing the conversion form's off-by-one above 2^52 was the imprecise one). **Scoped** (22 September 2026) from the closing review: `verify_double_division.py` models the lowerings and the long-lane fuzzer stops at 2^46, so the emitted magic form is checked exact under 2^52 and run under 2^46 | A `VarkaEmitterDivisionSuite` case driving both forms at both widths over `[2^51, 2^52)` and `[2^52, 2^53)` against Java's `/`, asserting exactness below the bound and the documented shape of each failure above it | The kernel's bytes confirm the script's verdict for every divisor Varka divides by, or the script is corrected |
+| 167 | The bytes oracle pins shapes, not options (section 2.103). **Done** (`VARKA-167.md` 5, 22 September 2026): an opt-in audit in `VarkaEmittedBytesSuite` emits the oracle's own shapes under every value of every option, and an `option_arms` section pins one digest per arm per width. `useAVX` is the only field a configuration reaches, and its five values emit two bodies - levels 0, 1 and 2 identically to each other, level 3 and the unstated default identically - moving 24 coverage hashes and 168 long-lane fuzz shapes at each width and no int-lane shape at all. `narrowHalfSpecies` moves six coverage hashes and no fuzz shape, `guardDayProducers` eighteen int-lane fuzz shapes and no coverage row, and `validityOrFirst` moves nothing at either value on any shape at either width, which `m8/SCOPE.md` item 48 opens as a row of its own. `VarkaEmitOptions`' javadoc names the test-only fields, the two `misdescribe*` fault injectors among them, and states that a field which gains a configuration gains a pinned arm with it. **Scoped** (22 September 2026) from the closing review: the committed blocks hold the defaults plus a handful of hand-pinned A/B arms, and VARKA-121 makes an option reachable from SQL | An inventory of which options the oracle holds at which values, read from the suites; then either a block per option arm over a fixed shape set or a recorded reason the defaults suffice, with test-only options named in `VarkaEmitOptions` | The oracle's coverage of the option space is stated where it is regenerated, and every production-reachable option is pinned at each value or declared test-only |
+
+## 4. Files
+
+From milestone 4's section 4, the parts that belong to these tasks:
+`VarkaVectorIR` (the second `LaneType`, conversion nodes, the boolean output),
+`VarkaLoopEmitter` (conversions, the overflow detectors, the zero-safety
+member the first trapping node makes structural), `VarkaExpressionCompiler`
+(casts, arithmetic, boolean roots), `VarkaShapeCacheImpl` only if the key
+vocabulary grows; in `sql/core`, the evaluators (int64 buffers, boolean output
+vectors) and `VarkaColumnarRule` (new eligible roots); in the engine module,
+hand-written reference kernels only where a parity anchor is needed for a new
+lane type, per the reference-code commenting rule. VARKA-74 and VARKA-75 touch
+`VarkaLoopEmitter`'s `Analysis` (two `pureOf` arms, two folding rules, a
+test hook for the census), `VarkaWordCensus` and `dev/varka_word_census.sh`
+in catalyst test scope, and, if 75 is admitted, `VarkaKernelEvaluator`'s
+output assembly and `VarkaOwnedArrowColumnVector`.
+
+*Added 15 September 2026, for the re-scoped rows:* `VarkaVectorIR`'s `LaneType`
+gains its second member and the emitter its lane descriptor (85); the compiler
+gains the three long leaves, the long literal table and the comparison
+admissions (29), then the `TIME`, day-time interval and `Long` arms (102 to
+104); `VarkaCoverageSuite` gains the `t`, `t2`, `l` and `dt` columns with 29 and
+`sql/varka/coverage.json` the new families with 102 to 104; `sql/varka/bench` gains
+`TimeSurfaceBenchmark` and its inventory, `dev/varka_bench_surface.sh` a
+`--benchmark time` selector, and `sql/varka/bench/benchmarks/` its results and
+band files (105); `dev/sparktestsupport/modules.py` and
+`.github/workflows/build_and_test.yml` gain the `varka-docs` module and job
+(106); a `sql/core` Varka suite gains the cache proof (116). The boolean output
+and VARKA-74 and VARKA-75 named above moved to milestone 6 and touch nothing here.
+
+## 5. Verification
+
+Milestone 4's standing gates, inherited whole, plus the two this milestone
+adds:
+
+* Differential against the row engine over every new shape, null patterns
+  included, at the preferred width and `-XX:MaxVectorSize=16` - now at every
+  lane width this milestone adds, not just every vector width.
+* **The error-identity differential** (VARKA-30): the same `SparkException`
+  attributed to the same row, which the suites have never had to assert
+  before.
+* The byte-exact oracle still holds everywhere this milestone goes; it stops
+  being universal only when item 3's doubles enter, which is why item 3's
+  oracle decision (section 7) is taken early even though the item is
+  deferred.
+
+*Added 15 September 2026:* every `TIME` differential runs with
+`spark.sql.timeType.enabled=true` on both engines, since the type is off by
+default; VARKA-116 passes before any long-lane code is written; and the
+byte-exact oracle survives 2.19's double-lane division only because that
+division is proven exact under its bound (1.1) - a division outside the bound is
+a recorded decline, never an approximate result, which is what keeps the oracle
+byte-exact through this milestone. The `TIME` surface (105) is quoted only from
+under its own band file, built with VARKA-101's tooling.
+
+## 6. Risks
+
+* **The mixed-width decision is expensive to reverse.** VARKA-28's loop-shape
+  choice is baked into the emitter; that is why it was measured first
+  (narrowest-drive won) and why width-locked retrofit is the recorded
+  fallback.
+* **Half the lanes.** Every int64 shape has roughly half the headroom of its
+  int32 sibling. VARKA-142 committed that number on 17 September 2026, ahead of
+  29 - 1.5x to 2.0x in cache and 2.11x to 2.20x out of it, `VARKA-142.md` 9
+  - so it is a floor the long-lane rows are judged against, not a discovery.
+  **And the halving compounds with a narrow vector, below 256 bits**
+  (`VARKA-144.md` 9.4, 18 September 2026, measured at three widths): at 256
+  bits a long lane is four lanes and keeps almost everything - the projections
+  lose about two per cent against full width - while at 128 bits it is two lanes
+  and they fall from about 7.5x to about 2x, with the weakest shape, a day-time
+  interval comparison filter, going from 1.40x to 0.89x, slower than the row
+  engine. So the cliff is between 256 and 128 rather than below full width, the
+  claims hold on anything with AVX2, and the machines that lose the advantage are
+  the ones VARKA-92's row names. 118 should still say which width a figure was
+  measured at.
+* **`TIME` through the cache is assumed, not proven.** Every piece exists - the
+  serializer's stats arm, `isSupportedByArrow`, upstream's converter and
+  precision work - and no test composes them along Varka's path. VARKA-116 is
+  that test and comes before any lane work, because a milestone whose subject
+  cannot be cached has no benchmark. (An earlier draft called the stats arm
+  missing; it is not, and 1.1 keeps the correction.)
+* **Long lanes have no division.** Exact through double lanes only while the
+  operand is under 2^52 (2.19's reciprocal form; 2^53 with a true division):
+  always for `TIME`, only under a bound for intervals and `bigint`. Every
+  division either carries its bound or is a recorded decline; none is computed
+  wrongly - and 2.19's admission check states the error constant it relies on
+  rather than the "fits a double" shorthand an earlier draft of this plan used.
+* **The long-to-double conversion does not vectorise on AVX2 - settled, with
+  the fallback in hand.** Checked on 15 September 2026 from C2's own output
+  (`dev/varka_canary/L2DProbe.java`, `-XX:+PrintIntrinsics` and hsdis): at the
+  host width `VectorSupport::convert` inlines and the loop is `vcvtqq2pd` /
+  `vcvttpd2qq`; under `-XX:UseAVX=2` the convert intrinsic **fails to inline
+  every time** and the loop degrades to scalar `vcvttsd2si` / `vcvtsi2sdq` with
+  reboxing - slower than a scalar loop, on the CI pool's Zen 3 and every AVX2
+  machine. The fallback is not a scalar tail. It is the magic-number
+  conversion (`dev/varka_canary/MagicProbe.java`): for `v < 2^52`,
+  `(v | 0x4330000000000000) reinterpreted as double, minus 2^52` is exactly
+  `v`; the quotient is rounded with the same `+2^52 -2^52` trick and stepped
+  down where rounding went up (there is no lanewise floor in the Vector API);
+  and `+2^52, reinterpret, mask` recovers the integer. Under `UseAVX=2` C2
+  compiles that to 18 `vsubpd`, 12 `vaddpd`, 6 `vpor`, 6 `vpand`, 6 `vmulpd`,
+  6 `vcmpgtpd` - no conversion, no extraction, no call - and it returns 0
+  wrong quotients over 65 536 nanos-of-day values at 4 and at 8 lanes. So 2.19
+  at the long lane is **two lowerings selected by `UseAVX`**, or the magic form
+  everywhere if its cost at AVX-512 is within the band of the native casts -
+  which is the one measurement 2.19's admission check still owes, and it is a
+  timing, so it comes with a committed file.
+* **The epilogue (VARKA-87) moved out and may move back.** It is the one method no
+  budget bounds, kept for a future fix at the owner's request; 64-bit lanes
+  widen every node, so a `TIME` shape may reach the 65535-byte cap sooner than
+  a date shape did. If one does, 87 re-enters with that shape as its case.
+* **A recipe written ahead of its machinery.** VARKA-39's recipe names 28's and
+  29's plumbing provisionally; its outcome section is where the gap between
+  assumption and reality gets recorded, and the executing agent stops rather
+  than adapts when the real thing differs.
+
+## 7. Open questions
+
+From milestone 4's section 7, the two owned by these tasks:
+
+1. **The ULP oracle** (item 3): a reading task - what accuracy Spark promises
+   for `exp`, `log`, `pow` and the trig family, and what bound a vector
+   differential asserts. Cheap, the item's gating decision, and what lets item
+   3 be argued back in without a design pause. Recorded in this file when
+   settled.
+2. **Mixed-width loop shape**: measured before VARKA-28 opens (2.2);
+   narrowest-drive, unless a wider mixed-type shape measures differently once
+   28 is under way.
+
+*Added 15 September 2026:*
+
+3. **How does C2 lower the long-to-double casts at each width?** *Answered 15
+   September 2026* - see section 6: native `vcvtqq2pd`/`vcvttpd2qq` at
+   AVX-512, no intrinsic at all under AVX2, and the magic-number conversion
+   vectorises fully at both. What remains is the timing: the magic form's cost
+   against the native casts at AVX-512, which decides one lowering or two.
+4. **`TIME + INTERVAL` out of range: modulo-24 or overflow?** Upstream's
+   SPARK-57853 is open on it, and 102's `TimeAddInterval` lowering must match
+   whatever vanilla does on the day and follow the ticket if it changes. The
+   differential catches a divergence; the plan records the dependency so the
+   divergence is expected rather than discovered.
+
+## 8. Explicitly out of milestone 5
+
+**Moved to `m8/SCOPE.md` item 15 on 15 September 2026**, when the
+milestone was re-scoped to 64-bit lanes and `TIME` (section 1.1) - fourteen rows,
+text and numbers unchanged, each with its reason there: 25, 27, 49, 64, 65, 66,
+72, 73, 74, 75, 80, 82, 87 and 98. Each re-enters with its own argument; 27 and 87
+name in 1.1 and section 6 what that argument would be.
+
+**The timestamp types - out of the milestone, 17 September 2026.** VARKA-29's
+first plan carried `TimestampNTZType` and `TimestampType` on the lane with
+comparisons, differences and interval addition, on the strength of the 15
+September widening below. The owner's decision, reading that plan: "I didn't
+plan to support TIMESTAMP_NTZ during this milestone", and one task should not
+cover the whole lane. Both types leave with the finding the review of that plan
+made, recorded in `m8/SCOPE.md` item 31: on a zoned `TIMESTAMP`,
+Spark's `SubtractTimestamps` and `TimestampAddInterval` evaluate in the session
+zone's local date-times, so differences and interval addition are not instant
+arithmetic across a DST transition and only comparisons are zone-independent;
+the `TIMESTAMP_NTZ` family is evaluated in UTC and its arithmetic is exact and
+checked. The paragraph that follows is the 15 September decision it supersedes,
+kept because its argument about the decomposition still holds.
+
+**`TimestampNTZ` decomposition - considered on 15 September 2026, set aside.**
+*Superseded on 17 September 2026 by the paragraph above: the type itself is now
+out, not only its decomposition.* The long lane was to carry `TimestampNTZType`
+for comparisons, differences and interval arithmetic (VARKA-29's row as it then
+read), and that is where this milestone was to stop with it. What was considered
+and declined is the *decomposition*: `year(ts)` and the
+calendar fields through `floorDiv(micros, 86 400 000 000)` into the int32
+civil-from-days prefix - the first kernel where a long lane would feed the
+calendar machinery, and the type whose value range spans the int64 and so would
+force the full-range exact division (estimate in doubles, remainder in long
+arithmetic, a one-step correction) instead of `TIME`'s bounded one. Both are
+real, and the owner's decision is that neither belongs to a milestone whose
+message is `TIME`; they are milestone 6's, with this paragraph as the argument
+they arrive with. `TimestampType` (LTZ) stays out as before: zone rules per row.
+
+**Vanilla Spark's `TIME` gaps - surveyed on 15 September 2026, left to upstream.**
+Rows 107 to 115 were opened for them and withdrawn the same day, on the
+owner's decision that this milestone takes only what Varka needs: vectorised
+expressions and benchmarking. Vectorising an expression vanilla Spark does not
+have means first adding it to vanilla Spark, which is upstream's work under
+[SPARK-57550](https://issues.apache.org/jira/browse/SPARK-57550); when one of these lands there, its Varka lowering is a
+row of VARKA-102's family, not a task of its own. The survey, so it is not redone:
+
+| row | gap in vanilla Spark | upstream | Varka side, if it ever lands |
+| ---: | :--- | :--- | :--- |
+| 107 | no additive `time_add(unit, qty, t)`; `time_diff` has no twin | none; wrap rule is [SPARK-57853](https://issues.apache.org/jira/browse/SPARK-57853) | `TimeAddInterval`'s kernel over two operands |
+| 108 | no `try_make_time` | [SPARK-57846](https://issues.apache.org/jira/browse/SPARK-57846) | VARKA-63's null-on-overflow lowering |
+| 109 | no `sequence()` over `TIME` | [SPARK-57852](https://issues.apache.org/jira/browse/SPARK-57852) | none - a generator |
+| 110 | no `avg` over `TIME` | [SPARK-58044](https://issues.apache.org/jira/browse/SPARK-58044) | none until milestone 6's aggregation |
+| 111 | Avro `TIME` - *not a gap*: present | [SPARK-54473](https://issues.apache.org/jira/browse/SPARK-54473), [SPARK-57581](https://issues.apache.org/jira/browse/SPARK-57581) | - |
+| 112 | no `date + time` operator; the function exists | none; function is [SPARK-53579](https://issues.apache.org/jira/browse/SPARK-53579) | a mixed-width kernel after `date - date` |
+| 113 | the rest, unverified | see 2.48's list, each with its ticket | - |
+| 114 | `time_bucket` returns timestamps only | [SPARK-54507](https://issues.apache.org/jira/browse/SPARK-54507) | `time_trunc`'s kernel with a literal width |
+| 115 | no `time_format` | [SPARK-54588](https://issues.apache.org/jira/browse/SPARK-54588) | none - a string |
+
+Present and confirmed, so not gaps: `extract`, every cast, CSV, JSON, Parquet,
+ORC, JDBC and Avro, `to_char` ([SPARK-57575](https://issues.apache.org/jira/browse/SPARK-57575)), Hive interop
+([SPARK-57556](https://issues.apache.org/jira/browse/SPARK-57556)), the Connect proto and its tests, the Python type and
+pandas conversion, and DSL parity in Scala and Python for every `TIME` function.
+The flag's history is [SPARK-54609](https://issues.apache.org/jira/browse/SPARK-54609) - disabled by default ahead of 4.1,
+with no ticket yet to turn it on.
+
+* **Item 3, float and double lanes** - the taxi benchmark's item; re-enters
+  whenever that target is argued for, with its catalogue entry intact below.
+* **Items 7 to 10** - aggregation, string functions, string keys, cross-lane
+  movement: the follow-on ladder, carried in the catalogue below with full
+  design input; each enters only with its own argument, and the aggregate
+  wiring milestone 6 depends on is item 7.
+* **`DecimalType`** - per milestone 4's item 12; its design pass is
+  `m8/SCOPE.md` items 1 and 2.
+* **Zoned timestamp arithmetic** - stays out until its semantics are written
+  down; item 2 below keeps the tzdata-as-interval-arrays design for that day.
+
+## 9. Scope catalogue
+
+Milestone 4's pre-plan catalogue items about other lanes and about the
+follow-on ladder, item numbers preserved because `m8/SCOPE.md`,
+`VARKA-21.md` and `SKILLS.md` cite them. Items 6, 11, 12 and 13 stay in
+`m4/PLAN.md` section 10.
+
+### Item 1. Lane-width conversion, and mixed-type expression trees
+
+Adopted as VARKA-28 (see 2.2). The design input carried over whole: the hard
+part is the lane count, not the conversion; `convertShape(I2L, longSpecies,
+part)` yields one long vector per part with `partLimit` parts; the
+narrowest-drive-versus-part-loop choice is measured before either is built in;
+Spark's narrowing `Cast` throws under ANSI and wraps without it, tying this to
+item 4.
+
+### Item 2. int64 lanes: `TimestampNTZ`, `bigint`, and the second lane width
+
+Adopted as VARKA-29 (see 2.3). Kept for the zoned day when it comes: pack the
+IANA tzdata transitions into flat `long[]` interval arrays and resolve a
+vector of timestamps against them with a SIMD binary search, rather than
+per-row `ZoneRules` lookups.
+
+What a production instance of that design looks like, from
+`NVIDIA/spark-rapids-jni` (`datetime_utils.cuh`, `timezones.cu`, read
+September 2026), so the zoned task starts from its corners rather than
+rediscovering them:
+
+* **Two sorted arrays per zone, not one.** Converting *from* UTC searches the
+  UTC instants; converting *to* UTC searches the local instants, because the
+  same transition sits at different positions on the two axes. Each entry
+  carries both instants and the offset after it.
+* **The table is finite and the rules take over past its end.** Beyond the
+  last stored transition the zone's two DST rules (month, day-of-week rule,
+  time, offsets before and after) are evaluated arithmetically for the row's
+  year - in lanes, that is the calendar family's own arithmetic, not a lookup.
+  Java's `ZoneRules` has the same shape: `getTransitions()` then
+  `getTransitionRules()`.
+* **Gaps and overlaps decide the rounding.** A UTC instant one microsecond
+  before a gap must floor-divide to seconds, or truncation snaps it onto the
+  transition and picks the post-gap offset (their issue #14861); a local
+  wall-clock inside a gap resolves to the post-gap offset to match
+  `LocalDateTime.atZone`. Both are one-line decisions that a differential
+  against Spark finds only if the fixtures straddle a transition by less than a
+  second.
+* **Scope by zone kind.** UTC and fixed-offset session zones are a constant
+  add and belong to VARKA-29's first kernels; region zones are the design above
+  and decline until it is built. The taxi benchmark's `year(pickup_datetime)`
+  (`m8/SCOPE.md` 1.5) is the first query that needs the region case.
+
+### Item 3. Float and double lanes, and the numeric function family
+
+**Deferred by the headline decision** (section 1) - the survey found zero
+`DOUBLE`/`FLOAT` columns in TPC-DS and TPC-H; this is the taxi benchmark's
+item and re-enters with that target. Design input kept in full:
+
+* *The transcendentals are real vector calls.* JDK 25 ships `libjsvml.so`
+  inside `jdk.incubator.vector`, and `VectorMathLibrary` looks its symbols up
+  through a `SymbolLookup` at first use - so `lanewise(EXP, ..)` on x64
+  reaches Intel's SVML port rather than a per-lane `Math.exp` loop. What
+  aarch64 does instead must be checked before any doc claims the same
+  (checked, VARKA-151: SLEEF, at two lanes, 1.1x to 3.9x over the scalar call).
+* *So the oracle has to change.* SVML is not bit-identical to `Math` and
+  `StrictMath` (confirmed on three hosts by VARKA-151, SLEEF included), so a double differential must be ULP-bounded, and Spark's own
+  accuracy guarantee has to be read before a bound is picked. That reading is
+  this milestone's open question 1 (section 7).
+* *Comparison is not IEEE.* Spark's `SQLOrderingUtil.compareDoubles` makes
+  NaN equal NaN and sort above everything, and `-0.0` equal `0.0`;
+  `VectorOperators.EQ`/`LT` are IEEE. Every emitted double comparison needs an
+  explicit NaN fix-up on the mask, and `NormalizeFloatingNumbers` does not
+  save us - it rewrites only window partition keys and equi-join keys.
+* *`round` and `DecimalType` are not this item* - `round(x, n)` is
+  scale-dependent and decimals are not a lane type (item 12).
+
+**Vector API it needs**: `DoubleVector` and `FloatVector`; `lanewise(Unary)`
+with `SQRT`, `EXP`, `LOG`, `LOG10`, `CBRT`, `SIN` through `TANH`, `EXPM1`,
+`LOG1P`; `lanewise(Binary)` with `POW`, `ATAN2`, `HYPOT`; the `FMA` ternary;
+`Vector.test` with `IS_NAN`, `IS_INFINITE`, `IS_FINITE`.
+
+### Item 4. ANSI-correct integer arithmetic, priced rather than assumed
+
+Adopted as VARKA-30 (see 2.4). The pricing argument carried over whole:
+wrap-versus-saturate difference lanes are exactly the overflowed lanes, one
+vector op and one well-predicted branch on the common path, `try_*` as the
+branchless easy case worth shipping alone.
+
+### Item 5. Boolean outputs
+
+Adopted as VARKA-27 (see 2.1).
+
+### Item 7. Aggregation: the first horizontal reduction
+
+**Deferred - first in the follow-on ladder**, and milestone 6's aggregate
+wiring depends on it. Design input kept in full:
+
+**Spark surface.** `HashAggregateExec`'s partial aggregation without grouping
+keys: `sum`, `min`, `max`, `count`, `avg`, `bit_and`, `bit_or`, `bit_xor`,
+`bool_and`, `bool_or`. Then the shape milestone 3's survey named and declined:
+`CASE WHEN <date cmp> THEN x ELSE 0 END` inside `sum(..)` (TPC-DS q21 and
+q40) - aggregate-*input* fusion, a different wiring from the projection path.
+
+**Vector API it needs**: `reduceLanes(Associative)` and its masked overload,
+`reduceLanesToLong`, and the `Associative` set - `ADD`, `MUL`, `MIN`, `MAX`,
+`AND`, `OR`, `XOR`, `FIRST_NONZERO`.
+
+**Design input.** The reduction belongs at the *end* of the batch: accumulate
+into vector accumulators inside the loop and reduce once, with
+multi-accumulator unrolling (acc0-acc3, breaking the dependency chain) - item
+13's principle, applied at the one place a loop-carried dependency makes it
+mandatory rather than measurable, and VARKA-25's numbers will already exist.
+The masked `reduceLanes` overload handles nulls without a branch. `sum` over
+`LongType` inherits item 4's overflow question; `avg` is `sum` plus a
+`trueCount`. Grouped aggregation is *not* this item - grouping is hashing and
+partitioning (item 9's machinery, probably its own milestone). It changes what
+an operator *is* rather than what an expression computes, so it wants the
+plan-shape lessons from filters behind it - which it now has.
+
+### Item 8. String functions, and the byte lanes they need
+
+**Deferred - last in the ladder by frequency, named for completeness.** Kept
+in full:
+
+**Spark surface.** `length`, `upper`/`lower` on the ASCII fast path, `LIKE
+'prefix%'`, `startswith`/`endswith`/`contains`, `substr`/`substring`,
+`concat`, and `cast(string AS DATE)` done properly rather than folded. Four of
+the six corpus functions still missing after milestone 6 are here
+(`m8/SCOPE.md` section 1.7) - most of what stands between the roadmap
+and the whole corpus function surface, and a long thin tail: 37 uses against
+item 9's 275 key references.
+
+**Vector API it needs**: `ByteVector` and `ShortVector`; `compare` with
+`anyTrue`/`allTrue`; `rearrange` for byte permutation inside a value.
+
+**Design input.** Variable width is the whole problem: Arrow strings are
+offsets plus bytes, every operation is data-dependent in length, and the
+fixed-lane-count loop stops being the right shape - which is why SWAR date
+parsing stays in its own design pass.
+
+**`cast(string AS DATE)`, designed** (September 2026, from Daniel Lemire's
+`sse_date.c`, the 2023 "Parsing time stamps faster with SIMD instructions"
+post, and his 2018 `eightchartoi.c`; `SKILLS.md`, "Validate a fixed-format
+string with a saturating subtraction"). Spark's `stringToDate` grammar is wide:
+trimming, an optional sign, a 4-to-7-digit year, 1-or-2-digit month and day,
+and an optional `T` or space tail. The corpus writes `yyyy-MM-dd`. The kernel
+accepts exactly that 10-byte form and sends every other row to the row engine,
+the way VARKA-26's guard does - it is a shape mask, not a parser.
+
+* **Validation, branch-free.** XOR the bytes with `0x30`, so digits become
+  0..9 and the dashes become `0x1D`. One saturating unsigned subtraction
+  (`SUSUB`, in JDK 25's `VectorOperators`) against a per-position limit vector,
+  `9 9 9 9 1D 1 9 1D 3 9`, leaves a nonzero residue for any non-digit, a
+  wrong separator, a leading month digit above 1 or a leading day digit above
+  3. Pair the digits into two-digit values and subtract again against `12` and
+  `31` to catch 13..19 and 32..39. Subtract the other way against a minimum
+  vector - `1` under the month and day pairs, `1D` under each separator, so a
+  separator must equal `0x1D` exactly rather than merely fall below it - to
+  reject month and day zero and a digit where a dash belongs. OR the residues;
+  the row is in shape iff the OR is zero.
+  The row's length must be 10 as well, which the offsets say before any byte is
+  read. Day-in-month and the leap rule are not checked here: they fall out of
+  `emitDaysFromCivil`'s month-length compare, which is already emitted.
+* **Digits to fields, without `maddubs`.** The Vector API has no byte
+  multiply-add, and does not need one. With the eight digits `yyyyMMdd` packed
+  into one long lane, `eightchartoi.c`'s SWAR ladder - multiply by
+  `1 + (10 << 8)`, shift 8, mask `0x00FF..`; multiply by `1 + (100 << 16)`,
+  shift 16, mask `0x0000FFFF..` - stops after two steps with the four two-digit
+  fields `yy yy MM dd` in 16-bit slots, which is what `emitDaysFromCivil`
+  (VARKA-40) takes after `year = 100 * hi + lo`. Four rows per 256-bit vector,
+  in `long` lanes.
+* **The load is the open question, and it is item 3's of milestone 6.** A
+  10-byte record does not align to a long lane. The candidates are the
+  index-spill path the gather probe used (per-row scalar loads into a `long[]`,
+  then `fromArray`) or a `ByteVector.rearrange` compacting three rows out of a
+  32-byte load when the column is known fixed-width. Neither is measured.
+
+Not taken from the same source: its `is_leap_year_fast` and `leap_days_fast`
+assume 1970..2106 and special-case only 2100, a narrowing Varka has no use for
+under a total decomposition; and its `HHmmSS` combine, two 64-bit magic
+multiplies over the `pmaddubsw` output, is tuned to a time part Spark dates do
+not carry and Spark timestamps do not arrive with as strings at the kernel.
+
+**The fallback's boundary, pinned from a second port of the same grammar**
+(`NVIDIA/spark-rapids-jni`, `cast_string_to_datetime.cu`, ported from Spark
+3.5's `SparkDateTimeUtils` and tested against Spark; read September 2026).
+Its kernels are scalar C++ run once per thread - digit loops, early returns -
+so nothing of their shape transfers to lanes, but the facts they pin do:
+
+* Trimming treats `c <= 32 || c == 127` as whitespace, which is
+  `UTF8String.trimAll`'s definition, not Java's `isWhitespace` alone.
+* The year takes 4 to 7 digits for a date (4 to 6 for a timestamp); a date is
+  valid only for years within +-10,000,000, so `1000000-01-01` parses and
+  `10000001-01-01` does not.
+* After the day, one space or `T` ends the parse and anything may follow:
+  `2025-01-01T`, `+2025-01-01Txxx` and `-2025-01-01 xxx` are all valid.
+* Its `castStringToDate` fixture list is the fallback test for the fixed-form
+  kernel, every row of it a shape the mask must decline and the row engine must
+  then accept: `"  2025"`, `"2025-01 "`, `"2025-1  "`, `"2025-1-1"`,
+  `"2025-1-01"`, `"2025-01-1"`, `"2025-01-01"`, `"2025-01-01T"`,
+  `"+2025-01-01Txxx"`, `"-2025-01-01 xxx"`, and the two large years above.
+* Its ANSI protocol is the status contract Varka already has: parse to a
+  nullable column, and under ANSI fail the batch if the null count grew. It
+  also documents one deliberate deviation - its pattern parser accepts
+  one-digit month and day for `yyyy/MM/dd` where Spark's strict formatter
+  rejects them - which is the kind of shortcut a differential against Spark
+  refuses by construction.
+
+### Item 9. String keys: equality, hashing, dictionaries
+
+**Deferred - its near-term half is already milestone 6's item 3** (fixed-width
+equality against a literal, hashing short values for grouping); what stays
+here is the machinery that subset does not need. Kept in full:
+
+**Spark surface.** Strings as keys: equality against a literal, `IN` against
+a small set, grouping and join keys (275 group-by references, 60% of all).
+`hash`, `xxhash64`, `murmur3`. The plain bit expressions that share the
+operators: `bit_count`, `shiftleft`, `shiftright`, `shiftrightunsigned`, `&`,
+`|`, `^`, `~`.
+
+**Vector API it needs**: `ROL`/`ROR` (murmur3's mix is rotate-multiply-xor);
+`BIT_COUNT`, `LEADING_ZEROS_COUNT`, `TRAILING_ZEROS_COUNT`, `REVERSE`,
+`REVERSE_BYTES`; `BITWISE_BLEND`; `COMPRESS_BITS`/`EXPAND_BITS`; `LSHL` and
+`ASHR`; `VectorShuffle` in full with `rearrange` and two-vector `selectFrom`.
+
+**Design input.** *There is no off-heap gather.* Gather and scatter exist
+only on the `int[]` array overloads, never on `MemorySegment`. A dictionary
+decode over an off-heap Arrow dictionary either copies the dictionary on-heap
+or uses `rearrange`/`selectFrom` with a dictionary small enough to sit in one
+vector - and a low-cardinality `CHAR(n)` column is exactly what a Parquet
+reader dictionary-encodes, so this is the common case. Scatter is missing
+too, which is why grouped aggregation expects to vectorise the hash and key
+compare while keeping the probe and accumulator update scalar.
+
+**What a gather costs, now measured** (`VarkaVectorApiProbeBenchmark`, added
+because this item rested on an assumption). Reading `year` out of a day-indexed
+table - the shape Impala ships for 1950-2049 - against the civil-from-days
+arithmetic, over 20M dates at AVX-512: the `IntVector` gather runs at 3573.9 M
+rows/s over the whole 143 KB table and 3728.2 over a seven-year span, against
+2379.8 and 2368.3 for the arithmetic. **A gather is not the slow primitive this
+item assumed it was**, which makes the copy-the-dictionary-on-heap option more
+attractive than the paragraph above implies, and it is worth re-reading before
+item 9 is planned rather than inheriting the assumption.
+
+Two findings come with it. A plain **scalar** `int[]` loop over the same table
+is faster still - 4630.0 M rows/s on the seven-year span, 1.95x the vector
+arithmetic - because the Vector API takes a gather's index map as an `int[]`,
+so the index vector is stored and read back, and that spill is the API's rather
+than the machine's.
+
+**Fused, the ranking inverts.** The same three measured as `year(d) = 1998`,
+counted, where the vector paths never leave a register: the gather reaches
+3999.8 M rows/s against the arithmetic's 1453.0 - **2.8x** - while the scalar
+loop that led the unfused table falls to 848.1, and the hybrid an emitter would
+have to produce (spill the lane group, scalar-lookup, reload) is a wash with the
+arithmetic at 1446.9. So emitting scalar code for a calendar node buys nothing
+once the result is compared and counted.
+
+**Correction, measured after the above was written.** That paragraph went on to
+say the only lowering which would pay is one the API forbids. It does not. The
+missing `fromMemorySegment` index-map overload blocks gathering *from* an
+off-heap table - this item's dictionary case, where the claim still stands - and
+says nothing about gathering an **on-heap constant table** indexed by off-heap
+data. A calendar table is the second kind, because Varka owns it: the column
+loads with `fromMemorySegment`, the index vector spills with `intoArray`, and
+the gather reads a table on the heap. Measured in that shape, with the column in
+a `MemorySegment` the way a real kernel has it, an era-indexed table reaches
+2070.8 M rows/s against the arithmetic's 1329.3 - a **1.6x**.
+
+The table's size is worth taking from ClickHouse, whose `DATE_LUT_SIZE` is
+146097: one Gregorian era. Indexed by day of era rather than by an arbitrary
+year window, such a table needs **no fallback for any `int32` date**, and the
+index is what `emitEra` already produces, so the table replaces everything after
+it. That is a candidate lowering for the whole calendar family and belongs in
+its own task. What it changes for this item is narrower: the
+copy-the-dictionary-on-heap option is attractive on a measured basis rather than
+on an assumption about what gathers cost.
+
+### Item 10. Cross-lane movement: windows, prefix sums, row indices
+
+**Deferred - after item 7 in the ladder**; it shares the not-lane-shaped
+problem and adds a state contract on top. Kept in full:
+
+**Spark surface.** `WindowExec` where the frame lives inside one batch: `lag`
+and `lead` by a small constant offset, running aggregates over `ROWS BETWEEN
+UNBOUNDED PRECEDING AND CURRENT ROW`, `row_number` within a batch,
+`monotonically_increasing_id`.
+
+**Vector API it needs**: `slice(int, Vector)` and `unslice`; `addIndex`;
+`VectorSpecies.iotaShuffle`; `rearrange`.
+
+**Design input.** `lag(x, 1)` across a lane group is exactly `slice(lanes -
+1, previousVector)`; a running sum is the log-step prefix scan (shift by 1,
+2, 4 and add). What makes it an operator change is the carry: a frame crosses
+batch boundaries, so the kernel needs carry-in and carry-out state and a
+visible partition boundary - a contract like milestone 3's selection vector,
+not a new IR node.
+
+### Item 14. A lockstep validity evaluator for arbitrary pure words
+
+*Added 7 September 2026 with section 2.9; the item that section's census
+declined to make a task.*
+
+**Design input.** VARKA-70's pass serves a root whose word is a chain of one
+operator, because the engine folds a chain into the destination bitmap in
+place and a tree that mixes AND and OR needs a second live intermediate. That
+restriction is an artefact of evaluating one operator at a time over the
+whole column. Walk every input bitmap in lockstep instead, evaluating the
+whole term word by word in registers, and the registers needed are the
+tree's Strahler number - Ershov's theorem gives it as the exact minimum, and
+the census (2.9) puts it at 2 or 3 for all but two of 40000 grammar shapes.
+Every pure term becomes servable in one pass with no scratch buffer; the
+chain evaluator is the case where the tree is left-leaning; and the same
+walk evaluates every root of a projection over one pass of the inputs, with
+shared subterms held in registers, which is the only form in which
+cross-output sharing (2.9) would pay. The emitted form is either a small
+interpreter over a postfix encoding of the term - a handful of opcodes, one
+dispatch per operator per 64 rows, negligible beside a kernel - or the loop
+emitted into the driver as bytecode, which the driver's `HugeMethodLimit`
+ladder (VARKA-70 pinned it) would have to absorb.
+
+**Why it is an item and not a task.** After VARKA-74, the words it would
+serve are 1.4% of the fuzzer grammar's roots and none of the `Surface`
+inventory; the shapes are `datediff(greatest(d, d2), greatest(d3, d4))`
+and `date_add(greatest(d, d2), i)` and their kin, which no corpus query in
+`m8/SCOPE.md`'s survey has. It enters when one does, with the
+census re-run over that corpus as its admission check, and it should then
+also take the `Cond` null-test predicates 2.9 holds as a question, since
+complement is one more opcode to the interpreter and a fourth entry point
+to the chain.

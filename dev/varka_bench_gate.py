@@ -22,7 +22,7 @@
 #   dev/varka_bench_gate.py --history          # every committed revision of every gated file
 #   dev/varka_bench_gate.py --selftest
 #
-# Why a gate and not a row. Task 77 was opened because a kernel collapsed from
+# Why a gate and not a row. VARKA-77 was opened because a kernel collapsed from
 # 273 to 8.8 M rows/s at 128-bit and the number was committed without anyone
 # remarking on it. A band cannot catch that - the collapse is far outside any
 # band, but so is ordinary noise in the file's loudest cases, and a reader who
@@ -65,7 +65,7 @@ HEADER = re.compile(r"^(.*?):\s+Best Time\(ms\)")
 # (table, arm, reference): the arm must read a higher rate than the reference.
 PARITY_PAIRS = [
     # An emitted loop at or above the hand-written kernel is this project's
-    # standing parity gate (PLAN_MILESTONE_4.md section 5).
+    # standing parity gate (m4/PLAN.md section 5).
     ("date_add over 1000000 rows", "emitted loop, null-free", "hand-written kernel, null-free"),
     ("date_add over 1000000 rows", "emitted loop, mixed nulls", "hand-written kernel, mixed nulls"),
     ("datediff over 1000000 rows", "emitted loop, null-free", "hand-written kernel, null-free"),
@@ -77,7 +77,7 @@ PARITY_PAIRS = [
     ("chain over 1000000 rows, mixed nulls", "fused, depth 8", "sequential kernels, depth 8"),
     ("chain over 1000000 rows, mixed nulls", "fused, depth 16", "sequential kernels, depth 16"),
     ("two outputs over 1000000 rows, mixed nulls", "fused, CSE", "sequential kernels (9 passes)"),
-    # The pair task 77 exists for.
+    # The pair VARKA-77 exists for.
     ("4 outputs x depth 16 over 1000000 rows", "fused, 64 ops", "sequential kernels, 64 passes"),
     # The shipped lowering against the two it replaced.
     (
@@ -95,16 +95,16 @@ PARITY_PAIRS = [
 PARITY_UNGATED = {
     "depth-4 arms over 1000000 rows": "a blend against plain arithmetic; either may win",
     "20000000 rows in 4096-row chunks": "A/B arms and option variants; no must-beat direction",
-    "two outputs over a shared chain, 1000000 rows, mixed nulls": "the task 17 budget pair",
+    "two outputs over a shared chain, 1000000 rows, mixed nulls": "the VARKA-17 budget pair",
     "20000000 rows in chunks": "chunk-length variants of one shape",
     "20000000 rows, 20 calendar outputs over 5 dates": "shared against unshared epilogue",
     "one output over 1000000 rows, null-free": "the width ladder; every rung is a datum",
-    # Task 88 step 4's A/B. Gating it would freeze the answer to the question the
+    # VARKA-88 step 4's A/B. Gating it would freeze the answer to the question the
     # table exists to ask: whether a machine's vector divider beats its 32-bit
     # multiplier is a property of the machine, and a host where the double form
     # wins is a finding rather than a regression.
     "constant division over 1000000 rows, null-free": (
-        "the three lowerings task 88 measures; which wins is the machine's answer"
+        "the three lowerings VARKA-88 measures; which wins is the machine's answer"
     ),
     # The vector lowering does beat the scalar loop here, but by 1.28x at the wide
     # width, and this file's pairs are derived from 43 to 47 observations rather
@@ -125,27 +125,27 @@ THRU = " over 2000000 Arrow-cached rows"
 THROUGHPUT_WINS = [
     "date_add",
     "date_sub",
-    "date_add, column offset (task 56 control)",
-    "date + CAST(i AS INTERVAL DAY), bound checked (task 56)",
-    "add_months, literal (task 60 control)",
-    "add_months, column count (task 60)",
+    "date_add, column offset (VARKA-56 control)",
+    "date + CAST(i AS INTERVAL DAY), bound checked (VARKA-56)",
+    "add_months, literal (VARKA-60 control)",
+    "add_months, column count (VARKA-60)",
     "make_date",
     "datediff",
     "nested projection",
     "shared subchain (DAG-CSE)",
     "case when, predictable data",
     "case when, unpredictable data",
-    "next_day, literal weekday (task 59 control)",
-    "next_day, weekday column (task 59)",
-    "next_day, weekday column reused by two outputs (task 59)",
-    "trunc, literal format (task 61 control)",
-    "trunc, format column (task 61)",
+    "next_day, literal weekday (VARKA-59 control)",
+    "next_day, weekday column (VARKA-59)",
+    "next_day, weekday column reused by two outputs (VARKA-59)",
+    "trunc, literal format (VARKA-61 control)",
+    "trunc, format column (VARKA-61)",
     "weekofyear",
     "yearofweek",
-    "year * 100 + month (task 63)",
-    "datediff + 1 (task 63)",
-    "try_add over datediff (task 63)",
-    "mixed projection, arithmetic entry fused (task 63)",
+    "year * 100 + month (VARKA-63)",
+    "datediff + 1 (VARKA-63)",
+    "try_add over datediff (VARKA-63)",
+    "mixed projection, arithmetic entry fused (VARKA-63)",
     "mixed projection (partial fusion)",
     "chain depth 1",
     "chain depth 2",
@@ -153,14 +153,14 @@ THROUGHPUT_WINS = [
     "chain depth 8",
     "dayofweek, row consumer",
     "case when unpredictable, row consumer",
-    # New in task 68; one revision each, no loss, and six to eight times the row
+    # New in VARKA-68; one revision each, no loss, and six to eight times the row
     # engine at both widths, so the direction is not in doubt even on thin history.
-    "interval add, int count (task 68 control)",
-    "interval add, interval columns (task 68)",
-    "month composite, int form (task 68 control)",
-    "make_ym_interval (task 68)",
-    "add_months, int count (task 67 control)",
-    "d + interval column (task 67)",
+    "interval add, int count (VARKA-68 control)",
+    "interval add, interval columns (VARKA-68)",
+    "month composite, int form (VARKA-68 control)",
+    "make_ym_interval (VARKA-68)",
+    "add_months, int count (VARKA-67 control)",
+    "d + interval column (VARKA-67)",
 ]
 
 THROUGHPUT_PAIRS = [(t + THRU, "varka (SIMD)", "baseline (Janino)") for t in THROUGHPUT_WINS]
@@ -180,13 +180,13 @@ READ_BACK_FLOOR = [
 ]
 
 THROUGHPUT_UNGATED = {
-    t + THRU: "the read-back floor; every selected row crosses it (task 19)"
+    t + THRU: "the read-back floor; every selected row crosses it (VARKA-19)"
     for t in READ_BACK_FLOOR
 }
 THROUGHPUT_UNGATED["dayofweek" + THRU] = "not an invariant: 1 loss in 27 revisions, at an early one"
 
 
-# The long lane's end-to-end file (task 144). Every table pairs one shape at two widths, so
+# The long lane's end-to-end file (VARKA-144). Every table pairs one shape at two widths, so
 # each width's Varka arm is gated against its own baseline: the file's subject is the ratio
 # BETWEEN the widths, and gating that would pin a number rather than an invariant - 0.31x on one
 # shape and 0.97x on another is the finding, not a rule. What must be true is the same thing the
@@ -229,14 +229,14 @@ LONG_LANE_UNGATED = {
     # shape, the weakest of the family at the host width (1.40x), crosses below the row engine
     # at 0.89x. The pair was derived from the wide file alone, which is exactly the mistake
     # this file's header warns against, and the narrow companion caught it before it was
-    # committed. PLAN_TASK_144.md 9.4 has the table.
+    # committed. VARKA-144.md 9.4 has the table.
     "filter, day-time interval comparison over 2000000 Arrow-cached rows": (
         "not an invariant: 1.40x at the host width and 0.89x at 128 bits, where a long lane "
-        "is two lanes (task 144 section 9.4)"
+        "is two lanes (VARKA-144 section 9.4)"
     ),
     _CROSSED: (
         "no baseline arm: six Varka-only cases whose subject is which of them is "
-        "fastest (task 144 section 9.1, and task 145 out of it)"
+        "fastest (VARKA-144 section 9.1, and VARKA-145 out of it)"
     ),
 }
 
@@ -266,12 +266,12 @@ def parse(text):
     return rows
 
 
-# Task 145's baseline: seven Varka-only cases whose subject is which of them is fastest, so
-# there is no arm to beat another. Ungated for the same reason as task 144's crossed table.
+# VARKA-145's baseline: seven Varka-only cases whose subject is which of them is fastest, so
+# there is no arm to beat another. Ungated for the same reason as VARKA-144's crossed table.
 NARROWING_UNGATED = {
     "over 20000000 Arrow-cached rows": (
         "no baseline arm: seven Varka-only cases separating what a narrowed filter costs "
-        "(task 145, and PLAN_TASK_144.md 9.3 which opened it)"
+        "(VARKA-145, and VARKA-144.md 9.3 which opened it)"
     ),
 }
 

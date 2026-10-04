@@ -1,5 +1,5 @@
 ================================================================================================
-Milestone 4 open question 4 (task 25): does an unroll factor above 1 pay?
+Milestone 4 open question 4 (VARKA-25): does an unroll factor above 1 pay?
 ================================================================================================
 
 Two chain depths (8, the named short candidate; 20, the dayofweek-shaped long candidate) times
@@ -11,7 +11,7 @@ outer-loop body, not in loop-control shape. See VarkaUnrollFactorBenchmark.java.
 This file is the forked-JVM measurement that replaced four in-process (forks=0) runs, which are
 in git history at a092f66d096 with their own "Reading these numbers". The in-process harness
 measured every benchmark on a JVM the JUnit suites and the other benchmarks had already shaped
-(PLAN_MILESTONE_4.md, debt register, "measures a degraded JIT state"). Nothing in this file moved
+(m4/PLAN.md, debt register, "measures a degraded JIT state"). Nothing in this file moved
 by more than the earlier runs' own spread: a plain add/sub chain is the one shape that harness
 measured faithfully.
 
@@ -47,14 +47,14 @@ VarkaUnrollFactorBenchmark.chainD8K4   thrpt    5  2265.902 ± 39.215  ops/ms
 * Depth 8 (short chain): flat across K = 1, 2, 4 at both widths - K=2 and K=4 sit 3% and 4%
   under K=1 at AVX-512 by min (4832 / 4694 / 4621) and within 1% at 128-bit (2262 / 2253 /
   2248), i.e. inside this file's noise and with no consistent direction. The honest null
-  hypothesis in PLAN_MILESTONE_4.md section 2.3 holds: C2 plus the out-of-order engine already
+  hypothesis in m4/PLAN.md section 2.3 holds: C2 plus the out-of-order engine already
   collect the available overlap on a body this short.
 * Depth 20 (dayofweek-shaped long chain): K=2 wins at both widths - +4.4% at AVX-512 (1596 to
   1666 by min; +6.1% by mean) and +4.3% at 128-bit (716 to 747). K=4 adds nothing consistent
   over K=2: +3.4% at AVX-512 by min (1723) and -1.9% at 128-bit (733), the sign changing with
   the width. The benefit saturates at K=2, which is also the cheaper choice against
   GROUP_BUDGET.
-* Net for task 25: unchanged from the in-process runs. "K pays only on the long chains" holds,
+* Net for VARKA-25: unchanged from the in-process runs. "K pays only on the long chains" holds,
   and the planner's ceiling is K=2 for a chain this long, not an unbounded search.
 * Methodology note: an earlier version of this benchmark measured K=2/K=4 through a small
   constant-bound runtime for-loop over the op index, rather than the fully unrolled straight-line

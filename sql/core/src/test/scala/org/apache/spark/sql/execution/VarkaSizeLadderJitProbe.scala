@@ -22,7 +22,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
 
 /**
- * The child process behind [[VarkaSizeLadderJitSuite]] (task 171). Launched in a forked JVM under
+ * The child process behind [[VarkaSizeLadderJitSuite]] (VARKA-171). Launched in a forked JVM under
  * `-Xbatch -XX:+PrintCompilation`, it runs one vanilla-Spark projection of `n` size-ladder
  * entries - `greatest(add_months(d, k), date_add(d, k), last_day(d))` - over a generated date
  * column, with whole-stage codegen on and Varka off, and prints the stage's largest generated

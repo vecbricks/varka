@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoad
 import org.apache.spark.util.Utils
 
 /**
- * Task 18: the cross-task class cache. The one failure mode the ghost fallback cannot catch is
+ * VARKA-18: the cross-task class cache. The one failure mode the ghost fallback cannot catch is
  * a wrong hit - a cached class served for a shape it was not emitted from - so the sharing
  * tests here assert both directions: equal shapes share one loaded class (constants and all
  * other non-byte-affecting context ignored), and every byte-affecting difference - structure,
@@ -61,7 +61,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
     new VarkaShapeKey(java.util.List.of(root), numInputs, numLiterals)
 
   /**
-   * The parent loader `VarkaShapeCache` passes on the production path. Since task 23 the cache
+   * The parent loader `VarkaShapeCache` passes on the production path. Since VARKA-23 the cache
    * core takes it as a value rather than reading the thread's context loader itself - the facade
    * owns every read of Spark's environment - so the tests name it here once.
    */
@@ -191,7 +191,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a size decline is remembered: the next lookup rethrows it without emitting again") {
-    // Task 87's byte budget declines a shape whose single output is over it, and the decline is
+    // VARKA-87's byte budget declines a shape whose single output is over it, and the decline is
     // the same on every call, so the cache keeps it: without that, every task that reaches the
     // shape would build and measure the class again only to decline it again. A 300-byte budget
     // declines one make_date output, whose methods read over a thousand bytes.
@@ -281,7 +281,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
     val plain = keyOf(shape)
     val noCse =
       new VarkaShapeKey(java.util.List.of(shape), 1, 1, VarkaEmitOptions.DEFAULTS.withCse(false))
-    // Before task 23 this pair could not coexist. The emitter's non-shape inputs were static
+    // Before VARKA-23 this pair could not coexist. The emitter's non-shape inputs were static
     // hooks the key could not see, so the cache refused every lookup - hit and miss alike -
     // while any of them was set. They are a key component now, so the variant simply misses.
     val first = cache.getOrEmit(parent, plain, "exec")
@@ -324,7 +324,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("the AVX level rides the shape key, so two hosts cannot share one identity") {
-    // `PLAN_TASK_88.md` risk 6: the level changes emitted bytes at the long lane, so an
+    // `VARKA-88.md` risk 6: the level changes emitted bytes at the long lane, so an
     // emission that assumed AVX-512 converts must not be handed to a kernel compiled for a
     // host without them. Rendering it is what keeps the two apart.
     // Two levels that choose different lowerings must render differently, and the rendering
@@ -355,7 +355,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("every option component can change the canonical rendering") {
-    // `truncDate` was left out of canonical() from task 35 until task 46, so two option values
+    // `truncDate` was left out of canonical() from VARKA-35 until VARKA-46, so two option values
     // differing only in the trunc lowering rendered the same string: different keys in the
     // cache's map, one shared execution identity in the side table keyed on the hash, which is
     // the collision the record's class doc says must not exist. Nothing failed, because nothing
@@ -421,7 +421,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("the parent class loader is part of the key: another loader gets its own entry") {
     val cache = new VarkaShapeCacheImpl(8)
     val key = keyOf(chain(bits = 5, depth = 3))
-    // Since task 23 the parent is an argument rather than something the cache reads off the
+    // Since VARKA-23 the parent is an argument rather than something the cache reads off the
     // thread, so the two linkage contexts are named here directly. `VarkaShapeCache` is what
     // binds it to `Utils.getContextOrSparkClassLoader` on the production path.
     val isolated = new java.net.URLClassLoader(Array.empty, parent)
@@ -482,13 +482,13 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("every node type's canonical rendering is pinned, not only the chain ops") {
     // One key that uses all 24 IR node types (and three CompareOps), so a rendering change
     // to any of them - operand order, a token - fails here even though the chain-based
-    // pinned hash above would still pass. Same update rule as above when intended. Task 20
-    // added IsNotNull and re-pinned the value (recorded in PLAN_TASK_20.md); task 26 added
-    // the four calendar extractions and re-pinned it again (PLAN_TASK_26.md); task 33 added
-    // NextDay, task 40 added AddMonths, task 36 added LastDay, task 34 added DayOfYear and
-    // task 35 added TruncDate and task 61 added TruncDateDynamic, each re-pinning it again
-    // (PLAN_TASK_33.md, PLAN_TASK_40.md, PLAN_TASK_36.md, PLAN_TASK_34.md, PLAN_TASK_35.md,
-    // PLAN_TASK_61.md). This value is re-pinned from the
+    // pinned hash above would still pass. Same update rule as above when intended. VARKA-20
+    // added IsNotNull and re-pinned the value (recorded in VARKA-20.md); VARKA-26 added
+    // the four calendar extractions and re-pinned it again (VARKA-26.md); VARKA-33 added
+    // NextDay, VARKA-40 added AddMonths, VARKA-36 added LastDay, VARKA-34 added DayOfYear and
+    // VARKA-35 added TruncDate and VARKA-61 added TruncDateDynamic, each re-pinning it again
+    // (VARKA-33.md, VARKA-40.md, VARKA-36.md, VARKA-34.md, VARKA-35.md,
+    // VARKA-61.md). This value is re-pinned from the
     // failing assertion's own output on every such change - never carried over from either
     // side of a merge, since a hash that is right for one node set is wrong for the union of
     // two.
@@ -595,7 +595,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Plan-time admission without a class (task 237).
+  // Plan-time admission without a class (VARKA-237).
   // ---------------------------------------------------------------------------------------------
 
   test("admission builds once and defines nothing; the first lookup defines the class from the " +

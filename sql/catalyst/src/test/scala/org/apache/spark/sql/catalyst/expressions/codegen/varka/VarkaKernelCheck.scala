@@ -27,7 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 /**
  * The fuzzers' row-by-row check of one emitted int-lane kernel against
  * [[VarkaReferenceEvaluator]], shared by the IR fuzzer's drawn and wide shapes and the
- * composition fuzzer's compiled kernels (task 238). Scala because the oracle it drives is a Scala
+ * composition fuzzer's compiled kernels (VARKA-238). Scala because the oracle it drives is a Scala
  * object.
  */
 object VarkaKernelCheck {
@@ -69,7 +69,7 @@ object VarkaKernelCheck {
         var nulls = 0
         for (i <- 0 until length) {
           if (patterns(c)(i)) {
-            // Poisoned, not left at the drawn value (task 70's harness rule, the same one
+            // Poisoned, not left at the drawn value (VARKA-70's harness rule, the same one
             // VarkaEmitterTestBase.poison states). `data` is drawn inside `columnBound` and
             // `MONTH_ARITH_MAX_MONTHS`, so a null lane holding its drawn value is in range by
             // construction and can never reach a guard's condemning comparison - which is the

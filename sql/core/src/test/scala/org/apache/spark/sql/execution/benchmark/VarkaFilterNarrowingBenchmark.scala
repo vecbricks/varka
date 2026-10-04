@@ -27,22 +27,22 @@ import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 /**
- * Whether a Varka filter keeps the columnar path when it narrows its output (task 145).
+ * Whether a Varka filter keeps the columnar path when it narrows its output (VARKA-145).
  *
  * `VarkaFilterColumnarToRowExec` carries `narrowing`: the projection above it, absorbed, and
- * `Some` exactly when the node's output differs from the columns it was given. Task 144's
+ * `Some` exactly when the node's output differs from the columns it was given. VARKA-144's
  * crossed experiment found queries differing only in that clause running eight times apart
  * under a `noop` sink, and this file was written to price the narrowing. It prices something
  * else, which is why it is committed: with the row read-back forced, narrowing costs nothing -
- * `toRdd` puts the narrowed and un-narrowed shapes within 1% of each other - and task 78's
+ * `toRdd` puts the narrowed and un-narrowed shapes within 1% of each other - and VARKA-78's
  * `VarkaNarrowingBenchmark` had already measured that shape at three selectivities and both
  * widths, finding the narrowed form slightly *faster* than the two-column control.
  *
  * What the gap actually is: under a columnar sink the un-narrowed shapes stay columnar end to
- * end while the narrowed one does not, so it pays a read-back the others avoid - task 19's
+ * end while the narrowed one does not, so it pays a read-back the others avoid - VARKA-19's
  * floor, arriving through a plan difference rather than through the lane or the column count.
  * The `toRdd` arms are the control that says so, and they are the reason this file exists
- * beside task 78's rather than repeating it.
+ * beside VARKA-78's rather than repeating it.
  *
  * The cases vary one thing at a time over one cached table:
  *

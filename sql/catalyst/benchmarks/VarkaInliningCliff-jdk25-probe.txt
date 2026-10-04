@@ -1,9 +1,9 @@
-Task 209's admission check (PLAN_TASK_209.md 2 and 9; the budget's own forks in section 5, 11 and
+VARKA-209's admission check (VARKA-209.md 2 and 9; the budget's own forks in section 5, 11 and
 12 there): does the loop method of a wide kernel keep
 its vector intrinsics, and does the same class land on either side from one JVM to the next?
 
 Taken 27 September 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.4.1), unpinned,
-with dev/varka_inlining_cliff.sh: fresh JVMs of VarkaInliningCliffProbe, task 198's cheap-tail
+with dev/varka_inlining_cliff.sh: fresh JVMs of VarkaInliningCliffProbe, VARKA-198's cheap-tail
 shape `year(d) + k` in one loop method (fused ceiling 400) or split into groups (100, 50), each
 fork run for six seconds over 1024-row batches, under -XX:+LogCompilation and PrintInlining and
 PrintIntrinsics scoped to the emitted class; six seconds a fork in the first census, and
@@ -275,7 +275,7 @@ logs and its summary; this file is the summaries.
             loopDense0: C1 failed x10, C2 compiled once x10; C2's vector ops [70], calls left [2441]
 
 
-5. The afternoon of 29 September, the budget built (PLAN_TASK_209.md 11 and 12), the same JVM,
+5. The afternoon of 29 September, the budget built (VARKA-209.md 11 and 12), the same JVM,
    machine and reader: the census's counts forked again under the production emitter - the
    call-site budget at 93 and the heavy-group exemption at 6, which the BEGIN line now names
    as budget= and heavy= - at the host's width (20 forks of 12 seconds a case) and at 128 bits
@@ -323,7 +323,7 @@ verdict: 0 of 20 forks slow
 
    The sixty-four-tail class - the shared-prefix benchmark's cheap shape, four loop methods under
    the budget - forked alone at 128 bits and at the host's width, ten forks of twelve seconds
-   each, after one instance of it landed slow in the benchmark's JVM (PLAN_TASK_209.md 12.3):
+   each, after one instance of it landed slow in the benchmark's JVM (VARKA-209.md 12.3):
 
 -- outputs=64 ceilings=400 widths=16 forks=10 seconds=12 rows=1024 xbatch=off c1=on shapes=cheap directives=none budgets=default heavy=default jvm=
    64_400_on_cheap_none_93_6 at 16 bytes: loopDense0:1317:86,loopDense1:1074:57,loopDense2:1074:57,loopDense3:1074:57,loopMasked0:1317:86,loopMasked1:1074:57,loopMasked2:1074:57,loopMasked3:1074:57

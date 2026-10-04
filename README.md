@@ -9,8 +9,8 @@ anything the engine cannot serve. A Varka failure never fails a query.
 
 The current scope is date arithmetic (`date_add`, `date_sub`, `datediff`,
 `CASE WHEN`/`IF` over date comparisons, `greatest`/`least`,
-`dayofweek`/`weekday`, and since task 26 the calendar extractions
-`year`/`month`/`dayofmonth`/`quarter`) and, since task 21, date filters
+`dayofweek`/`weekday`, and since VARKA-26 the calendar extractions
+`year`/`month`/`dayofmonth`/`quarter`) and, since VARKA-21, date filters
 (`BETWEEN`, `IN`, `IS [NOT] NULL` and their `AND`/`OR` combinations as mask
 kernels) over
 Arrow-cached data - deep enough to exercise real fusion, small enough to
@@ -404,7 +404,7 @@ read-back floor - live in `sql/core/benchmarks/` and `sql/catalyst/benchmarks/`
 | `CASE WHEN`, unpredictable / predictable condition | 7.0x / 5.8x - predication costs the same either way |
 | `CASE WHEN d IN (...)`, 5 / 16 literals | 3.5x / 3.9x (fused to a 16-literal cap; longer lists decline with a reason) |
 | Two outputs sharing a subchain (DAG-CSE) | 6.0x |
-| Chain of 8 date ops, columnar consumer | 6.9x - flat from depth 1 to 8 since the task 18 class cache |
+| Chain of 8 date ops, columnar consumer | 6.9x - flat from depth 1 to 8 since the VARKA-18 class cache |
 | The same chains through a **row** consumer | 0.8x - the ~25 ns/row read-back floor; heavy shapes clear it |
 | `COUNT(*)` over an 85%-selective filter | 0.8x - nearly every row crosses the floor (1.8x at 15%) |
 | Cold start: first run of a fresh plan shape | 1.8x - a fresh shape misses the class cache by design |
@@ -566,29 +566,29 @@ The milestones:
   eligibility with zero-copy forwarding, telemetry attributes, and the
   benchmark/docs pass that produced the numbers above.
 * **Milestone 3 (in progress)**: *reach* - the task plan is in
-  [`sql/varka/plans/PLAN_MILESTONE_3.md`](sql/varka/plans/PLAN_MILESTONE_3.md).
-  Its spine: reuse the emitted class across tasks (done - task 18's shape
+  [`sql/varka/plans/m3/PLAN.md`](sql/varka/plans/m3/PLAN.md).
+  Its spine: reuse the emitted class across tasks (done - VARKA-18's shape
   cache removed the per-task JIT warm-up and moved every committed
   end-to-end number above), fuse date *filters* rather than only
   projections (where a corpus survey found 53-78% of real date references
   live), lower `IN` lists and `Coalesce` onto the mask algebra - Spark's own
   benchmark puts `IN` over dates at 31.2 M rows/s, its slowest primitive
-  (done - task 20 fuses `IN` in condition position at 3.5-3.9x up to a
+  (done - VARKA-20 fuses `IN` in condition position at 3.5-3.9x up to a
   16-literal cap, with `coalesce` and `IS [NOT] NULL` riding the new
   validity condition), and
   `coalesce` is the corpus' third most common non-aggregate function - and
   answer the whole-stage charter question in writing. The row-consumer
-  question above is settled (task 19: the rule keeps fusing - heavy shapes
+  question above is settled (VARKA-19: the rule keeps fusing - heavy shapes
   win through rows and no plan-time number separates them from the cheap
   chains that do not).
 * **Milestone 4**: *breadth* - the task plan is in
-  [`sql/varka/plans/PLAN_MILESTONE_4.md`](sql/varka/plans/PLAN_MILESTONE_4.md)
-  (tasks 24-31): the types, expressions and loop schedules the engine cannot
-  say yet. The scalar tail is gone already - task 24 replaced it with a masked
+  [`sql/varka/plans/m4/PLAN.md`](sql/varka/plans/m4/PLAN.md)
+  (VARKA-24 to VARKA-31): the types, expressions and loop schedules the engine cannot
+  say yet. The scalar tail is gone already - VARKA-24 replaced it with a masked
   epilogue and took the filter's compaction to `compress(mask)` with it -
   leaving `year` and the extraction family, boolean outputs, lane-width
   conversion, int64 lanes for `TimestampNTZ`, and ANSI-correct integer
-  arithmetic - of which the int32 half has since shipped as task 63, checked
+  arithmetic - of which the int32 half has since shipped as VARKA-63, checked
   where the operands' own ranges cannot rule overflow out and unchecked where
   they can - plus two tasks that add no vocabulary at all: one asking how
   many independent chains the emitted loop should carry, since a superscalar
@@ -597,16 +597,16 @@ The milestones:
   vectorization from a throughput ratio. Float lanes wait for the taxi
   target, and aggregation leads the follow-on ladder.
 * **Milestone 5**: *the other lanes* - the task plan is
-  [`sql/varka/plans/PLAN_MILESTONE_5.md`](sql/varka/plans/PLAN_MILESTONE_5.md):
+  [`sql/varka/plans/m5/PLAN.md`](sql/varka/plans/m5/PLAN.md):
   the tasks milestone 4 planned for every lane but the date's int32, moved out
   when milestone 4 was re-scoped to the date family and the emitter under it -
   boolean outputs, lane-width conversion, int64 lanes (`TimestampNTZ`,
   `bigint`), the rest of ANSI integer arithmetic (`/`, `div`, `%` and the
   int64 forms; the int32 add, subtract, multiply and negate came back to
-  milestone 4 as task 63), `date - date`, and civil-from-days in long lanes.
+  milestone 4 as VARKA-63), `date - date`, and civil-from-days in long lanes.
 * **Milestone 6**: *the compiler's foundation*, closed on 3 October 2026 - the
   task plan is
-  [`sql/varka/plans/PLAN_MILESTONE_6.md`](sql/varka/plans/PLAN_MILESTONE_6.md):
+  [`sql/varka/plans/m6/PLAN.md`](sql/varka/plans/m6/PLAN.md):
   no shape Varka admits can fail to emit, every method bounded in bytes by
   construction, the size ladder and a realistic query measured against vanilla
   Spark, a census of where Spark's code generation gives up, and three posts:
@@ -615,12 +615,12 @@ The milestones:
   and [when Spark stops compiling your query](https://vecbricks.github.io/when-spark-stops-compiling-your-query/).
   The record of every milestone is [`CHANGELOG.md`](CHANGELOG.md).
 * **Milestone 7**: *trust and maintainability* - the task plan is
-  [`sql/varka/plans/PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md):
+  [`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md):
   machine-checked proofs of the bounded arithmetic, the differential tests'
   gaps closed, the compiler ported to Java and refactored with no emitted byte
   moved, and CI that needs no laptop.
 * **Milestone 8**: *coverage* - the scope catalogue is in
-  [`sql/varka/plans/SCOPE_MILESTONE_8.md`](sql/varka/plans/SCOPE_MILESTONE_8.md),
+  [`sql/varka/plans/m8/SCOPE.md`](sql/varka/plans/m8/SCOPE.md),
   driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that
   census says: `DateType`, the only type Varka has today, is 3.1% of the columns
   in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%
@@ -638,7 +638,7 @@ which live in [`sql/varka/skills/`](sql/varka/skills/)).
 
 The work is organised as milestones with a numbered task table each; the
 milestone in flight is
-[`sql/varka/plans/PLAN_MILESTONE_7.md`](sql/varka/plans/PLAN_MILESTONE_7.md),
+[`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md),
 and its rows marked **Scoped** or **Planned** are open. Pick one, open an
 issue naming the row, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
 the work is done here: plans as records, numbers that trace to committed

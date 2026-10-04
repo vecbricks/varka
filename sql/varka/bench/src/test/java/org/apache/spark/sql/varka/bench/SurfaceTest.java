@@ -111,7 +111,7 @@ public class SurfaceTest {
   /**
    * The two table shapes carry exactly the columns they claim.
    *
-   * <p>This is the check whose absence produced task 97: the benchmark table gained three
+   * <p>This is the check whose absence produced VARKA-97: the benchmark table gained three
    * interval columns, every bandwidth-bound row in the surface was then measured over a table
    * twice as wide as before, and nothing said so. A shape whose column list and whose built
    * schema disagree would make any comparison between them meaningless.
@@ -160,7 +160,7 @@ public class SurfaceTest {
   }
 
   /**
-   * The checksum sees a wrong answer, which is the whole of task 125.
+   * The checksum sees a wrong answer, which is the whole of VARKA-125.
    *
    * <p>The surface asserts that a row fused and that no batch fell back; it never compared what
    * the arms computed. A kernel that is fast and wrong would therefore publish a rate. Here the

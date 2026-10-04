@@ -55,7 +55,7 @@
 # more before giving up, since a laptop that slept through the wait wakes past the
 # deadline with the run long finished. The runner is a process on this machine, so it
 # sleeps when the machine does; a dispatcher on GitHub is the fix for that
-# (PLAN_TASK_227.md). The script prints `EXIT <status>` on every path, so another script
+# (VARKA-227.md). The script prints `EXIT <status>` on every path, so another script
 # can wait on that line. Needs `gh` authenticated; the base repository is read from the
 # `origin` remote (VARKA_BASE_REMOTE overrides), and each PR's fork and branch from GitHub.
 set -euo pipefail

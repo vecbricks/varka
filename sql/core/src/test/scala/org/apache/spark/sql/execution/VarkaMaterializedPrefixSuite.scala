@@ -23,7 +23,7 @@ import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 
 /**
- * The evaluator's side of a materialized calendar prefix (task 198, `PLAN_TASK_198.md` 8.3): a
+ * The evaluator's side of a materialized calendar prefix (VARKA-198, `VARKA-198.md` 8.3): a
  * projection whose calendar outputs the emitter splits across loop-method groups runs on the
  * row engine and on Varka over the same Arrow-cached dates, nulls included, and must answer the
  * same with the kernel having run. Such a kernel takes a scratch address per batch, which the

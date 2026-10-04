@@ -45,7 +45,7 @@ import jdk.incubator.vector.VectorSpecies;
  * Data values of null output rows are undefined.
  *
  * <p>Int32 arithmetic wraps on overflow, matching Spark's date expressions. Endianness is
- * little-endian (Arrow's in-memory layout). See sql/varka/PLAN_TASK_2.md.
+ * little-endian (Arrow's in-memory layout). See sql/varka/plans/m1/VARKA-2.md.
  *
  * <h2>The shape of a kernel</h2>
  *

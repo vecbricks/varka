@@ -1,5 +1,5 @@
 ================================================================================================
-the epilogue past HugeMethodLimit: a make_date ladder (task 87)
+the epilogue past HugeMethodLimit: a make_date ladder (VARKA-87)
 ================================================================================================
 
 OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic

@@ -19,7 +19,7 @@
 
 """Render a Varka post from its Markdown source into a standalone web page.
 
-    dev/varka_post_page.py sql/varka/plans/POST_MILESTONE_5.md --out target/post
+    dev/varka_post_page.py sql/varka/plans/m5/POST.md --out target/post
 
 The post is written as an ordinary Markdown file under `sql/varka/plans/`, and its figures
 are the SVGs that `sql/varka/plans/figures/*.py` generate. This script is what turns the two

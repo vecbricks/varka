@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono.Field
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
 /**
- * The scalar half of task 26: `VarkaChrono`'s civil-from-days model, checked against
+ * The scalar half of VARKA-26: `VarkaChrono`'s civil-from-days model, checked against
  * `java.time` before any of it is emitted as bytecode. The emitter loads the same constants
  * these methods use, so a disagreement between an emitted kernel and this model is an emission
  * bug, while a disagreement between this model and `LocalDate` is an arithmetic one - keeping
@@ -37,7 +37,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * The everyday tests run a curated boundary set. The exhaustive sweep that actually justifies
  * the constants - all 16777216 days the lowering is defined over, against `LocalDate` - is
  * gated behind `-Dvarka.sweep=true`, and its result is recorded in
- * `sql/varka/plans/PLAN_TASK_26.md`. The nearest precedent for the gate is the engine module's
+ * `sql/varka/plans/m4/VARKA-26.md`. The nearest precedent for the gate is the engine module's
  * `varka.jmh` JUnit gate - no other catalyst Varka test is property-gated.
  *
  *   build/sbt 'catalyst/testOnly *VarkaChronoSuite'
@@ -142,7 +142,7 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("the January turn is the same test on the day of year as on the March month") {
     // The year tail reads doy >= MARCH_TO_JANUARY_DAYS where the month and day-of-month tails
-    // read marchMonth >= MARCH_YEAR_JANUARY (task 48). The two are one integer identity apart,
+    // read marchMonth >= MARCH_YEAR_JANUARY (VARKA-48). The two are one integer identity apart,
     // and 366 cases are cheaper to run than three lines of algebra are to trust. The identity
     // rests on the month magic being exact over this whole domain, so that is asserted here
     // too rather than taken from the constant's javadoc.
@@ -177,14 +177,14 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
         s"the day of month disagreed with the shipped form at day of year $dayOfYear")
       assert(monthIndex3 >= 3 && monthIndex3 <= 14,
         s"the month index left its domain at day of year $dayOfYear")
-      // The same January turn as task 48's, restated on the new axis. Both must move together
+      // The same January turn as VARKA-48's, restated on the new axis. Both must move together
       // or a year computed on one axis and a month on the other disagree by a year.
       assert((monthIndex3 >= VarkaChrono.MONTH3_JANUARY) ===
         (dayOfYear >= VarkaChrono.MARCH_TO_JANUARY_DAYS),
         s"the two January tests disagreed at day of year $dayOfYear")
     }
     // The bound that makes this expressible on an int lane at all, where the paper's era and
-    // year steps are not: see PLAN_TASK_53.md 2.2.
+    // year steps are not: see VARKA-53.md 2.2.
     assert(maxNumerator === 979378)
     assert(maxNumerator < Int.MaxValue)
   }
@@ -331,14 +331,14 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("where the era split stops being exact, and it is not where the ceiling is") {
     // NARROW_MAX_DAYS is the ceiling of the era step's *shift* domain, w < 2^NARROW_ERA_K.
-    // Task 60's review observed that what binds above is the multiply's own overflow,
+    // VARKA-60's review observed that what binds above is the multiply's own overflow,
     // w * NARROW_ERA_M < 2^31, which is looser. Neither is the real limit: `eraOf` corrects a
     // one-era undershoot afterwards, and that correction keeps the split exact past the point
     // the multiply wraps. What ends it is an undershoot of *two* eras, which one correction
     // cannot absorb.
     //
     // Asserted as the number rather than as "it works further": the identity below holds at
-    // the bound and fails one past it, the way task 37's week magic is pinned.
+    // the bound and fails one past it, the way VARKA-37's week magic is pinned.
     val bias = VarkaChrono.NARROW_BIAS
     def split(w: Int): (Int, Int) = {
       val era = (w * VarkaChrono.NARROW_ERA_M) >>> VarkaChrono.NARROW_ERA_K
@@ -353,7 +353,7 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(exact(bound), s"the era split should be exact at w = $bound")
     assert(!exact(bound + 1), s"the era split should fail at w = ${bound + 1}")
     // And the extension really is past both of the bounds it is not: the shift domain the
-    // constant's name suggests, and the multiply's own overflow that task 60's review found.
+    // constant's name suggests, and the multiply's own overflow that VARKA-60's review found.
     assert(bound > (1 << VarkaChrono.NARROW_ERA_K) - 1,
       "the extension should exceed the shift domain")
     assert(bound.toLong * VarkaChrono.NARROW_ERA_M > Int.MaxValue.toLong,
@@ -420,7 +420,7 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
     assume(System.getProperty("varka.sweep") == "true",
       "set -Dvarka.sweep=true to run the exhaustive sweep")
     // Three days in from either end: the Thursday of a day at the edge can lie past it, and
-    // the decomposition is only defined inside the range (task 52's arm for the shift is
+    // the decomposition is only defined inside the range (VARKA-52's arm for the shift is
     // [-3, +3] for the same reason).
     var day = VarkaChrono.NARROW_MIN_DAYS + 3
     var mismatches = 0
@@ -435,7 +435,7 @@ class VarkaChronoSuite extends SparkFunSuite with VarkaTestWatchdog {
     assume(System.getProperty("varka.sweep") == "true",
       "set -Dvarka.sweep=true to run the exhaustive sweep")
 
-    // Both prefix forms (task 54): the era step in front of them is shared, but the sweep is
+    // Both prefix forms (VARKA-54): the era step in front of them is shared, but the sweep is
     // the one place the whole chain is held to LocalDate over every covered day, and the
     // reference variant is kept live by being held to the same standard.
     var mismatches = 0

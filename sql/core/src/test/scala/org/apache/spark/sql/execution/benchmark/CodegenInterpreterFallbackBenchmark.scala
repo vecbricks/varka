@@ -23,7 +23,7 @@ import org.apache.spark.sql.internal.SQLConf
 
 /**
  * What a projection costs once its generated code has failed to compile and Spark evaluates it
- * with the interpreter instead (`PLAN_TASK_233.md` 12).
+ * with the interpreter instead (`VARKA-233.md` 12).
  *
  * A projection outside a stage whose class passes the JVM's 64 KB limit logs
  * `Expr codegen error and falling back to interpreter mode` and still answers; the stock Spark

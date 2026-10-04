@@ -44,7 +44,7 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * vector operation, for as long as its class lives. Whether a kernel falls into this depends on how
  * busy C2 is at the moment the kernel crosses its first threshold, and a warm-up, which crosses
  * every threshold within a second while a new query's own compiles fill the queue, falls into it
- * often (`PLAN_TASK_212.md` 10).
+ * often (`VARKA-212.md` 10).
  *
  * <p>With C1 excluded, the first C1 request for a kernel method is refused and marks the method
  * not C1-compilable - where a tier-3 failure leaves it anyway - so the interpreter profiles it and
@@ -52,7 +52,7 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * operation just as the interpreter does, so the tiers lose nothing - but the profiling starts
  * later: the failed tier-3 request is what creates a method's profile, and without it the
  * interpreter creates one only at twice the tier-3 threshold. A kernel fed only by its own
- * batches would then reach C2 about a hundred batches later (`PLAN_TASK_212.md` 10.6). So the
+ * batches would then reach C2 about a hundred batches later (`VARKA-212.md` 10.6). So the
  * directive matches warmed kernels alone: a kernel is emitted under the warmed name
  * ({@link VarkaShapeCacheImpl#WARMED_MARK}) only when its session warms kernels and this JVM can,
  * every such class gets a warm-up whose calls create its profile at once, and every other kernel
@@ -62,10 +62,10 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * C1 compiles ({@code VarkaEmitBudget.CALL_SITE_BUDGET}), so the methods that can be stranded
  * are the narrow, heavy groups' it leaves past it; the directive still matches every method of
  * a warmed class, the ones C1 could compile included, and whether it should spare those is a
- * cold-start measurement ({@code SCOPE_MILESTONE_8.md} item 61). It has to stay tied to the
+ * cold-start measurement ({@code m8/SCOPE.md} item 61). It has to stay tied to the
  * warm-up either way: a method it keeps from C1 has no profile until the warm-up's calls make
  * one, and a light kernel fed only by its batches then runs interpreted far longer than C1
- * would have let it ({@code PLAN_TASK_209.md} 12.5).
+ * would have let it ({@code VARKA-209.md} 12.5).
  *
  * <p><b>Where it applies.</b> Where C1 and C2 are tiered, which is HotSpot's default. Where C2 is
  * the only compiler (tiered compilation off) there is no C1 to exclude and a warm-up needs no

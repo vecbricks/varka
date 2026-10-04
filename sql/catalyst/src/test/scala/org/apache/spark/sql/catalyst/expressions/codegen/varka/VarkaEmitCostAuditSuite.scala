@@ -24,8 +24,8 @@ import scala.jdk.CollectionConverters._
 
 /**
  * Pins `sql/varka/emit_cost_audit.json`, the emit cost model's accuracy and what its grouping
- * switch does, which `VarkaEmitCostAudit` renders, with the builds of the families task 236 added
- * to its count: task 200's mixed and interleaved families and the wide shapes near and past the
+ * switch does, which `VarkaEmitCostAudit` renders, with the builds of the families VARKA-236 added
+ * to its count: VARKA-200's mixed and interleaved families and the wide shapes near and past the
  * driver's ceiling. Not the coverage compositions `VarkaGroupingBoundSuite` draws: their
  * draw indexes `coverage.json`, so a pinned file over them would move with every expression
  * added. Regenerate with
@@ -47,7 +47,7 @@ class VarkaEmitCostAuditSuite extends VarkaEmitterTestBase {
         "  VARKA_COST_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmitCostAuditSuite'")
       val committed = new String(Files.readAllBytes(path), StandardCharsets.UTF_8)
       assert(committed === rendered, "sql/varka/emit_cost_audit.json differs from what the " +
-        "prices and the emitter give now; regenerate it and requote PLAN_TASK_199.md from it")
+        "prices and the emitter give now; regenerate it and requote VARKA-199.md from it")
     }
   }
 }

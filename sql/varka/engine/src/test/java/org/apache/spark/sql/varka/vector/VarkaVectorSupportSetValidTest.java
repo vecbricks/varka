@@ -26,7 +26,7 @@ import java.lang.foreign.ValueLayout;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link VarkaVectorSupport#setValid} (task 45), which is only useful if it is bit-exact.
+ * {@link VarkaVectorSupport#setValid} (VARKA-45), which is only useful if it is bit-exact.
  *
  * <p>The emitted dense path used to zero the bitmap and then OR lane-masked words into it, which
  * leaves the bits past {@code rows} in the final byte at zero. This sets them directly, and

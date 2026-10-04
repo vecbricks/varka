@@ -18,11 +18,11 @@ The measured comparison of selection vectors against bitmaps as the
 representation of a filter's result, and of "Full", "Selective" and "Mixed"
 compute strategies. Varka's fused filter is the paper's bitmap-Full form; its
 model - runtime as tuples processed times iteration cost plus operation cost -
-gives `SCOPE_MILESTONE_8.md` Item 16 the crossover prediction it lacked
+gives `m8/SCOPE.md` Item 16 the crossover prediction it lacked
 (narrowing pays at medium selectivity only when the remaining work is heavy,
 with the Full-versus-Selective threshold rising with operation count), says
 that strings and integer division should run over the compacted batch rather
-than under a mask (Item 3, task 104), and prices bitmap-to-selection conversion
+than under a mask (Item 3, VARKA-104), and prices bitmap-to-selection conversion
 at a fraction of a percent, which is the number behind keeping the bitmap
 canonical and compacting only at a consumer. Item 25 holds the reading notes.
 

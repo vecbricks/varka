@@ -1,11 +1,11 @@
 ---
 name: "Varka: take a task"
 about: Pick a row from the current milestone's task table and say how you will do it
-title: "[Task <n>] <the row's title>"
+title: "[VARKA-<n>] <the row's title>"
 ---
 
-<!-- The current milestone's task table is section 3 of the highest-numbered
-     sql/varka/plans/PLAN_MILESTONE_<n>.md. Every open row is also an issue labelled "task";
+<!-- The current milestone's task table is section 3 of
+     sql/varka/plans/m<n>/PLAN.md for the highest <n>. Every open row is also an issue labelled "task";
      if the row you want has one, say so there instead of opening this. CONTRIBUTING.md has
      the rest. -->
 

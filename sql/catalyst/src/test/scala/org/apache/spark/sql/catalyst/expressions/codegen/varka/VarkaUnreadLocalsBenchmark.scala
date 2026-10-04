@@ -28,7 +28,7 @@ import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
 
 /**
- * Task 239's admission measurement (`PLAN_TASK_239.md` 2.2 and 2.3): what the reference locals a
+ * VARKA-239's admission measurement (`VARKA-239.md` 2.2 and 2.3): what the reference locals a
  * loop or epilogue method stores and never reads cost a kernel at run time, measured before the
  * emitter changes by stripping them from the built class (`VarkaUnreadLocalsTrim`). The size
  * ladder and the mixed family as `VarkaWideKernelBenchmark` runs them, a million rows in 4096-row

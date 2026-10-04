@@ -110,7 +110,7 @@ varka_docs_regexes = (
 # file - the six shared hooks (`SQLConf`, `StaticSQLConf`, `BaseSessionStateBuilder`,
 # `datetimeExpressions`, `CodeGenerator`, the Arrow cache serializer) among them - is a Spark
 # change and runs Spark's matrix. `build_and_test.yml`'s precondition asks this per changed
-# file (task 160); a file that is neither this nor a Varka document nor ignored ends the
+# file (VARKA-160); a file that is neither this nor a Varka document nor ignored ends the
 # scoping.
 varka_scoped_regexes = (
     r"(^|/)[^/]*[Vv]arka[^/]*$",
@@ -179,9 +179,9 @@ def varka_change_scope(filenames) -> str:
 
     >>> varka_change_scope(["sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/"
     ...                     "expressions/codegen/varka/VarkaLoopEmitter.java",
-    ...                     "sql/varka/plans/PLAN_TASK_160.md"])
+    ...                     "sql/varka/plans/m5/VARKA-160.md"])
     'scoped'
-    >>> varka_change_scope(["sql/varka/plans/PLAN_TASK_160.md", "SKILLS.md"])
+    >>> varka_change_scope(["sql/varka/plans/m5/VARKA-160.md", "SKILLS.md"])
     'docs'
     >>> varka_change_scope(["CONTRIBUTING.md", ".github/ISSUE_TEMPLATE/varka-take-a-task.md",
     ...                     "sql/varka/HARDWARE.md"])
@@ -228,7 +228,7 @@ def is_ignored_file(filename: str) -> bool:
     False
     >>> is_ignored_file("sql/varka/AGENTS.md")
     False
-    >>> is_ignored_file("sql/varka/plans/PLAN_TASK_31.md")
+    >>> is_ignored_file("sql/varka/plans/m4/VARKA-31.md")
     False
 
     Leading slashes anchor at the repository root:
@@ -539,7 +539,7 @@ varka_bench = Module(
     sbt_test_goals=[],
 )
 
-# Varka's documents and the two checks that read them (task 106): every performance number
+# Varka's documents and the two checks that read them (VARKA-106): every performance number
 # a document quotes must trace to a committed results file, and SKILLS.md's index must
 # match the lesson files. The job runs both in seconds with no build. A leaf like the bench
 # module: a documentation change should run this and nothing else, where before it ran
@@ -563,7 +563,7 @@ catalyst = Module(
         # `emit_cost_audit.json` is the cost model's audit (`VarkaEmitCostAuditSuite`) and
         # `width_audit.json` the width census (`VarkaWidthAuditSuite`). All are under
         # `sql/varka/`, which no module claimed, so a change to any matched nothing, fell
-        # through to the `root` module and ran the entire CI matrix - the residue task 123's
+        # through to the `root` module and ran the entire CI matrix - the residue VARKA-123's
         # base fix could not reach, since the base names the files correctly and the map then
         # decides what they mean. `sql/core`'s differential also reads `coverage.json`, and
         # `sql` depends on catalyst, so claiming it here selects both.

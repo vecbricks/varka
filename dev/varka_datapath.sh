@@ -21,7 +21,7 @@
 #   dev/varka_datapath.sh [--require 512|any] [--expected-cpu MODEL] [--github]
 #
 # This exists as a script rather than as steps in a workflow because it has to run in
-# *two* jobs, and PLAN_TASK_62.md 11.15 is the reason. A gate in one GitHub job says
+# *two* jobs, and VARKA-62.md 11.15 is the reason. A gate in one GitHub job says
 # nothing about the machine another job gets: every job is a fresh ephemeral VM. The
 # 12 September 2026 chains run proved it the expensive way - the gate passed on an
 # EPYC 9V45 reading 2.00 while the measurement ran on an EPYC 9V74 reading 1.00, and

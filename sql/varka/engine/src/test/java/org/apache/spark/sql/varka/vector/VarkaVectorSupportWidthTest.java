@@ -36,12 +36,12 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * The width-specialised whole-group validity helpers (task 46), against the general forms they
+ * The width-specialised whole-group validity helpers (VARKA-46), against the general forms they
  * specialise and against the size that decides whether they inline.
  *
  * <p>They exist because the general pair cannot inline inside a fused loop - 153 and 212
  * bytecode bytes around a four-arm switch on the lane count, refused by C2 for node count
- * (task 32, {@code SKILLS.md}) - and a refused call costs 1.87 to 3.24 ns per lane group
+ * (VARKA-32, {@code SKILLS.md}) - and a refused call costs 1.87 to 3.24 ns per lane group
  * whatever the vector width. The emitter picks one of these by name because it knows the width
  * when it writes the bytes. Two things therefore have to hold, and neither is visible in a
  * benchmark: each specialised helper must answer exactly what the general one answers at that
@@ -177,7 +177,7 @@ public class VarkaVectorSupportWidthTest {
    * is recorded rather than papered over - the binding constraint on the general helpers was
    * never their size but the node count of their four-arm switch, and these have a quarter of
    * it. What proves the outcome is {@code -XX:+PrintInlining} over a fused loop
-   * (`PLAN_TASK_46.md` 6); what this test prevents is the drift that would make that run
+   * (`VARKA-46.md` 6); what this test prevents is the drift that would make that run
    * pointless.
    */
   @Test

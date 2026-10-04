@@ -46,7 +46,7 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 /**
- * Five pre-registration measurements for milestone 4's not-yet-started tasks (`PLAN_MILESTONE_4.md`
+ * Five pre-registration measurements for milestone 4's not-yet-started tasks (`m4/PLAN.md`
  * section 2.4, 2.5 and 2.7), each a pair (or trio) of candidate lowerings for the same shape, over
  * one {@code N}-row buffer sized to Spark's default {@code COLUMN_BATCH_SIZE} - the working set
  * every real Varka kernel actually runs at, fully L1/L2-resident, as opposed to a multi-megabyte
@@ -60,11 +60,11 @@ import org.openjdk.jmh.infra.Blackhole;
  *   <li><b>Boolean materialization</b> ({@code bool*}): {@code VectorMask.toVector().and(one)},
  *       {@code zero.blend(one, mask)}, and {@code mask.toLong()} (the actual bit-packed
  * output-boundary format) as three ways to turn a comparison into a boolean column. Feeds the
- * boolean-output work (`PLAN_MILESTONE_5.md`).</li>
+ * boolean-output work (`m5/PLAN.md`).</li>
  *   <li><b>Lane-width conversion</b> ({@code laneWidth*}): {@code cast(int AS long) + long},
  *       driving the loop at the narrower (long) lane count versus the wider (int) one with a
  * two-part {@code convertShape}. Feeds the lane-width conversion work
- * (`PLAN_MILESTONE_5.md`).</li>
+ * (`m5/PLAN.md`).</li>
  *   <li><b>Boolean trees</b> ({@code boolTree*}): {@code (a > b) AND (c < d)} kept in mask space
  * throughout versus materialized as int columns at each node. Feeds the boolean-output work's
  * compound- predicate case.</li>
@@ -72,7 +72,7 @@ import org.openjdk.jmh.infra.Blackhole;
  *       read 0, which a division must not trap on. Blending a safe divisor (1) into inactive
  *       lanes before an unmasked {@code DIV} versus the masked lanewise {@code DIV} form, which
  * never evaluates inactive lanes. Feeds the ANSI integer arithmetic work
- * (`PLAN_MILESTONE_5.md`).</li>
+ * (`m5/PLAN.md`).</li>
  * </ul>
  *
  * <p>Every {@code @Setup} also runs a correctness check against a scalar reference (throwing on

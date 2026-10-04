@@ -1,7 +1,7 @@
 # Rows of the current milestone's task table a newcomer can finish in a day, at most five:
 # <task number><TAB><why it is a good first task>. Read by dev/varka_issues.py, which puts
 # the "good first issue" label on their mirrored issues. Kept by hand, on purpose.
-81	planned already (PLAN_TASK_81.md): harvest Spark's date golden inputs through upstream's splitter and run them against Varka
+81	planned already (VARKA-81.md): harvest Spark's date golden inputs through upstream's splitter and run them against Varka
 247	one option to explain: find the shape that tells validityOrFirst's two values apart, or remove the option and its tests
 253	a contract in one class doc and one test: the seven-argument run refuses a kernel with scratch outside tests
 222	cache each IR node's hash, with the bytes oracle proving nothing changed

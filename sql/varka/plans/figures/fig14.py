@@ -21,7 +21,7 @@ times on the whole-table read.
 
 Every value is read from the committed results file when the script runs
 (sql/core/benchmarks/CachedTableWidthBenchmark-jdk25-results.txt), so the figure cannot drift
-from it (PLAN_TASK_210.md 9.2)."""
+from it (VARKA-210.md 9.2)."""
 
 import os
 import re

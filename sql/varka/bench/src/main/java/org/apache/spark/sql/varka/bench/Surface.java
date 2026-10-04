@@ -23,7 +23,7 @@ import java.util.List;
  * The date surface: one entry per date expression the Varka compiler covers, in the spelling a
  * reader would write, with the projection form and the filter form of each where both exist.
  * The list is data on purpose: a task that adds an expression adds one line here and the next
- * dispatch times it (PLAN_TASK_62.md 3.4). {@code expectFused} is what the shell driver checks
+ * dispatch times it (VARKA-62.md 3.4). {@code expectFused} is what the shell driver checks
  * on the fork: an entry marked fused that the plan shows residual fails the run rather than
  * being timed as if it were the kernel.
  *
