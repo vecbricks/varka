@@ -27,6 +27,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CompiledVarkaProjection,
   VarkaExpressionCompiler, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isDriverOrDispatch, isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
@@ -127,7 +128,7 @@ object VarkaDeoptCycleProbe {
     }
     // scalastyle:off println
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala
-      .filter(m => m.startsWith("loop") || m.startsWith("epilogue") || m.startsWith("run"))
+      .filter(m => isLoop(m) || isEpilogue(m) || isDriverOrDispatch(m))
       .map(m => s"$m:${VarkaEmitterTestSupport.codeSize(bytes, m)}").mkString(","))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
     loader.defineGeneratedClass(name, bytes)

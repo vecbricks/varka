@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -71,7 +72,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
     def loops(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
         options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Int =
-      methodNames(emitMulti(roots, inputs, lits, options)).count(_.startsWith("loopDense"))
+      methodNames(emitMulti(roots, inputs, lits, options)).count(isLoop(_, true))
     // Four fields over one date: one prefix, four tails, 52 ops in one method.
     assert(loops(fields, 1, 0) === 1)
     // With sharing off there is no prefix to reuse, clause 2 never fires, and each field
@@ -142,7 +143,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // The loop methods of one emitted class, as (name -> code size) - what a grouping change
     // moves and a class name does not.
     def layout(bytes: (String, Array[Byte])): Seq[(String, Int)] =
-      methodNames(bytes).filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked"))
+      methodNames(bytes).filter(n => isLoop(n))
         .sorted.map(m => m -> VarkaEmitterTestSupport.codeSize(bytes._2, m))
 
     for ((name, roots, inputs, lits) <- sharing) {
@@ -207,10 +208,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       }
       val (baseBudget, base) = emitted.head
       val loops = methodNames(base)
-        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted
+        .filter(n => isLoop(n)).sorted
       for ((budget, bytes) <- emitted.tail) {
         assert(methodNames(bytes)
-          .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted === loops,
+          .filter(n => isLoop(n)).sorted === loops,
           s"$name: budget $budget grouped differently from $baseBudget, and this shape's " +
             "grouping is not the budget's to decide")
         for (method <- loops) {
@@ -257,9 +258,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
       val plain = emitMulti(roots, inputs, lits, unshared)
       val withSharing = emitMulti(roots, inputs, lits, sharing)
       val loops = methodNames(plain)
-        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted
+        .filter(n => isLoop(n)).sorted
       assert(methodNames(withSharing)
-        .filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked")).sorted === loops,
+        .filter(n => isLoop(n)).sorted === loops,
         s"$name: sharing changed the loop-method layout of a shape with no prefix to share")
       for (method <- loops) {
         assert(VarkaEmitterTestSupport.codeSize(withSharing._2, method)
@@ -376,7 +377,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     def years(c: Int): VarkaVectorIR = new ConstDivide(new ColumnRef(c, LaneType.INT), 12)
     val four = (0 until 4).map(years)
     def loops(bytes: Array[Byte]): Seq[String] =
-      VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq.filter(_.startsWith("loopDense"))
+      VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq.filter(isLoop(_, true))
     assert(loops(emitMulti(four, 4, 0)._2) === (0 until 4).map(g => s"loopDense$g"))
     // extract(YEAR FROM ym) - 1 beside extract(YEAR FROM ym): only the checked subtraction is
     // new to the division's group, and 11 + 5 is the budget exactly.
@@ -544,7 +545,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // writes: 14 outputs now fit (7923) and 15 cross (8564).
     assert(size(14, "epilogueDense") < limit && size(15, "epilogueDense") > limit)
     val at16 = VarkaEmittedClass.measure(emitMulti(ladder(16), 1, 16, single)._2)
-    at16.codeLength.asScala.filter(_._1.startsWith("loop")).foreach { case (m, bytes) =>
+    at16.codeLength.asScala.filter(e => isLoop(e._1)).foreach { case (m, bytes) =>
       assert(bytes < limit, s"$m is $bytes bytes: a loop method over HugeMethodLimit")
     }
     val over = VarkaEmitBudget.overLimits(at16).asScala
@@ -581,19 +582,19 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
         emitMulti(ladder(n), 1, n, options)._2, method, "jdk.incubator.vector.IntVector")
 
     val (off60, on60) = (sizes(60, legacy), sizes(60, on))
-    for (m <- off60.keys if m.startsWith("loop")) {
+    for (m <- off60.keys if isLoop(m)) {
       assert(on60(m) < off60(m), s"$m: ${off60(m)} -> ${on60(m)} bytes, expected smaller")
       assert(ops(60, on, m) === ops(60, legacy, m), s"$m: the op count moved")
     }
     // The driver sets up every output either way; what it gains is one call per epilogue the
     // switch splits off (step 4), a few bytes each, never a setup term.
-    val groups = off60.keys.count(_.startsWith("loopMasked"))
-    for (m <- Seq("runDense", "runMasked")) {
+    val groups = off60.keys.count(isLoop(_, false))
+    for (m <- VarkaMethodNames.DRIVERS.asScala) {
       val grew = on60(m) - off60(m)
       assert(grew > 0 && grew <= 32 * (groups - 1),
         s"$m: ${off60(m)} -> ${on60(m)} bytes for ${groups - 1} more epilogue calls")
     }
-    val loopsAndDrivers = (m: Map[String, Int]) => m.filter(_._1.startsWith("loop"))
+    val loopsAndDrivers = (m: Map[String, Int]) => m.filter(e => isLoop(e._1))
     assert(loopsAndDrivers(sizes(4, on)) === loopsAndDrivers(sizes(4, legacy)),
       "one group: nothing to drop")
 
@@ -632,17 +633,19 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
         val (bytesOn, bytesOff) = (emitMulti(roots, 1, n, on)._2, emitMulti(roots, 1, n, off)._2)
         val ctx = s"lanes=$lanes outputs=$n"
         val names = VarkaEmitterTestSupport.methodNames(bytesOn).asScala.filter(_ != "<init>")
-        for (side <- Seq("Dense", "Masked")) {
-          val groups = names.count(_.startsWith("loop" + side))
-          val epilogues = names.filter(_.startsWith("epilogue" + side))
-            .sortBy(_.stripPrefix("epilogue" + side).toInt)
-          assert(epilogues === (0 until groups).map("epilogue" + side + _),
+        for (dense <- Seq(true, false)) {
+          val groups = names.count(isLoop(_, dense))
+          val epilogues = names.filter(isEpilogue(_, dense))
+            .sortBy(VarkaMethodNames.groupOf)
+          assert(epilogues === (0 until groups).map(VarkaMethodNames.epilogue(dense, _)),
             s"$ctx: one epilogue per group")
           for (g <- 0 until groups) {
-            assert(laneOps(bytesOn, s"epilogue$side$g") === laneOps(bytesOn, s"loop$side$g"),
-              s"$ctx: epilogue$side$g is one lane group of loop$side$g's outputs")
-            assert(laneOps(bytesOn, s"loop$side$g") === laneOps(bytesOff, s"loop$side$g"),
-              s"$ctx: the switch moved loop$side$g's op count")
+            val loop = VarkaMethodNames.loop(dense, g)
+            val epilogue = VarkaMethodNames.epilogue(dense, g)
+            assert(laneOps(bytesOn, epilogue) === laneOps(bytesOn, loop),
+              s"$ctx: $epilogue is one lane group of $loop's outputs")
+            assert(laneOps(bytesOn, loop) === laneOps(bytesOff, loop),
+              s"$ctx: the switch moved $loop's op count")
           }
         }
         for (m <- names) {
@@ -678,15 +681,15 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val split = recompute.withMethodByteBudget(1500)
     val bytes = emitMulti(roots, 1, 16, split)._2
     val names = VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
-    val loops = names.count(_.startsWith("loopMasked"))
-    assert(loops > 4 && names.count(_.startsWith("epilogueMasked")) === loops,
+    val loops = names.count(isLoop(_, false))
+    assert(loops > 4 && names.count(isEpilogue(_, false)) === loops,
       names.sorted.mkString(", "))
     for (m <- names) {
       val size = VarkaEmitterTestSupport.codeSize(bytes, m)
       assert(size <= 1500, s"$m is $size bytes over a budget of 1500 ($loops groups)")
     }
     assert(VarkaEmitterTestSupport.methodNames(emitMulti(roots, 1, 16, four)._2).asScala
-      .count(_.startsWith("loopMasked")) === 4, "at HugeMethodLimit weight's four groups stand")
+      .count(isLoop(_, false)) === 4, "at HugeMethodLimit weight's four groups stand")
     // Method by method with the class name normalised: each emission carries its own name,
     // and the drivers call their siblings through it.
     def bodies(b: Array[Byte]): Map[String, String] = VarkaEmitterTestSupport.methodBodies(b)
@@ -861,7 +864,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val roots = Seq.fill(4)(nestedMakeDates(3, 3))
     val built = emitMulti(roots, 1, 0, perCopy.withGroupBudget(4000).withFusedCeiling(4000)
       .withMethodByteBudget(VarkaEmitBudget.METHOD_CODE_CAP))
-    val loops = methodNames(built).filter(_.startsWith("loopMasked")).sorted
+    val loops = methodNames(built).filter(isLoop(_, false)).sorted
     assert(loops === Seq("loopMasked0", "loopMasked1"), loops)
     val sizes = loops.map(VarkaEmitterTestSupport.codeSize(built._2, _))
     info(s"the split loop methods: ${sizes.mkString(" and ")} bytes")
@@ -928,10 +931,11 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     def sites(bytes: Array[Byte], method: String): Int =
       VarkaEmitterTestSupport.invocationCount(bytes, method, "jdk.incubator.vector.IntVector")
     def consumersLighter(bytes: Array[Byte], consumers: Range): Unit = {
-      for (g <- consumers; side <- Seq("loopDense", "loopMasked")) {
-        assert(sites(bytes, side + g) <= sites(bytes, side + 0) - 25,
-          s"$side$g: ${sites(bytes, side + g)} IntVector call sites against the producer's " +
-            s"${sites(bytes, side + 0)}")
+      for (g <- consumers; dense <- Seq(true, false)) {
+        val (loop, producer) = (VarkaMethodNames.loop(dense, g), VarkaMethodNames.loop(dense, 0))
+        assert(sites(bytes, loop) <= sites(bytes, producer) - 25,
+          s"$loop: ${sites(bytes, loop)} IntVector call sites against the producer's " +
+            s"${sites(bytes, producer)}")
       }
     }
     def ladder(n: Int): Seq[VarkaVectorIR] = (0 until n).map { k =>
@@ -946,8 +950,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val (sixty, sixtyScratch) = emitted(ladder(60), 1, 60, on)
     assert(sixtyScratch === region)
     val loopsOn = VarkaEmitterTestSupport.methodNames(sixty).asScala
-      .count(_.startsWith("loopDense"))
-    val loopsOff = methodNames(emitMulti(ladder(60), 1, 60, off)).count(_.startsWith("loopDense"))
+      .count(isLoop(_, true))
+    val loopsOff = methodNames(emitMulti(ladder(60), 1, 60, off)).count(isLoop(_, true))
     assert(loopsOn <= loopsOff, s"$loopsOn groups with the option on, $loopsOff off")
     // year(d), year(d2), month(d) in three groups: d's prefix crosses from group 0 to group 2
     // and is materialized; d2's is group 1's alone and is not.
@@ -991,8 +995,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     def loops(drawn: VarkaIrGrammar.Drawn, options: VarkaEmitOptions): Option[Int] = {
       try {
         val names = methodNames(emitMulti(drawn.roots, drawn.numInputs, drawn.numLiterals, options))
-        Some(math.max(names.count(_.startsWith("loopDense")),
-          names.count(_.startsWith("loopMasked"))))
+        Some(math.max(names.count(isLoop(_, true)),
+          names.count(isLoop(_, false))))
       } catch {
         case _: VarkaEmitDeclined | _: IllegalArgumentException => None
       }
@@ -1021,7 +1025,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
 
   /** The dense loop methods' call sites, in group order: the counts the plan's tables pin. */
   private def loopSites(bytes: Array[Byte]): Seq[(String, Int)] =
-    groupSites(bytes).toSeq.filter(_._1.startsWith("loopDense")).sortBy(_._1)
+    groupSites(bytes).toSeq.filter(e => isLoop(e._1, true)).sortBy(_._1)
 
   /** Method bodies with the class name normalised, since each emission carries its own. */
   private def bodies(b: Array[Byte]): Map[String, String] = VarkaEmitterTestSupport.methodBodies(b)
@@ -1058,7 +1062,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     // Forty-eight tails: one group of 177 halves to 24 and 24; the first, with its stores, is
     // still over and halves again; the second loads the prefix and fits.
     val wide = groupSites(emitMulti(tails(48), 1, 48, measured)._2)
-    assert(wide.count(_._1.startsWith("loopDense")) === 3 && wide.values.forall(_ <= budget),
+    assert(wide.count(e => isLoop(e._1, true)) === 3 && wide.values.forall(_ <= budget),
       wide)
     // The budget reads the epilogues too, since an epilogue C1 refuses reaches C2 only by
     // invocation count. On these shapes each group's epilogue carries its loop's count, so
@@ -1066,8 +1070,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     for (b <- Seq(split, emitMulti(tails(22), 1, 22, off)._2,
         emitMulti(VarkaHugeMethodProbe.ladder(1), 1, 1, measured)._2)) {
       val g = groupSites(b)
-      for ((m, n) <- g if m.startsWith("loop")) {
-        val epilogue = "epilogue" + m.stripPrefix("loop")
+      for ((m, n) <- g if isLoop(m)) {
+        val epilogue =
+          VarkaMethodNames.epilogue(isLoop(m, true), VarkaMethodNames.groupOf(m))
         assert(g(epilogue) === n, s"$epilogue carries ${g(epilogue)} sites against $m's $n")
       }
     }
@@ -1170,9 +1175,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase {
     val budget = VarkaEmitBudget.CALL_SITE_BUDGET
     val whole = groupSites(emitMulti(roots, 1, 40,
       VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0))._2)
-    assert(whole.count(_._1.startsWith("loopDense")) === 1 && whole.values.max > budget, whole)
+    assert(whole.count(e => isLoop(e._1, true)) === 1 && whole.values.max > budget, whole)
     val split = groupSites(emitMulti(roots, 1, 40)._2)
-    assert(split.count(_._1.startsWith("loopDense")) > 1 && split.values.forall(_ <= budget),
+    assert(split.count(e => isLoop(e._1, true)) > 1 && split.values.forall(_ <= budget),
       split)
     val lits = (0 until 40).map(k => k * 1_000_003L - 17L).toArray
     val bound = ConstDivide.EXACT_DIVIDEND_BOUND - 1

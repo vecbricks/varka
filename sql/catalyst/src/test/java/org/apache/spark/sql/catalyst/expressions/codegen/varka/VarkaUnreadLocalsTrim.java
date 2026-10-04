@@ -63,7 +63,7 @@ final class VarkaUnreadLocalsTrim {
 
   /** Whether a method is one the census reads: a group's loop or epilogue. */
   static boolean counted(String method) {
-    return method.startsWith("loop") || method.startsWith("epilogue");
+    return VarkaMethodNames.isLoop(method) || VarkaMethodNames.isEpilogue(method);
   }
 
   /** One dead store: the method kind, what the local held, and the expression's span. */
@@ -84,7 +84,7 @@ final class VarkaUnreadLocalsTrim {
   }
 
   private static String body(String method) {
-    for (String p : new String[] {"loopDense", "loopMasked", "epilogueDense", "epilogueMasked"}) {
+    for (String p : VarkaMethodNames.GROUP_METHOD_KINDS) {
       if (method.startsWith(p)) {
         return p;
       }

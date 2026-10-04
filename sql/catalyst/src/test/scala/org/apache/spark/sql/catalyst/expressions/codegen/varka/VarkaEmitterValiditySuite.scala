@@ -21,6 +21,7 @@ import java.lang.foreign.{Arena, ValueLayout}
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -333,7 +334,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
         Seq[VarkaVectorIR](new DayOfMonth(sum), new LastDay(c0), new Month(new DayOfMonth(sum))),
         3, defaults))
     def loops(bytes: Array[Byte]): Int =
-      VarkaEmitterTestSupport.methodNames(bytes).asScala.count(_.startsWith("loopDense"))
+      VarkaEmitterTestSupport.methodNames(bytes).asScala.count(isLoop(_, true))
     for ((name, roots, inputs, base) <- shapes; bitmap <- Seq(true, false); lanes <- Seq(4, 16)) {
       val options = base.withValidityByBitmap(bitmap).withLanesOverride(lanes)
       val ctx = s"$name, bitmap pass $bitmap, $lanes lanes"
@@ -668,7 +669,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     }
     def loopMethods(k: Int): Int =
       methodNames(emitMulti(rung(k), 1, 4, VarkaEmitOptions.DEFAULTS))
-        .count(_.startsWith("loopMasked"))
+        .count(isLoop(_, false))
     assert((1 to 4).map(loopMethods) === Seq(1, 1, 1, 1),
       "a rung emitting two loop methods would pay every per-method cost twice")
     val bytes = (1 to 4).map(k =>
@@ -692,7 +693,7 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase {
     val perGroup = VarkaEmitOptions.DEFAULTS.withValidityByBitmap(false)
     val general = perGroup.withValidityByWidth(false)
     def layout(bytes: (String, Array[Byte])): Seq[(String, Int)] =
-      methodNames(bytes).filter(n => n.startsWith("loopDense") || n.startsWith("loopMasked"))
+      methodNames(bytes).filter(n => isLoop(n))
         .sorted.map(m => m -> VarkaEmitterTestSupport.codeSize(bytes._2, m))
 
     // Every shape the parity file pairs for this A/B, with the options each arm is built from.

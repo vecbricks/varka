@@ -22,6 +22,7 @@ import java.nio.file.{Files, Path}
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -139,7 +140,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase {
   /** The loop methods of an emitted class: its groups. */
   private def loops(bytes: Array[Byte]): Int = {
     val names = VarkaEmittedClass.measure(bytes).codeLength.keySet.asScala
-    math.max(names.count(_.startsWith("loopDense")), names.count(_.startsWith("loopMasked")))
+    math.max(names.count(isLoop(_, true)), names.count(isLoop(_, false)))
   }
 
   test("under predictGrouping the fuzz shapes emit byte for byte as under the weights") {

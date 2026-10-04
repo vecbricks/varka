@@ -21,6 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar.{drawShape,
   fuzzSeed, shapeRandom}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -59,7 +60,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
       }.toMap
 
   private def bodies(methods: Map[String, Method]): Seq[String] =
-    methods.keys.toSeq.filter(m => m.startsWith("loop") || m.startsWith("epilogue")).sorted
+    methods.keys.toSeq.filter(m => isLoop(m) || isEpilogue(m)).sorted
 
   private def severalGroups(methods: Map[String, Method]): Boolean =
     methods.contains("loopDense1") || methods.contains("loopMasked1")
@@ -114,7 +115,7 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     val widestAfter = methods.map(groupLocal(_).maxLocals).max
     assert(widestBefore > 5000, s"kernel-wide frames: $widestBefore locals at the widest")
     assert(widestAfter < 400, s"group-local frames: $widestAfter locals at the widest")
-    Seq("runDense", "runMasked").foreach { driver =>
+    VarkaMethodNames.DRIVERS.asScala.foreach { driver =>
       assert(groupLocal(driver).maxLocals === kernelWide(driver).maxLocals, driver)
     }
     sameOperations(kernelWide, groupLocal, "400 outputs")

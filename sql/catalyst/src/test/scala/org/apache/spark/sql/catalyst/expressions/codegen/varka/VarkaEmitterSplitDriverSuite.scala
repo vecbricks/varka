@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isDriverOrDispatch, isLoop, isStage}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -58,8 +59,8 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
     (bytes, builds(0), VarkaEmittedClass.measure(bytes))
   }
 
-  private def named(m: VarkaEmittedClass, prefix: String): Int =
-    m.codeLength.keySet.asScala.count(_.startsWith(prefix))
+  private def named(m: VarkaEmittedClass, kind: String => Boolean): Int =
+    m.codeLength.keySet.asScala.count(kind)
 
   test("three hundred groups decline on the driver, and under the option emit in one rebuild " +
       "with every method under the budget") {
@@ -69,10 +70,10 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
     val (_, builds, m) = emitted(roots, 300, oneEach(split))
     assert(builds === 2, "the stage size is read off the driver, so one rebuild settles it")
     assert(VarkaEmitBudget.overLimits(m).isEmpty, VarkaEmitBudget.overLimits(m))
-    assert(named(m, "loopDense") === 300)
-    val stages = named(m, "stageDense")
-    assert(stages === named(m, "stageMasked") && stages >= 2 && stages <= 3, s"$stages stages")
-    for (driver <- Seq("runDense", "runMasked")) {
+    assert(named(m, isLoop(_, true)) === 300)
+    val stages = named(m, isStage(_, true))
+    assert(stages === named(m, isStage(_, false)) && stages >= 2 && stages <= 3, s"$stages stages")
+    for (driver <- VarkaMethodNames.DRIVERS.asScala) {
       assert(m.codeLength.get(driver) < 200, s"$driver is ${m.codeLength.get(driver)} bytes")
     }
   }
@@ -85,7 +86,7 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
       val splitOptions = if (lits == 180) oneEach(split) else split
       val (before, _, _) = emitted(roots, lits, options)
       val (after, builds, m) = emitted(roots, lits, splitOptions)
-      assert(named(m, "stage") === 0, name)
+      assert(named(m, isStage) === 0, name)
       assert(builds === 1, name)
       assert(java.util.Arrays.equals(before, after), name)
     }
@@ -98,11 +99,11 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
     val tight = oneEach(split).withMethodByteBudget(1000)
     val (_, _, m) = emitted(roots, 300, tight)
     m.codeLength.asScala.foreach { case (method, bytes) =>
-      if (method.startsWith("stage") || method.startsWith("run")) {
+      if (isStage(method) || isDriverOrDispatch(method)) {
         assert(bytes <= 1000, s"$method is $bytes bytes")
       }
     }
-    assert(named(m, "stageDense") > 10)
+    assert(named(m, isStage(_, true)) > 10)
   }
 
   test("a driver past the class-file cap is split into stages under the byte budget in one " +
@@ -114,7 +115,7 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
     val (_, builds, m) = emitted(roots, 1500, oneEach(split))
     assert(builds === 2, s"$builds builds")
     assert(VarkaEmitBudget.overLimits(m).isEmpty, VarkaEmitBudget.overLimits(m))
-    assert(named(m, "stageDense") > 1)
+    assert(named(m, isStage(_, true)) > 1)
   }
 
   test("a split driver answers as the reference evaluator does, on both bodies") {
@@ -130,7 +131,7 @@ class VarkaEmitterSplitDriverSuite extends VarkaEmitterTestBase {
       "driver, the prefix each group shares computed as before") {
     val roots = (0 until 800).map(ladderEntry)
     val (_, _, m) = emitted(roots, 800, split)
-    assert(named(m, "stageDense") >= 2, "two hundred groups are past the driver's ceiling")
+    assert(named(m, isStage(_, true)) >= 2, "two hundred groups are past the driver's ceiling")
     for (masked <- Seq(false, true)) {
       checkMatrix(roots, 1, (0 until 800).map(k => k % 40 - 20).toArray,
         if (masked) Seq(17, 129) else Seq(1, 129), combos(1), forceMasked = masked,

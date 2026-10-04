@@ -390,7 +390,7 @@ final class VarkaBodyEmitter {
           // union of every group's, since each stage returns its own groups' union.
           cb.loadConstant(0);
           for (int k = 0; k * analysis.stageGroups < groups.size(); k++) {
-            invokeCall(cb, classDesc, (dense ? "stageDense" : "stageMasked") + k, analysis);
+            invokeCall(cb, classDesc, VarkaMethodNames.stage(dense, k), analysis);
             cb.ior();
           }
           cb.ireturn();
@@ -400,7 +400,7 @@ final class VarkaBodyEmitter {
         cb.istore(s.status);
         for (int g = 0; g < groups.size(); g++) {
           cb.iload(s.status);
-          invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g, analysis);
+          invokeCall(cb, classDesc, VarkaMethodNames.loop(dense, g), analysis);
           cb.ior();
           cb.istore(s.status);
         }
@@ -409,13 +409,12 @@ final class VarkaBodyEmitter {
         // rather than the driver testing once for all of them: the calls that return at once
         // are what warm the method up on a scan whose batches mostly divide evenly
         // (VARKA-87.md 2.6.3).
-        String epilogue = dense ? "epilogueDense" : "epilogueMasked";
         if (analysis.options.methodByteBudget() > 0) {
           // The last call's status is returned as it is rather than stored and reloaded: the
           // driver is the one method no regroup can shrink, so its bytes are worth keeping.
           for (int g = 0; g < groups.size(); g++) {
             cb.iload(s.status);
-            invokeCall(cb, classDesc, epilogue + g, analysis);
+            invokeCall(cb, classDesc, VarkaMethodNames.epilogue(dense, g), analysis);
             cb.ior();
             if (g < groups.size() - 1) {
               cb.istore(s.status);
@@ -423,7 +422,7 @@ final class VarkaBodyEmitter {
           }
         } else {
           cb.iload(s.status);
-          invokeCall(cb, classDesc, epilogue, analysis);
+          invokeCall(cb, classDesc, VarkaMethodNames.epilogue(dense), analysis);
           cb.ior();
         }
         cb.ireturn();
@@ -459,11 +458,11 @@ final class VarkaBodyEmitter {
     int to = Math.min(groups.size(), from + analysis.stageGroups);
     cb.loadConstant(0);
     for (int g = from; g < to; g++) {
-      invokeCall(cb, classDesc, (dense ? "loopDense" : "loopMasked") + g, analysis);
+      invokeCall(cb, classDesc, VarkaMethodNames.loop(dense, g), analysis);
       cb.ior();
     }
     for (int g = from; g < to; g++) {
-      invokeCall(cb, classDesc, (dense ? "epilogueDense" : "epilogueMasked") + g, analysis);
+      invokeCall(cb, classDesc, VarkaMethodNames.epilogue(dense, g), analysis);
       cb.ior();
     }
     cb.ireturn();

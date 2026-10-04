@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.DateTimeExpressionUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{TruncLevelLeaf, VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR, WeekdayLeaf}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.util.ArrowUtils
@@ -1441,7 +1442,7 @@ object VarkaEmitterParityBenchmark extends BenchmarkBase {
         for (outputs <- Seq(6, 8, 12); (label, options) <- settings) {
           val kernel = emit(outputsOf(outputs), 1, outputs - 4, loader, id, options)
           id += 1
-          val methods = kernel.getClass.getDeclaredMethods.count(_.getName.startsWith("loopDense"))
+          val methods = kernel.getClass.getDeclaredMethods.count(e => isLoop(e.getName, true))
           benchmark.addCase(
             s"$outputs outputs over one date, $label ($methods loop methods), null-free") { _ =>
             chunkedWide(kernel, outputs)

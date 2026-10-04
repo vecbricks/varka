@@ -143,21 +143,11 @@ final class VarkaEmitBudget {
     return findings;
   }
 
-  /**
-   * The group a loop or epilogue method belongs to, read off its name ({@code loopMasked3},
-   * {@code epilogueDense12}), or -1 for a method that is not a group's: the drivers, the
-   * dispatcher, the constructor, and the legacy form's single epilogue.
-   */
+  /** The group a loop or epilogue method belongs to; see {@link VarkaMethodNames#groupOf}. */
   static int groupOf(String method) {
-    if (!method.startsWith("loop") && !method.startsWith("epilogue")) {
-      return -1;
-    }
-    int i = method.length();
-    while (i > 0 && Character.isDigit(method.charAt(i - 1))) {
-      i--;
-    }
-    return i == method.length() ? -1 : Integer.parseInt(method.substring(i));
+    return VarkaMethodNames.groupOf(method);
   }
+
 
   /**
    * The groups with a method over {@code methodLimit}, each with its largest such method:

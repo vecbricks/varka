@@ -21,6 +21,7 @@ import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.varka.vector.DateVectorOps
 
@@ -314,7 +315,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
     // Per loop or epilogue method: the slots a `DUP; ASTORE` pair parks a value in, split into
     // those the method reads back and those it never does.
     val heavy = emitMulti(Seq(chain(12, 0), chain(12, 1)), 1, 2)
-    assert(methodNames(heavy).count(_.startsWith("loopDense")) >= 2,
+    assert(methodNames(heavy).count(isLoop(_, true)) >= 2,
       "the two chains share a group, so the case is not exercised")
     val unread = VarkaUnreadLocals.unreadSharedSlots(heavy._2).asScala
     assert(unread.isEmpty, s"a value parked and never read: ${unread.mkString(", ")}")
@@ -581,7 +582,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
     // it to. A FAIL node nulls nothing, so it keeps both.
     val tryAdd = methodNames(emitMulti(Seq[VarkaVectorIR](
       new IntArith(IntOp.ADD, Overflow.NULL, a, b)), 2, 0))
-    assert(!tryAdd.exists(_.startsWith("loopDense")), tryAdd.mkString(", "))
+    assert(!tryAdd.exists(isLoop(_, true)), tryAdd.mkString(", "))
     assert(!tryAdd.contains("epilogueDense0"), tryAdd.mkString(", "))
     assert(tryAdd.contains("loopMasked0") && tryAdd.contains("epilogueMasked0"))
     val failAdd = methodNames(emitMulti(Seq[VarkaVectorIR](

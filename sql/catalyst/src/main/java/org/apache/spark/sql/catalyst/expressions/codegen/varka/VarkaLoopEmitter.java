@@ -604,9 +604,9 @@ public final class VarkaLoopEmitter {
       }
       over++;
       String name = e.getKey();
-      if (name.equals("runDense") || name.equals("runMasked")) {
+      if (VarkaMethodNames.isDriver(name)) {
         widestDriver = Math.max(widestDriver, e.getValue());
-      } else if (name.startsWith("stage")) {
+      } else if (VarkaMethodNames.isStage(name)) {
         widestStage = Math.max(widestStage, e.getValue());
       } else {
         return 0;
@@ -672,12 +672,12 @@ public final class VarkaLoopEmitter {
       byte[] bytes = ClassFile.of().build(classDesc, (ClassBuilder b) -> {
         b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL);
         if (!analysis.nullsFromValidInputs) {
-          b.withMethodBody("runDense", desc, AccessFlag.PRIVATE.mask(),
+          b.withMethodBody(VarkaMethodNames.driver(true), desc, AccessFlag.PRIVATE.mask(),
               (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, true, BodyMode.DRIVER, -1,
                   classDesc, outputs, analysis, numLiterals, groups));
         }
         if (anyColumns || analysis.nullsFromValidInputs) {
-          b.withMethodBody("runMasked", desc, AccessFlag.PRIVATE.mask(),
+          b.withMethodBody(VarkaMethodNames.driver(false), desc, AccessFlag.PRIVATE.mask(),
               (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, false, BodyMode.DRIVER, -1,
                   classDesc, outputs, analysis, numLiterals, groups));
         }
@@ -695,7 +695,7 @@ public final class VarkaLoopEmitter {
   /** The bytes of the wider of a class's two drivers, 0 where it has neither. */
   private static int widestDriver(VarkaEmittedClass measured) {
     int widest = 0;
-    for (String driver : List.of("runDense", "runMasked")) {
+    for (String driver : VarkaMethodNames.DRIVERS) {
       Integer bytes = measured.codeLength().get(driver);
       if (bytes != null) {
         widest = Math.max(widest, bytes);
@@ -712,7 +712,7 @@ public final class VarkaLoopEmitter {
   private static int plannedCutOf(VarkaEmittedClass measured, int limit, int budget,
       List<List<Integer>> groups) {
     for (Map.Entry<String, Integer> e : measured.codeLength().entrySet()) {
-      if (e.getValue() > limit && !e.getKey().startsWith("run")) {
+      if (e.getValue() > limit && !VarkaMethodNames.isDriverOrDispatch(e.getKey())) {
         return -1;
       }
     }
@@ -785,7 +785,7 @@ public final class VarkaLoopEmitter {
             cb.invokespecial(ConstantDescs.CD_Object, "<init>", INIT);
             cb.return_();
           })
-          .withMethodBody("run", analysis.bodyDesc(), AccessFlag.PUBLIC.mask(),
+          .withMethodBody(VarkaMethodNames.DISPATCH, analysis.bodyDesc(), AccessFlag.PUBLIC.mask(),
               (CodeBuilder cb) -> emitDispatch(cb, classDesc, analysis));
       if (analysis.hasScratch()) {
         // The form without the address, which every caller that drives a kernel as a function
@@ -793,7 +793,7 @@ public final class VarkaLoopEmitter {
         // (VarkaScratch) and runs the form with the address. The callers that pass their own
         // scratch never come through here. The size is the interface's question about how much
         // a caller passes per row.
-        b.withMethodBody("run", analysis.lane.runDesc, AccessFlag.PUBLIC.mask(),
+        b.withMethodBody(VarkaMethodNames.DISPATCH, analysis.lane.runDesc, AccessFlag.PUBLIC.mask(),
             (CodeBuilder cb) -> {
               Lane lane = analysis.lane;
               cb.aload(0);
@@ -812,7 +812,7 @@ public final class VarkaLoopEmitter {
               cb.invokestatic(ClassDesc.of(VarkaScratch.class.getName()), "forRows",
                   MethodTypeDesc.of(ConstantDescs.CD_long, ConstantDescs.CD_int,
                       ConstantDescs.CD_int));
-              cb.invokevirtual(classDesc, "run", lane.runDescScratch);
+              cb.invokevirtual(classDesc, VarkaMethodNames.DISPATCH, lane.runDescScratch);
               cb.ireturn();
             });
         b.withMethodBody("scratchBytesPerRow", MethodTypeDesc.of(ConstantDescs.CD_int),
@@ -874,29 +874,28 @@ public final class VarkaLoopEmitter {
   private static void emitBodies(ClassBuilder b, boolean dense, ClassDesc classDesc,
       List<VarkaVectorIR> outputs, Analysis analysis, int numLiterals,
       List<List<Integer>> groups, boolean epiloguePerGroup) {
-    String side = dense ? "Dense" : "Masked";
     MethodTypeDesc desc = analysis.bodyDesc();
-    b.withMethodBody("run" + side, desc, AccessFlag.PRIVATE.mask(),
+    b.withMethodBody(VarkaMethodNames.driver(dense), desc, AccessFlag.PRIVATE.mask(),
         (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.DRIVER, -1,
             classDesc, outputs, analysis, numLiterals, groups));
     for (int k = 0; analysis.stageGroups > 0 && k * analysis.stageGroups < groups.size(); k++) {
       final int stage = k;
-      b.withMethodBody("stage" + side + k, desc, AccessFlag.PRIVATE.mask(),
+      b.withMethodBody(VarkaMethodNames.stage(dense, k), desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitStage(cb, dense, stage, classDesc, analysis,
               groups));
     }
     if (!epiloguePerGroup) {
-      b.withMethodBody("epilogue" + side, desc, AccessFlag.PRIVATE.mask(),
+      b.withMethodBody(VarkaMethodNames.epilogue(dense), desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, -1,
               classDesc, outputs, analysis, numLiterals, groups));
     }
     for (int g = 0; g < groups.size(); g++) {
       final int group = g;
-      b.withMethodBody("loop" + side + g, desc, AccessFlag.PRIVATE.mask(),
+      b.withMethodBody(VarkaMethodNames.loop(dense, g), desc, AccessFlag.PRIVATE.mask(),
           (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.LOOP, group,
               classDesc, outputs, analysis, numLiterals, groups));
       if (epiloguePerGroup) {
-        b.withMethodBody("epilogue" + side + g, desc, AccessFlag.PRIVATE.mask(),
+        b.withMethodBody(VarkaMethodNames.epilogue(dense, g), desc, AccessFlag.PRIVATE.mask(),
             (CodeBuilder cb) -> VarkaBodyEmitter.emitBody(cb, dense, BodyMode.EPILOGUE, group,
                 classDesc, outputs, analysis, numLiterals, groups));
       }
@@ -1594,7 +1593,7 @@ public final class VarkaLoopEmitter {
     }
     if (analysis.nullsFromValidInputs) {
       // No dense path for this kernel (see emit): every batch is served by the masked methods.
-      invokeBody(cb, classDesc, "runMasked", analysis);
+      invokeBody(cb, classDesc, VarkaMethodNames.driver(false), analysis);
       return;
     }
     Label masked = cb.newLabel();
@@ -1607,10 +1606,10 @@ public final class VarkaLoopEmitter {
         cb.ifne(masked);
       }
     }
-    invokeBody(cb, classDesc, "runDense", analysis);
+    invokeBody(cb, classDesc, VarkaMethodNames.driver(true), analysis);
     if (anyColumns) {
       cb.labelBinding(masked);
-      invokeBody(cb, classDesc, "runMasked", analysis);
+      invokeBody(cb, classDesc, VarkaMethodNames.driver(false), analysis);
     }
     // With no referenced columns the masked label is never targeted and must not be bound:
     // unreachable code has no stack frame to compute.

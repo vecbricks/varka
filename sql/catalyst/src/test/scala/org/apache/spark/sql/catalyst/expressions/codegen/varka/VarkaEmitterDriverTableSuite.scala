@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isDriver, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.varka.vector.VarkaVectorSupport
 
@@ -56,7 +57,7 @@ class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
     VarkaEmittedClass.measure(emitMulti(roots, inputs, lits, options)._2)
 
   private def groups(m: VarkaEmittedClass): Int =
-    m.codeLength.keySet.asScala.count(_.startsWith("loopDense"))
+    m.codeLength.keySet.asScala.count(isLoop(_, true))
 
   test("the driver grows with the groups and not with the outputs or the columns") {
     // One `date_add(d, k)` family at four widths, over one column and over the sixty-four
@@ -70,7 +71,7 @@ class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
       val before = measured(roots, n, wide.withDriverOutputTable(false), inputs)
       val tabled = measured(roots, n, wide.withDriverOutputTable(true), inputs)
       assert(groups(tabled) === groups(before))
-      for (driver <- Seq("runDense", "runMasked")) {
+      for (driver <- VarkaMethodNames.DRIVERS.asScala) {
         val bytes = tabled.codeLength.get(driver).toInt
         assert(bytes <= 100 + 44 * groups(tabled), s"$n outputs over $inputs columns: $driver " +
           s"is $bytes bytes over ${groups(tabled)} groups")
@@ -113,7 +114,7 @@ class VarkaEmitterDriverTableSuite extends VarkaEmitterTestBase {
     def bodies(b: Array[Byte]): Map[String, String] =
       VarkaEmitterTestSupport.methodBodies(b).asScala.toMap
         .map { case (m, body) => m -> body.replaceAll("VarkaFusedTest\\d+", "K") }
-        .filterNot { case (m, _) => m.startsWith("runDense(") || m.startsWith("runMasked(") }
+        .filterNot { case (m, _) => isDriver(m.takeWhile(_ != '(')) }
     def emitted(roots: Seq[VarkaVectorIR], inputs: Int, lits: Int,
         options: VarkaEmitOptions): Option[Array[Byte]] =
       try Some(emitMulti(roots, inputs, lits, options)._2) catch {

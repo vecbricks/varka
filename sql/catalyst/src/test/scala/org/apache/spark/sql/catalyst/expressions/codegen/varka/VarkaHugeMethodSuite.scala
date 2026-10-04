@@ -26,6 +26,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHugeMethodProbe._
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 
 /**
  * The property VARKA-87 exists for, asserted from the JVM rather than inferred from a byte count:
@@ -114,7 +115,7 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
     val bytes = VarkaLoopEmitter.emit(CLASS_NAME, ladder(outputs).asJava, 1, outputs,
       null, null, VarkaEmitOptions.DEFAULTS.withMethodByteBudget(methodByteBudget))
     val names = VarkaEmitterTestSupport.methodNames(bytes).asScala.toSeq
-      .filter(m => m.startsWith("loop") || m.startsWith("epilogue"))
+      .filter(m => isLoop(m) || isEpilogue(m))
     Compiled(tiers.toMap, names)
   }
 
@@ -125,7 +126,7 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("under the byte budget every loop and epilogue method of a sixteen-output ladder " +
       "reaches tier 4") {
     val c = runProbe(8000)
-    val epilogues = c.names.filter(_.startsWith("epilogue"))
+    val epilogues = c.names.filter(isEpilogue(_))
     assert(epilogues.size > 2 && epilogues.forall(_.last.isDigit),
       "the epilogue is one method per group under the switch: " + epilogues.mkString(", "))
     val short = c.names.filterNot(m => c.tier.get(m).contains(4))
@@ -134,13 +135,13 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("without it the single epilogue of the same ladder is never compiled at any tier") {
     val c = runProbe(0)
-    assert(c.names.filter(_.startsWith("epilogue")) === Seq("epilogueDense", "epilogueMasked"),
+    assert(c.names.filter(isEpilogue(_)) === Seq("epilogueDense", "epilogueMasked"),
       c.names.mkString(", "))
     for (m <- Seq("epilogueDense", "epilogueMasked")) {
       assert(!c.tier.contains(m), s"$m was compiled, so this ladder no longer crosses " +
         "HugeMethodLimit and the suite needs a taller one:\n" + render(c))
     }
-    val loops = c.names.filter(_.startsWith("loop"))
+    val loops = c.names.filter(isLoop(_))
     assert(loops.forall(m => c.tier.get(m).contains(4)), "a loop method short of tier 4:\n" +
       render(c))
   }

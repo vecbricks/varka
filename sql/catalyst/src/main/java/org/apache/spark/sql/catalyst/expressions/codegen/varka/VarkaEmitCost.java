@@ -82,8 +82,7 @@ final class VarkaEmitCost {
    * masked loop, the dense epilogue and the masked epilogue, in that order. The order is the
    * table's column order.
    */
-  static final List<String> METHODS =
-      List.of("loopDense", "loopMasked", "epilogueDense", "epilogueMasked");
+  static final List<String> METHODS = VarkaMethodNames.GROUP_METHOD_KINDS;
 
   /** How many quantities a feature is priced in: bytes and call sites for each method. */
   static final int QUANTITIES = 2 * 4;

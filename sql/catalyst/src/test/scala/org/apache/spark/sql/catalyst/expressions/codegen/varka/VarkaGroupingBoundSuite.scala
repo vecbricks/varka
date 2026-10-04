@@ -22,6 +22,7 @@ import scala.util.Random
 
 import org.apache.spark.sql.catalyst.expressions.Alias
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 
 /**
  * How far the greedy output grouping is from the best partition of the outputs in their order
@@ -83,8 +84,8 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
         "org.apache.spark.sql.varka.execution.VarkaGroupingBoundTest", shape.roots,
         shape.numInputs, shape.numLiterals, emitOptions, builds)
       val names = VarkaEmittedClass.measure(bytes).codeLength.keySet.asScala
-      Some((math.max(names.count(_.startsWith("loopDense")),
-        names.count(_.startsWith("loopMasked"))), builds(1)))
+      Some((math.max(names.count(isLoop(_, true)),
+        names.count(isLoop(_, false))), builds(1)))
     } catch {
       case _: VarkaEmitDeclined => None
     }

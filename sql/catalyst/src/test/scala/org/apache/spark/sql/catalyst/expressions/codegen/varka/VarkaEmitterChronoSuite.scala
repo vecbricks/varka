@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
 import java.time.LocalDate
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 
@@ -1570,7 +1571,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     val col = new ColumnRef(0)
     val roots = Seq[VarkaVectorIR](
       new Year(col), new Month(col), new DayOfMonth(col), new Quarter(col))
-    assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(_.startsWith("loopDense")) === 1,
+    assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(isLoop(_, true)) === 1,
       "the defaults did not put the four outputs in one loop method")
     checkMatrix(roots, 1, Array.empty[Int], remainderLengths ++ Seq(64, 1000),
       nullPatterns.map(p => Seq(p._2)), data = calendarDays, ctx = "one loop method",
@@ -1588,7 +1589,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     assert(singleEpilogueSize(roots, 2, sharing) === singleEpilogueSize(roots, 2, unshared),
       "the epilogue moved for two outputs that have nothing to share")
     // And clause 2 does not put them in one loop method: the second reuses no prefix.
-    assert(methodNames(emitMulti(roots, 2, 0, sharing)).count(_.startsWith("loopDense")) === 2,
+    assert(methodNames(emitMulti(roots, 2, 0, sharing)).count(isLoop(_, true)) === 2,
       "two dates with nothing to share landed in one loop method")
     checkMatrix(roots, 2, Array.empty[Int], remainderLengths,
       // The second date is the first walked from a different index rather than shifted by a
@@ -1689,7 +1690,7 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       // one shared prefix is read by the month tail and must keep the step - whichever of the
       // two siblings happens to emit it. This is the whole reason the decision is read from
       // the group's consumer set rather than from the node being emitted.
-      assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(_.startsWith("loopMasked"))
+      assert(methodNames(emitMulti(roots, 1, 0, sharing)).count(isLoop(_, false))
         === 1, s"the pair no longer shares a loop method ($ctx)")
       for (body <- Seq("loopMasked0", "epilogueMasked0")) {
         assert(laneOps(elided, body) === laneOps(kept, body),

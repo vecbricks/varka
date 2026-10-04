@@ -19,6 +19,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
+
 /**
  * The exact grouping (`VarkaEmitOptions.exactGrouping`) as the emitter builds it: the loop
  * methods it saves where the greedy walk strands cheap outputs, the classes it leaves alone where
@@ -38,7 +40,7 @@ class VarkaExactGroupingSuite extends VarkaEmitterTestBase {
   /** The loop methods of an emitted class: its groups. */
   private def loops(bytes: Array[Byte]): Int = {
     val names = VarkaEmittedClass.measure(bytes).codeLength.keySet.asScala
-    math.max(names.count(_.startsWith("loopDense")), names.count(_.startsWith("loopMasked")))
+    math.max(names.count(isLoop(_, true)), names.count(isLoop(_, false)))
   }
 
   /** A literal for each entry of the mixed family: a day `make_date` accepts in any month. */

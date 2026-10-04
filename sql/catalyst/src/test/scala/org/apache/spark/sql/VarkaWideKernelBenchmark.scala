@@ -24,6 +24,7 @@ import scala.concurrent.duration._
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitDeclined, VarkaEmitOptions, VarkaFusedKernel, VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -197,7 +198,7 @@ object VarkaWideKernelBenchmark extends BenchmarkBase {
 
   /** The loop methods of an emitted kernel: its groups. */
   private def loops(kernel: VarkaFusedKernel): Int =
-    kernel.getClass.getDeclaredMethods.count(_.getName.startsWith("loopDense"))
+    kernel.getClass.getDeclaredMethods.count(e => isLoop(e.getName, true))
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     val arena = Arena.ofConfined()

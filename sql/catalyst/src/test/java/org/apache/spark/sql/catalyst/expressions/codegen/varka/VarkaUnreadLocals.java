@@ -63,7 +63,7 @@ final class VarkaUnreadLocals {
     ClassModel cm = ClassFile.of().parse(bytes);
     for (MethodModel mm : cm.methods()) {
       String name = mm.methodName().stringValue();
-      if (!(name.startsWith("loop") || name.startsWith("epilogue")) || mm.code().isEmpty()) {
+      if (!VarkaMethodNames.isGroupMethod(name) || mm.code().isEmpty()) {
         continue;
       }
       List<CodeElement> elements = mm.code().get().elementList();

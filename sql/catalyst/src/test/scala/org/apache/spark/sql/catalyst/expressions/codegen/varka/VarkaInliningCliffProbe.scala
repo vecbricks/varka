@@ -27,6 +27,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection,
   VarkaExpressionCompiler, VarkaGeneratedClassLoader}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
@@ -175,7 +176,7 @@ object VarkaInliningCliffProbe {
         .withHeavyGroupOutputs(heavy).withPredictGrouping(false).withPlanSize(false))
     val measured = VarkaEmittedClass.measure(bytes)
     println(METHODS_PREFIX + VarkaEmitterTestSupport.methodNames(bytes).asScala
-      .filter(_.startsWith("loop"))
+      .filter(isLoop(_))
       .map(m => s"$m:${measured.codeLength.get(m)}:${measured.vectorCallSites.get(m)}")
       .mkString(","))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)

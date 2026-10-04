@@ -21,6 +21,7 @@ import java.lang.foreign.{Arena, ValueLayout}
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -228,9 +229,9 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase {
       def intVectorCalls(method: String): Int =
         VarkaEmitterTestSupport.invocationCount(bytes, method, "jdk.incubator.vector.IntVector")
       val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala
-      assert(methods.filter(_.startsWith("loopDense")).map(intVectorCalls).sum === 3,
+      assert(methods.filter(isLoop(_, true)).map(intVectorCalls).sum === 3,
         s"at $lanes lanes, half=$half: three narrowed stores")
-      assert(methods.filter(_.startsWith("epilogueMasked")).map(intVectorCalls).sum === 3,
+      assert(methods.filter(isEpilogue(_, false)).map(intVectorCalls).sum === 3,
         s"at $lanes lanes, half=$half: three in the epilogues")
       val (kernel, loader) = load((name, bytes))
       try {

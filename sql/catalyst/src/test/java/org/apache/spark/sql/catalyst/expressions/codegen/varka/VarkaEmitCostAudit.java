@@ -185,8 +185,9 @@ final class VarkaEmitCostAudit {
           "org.apache.spark.sql.varka.execution.VarkaEmitCostAudit", shape.roots(),
           shape.numInputs(), shape.numLiterals(), options, trace);
       var names = VarkaEmittedClass.measure(bytes).codeLength().keySet();
-      int loops = (int) Math.max(names.stream().filter(n -> n.startsWith("loopDense")).count(),
-          names.stream().filter(n -> n.startsWith("loopMasked")).count());
+      int loops = (int) Math.max(
+          names.stream().filter(n -> VarkaMethodNames.isLoop(n, true)).count(),
+          names.stream().filter(n -> VarkaMethodNames.isLoop(n, false)).count());
       return new Emitted(trace, loops);
     } catch (VarkaEmitDeclined e) {
       return new Emitted(trace, -1);

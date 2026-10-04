@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isDriver
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 
 /**
@@ -59,7 +60,7 @@ class VarkaKernelPlanSuite extends VarkaEmitterTestBase {
   }
 
   private def drivers(m: VarkaEmittedClass): Map[String, Int] = m.codeLength.asScala.collect {
-    case (k, v) if k == "runDense" || k == "runMasked" => k -> v.intValue
+    case (k, v) if isDriver(k) => k -> v.intValue
   }.toMap
 
   test("the plan's driver is the built driver, byte for byte, from one group to four hundred") {

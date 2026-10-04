@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjectio
   VarkaExpressionCompiler, VarkaGeneratedClassLoader}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions,
   VarkaEmitterTestSupport, VarkaFusedKernel, VarkaLoopEmitter, VarkaSqlResolve, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isLoop
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.DateType
 
@@ -102,7 +103,7 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
     val bytes = VarkaLoopEmitter.emit(name, roots, fused.inputOrdinals.size, fused.numLiterals,
       null, null, options)
     val groups = VarkaEmitterTestSupport.methodNames(bytes).toArray
-      .count(_.toString.startsWith("loopDense"))
+      .count(e => isLoop(e.toString, true))
     loader.defineGeneratedClass(name, bytes)
     (loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel], groups)
   }
