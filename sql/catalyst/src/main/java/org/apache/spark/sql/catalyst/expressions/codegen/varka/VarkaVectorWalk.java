@@ -480,7 +480,8 @@ final class VarkaVectorWalk {
       Slots s, Set<VarkaVectorIR> computed) {
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
-    boolean checked = n.mode() == Overflow.FAIL && analysis.options.checkIntOverflow();
+    // The refusal map decides, so the emitted check and the planner's accumulator cannot disagree.
+    boolean checked = analysis.refusals.get(n) == Analysis.Refusal.INT_OVERFLOW;
     if (checked) {
       cb.dup();
       cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
@@ -510,6 +511,11 @@ final class VarkaVectorWalk {
   private static void emitOverflowMask(CodeBuilder cb, Overflow mode, VarkaVectorIR node,
       boolean dense, Analysis analysis, Slots s) {
     if (mode == Overflow.FAIL) {
+      // A collect the refusal map does not declare would find no accumulator planned for it;
+      // refused here by name rather than met as a null slot.
+      if (analysis.refusals.get(node) != Analysis.Refusal.INT_OVERFLOW) {
+        throw new IllegalStateException("an overflow collect with no refusal declared: " + node);
+      }
       emitGuardCollect(cb, node, dense ? null : s.wordRef.get(node), dense, analysis, s);
       return;
     }

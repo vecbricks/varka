@@ -85,7 +85,7 @@ object VarkaIrGrammar {
    * and treating them as one is what let this suite generate shapes that decline correctly
    * and then assert that they do not.
    *
-   * `VarkaLoopEmitter`'s `collectGuardedProducers` puts VARKA-52's range guard on every
+   * `Analysis.collectRefusals` puts VARKA-52's range guard on every
    * `AddDays`/`SubDays` with a column offset *anywhere* below a calendar node - the walk
    * descends the whole subtree and does not stop at a node that re-bases the day. So
    * `month(dayOfWeek(addDays(addDays(c, c), c)))` guards a producer whose value reaches
@@ -111,7 +111,7 @@ object VarkaIrGrammar {
     def shift(days: VarkaVectorIR, offset: VarkaVectorIR): (Long, Long) = {
       val own = satAdd(v(days), v(offset))
       // A literal offset is folded at compile time and never guarded (requireOffsetShape);
-      // a column offset is exactly what collectGuardedProducers collects.
+      // a column offset is exactly what collectRefusals collects.
       val guarded = if (offset.isInstanceOf[LiteralSlot]) 0L else own
       (own, math.max(g(days, offset), guarded))
     }

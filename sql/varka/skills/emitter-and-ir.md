@@ -355,8 +355,9 @@ is the decision. Three things came out of building it.
   `dayRange` returned `Bounded` for a column count unconditionally. With
   `guardDayProducers=false` the guard vanished and the compile-time bound stayed - wrong
   answers, not a slower reference variant. The criterion that sorts these is already in the
-  code: `selfGuarding` (VARKA-42's `make_date`) is "the check is the node's own correctness" and
-  is never optional, `guardedProducers` is "insurance for a consumer" and may be. A count guard
+  code: `make_date`'s refusal (VARKA-42) is "the check is the node's own correctness" and is
+  never optional, a day producer's is "insurance for a consumer" and may be. Since VARKA-83 each
+  reason is an `Analysis.Refusal` and its option is applied once, where `refusals` is filled. A count guard
   protecting its own magic multiply is the former, and moving it there made the option's name
   honest again as well.
 - **Removing a dependency chain is only a win where the chain exists, and a validity group

@@ -79,8 +79,8 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
   test("the month count takes int arithmetic, next_day's weekday still does not") {
     // VARKA-68 split `requireOffsetShape` in two. The month count and the weekday shared it
     // under one sentence - that each "carries a runtime bound a derived value cannot declare" -
-    // which is true of the weekday and false of the count: a column-count `AddMonths` is in
-    // `selfGuarding` and is checked at run time against MONTH_ARITH_MIN/MAX_MONTHS by a
+    // which is true of the weekday and false of the count: a column-count `AddMonths` refuses for
+    // `MONTH_COUNT` and is checked at run time against MONTH_ARITH_MIN/MAX_MONTHS by a
     // lanewise test on the count's own value, which cares nothing about what produced it. The
     // weekday has no such guard, so a derived value there reaches `emitFloorMod7` unchecked.
     //
@@ -1933,5 +1933,58 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       loader.release()
       plainLoader.release()
     }
+  }
+
+  test("each refusing node declares its reason, and an optional reason follows its option " +
+      "(VARKA-83)") {
+    import scala.jdk.CollectionConverters._
+    import Analysis.Refusal._
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    def refusals(root: VarkaVectorIR, guardDays: Boolean, checkInts: Boolean)
+        : Map[VarkaVectorIR, Analysis.Refusal] = {
+      val options = VarkaMatrix.base.toBuilder()
+        .guardDayProducers(guardDays).checkIntOverflow(checkInts).build()
+      VarkaLoopEmitter.refusalsForTest(java.util.List.of(root), 3, 1, options).asScala.toMap
+    }
+    val producer = new AddDays(c0, c1)
+    val months = new AddMonths(c0, c1)
+    val makeDate = new MakeDate(c0, c1, new ColumnRef(2), false)
+    val add = new IntArith(IntOp.ADD, Overflow.FAIL, c0, c1)
+    val neg = new IntNeg(Overflow.FAIL, c0)
+    val day = new GuardedDay(c0)
+    val range = new GuardedRange(c0, -10L, 10L)
+    // Each row: the root, the map with both options on, and the map with both off. A producer
+    // refuses only under a calendar node and only behind its option; the overflow check only
+    // behind its; the rest are the nodes' own correctness and never optional. The mixed settings
+    // below check each optional reason against its own option and not the other's.
+    val cases = Seq[(VarkaVectorIR, Map[VarkaVectorIR, Analysis.Refusal],
+        Map[VarkaVectorIR, Analysis.Refusal])](
+      (new Year(producer), Map(producer -> DAY_PRODUCER), Map.empty),
+      (producer, Map.empty, Map.empty),
+      (months, Map(months -> MONTH_COUNT), Map(months -> MONTH_COUNT)),
+      (new AddMonths(c0, new LiteralSlot(0)), Map.empty, Map.empty),
+      (makeDate, Map(makeDate -> MAKE_DATE), Map(makeDate -> MAKE_DATE)),
+      (add, Map(add -> INT_OVERFLOW), Map.empty),
+      (new IntArith(IntOp.ADD, Overflow.NULL, c0, c1), Map.empty, Map.empty),
+      (new IntArith(IntOp.ADD, Overflow.WRAP, c0, c1), Map.empty, Map.empty),
+      (neg, Map(neg -> INT_OVERFLOW), Map.empty),
+      (day, Map(day -> DAY_RANGE), Map(day -> DAY_RANGE)),
+      (range, Map(range -> VALUE_RANGE), Map(range -> VALUE_RANGE)))
+    for ((root, on, off) <- cases) {
+      assert(refusals(root, guardDays = true, checkInts = true) === on, root)
+      assert(refusals(root, guardDays = false, checkInts = false) === off, root)
+    }
+    val dayProducer = new Year(producer)
+    assert(refusals(dayProducer, guardDays = true, checkInts = false) ===
+      Map(producer -> DAY_PRODUCER))
+    assert(refusals(dayProducer, guardDays = false, checkInts = true) === Map.empty)
+    assert(refusals(add, guardDays = false, checkInts = true) === Map(add -> INT_OVERFLOW))
+    assert(refusals(add, guardDays = true, checkInts = false) === Map.empty)
+    assert(refusals(neg, guardDays = false, checkInts = true) === Map(neg -> INT_OVERFLOW))
+    assert(refusals(neg, guardDays = true, checkInts = false) === Map.empty)
+    // The slot planner's one fact per reason: the guards that park their value in a scratch
+    // local, and the two that read it from locals they already own.
+    assert(Analysis.Refusal.values().filterNot(_.parksValue).toSet === Set(MAKE_DATE, INT_OVERFLOW))
   }
 }

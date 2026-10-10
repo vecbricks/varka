@@ -251,35 +251,85 @@ final class Analysis {
   /** Whether the subtree holds a null-skipping node (IfElse, Greatest, Least). */
   final Map<VarkaVectorIR, Boolean> skipping = new HashMap<>();
   /**
-   * The producers that carry a runtime range guard on their own result: every {@link AddDays} /
-   * {@link SubDays} whose offset is a column (not a {@link LiteralSlot} ) and which some calendar
-   * node reads, directly or through further arithmetic, and every {@link AddMonths} whose month
-   * count is a column - the latter wherever it sits, because that guard protects the node's own
-   * magic-multiply arithmetic rather than a consumer's, so a bare {@code add_months(d, m)} with
-   * no further calendar wrapper still needs it. Empty on every kernel with no such column-driven
-   * producer - which is what makes the guard's default cheap: nothing is planned or emitted for
-   * it then, and every such shape stays byte-identical under either setting of
-   * {@link VarkaEmitOptions#guardDayProducers}.
+   * Why a node refuses a batch at run time. A refusing node computes a mask of the lanes its
+   * lowering cannot answer and folds it into the body's accumulator through
+   * {@code VarkaVectorWalk.emitGuardCollect}, and a non-empty accumulator sends the batch to the
+   * row engine. Every reason today reports {@link VarkaFusedKernel#STATUS_CHRONO_RANGE}.
    *
-   * <p>The set is hand-picked, not derived: the compiler's {@code dayRange} and
-   * {@code compileMonths} analyses bound every other producer at compile time and decline a node
-   * they do not know, so a future column-driven producer fails safe as a residual entry until it
-   * is taught to both sides. Filled by {@link #collectGuardedProducers()} once every root is
-   * analyzed.
+   * <p>A reason carries the two things the slot planner needs from it. {@code parksValue}: whether
+   * its guard stores the value it tests in {@link Slots#guardTmp} while the value stays on the
+   * operand stack for the parent. A reason that does not park reads its value from locals it
+   * already owns, and giving it a scratch local would reserve one nothing loads and shift every
+   * later local. And its {@link Family}, which says in which bodies a parking node takes its
+   * scratch local.
    */
-  final Set<VarkaVectorIR> guardedProducers = new HashSet<>();
+  enum Refusal {
+    /**
+     * A column-offset {@link AddDays} / {@link SubDays} some calendar node reads, directly or
+     * through further arithmetic: its own result, against the day range the calendar lowering is
+     * exact over. Insurance for a consumer, so behind {@link VarkaEmitOptions#guardDayProducers}.
+     * The set is hand-picked, not derived: the compiler's {@code dayRange} and
+     * {@code compileMonths} bound every other producer at compile time and decline a node they do
+     * not know, so a future column-driven producer fails safe until it is taught to both sides.
+     */
+    DAY_PRODUCER(Family.PRODUCER, true),
+    /**
+     * A column-count {@link AddMonths}: its month count, against the range its magic multiply is
+     * exact over, wherever it sits - a bare {@code add_months(d, m)} needs it too. The node's own
+     * correctness, so never behind an option (see {@link Analysis#collectRefusals}).
+     */
+    MONTH_COUNT(Family.SELF, true),
+    /**
+     * {@link MakeDate}: a year outside its limits, and in ANSI mode an invalid date. The node's own
+     * correctness. It guards out of {@link Slots#makeDateTmp}, so it parks nothing.
+     */
+    MAKE_DATE(Family.SELF, false),
+    /**
+     * A FAIL-mode {@link IntArith} (not {@code MUL}) or {@link IntNeg}: a lane that overflows,
+     * behind {@link VarkaEmitOptions#checkIntOverflow}. The arithmetic parks its operands and
+     * result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with
+     * {@code dup}, so it parks nothing here. A NULL-mode node checks too, but narrows its own word
+     * instead of refusing the batch, so it has no reason.
+     */
+    INT_OVERFLOW(Family.CHECKED, false),
+    /**
+     * {@link GuardedDay}: the day range, re-armed by the compiler. Unconditional, because the
+     * compiler admits the expression on the strength of this check ({@code VARKA-93.md} 3.4).
+     */
+    DAY_RANGE(Family.REARMED, true),
+    /** {@link GuardedRange}: the day guard's twin at either lane, with the bounds it carries. */
+    VALUE_RANGE(Family.REARMED, true);
+
+    final Family family;
+    final boolean parksValue;
+
+    Refusal(Family family, boolean parksValue) {
+      this.family = family;
+      this.parksValue = parksValue;
+    }
+
+    /**
+     * Which bodies give a parking node its scratch local. A {@link #REARMED} node takes one in
+     * every body; a node of another family takes one in a body that emits some refusing node of
+     * the same family, and in no driver. The rule is per family rather than per node because a
+     * body's slot loop can visit nodes it does not emit - the whole kernel's, where frames are
+     * not group-local ({@code groupLocalSlots} off, or the byte budget off) - and those arms'
+     * bytes are what they are because the planner allocated by family before this enum existed.
+     * Allocating per node there moves them; VARKA-83's review measured it.
+     */
+    enum Family { PRODUCER, SELF, CHECKED, REARMED }
+  }
 
   /**
-   * The nodes that guard themselves whatever their consumers ( {@code MakeDate}: a year outside
-   * its limits, and in ANSI mode an invalid date, decline the batch). Unlike
-   * {@link #guardedProducers} this set is not behind an option: the check is the node's
-   * correctness, not a producer's insurance.
+   * Every node that refuses a batch under these options, with its reason. A node is here exactly
+   * when its guard is emitted, so no reader applies an option again: the slot planner allocates
+   * the accumulator for a body that emits one of these, a scratch local for one whose reason
+   * {@link Refusal#parksValue parks its value}, and keeps the validity word alive of every one,
+   * since the collect ANDs the mask with it. Empty on a kernel with nothing to guard, which keeps
+   * its slots - and so its bytes - what they would be without the guards. Filled by
+   * {@link #collectRefusals()} once every root is analyzed.
    */
-  final Set<VarkaVectorIR> selfGuarding = new HashSet<>();
-  /** the int arithmetic nodes whose overflow check condemns the batch through the
-   *  same accumulator the producer guard uses - the FAIL ones. A NULL node checks too but
-   *  disposes of the mask into its own validity word, so it is not one of these. */
-  final Set<VarkaVectorIR> checkedArith = new HashSet<>();
+  final Map<VarkaVectorIR, Refusal> refusals = new HashMap<>();
 
   /**
    * for each node, the chain of {@code IfElse} arms every one of its uses sits under, innermost
@@ -449,40 +499,111 @@ final class Analysis {
   }
 
   /**
-   * See {@link #guardedProducers}: a walk under each calendar node for a column-offset day
-   * producer. A column-count {@link AddMonths} joins {@link #selfGuarding} instead, not
-   * {@link #guardedProducers}: its check is on its own month count, which its own magic
-   * multiply is exact only over, so it is the node's correctness rather than a consumer's
-   * insurance - the {@link MakeDate} criterion exactly. It also has to be unconditional
-   * because the compiler reads the guard as established fact: {@code dayRange} answers
-   * {@code Bounded} for a column count, and composes that interval with whatever shifts it,
-   * without being able to see {@link VarkaEmitOptions#guardDayProducers}. Behind the option
-   * the guard would vanish while the compile-time bound stayed, which is a wrong answer
-   * rather than a slower one.
+   * Fills {@link #refusals} over the topological order, one exhaustive switch deciding every kind,
+   * so that a new node type has to say whether it refuses. A column-count {@link AddMonths} is a
+   * {@link Refusal#MONTH_COUNT}, not a {@link Refusal#DAY_PRODUCER}: its check is on its own month
+   * count, which its own magic multiply is exact only over, so it is the node's correctness rather
+   * than a consumer's insurance - the {@link MakeDate} criterion exactly. It also has to be
+   * unconditional because the compiler reads the guard as established fact: {@code dayRange}
+   * answers {@code Bounded} for a column count, and composes that interval with whatever shifts
+   * it, without being able to see {@link VarkaEmitOptions#guardDayProducers}. Behind the option
+   * the guard would vanish while the compile-time bound stayed, which is a wrong answer rather
+   * than a slower one.
    */
-  void collectGuardedProducers() {
+  void collectRefusals() {
+    // The nodes some calendar node reads, directly or through further arithmetic: where a
+    // column-offset day producer is one a consumer relies on. Each node is walked once.
+    Set<VarkaVectorIR> underChrono = new HashSet<>();
+    if (options.guardDayProducers()) {
+      for (VarkaVectorIR node : topoOrder) {
+        if (isChrono(node)) {
+          collectReached(chronoChild(node), underChrono);
+        }
+      }
+    }
     for (VarkaVectorIR node : topoOrder) {
-      if (isChrono(node)) {
-        collectColumnOffsetProducers(chronoChild(node), guardedProducers);
-      }
-      if (node instanceof AddMonths n && !(n.months() instanceof LiteralSlot)) {
-        selfGuarding.add(node);
-      }
-      if (node instanceof MakeDate) {
-        selfGuarding.add(node);
+      switch (node) {
+        case AddDays n -> {
+          if (underChrono.contains(node) && !(n.offset() instanceof LiteralSlot)) {
+            refuse(node, Refusal.DAY_PRODUCER);
+          }
+        }
+        case SubDays n -> {
+          if (underChrono.contains(node) && !(n.offset() instanceof LiteralSlot)) {
+            refuse(node, Refusal.DAY_PRODUCER);
+          }
+        }
+        case AddMonths n -> {
+          if (!(n.months() instanceof LiteralSlot)) {
+            refuse(node, Refusal.MONTH_COUNT);
+          }
+        }
+        case MakeDate n -> refuse(node, Refusal.MAKE_DATE);
+        // MUL is excluded for a different reason than NULL: a checked one never reaches here at
+        // all, because the compiler declines it and emitIntArith throws if it ever did - so this
+        // guard is defensive rather than load-bearing; the invariant is stated in three places
+        // (here, the throw, and the compiler's decline) and all three must move together if it
+        // is ever widened.
+        case IntArith n -> {
+          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL && n.op() != IntOp.MUL) {
+            refuse(node, Refusal.INT_OVERFLOW);
+          }
+        }
+        case IntNeg n -> {
+          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL) {
+            refuse(node, Refusal.INT_OVERFLOW);
+          }
+        }
+        case GuardedDay n -> refuse(node, Refusal.DAY_RANGE);
+        case GuardedRange n -> refuse(node, Refusal.VALUE_RANGE);
+        // Everything else computes every lane it is given. Written out rather than defaulted.
+        case ColumnRef n -> { }
+        case LiteralSlot n -> { }
+        case NarrowLane n -> { }
+        case NextDay n -> { }
+        case TruncDateDynamic n -> { }
+        case DateDiff n -> { }
+        case Greatest n -> { }
+        case Least n -> { }
+        case IfElse n -> { }
+        case DayOfWeek n -> { }
+        case WeekDay n -> { }
+        case DayOfWeekIso n -> { }
+        case ThursdayOf n -> { }
+        case Year n -> { }
+        case Month n -> { }
+        case DayOfMonth n -> { }
+        case Quarter n -> { }
+        case DayOfYear n -> { }
+        case LastDay n -> { }
+        case TruncDate n -> { }
+        case WeekOfYear n -> { }
+        case ConstDivide n -> { }
+        case BoundedDivide n -> { }
+        case Compare n -> { }
+        case And n -> { }
+        case Or n -> { }
+        case Not n -> { }
+        case IsNotNull n -> { }
+        case InRanges n -> { }
       }
     }
   }
 
-  private static void collectColumnOffsetProducers(VarkaVectorIR node,
-      Set<VarkaVectorIR> into) {
-    switch (node) {
-      case AddDays n when !(n.offset() instanceof LiteralSlot) -> into.add(node);
-      case SubDays n when !(n.offset() instanceof LiteralSlot) -> into.add(node);
-      default -> { }
+  /** Adds {@code node} and everything under it to {@code into}, each node once. */
+  private static void collectReached(VarkaVectorIR node, Set<VarkaVectorIR> into) {
+    if (into.add(node)) {
+      for (VarkaVectorIR child : childrenOf(node)) {
+        collectReached(child, into);
+      }
     }
-    for (VarkaVectorIR child : childrenOf(node)) {
-      collectColumnOffsetProducers(child, into);
+  }
+
+  /** Records {@code node}'s reason, refusing a node that two rules would give two reasons. */
+  private void refuse(VarkaVectorIR node, Refusal reason) {
+    Refusal had = refusals.put(node, reason);
+    if (had != null && had != reason) {
+      throw new IllegalStateException(node + " refuses for both " + had + " and " + reason);
     }
   }
 
@@ -857,17 +978,6 @@ final class Analysis {
         // above sets it for the same reason, and the dispatcher reads it to refuse a dense
         // batch, since a dense body has no validity to clear.
         analyzeOp(node, false, n.left(), n.right());
-        // FAIL only: this set exists to allocate the condemning accumulator and to keep the
-        // word the collect reads alive, and a NULL node writes neither - it narrows its own
-        // word instead, and liveWords demands that word through its own arm. Including NULL
-        // here parked a guardAcc and a guardTmp that nothing ever read. MUL is excluded for a
-        // different reason - a checked one never reaches here at all, because the compiler
-        // declines it and emitIntArith throws if it ever did - so this guard is defensive
-        // rather than load-bearing; the invariant is stated in three places (here, the throw,
-        // and the compiler's decline) and all three must move together if it is ever widened.
-        if (n.mode() == Overflow.FAIL && n.op() != IntOp.MUL) {
-          checkedArith.add(node);
-        }
         if (n.mode() == Overflow.NULL) {
           nullsFromValidInputs = true;
         }
@@ -877,9 +987,6 @@ final class Analysis {
         // emitted as a form nothing can produce (VarkaVectorIR.IntNeg).
         if (n.mode() == Overflow.NULL) {
           throw new IllegalArgumentException("IntNeg has no NULL mode: " + node);
-        }
-        if (n.mode() == Overflow.FAIL) {
-          checkedArith.add(node);
         }
         analyzeOp(node, false, n.child());
       }
@@ -1020,7 +1127,7 @@ final class Analysis {
    * under one sentence covering both - that each "carries a runtime bound a derived value cannot
    * declare". That is true of the weekday and false here, which {@code VARKA-67.md} 2.1
    * recorded and this split acts on. A column-count {@code AddMonths} is in
-   * {@link Analysis#selfGuarding} and is checked at run time against
+   * {@link Refusal#MONTH_COUNT} and is checked at run time against
    * {@link VarkaChrono#MONTH_ARITH_MIN_MONTHS} / {@code MAX_MONTHS} by a lanewise test on the
    * count's own <i>value</i>, which cares nothing about what produced it - so a derived count is
    * covered by exactly the guard a column count is. {@code next_day} 's weekday has no such

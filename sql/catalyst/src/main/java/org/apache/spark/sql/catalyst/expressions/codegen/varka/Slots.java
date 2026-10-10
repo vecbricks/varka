@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaBodyEmitter.
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -204,10 +205,7 @@ final class Slots {
   /**
    * The guard's accumulated out-of-range mask, or null when nothing in this body sets one.
    * Non-null is exactly the signal that the method returns something other than a constant zero.
-   * The calendar extractions once set this; the guard now lives on the producers in
-   * {@link Analysis#guardedProducers}, so it is non-null exactly when this body's outputs reach
-   * one of those and the option is on - or reach a node in {@link Analysis#selfGuarding}, which
-   * is not behind the option.
+   * It is non-null exactly when this body emits a node in {@link Analysis#refusals}.
    */
   Integer guardAcc;
   /**
@@ -399,13 +397,9 @@ final class Slots {
       collectNodes(outputs.get(o), tree);
     }
     // Which words this body still reads, or null for "all of them" - the pass off, or a dense
-    // body, which has no words. The guard flags it reads are taken over the whole tree: a
-    // guarded node the walk never reaches demands nothing, so they decide nothing more there.
+    // body, which has no words.
     Set<WordOwner> live = !dense && mode != BodyMode.DRIVER && analysis.options.validityByBitmap()
-        ? liveWords(outputs, outputIdx, analysis, group,
-            guardFlag(analysis, mode, tree, Guard.PRODUCERS),
-            guardFlag(analysis, mode, tree, Guard.SELF),
-            guardFlag(analysis, mode, tree, Guard.CHECKED_ARITH), s.visitedMaterializedDates)
+        ? liveWords(outputs, outputIdx, analysis, group, s.visitedMaterializedDates)
         : null;
     Set<VarkaVectorIR> emitted = tree;
     if (!analysis.materialized.isEmpty() && mode != BodyMode.DRIVER) {
@@ -571,16 +565,20 @@ final class Slots {
       sorted.sort(java.util.Comparator.comparingInt(analysis.lineNumbers::get));
       order = sorted;
     }
-    // One accumulator per body, and only in a body that emits a guarded producer, a self-guarding
-    // node, a checked int operation or a re-armed range check: the caller acts on the batch, not
-    // the lane, and a body with nothing to guard keeps the slot numbering - and so the bytes -
-    // unchanged, whichever way the options are set. Taken over the nodes the body emits.
-    boolean producersGuarding = guardFlag(analysis, mode, body, Guard.PRODUCERS);
-    boolean selfGuarding = guardFlag(analysis, mode, body, Guard.SELF);
-    boolean checkedArith = guardFlag(analysis, mode, body, Guard.CHECKED_ARITH);
-    boolean rearmed = guardFlag(analysis, mode, body, Guard.REARMED);
-    boolean guarding = producersGuarding || selfGuarding || checkedArith || rearmed;
-    if (guarding) {
+    // One accumulator per body, and only in a loop or epilogue body that emits a refusing node:
+    // the caller acts on the batch, not the lane, and a body with nothing to guard keeps the slot
+    // numbering - and so the bytes - unchanged, whichever way the options are set. The driver
+    // guards nothing.
+    var families = EnumSet.noneOf(Analysis.Refusal.Family.class);
+    if (mode != BodyMode.DRIVER && !analysis.refusals.isEmpty()) {
+      for (VarkaVectorIR node : body) {
+        Analysis.Refusal reason = analysis.refusals.get(node);
+        if (reason != null) {
+          families.add(reason.family);
+        }
+      }
+    }
+    if (!families.isEmpty()) {
       s.guardAcc = slot++;
     }
     // one accumulator per output this body writes a word at a time. Allocated after guardAcc and
@@ -692,11 +690,10 @@ final class Slots {
             // own local.
             s.dowTmp.put(node, new int[] {slot++, slot++});
           }
-          // A day producer's temporary is behind the option with the guard it serves; a
-          // column-count AddMonths guards itself and takes one whatever the option says.
-          // MakeDate, the other self-guarding node, guards out of makeDateTmp and takes none -
-          // allocating one for it would shift every later local and move the pinned bytes.
-          if (guardScratch(analysis, node, producersGuarding, selfGuarding)) {
+          // Only a reason that parks its value takes one (see Analysis.Refusal): MakeDate guards
+          // out of makeDateTmp, and allocating one for it would shift every later local and
+          // move the pinned bytes.
+          if (guardScratch(analysis, node, families)) {
             s.guardTmp.put(node, slot++);
           }
           if (node instanceof MakeDate) {
@@ -882,40 +879,32 @@ final class Slots {
   }
 
   /**
-   * Whether {@code node} condemns the batch from this body, and so needs its own validity word kept
-   * alive for {@code emitGuardCollect} to qualify the condemning mask with. Read by
-   * {@link #liveWords}: a node that collects into the accumulator without its word surviving the
-   * liveness pass would fail loudly in {@code loadWord}, which is the failure this one predicate
-   * exists to make impossible for the next kind added.
+   * Whether {@code node} condemns the batch, and so needs its own validity word kept alive for
+   * {@code emitGuardCollect} to qualify the condemning mask with. Read by {@link #liveWords}: a
+   * node that collects into the accumulator without its word surviving the liveness pass would
+   * fail loudly in {@code loadWord}. {@link #guardScratch} is this plus a condition, so the slot
+   * planner cannot decide a node is guarded while the liveness pass decides its word is dead.
    */
-  private static boolean guardedWord(Analysis analysis, VarkaVectorIR node,
-      boolean producersGuarding, boolean selfGuarding, boolean checkedArith) {
-    // Written as "everything that needs a scratch, plus the kinds that need only the word", so
-    // that guardScratch being a subset of this is structural rather than two copies of two
-    // clauses agreeing by inspection. A kind added to guardScratch alone would otherwise get a
-    // slot and a word the liveness pass had killed.
-    return guardScratch(analysis, node, producersGuarding, selfGuarding)
-        || (checkedArith && analysis.checkedArith.contains(node));
+  private static boolean guardedWord(Analysis analysis, VarkaVectorIR node) {
+    return analysis.refusals.containsKey(node);
   }
 
   /**
    * Whether {@code node} needs {@link Slots#guardTmp}, the scratch local a guard parks its value in
-   * before testing it. A subset of {@link #guardedWord}, and deliberately not the same question: a
-   * guarded day producer's value is on the stack when the guard runs ({@code emitValue} stores it)
-   * and {@code AddMonths} guards its count the same way, but the checked int arithmetic already
-   * parks its operands and result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its
-   * operand back with {@code dup}, so neither ever loads this slot. Allocating one for them
-   * reserved a local nothing read and shifted every later local in the body.
+   * before testing it: a refusing node whose reason {@link Analysis.Refusal#parksValue parks}, in a
+   * body its {@link Analysis.Refusal.Family family} allows - every body for a re-armed range
+   * check, otherwise one whose emitted nodes, {@code families}, include the family. A subset of
+   * {@link #guardedWord}, and deliberately not the same question: a guarded day producer's value
+   * is on the stack when the guard runs, and {@code AddMonths} guards its count the same way, but
+   * the checked int arithmetic already parks its operands and result in
+   * {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with {@code dup}, so
+   * neither ever loads this slot.
    */
   private static boolean guardScratch(Analysis analysis, VarkaVectorIR node,
-      boolean producersGuarding, boolean selfGuarding) {
-    // GuardedDay is unconditional - not behind either flag - because the compiler admits the
-    // expression on the strength of this check (see `VARKA-93.md` 3.4). A flag that removed it
-    // would leave the compile-time bound standing over a value nothing bounds, which is the
-    // wrong-answer case the column-count AddMonths javadoc names.
-    return node instanceof GuardedDay || node instanceof GuardedRange
-        || (producersGuarding && analysis.guardedProducers.contains(node))
-        || (selfGuarding && node instanceof AddMonths && analysis.selfGuarding.contains(node));
+      Set<Analysis.Refusal.Family> families) {
+    Analysis.Refusal reason = analysis.refusals.get(node);
+    return reason != null && reason.parksValue
+        && (reason.family == Analysis.Refusal.Family.REARMED || families.contains(reason.family));
   }
 
   /**
@@ -925,7 +914,7 @@ final class Slots {
    * The consumers, from VARKA-70.md 2.2 plus the one that inventory missed - the null-skipping
    * pick's value substitution, which blends by the operands' words whether or not its own word is
    * wanted: <ul> <li>a value root the pass does not serve: its own word, for the per-group
-   * write;</li> <li>a guarded producer or self-guarding {@code AddMonths}: its own word, which
+   * write;</li> <li>a node in {@link Analysis#refusals}: its own word, which
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
@@ -943,9 +932,8 @@ final class Slots {
    * word, so a test can watch each half of that invariant fail.
    */
   private static Set<WordOwner> liveWords(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
-      Analysis analysis, int group, boolean producersGuarding, boolean selfGuarding,
-      boolean checkedArith, Set<VarkaVectorIR> visitedDates) {
-    WordWalk w = new WordWalk(analysis, group, producersGuarding, selfGuarding, checkedArith);
+      Analysis analysis, int group, Set<VarkaVectorIR> visitedDates) {
+    WordWalk w = new WordWalk(analysis, group);
     // The walk: every node this body emits, roots and conditions included.
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
@@ -1091,32 +1079,6 @@ final class Slots {
     return mat != null && mat.producer() != group ? date : null;
   }
 
-  /** The kinds of node that fold into the guard accumulator; see {@link #guardFlag}. */
-  private enum Guard { PRODUCERS, SELF, CHECKED_ARITH, REARMED }
-
-  /**
-   * Whether {@code nodes}, a body's, hold a node of {@code kind}: a guarded day producer under
-   * {@link VarkaEmitOptions#guardDayProducers}, a self-guarding node, a checked int operation, or
-   * a re-armed range check. Each needs the accumulator; the driver guards nothing.
-   */
-  private static boolean guardFlag(Analysis analysis, BodyMode mode, Set<VarkaVectorIR> nodes,
-      Guard kind) {
-    if (mode == BodyMode.DRIVER) {
-      return false;
-    }
-    return switch (kind) {
-      case PRODUCERS -> analysis.options.guardDayProducers()
-          && !analysis.guardedProducers.isEmpty()
-          && nodes.stream().anyMatch(analysis.guardedProducers::contains);
-      case SELF -> !analysis.selfGuarding.isEmpty()
-          && nodes.stream().anyMatch(analysis.selfGuarding::contains);
-      case CHECKED_ARITH -> analysis.options.checkIntOverflow()
-          && nodes.stream().anyMatch(analysis.checkedArith::contains);
-      case REARMED -> nodes.stream()
-          .anyMatch(n -> n instanceof GuardedDay || n instanceof GuardedRange);
-    };
-  }
-
   /**
    * The nodes a body of {@code group} emits: its outputs' subtrees, except that the date of a
    * calendar node whose materialized prefix the group loads is entered only when {@code visits}
@@ -1159,22 +1121,15 @@ final class Slots {
   private static final class WordWalk {
     final Analysis analysis;
     final int group;
-    final boolean producersGuarding;
-    final boolean selfGuarding;
-    final boolean checkedArith;
     final Set<WordOwner> live = new HashSet<>();
     final Set<VarkaVectorIR> reached = new HashSet<>();
     final java.util.ArrayDeque<VarkaVectorIR> walk = new java.util.ArrayDeque<>();
     final java.util.ArrayDeque<VarkaVectorIR> work = new java.util.ArrayDeque<>();
     final Set<VarkaVectorIR> deferred = new java.util.LinkedHashSet<>();
 
-    WordWalk(Analysis analysis, int group, boolean producersGuarding, boolean selfGuarding,
-        boolean checkedArith) {
+    WordWalk(Analysis analysis, int group) {
       this.analysis = analysis;
       this.group = group;
-      this.producersGuarding = producersGuarding;
-      this.selfGuarding = selfGuarding;
-      this.checkedArith = checkedArith;
     }
 
     /** Marks {@code owner} live, queueing an own word for the propagation to its operands. */
@@ -1285,7 +1240,7 @@ final class Slots {
         case Or x -> { }
         case Not x -> { }
       }
-      if (guardedWord(analysis, n, producersGuarding, selfGuarding, checkedArith)) {
+      if (guardedWord(analysis, n)) {
         demand(analysis.wordOwner.get(n));
       }
     }
