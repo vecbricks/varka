@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.execution
 
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+
 import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
@@ -26,9 +29,10 @@ import org.apache.spark.sql.catalyst.expressions.{Add, And, Attribute, Attribute
   InterpretedOrdering, IsNotNull, LessThanOrEqual, Literal, NamedExpression, RowOrdering,
   UnaryExpression, UnsafeProjection, With}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeCompiler,
-  CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, EmptyBlock, ExprCode, FusedOutput,
+  CodeFormatter, CodegenContext, CodeGenerator, CodegenFallback, EmptyBlock, ExprCode,
   GenerateUnsafeProjection, JaninoCodeCompiler, JavaCode, JdkCodeCompiler, VarkaCensusCodegenAccess,
   VarkaDecline, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.plans.logical.{MergeRows, Project}
@@ -108,7 +112,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
     val list: Seq[NamedExpression] = project.projectList
     val output: Seq[Attribute] = project.child.output
     val fused = VarkaExpressionCompiler.compilePartial(list, output)
-      .map(_.specs.zipWithIndex.collect { case (_: FusedOutput, i) => i }.toSet)
+      .map(_.specs.asScala.toSeq.zipWithIndex.collect { case (_: FusedOutput, i) => i }.toSet)
       .getOrElse(Set.empty)
     val declined = VarkaExpressionCompiler.declines(list, output)
     assert(fused.size + declined.size == list.size && (fused & declined.keySet).isEmpty,
@@ -215,7 +219,7 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
     val specs = VarkaExpressionCompiler.explainPredicate(
       GreaterThan(GiveUpFallbackIdentity(d), Literal.create(0, DateType)), Seq[Attribute](d))
     assert(specs.size == 1 && !specs.head.fused)
-    assert(specs.head.decline.exists(_.reason.startsWith("unsupported")), specs)
+    assert(specs.head.decline.toScala.exists(_.reason.startsWith("unsupported")), specs)
   }
 
   test("G8: stack of more than 50 rows leaves the stage, 50 stays") {

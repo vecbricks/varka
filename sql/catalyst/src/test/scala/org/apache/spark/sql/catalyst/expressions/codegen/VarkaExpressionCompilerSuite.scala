@@ -18,11 +18,13 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
@@ -88,11 +90,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("a nested chain compiles recursively with literal slots in first-occurrence order") {
     val expr = DateSub(DateAdd(d, Literal(1)), Literal(2))
     val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new SubDays(new AddDays(new ColumnRef(0), new LiteralSlot(0)), new LiteralSlot(1))))
-    assert(compiled.outputTypes === Seq(DateType))
-    assert(compiled.inputOrdinals === Seq(0))
-    assert(compiled.literals === Seq(1, 2))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(0))
+    assert(compiled.literals.asScala.toSeq === Seq(1, 2))
   }
 
   test("literal slots are assigned per distinct value, so equal subtrees compile equal") {
@@ -100,20 +102,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val b = DateDiff(DateAdd(d, Literal(1)), d2)
     val compiled = VarkaExpressionCompiler.compile(Seq(out(a), out(b)), childOutput).get
     val sharedNode = new AddDays(new ColumnRef(0), new LiteralSlot(0))
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       sharedNode, new IRDateDiff(sharedNode, new ColumnRef(1))))
-    assert(compiled.outputs.head === compiled.outputs(1).asInstanceOf[IRDateDiff].end(),
+    assert(compiled.outputs.asScala.head ===
+        compiled.outputs.get(1).asInstanceOf[IRDateDiff].end(),
       "the two occurrences of date_add(d, 1) must compile to equal records or CSE cannot fire")
-    assert(compiled.outputTypes === Seq(DateType, IntegerType))
-    assert(compiled.literals === Seq(1))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType, IntegerType))
+    assert(compiled.literals.asScala.toSeq === Seq(1))
   }
 
   test("input ordinals map densely in first-occurrence order") {
     // d2 (child ordinal 1) is referenced first, so it becomes kernel input 0.
     val expr = DateDiff(d2, DateAdd(d, Literal(3)))
     val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
-    assert(compiled.inputOrdinals === Seq(1, 0))
-    assert(compiled.outputs === Seq(new IRDateDiff(
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(1, 0))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRDateDiff(
       new ColumnRef(0), new AddDays(new ColumnRef(1), new LiteralSlot(0)))))
   }
 
@@ -127,14 +130,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(Seq(out(expr)), childOutput).get
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
-    assert(compiled.outputs === Seq(new IfElse(
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(
       new Compare(CompareOp.LT, c0, c1),
       new AddDays(c0, new LiteralSlot(0)),
       new IfElse(
         new Compare(CompareOp.EQ, c0, c1),
         new AddDays(c0, new LiteralSlot(1)),
         c1))))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
     // No ELSE means a null-literal branch, which breaks the dense body's all-valid invariant.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(CaseWhen(Seq(LessThan(d, d2) -> DateAdd(d, Literal(1))), None))),
@@ -150,8 +153,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
     // The date literal and the equal-valued day offset share one slot, by value.
-    assert(compiled.literals === Seq(19000))
-    assert(compiled.outputs === Seq(new IfElse(
+    assert(compiled.literals.asScala.toSeq === Seq(19000))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(
       new IROr(
         new IRNot(new Compare(CompareOp.GT, c0, c1)),
         new Compare(CompareOp.EQ, c0, new LiteralSlot(0))),
@@ -162,20 +165,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("dayofweek and weekday compile with IntegerType outputs") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(DayOfWeek(d)), out(WeekDay(DateAdd(d, Literal(3))))), childOutput).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRDayOfWeek(new ColumnRef(0)),
       new IRWeekDay(new AddDays(new ColumnRef(0), new LiteralSlot(0)))))
-    assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType, IntegerType))
   }
 
   test("next_day with a literal weekday compiles to a literal slot") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, Literal("MO"), false))), childOutput).get
-    assert(compiled.outputs === Seq(new IRNextDay(new ColumnRef(0), new LiteralSlot(0))))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0),
+        new LiteralSlot(0))))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
     // MONDAY = 4 in DateTimeUtils's private weekday numbering, so k = dayOfWeek - 1 = 3.
-    assert(compiled.literals === Seq(3))
-    assert(compiled.derivedInputs.isEmpty)
+    assert(compiled.literals.asScala.toSeq === Seq(3))
+    assert(compiled.derivedInputs.asScala.isEmpty)
   }
 
   private val dow = AttributeReference("dow", StringType)()
@@ -187,20 +191,23 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // column, and the note tells the evaluator to fill that input from it before the kernel.
     val lenient = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, dow, false))), withDow).get
-    assert(lenient.outputs === Seq(new IRNextDay(new ColumnRef(0), new ColumnRef(1))))
-    assert(lenient.outputTypes === Seq(DateType))
-    assert(lenient.inputOrdinals === Seq(0, 5))
-    assert(lenient.literals === Nil)
-    assert(lenient.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
-    assert(lenient.derivedAt(1).isDefined && lenient.derivedAt(0).isEmpty)
+    assert(lenient.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0), new ColumnRef(1))))
+    assert(lenient.outputTypes.asScala.toSeq === Seq(DateType))
+    assert(lenient.inputOrdinals.asScala.toSeq === Seq(0, 5))
+    assert(lenient.literals.asScala.toSeq === Nil)
+    assert(lenient.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.WEEKDAY)))
+    assert(lenient.derivedAt(1).isPresent && lenient.derivedAt(0).isEmpty)
     val ansi = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, dow, true))), withDow).get
-    assert(ansi.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY_ANSI)))
+    assert(ansi.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.WEEKDAY_ANSI)))
     // The parser ignores collation, so a collated column is admitted the same way.
     val lcase = AttributeReference("lc", StringType("UTF8_LCASE"))()
     val collated = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, lcase, false))), childOutput :+ lcase).get
-    assert(collated.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+    assert(collated.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.WEEKDAY)))
   }
 
   test("two next_day over one weekday column share one derived input, and the " +
@@ -208,12 +215,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, dow, false)), out(NextDay(d2, dow, false)), out(DateAdd(d, Literal(1)))),
       withDow).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRNextDay(new ColumnRef(0), new ColumnRef(1)),
       new IRNextDay(new ColumnRef(2), new ColumnRef(1)),
       new AddDays(new ColumnRef(0), new LiteralSlot(0))))
-    assert(compiled.inputOrdinals === Seq(0, 5, 1))
-    assert(compiled.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(0, 5, 1))
+    assert(compiled.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.WEEKDAY)))
   }
 
   test("a declining entry rolls its derived input back with the plain columns") {
@@ -222,17 +230,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // must carry neither the string column nor the note.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateDiff(NextDay(d, dow, false), i)), out(DateAdd(d, Literal(1)))), withDow).get
-    assert(partial.declines.contains(0))
-    assert(partial.fused.inputOrdinals === Seq(0))
-    assert(partial.fused.derivedInputs.isEmpty)
+    assert(partial.declines.asScala.contains(0))
+    assert(partial.fused.inputOrdinals.asScala.toSeq === Seq(0))
+    assert(partial.fused.derivedInputs.asScala.isEmpty)
   }
 
   test("a predicate over next_day with a weekday column carries the derived input") {
     val predicate = VarkaExpressionCompiler.compilePredicate(
       EqualTo(NextDay(d, dow, false), d2), withDow).get
-    assert(predicate.specs.forall(_.fused))
-    assert(predicate.fused.inputOrdinals === Seq(0, 5, 1))
-    assert(predicate.fused.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.WEEKDAY)))
+    assert(predicate.specs.asScala.forall(_.fused))
+    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0, 5, 1))
+    assert(predicate.fused.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.WEEKDAY)))
   }
 
   test("a weekday that is an expression over the column declines with its reason") {
@@ -251,8 +260,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // k = dayOfWeek - 1 = -1 for THURSDAY: the one weekday a naive [0, 6] assumption misses.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, Literal("THURSDAY"), false))), childOutput).get
-    assert(compiled.outputs === Seq(new IRNextDay(new ColumnRef(0), new LiteralSlot(0))))
-    assert(compiled.literals === Seq(-1))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0),
+        new LiteralSlot(0))))
+    assert(compiled.literals.asScala.toSeq === Seq(-1))
   }
 
   test("next_day declines cleanly on a null weekday, without crashing planning") {
@@ -281,18 +291,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(Year(d)), out(Month(d)), out(DayOfMonth(d)), out(Quarter(DateAdd(d, Literal(3))))),
       childOutput).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRYear(new ColumnRef(0)),
       new IRMonth(new ColumnRef(0)),
       new IRDayOfMonth(new ColumnRef(0)),
       new IRQuarter(new AddDays(new ColumnRef(0), new LiteralSlot(0)))))
-    assert(compiled.outputTypes === Seq(IntegerType, IntegerType, IntegerType, IntegerType))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType, IntegerType, IntegerType,
+        IntegerType))
   }
 
   test("dayofyear compiles with an IntegerType output") {
     val compiled = VarkaExpressionCompiler.compile(Seq(out(DayOfYear(d))), childOutput).get
-    assert(compiled.outputs === Seq(new IRDayOfYear(new ColumnRef(0))))
-    assert(compiled.outputTypes === Seq(IntegerType))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRDayOfYear(new ColumnRef(0))))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType))
   }
 
   test("make_date compiles over int columns and literals in either mode, with a " +
@@ -305,12 +316,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(MakeDate(y, m, dd, ansi)), out(MakeDate(y, Literal(2), Literal(29), ansi))),
         ints).get
-      assert(compiled.outputs === Seq(
+      assert(compiled.outputs.asScala.toSeq === Seq(
         new IRMakeDate(new ColumnRef(0), new ColumnRef(1), new ColumnRef(2), ansi),
         new IRMakeDate(new ColumnRef(0), new LiteralSlot(0), new LiteralSlot(1), ansi)))
-      assert(compiled.outputTypes === Seq(DateType, DateType))
-      assert(compiled.inputOrdinals === Seq(1, 2, 3))
-      assert(compiled.literals === Seq(2, 29))
+      assert(compiled.outputTypes.asScala.toSeq === Seq(DateType, DateType))
+      assert(compiled.inputOrdinals.asScala.toSeq === Seq(1, 2, 3))
+      assert(compiled.literals.asScala.toSeq === Seq(2, 29))
     }
     // The two modes are two shapes: the same tree under each renders differently.
     assert(VarkaVectorIR.canonical(new IRMakeDate(new ColumnRef(0), new ColumnRef(1),
@@ -321,11 +332,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // to any `IntegerType` tree, only the wrong *type* still reaches the position-named reason.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(MakeDate(y, m, d, false)), out(Year(d))), ints).get
-    assert(partial.declines(0).reason === "make_date's day is not an int column or literal")
+    assert(partial.declines.asScala(0).reason === "make_date's day is not an int column or literal")
     // And the widening itself: arithmetic over the operands fuses, as one tree.
     val overArithmetic = VarkaExpressionCompiler.compile(
       Seq(out(MakeDate(Add(y, Literal(1), EvalMode.LEGACY), m, dd, false))), ints).get
-    assert(overArithmetic.outputs === Seq(new IRMakeDate(
+    assert(overArithmetic.outputs.asScala.toSeq === Seq(new IRMakeDate(
       new IntArith(IntOp.ADD, Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0)),
       new ColumnRef(1), new ColumnRef(2), false)))
     // Under the range analysis the node is a bounded producer: a calendar node over it fuses.
@@ -335,8 +346,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("weekofyear compiles to the week tail over the Thursday shift, IntegerType") {
     val compiled = VarkaExpressionCompiler.compile(Seq(out(WeekOfYear(d))), childOutput).get
-    assert(compiled.outputs === Seq(new IRWeekOfYear(new ThursdayOf(new ColumnRef(0)))))
-    assert(compiled.outputTypes === Seq(IntegerType))
+    assert(compiled.outputs.asScala.toSeq ===
+        Seq(new IRWeekOfYear(new ThursdayOf(new ColumnRef(0)))))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType))
   }
 
   test("extract(WEEK FROM d) resolves to the same node, and two weekofyear outputs " +
@@ -348,7 +360,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(extracted), out(WeekOfYear(d))), childOutput).get
     val pair = new IRWeekOfYear(new ThursdayOf(new ColumnRef(0)))
-    assert(compiled.outputs === Seq(pair, pair))
+    assert(compiled.outputs.asScala.toSeq === Seq(pair, pair))
   }
 
   test("a fused int field compared with an int literal is a predicate, and an int " +
@@ -356,10 +368,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val week53 = VarkaExpressionCompiler.compilePredicate(
       EqualTo(WeekOfYear(d), Literal(53)), childOutput)
     assert(week53.isDefined, "weekofyear(d) = 53 should compile")
-    assert(week53.get.specs.forall(_.fused))
+    assert(week53.get.specs.asScala.forall(_.fused))
     val month = VarkaExpressionCompiler.compilePredicate(
       GreaterThan(Literal(6), Month(d)), childOutput)
-    assert(month.isDefined && month.get.specs.forall(_.fused))
+    assert(month.isDefined && month.get.specs.asScala.forall(_.fused))
     // The value side is unchanged: an int literal where a date is expected declines.
     assert(VarkaExpressionCompiler.compile(Seq(out(DateAdd(Literal(5), Literal(3)))),
       childOutput).isEmpty)
@@ -381,16 +393,17 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         "i <= month(d)" -> LessThanOrEqual(i, Month(d)))) {
       val compiled = VarkaExpressionCompiler.compilePredicate(predicate, intPairOutput)
       assert(compiled.isDefined, s"$name should compile")
-      assert(compiled.get.specs.forall(_.fused), s"$name should fuse")
+      assert(compiled.get.specs.asScala.forall(_.fused), s"$name should fuse")
     }
     // The whole conjunct fuses now, so nothing is left for a row filter above the kernel.
     val conjunct = VarkaExpressionCompiler.compilePredicate(
       And(EqualTo(Year(d), Literal(2021)), GreaterThan(i, Literal(0))), intPairOutput)
-    assert(conjunct.isDefined && conjunct.get.specs.forall(_.fused),
+    assert(conjunct.isDefined && conjunct.get.specs.asScala.forall(_.fused),
       "year(d) = 2021 AND i > 0 should fuse whole")
-    assert(conjunct.get.specs.size === 2 && conjunct.get.fusedConjuncts.size === 2,
+    assert(conjunct.get.specs.size === 2 &&
+        conjunct.get.fusedConjuncts.size === 2,
       "both conjuncts belong to the kernel, not one fused and one residual")
-    assert(conjunct.get.fused.outputs.head.isInstanceOf[IRAnd],
+    assert(conjunct.get.fused.outputs.asScala.head.isInstanceOf[IRAnd],
       "and they are one fused condition rather than two kernels")
   }
 
@@ -400,10 +413,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // every fused int comparison - the kernel doing the compare and the row engine still
     // visiting every row for the null. The word is the same one a date column's validity reads.
     val alone = VarkaExpressionCompiler.compilePredicate(IsNotNull(i), childOutput)
-    assert(alone.isDefined && alone.get.specs.forall(_.fused), "i IS NOT NULL should fuse")
+    assert(alone.isDefined && alone.get.specs.asScala.forall(_.fused),
+        "i IS NOT NULL should fuse")
     val inferred = VarkaExpressionCompiler.compilePredicate(
       And(IsNotNull(i), GreaterThan(i, Literal(0))), childOutput)
-    assert(inferred.isDefined && inferred.get.specs.forall(_.fused),
+    assert(inferred.isDefined && inferred.get.specs.asScala.forall(_.fused),
       "the shape the optimizer actually produces should fuse whole")
     // Still a bare column only: a validity predicate over a computed node declines as before.
     assert(VarkaExpressionCompiler.compilePredicate(
@@ -428,8 +442,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(viaExtract), out(WeekOfYear(d))), childOutput).get
     val thursday = new ThursdayOf(new ColumnRef(0))
-    assert(compiled.outputs === Seq(new IRYear(thursday), new IRWeekOfYear(thursday)))
-    assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRYear(thursday), new IRWeekOfYear(thursday)))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType, IntegerType))
     // The same admission as weekofyear's: three days short of a bare date's last shift.
     val shiftHiWeek = VarkaChrono.NARROW_DECOMPOSE_MAX_DAYS - VarkaChrono.CONTRACT_MAX_DAYS - 3
     assert(VarkaExpressionCompiler.compile(
@@ -456,14 +470,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(viaExtract), out(Add(Literal(1), WeekDay(d)))), childOutput).get
     val node = new DayOfWeekIso(new ColumnRef(0))
-    assert(compiled.outputs === Seq(node, node))
-    assert(compiled.outputTypes === Seq(IntegerType, IntegerType))
+    assert(compiled.outputs.asScala.toSeq === Seq(node, node))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType, IntegerType))
     // Since VARKA-63 these do compile - as int arithmetic over a fused field - so the claim
     // this test defends is narrower than "nothing else fuses": no other Add becomes the
     // dedicated DayOfWeekIso node, which is what would silently change the value.
     for (other <- Seq(Add(WeekDay(d), Literal(2)), Add(DayOfWeek(d), Literal(1)),
         Add(DateDiff(d, d2), Literal(1)))) {
-      val outs = VarkaExpressionCompiler.compile(Seq(out(other)), childOutput).get.outputs
+      val outs = VarkaExpressionCompiler.compile(Seq(out(other)),
+          childOutput).get.outputs.asScala.toSeq
       assert(!outs.exists(_.isInstanceOf[DayOfWeekIso]), other)
       assert(outs.forall(_.isInstanceOf[IntArith]), other)
     }
@@ -471,8 +486,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("last_day compiles with a DateType output, unlike its four siblings") {
     val compiled = VarkaExpressionCompiler.compile(Seq(out(LastDay(d))), childOutput).get
-    assert(compiled.outputs === Seq(new IRLastDay(new ColumnRef(0))))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRLastDay(new ColumnRef(0))))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
   }
 
   test("add_months and date +- INTERVAL n MONTH/YEAR compile to the same node") {
@@ -480,11 +495,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(AddMonths(d, Literal(3))),
         out(DateAddYMInterval(d, Literal.create(-5, YearMonthIntervalType())))),
       childOutput).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRAddMonths(new ColumnRef(0), new LiteralSlot(0)),
       new IRAddMonths(new ColumnRef(0), new LiteralSlot(1))))
-    assert(compiled.literals === Seq(3, -5))
-    assert(compiled.outputTypes === Seq(DateType, DateType))
+    assert(compiled.literals.asScala.toSeq === Seq(3, -5))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType, DateType))
   }
 
   test("declines a literal month count past the magic's range") {
@@ -511,10 +526,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(AddMonths(d, i)), out(DateAddYMInterval(d, Cast(i, monthInterval)))),
       childOutput).get
     val shared = new IRAddMonths(new ColumnRef(0), new ColumnRef(1))
-    assert(compiled.outputs === Seq(shared, shared))
-    assert(compiled.inputOrdinals === Seq(0, 2))
-    assert(compiled.literals === Nil)
-    assert(compiled.outputTypes === Seq(DateType, DateType))
+    assert(compiled.outputs.asScala.toSeq === Seq(shared, shared))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(0, 2))
+    assert(compiled.literals.asScala.toSeq === Nil)
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType, DateType))
   }
 
   test("declines a further-folded count and a widened one, each with its own reason") {
@@ -710,7 +725,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private def ir(e: Expression, output: Seq[Attribute] = childOutput): String = {
     val compiled = VarkaExpressionCompiler.compile(Seq(out(e)), output)
     assert(compiled.isDefined, s"$e declined; expected it to fuse")
-    VarkaVectorIR.canonical(compiled.get.outputs.head)
+    VarkaVectorIR.canonical(compiled.get.outputs.asScala.head)
   }
 
   // -------------------------------------------------------------------------------------------
@@ -810,22 +825,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // route's exact range - the bound is the type's, not the data's, and no per-batch check
     // is registered. The end operand is compiled first, which is why it takes input 0.
     val sub = VarkaExpressionCompiler.compile(Seq(out(SubtractTimes(t6, t3))), withLong).get
-    assert(sub.outputs === Seq(new ConstDivide(
+    assert(sub.outputs.asScala.toSeq === Seq(new ConstDivide(
       new IntArith(IntOp.SUB, Overflow.WRAP, longCol, longCol2), 1000L, nanosPerDay)))
-    assert(sub.inputOrdinals === Seq(8, 7))
-    assert(sub.outputTypes === Seq(DayTimeIntervalType(DayTimeIntervalType.HOUR,
+    assert(sub.inputOrdinals.asScala.toSeq === Seq(8, 7))
+    assert(sub.outputTypes.asScala.toSeq === Seq(DayTimeIntervalType(DayTimeIntervalType.HOUR,
       DayTimeIntervalType.SECOND)))
     assert(sub.lane === LaneType.LONG)
     val diff = VarkaExpressionCompiler.compile(
       Seq(out(TimeDiff(Literal("hour"), t3, t6))), withLong).get
-    assert(diff.outputs === Seq(new ConstDivide(
+    assert(diff.outputs.asScala.toSeq === Seq(new ConstDivide(
       new IntArith(IntOp.SUB, Overflow.WRAP, longCol, longCol2), 3600000000000L, nanosPerDay)))
-    assert(diff.inputOrdinals === Seq(8, 7))
-    assert(diff.outputTypes === Seq(LongType))
+    assert(diff.inputOrdinals.asScala.toSeq === Seq(8, 7))
+    assert(diff.outputTypes.asScala.toSeq === Seq(LongType))
     // The unit is read the way DateTimeUtils reads it: case-insensitively.
     val upper = VarkaExpressionCompiler.compile(
       Seq(out(TimeDiff(Literal("MILLISECOND"), t3, t6))), withLong).get
-    assert(upper.outputs.head.asInstanceOf[ConstDivide].divisor() === 1000000L)
+    assert(upper.outputs.asScala.head.asInstanceOf[ConstDivide].divisor() === 1000000L)
   }
 
   test("time_trunc lowers to a division and a multiply by the level's nanoseconds") {
@@ -834,11 +849,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // both the division's shape constant and a literal slot for the multiply.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(TimeTrunc(Literal("MINUTE"), t6))), withLong).get
-    assert(compiled.outputs === Seq(new IntArith(IntOp.MUL, Overflow.WRAP,
+    assert(compiled.outputs.asScala.toSeq === Seq(new IntArith(IntOp.MUL, Overflow.WRAP,
       new ConstDivide(longCol, 60000000000L, nanosPerDay), longSlot(0))))
-    assert(compiled.longLiterals === Seq(60000000000L))
-    assert(compiled.inputOrdinals === Seq(8))
-    assert(compiled.outputTypes === Seq(TimeType(6)))
+    assert(compiled.longLiterals.asScala.toSeq === Seq(60000000000L))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(8))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(TimeType(6)))
   }
 
   test("hour, minute and second lower to long-lane divisions under a narrowing root") {
@@ -848,22 +863,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // computed in the long lane, so the kernel is a long-lane one whose output type is an int,
     // and the narrowing root is what tells the store so.
     val hour = VarkaExpressionCompiler.compile(Seq(out(HoursOfTime(t6))), withLong).get
-    assert(hour.outputs === Seq(
+    assert(hour.outputs.asScala.toSeq === Seq(
       new NarrowLane(new ConstDivide(longCol, 3600000000000L, nanosPerDay))))
     assert(hour.lane === LaneType.LONG)
-    assert(hour.outputTypes === Seq(IntegerType))
-    assert(hour.inputOrdinals === Seq(8))
+    assert(hour.outputTypes.asScala.toSeq === Seq(IntegerType))
+    assert(hour.inputOrdinals.asScala.toSeq === Seq(8))
     def remainderOfSixty(x: ConstDivide): VarkaVectorIR =
       new IntArith(IntOp.SUB, Overflow.WRAP, x,
         new IntArith(IntOp.MUL, Overflow.WRAP,
           new ConstDivide(x, 60L, x.dividendBound() / math.abs(x.divisor())), longSlot(0)))
     val minute = VarkaExpressionCompiler.compile(Seq(out(MinutesOfTime(t6))), withLong).get
-    assert(minute.outputs === Seq(new NarrowLane(
+    assert(minute.outputs.asScala.toSeq === Seq(new NarrowLane(
       remainderOfSixty(new ConstDivide(longCol, 60000000000L, nanosPerDay)))))
-    assert(minute.longLiterals === Seq(60L))
-    assert(minute.outputTypes === Seq(IntegerType))
+    assert(minute.longLiterals.asScala.toSeq === Seq(60L))
+    assert(minute.outputTypes.asScala.toSeq === Seq(IntegerType))
     val second = VarkaExpressionCompiler.compile(Seq(out(SecondsOfTime(t6))), withLong).get
-    assert(second.outputs === Seq(new NarrowLane(
+    assert(second.outputs.asScala.toSeq === Seq(new NarrowLane(
       remainderOfSixty(new ConstDivide(longCol, 1000000000L, nanosPerDay)))))
     assert(second.lane === LaneType.LONG)
     // A narrowed root beside a wide one is one kernel: both are computed in the long lane, and
@@ -871,7 +886,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val both = VarkaExpressionCompiler.compile(
       Seq(out(HoursOfTime(t6)), out(TimeTrunc(Literal("HOUR"), t6))), withLong).get
     assert(both.lane === LaneType.LONG)
-    assert(both.outputTypes === Seq(IntegerType, TimeType(6)))
+    assert(both.outputTypes.asScala.toSeq === Seq(IntegerType, TimeType(6)))
   }
 
   test("an extract under another expression declines, until VARKA-28 narrows inside a tree") {
@@ -886,11 +901,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Group E (`VARKA-102.md` 9.3): `floorDiv` of a non-negative count is the truncating
     // division the lane has, and the result is a bigint on the same lane.
     val millis = VarkaExpressionCompiler.compile(Seq(out(TimeToMillis(t6))), withLong).get
-    assert(millis.outputs === Seq(new ConstDivide(longCol, 1000000L, nanosPerDay)))
-    assert(millis.outputTypes === Seq(LongType))
+    assert(millis.outputs.asScala.toSeq === Seq(new ConstDivide(longCol, 1000000L, nanosPerDay)))
+    assert(millis.outputTypes.asScala.toSeq === Seq(LongType))
     val micros = VarkaExpressionCompiler.compile(Seq(out(TimeToMicros(t3))), withLong).get
-    assert(micros.outputs === Seq(new ConstDivide(longCol, 1000L, nanosPerDay)))
-    assert(micros.inputOrdinals === Seq(7))
+    assert(micros.outputs.asScala.toSeq === Seq(new ConstDivide(longCol, 1000L, nanosPerDay)))
+    assert(micros.inputOrdinals.asScala.toSeq === Seq(7))
   }
 
   test("time_from_seconds, millis and micros lower to a guarded multiply into the day") {
@@ -900,17 +915,17 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     def form(unit: Long): VarkaVectorIR = new IntArith(IntOp.MUL, Overflow.WRAP,
       new GuardedRange(longCol, 0L, (86400000000000L - 1) / unit), longSlot(0))
     val seconds = VarkaExpressionCompiler.compile(Seq(out(TimeFromSeconds(l))), withLong).get
-    assert(seconds.outputs === Seq(form(1000000000L)))
-    assert(seconds.longLiterals === Seq(1000000000L))
-    assert(seconds.outputTypes === Seq(TimeType(6)))
+    assert(seconds.outputs.asScala.toSeq === Seq(form(1000000000L)))
+    assert(seconds.longLiterals.asScala.toSeq === Seq(1000000000L))
+    assert(seconds.outputTypes.asScala.toSeq === Seq(TimeType(6)))
     val millis = VarkaExpressionCompiler.compile(Seq(out(TimeFromMillis(l))), withLong).get
-    assert(millis.outputs === Seq(form(1000000L)))
+    assert(millis.outputs.asScala.toSeq === Seq(form(1000000L)))
     val micros = VarkaExpressionCompiler.compile(Seq(out(TimeFromMicros(l))), withLong).get
-    assert(micros.outputs === Seq(form(1000L)))
+    assert(micros.outputs.asScala.toSeq === Seq(form(1000L)))
     // A round trip composes: the conversion's division under the conversion's multiply.
     val trip = VarkaExpressionCompiler.compile(
       Seq(out(TimeFromMicros(TimeToMicros(t6)))), withLong).get
-    assert(trip.outputs === Seq(new IntArith(IntOp.MUL, Overflow.WRAP,
+    assert(trip.outputs.asScala.toSeq === Seq(new IntArith(IntOp.MUL, Overflow.WRAP,
       new GuardedRange(new ConstDivide(longCol, 1000L, nanosPerDay), 0L, 86399999999L),
       longSlot(0))))
   }
@@ -950,11 +965,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(TimeAddInterval(t6, dt))), withLong).get
     val micros = new GuardedRange(longCol2, -86400000000L, 86400000000L)
     val nanos = new IntArith(IntOp.MUL, Overflow.WRAP, micros, longSlot(0))
-    assert(compiled.outputs === Seq(new GuardedRange(
+    assert(compiled.outputs.asScala.toSeq === Seq(new GuardedRange(
       new IntArith(IntOp.ADD, Overflow.WRAP, longCol, nanos), 0L, 86399999999999L)))
-    assert(compiled.longLiterals === Seq(1000L))
-    assert(compiled.inputOrdinals === Seq(8, 9))
-    assert(compiled.outputTypes === Seq(TimeType(6)))
+    assert(compiled.longLiterals.asScala.toSeq === Seq(1000L))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(8, 9))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(TimeType(6)))
   }
 
   test("t + a literal interval folds the interval to a slot and guards only the sum") {
@@ -964,10 +979,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val hour = Literal(3600000000L, DayTimeIntervalType(DayTimeIntervalType.HOUR))
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(TimeAddInterval(t6, hour))), withLong).get
-    assert(compiled.outputs === Seq(new GuardedRange(
+    assert(compiled.outputs.asScala.toSeq === Seq(new GuardedRange(
       new IntArith(IntOp.ADD, Overflow.WRAP, longCol, longSlot(0)), 0L, 86399999999999L)))
-    assert(compiled.longLiterals === Seq(3600000000000L))
-    assert(compiled.inputOrdinals === Seq(8))
+    assert(compiled.longLiterals.asScala.toSeq === Seq(3600000000000L))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(8))
     val twoDays = Literal(2L * 86400000000L, DayTimeIntervalType(DayTimeIntervalType.DAY))
     val reason = declineReason(TimeAddInterval(t6, twoDays), withLong)
     assert(reason.contains("longer than a day"), reason)
@@ -1000,7 +1015,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val noon = Literal(12L * 3600 * 1000000000L, TimeType(6))
     val predicate = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(t6, noon), LessThan(TimeAddInterval(t6, dt), noon)), withLong).get
-    assert(predicate.specs.forall(_.fused), predicate.specs.flatMap(_.decline).map(_.reason))
+    assert(predicate.specs.asScala.forall(_.fused),
+        predicate.specs.asScala.toSeq.flatMap(_.decline.toScala).map(_.reason))
   }
 
   test("timeAddInterval's precision truncation is the identity for every admitted type") {
@@ -1037,8 +1053,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(e), out(DateAdd(d, Literal(1)))), output).get
-    assert(partial.declines.contains(0), s"$e fused; expected it to decline")
-    partial.declines(0).reason
+    assert(partial.declines.asScala.contains(0), s"$e fused; expected it to decline")
+    partial.declines.asScala(0).reason
   }
 
   test("a year-month interval column is a date-lane leaf, whatever its unit") {
@@ -1048,9 +1064,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (col <- Seq(ymm, ymy, ym)) {
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(DateAddYMInterval(d, col))), withIntervals).get
-      assert(compiled.outputs === Seq(new IRAddMonths(new ColumnRef(0), new ColumnRef(1))),
+      assert(compiled.outputs.asScala.toSeq === Seq(new IRAddMonths(new ColumnRef(0),
+          new ColumnRef(1))),
         s"unit ${col.dataType.simpleString} did not compile to a column-count add_months")
-      assert(compiled.outputTypes === Seq(DateType))
+      assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
     }
     // The leaf and the literal, in the positions Spark's typing lets an interval reach: an
     // ordered comparison, and a same-typed coalesce whose output is the interval itself.
@@ -1062,7 +1079,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(cmp.fusedConjuncts.size === 1)
     val coalesced = VarkaExpressionCompiler.compile(
       Seq(out(Coalesce(Seq(ymm, months)))), withIntervals).get
-    assert(coalesced.outputTypes === Seq(ymm.dataType),
+    assert(coalesced.outputTypes.asScala.toSeq === Seq(ymm.dataType),
       "the fused output keeps the interval type, which is what allocateVector reads")
   }
 
@@ -1072,12 +1089,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // are the identity on the lane and neither emits a node - the `unix_date` pattern.
     val toInterval = VarkaExpressionCompiler.compile(
       Seq(out(Cast(i, ymm.dataType))), withIntervals).get
-    assert(toInterval.outputs === Seq(new ColumnRef(0)))
-    assert(toInterval.outputTypes === Seq(ymm.dataType))
+    assert(toInterval.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+    assert(toInterval.outputTypes.asScala.toSeq === Seq(ymm.dataType))
     val toInt = VarkaExpressionCompiler.compile(
       Seq(out(Cast(ymm, IntegerType))), withIntervals).get
-    assert(toInt.outputs === Seq(new ColumnRef(0)))
-    assert(toInt.outputTypes === Seq(IntegerType))
+    assert(toInt.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+    assert(toInt.outputTypes.asScala.toSeq === Seq(IntegerType))
 
     // The YEAR unit is neither direction's identity: 12x one way, /12 the other. VARKA-68
     // widened the emitter's month-count position and takes the 12x; the reverse direction is a
@@ -1099,8 +1116,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // The corrected bound still proves the products it should: 42400 * 50000 is inside int32.
     val safe = VarkaExpressionCompiler.compile(
       Seq(out(Multiply(farYear, Literal(50000), EvalMode.ANSI))), childOutput).get
-    assert(safe.outputs.head.isInstanceOf[IntArith])
-    assert(safe.outputs.head.asInstanceOf[IntArith].mode() === Overflow.WRAP)
+    assert(safe.outputs.asScala.head.isInstanceOf[IntArith])
+    assert(safe.outputs.asScala.head.asInstanceOf[IntArith].mode() === Overflow.WRAP)
   }
 
   test("the YEAR-unit cast is a checked 12x, in both positions, bound permitting") {
@@ -1111,9 +1128,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // declines like every other unbounded checked multiply.
     val bounded = VarkaExpressionCompiler.compile(
       Seq(out(Cast(Year(d), ymy.dataType))), withIntervals).get
-    assert(bounded.outputs === Seq(
+    assert(bounded.outputs.asScala.toSeq === Seq(
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(new ColumnRef(0)), new LiteralSlot(0))))
-    assert(bounded.outputTypes === Seq(ymy.dataType))
+    assert(bounded.outputTypes.asScala.toSeq === Seq(ymy.dataType))
     assert(declineReason(Cast(i, ymy.dataType), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
 
@@ -1122,7 +1139,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // landed, and the emitter's `requireMonthCountShape` is what has to agree.
     val inCount = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, Cast(Year(d), ymy.dataType)))), withIntervals).get
-    assert(inCount.outputs === Seq(new IRAddMonths(new ColumnRef(0),
+    assert(inCount.outputs.asScala.toSeq === Seq(new IRAddMonths(new ColumnRef(0),
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(new ColumnRef(0)),
         new LiteralSlot(0)))))
     assert(declineReason(DateAddYMInterval(d, Cast(i, ymy.dataType)), withIntervals) ===
@@ -1137,9 +1154,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // `next_day` has no such guard. VARKA-67 pinned this as declining.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, UnaryMinus(ymm, false)))), withIntervals).get
-    assert(compiled.outputs === Seq(new IRAddMonths(new ColumnRef(0),
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRAddMonths(new ColumnRef(0),
       new IntNeg(Overflow.FAIL, new ColumnRef(1)))))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
   }
 
   test("the interval algebra rides the int32 arithmetic nodes, always checked") {
@@ -1148,16 +1165,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // and only `intBound` takes the check off. Over two unbounded interval columns it stays.
     val add = VarkaExpressionCompiler.compile(
       Seq(out(Add(ymm, ym))), withIntervals).get
-    assert(add.outputs === Seq(
+    assert(add.outputs.asScala.toSeq === Seq(
       new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(0), new ColumnRef(1))))
-    assert(add.outputTypes === Seq(ymm.dataType))
+    assert(add.outputTypes.asScala.toSeq === Seq(ymm.dataType))
     val sub = VarkaExpressionCompiler.compile(
       Seq(out(Subtract(ymm, ym))), withIntervals).get
-    assert(sub.outputs === Seq(
+    assert(sub.outputs.asScala.toSeq === Seq(
       new IntArith(IntOp.SUB, Overflow.FAIL, new ColumnRef(0), new ColumnRef(1))))
     val neg = VarkaExpressionCompiler.compile(
       Seq(out(UnaryMinus(ymm, false))), withIntervals).get
-    assert(neg.outputs === Seq(new IntNeg(Overflow.FAIL, new ColumnRef(0))))
+    assert(neg.outputs.asScala.toSeq === Seq(new IntNeg(Overflow.FAIL, new ColumnRef(0))))
 
     // `abs` is not an op the IR has: it is the blend `if (x < 0) -x else x`, whose IntNeg arm
     // takes exactly the one input that overflows a negation. Since VARKA-79 the guard under a
@@ -1166,12 +1183,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // relabel cast, fuses on the same arm - VARKA-60 pinned it as declining.
     val negCast = VarkaExpressionCompiler.compile(
       Seq(out(DateAddYMInterval(d, UnaryMinus(Cast(i, ymm.dataType))))), withIntervals).get
-    assert(negCast.outputs === Seq(new IRAddMonths(new ColumnRef(0),
+    assert(negCast.outputs.asScala.toSeq === Seq(new IRAddMonths(new ColumnRef(0),
       new IntNeg(Overflow.FAIL, new ColumnRef(1)))))
 
     val abs = VarkaExpressionCompiler.compile(
       Seq(out(Abs(ymm, false))), withIntervals).get
-    assert(abs.outputs === Seq(new IfElse(
+    assert(abs.outputs.asScala.toSeq === Seq(new IfElse(
       new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0)),
       new IntNeg(Overflow.FAIL, new ColumnRef(0)), new ColumnRef(0))))
 
@@ -1179,11 +1196,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // both checks, which is the shape that fuses with none at all.
     val mk = VarkaExpressionCompiler.compile(
       Seq(out(MakeYMInterval(Year(d), Month(d)))), withIntervals).get
-    assert(mk.outputs === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
+    assert(mk.outputs.asScala.toSeq === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
       new IRMonth(new ColumnRef(0)),
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(new ColumnRef(0)),
         new LiteralSlot(0)))))
-    assert(mk.outputTypes === Seq(YearMonthIntervalType()))
+    assert(mk.outputTypes.asScala.toSeq === Seq(YearMonthIntervalType()))
     assert(declineReason(MakeYMInterval(i, i), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
   }
@@ -1197,13 +1214,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val hull = YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.MONTH)
     val coerced = Add(Cast(ymm, hull), Cast(ymy, hull))
     val compiled = VarkaExpressionCompiler.compile(Seq(out(coerced)), withIntervals).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(0), new ColumnRef(1))))
-    assert(compiled.outputTypes === Seq(hull))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(hull))
     // The relabel on its own, in a value position, emitting nothing at all.
     val bare = VarkaExpressionCompiler.compile(Seq(out(Cast(ymm, hull))), withIntervals).get
-    assert(bare.outputs === Seq(new ColumnRef(0)))
-    assert(bare.outputTypes === Seq(hull))
+    assert(bare.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+    assert(bare.outputTypes.asScala.toSeq === Seq(hull))
 
     // The other direction truncates - a YEAR end field keeps only the whole years, which is a
     // division by twelve - and is named rather than left to the generic decline. Coercion never
@@ -1224,10 +1241,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (col <- Seq(ymm, ymy, ym)) {
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(ExtractANSIIntervalYears(col))), withIntervals).get
-      assert(compiled.outputTypes === Seq(IntegerType))
+      assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType))
       // The ordinal the column lands on is the compiler's to choose, so the assertion is on the
       // shape: one division by twelve, directly over a column.
-      compiled.outputs match {
+      compiled.outputs.asScala.toSeq match {
         case Seq(div: ConstDivide) =>
           assert(div.divisor() === 12)
           assert(div.child().isInstanceOf[ColumnRef])
@@ -1255,7 +1272,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(MultiplyYMInterval(Cast(Year(d), ymy.dataType), Literal(3)))), withIntervals).get
     // The result widens to YEAR TO MONTH whatever the operand's unit, which is Spark's own
     // typing and correct: scaling a year interval can produce months.
-    assert(byLiteral.outputTypes === Seq(YearMonthIntervalType()))
+    assert(byLiteral.outputTypes.asScala.toSeq === Seq(YearMonthIntervalType()))
     assert(declineReason(MultiplyYMInterval(ymm, i), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
     for ((mult, name) <- Seq(Literal(3L) -> "bigint", Literal(2.5d) -> "double")) {
@@ -1346,7 +1363,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("a column offset is admitted - the emitter guards that producer") {
     val compiled = VarkaExpressionCompiler.compile(Seq(out(Year(DateAdd(d, i)))), childOutput).get
-    assert(compiled.outputs === Seq(new IRYear(new AddDays(new ColumnRef(0), new ColumnRef(1)))))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRYear(new AddDays(new ColumnRef(0),
+        new ColumnRef(1)))))
     assert(fuses(Year(DateSub(DateAdd(d, Literal(shiftHi)), i))))
     assert(fuses(Year(Greatest(Seq(DateAdd(d, i), d2)))))
     // A column offset above an out-of-range literal shift is admitted too: the runtime guard
@@ -1366,16 +1384,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         "quarter" -> TruncLevel.QUARTER)) {
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(TruncDate(d, Literal(spelling)))), childOutput).get
-      assert(compiled.outputs === Seq(new IRTruncDate(new ColumnRef(0), level)), spelling)
-      assert(compiled.outputTypes === Seq(DateType), spelling)
-      assert(compiled.literals.isEmpty, s"$spelling: the level is a field, not a slot")
+      assert(compiled.outputs.asScala.toSeq === Seq(new IRTruncDate(new ColumnRef(0), level)),
+          spelling)
+      assert(compiled.outputTypes.asScala.toSeq === Seq(DateType), spelling)
+      assert(compiled.literals.asScala.isEmpty,
+          s"$spelling: the level is a field, not a slot")
     }
     // Two levels over one date are two nodes, so CSE cannot merge them and the shape hash
     // tells them apart - the reason the level is a record component.
     val two = VarkaExpressionCompiler.compile(
       Seq(out(TruncDate(d, Literal("YEAR"))), out(TruncDate(d, Literal("MONTH")))),
       childOutput).get
-    assert(two.outputs(0) !== two.outputs(1))
+    assert(two.outputs.get(0) !== two.outputs.get(1))
   }
 
   test("trunc to WEEK is next_day over date_sub by seven, on the nodes already there") {
@@ -1384,10 +1404,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // literal is 3. The shape is the assertion: if the rewrite is wrong, this is where it shows.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(TruncDate(d, Literal("WEEK")))), childOutput).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRNextDay(new SubDays(new ColumnRef(0), new LiteralSlot(0)), new LiteralSlot(1))))
-    assert(compiled.literals === Seq(7, 3))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.literals.asScala.toSeq === Seq(7, 3))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
   }
 
   test("declines a non-foldable, null, unrecognized or sub-day trunc format, each " +
@@ -1396,7 +1416,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     def reason(format: Expression, output: Seq[Attribute] = childOutput): String = {
       val partial = VarkaExpressionCompiler.compilePartial(
         Seq(out(TruncDate(d, format)), out(DateAdd(d, Literal(1)))), output).get
-      partial.declines(0).reason
+      partial.declines.asScala(0).reason
     }
     // A stored string column fuses since VARKA-61 (the dynamic node); an expression over one
     // is what "non-foldable" declines now.
@@ -1415,25 +1435,29 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // is a ColumnRef like any other, inputOrdinals names the string column, and the note tells
     // the evaluator to fill it before the kernel. No ANSI kind: TruncDate has no error path.
     val compiled = VarkaExpressionCompiler.compile(Seq(out(TruncDate(d, dow))), withDow).get
-    assert(compiled.outputs === Seq(new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1))))
-    assert(compiled.outputTypes === Seq(DateType))
-    assert(compiled.inputOrdinals === Seq(0, 5))
-    assert(compiled.literals === Nil)
-    assert(compiled.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRTruncDateDynamic(new ColumnRef(0),
+        new ColumnRef(1))))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(0, 5))
+    assert(compiled.literals.asScala.toSeq === Nil)
+    assert(compiled.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.TRUNC_LEVEL)))
     val lcase = AttributeReference("lc", StringType("UTF8_LCASE"))()
     val collated = VarkaExpressionCompiler.compile(
       Seq(out(TruncDate(d, lcase))), childOutput :+ lcase).get
-    assert(collated.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+    assert(collated.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.TRUNC_LEVEL)))
     // Beside the literal node in one projection: the date column is shared, the literal
     // spelling stays VARKA-35's node, and one derived input serves both dynamic entries.
     val both = VarkaExpressionCompiler.compile(Seq(out(TruncDate(d, dow)),
       out(TruncDate(d, Literal("MONTH"))), out(TruncDate(d2, dow))), withDow).get
-    assert(both.outputs === Seq(
+    assert(both.outputs.asScala.toSeq === Seq(
       new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1)),
       new IRTruncDate(new ColumnRef(0), TruncLevel.MONTH),
       new IRTruncDateDynamic(new ColumnRef(2), new ColumnRef(1))))
-    assert(both.inputOrdinals === Seq(0, 5, 1))
-    assert(both.derivedInputs === Seq(VarkaDerivedInput(1, 5, VarkaDerivedKind.TRUNC_LEVEL)))
+    assert(both.inputOrdinals.asScala.toSeq === Seq(0, 5, 1))
+    assert(both.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
+        VarkaDerivedKind.TRUNC_LEVEL)))
   }
 
   test("a format that is an expression over the column declines with the trunc " +
@@ -1441,13 +1465,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     def reason(format: Expression): String = {
       val partial = VarkaExpressionCompiler.compilePartial(
         Seq(out(TruncDate(d, format)), out(DateAdd(d, Literal(1)))), withDow).get
-      partial.declines(0).reason
+      partial.declines.asScala(0).reason
     }
     assert(reason(Upper(dow)) === "trunc with a non-foldable format")
     assert(reason(Concat(Seq(dow, Literal("")))) === "trunc with a non-foldable format")
     // The range analysis knows the node - at most 365 days back - so year(trunc(d, fmt)) fuses.
     val composed = VarkaExpressionCompiler.compile(Seq(out(Year(TruncDate(d, dow)))), withDow).get
-    assert(composed.outputs === Seq(
+    assert(composed.outputs.asScala.toSeq === Seq(
       new IRYear(new IRTruncDateDynamic(new ColumnRef(0), new ColumnRef(1)))))
   }
 
@@ -1465,8 +1489,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // a bare ColumnRef, with the output type coming from the Catalyst expression (IntegerType)
     // rather than from anything the IR rendered.
     val unixDate = VarkaExpressionCompiler.compile(Seq(out(UnixDate(d))), childOutput).get
-    assert(unixDate.outputs === Seq(new ColumnRef(0)))
-    assert(unixDate.outputTypes === Seq(IntegerType))
+    assert(unixDate.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+    assert(unixDate.outputTypes.asScala.toSeq === Seq(IntegerType))
     // date_from_unix_date's child is an integer column, which no general leaf can read, so
     // this declines through the ordinary non-date-column path exactly as any other read of
     // `i` would. VARKA-38 has since landed and does not change that: it opens IntegerType
@@ -1478,9 +1502,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // projection to the row path. Before this task UnixDate itself declined, taking `a` with it.
     val mixed = VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, Literal(1))), out(UnixDate(d))), childOutput).get
-    assert(mixed.outputs === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0)),
+    assert(mixed.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0)),
       new ColumnRef(0)))
-    assert(mixed.outputTypes === Seq(DateType, IntegerType))
+    assert(mixed.outputTypes.asScala.toSeq === Seq(DateType, IntegerType))
     // A relabel compiles to a bare ColumnRef, the same IR shape a bare column produces -
     // compileCoalesce and compileValidity both use that shape as their proxy for "this
     // operand is a bare column" (their own doc comments now say so), and a relabel is safe
@@ -1489,27 +1513,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val c1 = new ColumnRef(1)
     val guarded = VarkaExpressionCompiler.compile(
       Seq(out(If(IsNotNull(UnixDate(d)), UnixDate(d), UnixDate(d2)))), childOutput).get
-    assert(guarded.outputs === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
-    assert(guarded.outputTypes === Seq(IntegerType))
+    assert(guarded.outputs.asScala.toSeq === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
+    assert(guarded.outputTypes.asScala.toSeq === Seq(IntegerType))
     val coalesced = VarkaExpressionCompiler.compile(
       Seq(out(Coalesce(Seq(UnixDate(d), UnixDate(d2))))), childOutput).get
-    assert(coalesced.outputs === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
-    assert(coalesced.outputTypes === Seq(IntegerType))
+    assert(coalesced.outputs.asScala.toSeq === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
+    assert(coalesced.outputTypes.asScala.toSeq === Seq(IntegerType))
   }
 
   test("date_add/date_sub with an IntegerType column offset compile to a two-column " +
       "AddDays/SubDays, and a foldable offset still compiles to a LiteralSlot") {
     val addCompiled = VarkaExpressionCompiler.compile(Seq(out(DateAdd(d, i))), childOutput).get
-    assert(addCompiled.outputs === Seq(new AddDays(new ColumnRef(0), new ColumnRef(1))))
-    assert(addCompiled.inputOrdinals === Seq(0, 2))
-    assert(addCompiled.outputTypes === Seq(DateType))
+    assert(addCompiled.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
+        new ColumnRef(1))))
+    assert(addCompiled.inputOrdinals.asScala.toSeq === Seq(0, 2))
+    assert(addCompiled.outputTypes.asScala.toSeq === Seq(DateType))
     val subCompiled = VarkaExpressionCompiler.compile(Seq(out(DateSub(d, i))), childOutput).get
-    assert(subCompiled.outputs === Seq(new SubDays(new ColumnRef(0), new ColumnRef(1))))
+    assert(subCompiled.outputs.asScala.toSeq === Seq(new SubDays(new ColumnRef(0),
+        new ColumnRef(1))))
     // A foldable offset keeps today's LiteralSlot shape - existing plans and their cached
     // kernels are untouched by the fallback path this task adds.
     val literalCompiled =
       VarkaExpressionCompiler.compile(Seq(out(DateAdd(d, Literal(3)))), childOutput).get
-    assert(literalCompiled.outputs === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0))))
+    assert(literalCompiled.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
+        new LiteralSlot(0))))
   }
 
   test("declines a ShortType or ByteType offset column, and an interval column") {
@@ -1536,7 +1563,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(Cast(s, DateType), sh)), out(DateAdd(d, Literal(1)))),
       s +: childOutput).get
-    assert(partial.declines(0).reason === "unsupported expression")
+    assert(partial.declines.asScala(0).reason === "unsupported expression")
   }
 
   test("declines null-safe equality, bare boolean outputs") {
@@ -1559,21 +1586,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Slots in sorted-day order (5, 11, 20), the duplicate collapsed; the fold is balanced
     // pairwise, so three leaves become Or(Or(e0, e1), e2) - the shape the cap arithmetic
     // and the shape hash both depend on.
-    assert(compiled.literals === Seq(5, 11, 20))
-    assert(compiled.outputs === Seq(new IfElse(
+    assert(compiled.literals.asScala.toSeq === Seq(5, 11, 20))
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(
       new IROr(new IROr(eq(0), eq(1)), eq(2)), c0, new ColumnRef(1))))
     // InSet hands the same values over as an unordered set and must compile identically.
     val viaInSet = VarkaExpressionCompiler.compile(
       Seq(out(If(InSet(d, Set[Any](20, 5, 11)), d, d2))), childOutput).get
-    assert(viaInSet.outputs === compiled.outputs)
-    assert(viaInSet.literals === compiled.literals)
+    assert(viaInSet.outputs.asScala.toSeq === compiled.outputs.asScala.toSeq)
+    assert(viaInSet.literals.asScala.toSeq === compiled.literals.asScala.toSeq)
     // And at the cap size - the shape that actually arrives as InSet past the optimizer's
     // threshold of 10 - the full sorted slot sequence is pinned: sixteen elements handed
     // over in descending order must register ascending, or the shape hash drifts run to run.
     val days16 = (1 to 16).map(_ * 7)
     val atCap = VarkaExpressionCompiler.compile(
       Seq(out(If(InSet(d, Set[Any](days16.reverse: _*)), d, d2))), childOutput).get
-    assert(atCap.literals === days16)
+    assert(atCap.literals.asScala.toSeq === days16)
   }
 
   test("the IN cap - 16 literals fuse, 17 decline with the recorded reason") {
@@ -1582,14 +1609,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaExpressionCompiler.compile(Seq(inIf(16)), childOutput).isDefined)
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(inIf(17), out(DateAdd(d, Literal(1)))), childOutput).get
-    assert(partial.specs === Seq(ResidualOutput, FusedOutput(0)))
-    assert(partial.declines(0).reason === "IN list longer than the fused cap of 16")
+    assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
+    assert(partial.declines.asScala(0).reason === "IN list longer than the fused cap of 16")
     // A null element can never match by SQL's IN semantics but makes the no-match result
     // unknown; it stays declined rather than modeled.
     val withNull = out(If(In(d, Seq(Literal(1, DateType), Literal(null, DateType))), d, d2))
     val p2 = VarkaExpressionCompiler.compilePartial(
       Seq(withNull, out(DateAdd(d, Literal(1)))), childOutput).get
-    assert(p2.declines(0).reason === "IN list has a null or non-literal element")
+    assert(p2.declines.asScala(0).reason === "IN list has a null or non-literal element")
   }
 
   test("coalesce lowers onto the validity condition; guarded operands are columns") {
@@ -1597,14 +1624,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(Coalesce(Seq(d, d2, Literal(7, DateType))))), childOutput).get
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
-    assert(compiled.outputs === Seq(new IfElse(new IRIsNotNull(c0), c0,
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(new IRIsNotNull(c0), c0,
       new IfElse(new IRIsNotNull(c1), c1, new LiteralSlot(0)))))
     // A computed operand before the last cannot be guarded - its validity word is not live
     // before value emission - and declines with its own reason.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(Coalesce(Seq(DateAdd(d, Literal(1)), d2))), out(DateAdd(d, Literal(1)))),
       childOutput).get
-    assert(partial.declines(0).reason ===
+    assert(partial.declines.asScala(0).reason ===
       "coalesce operand before the last is not a bare date column")
   }
 
@@ -1613,34 +1640,35 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(If(IsNotNull(d), d, d2)), out(If(IsNull(d), d2, d))), childOutput).get
     val c0 = new ColumnRef(0)
     val c1 = new ColumnRef(1)
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IfElse(new IRIsNotNull(c0), c0, c1),
       new IfElse(new IRNot(new IRIsNotNull(c0)), c1, c0)))
     // Hand-built RuntimeReplaceables compile through their replacement - the same trees a
     // real query hands over after the optimizer's ReplaceExpressions.
     val viaNvl = VarkaExpressionCompiler.compile(Seq(out(new Nvl(d, d2))), childOutput).get
-    assert(viaNvl.outputs === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
+    assert(viaNvl.outputs.asScala.toSeq === Seq(new IfElse(new IRIsNotNull(c0), c0, c1)))
     val viaNvl2 = VarkaExpressionCompiler.compile(
       Seq(out(new Nvl2(d, d2, DateAdd(d2, Literal(1))))), childOutput).get
-    assert(viaNvl2.outputs === Seq(new IfElse(new IRIsNotNull(c0), c1,
+    assert(viaNvl2.outputs.asScala.toSeq === Seq(new IfElse(new IRIsNotNull(c0), c1,
       new AddDays(c1, new LiteralSlot(0)))))
     // A validity predicate over a computed operand declines: the emitter reads the child's
     // per-input validity word, which only a column has before value emission.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(If(IsNotNull(DateAdd(d, Literal(1))), d, d2)), out(DateAdd(d, Literal(1)))),
       childOutput).get
-    assert(partial.declines(0).reason === "validity predicate over a non-column operand")
+    assert(partial.declines.asScala(0).reason === "validity predicate over a non-column operand")
   }
 
   test("the identity date cast unwraps; a string-column cast still declines") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(Cast(DateAdd(d, Literal(3)), DateType))), childOutput).get
-    assert(compiled.outputs === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0))))
+    assert(compiled.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
+        new LiteralSlot(0))))
     // A string column cast is a per-row parse with no string lane.
     val s = AttributeReference("s", StringType)()
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(Cast(s, DateType)), out(DateAdd(d, Literal(1)))), s +: childOutput).get
-    assert(partial.declines(0).reason === "unsupported expression")
+    assert(partial.declines.asScala(0).reason === "unsupported expression")
   }
 
   test("the compiler mirrors the emitter budgets and demotes the overflow entry") {
@@ -1657,17 +1685,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val threeEntries = Seq(inIf(0), inIf(1000), out(DateAdd(d, Literal(9999))))
     val partial = VarkaExpressionCompiler.compilePartial(threeEntries, childOutput,
       oneKernel.withMethodByteBudget(0)).get
-    assert(partial.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
-    assert(partial.declines(2).reason === "exceeds the emitter's fused budget")
-    assert(VarkaExpressionCompiler.compilePartial(threeEntries, childOutput).get.specs ===
-      Seq(FusedOutput(0), FusedOutput(1), FusedOutput(2)))
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), new FusedOutput(1),
+        VarkaOutputSpec.RESIDUAL))
+    assert(partial.declines.asScala(2).reason === "exceeds the emitter's fused budget")
+    assert(VarkaExpressionCompiler.compilePartial(threeEntries,
+        childOutput).get.specs.asScala.toSeq ===
+      Seq(new FusedOutput(0), new FusedOutput(1), new FusedOutput(2)))
     // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
     // 20 and then failed at emission.
     val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
     val deepPartial = VarkaExpressionCompiler.compilePartial(
       Seq(deep, out(DateAdd(d, Literal(1)))), childOutput).get
-    assert(deepPartial.specs === Seq(ResidualOutput, FusedOutput(0)))
-    assert(deepPartial.declines(0).reason === "exceeds the emitter's fused budget")
+    assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
+    assert(deepPartial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
     // The input-column budget is mirrored too: 33 shallow datediff entries over 66 distinct
     // columns are only 33 ops at height 1, but 66 kernel inputs - the 33rd entry (the one
     // that pushes past 64 columns) demotes instead of blowing up at emission.
@@ -1676,12 +1706,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       out(DateDiff(wide(2 * k), wide(2 * k + 1)))
     }
     val widePartial = VarkaExpressionCompiler.compilePartial(wideEntries, wide, oneKernel).get
-    assert(widePartial.specs.count(_ == ResidualOutput) === 1)
-    assert(widePartial.specs.last === ResidualOutput)
-    assert(widePartial.declines(32).reason === "exceeds the emitter's fused budget")
+    assert(widePartial.specs.asScala.count(_ == VarkaOutputSpec.RESIDUAL) === 1)
+    assert(widePartial.specs.asScala.last === VarkaOutputSpec.RESIDUAL)
+    assert(widePartial.declines.asScala(32).reason === "exceeds the emitter's fused budget")
     // Under the default the 33rd entry is a second kernel's, and nothing is residual.
-    assert(VarkaExpressionCompiler.compilePartial(wideEntries, wide).get.specs.last ===
-      KernelOutput(1, 0))
+    assert(VarkaExpressionCompiler.compilePartial(wideEntries,
+        wide).get.specs.asScala.last ===
+      new KernelOutput(1, 0))
   }
 
   test("compile is the all-entries-fused special case of compilePartial") {
@@ -1723,22 +1754,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       childOutput).get
     // The int column forwards - forwarding does not care about lane types - and the fused
     // indices count fused entries only.
-    assert(partial.specs ===
-      Seq(FusedOutput(0), ForwardedOutput(2), ResidualOutput, FusedOutput(1)))
+    assert(partial.specs.asScala.toSeq ===
+      Seq(new FusedOutput(0), new ForwardedOutput(2), VarkaOutputSpec.RESIDUAL, new FusedOutput(1)))
     // The fused sub-projection covers exactly the fused entries: their trees, types, columns
     // and literals - nothing of the residual entry leaks in.
-    assert(partial.fused.outputs === Seq(
+    assert(partial.fused.outputs.asScala.toSeq === Seq(
       new AddDays(new ColumnRef(0), new LiteralSlot(0)),
       new SubDays(new ColumnRef(1), new LiteralSlot(1))))
-    assert(partial.fused.outputTypes === Seq(DateType, DateType))
-    assert(partial.fused.inputOrdinals === Seq(0, 1))
-    assert(partial.fused.literals === Seq(3, 2))
+    assert(partial.fused.outputTypes.asScala.toSeq === Seq(DateType, DateType))
+    assert(partial.fused.inputOrdinals.asScala.toSeq === Seq(0, 1))
+    assert(partial.fused.literals.asScala.toSeq === Seq(3, 2))
   }
 
   test("a bare date column forwards like any other bare column") {
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), d.asInstanceOf[NamedExpression]), childOutput).get
-    assert(partial.specs === Seq(FusedOutput(0), ForwardedOutput(0)))
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), new ForwardedOutput(0)))
   }
 
   test("forwards and residuals alone are not eligible: nothing to fuse gains nothing") {
@@ -1763,12 +1794,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         out(DateDiff(DateAdd(d2, Literal(9)), i)),
         out(DateAdd(d, Literal(1)))),
       childOutput).get
-    assert(partial.specs === Seq(ResidualOutput, FusedOutput(0)))
-    assert(partial.fused.inputOrdinals === Seq(0),
+    assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
+    assert(partial.fused.inputOrdinals.asScala.toSeq === Seq(0),
       "the declined entry's column registration must be rolled back")
-    assert(partial.fused.literals === Seq(1),
+    assert(partial.fused.literals.asScala.toSeq === Seq(1),
       "the declined entry's literal registration must be rolled back")
-    assert(partial.fused.outputs === Seq(new AddDays(new ColumnRef(0), new LiteralSlot(0))))
+    assert(partial.fused.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
+        new LiteralSlot(0))))
   }
 
   test("a fully fusible predicate compiles to one condition root") {
@@ -1776,14 +1808,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val condition = org.apache.spark.sql.catalyst.expressions.And(
       GreaterThan(d, Literal(10, DateType)), LessThan(d, Literal(20, DateType)))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
-    assert(predicate.specs.forall(_.fused))
-    assert(predicate.residualConjuncts.isEmpty)
-    assert(predicate.fused.outputs === Seq(new VarkaVectorIR.And(
+    assert(predicate.specs.asScala.forall(_.fused))
+    assert(predicate.residualConjuncts.asScala.isEmpty)
+    assert(predicate.fused.outputs.asScala.toSeq === Seq(new VarkaVectorIR.And(
       new Compare(CompareOp.GT, new ColumnRef(0), new LiteralSlot(0)),
       new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(1)))))
-    assert(predicate.fused.outputTypes === Seq(org.apache.spark.sql.types.BooleanType))
-    assert(predicate.fused.inputOrdinals === Seq(0))
-    assert(predicate.fused.literals === Seq(10, 20))
+    assert(predicate.fused.outputTypes.asScala.toSeq ===
+        Seq(org.apache.spark.sql.types.BooleanType))
+    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0))
+    assert(predicate.fused.literals.asScala.toSeq === Seq(10, 20))
   }
 
   test("a mixed predicate splits - fusible conjuncts in, the rest residual") {
@@ -1798,13 +1831,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         LessThan(d, d2), GreaterThan(sh, Literal(5.toShort))),
       IsNotNull(d))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
-    assert(predicate.specs.map(_.fused) === Seq(true, false, true))
-    assert(predicate.fusedConjuncts === Seq(LessThan(d, d2), IsNotNull(d)))
-    assert(predicate.residualConjuncts === Seq(GreaterThan(sh, Literal(5.toShort))))
-    val decline = predicate.specs(1).decline.get
+    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, false, true))
+    assert(predicate.fusedConjuncts.asScala.toSeq === Seq(LessThan(d, d2), IsNotNull(d)))
+    assert(predicate.residualConjuncts.asScala.toSeq === Seq(GreaterThan(sh, Literal(5.toShort))))
+    val decline = predicate.specs.get(1).decline.get
     assert(decline.reason === "non-date column of type smallint")
     // The fused root is the balanced AND of the two fused conjuncts, in query order.
-    assert(predicate.fused.outputs === Seq(new VarkaVectorIR.And(
+    assert(predicate.fused.outputs.asScala.toSeq === Seq(new VarkaVectorIR.And(
       new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(1)),
       new IRIsNotNull(new ColumnRef(0)))))
   }
@@ -1816,10 +1849,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       LessThan(DateDiff(DateAdd(d2, Literal(9)), i), Literal(3)),
       GreaterThan(d, Literal(11, DateType)))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
-    assert(predicate.specs.map(_.fused) === Seq(false, true))
-    assert(predicate.fused.inputOrdinals === Seq(0),
+    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(false, true))
+    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0),
       "the declined conjunct's column registration must be rolled back")
-    assert(predicate.fused.literals === Seq(11),
+    assert(predicate.fused.literals.asScala.toSeq === Seq(11),
       "the declined conjunct's literal registration must be rolled back")
   }
 
@@ -1840,7 +1873,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
     assert(predicate.specs.size === 20)
-    assert(predicate.specs.forall(_.fused))
+    assert(predicate.specs.asScala.forall(_.fused))
   }
 
   test("a nondeterministic conjunct declines the whole predicate") {
@@ -1865,7 +1898,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       VarkaMatrix.base.withMethodByteBudget(0)).get
     assert(predicate.fusedConjuncts.size === 32)
     assert(predicate.residualConjuncts.size === 8)
-    val decline = predicate.specs.reverse.head.decline.get
+    val decline = predicate.specs.asScala.toSeq.reverse.head.decline.get
     assert(decline.reason === "exceeds the emitter's fused budget")
     assert(VarkaExpressionCompiler.compilePredicate(condition, childOutput).get
       .fusedConjuncts.size === 40)
@@ -1881,8 +1914,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private def intervalDeclineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(e), out(DateAdd(d, Literal(1)))), output).get
-    assert(partial.declines.contains(0), s"$e fused; expected it to decline")
-    partial.declines(0).reason
+    assert(partial.declines.asScala.contains(0), s"$e fused; expected it to decline")
+    partial.declines.asScala(0).reason
   }
 
   test("the arithmetic arms carry the evaluation mode, and the operand leaves") {
@@ -1894,34 +1927,35 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         EvalMode.TRY -> Overflow.NULL)) {
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(Add(i, Literal(1), mode))), childOutput).get
-      assert(compiled.outputs === Seq(new IntArith(IntOp.ADD, overflow,
+      assert(compiled.outputs.asScala.toSeq === Seq(new IntArith(IntOp.ADD, overflow,
         new ColumnRef(0), new LiteralSlot(0))))
-      assert(compiled.outputTypes === Seq(IntegerType))
+      assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType))
     }
     // And the contrast, in one line: the same add over `datediff`, whose range the date
     // contract bounds, needs no check even under ANSI.
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(Add(DateDiff(d, d2), Literal(1), EvalMode.ANSI))), childOutput).get.outputs ===
+      Seq(out(Add(DateDiff(d, d2), Literal(1),
+          EvalMode.ANSI))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
         new IRDateDiff(new ColumnRef(0), new ColumnRef(1)), new LiteralSlot(0))))
     // Subtract and multiply take the same route; unary minus has no TRY spelling in Spark, so
     // its mode is only ever the two.
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(Subtract(i, Literal(1), EvalMode.LEGACY))), childOutput).get.outputs ===
+      Seq(out(Subtract(i, Literal(1), EvalMode.LEGACY))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntArith(IntOp.SUB, Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0))))
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(Multiply(i, Literal(7), EvalMode.LEGACY))), childOutput).get.outputs ===
+      Seq(out(Multiply(i, Literal(7), EvalMode.LEGACY))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntArith(IntOp.MUL, Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0))))
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(UnaryMinus(i, false))), childOutput).get.outputs ===
+      Seq(out(UnaryMinus(i, false))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntNeg(Overflow.WRAP, new ColumnRef(0))))
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(UnaryMinus(i, true))), childOutput).get.outputs ===
+      Seq(out(UnaryMinus(i, true))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntNeg(Overflow.FAIL, new ColumnRef(0))))
     // The operand leaves: an int column is the VARKA-38 leaf, an int literal a slot, and a
     // fused int field the node itself - three kinds, one arm.
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(Add(Year(d), i, EvalMode.LEGACY))), childOutput).get.outputs ===
+      Seq(out(Add(Year(d), i, EvalMode.LEGACY))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new IntArith(IntOp.ADD, Overflow.WRAP, new IRYear(new ColumnRef(0)),
         new ColumnRef(1))))
   }
@@ -1934,7 +1968,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // check in it, not because the check is cheap.
     val key = Add(Multiply(Year(d), Literal(100), EvalMode.ANSI), Month(d), EvalMode.ANSI)
     val compiled = VarkaExpressionCompiler.compile(Seq(out(key)), childOutput).get
-    assert(compiled.outputs === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
+    assert(compiled.outputs.asScala.toSeq === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(new ColumnRef(0)),
         new LiteralSlot(0)),
       new IRMonth(new ColumnRef(0)))))
@@ -1943,7 +1977,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(Multiply(i, Literal(3), EvalMode.ANSI)), out(DateAdd(d, Literal(1)))),
       childOutput).get
-    assert(partial.declines(0).reason ===
+    assert(partial.declines.asScala(0).reason ===
       "checked int multiply whose operands do not rule out overflow")
     // The same tree under LEGACY has nothing to check and fuses.
     assert(VarkaExpressionCompiler.compile(
@@ -1959,7 +1993,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // test compared against MIN_VALUE's magnitude and admitted it.
     assert(VarkaExpressionCompiler.compilePartial(
       Seq(out(Multiply(Quarter(d), Literal(536870912), EvalMode.ANSI)), out(DateAdd(d,
-        Literal(1)))), childOutput).get.declines(0).reason ===
+        Literal(1)))), childOutput).get.declines.asScala(0).reason ===
       "checked int multiply whose operands do not rule out overflow",
       "a bound of 4 * 2^29 = 2^31 overflows and must not prove the multiply safe")
     // One below it still fuses, so the boundary is where it should be and not merely moved.
@@ -1971,31 +2005,31 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // contract width would be a fiction over it.
     val wrapped = DateDiff(DateAdd(d, Literal(2147483647)), d2)
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(Add(wrapped, Literal(1), EvalMode.ANSI))), childOutput).get.outputs.head
+      Seq(out(Add(wrapped, Literal(1), EvalMode.ANSI))), childOutput).get.outputs.asScala.head
       .asInstanceOf[IntArith].mode() === Overflow.FAIL,
       "a datediff over a wrapping shift is unbounded, so the check has to stay")
     // The ordinary shapes still lose their check: two date columns, and a bounded shift.
     for (shape <- Seq(DateDiff(d, d2), DateDiff(DateAdd(d, Literal(30)), d2))) {
       assert(VarkaExpressionCompiler.compile(
-        Seq(out(Add(shape, Literal(1), EvalMode.ANSI))), childOutput).get.outputs.head
+        Seq(out(Add(shape, Literal(1), EvalMode.ANSI))), childOutput).get.outputs.asScala.head
         .asInstanceOf[IntArith].mode() === Overflow.WRAP, s"$shape should still be bounded")
     }
     // A column offset is not bounded here either: VARKA-52's guard is armed by a calendar
     // consumer, and `datediff` is not one, so nothing keeps its operand in range.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(Add(DateDiff(DateAdd(d, i), d2), Literal(1), EvalMode.ANSI))), childOutput)
-      .get.outputs.head.asInstanceOf[IntArith].mode() === Overflow.FAIL,
+      .get.outputs.asScala.head.asInstanceOf[IntArith].mode() === Overflow.FAIL,
       "an unguarded column-shifted operand leaves the datediff unbounded")
     // But a calendar node *inside* the operand does arm that guard on the producer below it,
     // so this one is bounded and keeps its check off. Reading "datediff arms no guard" as
     // "nothing under a datediff is ever guarded" would cost this shape its fusion.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(Add(DateDiff(LastDay(DateAdd(d, i)), d2), Literal(1), EvalMode.ANSI))),
-      childOutput).get.outputs.head.asInstanceOf[IntArith].mode() === Overflow.WRAP,
+      childOutput).get.outputs.asScala.head.asInstanceOf[IntArith].mode() === Overflow.WRAP,
       "a producer under last_day is guarded, so the datediff over it is bounded")
     assert(VarkaExpressionCompiler.compile(
       Seq(out(Add(DateDiff(TruncDate(DateAdd(d, i), Literal("MONTH")), d2), Literal(1),
-        EvalMode.ANSI))), childOutput).get.outputs.head.asInstanceOf[IntArith].mode() ===
+        EvalMode.ANSI))), childOutput).get.outputs.asScala.head.asInstanceOf[IntArith].mode() ===
       Overflow.WRAP, "the same for a producer under trunc")
 
     // (3) Bounds are computed exactly: one that wraps `Long` used to come back small and
@@ -2004,7 +2038,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Literal(2143831591), EvalMode.LEGACY)
     assert(VarkaExpressionCompiler.compilePartial(
       Seq(out(Multiply(wide, wide, EvalMode.ANSI)), out(DateAdd(d, Literal(1)))), childOutput)
-      .get.declines(0).reason ===
+      .get.declines.asScala(0).reason ===
       "checked int multiply whose operands do not rule out overflow",
       "a bound that wraps Long must not prove a multiply safe")
   }
@@ -2015,12 +2049,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (bounded <- Seq(Month(d), DateDiff(d, d2), Add(Multiply(Year(d), Literal(100),
         EvalMode.ANSI), Month(d), EvalMode.ANSI))) {
       assert(VarkaExpressionCompiler.compile(
-        Seq(out(UnaryMinus(bounded, true))), childOutput).get.outputs.head
+        Seq(out(UnaryMinus(bounded, true))), childOutput).get.outputs.asScala.head
         .asInstanceOf[IntNeg].mode() === Overflow.WRAP, s"-($bounded) cannot overflow")
     }
     // An int column carries no bound, so its negation keeps the check.
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(UnaryMinus(i, true))), childOutput).get.outputs.head
+      Seq(out(UnaryMinus(i, true))), childOutput).get.outputs.asScala.head
       .asInstanceOf[IntNeg].mode() === Overflow.FAIL)
   }
 
@@ -2033,8 +2067,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (offset <- Seq(Add(WeekDay(d2), Literal(1)), Add(Literal(1), WeekDay(d2)))) {
       val partial = VarkaExpressionCompiler.compilePartial(
         Seq(out(DateAdd(d, offset)), out(DateAdd(d, Literal(1)))), childOutput).get
-      assert(partial.specs === Seq(ResidualOutput, FusedOutput(0)), s"$offset should decline")
-      assert(partial.declines(0).reason ===
+      assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)),
+          s"$offset should decline")
+      assert(partial.declines.asScala(0).reason ===
         "day offset arithmetic that lowers to a node the offset position does not take")
     }
     // The arithmetic that does lower to an arithmetic node is unaffected.
@@ -2059,8 +2094,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         Add(i, Cast(d, IntegerType), EvalMode.LEGACY))) {
       val partial = VarkaExpressionCompiler.compilePartial(
         Seq(out(e), out(DateAdd(d, Literal(1)))), childOutput).get
-      assert(partial.specs === Seq(ResidualOutput, FusedOutput(0)), s"$e should be residual")
-      assert(partial.declines(0).reason === "unsupported expression", s"$e")
+      assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)),
+          s"$e should be residual")
+      assert(partial.declines.asScala(0).reason === "unsupported expression", s"$e")
     }
   }
 
@@ -2071,9 +2107,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // same three kinds.
     val shifted = VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, Multiply(i, Literal(7), EvalMode.LEGACY)))), childOutput).get
-    assert(shifted.outputs === Seq(new AddDays(new ColumnRef(0),
+    assert(shifted.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
       new IntArith(IntOp.MUL, Overflow.WRAP, new ColumnRef(1), new LiteralSlot(0)))))
-    assert(shifted.outputTypes === Seq(DateType))
+    assert(shifted.outputTypes.asScala.toSeq === Seq(DateType))
     // A calendar node over such a producer still fuses: VARKA-52's range analysis reads any
     // non-literal offset as a column shift, so the emitter guards the producer's own result at
     // run time instead of the compiler declining the shape.
@@ -2082,7 +2118,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       .isDefined)
     // date_sub takes the same route.
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(DateSub(d, Add(i, Literal(1), EvalMode.LEGACY)))), childOutput).get.outputs ===
+      Seq(out(DateSub(d, Add(i, Literal(1),
+          EvalMode.LEGACY)))), childOutput).get.outputs.asScala.toSeq ===
       Seq(new SubDays(new ColumnRef(0),
         new IntArith(IntOp.ADD, Overflow.WRAP, new ColumnRef(1), new LiteralSlot(0)))))
     // An offset built from an operator no arm lowers still declines, with the offset's own
@@ -2090,7 +2127,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Remainder(i, Literal(7)))), out(DateAdd(d, Literal(1)))),
       childOutput).get
-    assert(partial.declines(0).reason ===
+    assert(partial.declines.asScala(0).reason ===
       "day offset is not a foldable literal, an integer column or int arithmetic")
   }
 
@@ -2115,14 +2152,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val plus = resolved(Add(d, Cast(i, dayInterval)))
     assert(plus.isInstanceOf[DateAdd], plus)
     val compiled = VarkaExpressionCompiler.compile(Seq(out(plus)), childOutput).get
-    assert(compiled.outputs === Seq(new AddDays(new ColumnRef(0), new ColumnRef(1))))
-    assert(compiled.inputOrdinals === Seq(0, 2))
-    assert(compiled.inputBounds === Seq(VarkaInputBound(1, -limit, limit)))
-    assert(compiled.outputTypes === Seq(DateType))
+    assert(compiled.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0), new ColumnRef(1))))
+    assert(compiled.inputOrdinals.asScala.toSeq === Seq(0, 2))
+    assert(compiled.inputBounds.asScala.toSeq === Seq(new VarkaInputBound(1, -limit, limit)))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
     // The same shape from a plain int column records no bound: date_add wraps in Spark too.
     val plain = VarkaExpressionCompiler.compile(Seq(out(DateAdd(d, i))), childOutput).get
-    assert(plain.outputs === compiled.outputs)
-    assert(plain.inputBounds === Nil)
+    assert(plain.outputs.asScala.toSeq === compiled.outputs.asScala.toSeq)
+    assert(plain.inputBounds.asScala.toSeq === Nil)
   }
 
   test("date - CAST(i AS INTERVAL DAY) is the negated extraction, compiled to SubDays " +
@@ -2131,8 +2168,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(minus.isInstanceOf[DateAdd], minus)
     assert(minus.asInstanceOf[DateAdd].days.isInstanceOf[UnaryMinus], minus)
     val compiled = VarkaExpressionCompiler.compile(Seq(out(minus)), childOutput).get
-    assert(compiled.outputs === Seq(new SubDays(new ColumnRef(0), new ColumnRef(1))))
-    assert(compiled.inputBounds === Seq(VarkaInputBound(1, -limit, limit)))
+    assert(compiled.outputs.asScala.toSeq === Seq(new SubDays(new ColumnRef(0), new ColumnRef(1))))
+    assert(compiled.inputBounds.asScala.toSeq === Seq(new VarkaInputBound(1, -limit, limit)))
   }
 
   test("i * INTERVAL '1' DAY leaves the date lane - the product widens to DAY TO " +
@@ -2167,15 +2204,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val partial = VarkaExpressionCompiler.compilePartial(Seq(
       out(resolved(Add(d, Cast(sh, dayInterval)))),
       out(resolved(Add(d2, Cast(i, dayInterval))))), childOutput).get
-    assert(partial.specs.head === ResidualOutput)
-    assert(partial.fused.inputOrdinals === Seq(1, 2))
-    assert(partial.fused.inputBounds === Seq(VarkaInputBound(1, -limit, limit)))
+    assert(partial.specs.asScala.head === VarkaOutputSpec.RESIDUAL)
+    assert(partial.fused.inputOrdinals.asScala.toSeq === Seq(1, 2))
+    assert(partial.fused.inputBounds.asScala.toSeq === Seq(new VarkaInputBound(1, -limit, limit)))
   }
 
   test("a bounded offset inside a filter predicate carries the bound on the predicate") {
     val pred = VarkaExpressionCompiler.compilePredicate(
       GreaterThan(resolved(Add(d, Cast(i, dayInterval))), d2), childOutput).get
-    assert(pred.fused.inputBounds === Seq(VarkaInputBound(1, -limit, limit)))
+    assert(pred.fused.inputBounds.asScala.toSeq === Seq(new VarkaInputBound(1, -limit, limit)))
   }
 
 
@@ -2206,18 +2243,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // rather than agree by accident.
     val predicate = VarkaExpressionCompiler.compilePredicate(
       GreaterThan(l, Literal(5000000000L)), withLong).get
-    assert(predicate.specs.forall(_.fused))
+    assert(predicate.specs.asScala.forall(_.fused))
     val fused = predicate.fused
-    assert(fused.outputs === Seq(new Compare(CompareOp.GT, longCol, longSlot(0))))
+    assert(fused.outputs.asScala.toSeq === Seq(new Compare(CompareOp.GT, longCol, longSlot(0))))
     assert(fused.lane === LaneType.LONG)
-    assert(fused.literals === Nil, "the int table stays empty on a long kernel")
-    assert(fused.longLiterals === Seq(5000000000L))
+    assert(fused.literals.asScala.toSeq === Nil, "the int table stays empty on a long kernel")
+    assert(fused.longLiterals.asScala.toSeq === Seq(5000000000L))
     assert(fused.numLiterals === 1)
     // The same value twice is one slot, as in the int table.
     val twice = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(l, Literal(7L)), LessThan(l2, Literal(7L))), withLong).get.fused
-    assert(twice.longLiterals === Seq(7L))
-    assert(twice.inputOrdinals === Seq(5, 6))
+    assert(twice.longLiterals.asScala.toSeq === Seq(7L))
+    assert(twice.inputOrdinals.asScala.toSeq === Seq(5, 6))
   }
 
   test("greatest, least, CASE WHEN and the validity predicates fuse over long columns") {
@@ -2226,16 +2263,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       out(Least(Seq(l, Literal(0L)))),
       out(CaseWhen(Seq((GreaterThan(l, l2), l)), Some(l2))),
       out(If(IsNull(l), l2, l))), withLong).get
-    assert(compiled.outputs === Seq(
+    assert(compiled.outputs.asScala.toSeq === Seq(
       new IRGreatest(longCol, longCol2),
       new IRLeast(longCol, longSlot(0)),
       new IfElse(new Compare(CompareOp.GT, longCol, longCol2), longCol, longCol2),
       new IfElse(new IRNot(new IRIsNotNull(longCol)), longCol2, longCol)))
-    assert(compiled.outputTypes === Seq(LongType, LongType, LongType, LongType))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(LongType, LongType, LongType, LongType))
     assert(compiled.lane === LaneType.LONG)
     val validity = VarkaExpressionCompiler.compilePredicate(
       And(IsNotNull(l), Not(IsNull(dt))), withLong).get.fused
-    assert(validity.outputs === Seq(new IRAnd(new IRIsNotNull(longCol),
+    assert(validity.outputs.asScala.toSeq === Seq(new IRAnd(new IRIsNotNull(longCol),
       new IRNot(new IRNot(new IRIsNotNull(longCol2))))))
   }
 
@@ -2246,9 +2283,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val nanos = ((12L * 3600 + 34 * 60 + 56) * 1000000000L) + 789000000L
     val widened = VarkaExpressionCompiler.compilePredicate(
       LessThan(Cast(t3, TimeType(6)), Literal(nanos, TimeType(6))), withLong).get.fused
-    assert(widened.outputs === Seq(new Compare(CompareOp.LT, longCol, longSlot(0))))
-    assert(widened.longLiterals === Seq(nanos))
-    assert(widened.inputOrdinals === Seq(7))
+    assert(widened.outputs.asScala.toSeq === Seq(new Compare(CompareOp.LT, longCol, longSlot(0))))
+    assert(widened.longLiterals.asScala.toSeq === Seq(nanos))
+    assert(widened.inputOrdinals.asScala.toSeq === Seq(7))
     val narrowed = VarkaExpressionCompiler.compilePredicate(
       LessThan(Cast(t6, TimeType(3)), Literal(nanos, TimeType(3))), withLong)
     assert(narrowed.isEmpty)
@@ -2258,7 +2295,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // The reason is visible through the projection path, where the decline map is kept.
     val mixed = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Greatest(Seq(Cast(t6, TimeType(3)), t3)))), withLong).get
-    assert(mixed.declines(1).reason === "TIME narrowed to a lower precision, which truncates")
+    assert(mixed.declines.asScala(1).reason ===
+        "TIME narrowed to a lower precision, which truncates")
   }
 
   test("a day-time interval literal of a narrower unit reaches the column through the cast " +
@@ -2270,14 +2308,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val second = DayTimeIntervalType(DayTimeIntervalType.SECOND, DayTimeIntervalType.SECOND)
     val widened = VarkaExpressionCompiler.compilePredicate(
       LessThan(dt, Cast(Literal(0L, second), DayTimeIntervalType())), withLong).get.fused
-    assert(widened.outputs === Seq(new Compare(CompareOp.LT, longCol, longSlot(0))))
-    assert(widened.longLiterals === Seq(0L))
+    assert(widened.outputs.asScala.toSeq === Seq(new Compare(CompareOp.LT, longCol, longSlot(0))))
+    assert(widened.longLiterals.asScala.toSeq === Seq(0L))
     val coarser = DayTimeIntervalType(DayTimeIntervalType.DAY, DayTimeIntervalType.MINUTE)
     val narrowed = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Greatest(Seq(Cast(dt, coarser), Cast(dt, coarser))))),
       withLong).get
-    assert(narrowed.specs === Seq(FusedOutput(0), ResidualOutput))
-    assert(narrowed.declines(1).reason ===
+    assert(narrowed.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
+    assert(narrowed.declines.asScala(1).reason ===
       "day-time interval narrowed to a coarser end field, which truncates")
   }
 
@@ -2285,12 +2323,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (col <- Seq(ts, ntz)) {
       val predicate = VarkaExpressionCompiler.compilePredicate(
         And(GreaterThan(d, d2), GreaterThan(col, col)), withLong).get
-      assert(predicate.specs.map(_.fused) === Seq(true, false))
-      assert(predicate.specs(1).decline.get.reason === "a timestamp column is outside milestone 5")
+      assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, false))
+      assert(predicate.specs.get(1).decline.get.reason ===
+          "a timestamp column is outside milestone 5")
       val projection = VarkaExpressionCompiler.compilePartial(
         Seq(out(DateAdd(d, Literal(1))), out(Greatest(Seq(col, col)))), withLong).get
-      assert(projection.specs === Seq(FusedOutput(0), ResidualOutput))
-      assert(projection.declines(1).reason === "a timestamp column is outside milestone 5")
+      assert(projection.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
+      assert(projection.declines.asScala(1).reason === "a timestamp column is outside milestone 5")
     }
   }
 
@@ -2298,29 +2337,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(Greatest(Seq(d, d2))), out(Greatest(Seq(l, l2))), out(DateAdd(d, Literal(1)))),
       withLong).get
-    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput, FusedOutput(1)))
-    assert(partial.declines(1).reason === laneReason)
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL,
+        new FusedOutput(1)))
+    assert(partial.declines.asScala(1).reason === laneReason)
     // The demoted entry left nothing behind: no long literal, no long input.
-    assert(partial.fused.longLiterals === Nil)
-    assert(partial.fused.inputOrdinals === Seq(0, 1))
+    assert(partial.fused.longLiterals.asScala.toSeq === Nil)
+    assert(partial.fused.inputOrdinals.asScala.toSeq === Seq(0, 1))
     assert(partial.fused.lane === LaneType.INT)
     // The first entry fixes the lane, whichever lane it is.
     val longFirst = VarkaExpressionCompiler.compilePartial(
       Seq(out(Greatest(Seq(l, Literal(3L)))), out(Greatest(Seq(d, d2)))), withLong).get
-    assert(longFirst.specs === Seq(FusedOutput(0), ResidualOutput))
-    assert(longFirst.declines(1).reason ===
+    assert(longFirst.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
+    assert(longFirst.declines.asScala(1).reason ===
       "the INT lane in a kernel on the LONG lane: one kernel holds one lane")
-    assert(longFirst.fused.literals === Nil)
-    assert(longFirst.fused.longLiterals === Seq(3L))
+    assert(longFirst.fused.literals.asScala.toSeq === Nil)
+    assert(longFirst.fused.longLiterals.asScala.toSeq === Seq(3L))
   }
 
   test("a predicate that mixes lanes fuses the first lane's conjuncts and names the lane") {
     val predicate = VarkaExpressionCompiler.compilePredicate(
       And(And(GreaterThan(d, d2), GreaterThan(l, l2)), LessThan(d, d2)), withLong).get
-    assert(predicate.specs.map(_.fused) === Seq(true, false, true))
-    assert(predicate.specs(1).decline.get.reason === laneReason)
+    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, false, true))
+    assert(predicate.specs.get(1).decline.get.reason === laneReason)
     assert(predicate.fused.lane === LaneType.INT)
-    assert(predicate.fused.inputOrdinals === Seq(0, 1))
+    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0, 1))
   }
 
   test("a CASE whose condition and branches disagree on lane declines with the lane reason") {
@@ -2329,8 +2369,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // asks first and records the reason instead of throwing.
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(If(GreaterThan(l, Literal(0L)), d, d2))), withLong).get
-    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput))
-    assert(partial.declines(1).reason ===
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
+    assert(partial.declines.asScala(1).reason ===
       "one kernel holds one lane, and this mixes the LONG and INT lanes")
     val orMix = VarkaExpressionCompiler.compilePredicate(
       Or(GreaterThan(l, Literal(0L)), GreaterThan(d, d2)), withLong)
@@ -2340,12 +2380,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {
     val add = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
-    assert(add.specs === Seq(FusedOutput(0), ResidualOutput))
-    assert(add.declines(1).reason === "unsupported expression")
+    assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
+    assert(add.declines.asScala(1).reason === "unsupported expression")
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong).get
-    assert(in.specs.map(_.fused) === Seq(true, false))
-    assert(in.specs(1).decline.get.reason === "unsupported predicate")
+    assert(in.specs.asScala.toSeq.map(_.fused) === Seq(true, false))
+    assert(in.specs.get(1).decline.get.reason === "unsupported predicate")
   }
 
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
@@ -2359,7 +2399,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private def largestMethod(fused: CompiledVarkaProjection, budget: Int): Int = {
     val bytes = VarkaLoopEmitter.emit(
       s"org.apache.spark.sql.varka.execution.VarkaCompilerSizeProbe${System.nanoTime()}",
-      fused.outputs.asJava,
+      fused.outputs,
       fused.inputOrdinals.size, fused.numLiterals, null, null,
       VarkaMatrix.base.withMethodByteBudget(budget))
     val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala.filter(_ != "<init>")
@@ -2377,8 +2417,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Demoting the tree is what makes room for it.
     val list = Seq(out(Year(d)), out(heavy(1, 32)), out(Month(d)))
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput).get
-    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput, FusedOutput(1)))
-    val reason = partial.declines(1).reason
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL,
+        new FusedOutput(1)))
+    val reason = partial.declines.asScala(1).reason
     assert(reason.startsWith("over the emitter's method budget (") &&
       reason.contains("HugeMethodLimit"), reason)
     assert(partial.fused.outputs.size === 2)
@@ -2386,8 +2427,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // alone and is a second kernel's (VARKA-190.md 11).
     val legacy = VarkaExpressionCompiler.compilePartial(list, childOutput,
       VarkaMatrix.base.withMethodByteBudget(0).withSeveralKernels(false)).get
-    assert(legacy.specs === Seq(FusedOutput(0), FusedOutput(1), ResidualOutput))
-    assert(legacy.declines(2).reason === "exceeds the emitter's fused budget")
+    assert(legacy.specs.asScala.toSeq === Seq(new FusedOutput(0), new FusedOutput(1),
+        VarkaOutputSpec.RESIDUAL))
+    assert(legacy.declines.asScala(2).reason === "exceeds the emitter's fused budget")
     // The heavy output alone: nothing is left to fuse, so the projection does not fuse at all,
     // and the tools still say why.
     assert(VarkaExpressionCompiler.compilePartial(Seq(out(heavy(1, 32))), childOutput).isEmpty)
@@ -2409,13 +2451,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val budget = VarkaMatrix.base.withMethodByteBudget(2000).withDriverOutputTable(false)
       .withSeveralKernels(false)
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, budget).get
-    val fused = partial.specs.count(_.isInstanceOf[FusedOutput])
+    val fused = partial.specs.asScala.count(_.isInstanceOf[FusedOutput])
     assert(fused > 1 && fused < 60, s"$fused of 60 fused under a 2000-byte budget")
-    assert(partial.specs.take(fused).forall(_.isInstanceOf[FusedOutput]) &&
-      partial.specs.drop(fused).forall(_ == ResidualOutput), "the residual ones are a suffix")
+    assert(partial.specs.asScala.toSeq.take(fused).forall(_.isInstanceOf[FusedOutput]) &&
+      partial.specs.asScala.toSeq.drop(fused).forall(_ == VarkaOutputSpec.RESIDUAL),
+      "the residual ones are a suffix")
     for (at <- fused until 60) {
-      assert(partial.declines(at).reason.startsWith("over the emitter's method budget (run"),
-        partial.declines(at).reason)
+      val reason = partial.declines.get(at).reason
+      assert(reason.startsWith("over the emitter's method budget (run"), reason)
     }
     assert(largestMethod(partial.fused, 2000) <= 2000)
   }
@@ -2436,9 +2479,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         DayOfMonth(distinct(depth - 1, 3 * i + 2)), failOnError = true)
     val list = Seq(out(Year(d)), out(distinct(4, 0)))
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput).get
-    assert(partial.specs === Seq(FusedOutput(0), ResidualOutput))
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
     // The tree is the second output, so its group's loop method is loopDense1.
-    val reason = partial.declines(1).reason
+    val reason = partial.declines.asScala(1).reason
     assert(reason.startsWith("over the emitter's method budget (loopDense1 is ") &&
       reason.endsWith(" bytes, over the class-file cap of 65535: the class cannot be built)"),
       reason)
@@ -2461,14 +2504,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(largestMethod(three.fused, 60000) > limit, "the third conjunct has to add bytes")
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
       VarkaMatrix.base.withMethodByteBudget(limit).withSplitConditions(false)).get
-    assert(predicate.specs.map(_.fused) === Seq(true, true, false))
-    assert(predicate.specs(2).decline.get.reason.startsWith("over the emitter's method budget"))
+    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, true, false))
+    assert(predicate.specs.get(2).decline.get.reason.startsWith("over the emitter's method budget"))
     val split = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
       VarkaMatrix.base.withMethodByteBudget(limit)).get
     // Every conjunct fuses, in several conjunction roots. How many is the emitter's answer, not
     // this test's: a root at exactly this budget alone can be over it beside another.
-    assert(split.specs.forall(_.fused))
-    assert(split.clauses.size >= 2 && split.clauses.forall(_.size == 1), split.clauses)
+    assert(split.specs.asScala.forall(_.fused))
+    assert(split.clauses.size >= 2 &&
+        split.clauses.asScala.forall(_.size == 1), split.clauses.asScala.toSeq)
   }
 
   test("asking the emitter at plan time costs one emission per shape: a second compile of " +
@@ -2494,19 +2538,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
     val hundred = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput).get
-    assert(hundred.specs.forall(_.isInstanceOf[FusedOutput]))
+    assert(hundred.specs.asScala.forall(_.isInstanceOf[FusedOutput]))
     val capped = VarkaExpressionCompiler.compilePartial((1 to 100).map(entry), childOutput,
       VarkaMatrix.base.withMethodByteBudget(0)).get
-    assert(capped.specs.count(_.isInstanceOf[FusedOutput]) === 15)
+    assert(capped.specs.asScala.count(_.isInstanceOf[FusedOutput]) === 15)
     val tabled = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput).get
-    assert(tabled.specs.forall(_.isInstanceOf[FusedOutput]))
+    assert(tabled.specs.asScala.forall(_.isInstanceOf[FusedOutput]))
     val wide = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
       VarkaMatrix.base.withDriverOutputTable(false).withSeveralKernels(false)).get
-    val fused = wide.specs.count(_.isInstanceOf[FusedOutput])
+    val fused = wide.specs.asScala.count(_.isInstanceOf[FusedOutput])
     assert(fused > 100 && fused < 200, s"$fused of 200 fused")
-    assert(wide.specs.drop(fused).forall(_ == ResidualOutput))
-    assert(wide.declines(fused).reason.startsWith("over the emitter's method budget (run"),
-      wide.declines(fused).reason)
+    assert(wide.specs.asScala.toSeq.drop(fused).forall(_ == VarkaOutputSpec.RESIDUAL))
+    assert(wide.declines.asScala(fused).reason.startsWith("over the emitter's method budget (run"),
+      wide.declines.asScala(fused).reason)
   }
 
   test("under severalKernels the suffix the unrolled driver's ceiling demotes is a second " +
@@ -2518,14 +2562,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val unrolled = VarkaMatrix.base.withDriverOutputTable(false).withSeveralKernels(false)
     val one = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
       unrolled).get
-    val first = one.specs.count(_.isInstanceOf[FusedOutput])
+    val first = one.specs.asScala.count(_.isInstanceOf[FusedOutput])
     val two = VarkaExpressionCompiler.compilePartial((1 to 200).map(entry), childOutput,
       unrolled.withSeveralKernels(true)).get
-    assert(two.kernels.size === 2 && two.declines.isEmpty)
-    assert(two.specs.take(first) === one.specs.take(first))
-    assert(two.specs.drop(first) === (0 until 200 - first).map(KernelOutput(1, _)))
-    assert(two.kernels.map(_.outputs.size) === Seq(first, 200 - first))
-    assert(two.columnIndex(KernelOutput(1, 3)) === Some(first + 3))
+    assert(two.kernels.size === 2 && two.declines.asScala.isEmpty)
+    assert(two.specs.asScala.toSeq.take(first) === one.specs.asScala.toSeq.take(first))
+    assert(two.specs.asScala.toSeq.drop(first) === (0 until 200 - first).map(new KernelOutput(1,
+        _)))
+    assert(two.kernels.asScala.toSeq.map(_.outputs.size) === Seq(first, 200 - first))
+    assert(two.columnIndex(new KernelOutput(1, 3)).toScala === Some(first + 3))
     // A projection one kernel serves is classified exactly as without the option.
     val hundred = (1 to 100).map(entry)
     assert(VarkaExpressionCompiler.compilePartial(hundred, childOutput,
@@ -2544,15 +2589,17 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+ out(Add(longCol, Literal(1L)))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
       VarkaMatrix.base.withSeveralKernels(false)).get
-    assert(one.specs.count(_.isInstanceOf[FusedOutput]) === 64) // VarkaEmitBudget.MAX_INPUTS
-    assert(one.declines(64).reason === "exceeds the emitter's fused budget")
+    assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===
+        64) // VarkaEmitBudget.MAX_INPUTS
+    assert(one.declines.asScala(64).reason === "exceeds the emitter's fused budget")
     val two = VarkaExpressionCompiler.compilePartial(list, output,
       VarkaMatrix.base.withSeveralKernels(true)).get
     assert(two.kernels.size === 2)
-    assert(two.specs.slice(64, 70) === (0 until 6).map(KernelOutput(1, _)))
-    assert(two.more.head.inputOrdinals === (64 until 70))
-    assert(two.specs(70) === ResidualOutput && two.declines.keySet === Set(70))
-    assert(two.declines(70).reason === one.declines(70).reason)
+    assert(two.specs.asScala.toSeq.slice(64, 70) === (0 until 6).map(new KernelOutput(1, _)))
+    assert(two.more.asScala.head.inputOrdinals.asScala.toSeq === (64 until 70))
+    assert(two.specs.get(70) === VarkaOutputSpec.RESIDUAL &&
+        two.declines.asScala.keySet === Set(70))
+    assert(two.declines.asScala(70).reason === one.declines.asScala(70).reason)
   }
 
   test("under the defaults the split driver serves the driver's ceiling in one kernel, planned " +
@@ -2565,20 +2612,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       out(Greatest(Seq(AddMonths(col, Literal(k)), DateAdd(col, Literal(k)), LastDay(col))))
     def stages(plan: CompiledVarkaProjection): Int =
       VarkaEmitterTestSupport.methodBodies(VarkaLoopEmitter.emit("VarkaStagesProbe",
-        plan.outputs.asJava, plan.inputOrdinals.size, plan.numLiterals, null, null,
+        plan.outputs, plan.inputOrdinals.size, plan.numLiterals, null, null,
         VarkaMatrix.base)).keySet.asScala.count(isStage(_, true))
     val builds = VarkaShapeCache.buildCount
     val ladder = VarkaExpressionCompiler.compilePartial((1 to 800).map(entry(_, d)),
       childOutput).get
     assert(VarkaShapeCache.buildCount - builds === 1, "planning took more than one build")
-    assert(ladder.kernels.size === 1 && ladder.specs.forall(_.isInstanceOf[FusedOutput]))
+    assert(ladder.kernels.size === 1 &&
+        ladder.specs.asScala.forall(_.isInstanceOf[FusedOutput]))
     assert(stages(ladder.fused) >= 2)
     val columns = (1 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val list = (1 to 800).map(entry(_, d)) ++ columns.map(c => out(DateAdd(c, Literal(1))))
     val both = VarkaExpressionCompiler.compilePartial(list, d +: columns).get
-    assert(both.kernels.map(_.outputs.size) === Seq(863, 6))
-    assert(both.declines.isEmpty && stages(both.fused) >= 2)
-    assert(both.more.head.inputOrdinals === (64 until 70))
+    assert(both.kernels.asScala.toSeq.map(_.outputs.size) === Seq(863, 6))
+    assert(both.declines.asScala.isEmpty && stages(both.fused) >= 2)
+    assert(both.more.asScala.head.inputOrdinals.asScala.toSeq === (64 until 70))
   }
 
   test("admission loads no class: a projection that bisects leaves none defined, and the kept " +
@@ -2600,7 +2648,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(probes > 2, s"$probes builds: the projection did not bisect")
     assert(VarkaShapeCache.size === 0, "admission defined a class")
     val kept = partial.fused
-    val key = new VarkaShapeKey(kept.outputs.asJava, kept.inputOrdinals.size, kept.numLiterals,
+    val key = new VarkaShapeKey(kept.outputs,
+        kept.inputOrdinals.size, kept.numLiterals,
       oneKernel, VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
     VarkaShapeCache.getOrEmit(key, "the kernel's first batch")
     assert(VarkaShapeCache.size === 1)
@@ -2626,16 +2675,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val planned = VarkaExpressionCompiler.compilePartial(list, childOutput,
       loop.withPlanSize(true)).get
     val cut = VarkaShapeCache.buildCount - before - searched
-    assert(planned.kernels.size === 2 && planned.declines.isEmpty)
+    assert(planned.kernels.size === 2 && planned.declines.asScala.isEmpty)
     assert(cut <= planned.kernels.size + 1, s"$cut emissions for two planned kernels")
     // The plan cuts where the bisection cut: the driver's bytes are exact, so the largest prefix
     // whose driver fits is read, not searched for (VARKA-236.md 2.3).
-    val Seq(first, _) = bisected.kernels.map(_.outputs.size)
-    val Seq(plannedFirst, plannedRest) = planned.kernels.map(_.outputs.size)
+    val Seq(first, _) = bisected.kernels.asScala.toSeq.map(_.outputs.size)
+    val Seq(plannedFirst,
+        plannedRest) = planned.kernels.asScala.toSeq.map(_.outputs.size)
     assert(plannedFirst === first && plannedFirst + plannedRest === 800,
       s"the plan cut at $plannedFirst where the bisection cut at $first")
-    assert(planned.specs.take(plannedFirst).forall(_.isInstanceOf[FusedOutput]))
-    assert(planned.specs.drop(plannedFirst) === (0 until plannedRest).map(KernelOutput(1, _)))
+    assert(planned.specs.asScala.toSeq.take(plannedFirst).forall(_.isInstanceOf[FusedOutput]))
+    assert(planned.specs.asScala.toSeq.drop(plannedFirst) ===
+        (0 until plannedRest).map(new KernelOutput(1, _)))
   }
 
   test("under planSize a kernel the plan read as fitting that declines is cut once from the " +
@@ -2652,7 +2703,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val before = VarkaShapeCache.buildCount
     val partial = VarkaExpressionCompiler.compilePartial(list, childOutput, options).get
     val emissions = VarkaShapeCache.buildCount - before
-    assert(partial.kernels.size === 2 && partial.declines.isEmpty)
+    assert(partial.kernels.size === 2 && partial.declines.asScala.isEmpty)
     assert(emissions <= 3, s"$emissions emissions: the mispredicted kernel was bisected")
   }
 

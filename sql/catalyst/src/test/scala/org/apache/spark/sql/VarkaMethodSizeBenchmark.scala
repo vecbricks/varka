@@ -20,6 +20,7 @@ package org.apache.spark.sql
 import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference}
@@ -160,7 +161,7 @@ object VarkaMethodSizeBenchmark extends BenchmarkBase {
     require(usedIds.add(id), s"case id $id is already in use by another emit in this benchmark")
     val name = s"org.apache.spark.sql.varka.execution.VarkaFusedSizeBench$id"
     val javaRoots = new java.util.ArrayList[VarkaVectorIR]()
-    fused.outputs.foreach(javaRoots.add)
+    fused.outputs.asScala.foreach(javaRoots.add)
     loader.defineGeneratedClass(name, VarkaLoopEmitter.emit(name, javaRoots,
       fused.inputOrdinals.size, fused.numLiterals, null, null, form._2))
     loader.loadClass(name).getConstructor().newInstance().asInstanceOf[VarkaFusedKernel]
@@ -199,7 +200,7 @@ object VarkaMethodSizeBenchmark extends BenchmarkBase {
         for (n <- rungs) {
           val fused = shape(n)
           val kernels = forms.map { form => form._1 -> emit(fused, loader, n, form) }
-          val literals = fused.literals.toArray
+          val literals = fused.literals.asScala.map(_.intValue).toArray
           // Every output is a date, four bytes a row; the validity segment is sized so a
           // word-writing kernel owns the whole last word at every chunk length.
           val dst = Array.fill(n)(arena.allocate(bufferRows * 4L, 64).address())

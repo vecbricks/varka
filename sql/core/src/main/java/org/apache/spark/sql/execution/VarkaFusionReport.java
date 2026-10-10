@@ -27,14 +27,15 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
-import org.apache.spark.sql.catalyst.expressions.codegen.ForwardedOutput;
-import org.apache.spark.sql.catalyst.expressions.codegen.FusedOutput;
-import org.apache.spark.sql.catalyst.expressions.codegen.KernelOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
-import org.apache.spark.sql.catalyst.expressions.codegen.ResidualOutput$;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler$;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ForwardedOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.KernelOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ResidualOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 
 /**
@@ -50,10 +51,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
  * <p>Rendering is diagnostics only and never on an execution path: the plan-side overload
  * compiles the projection again (the compiler is pure and cheap, and {@code EXPLAIN} runs once),
  * while the evaluator passes the plan it already compiled.
- *
- * <p>The output specs are Scala case classes of a sealed trait, which Java cannot match
- * exhaustively; the ladder ends in a throw, and row 300 (the compiler's data model in Java) makes
- * it a {@code switch} over a sealed interface.
  */
 public final class VarkaFusionReport {
 
@@ -68,23 +65,19 @@ public final class VarkaFusionReport {
       Seq<NamedExpression> projectList,
       Seq<Attribute> childOutput) {
     var out = new ArrayList<String>();
-    List<VarkaOutputSpec> specs = CollectionConverters.asJava(partial.specs());
+    List<VarkaOutputSpec> specs = partial.specs();
     for (int position = 0; position < specs.size(); position++) {
       String name = projectList.apply(position).name();
-      VarkaOutputSpec spec = specs.get(position);
-      if (spec instanceof FusedOutput) {
-        out.add(name + ": fused");
-      } else if (spec instanceof KernelOutput k) {
-        out.add(name + ": fused, kernel " + (k.kernel() + 1) + " of " + partial.kernels().size());
-      } else if (spec instanceof ForwardedOutput f) {
-        out.add(name + ": forwarded from " + childOutput.apply(f.childOrdinal()).name());
-      } else if (spec == ResidualOutput$.MODULE$) {
-        var decline = partial.declines().get(position);
-        String why = decline.isDefined() ? decline.get().toString() : "no reason recorded";
-        out.add(name + ": residual (" + why + ")");
-      } else {
-        throw new IllegalStateException("unknown output spec " + spec);
-      }
+      out.add(name + ": " + switch (specs.get(position)) {
+        case FusedOutput f -> "fused";
+        case KernelOutput k -> "fused, kernel " + (k.kernel() + 1) + " of "
+            + partial.kernels().size();
+        case ForwardedOutput f -> "forwarded from " + childOutput.apply(f.childOrdinal()).name();
+        case ResidualOutput r -> {
+          VarkaDecline decline = partial.declines().get(position);
+          yield "residual (" + (decline != null ? decline.toString() : "no reason recorded") + ")";
+        }
+      });
     }
     return CollectionConverters.asScala(out).toSeq();
   }
@@ -132,8 +125,7 @@ public final class VarkaFusionReport {
       if (spec.fused()) {
         out.add(render(spec.conjunct()) + ": fused");
       } else {
-        String why = spec.decline().isDefined()
-            ? spec.decline().get().toString() : "no reason recorded";
+        String why = spec.decline().map(VarkaDecline::toString).orElse("no reason recorded");
         out.add(render(spec.conjunct()) + ": residual (" + why + ")");
       }
     }

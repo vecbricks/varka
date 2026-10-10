@@ -63,13 +63,14 @@ class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("the filter fuses at every number of ranges, the whole query's 200 included") {
     for (n <- Seq(2, 10, 48, 49, 100, 200)) {
       val compiled = VarkaExpressionCompiler.compilePredicate(condition(n), Seq(s), options)
-      assert(compiled.exists(_.specs.forall(_.fused)), s"$n ranges: ${compiled.map(_.specs)}")
+      assert(compiled.exists(_.specs.asScala.forall(_.fused)),
+          s"$n ranges: ${compiled.map(_.specs.asScala.toSeq)}")
     }
   }
 
   test("the 200 ranges are one range set, and every method of its kernel is small") {
     val compiled = VarkaExpressionCompiler.compilePredicate(condition(200), Seq(s), options).get
-    val sets = compiled.fused.outputs.flatMap { root =>
+    val sets = compiled.fused.outputs.asScala.toSeq.flatMap { root =>
       def find(n: VarkaVectorIR): Seq[VarkaVectorIR.InRanges] = n match {
         case r: VarkaVectorIR.InRanges => Seq(r)
         case a: VarkaVectorIR.And => find(a.left()) ++ find(a.right())
@@ -79,7 +80,7 @@ class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     assert(sets.map(_.ranges()) === Seq(200))
     val bytes = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.RangeFilterFusion",
-      compiled.fused.outputs.asJava, compiled.fused.inputOrdinals.size, compiled.fused.numLiterals,
+      compiled.fused.outputs, compiled.fused.inputOrdinals.size, compiled.fused.numLiterals,
       null, null, options)
     val sizes = VarkaEmitterTestSupport.methodNames(bytes).asScala.distinct
       .filter(_ != "<clinit>").map(m => m -> VarkaEmitterTestSupport.codeSize(bytes, m))

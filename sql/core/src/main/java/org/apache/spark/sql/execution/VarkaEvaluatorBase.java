@@ -277,14 +277,14 @@ public abstract class VarkaEvaluatorBase {
       Option<CompiledVarkaProjection> fused = fusedPlan();
       if (fused.isDefined()) {
         plan = fused.get();
-        List<Object> ordinals = CollectionConverters.asJava(plan.inputOrdinals());
+        List<Integer> ordinals = plan.inputOrdinals();
         inputOrdinals = new int[ordinals.size()];
         derivedInput = new boolean[ordinals.size()];
         for (int i = 0; i < inputOrdinals.length; i++) {
-          inputOrdinals[i] = ((Number) ordinals.get(i)).intValue();
-          derivedInput[i] = plan.derivedAt(i).isDefined();
+          inputOrdinals[i] = ordinals.get(i);
+          derivedInput[i] = plan.derivedAt(i).isPresent();
         }
-        outputTypes = CollectionConverters.asJava(plan.outputTypes()).toArray(new DataType[0]);
+        outputTypes = plan.outputTypes().toArray(new DataType[0]);
       }
       planResolved = true;
     }
@@ -394,10 +394,9 @@ public abstract class VarkaEvaluatorBase {
     int n = inputOrdinals.length;
     var derived = new VarkaDerivedKind[n];
     for (int i = 0; i < n; i++) {
-      Option<VarkaDerivedInput> note = compiled.derivedAt(i);
-      derived[i] = note.isDefined() ? note.get().kind() : null;
+      derived[i] = compiled.derivedAt(i).map(VarkaDerivedInput::kind).orElse(null);
     }
-    List<VarkaInputBound> declared = CollectionConverters.asJava(compiled.inputBounds());
+    List<VarkaInputBound> declared = compiled.inputBounds();
     var bounds = new VarkaKernelRunner.Bound[declared.size()];
     for (int i = 0; i < bounds.length; i++) {
       VarkaInputBound b = declared.get(i);
@@ -408,20 +407,18 @@ public abstract class VarkaEvaluatorBase {
         scratch(), accounting(), RUNNER_HOOKS);
   }
 
-  private static int[] ints(Seq<Object> values) {
-    List<Object> list = CollectionConverters.asJava(values);
-    int[] out = new int[list.size()];
+  private static int[] ints(List<Integer> values) {
+    int[] out = new int[values.size()];
     for (int i = 0; i < out.length; i++) {
-      out[i] = ((Number) list.get(i)).intValue();
+      out[i] = values.get(i);
     }
     return out;
   }
 
-  private static long[] longs(Seq<Object> values) {
-    List<Object> list = CollectionConverters.asJava(values);
-    long[] out = new long[list.size()];
+  private static long[] longs(List<Long> values) {
+    long[] out = new long[values.size()];
     for (int i = 0; i < out.length; i++) {
-      out[i] = ((Number) list.get(i)).longValue();
+      out[i] = values.get(i);
     }
     return out;
   }
@@ -473,7 +470,7 @@ public abstract class VarkaEvaluatorBase {
    * is left alone at the default so that the hook's own level survives.
    */
   protected VarkaShapeKey shapeKey(CompiledVarkaProjection compiled) {
-    return new VarkaShapeKey(CollectionConverters.asJava(compiled.outputs()),
+    return new VarkaShapeKey(compiled.outputs(),
         compiled.inputOrdinals().size(), compiled.numLiterals(), emitOptions(), warmed());
   }
 
@@ -495,7 +492,7 @@ public abstract class VarkaEvaluatorBase {
         kernelIdentity = "[no compiled projection] (" + executionName() + ")";
       } else {
         var ir = new StringBuilder();
-        for (VarkaVectorIR output : CollectionConverters.asJava(compiled.outputs())) {
+        for (VarkaVectorIR output : compiled.outputs()) {
           if (ir.length() > 0) {
             ir.append(", ");
           }

@@ -23,7 +23,6 @@ import java.util.List;
 
 import scala.Option;
 import scala.collection.immutable.Seq;
-import scala.jdk.javaapi.CollectionConverters;
 import scala.runtime.AbstractPartialFunction;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
@@ -119,12 +118,12 @@ final class DeclineSink {
   }
 
   /** The long literal table in slot order, for the compiled plan. */
-  Seq<Long> longLiteralValues() {
-    return CollectionConverters.asScala(new ArrayList<>(longLiterals.keySet())).toSeq();
+  List<Long> longLiteralValues() {
+    return List.copyOf(longLiterals.keySet());
   }
 
   /** The noted bounds in kernel-input terms, given the accepted entries' input table. */
-  Seq<VarkaInputBound> inputBounds(scala.collection.mutable.LinkedHashMap<?, ?> inputs) {
+  List<VarkaInputBound> inputBounds(scala.collection.mutable.LinkedHashMap<?, ?> inputs) {
     var table = VarkaNodeCompiler.table(inputs);
     var distinct = new LinkedHashSet<VarkaInputBound>();
     for (Bound b : bounds) {
@@ -133,7 +132,7 @@ final class DeclineSink {
         distinct.add(new VarkaInputBound((Integer) index.get(), b.lo(), b.hi()));
       }
     }
-    return CollectionConverters.asScala(new ArrayList<>(distinct)).toSeq();
+    return List.copyOf(distinct);
   }
 
   /** Notes {@code reason} against {@code expr} if nothing has been noted since the last take. */

@@ -61,8 +61,10 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
       }
       VarkaExpressionCompiler.compilePartial(list, table.columns, options).map { partial =>
         val fused = partial.fused
-        new VarkaEmitCostCorpus.Shape("coverage compositions", i, fused.outputs.asJava,
-          fused.inputOrdinals.size, math.max(fused.literals.size, fused.longLiterals.size))
+        new VarkaEmitCostCorpus.Shape("coverage compositions", i,
+            fused.outputs,
+          fused.inputOrdinals.size, math.max(fused.literals.size,
+              fused.longLiterals.size))
       }
     }
   }

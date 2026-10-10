@@ -41,13 +41,13 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection$;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
-import org.apache.spark.sql.catalyst.expressions.codegen.ForwardedOutput;
-import org.apache.spark.sql.catalyst.expressions.codegen.FusedOutput;
-import org.apache.spark.sql.catalyst.expressions.codegen.KernelOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
-import org.apache.spark.sql.catalyst.expressions.codegen.ResidualOutput$;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler$;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ForwardedOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.KernelOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ResidualOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.types.DataTypeUtils$;
 import org.apache.spark.sql.execution.vectorized.OffHeapColumnVector;
@@ -233,7 +233,7 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
         parts = new VarkaKernelPart[0];
       } else {
         layout();
-        List<CompiledVarkaProjection> more = CollectionConverters.asJava(compiled().get().more());
+        List<CompiledVarkaProjection> more = compiled().get().more();
         var built = new VarkaKernelPart[more.size()];
         for (int k = 0; k < built.length; k++) {
           // Its identity renders the entries it computes, not the projection's first ones.
@@ -380,14 +380,12 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
 
   /**
    * Reads the classification once: into the arrays {@link #project} walks per batch, and into the
-   * entries each further kernel computes and the residual entries. The Scala data model is not
-   * sealed to Java, so the {@code switch} ends in a {@code default} that throws; row 300 makes it
-   * sealed records and removes it.
+   * entries each further kernel computes and the residual entries.
    */
   private void layout() {
     if (sources == null) {
       PartialVarkaProjection partial = compiled().get();
-      List<VarkaOutputSpec> specs = new ArrayList<>(CollectionConverters.asJava(partial.specs()));
+      List<VarkaOutputSpec> specs = partial.specs();
       List<NamedExpression> named = new ArrayList<>(CollectionConverters.asJava(projectList));
       var kinds = new Source[specs.size()];
       var kernels = new int[specs.size()];
@@ -413,11 +411,10 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
             kinds[i] = Source.FORWARDED;
             indexes[i] = forwarded.childOrdinal();
           }
-          case ResidualOutput$ r -> {
+          case ResidualOutput r -> {
             kinds[i] = Source.RESIDUAL;
             residual.add(named.get(i));
           }
-          default -> throw new IllegalStateException("unknown output spec " + specs.get(i));
         }
       }
       kernelOf = kernels;

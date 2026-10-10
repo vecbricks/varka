@@ -103,7 +103,7 @@ object VarkaWidthAuditShapes {
       val c = compiled.getOrElse(
         throw new IllegalStateException(
           s"coverage row does not fuse, so it cannot be audited: $sql"))
-      Shape(sql, c.outputs, c.inputOrdinals.size, c.numLiterals)
+      Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
     }
   }
 

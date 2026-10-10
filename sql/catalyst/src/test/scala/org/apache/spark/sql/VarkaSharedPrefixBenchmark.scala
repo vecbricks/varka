@@ -20,6 +20,7 @@ package org.apache.spark.sql
 import java.lang.foreign.{Arena, ValueLayout}
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference}
@@ -99,8 +100,9 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
     require(usedIds.add(id), s"case id $id is already in use by another emit in this benchmark")
     val name = s"org.apache.spark.sql.varka.execution.VarkaSharedPrefixBench$id"
     val roots = new java.util.ArrayList[VarkaVectorIR]()
-    fused.outputs.foreach(roots.add)
-    val bytes = VarkaLoopEmitter.emit(name, roots, fused.inputOrdinals.size, fused.numLiterals,
+    fused.outputs.asScala.foreach(roots.add)
+    val bytes = VarkaLoopEmitter.emit(name, roots, fused.inputOrdinals.size,
+        fused.numLiterals,
       null, null, options)
     val groups = VarkaEmitterTestSupport.methodNames(bytes).toArray
       .count(e => isLoop(e.toString, true))
@@ -118,7 +120,7 @@ object VarkaSharedPrefixBenchmark extends BenchmarkBase {
         for (((title, sqls), s) <- shapes.zipWithIndex) {
           val fused = compile(sqls)
           val n = sqls.size
-          val literals = fused.literals.toArray
+          val literals = fused.literals.asScala.map(_.intValue).toArray
           val dst: Array[Long] = Array.fill(n)(arena.allocate(chunk * 4L, 64).address())
           val dstValidity: Array[Long] =
             Array.fill(n)(arena.allocate(chunk / 8L, 64).address())

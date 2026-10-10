@@ -21,12 +21,15 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 import scala.util.control.NonFatal
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, BindReferences,
   BoundReference, Expression, NamedExpression, RuntimeReplaceable}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDerivedKind, VarkaEmitDeclined,
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
+  FusedOutput, KernelOutput}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitDeclined,
   VarkaEmitOptions, VarkaKernelWarmup, VarkaLoopEmitter, VarkaShapeCache, VarkaShapeKey,
   VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{Cond, LaneType,
@@ -34,210 +37,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{Co
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, DataType}
-
-/**
- * A whole projection compiled to the Varka vector IR: the trees `VarkaLoopEmitter` turns into one
- * fused loop, plus everything the evaluator needs to drive the emitted class - which child columns
- * it reads (dense kernel input index = position in `inputOrdinals`), the runtime `scalarArgs`
- * values (slot index = position in `literals`), and each output's Spark type, which is what tells a
- * `datediff` day-count column (`IntegerType`) apart from a date column when the output vectors are
- * allocated.
- */
-private[sql] case class CompiledVarkaProjection(
-    outputs: Seq[VarkaVectorIR],
-    outputTypes: Seq[DataType],
-    inputOrdinals: Seq[Int],
-    literals: Seq[Int],
-    inputBounds: Seq[VarkaInputBound] = Nil,
-    derivedInputs: Seq[VarkaDerivedInput] = Nil,
-    longLiterals: Seq[Long] = Nil) {
-
-  // A kernel is single-lane - every output root agrees, which the emitter enforces - so it reads
-  // exactly one of the two literal tables. Both non-empty would mean an entry of the other lane
-  // left its literals behind when it was demoted, which the per-entry rollback rules out.
-  require(literals.isEmpty || longLiterals.isEmpty,
-    "a kernel is single-lane, so at most one of its literal tables is populated")
-
-  /**
-   * The lane the kernel's loop runs at, and so the `run` overload the evaluator calls: every
-   * root's emission lane, which is the root's own except for a narrowing root, whose 32-bit
-   * column is computed in the 64-bit lane (`VarkaVectorIR.emissionLane`).
-   */
-  def lane: LaneType = VarkaVectorIR.emissionLane(outputs.head)
-
-  /** The slot count of the one literal table this kernel reads - what the emitter is told. */
-  def numLiterals: Int = literals.size + longLiterals.size
-
-  private lazy val derivedByInput: Map[Int, VarkaDerivedInput] =
-    derivedInputs.map(d => d.inputIndex -> d).toMap
-
-  /** The derived-input note for kernel input `inputIndex`, if the evaluator derives it. */
-  def derivedAt(inputIndex: Int): Option[VarkaDerivedInput] = derivedByInput.get(inputIndex)
-}
-
-/**
- * A kernel input the evaluator derives per batch rather than reads: kernel input
- * `inputIndex` (a position in `inputOrdinals`, whose entry there is `sourceOrdinal`) is the
- * int32 column `kind` computes from child column `sourceOrdinal` - the first kind maps
- * `next_day`'s weekday names to `dayOfWeek - 1` - before the kernel runs. Like a bound, a
- * property of the compiled plan and not of the emitted bytes: the kernel sees an int input.
- */
-private[sql] case class VarkaDerivedInput(inputIndex: Int, sourceOrdinal: Int,
-    kind: VarkaDerivedKind)
-
-private[sql] object VarkaDerivedInput {
-  private val kinds = VarkaDerivedKind.values().length
-
-  /**
-   * The key a derived input is interned under in the compiler's input table beside the child
-   * ordinals: negative, so it can collide with no ordinal, and one per (column, kind), so two
-   * `next_day` over the same weekday column share one leaf. The table's mark-and-truncate
-   * discipline rolls it back with the plain columns when its entry declines.
-   */
-  def key(sourceOrdinal: Int, kind: VarkaDerivedKind): Int =
-    -1 - (sourceOrdinal * kinds + kind.ordinal())
-
-  /** Whether an input-table key names a derived input rather than a child ordinal. */
-  def isKey(key: Int): Boolean = key < 0
-
-  /** The child ordinal a derived key was made from. */
-  def sourceOrdinal(key: Int): Int = (-1 - key) / kinds
-
-  def kind(key: Int): VarkaDerivedKind = VarkaDerivedKind.values()((-1 - key) % kinds)
-
-  /** `inputOrdinals` and `derivedInputs` from the accepted entries' input table. */
-  def resolve(inputs: mutable.LinkedHashMap[Int, Int]): (Seq[Int], Seq[VarkaDerivedInput]) = {
-    val keys = inputs.keys.toSeq
-    val ordinals = keys.map(k => if (isKey(k)) sourceOrdinal(k) else k)
-    val derived = keys.zipWithIndex.collect {
-      case (k, i) if isKey(k) => VarkaDerivedInput(i, sourceOrdinal(k), kind(k))
-    }
-    (ordinals, derived)
-  }
-}
-
-/**
- * A closed interval every live value of kernel input `inputIndex` (a position in
- * `inputOrdinals`) must lie in for the kernel's answer to be Spark's. The compiler
- * records one where it rewrote an expression whose row-engine form throws outside the bound -
- * the first is `CAST(i AS INTERVAL DAY)`, which overflows past
- * `VarkaChrono.INTERVAL_DAY_LIMIT_DAYS` days - and the evaluator checks it per batch before the
- * kernel runs, declining the batch to the row engine, which then raises the error, when a live
- * lane is outside. A bound is a property of the compiled plan, not of the emitted bytes: two
- * projections with the same IR and different bounds share a kernel class.
- */
-private[sql] case class VarkaInputBound(inputIndex: Int, lo: Int, hi: Int)
-
-/**
- * How one projection entry is served under partial eligibility: computed by the fused
- * kernel, forwarded as the input's own vector, or evaluated per row by the residual projection.
- */
-private[sql] sealed trait VarkaOutputSpec
-
-/** A kernel column: output `fusedIndex` of the fused sub-projection. */
-private[sql] case class FusedOutput(fusedIndex: Int) extends VarkaOutputSpec
-
-/**
- * A column of a further kernel under `VarkaEmitOptions.severalKernels`: output `fusedIndex` of
- * `PartialVarkaProjection.more(kernel - 1)`. Kernel 0 is the first one, whose outputs stay
- * [[FusedOutput]], so a projection that fits one kernel is classified as it always was.
- */
-private[sql] case class KernelOutput(kernel: Int, fusedIndex: Int) extends VarkaOutputSpec {
-  require(kernel >= 1, s"kernel 0's outputs are FusedOutput, not KernelOutput($kernel, ...)")
-}
-
-/**
- * A bare column reference, forwarded zero-copy from child output ordinal `childOrdinal`. Any
- * type, not just dates: forwarding never reads the values, so it does not care about lanes.
- */
-private[sql] case class ForwardedOutput(childOrdinal: Int) extends VarkaOutputSpec
-
-/** Everything else: evaluated per row, one pass for all residual entries together. */
-private[sql] case object ResidualOutput extends VarkaOutputSpec
-
-/**
- * Why one entry could not be fused: the answer to "why didn't my projection fuse?",
- * which the compiler's per-entry `None` used to swallow. `reason` is the vocabulary term - the
- * same string the exec nodes' verbose `EXPLAIN` and debug logs print - and `expr` names the
- * offending expression, the innermost one that actually failed rather than the whole entry.
- */
-private[sql] case class VarkaDecline(reason: String, expr: String) {
-  override def toString: String = s"$reason: $expr"
-}
-
-/**
- * A projection classified entry by entry: `specs` has one entry per projectList
- * position, in order, and `fused` is the sub-projection of just the [[FusedOutput]] entries -
- * their kernel-input and literal tables cover only what the fused trees reference, so a
- * residual entry constrains neither the emitted loop nor `canRun`'s Arrow check.
- *
- * `declines` maps the position of each [[ResidualOutput]] entry to why it declined,
- * for the exec nodes' verbose `EXPLAIN`; it is diagnostics only and no execution path reads it.
- */
-private[sql] case class PartialVarkaProjection(
-    specs: Seq[VarkaOutputSpec],
-    fused: CompiledVarkaProjection,
-    declines: Map[Int, VarkaDecline] = Map.empty,
-    more: Seq[CompiledVarkaProjection] = Nil) {
-
-  /**
-   * Every kernel the projection runs, the first one first: one unless the entries were over
-   * what one kernel serves and `VarkaEmitOptions.severalKernels` split them (`VARKA-190.md`
-   * 11).
-   */
-  def kernels: Seq[CompiledVarkaProjection] = fused +: more
-
-  /**
-   * The position of a kernel column among every kernel's columns laid end to end, kernel by
-   * kernel - how the row node's merge and `projectFused` number them - or None for an entry no
-   * kernel computes.
-   */
-  def columnIndex(spec: VarkaOutputSpec): Option[Int] = spec match {
-    case FusedOutput(i) => Some(i)
-    case KernelOutput(k, i) => Some(kernels.take(k).map(_.outputs.size).sum + i)
-    case _ => None
-  }
-}
-
-/**
- * One conjunct of a filter predicate under the task-21 split: the original (unbound)
- * expression, whether it joined the mask kernel, and - for a residual conjunct - why not.
- * The predicate counterpart of [[VarkaOutputSpec]] plus its decline entry.
- */
-private[sql] case class VarkaConjunctSpec(
-    conjunct: Expression,
-    fused: Boolean,
-    decline: Option[VarkaDecline])
-
-/**
- * A filter predicate compiled conjunct by conjunct: `specs` classifies every
- * conjunct of the condition's `AND` spine in query order, and `fused` describes the mask
- * kernel. Its outputs are condition roots, each a selection bitmap, and each `outputTypes`
- * entry is `BooleanType` as a description only, since a selection bitmap never allocates an
- * output vector. The split mirrors [[PartialVarkaProjection]]'s per-entry eligibility: a mixed
- * `WHERE` fuses what it can, and the rule keeps the residual conjuncts in a row `FilterExec`
- * above the Varka node.
- *
- * `clauses` says how the outputs make the selection: a row is selected when, in every clause,
- * at least one of the clause's outputs selects it. Usually there is one output, the fused
- * conjuncts recombined into one root, and one clause holding it. A predicate that one method
- * cannot hold is split under `splitConditions` (see [[VarkaExpressionCompiler.compilePredicate]])
- * into several conjunction roots, each its own clause, and a disjunction too large alone into
- * several partial roots in one clause. Kleene logic allows both at the mask: a row is known
- * true for `a AND b` exactly when it is known true for both, and for `a OR b` exactly when it
- * is known true for either.
- */
-private[sql] case class CompiledVarkaPredicate(
-    specs: Seq[VarkaConjunctSpec],
-    fused: CompiledVarkaProjection,
-    clauses: Seq[Seq[Int]] = Seq(Seq(0))) {
-
-  /** The conjuncts the mask kernel serves, in query order, unbound. */
-  def fusedConjuncts: Seq[Expression] = specs.filter(_.fused).map(_.conjunct)
-
-  /** The conjuncts left to a row filter above, in query order, unbound. */
-  def residualConjuncts: Seq[Expression] = specs.filterNot(_.fused).map(_.conjunct)
-}
 
 /**
  * Compiles a bound projection list to the Varka vector IR, recursing where the MVP's flat matcher
@@ -278,7 +77,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       childOutput: Seq[Attribute],
       options: VarkaEmitOptions = VarkaEmitOptions.DEFAULTS): Option[CompiledVarkaProjection] = {
     compilePartial(projectList, childOutput, options).collect {
-      case partial if partial.specs.forall(_.isInstanceOf[FusedOutput]) => partial.fused
+      case partial if partial.specs.asScala.forall(_.isInstanceOf[FusedOutput]) => partial.fused
     }
   }
 
@@ -328,7 +127,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     if (!options.severalKernels || first.isEmpty) {
       return (first, firstDeclines)
     }
-    val specs = first.get.specs.toArray
+    val specs = first.get.specs.asScala.toArray
     var declines = firstDeclines
     val more = mutable.ArrayBuffer.empty[CompiledVarkaProjection]
     var aside = firstAside
@@ -336,14 +135,14 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     while (aside.nonEmpty && progress) {
       val others = projectList.indices.filterNot(aside).map(_ -> OtherKernel).toMap
       val (next, nextDeclines, nextAside) = classify(projectList, childOutput, options, others)
-      val fused = next.toSeq.flatMap(_.specs.zipWithIndex.collect {
-        case (FusedOutput(i), at) => at -> i
+      val fused = next.toSeq.flatMap(_.specs.asScala.zipWithIndex.collect {
+        case (f: FusedOutput, at) => at -> f.fusedIndex
       })
       progress = fused.nonEmpty
       if (progress) {
         more += next.get.fused
         fused.foreach { case (at, i) =>
-          specs(at) = KernelOutput(more.size, i)
+          specs(at) = new KernelOutput(more.size, i)
           declines -= at
         }
       }
@@ -355,7 +154,8 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       }
       aside = nextAside
     }
-    (Some(first.get.copy(specs = specs.toSeq, declines = declines, more = more.toSeq)), declines)
+    (Some(new PartialVarkaProjection(specs.toSeq.asJava, first.get.fused, javaDeclines(declines),
+      more.asJava)), declines)
   }
 
   /** The reason a round of [[classifyKernels]] demotes an entry another kernel serves. */
@@ -399,7 +199,9 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     // The projection positions of a partial's fused entries, in the order the kernel numbers
     // them; a decline's named outputs index this.
     def positions(partial: PartialVarkaProjection): Seq[Int] =
-      partial.specs.zipWithIndex.collect { case (FusedOutput(i), at) => i -> at }
+      partial.specs.asScala.toSeq.zipWithIndex.collect {
+        case (f: FusedOutput, at) => f.fusedIndex -> at
+      }
         .sortBy(_._1).map(_._2)
     def ask(demoted: Map[Int, String])
         : Option[(PartialVarkaProjection, Seq[Int], String, Int)] = {
@@ -494,13 +296,13 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       inner match {
         // A bare column is compilable as a node but never emitted as an output: emitting it
         // would be a copy loop, while forwarding the input's vector is zero-copy.
-        case br: BoundReference => ForwardedOutput(br.ordinal)
+        case br: BoundReference => new ForwardedOutput(br.ordinal)
         // An entry the size admission demoted in an earlier round: residual with the emitter's
         // reason, and compiled not at all, so it registers nothing in the shared tables.
         case e if demoted.contains(position) =>
           sink.note(demoted(position), e)
           sink.take().foreach(decline => declines += position -> decline)
-          ResidualOutput
+          VarkaOutputSpec.RESIDUAL
         case e =>
           // The tables are shared across entries (CSE across outputs depends on it), so a
           // declining entry must not leave the columns and literals its failing subtrees
@@ -533,7 +335,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               sink.note(laneMismatch(VarkaVectorIR.emissionLane(ir),
                 VarkaVectorIR.emissionLane(outputs.head)), e)
               sink.take().foreach(decline => declines += position -> decline)
-              ResidualOutput
+              VarkaOutputSpec.RESIDUAL
             // An accepted entry must also fit the emitter's structural budgets together with the
             // entries accepted before it. The emitter enforces the same limits, but at emission
             // time, where a breach can only become a silent per-batch fallback - no decline reason,
@@ -545,7 +347,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               outputs += ir
               outputTypes += e.dataType
               fusedCount += 1
-              FusedOutput(fusedCount - 1)
+              new FusedOutput(fusedCount - 1)
             case compiled =>
               // `misdescribeRollback` is a fault injector for the forced-decline check: zero in
               // production, where this restores the four tables exactly.
@@ -572,23 +374,21 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               }
               // A declining entry always leaves a reason: every `None` below notes one.
               sink.take().foreach(decline => declines += position -> decline)
-              ResidualOutput
+              VarkaOutputSpec.RESIDUAL
           }
       }
     }
     val specs = projectList.zipWithIndex.map { case (named, position) =>
       // Another kernel's entry in a round of `classifyKernels`: neither bound nor noted, so a
       // round costs the entries it classifies rather than the whole projection.
-      if (demoted.get(position).contains(OtherKernel)) ResidualOutput
+      if (demoted.get(position).contains(OtherKernel)) VarkaOutputSpec.RESIDUAL
       else classifyEntry(named, position)
     }
     val reasons = declines.result()
     if (fusedCount > 0 && inputs.nonEmpty) {
-      val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
-      (Some(PartialVarkaProjection(specs, CompiledVarkaProjection(
-        outputs.toSeq, outputTypes.result(), ordinals, literals.keys.toSeq,
-        sink.inputBounds(inputs), derived, sink.longLiteralValues.map(_.longValue)),
-        reasons)), reasons, alone.result())
+      val fused = projection(outputs.toSeq, outputTypes.result(), inputs, literals, sink)
+      (Some(new PartialVarkaProjection(specs.asJava, fused, javaDeclines(reasons),
+        java.util.List.of())), reasons, alone.result())
     } else {
       (None, reasons, alone.result())
     }
@@ -625,7 +425,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
     // the only decline it can give is the class-file cap's, and that one is worth a residual
     // at plan time rather than a per-task fallback on the executor (VARKA-219.md 10).
     val key = new VarkaShapeKey(
-      fused.outputs.asJava, fused.inputOrdinals.size, fused.numLiterals, options,
+      fused.outputs, fused.inputOrdinals.size, fused.numLiterals, options,
       VarkaKernelWarmup.warms(SQLConf.get.varkaWarmupEnabled))
     try {
       VarkaShapeCache.admit(key)
@@ -709,7 +509,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       val sink = new DeclineSink(childOutput, options.rangeSets)
       return (splitConjuncts(condition).map { conjunct =>
         sink.note(why, BindReferences.bindReference[Expression](conjunct, childOutput))
-        VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+        new VarkaConjunctSpec(conjunct, false, sink.take().toJava)
       }, None)
     }
     // The size admission of [[classify]], for conjuncts. The fused conjuncts fold into one
@@ -721,7 +521,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       val once = predicateOnce(condition, childOutput, demoted, options)
       val more = once.compiled.flatMap { predicate =>
         admitBySize(predicate.fused, options).map { case (_, reason, _) =>
-          predicate.specs.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
+          predicate.specs.asScala.zipWithIndex.filter(_._1.fused).map(_._2).max -> reason
         }
       }
       if (more.isEmpty) {
@@ -763,7 +563,7 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       val bound = BindReferences.bindReference[Expression](conjunct, childOutput)
       if (demoted.contains(index)) {
         sink.note(demoted(index), bound)
-        VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+        new VarkaConjunctSpec(conjunct, false, sink.take().toJava)
       } else {
         val inputsMark = inputs.size
         val literalsMark = literals.size
@@ -779,13 +579,13 @@ private[sql] object VarkaExpressionCompiler extends Logging {
             sink.truncateBounds(boundsMark)
             sink.take()
             sink.note(laneMismatch(cond.laneType(), fusedConds.head.laneType()), bound)
-            VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+            new VarkaConjunctSpec(conjunct, false, sink.take().toJava)
           case Some(cond) if VarkaLoopEmitter.fitsBudgets(
               java.util.List.of(VarkaConditionCompiler.andFold(fusedConds.toSeq :+ cond)),
               inputs.size, options) =>
             sink.take()
             fusedConds += cond
-            VarkaConjunctSpec(conjunct, fused = true, decline = None)
+            new VarkaConjunctSpec(conjunct, true, java.util.Optional.empty[VarkaDecline]())
           case compiled =>
             truncate(inputs, inputsMark)
             truncate(literals, literalsMark)
@@ -796,20 +596,19 @@ private[sql] object VarkaExpressionCompiler extends Logging {
               sink.note("exceeds the emitter's fused budget", bound)
             }
             // A declining conjunct always leaves a reason: every `None` in compileCond notes one.
-            VarkaConjunctSpec(conjunct, fused = false, decline = sink.take())
+            new VarkaConjunctSpec(conjunct, false, sink.take().toJava)
         }
       }
     }
     if (fusedConds.nonEmpty && inputs.nonEmpty) {
-      val (ordinals, derived) = VarkaDerivedInput.resolve(inputs)
-      val bounds = sink.inputBounds(inputs)
-      val longs = sink.longLiteralValues.map(_.longValue)
+      val tables = projection(Seq.empty, Seq.empty, inputs, literals, sink)
       val build = (layout: Seq[Seq[Cond]]) => {
-        val roots = layout.flatten
+        val roots: Seq[VarkaVectorIR] = layout.flatten
         val starts = layout.scanLeft(0)(_ + _.size)
-        val clauses = layout.indices.map(c => starts(c) until starts(c + 1))
-        CompiledVarkaPredicate(specs, CompiledVarkaProjection(roots, roots.map(_ => BooleanType),
-          ordinals, literals.keys.toSeq, bounds, derived, longs), clauses)
+        val clauses = layout.indices.map(c => (starts(c) until starts(c + 1)).map(Int.box).asJava)
+        new CompiledVarkaPredicate(specs.asJava, new CompiledVarkaProjection(roots.asJava,
+          roots.map(_ => BooleanType: DataType).asJava, tables.inputOrdinals, tables.literals,
+          tables.inputBounds, tables.derivedInputs, tables.longLiterals), clauses.asJava)
       }
       val conds = fusedConds.toSeq
       PredicatePass(specs, Some(build(Seq(Seq(VarkaConditionCompiler.andFold(conds))))), conds,
@@ -951,6 +750,34 @@ private[sql] object VarkaExpressionCompiler extends Logging {
       VarkaTimeCompiler.compileTime(si, inputs, literals, sink, true)
     case other => VarkaNodeCompiler.compileNode(other, inputs, literals, sink)
   }
+
+  /**
+   * The fused projection over the accepted entries' tables: `inputOrdinals` and `derivedInputs`
+   * from the input table (a derived input is interned under a negative key beside the child
+   * ordinals, see `VarkaDerivedInput.key`), the literal slots, and the sink's bounds and 64-bit
+   * literals.
+   */
+  private def projection(
+      outputs: Seq[VarkaVectorIR],
+      outputTypes: Seq[DataType],
+      inputs: mutable.LinkedHashMap[Int, Int],
+      literals: mutable.LinkedHashMap[Int, Int],
+      sink: DeclineSink): CompiledVarkaProjection = {
+    val keys = inputs.keys.toSeq
+    val ordinals = keys.map { k =>
+      Int.box(if (VarkaDerivedInput.isKey(k)) VarkaDerivedInput.sourceOrdinal(k) else k)
+    }
+    val derived = keys.zipWithIndex.collect {
+      case (k, i) if VarkaDerivedInput.isKey(k) =>
+        new VarkaDerivedInput(i, VarkaDerivedInput.sourceOrdinal(k), VarkaDerivedInput.kind(k))
+    }
+    new CompiledVarkaProjection(outputs.asJava, outputTypes.asJava, ordinals.asJava,
+      literals.keys.toSeq.map(Int.box).asJava, sink.inputBounds(inputs), derived.asJava,
+      sink.longLiteralValues)
+  }
+
+  private def javaDeclines(declines: Map[Int, VarkaDecline]): java.util.Map[Integer, VarkaDecline] =
+    declines.map { case (at, d) => Int.box(at) -> d }.asJava
 
   /** The reason an entry of one lane records when the kernel is already on the other. */
   private def laneMismatch(entry: LaneType, kernel: LaneType): String =

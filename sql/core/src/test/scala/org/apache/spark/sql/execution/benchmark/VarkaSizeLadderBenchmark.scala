@@ -21,12 +21,13 @@ import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.NamedExpression
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, FusedOutput,
-  VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmup
 import org.apache.spark.sql.execution.{SparkPlan, VarkaColumnarToRowExec, VarkaProjectExec}
 
@@ -108,7 +109,7 @@ object VarkaSizeLadder {
       s"the Varka arm did not fuse:\n${plan.treeString}"))
     require(batches > 0, s"the Varka arm fused but fell back at run time: $query")
     require(fallbacks == 0, s"the Varka arm handed $fallbacks batches to the row path: $query")
-    fused.map(_.specs.count(_.isInstanceOf[FusedOutput])).getOrElse(0)
+    fused.map(_.specs.asScala.count(_.isInstanceOf[FusedOutput])).getOrElse(0)
   }
 
 }

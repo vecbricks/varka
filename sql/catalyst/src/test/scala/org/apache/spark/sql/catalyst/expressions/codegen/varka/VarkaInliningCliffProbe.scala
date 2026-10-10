@@ -169,7 +169,8 @@ object VarkaInliningCliffProbe {
       addDirective(excludeC1 = c1 == "off", inline = directive == "inline")
     }
     val fused = shape(kind, outputs)
-    val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
+    val bytes = VarkaLoopEmitter.emit(name, fused.outputs,
+        fused.inputOrdinals.size,
       fused.numLiterals, null, null,
       // The budget is read against the measured split, not the predicted one (VARKA-236).
       VarkaEmitOptions.DEFAULTS.withFusedCeiling(ceiling).withCallSiteBudget(budget)
@@ -188,7 +189,7 @@ object VarkaInliningCliffProbe {
     try {
       val data = arena.allocate(rows * 4L, 64)
       (0 until rows).foreach(i => data.set(ValueLayout.JAVA_INT, i * 4L, i * 7 % 20000 - 10000))
-      val literals = fused.literals.toArray
+      val literals = fused.literals.asScala.map(_.intValue).toArray
       val dst = Array.fill(outputs)(arena.allocate(rows * 4L, 64).address())
       val dstValidity = Array.fill(outputs)(arena.allocate(rows / 8L + 8, 64).address())
       val src = Array(data.address())

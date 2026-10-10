@@ -20,13 +20,18 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import java.nio.file.Files
 
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 import scala.util.Try
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, ExtractANSIIntervalMonths, InSet, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InSet, LastDay, Literal, NamedExpression, Rand}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
+  CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctSpec, VarkaDecline,
+  VarkaExpressionCompiler, VarkaOutputSpec}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
+  FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, LongType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
 
@@ -264,8 +269,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
             // Every conjunct has to fuse, not just one: the table documents the predicate as
             // written, and a residual conjunct runs in a row filter above the Varka node.
             VarkaExpressionCompiler.compilePredicate(expr, columns) match {
-              case Some(p) if p.specs.forall(_.fused) => None
-              case Some(p) => Some(p.specs.flatMap(_.decline).map(_.reason).mkString("; "))
+              case Some(p) if p.specs.asScala.forall(_.fused) => None
+              case Some(p) =>
+                Some(p.specs.asScala.flatMap(_.decline.toScala).map(_.reason).mkString("; "))
               case None => Some("the predicate compiled to nothing")
             }
           } else {
@@ -273,7 +279,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
               case Some(_) => None
               case None =>
                 val partial = VarkaExpressionCompiler.compilePartial(Seq(out(expr)), columns)
-                Some(partial.map(_.declines.values.map(_.reason).mkString("; "))
+                Some(partial.map(_.declines.asScala.values.map(_.reason).mkString("; "))
                   .getOrElse("no entry fused"))
             }
           }
@@ -588,5 +594,114 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val from = text.indexOf(beginMark)
     val to = text.indexOf(endMark)
     text.substring(0, from + beginMark.length) + "\n" + body + text.substring(to)
+  }
+
+  /**
+   * Every fusion decision the compiler makes over the table's rows, rendered as text, for a
+   * refactor of the classifier to diff before and after (VARKA-300 2: the compiler suite is what
+   * such a refactor rewrites, so it cannot be the refactor's only oracle). Opt-in, like the bytes
+   * suite's option audit: set `VARKA_FUSION_DUMP` to a file and run this test on both sides.
+   *
+   * The rendering reads the model through its accessors and prints every component, so it does
+   * not depend on how the model's types print. It covers each row as a projection, as `compile`
+   * and, for a predicate row, as a predicate; all the rows together, with forwarded columns, with
+   * a nondeterministic entry, and twice over; all the predicate rows as one conjunction; and the
+   * several-kernel ladders and a projection over more columns than a kernel reads - under the
+   * defaults, four method budgets alone, with several kernels and with condition splitting, fused
+   * ceilings, and a forced residual.
+   */
+  test("the fusion decisions over the table, dumped for a refactor to diff " +
+      "(opt-in: VARKA_FUSION_DUMP=<file>; VARKA-300)") {
+    val target = sys.env.get("VARKA_FUSION_DUMP")
+    assume(target.isDefined, "opt-in: set VARKA_FUSION_DUMP to a file")
+    def projection(p: CompiledVarkaProjection): String = {
+      val bounds = p.inputBounds.asScala.map(b => (b.inputIndex, b.lo, b.hi))
+      val derived = p.derivedInputs.asScala.map(d => (d.inputIndex, d.sourceOrdinal, d.kind))
+      val derivedAt = p.inputOrdinals.asScala.indices.map(i =>
+        p.derivedAt(i).toScala.map(_.kind.toString).getOrElse("-"))
+      s"outputs=${p.outputs.asScala.mkString("|")} types=${p.outputTypes.asScala.mkString("|")} " +
+        s"in=${p.inputOrdinals.asScala.mkString(",")} lit=${p.literals.asScala.mkString(",")} " +
+        s"bounds=${bounds.mkString("|")} derived=${derived.mkString("|")} " +
+        s"longs=${p.longLiterals.asScala.mkString(",")} lane=${p.lane} n=${p.numLiterals} " +
+        s"derivedAt=${derivedAt.mkString("|")}"
+    }
+    def spec(s: VarkaOutputSpec): String = s match {
+      case f: FusedOutput => s"F${f.fusedIndex}"
+      case k: KernelOutput => s"K${k.kernel}.${k.fusedIndex}"
+      case w: ForwardedOutput => s"W${w.childOrdinal}"
+      case _: ResidualOutput => "R"
+    }
+    def declines(m: Map[Int, VarkaDecline]): String = m.toSeq.sortBy(_._1).mkString("|")
+    def partial(o: Option[PartialVarkaProjection]): String = o.fold("None") { x =>
+      val specs = x.specs.asScala
+      s"specs=${specs.map(spec).mkString(",")} " +
+        s"cols=${specs.map(x.columnIndex(_).orElse(-1)).mkString(",")} " +
+        s"declines=${declines(x.declines.asScala.map { case (k, v) => k.intValue -> v }.toMap)} " +
+        s"fused=${projection(x.fused)} more=${x.more.asScala.map(projection).mkString(" || ")} " +
+        s"kernels=${x.kernels.size}"
+    }
+    def conjunct(s: VarkaConjunctSpec): String =
+      s"(${s.conjunct}, ${s.fused}, ${s.decline.toScala.getOrElse("-")})"
+    def predicate(o: Option[CompiledVarkaPredicate]): String = o.fold("None") { x =>
+      s"specs=${x.specs.asScala.map(conjunct).mkString(",")} " +
+        s"clauses=${x.clauses.asScala.map(_.asScala.mkString(",")).mkString(";")} " +
+        s"fused=${projection(x.fused)} fc=${x.fusedConjuncts.asScala.mkString("|")} " +
+        s"rc=${x.residualConjuncts.asScala.mkString("|")}"
+    }
+    val base = VarkaEmitOptions.DEFAULTS
+    val optionSets = Seq("defaults" -> base) ++ Seq(120, 250, 500, 1000).flatMap { b =>
+      Seq(s"budget$b" -> base.toBuilder().methodByteBudget(b).build(),
+        s"several$b" -> base.toBuilder().severalKernels(true).methodByteBudget(b).build(),
+        s"split$b" -> base.toBuilder().splitConditions(true).methodByteBudget(b).build())
+    } ++ Seq(
+      "ceiling" -> base.withFusedCeiling(3),
+      "severalCeiling" -> base.toBuilder().severalKernels(true).build().withFusedCeiling(3),
+      "severalCeiling8" -> base.toBuilder().severalKernels(true).build().withFusedCeiling(8),
+      "force" -> base.toBuilder().forceResidualAt(2).build())
+    val projections = families.filterNot(_.predicates).flatMap(_.rows).map(expressionOf)
+    val predicates = families.filter(_.predicates).flatMap(_.rows).map(expressionOf)
+    val compiler = VarkaExpressionCompiler
+    val sb = new StringBuilder
+    for ((name, o) <- optionSets) {
+      projections.foreach { e =>
+        sb ++= s"$name P1 $e\n  ${partial(compiler.compilePartial(Seq(out(e)), columns, o))}\n"
+        sb ++= s"  C ${compiler.compile(Seq(out(e)), columns, o).map(projection)}\n"
+      }
+      val all = projections.zipWithIndex.map { case (e, k) => Alias(e, s"c$k")(): NamedExpression }
+      val withColumns = all ++ columns
+      sb ++= s"$name PALL\n  ${partial(compiler.compilePartial(withColumns, columns, o))}\n"
+      sb ++= s"  D ${declines(compiler.declines(withColumns, columns, o))}\n"
+      val random = withColumns :+ (Alias(Rand(Literal(1L)), "r")(): NamedExpression)
+      sb ++= s"$name PRAND\n  ${partial(compiler.compilePartial(random, columns, o))}\n"
+      sb ++= s"  D ${declines(compiler.declines(random, columns, o))}\n"
+      val twice = (all ++ all).zipWithIndex.map { case (n, k) =>
+        Alias(n.children.head, s"d$k")(): NamedExpression
+      }
+      sb ++= s"$name PDUP\n  ${partial(compiler.compilePartial(twice, columns, o))}\n"
+      predicates.foreach { e =>
+        sb ++= s"$name Q1 $e\n  ${predicate(compiler.compilePredicate(e, columns, o))}\n"
+      }
+      val conjunction = predicates.reduce(And(_, _))
+      sb ++= s"$name QALL\n  ${predicate(compiler.compilePredicate(conjunction, columns, o))}\n"
+      val explained = compiler.explainPredicate(conjunction, columns, o)
+      sb ++= s"  E ${explained.map(conjunct).mkString(",")}\n"
+    }
+    def ladder(k: Int): NamedExpression =
+      Alias(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))), "c")()
+    val unrolled = VarkaMatrix.base.withDriverOutputTable(false)
+    for (several <- Seq(false, true); n <- Seq(100, 200, 400)) {
+      val o = unrolled.withSeveralKernels(several)
+      val compiled = compiler.compilePartial((1 to n).map(ladder), columns, o)
+      sb ++= s"LADDER $several $n\n  ${partial(compiled)}\n"
+    }
+    val dates = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
+    val long = AttributeReference("l", LongType)()
+    val wide = dates.map(c => Alias(DateAdd(c, Literal(1)), "o")(): NamedExpression) :+
+      (Alias(Add(long, Literal(1L)), "o")(): NamedExpression)
+    for (several <- Seq(false, true)) {
+      val o = VarkaMatrix.base.withSeveralKernels(several)
+      sb ++= s"WIDE $several\n  ${partial(compiler.compilePartial(wide, dates :+ long, o))}\n"
+    }
+    Files.writeString(java.nio.file.Path.of(target.get), sb.toString)
   }
 }

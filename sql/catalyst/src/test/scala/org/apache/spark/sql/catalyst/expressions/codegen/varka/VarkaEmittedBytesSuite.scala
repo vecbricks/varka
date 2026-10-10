@@ -197,7 +197,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       }
       compiled match {
         case Some(c) =>
-          shapes += CoverageShape(sql, c.outputs, c.inputOrdinals.size, c.numLiterals)
+          shapes += CoverageShape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size,
+              c.numLiterals)
         case None if resolved.isEmpty => skipped += sql
         case None =>
           fail(s"coverage row does not fuse, so the oracle cannot pin it: $sql. " +

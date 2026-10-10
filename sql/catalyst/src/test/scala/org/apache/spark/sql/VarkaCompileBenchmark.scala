@@ -18,6 +18,7 @@
 package org.apache.spark.sql
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
@@ -114,7 +115,8 @@ object VarkaCompileBenchmark extends BenchmarkBase {
         for (e <- exprs) {
           require(VarkaExpressionCompiler.compile(named(Seq(e)), columns).isDefined,
             s"the shape does not fuse, so it would time a decline: $title: ${e.sql}: " +
-              VarkaExpressionCompiler.compilePartial(named(Seq(e)), columns).map(_.declines))
+              VarkaExpressionCompiler.compilePartial(named(Seq(e)),
+                  columns).map(_.declines.asScala))
         }
         require(VarkaExpressionCompiler.compile(projectList, columns).isDefined,
           s"the shape does not fuse, so it would time a decline: $title")

@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
@@ -256,10 +258,10 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       mkVarka: (Expression, SparkPlan, Option[Expression]) => SparkPlan): Option[SparkPlan] = {
     VarkaExpressionCompiler.compilePredicate(condition, child.output,
         VarkaColumnarToRowExec.emitOptions(SQLConf.get.varkaEmitUseAVX)).map { predicate =>
-      val residual = predicate.residualConjuncts.reduceLeftOption(And(_, _))
+      val residual = predicate.residualConjuncts.asScala.reduceLeftOption(And(_, _))
       // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with
       // the whole condition, in Spark's order (see VarkaFilterExecBase).
-      val varka = mkVarka(predicate.fusedConjuncts.reduceLeft(And(_, _)), child,
+      val varka = mkVarka(predicate.fusedConjuncts.asScala.reduceLeft(And(_, _)), child,
         residual.map(_ => condition))
       residual.map(FilterExec(_, varka)).getOrElse(varka)
     }

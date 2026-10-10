@@ -182,7 +182,8 @@ object VarkaWordCensus {
   private def fuse(exprs: Seq[String]): Option[Fused] = {
     val named = exprs.map(e => Alias(resolve(CatalystSqlParser.parseExpression(e)), "c")())
     VarkaExpressionCompiler.compilePartial(named, columns).map { p =>
-      Fused(p.fused.outputs, p.fused.inputOrdinals.size, p.fused.literals.size)
+      Fused(p.fused.outputs.asScala.toSeq, p.fused.inputOrdinals.size,
+          p.fused.literals.size)
     }
   }
 

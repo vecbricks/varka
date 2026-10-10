@@ -121,7 +121,8 @@ object VarkaDeoptCycleProbe {
     if (path == "warmup" || path == "c1off") {
       excludeC1()
     }
-    val bytes = VarkaLoopEmitter.emit(name, fused.outputs.asJava, fused.inputOrdinals.size,
+    val bytes = VarkaLoopEmitter.emit(name, fused.outputs,
+        fused.inputOrdinals.size,
       fused.numLiterals, null, null, options)
     sys.env.get("VARKA_DEOPT_DUMP").foreach { dir =>
       Files.write(java.nio.file.Paths.get(dir, name + ".class"), bytes)
@@ -140,7 +141,7 @@ object VarkaDeoptCycleProbe {
       val bufferRows = 4096
       val data = arena.allocate(bufferRows * 4L, 64)
       (0 until bufferRows).foreach(i => data.set(ValueLayout.JAVA_INT, i * 4L, i % 20000 - 10000))
-      val literals = fused.literals.toArray
+      val literals = fused.literals.asScala.map(_.intValue).toArray
       val dst = Array.fill(outputs)(arena.allocate(bufferRows * 4L, 64).address())
       val dstValidity = Array.fill(outputs)(arena.allocate(bufferRows / 8L, 64).address())
       val src = Array(data.address())

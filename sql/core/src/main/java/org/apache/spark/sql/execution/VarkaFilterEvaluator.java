@@ -126,13 +126,13 @@ public class VarkaFilterEvaluator extends VarkaEvaluatorBase {
           .compilePredicate(condition, childAttributes(), emitOptions());
       if (all.isDefined() && all.get().residualConjuncts().isEmpty()) {
         compiled = all.get();
-        List<Seq<Object>> byClause = CollectionConverters.asJava(compiled.clauses());
+        List<List<Integer>> byClause = compiled.clauses();
         clauses = new int[byClause.size()][];
         for (int c = 0; c < clauses.length; c++) {
-          List<Object> outputs = CollectionConverters.asJava(byClause.get(c));
+          List<Integer> outputs = byClause.get(c);
           clauses[c] = new int[outputs.size()];
           for (int k = 0; k < clauses[c].length; k++) {
-            clauses[c][k] = (Integer) outputs.get(k);
+            clauses[c][k] = outputs.get(k);
           }
         }
         // The account for a filter, once per task at debug level.

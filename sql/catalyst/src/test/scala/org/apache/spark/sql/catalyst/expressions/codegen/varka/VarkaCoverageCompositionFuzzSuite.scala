@@ -18,11 +18,13 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 import scala.util.Random
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, FusedOutput, KernelOutput, PartialVarkaProjection, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, PartialVarkaProjection, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCompositionCase.Entry
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, DateTimeUtils}
@@ -131,7 +133,7 @@ class VarkaCoverageCompositionFuzzSuite
     val (fused, declined) = try {
       // A further kernel's entry is fused too (VARKA-190's `severalKernels`, on by default).
       val fused = VarkaExpressionCompiler.compilePartial(list, columns, c.options)
-        .map(_.specs.zipWithIndex.collect {
+        .map(_.specs.asScala.toSeq.zipWithIndex.collect {
           case (_: FusedOutput, i) => i
           case (_: KernelOutput, i) => i
         }.toSet)
@@ -174,9 +176,9 @@ class VarkaCoverageCompositionFuzzSuite
     // are at least as many as the rows picked.
     assert(specs.size >= c.entries.size, finding(s"${specs.size} conjunct specs", c))
     specs.zipWithIndex.foreach { case (spec, i) =>
-      assert(spec.fused || spec.decline.exists(_.reason.nonEmpty),
+      assert(spec.fused || spec.decline.toScala.exists(_.reason.nonEmpty),
         finding(s"conjunct $i neither fused nor declined with a reason", c))
-      spec.decline.filterNot(_ => spec.fused).foreach { d =>
+      spec.decline.toScala.filterNot(_ => spec.fused).foreach { d =>
         assert(isCompositionDecline(d.reason),
           finding(s"conjunct $i, which fuses alone, declined for '${d.reason}'", c))
       }
@@ -250,7 +252,7 @@ class VarkaCoverageCompositionFuzzSuite
     kernelCounter += 1
     kernelsByLane(plan.lane) = kernelsByLane.getOrElse(plan.lane, 0) + 1
     val className = s"org.apache.spark.sql.varka.execution.VarkaCompositionWide$kernelCounter"
-    val bytes = VarkaLoopEmitter.emit(className, plan.outputs.asJava, numInputs,
+    val bytes = VarkaLoopEmitter.emit(className, plan.outputs, numInputs,
       plan.numLiterals, null, null, opts)
     val length = Seq(1, 7, 64, 100, 257, 1000)(rnd.nextInt(6))
     val patterns: Seq[Int => Boolean] = Seq.fill(numInputs) {
@@ -264,7 +266,7 @@ class VarkaCoverageCompositionFuzzSuite
     }
     val forceMasked = length > 1 && rnd.nextBoolean()
     val context = "kernel"
-    def intValue(i: Int, scale: Int): Int = plan.derivedAt(i).map(_.kind) match {
+    def intValue(i: Int, scale: Int): Int = plan.derivedAt(i).toScala.map(_.kind) match {
       case Some(VarkaDerivedKind.TRUNC_LEVEL) =>
         DateTimeUtils.TRUNC_TO_WEEK +
           rnd.nextInt(DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
@@ -275,7 +277,7 @@ class VarkaCoverageCompositionFuzzSuite
           case 1 => rnd.nextInt(201) - 100
           case _ => 1 + rnd.nextInt(3)
         }
-        plan.inputBounds.find(_.inputIndex == i) match {
+        plan.inputBounds.asScala.find(_.inputIndex == i) match {
           case Some(b) if scale == 0 =>
             (b.lo + (rnd.nextLong() & Long.MaxValue) % (b.hi.toLong - b.lo + 1)).toInt
           // Nearer zero as the unbounded draw, inside the bound: a value across the whole of
@@ -286,17 +288,20 @@ class VarkaCoverageCompositionFuzzSuite
     }
     def attempt(scale: Int): Boolean = if (plan.lane == LaneType.LONG) {
       val data = Array.tabulate(numInputs) { i =>
-        val dataType = inputs(plan.inputOrdinals(i)).dataType
+        val dataType = inputs(plan.inputOrdinals.get(i)).dataType
         Array.fill(length)(drawLong(rnd, dataType, scale))
       }
-      VarkaKernelCheck.runAndCompareLong(context, className, bytes, plan.outputs, numInputs,
-        plan.longLiterals.toArray,
+      VarkaKernelCheck.runAndCompareLong(context, className, bytes, plan.outputs.asScala.toSeq,
+          numInputs,
+        plan.longLiterals.asScala.map(_.longValue).toArray,
         VarkaKernelCheck.LongBatch(length, patterns, data, forceMasked), declineAllowed = true,
         spark = spark)
     } else {
       val data = Array.tabulate(numInputs)(i => Array.fill(length)(intValue(i, scale)))
-      VarkaKernelCheck.runAndCompare(context, className, bytes, plan.outputs, numInputs,
-        plan.literals.toArray, VarkaKernelCheck.Batch(length, patterns, data, forceMasked),
+      VarkaKernelCheck.runAndCompare(context, className, bytes, plan.outputs.asScala.toSeq,
+          numInputs,
+        plan.literals.asScala.map(_.intValue).toArray, VarkaKernelCheck.Batch(length, patterns,
+            data, forceMasked),
         declineAllowed = true, spark = spark)
     }
     val compared = (0 until 3).exists { scale =>
@@ -313,10 +318,10 @@ class VarkaCoverageCompositionFuzzSuite
    */
   private def outputsOf(p: PartialVarkaProjection, k: Int,
       c: VarkaCompositionCase): Seq[Expression] = {
-    val exprs = new Array[Expression](p.kernels(k).outputs.size)
-    p.specs.zipWithIndex.foreach {
-      case (FusedOutput(o), i) if k == 0 => exprs(o) = c.entries(i).expr
-      case (KernelOutput(kk, o), i) if kk == k => exprs(o) = c.entries(i).expr
+    val exprs = new Array[Expression](p.kernels.get(k).outputs.size)
+    p.specs.asScala.toSeq.zipWithIndex.foreach {
+      case (f: FusedOutput, i) if k == 0 => exprs(f.fusedIndex) = c.entries(i).expr
+      case (ko: KernelOutput, i) if ko.kernel == k => exprs(ko.fusedIndex) = c.entries(i).expr
       case _ =>
     }
     assert(!exprs.contains(null), finding(s"kernel $k has an output no entry names", c))
@@ -330,8 +335,8 @@ class VarkaCoverageCompositionFuzzSuite
    */
   private def sparkOracle(plan: CompiledVarkaProjection, columns: Seq[Attribute],
       outputs: Seq[Expression]): Option[VarkaSparkOracle] =
-    if (plan.derivedInputs.nonEmpty) None
-    else Some(new VarkaSparkOracle(outputs, plan.inputOrdinals.map(columns)))
+    if (plan.derivedInputs.asScala.nonEmpty) None
+    else Some(new VarkaSparkOracle(outputs, plan.inputOrdinals.asScala.toSeq.map(columns(_))))
 
   private def drawWide(seed: Long, iteration: Int): VarkaCompositionCase = {
     val rnd = new Random(seed * 1000003L + 900000L + iteration)
@@ -360,7 +365,7 @@ class VarkaCoverageCompositionFuzzSuite
       case e: Exception => fail(finding(s"the compiler threw ${threw(e)}", c), e)
     }
     val declined = VarkaExpressionCompiler.declines(list, wide, c.options)
-    val fused = partial.toSeq.flatMap(_.specs.zipWithIndex.collect {
+    val fused = partial.toSeq.flatMap(_.specs.asScala.toSeq.zipWithIndex.collect {
       case (_: FusedOutput, i) => i
       case (_: KernelOutput, i) => i
     }).toSet
@@ -371,11 +376,12 @@ class VarkaCoverageCompositionFuzzSuite
         finding(s"entry $i, which fuses alone, declined for '${d.reason}'", c))
     }
     partial.foreach { p =>
-      p.kernels.zipWithIndex.foreach { case (kernel, k) =>
+      p.kernels.asScala.toSeq.zipWithIndex.foreach { case (kernel, k) =>
         checkKernel(kernel, wide, c.options, rnd, sparkOracle(kernel, wide, outputsOf(p, k, c)))
       }
     }
-    (partial.exists(_.kernels.size > 1), partial.map(_.fused.inputOrdinals.size).getOrElse(0))
+    (partial.exists(_.kernels.size > 1),
+        partial.map(_.fused.inputOrdinals.size).getOrElse(0))
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -388,10 +394,11 @@ class VarkaCoverageCompositionFuzzSuite
   private def aliased(entries: Seq[Entry]): Seq[NamedExpression] =
     entries.zipWithIndex.map { case (e, i) => Alias(e.expr, s"c$i")() }
 
-  private def fusedPositions(p: PartialVarkaProjection): Seq[Int] = p.specs.zipWithIndex.collect {
-    case (_: FusedOutput, i) => i
-    case (_: KernelOutput, i) => i
-  }
+  private def fusedPositions(p: PartialVarkaProjection): Seq[Int] =
+    p.specs.asScala.toSeq.zipWithIndex.collect {
+      case (_: FusedOutput, i) => i
+      case (_: KernelOutput, i) => i
+    }
 
   /**
    * A projection of up to forty of the table's rows with one entry the compiler fuses forced to
@@ -429,18 +436,18 @@ class VarkaCoverageCompositionFuzzSuite
       val a = f.fused
       val b = d.fused
       val parts = Seq(
-        "outputs" -> (a.outputs != b.outputs),
-        "outputTypes" -> (a.outputTypes != b.outputTypes),
-        "inputOrdinals" -> (a.inputOrdinals != b.inputOrdinals),
-        "literals" -> (a.literals != b.literals),
-        "inputBounds" -> (a.inputBounds != b.inputBounds),
-        "derivedInputs" -> (a.derivedInputs != b.derivedInputs),
-        "longLiterals" -> (a.longLiterals != b.longLiterals),
-        "further kernels" -> (f.more != d.more),
-        "specs" -> (f.specs.patch(k, Nil, 1) != d.specs),
-        "declines" -> (f.declines.collect {
+        "outputs" -> (a.outputs.asScala.toSeq != b.outputs.asScala.toSeq),
+        "outputTypes" -> (a.outputTypes.asScala.toSeq != b.outputTypes.asScala.toSeq),
+        "inputOrdinals" -> (a.inputOrdinals.asScala.toSeq != b.inputOrdinals.asScala.toSeq),
+        "literals" -> (a.literals.asScala.toSeq != b.literals.asScala.toSeq),
+        "inputBounds" -> (a.inputBounds.asScala.toSeq != b.inputBounds.asScala.toSeq),
+        "derivedInputs" -> (a.derivedInputs.asScala.toSeq != b.derivedInputs.asScala.toSeq),
+        "longLiterals" -> (a.longLiterals.asScala.toSeq != b.longLiterals.asScala.toSeq),
+        "further kernels" -> (f.more.asScala.toSeq != d.more.asScala.toSeq),
+        "specs" -> (f.specs.asScala.toSeq.patch(k, Nil, 1) != d.specs.asScala.toSeq),
+        "declines" -> (f.declines.asScala.collect {
           case (p, v) if p != k => (if (p > k) p - 1 else p) -> v
-        } != d.declines)).collect { case (name, true) => name }
+        } != d.declines.asScala)).collect { case (name, true) => name }
       if (parts.isEmpty) None else Some(parts.mkString(", "))
   }
 
@@ -567,7 +574,7 @@ class VarkaCoverageCompositionFuzzSuite
       for (row <- predicates) {
         val predicate = VarkaExpressionCompiler.compilePredicate(resolve(row.executable), columns,
           opts).getOrElse(fail(s"${row.executable} did not fuse alone"))
-        val mask = predicate.fusedConjuncts.reduce(And)
+        val mask = predicate.fusedConjuncts.asScala.toSeq.reduce(And)
         val spark = sparkOracle(predicate.fused, columns, Seq(mask))
         assert(spark.isDefined, s"${row.executable} derives an input")
         (0 until 4).foreach(_ => withClue(row.executable + ": ") {

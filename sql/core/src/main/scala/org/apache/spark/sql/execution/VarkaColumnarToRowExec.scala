@@ -24,7 +24,9 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, JoinedRow, NamedExpression, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{ForwardedOutput, FusedOutput, KernelOutput, ResidualOutput, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
+  FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -316,17 +318,18 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
         // Every entry the one kernel's, in order: the fused batch is the output. Several kernels
         // lay their columns end to end, kernel by kernel, which is not the projection's order, so
         // they always merge.
-        if (partial.specs.forall(_.isInstanceOf[FusedOutput])) {
+        val specs = partial.specs.asScala.toSeq
+        if (specs.forall(_.isInstanceOf[FusedOutput])) {
           None
         } else {
-          val fusedAttrs = partial.kernels.flatMap(_.outputTypes).zipWithIndex.map {
+          val fusedAttrs = partial.kernels.asScala.flatMap(_.outputTypes.asScala).zipWithIndex.map {
             case (dataType, i) => AttributeReference(s"_varkaFused$i", dataType)()
           }
-          val merged = partial.specs.zip(projectList).map {
-            case (spec @ (FusedOutput(_) | KernelOutput(_, _)), _) =>
-              fusedAttrs(partial.columnIndex(spec).get)
-            case (ForwardedOutput(ordinal), _) => childOutput(ordinal)
-            case (ResidualOutput, named) => named
+          val merged = specs.zip(projectList).map {
+            case (spec @ (_: FusedOutput | _: KernelOutput), _) =>
+              fusedAttrs(partial.columnIndex(spec).getAsInt)
+            case (f: ForwardedOutput, _) => childOutput(f.childOrdinal)
+            case (_: ResidualOutput, named) => named
           }
           Some(UnsafeProjection.create(merged, childOutput ++ fusedAttrs))
         }

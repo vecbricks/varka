@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
@@ -65,12 +66,12 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
       condition, Seq(s, t), if (splitOn) split else comparisons)
 
   private def fullyFused(p: Option[CompiledVarkaPredicate]): Boolean =
-    p.exists(_.specs.forall(_.fused))
+    p.exists(_.specs.asScala.forall(_.fused))
 
   /** Every method of the predicate's kernel, emitted and measured, with its bytecode length. */
   private def methodSizes(p: CompiledVarkaPredicate): Seq[(String, Int)] = {
     val bytes = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.SplitCondition",
-      p.fused.outputs.asJava, p.fused.inputOrdinals.size, p.fused.numLiterals, null, null, split)
+      p.fused.outputs, p.fused.inputOrdinals.size, p.fused.numLiterals, null, null, split)
     VarkaEmitterTestSupport.methodNames(bytes).asScala.distinct.toSeq
       .map(m => m -> VarkaEmitterTestSupport.codeSize(bytes, m))
   }
@@ -79,21 +80,21 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
     assert(fullyFused(predicate(q3(48), splitOn = false)))
     val at49 = VarkaExpressionCompiler.explainPredicate(q3(49), Seq(s, t), comparisons)
     assert(!at49.forall(_.fused))
-    assert(at49.flatMap(_.decline).exists(_.reason.contains("method budget")), at49)
+    assert(at49.flatMap(_.decline.toScala).exists(_.reason.contains("method budget")), at49)
   }
 
   test("a predicate one method holds compiles exactly as it does without the split") {
     assert(predicate(q3(48), splitOn = true) == predicate(q3(48), splitOn = false))
-    assert(predicate(q3(48), splitOn = true).get.clauses == Seq(Seq(0)))
+    assert(predicate(q3(48), splitOn = true).get.clauses.asScala.map(_.asScala) == Seq(Seq(0)))
   }
 
   test("modified-q3's ranges split, and every method of the kernel stays under the budget") {
     for (n <- Seq(49, 100, 200)) {
       val p = predicate(q3(n), splitOn = true)
-      assert(fullyFused(p), s"$n ranges: ${p.map(_.specs)}")
+      assert(fullyFused(p), s"$n ranges: ${p.map(_.specs.asScala.toSeq)}")
       // `s >= 0` is one clause, and the ranges, too large for one method, are the other,
       // cut into partial disjunctions.
-      val clauses = p.get.clauses
+      val clauses = p.get.clauses.asScala.toSeq
       assert(clauses.size == 2 && clauses.head.size == 1 && clauses(1).size >= 2, clauses)
       val sizes = methodSizes(p.get)
       assert(sizes.forall(_._2 <= 8000), s"$n ranges: $sizes")
@@ -113,7 +114,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
     val condition = parse(disjuncts.mkString(" or "))
     assert(!fullyFused(predicate(condition, splitOn = false)))
     val p = predicate(condition, splitOn = true)
-    assert(fullyFused(p) && p.get.clauses.size == 1 && p.get.clauses.head.size >= 2, p)
+    assert(fullyFused(p) && p.get.clauses.size == 1 &&
+        p.get.clauses.asScala.head.size >= 2, p)
     assert(methodSizes(p.get).forall(_._2 <= 8000))
   }
 
@@ -124,7 +126,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
     // emission per demotion, so the declining arm is checked at a size that demotes few.
     assert(!fullyFused(predicate(conjunction(120), splitOn = false)))
     val p = predicate(conjunction(300), splitOn = true)
-    assert(fullyFused(p) && p.get.clauses.size >= 2 && p.get.clauses.forall(_.size == 1), p)
+    assert(fullyFused(p) && p.get.clauses.size >= 2 &&
+        p.get.clauses.asScala.forall(_.size == 1), p)
     assert(methodSizes(p.get).forall(_._2 <= 8000))
   }
 
@@ -132,6 +135,6 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
     val condition = parse(s"not (${VarkaQ3Ranges.comparisons(200, "ss_sold_date_sk")})")
     val specs = VarkaExpressionCompiler.explainPredicate(condition, Seq(s, t), split)
     assert(!specs.forall(_.fused))
-    assert(specs.flatMap(_.decline).exists(_.reason.contains("method budget")), specs)
+    assert(specs.flatMap(_.decline.toScala).exists(_.reason.contains("method budget")), specs)
   }
 }
