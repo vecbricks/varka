@@ -567,3 +567,23 @@ verified text. Items the audit found already recorded are left out.
   file; `java` inside a `while read` loop eats the loop's stdin; Bash before 4.4 and empty arrays
   under `set -u`; sbt colours its CI output; scalastyle sorts a wrapped import by its package; a
   `{@link}` can be an import's only use; a Scala object's fields initialise in order.
+
+## 8. Proposals for the owner
+
+Candidates for after the close, drawn from the caveats of 5.1 and the newest items of
+`m9/SCOPE.md`; none is a row until the owner picks it.
+
+1. **Why the warm-up gives up on small runners** (`m9/SCOPE.md` item 103). The cold-start
+   headline now carries a spread between JVMs on a 4-core host; the cause is unread.
+2. **A date column's bound per shape** (item 102). Row 379's fix sends years 10000 to 42400 to
+   the row path where the kernel computes them exactly; the mechanism already takes any interval.
+3. **A check qualified by the side that reads it** (item 96), taking row 245's leftovers with it:
+   the three guards that decline on a null operand and `EXTENSIONS.md`'s wrapping `datediff`.
+4. **The register's two code debts no row owns**: `VarkaTierWitnessSuite` under the memory
+   sanitizer, and a test holding `VarkaConjunctOrder` to Spark's `GeneratePredicateHelper`.
+5. **The 2-lane long kernel, mask-free or declined** (item 101). The flake's remainder at a
+   128-bit preferred species (row 374) has no fix and no operator setting; this is the fix.
+6. **A post on the proofs alone** (item 104), and with it row 243's owed work: the current SQL
+   edition's clause beside each SQL-92 definition in `STANDARD.md`.
+7. **The NULL-mode masked loop C2 cannot settle** (items 99 and 100): which predicate it hoists
+   and loses, and what `-XX:-UseProfiledLoopPredicate` costs the kernels that never cycle.
