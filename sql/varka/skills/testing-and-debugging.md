@@ -1393,6 +1393,29 @@ To date every guarded row answers inside its domain and where it is unknown with
 declined, and declines every batch outside with exactly the status the verdict calls for, in a
 projection and in a filter, at one batch per partition and at one and three rows a batch.
 
+## Spark's golden files under Varka: what the arm may touch, and what reaches a kernel
+
+From VARKA-271 (13 October 2026, `VARKA-271.md` 9 and 10). The suite runs Spark's golden SQL
+files with Varka on, through an Arrow cache, beside a cache-only arm, and compares the two.
+
+* **The Varka arm must never write golden files.** With `SPARK_GENERATE_GOLDEN_FILES=1` set the
+  parent suite rewrites every `.sql.out` from the answers it gets, which here are Varka's; the
+  suite refuses to start with the variable set, shown by a run that aborted in 3 s with no file
+  changed.
+* **A planted fault that reaches nothing proves nothing.** Every `date_add` in the golden files
+  is over literals with no `FROM`, so a misdescribed `date_add` failed no test of fourteen files;
+  before the literal lift, the one fault the suite could be shown to reach was the one under
+  which every emission raises. The lift (`VarkaArrowSource.LiftRule`) turns a `SELECT` with no
+  `FROM` into one over a 17-row relation: equal values of different types are two columns, an
+  entry stays only if every node still passes Spark's `checkInputDataTypes` (the
+  constant-argument rules live there), and nothing under a `try_` function is lifted.
+* **Served counts move run to run** (`int4.sql` served 23 and 24, `select_having.sql` 1 and 2,
+  alone as in the suite), so `served.json` is a floor: a test that served a batch fails when it
+  serves none, not when its count differs.
+* **A nested deadline must reach the command.** `dev/varka_deadline.sh` ran its command in a
+  session of its own, so an outer deadline's TERM stopped the script and left the 6 GB test JVM
+  running; it now forwards TERM and INT to the command's group.
+
 ## Cost predictions run optimistic: the calibration table
 
 *Added on 13 October 2026 from milestone 7's halfway review (`m7/PLAN.md` 9.2 and 9.5).* A plan

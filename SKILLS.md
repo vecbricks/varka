@@ -43,6 +43,8 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A full-load night flips the power profile, and a regeneration after it measures the profile](sql/varka/skills/benchmarking.md#a-full-load-night-flips-the-power-profile-and-a-regeneration-after-it-measures-the-profile)
 * [A cold comparison prices two things, and a baseline that hashes its subtree flatters whatever replaces it](sql/varka/skills/benchmarking.md#a-cold-comparison-prices-two-things-and-a-baseline-that-hashes-its-subtree-flatters-whatever-replaces-it)
 * [A Java benchmark extends `BenchmarkBase` and declares no `main`](sql/varka/skills/benchmarking.md#a-java-benchmark-extends-benchmarkbase-and-declares-no-main)
+* [After a warm-up's `RELEASED` verdict, the "once compiled" rows measure the row engine](sql/varka/skills/benchmarking.md#after-a-warm-ups-released-verdict-the-once-compiled-rows-measure-the-row-engine)
+* [Spark's codegen cache: what a compile count and a cache hit measure](sql/varka/skills/benchmarking.md#sparks-codegen-cache-what-a-compile-count-and-a-cache-hit-measure)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
@@ -148,6 +150,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A sql/core suite that collects dates makes its session active first](sql/varka/skills/testing-and-debugging.md#a-sqlcore-suite-that-collects-dates-makes-its-session-active-first)
 * [A kernel failure leaves a file you can replay, and where each failure first surfaces](sql/varka/skills/testing-and-debugging.md#a-kernel-failure-leaves-a-file-you-can-replay-and-where-each-failure-first-surfaces)
 * [A guard's domain is tested on partitions Spark cuts, with the status read off the JFR event](sql/varka/skills/testing-and-debugging.md#a-guards-domain-is-tested-on-partitions-spark-cuts-with-the-status-read-off-the-jfr-event)
+* [Spark's golden files under Varka: what the arm may touch, and what reaches a kernel](sql/varka/skills/testing-and-debugging.md#sparks-golden-files-under-varka-what-the-arm-may-touch-and-what-reaches-a-kernel)
 * [Cost predictions run optimistic: the calibration table](sql/varka/skills/testing-and-debugging.md#cost-predictions-run-optimistic-the-calibration-table)
 * [A forked JVM proves its own tier, and the default JVM's expectations are not that proof](sql/varka/skills/testing-and-debugging.md#a-forked-jvm-proves-its-own-tier-and-the-default-jvms-expectations-are-not-that-proof)
 
@@ -179,6 +182,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [With the trap limits raised, a masked loop traps thousands of times and still reads as settled](sql/varka/skills/the-jit.md#with-the-trap-limits-raised-a-masked-loop-traps-thousands-of-times-and-still-reads-as-settled)
 * [A kernel warmed after other kernels can stay allocating, and the template prewarm guards only the int lane](sql/varka/skills/the-jit.md#a-kernel-warmed-after-other-kernels-can-stay-allocating-and-the-template-prewarm-guards-only-the-int-lane)
 * [Which tier served a call: the code list at the call's edges, JFR's events inside it](sql/varka/skills/the-jit.md#which-tier-served-a-call-the-code-list-at-the-calls-edges-jfrs-events-inside-it)
+* [Why a warmed kernel still allocates: C2 sums class-check traps over the whole compile](sql/varka/skills/the-jit.md#why-a-warmed-kernel-still-allocates-c2-sums-class-check-traps-over-the-whole-compile)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)
@@ -212,5 +216,6 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A two-track milestone drifts to the measurable track; review it against the done-when list](sql/varka/skills/working-in-this-repo.md#a-two-track-milestone-drifts-to-the-measurable-track-review-it-against-the-done-when-list)
 * [A day of merges was a day of Builds; the laptop queue kept a verdict across docs-only pushes](sql/varka/skills/working-in-this-repo.md#a-day-of-merges-was-a-day-of-builds-the-laptop-queue-kept-a-verdict-across-docs-only-pushes)
 * [The fork's CI queue is a job inside the Build, and the check sync rides the push](sql/varka/skills/working-in-this-repo.md#the-forks-ci-queue-is-a-job-inside-the-build-and-the-check-sync-rides-the-push)
+* [GitHub Actions facts the CI queue cost a run each to learn](sql/varka/skills/working-in-this-repo.md#github-actions-facts-the-ci-queue-cost-a-run-each-to-learn)
 
 <!-- END generated contents -->

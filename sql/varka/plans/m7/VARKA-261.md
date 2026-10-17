@@ -324,3 +324,246 @@ Collected from the placeholders above, so nothing is missed:
 * The register debts 5.4 leaves open, each with its disposition there.
 * About 140 lesson candidates the audit found in the task records and the skills files do not
   hold, listed in section 7 for a later sweep; the close writes the five largest.
+
+## 7. Lessons owed to a later sweep
+
+The audit read the 107 task records' Outcome and Verification sections against the skills files
+and found, beside the five the close writes (the `RELEASED` verdict, VARKA-295's mechanism,
+VARKA-271's golden-file facts, VARKA-255's GitHub Actions facts, VARKA-258 and 259's
+codegen-cache facts) and the three corrections of step 3, about 140 candidates that no skills
+file holds. They are listed here by the file they belong in, each with its source, so a later
+sweep re-reads the source before writing it up; the audit's reads are `file:line` evidence, not
+verified text. Items the audit found already recorded are left out.
+
+**Corrections or extensions of an existing sentence**
+
+* `VARKA-283.md:21`: ScalaTest's `assert(a === b, clue)` builds the clue on every call; nine
+  divisors over 2^32 dividends spent their time there (47 s once split).
+* `VARKA-293.md:6`, `VARKA-214.md:224`, `VARKA-240.md:90`: `Math.abs(Long.MIN_VALUE)` is
+  negative and `(int) Math.abs(-2147483648L)` is `Integer.MIN_VALUE`; write guards as two-sided
+  ranges (extends `testing-and-debugging.md`, the overflow section near line 282).
+* `VARKA-216.md:175`, `VARKA-254.md:266`: a `default` arm in a switch over the sealed IR defeats
+  exhaustiveness (swallowed a new node in `rearm`; gave `DayOfWeek`/`WeekDay` weight 1)
+  (extends `working-in-this-repo.md` near line 100).
+* `VARKA-214.md:239`, `VARKA-215.md`: `dev/varka_bench_diff.py` reports a change in rate, so minus
+  is slower; two tasks read it backwards (extends `benchmarking.md` near line 204).
+* `VARKA-247.md:26, 138`: an option can move nothing at the defaults because other defaults took
+  its subject away; give it a `Subject` base and run its matrix arm there (extends
+  `emitter-and-ir.md` near line 684).
+* `VARKA-309.md:17-37`: a planted-bug test needs a seed of its own (at 11 of 32 nightly seeds
+  nothing in 300 compositions reached the bug) (extends `testing-and-debugging.md` near 1131).
+* `VARKA-313.md:296-301`: `exactRefusalStatus` measured 2.5 to 3.9 per cent slower in most arms
+  and stays off by default (extends `emitter-and-ir.md` near line 569).
+* `VARKA-372.md:46, 111`: fixture columns that can raise made a tenth of compositions compare
+  error with error (extends `testing-and-debugging.md` near line 750).
+* `VARKA-370.md:300-316`: C2 treats any recorded trap at a bci as too many; `PerBytecodeTrapLimit`
+  is read only by the runtime (tightens `the-jit.md` near line 976).
+* `VARKA-241.md:255-258`: no entry under `skills/calibration/` for its scored prediction 1 (lint
+  step under a minute, measured 66 s), which the calibration section asks for.
+
+**the-jit.md**
+
+* `VARKA-295.md:419, 150`: covered by the close's section; the 32x rule's withdrawal is in it.
+* `VARKA-326.md:154-188, 228`: every cycling kernel is NULL-mode and traps on its masked side;
+  about a quarter of them cycle; the cycle stops at `PerMethodTrapLimit` after a median 6 s; it
+  depends on JVM history, so `-Dvarka.fuzz.only` does not replay it.
+* `VARKA-370.md:235-275, 382-400`: a JDK 25 JVM can load an agent into itself through the
+  `DiagnosticCommand` MBean; redefining the Vector API classes resets their MethodData at the
+  price of deoptimizing every kernel; WhiteBox and JVMCI need startup options.
+* `VARKA-371.md:149-151, 177-195`: `-XX:+LogCompilation` raised the release rate (log to see
+  one, count without the log); within one compile the class-check count only rises, so report
+  the largest.
+* `VARKA-373.md:172-176`: warming the 128-bit species beside the preferred one made releases
+  worse (62 against 14 to 16); a third receiver class makes the site a virtual call.
+* `VARKA-378.md:167-177`: machine load slows the trap cycle, so a count of kernels past a cut
+  moves with load (8, 8, 2); a ratchet set on a loaded machine must be lowered later.
+* `VARKA-274.md:402, 472, 649`: the all-null trap is an `unstable_if` that fires only where C2
+  compiled the driver (use the remainder epilogue's trap); a kernel warmed on 32-row slices can
+  still trap on its first real batch (2 of 14 a lane); a JVM held to three cores ran 2.6 times
+  slower than the whole-machine median.
+* `VARKA-263.md:61`, `VARKA-265.md:230`, `VARKA-274.md:633`: the sanitizer's branches change what
+  C2 compiles; JIT-measuring suites run `--no-sanitizer`, and under the sanitizer the gate's C2
+  code traps inside `VarkaMemorySanitizer.check`, so it is not production's.
+* `VARKA-288.md:168, 182`: C2 refuses the whole 6049-byte `CASE WHEN` method as "hot method too
+  big"; Spark's `hugeMethodLimit=8000` workaround is within 3 per cent of whole-stage off past
+  the line.
+* `VARKA-314.md:451-454`: a JFR dump holds every event of every open recording; stream it and
+  keep only the classes you enabled.
+* `VARKA-248.md:261`: building `DEFAULTS` from a table of about 80 method references cost 17 to
+  26 ms at class init against 4 ms for the record; keep production defaults positional and pin
+  them to the table in a test.
+
+**benchmarking.md**
+
+* `VARKA-322.md:326-333, 338-341, 368-372, 422-430, 449-457, 753-760, 807-810, 613-622`:
+  Spark's `Benchmarks` runner called `main` statically (NPE on a Java benchmark);
+  `Boolean.parseBoolean("1")` is false and `SPARK_GENERATE_BENCHMARK_FILES=1` empties the results
+  file when `main` opens; a timed lambda that discards its result lets the JIT drop the work;
+  `static final int` loop bounds become immediates; at 63 and 64-row chunks the harness
+  dominates; `RuntimeConfig.get` returns a default, so restore through `contains`; a context a
+  failed benchmark leaves running keeps its master; two loops 10 to 15 per cent slower on the
+  laptop were faster on an EPYC runner.
+* `VARKA-256.md:138`: for a minute or two after a benchmark JVM exits the load stays above 1.0
+  and the canary reads 38 to 41 per cent off; wait for load under 0.8.
+* `VARKA-292.md:87, 90`: a pair whose regeneration refused on load produced six "results" that
+  were the committed file copied; a benchmark nobody runs rots (`VarkaTimeBenchmark` had thrown
+  for weeks).
+* `VARKA-255.md:784, 828, 1041, 1058`: the pair script's exit trap restored files before its
+  check passed; `benchmark.yml` matches the fully qualified name; one-round pairs always run the
+  base first; different CPU models do not pool.
+* `VARKA-251.md:30`: throughput benchmarks at 4096 rows cannot see per-batch overhead;
+  `VarkaEvaluatorOverheadBenchmark` (1, 16, 1024 rows) can.
+* `VARKA-214.md:245`: `VarkaEmissionBenchmark` times only `VarkaLoopEmitter.emit`; a
+  family-compiler change cannot move it, `VarkaCompileBenchmark` is the instrument.
+* `VARKA-216.md:170`: regenerate benchmark provenance from the final commit after a history
+  rewrite.
+* `VARKA-224.md:190`: the bench scripts resolved a bare class name only from a `.scala` file.
+
+**testing-and-debugging.md**
+
+* `VARKA-138.md:226-277, 255, 323, 332, 338, 531-533`: run every kernel check at both validity
+  fills (a never-set bit fails only at 0x00, a never-cleared one only at 0xFF); a poisoned lane
+  reaches only the masked body; stagger the null pattern per input; a planted fault's check must
+  not reuse the predicate that chose the removal; check the bits past the last row; compare root
+  cause class and message when an error has no condition.
+* `VARKA-281.md:491, 442, 447, 450, 483, 485, 487, 488`: ask whether the obligation's domain is
+  the code's (the symmetric-`INT` premise hid an unsound `SUB`); a `sat` neighbour can be the
+  hard check; a file costs about twice the sum of its checks alone; state an `ite` witness per
+  branch; an equality asserted as a premise assumes half the claim; sweep against Spark's
+  definitions, not hand-rolled forms; read a bound from one place; refuse dropped samples.
+* `VARKA-245.md:311, 48, 326, 385, 396`: solver time depends on how the claim is written (lemmas
+  over declared quotients about 3 times faster than `div`, functions left unknown, searches
+  pinned to one input, split by month); calendar rules prove a day-count formula for every year
+  without a sweep; read a file's time against unchanged reference files; restate a lowering from
+  the emitted form, not the scalar twin; a completeness query is vacuous where the bound is the
+  guard's own.
+* `VARKA-241.md:248, 258`, `VARKA-245.md:345`: refuse both integer neighbours in a `D2L` check;
+  the runner takes about 2.1 times the laptop's solver time and the lint job is decided by the
+  slowest check against the 10 s per-check limit.
+* `VARKA-242.md:62, 58, 165, 274`: a magic multiply with an unsigned shift is exact until `v*M`
+  passes 2^32, not 2^31; a reciprocal's exactness can hold only for the dividend's shape; every
+  quoted bound is labelled exact or sufficient with its first failing dividend pinned.
+* `VARKA-265.md:395, 409, 488, 319, 321, 328, 526`: shard mutants by position; 3 PIT minions at
+  `-Xmx3g` fit a 16 GB runner, timeout factor 4; a symmetric guard cannot kill a one-endpoint
+  mutant; a suite whose `afterAll` throws fails with no test event; key notes on PIT's bytecode
+  identity; silent-empty pitfalls (missing class, misspelt `--only` identity).
+* `VARKA-272.md:429, 83, 423`: `-XX:StressSeed=0` draws a fresh seed per compile; with
+  fastdebug's verification flags no warm-up settles in 10 s; stale arm directories were read as
+  this run's.
+* `VARKA-274.md:674, 678, 630`: inner watchdogs end inside the outer deadline; print totals from
+  `finally`; the validity-fill check halves the batch numbers at which OSR fires.
+* `VARKA-289.md:15, 22`: the composition fuzzer counted declined batches without comparing them
+  and skipped long-lane kernels; assert that every kernel of every lane was compared.
+* `VARKA-296.md:261, 234`: forcing every output makes each projection a new shape (2 hours
+  against 7 minutes); `forceResidualAt` is a fault injector, not a knob.
+* `VARKA-297.md:8-9`: without a pivot 34 per cent of filtered compositions compared empty results.
+* `VARKA-298.md:307, 204`, `VARKA-381.md:133, 205-214, 223`: two listed errors in two partitions
+  race (whichever task fails first names the condition); rerun over one partition; a bare
+  `ArithmeticException` from `MultiplyYMInterval` has no condition; a query can raise over one
+  batch layout and not another.
+* `VARKA-327.md:249-251` and "The 22 deadline releases": `RELEASED` also means "nothing to wait
+  for" or "failed"; the release rate moves with the seed and between runs of the same
+  compositions.
+* `VARKA-379.md:499-506`: a guard that ignores validity meets the harness's int32-end poison in
+  null lanes.
+* `VARKA-300.md:173`, `VARKA-301.md:100-106`, `VARKA-308.md:134-145`, `VARKA-311.md:197-199`,
+  `VARKA-314.md:363-369, 532-536, 353-356, 508-510, 465-468`, `VARKA-315.md:369-370, 341-343,
+  433-437`, `VARKA-316.md:144, 191, 131, 189`, `VARKA-317.md:200-203`, `VARKA-318.md:327-330`,
+  `VARKA-319.md:219-221`, `VARKA-323.md:212-230`: a Scala `Seq` is never `==` to a Java `List`;
+  at batch sizes 1 or 3 asserted metrics read 0; read session settings once in the constructor;
+  `withClue` does not attach to an `IllegalStateException`; Spark's `StringSubstitutor` does not
+  expand inside values; an exception factory's frame breaks warn-once logic; read null counts
+  from the columns after a failure; `SparkUnsupportedOperationException` takes no cause; a matrix
+  cancel's message goes only to `run.log`; a pid does not tell containerised executors apart; a
+  failure writer swallows `VirtualMachineError`; a one-row batch has no validity buffer; a
+  run-time decline is invisible to `EXPLAIN`; no fault injector changes an answer; `intercept`
+  without a type argument infers `Nothing`; a suite timed beside another hides its cold
+  `@BeforeAll`; errors keyed by the outermost condition hide a different inner one; a regression
+  test first checks its premise still holds.
+* `VARKA-216.md:141`, `VARKA-217.md:142`: the coverage scan's Java patterns do not read a class
+  written as a qualified name; a new Java compiler file must be added to the scan's list.
+* `VARKA-217.md:182`, `VARKA-267.md:207`: a Java static holder whose initialiser throws once fails
+  for good with a `LinkageError` (`NonFatal` lets it through); a port that marks itself resolved
+  before building leaves a permanent null after an `InterruptedException`.
+* `VARKA-253.md:24`: a `Utils.isTesting` guard is blind in exactly the end-to-end suites; use the
+  presence of a `TaskContext`.
+* `VARKA-250.md:77, 112`, `VARKA-248.md` 9.1: prove a refactor by keeping the old method beside
+  the new behind a test switch, comparing bytes on every arm and width, confirming the check
+  bites with a plant.
+* `VARKA-248.md:267, 292`: a table-driven options test moves each entry off its default and
+  checks that only its component moved; an Arrow "memory leaked" error was a failed assertion
+  skipping cleanup.
+* `VARKA-255.md:1311, 1266`: `rerun` dropped the runner's exit status; a second `-s` for the same
+  suite replaces its report.
+* `VARKA-266.md:183, 204-213`: never count from truncated output; a missing `origin/master` made
+  the base `HEAD` silently; a JDK guard read `java`'s version while the pass runs `javac`.
+* `VARKA-263.md:115, 141`: `TPCBase` widens `beforeAll`/`afterAll` to public; prove a flag reached
+  the test JVMs by failing on a suite that cancels without it.
+
+**emitter-and-ir.md**
+
+* `VARKA-387.md:56-70`, `VARKA-381.md:265-268`: a whole-batch columnar filter raises a later row's
+  error before Spark's row pipeline raises an earlier row's or stops at a `LIMIT`; deliver the
+  rows that passed, then raise.
+* `VARKA-380.md:223-224, 253-255`: a date-to-timestamp cast can raise (`daysToMicros` past year
+  294247); Spark runs a filter as written when the stage exceeds `maxFields`, so ask
+  `supportCodegen`.
+* `VARKA-245.md:285, 293, 298`: the column contract was unchecked (`year(d)` past
+  `NARROW_DECOMPOSE_MAX_DAYS`); three guards read one operand's validity; `datediff` wraps.
+* `VARKA-222.md:18-45, 72`: IR `hashCode`/`equals` is 2 to 5 per cent of emission; interning is
+  not worth building (`dev/varka_jfr_ir_hash.py` measures it).
+* `VARKA-299.md:20`: `RowToColumnConverter` rejects `NullType`; substitute a nullable
+  `BooleanType` in the fallback converters.
+* `VARKA-290.md:137`: `planned && trace.builds == 1` is true only for the first emission into a
+  shared trace; a loop must count its own builds.
+* `VARKA-304.md:202-211`: a status constant above 5 becomes `bipush`, one byte longer, so the
+  cost tables and `emit_cost_audit.json` move.
+* `VARKA-306.md:112, 129-133`: an oracle's failure report must diff every value by path.
+* `VARKA-265.md:508`: `IfElse` emits the else arm first while slots are planned then-arm first.
+* `VARKA-254.md:296, 275`: a size-loop fallback may only close fewer groups; corpus loop-method
+  counts are a cheap bug detector for a grouping change.
+* `VARKA-300.md:192`: scalac cannot check a match over a Java sealed interface for
+  exhaustiveness.
+* `VARKA-214.md:219`: Java `Map.get` returns null where the Scala lookup threw.
+
+**calendar-algorithms.md**
+
+* `VARKA-241.md:84-95, 265`: the conversion form's exact bound is one less than the first
+  multiple of |d| above 2^53 because L2D rounds the tie to even.
+* `VARKA-244.md:41-47`: Spark's day count wraps past int32 in both modes; interval overflow
+  raises `CAST_OVERFLOW` 22003 or a bare `ArithmeticException`, not 22015.
+
+**working-in-this-repo.md**
+
+* `VARKA-252.md:83, 167, 188`: comments describe the code as it is; dropping "used to" is not a
+  rewrite; a check that fires on correct text teaches `--no-verify`.
+* `VARKA-310.md:151`, `VARKA-320.md`, `VARKA-321.md`: before deleting a port's old form, compare
+  old and new byte for byte in the same hour.
+* `VARKA-320.md:163, 172-177`, `VARKA-321.md:139-143`, `VARKA-322.md:773, 972, 1018`,
+  `VARKA-311.md:185`, `VARKA-300.md:190`, `VARKA-318.md:313-314`: a Scala object cannot share a
+  name with a Java class in its package; a Java stream's `flatMap` through `iterator()` is not
+  lazy; Scala named arguments to a Java constructor fail in an incremental build; porting slips
+  (`getClass.getName.stripSuffix("$")`, catch-all to throwing switch, `String ==`);
+  `private[pkg]` members get no static forwarder; `Duration.ZERO` prints `0 days`; `assert`
+  vanishes under `-da`; a switch statement without `default` is not exhaustive for definite
+  assignment; `Map.copyOf`'s order varies; an HTML comment inside a Markdown table ends it.
+* `VARKA-214.md:213` and 215, 216, 224: a Java port runs 1.3 to 1.8 times the Scala's line
+  count; all four line-count predictions missed.
+
+**build-and-environment.md**
+
+* `VARKA-267.md:145, 164`: a Scala case class is `Serializable` and a Java record is not (302
+  tests failed "Task not serializable"); Scala cannot name arguments to a Java method.
+* `VARKA-224.md:195-197`: Java cannot reach a Scala instance method through a static forwarder
+  nor default a case class's second parameter list; checkstyle allows one statement per line.
+* `VARKA-286.md:132`, `VARKA-287.md:136`: parallel suite lanes are bound by contention (load 25
+  on 24 cores); weight lanes by the last run's times; two SQL JVMs on 4 vCPUs were a seventh
+  faster, not slower.
+* `VARKA-291.md:539`: Arrow 19 needs netty 4.1 ahead of a Spark 4.2 distribution's netty 4.2.
+* `VARKA-385.md:197-202`: install offline on an exact cache hit, fall back online only on a
+  missing artifact, version the key because a cache entry cannot be overwritten.
+* `VARKA-378.md:240-245`, `VARKA-315.md:375`, `VARKA-248.md:322`, `VARKA-249.md:99`,
+  `VARKA-252.md:140`, `VARKA-301.md:87`: under `set -e` a subshell exits before writing its exit
+  file; `java` inside a `while read` loop eats the loop's stdin; Bash before 4.4 and empty arrays
+  under `set -u`; sbt colours its CI output; scalastyle sorts a wrapped import by its package; a
+  `{@link}` can be an import's only use; a Scala object's fields initialise in order.

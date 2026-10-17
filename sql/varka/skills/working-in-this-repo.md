@@ -306,3 +306,27 @@ nine hours late (2.2): the harm is a full-matrix run taking every slot, not two 
   must also fail on the merge base's main sources (`fails-on-base`), or the job fails naming the
   one that passed. Add the label before the push, or rerun the job after adding it: a push build
   reads the label when it runs.
+
+## GitHub Actions facts the CI queue cost a run each to learn
+
+From VARKA-255 (13 to 17 October 2026, `VARKA-255.md` 2 and 9), which moved the fork's CI queue
+into the Build. Each is a fact of the platform, checked against a run or its documentation:
+
+* **Scheduled, dispatched and `workflow_run` workflows run only from a file on the default
+  branch.** The fork's `master` is apache/spark's, so a new workflow file cannot be dispatched
+  there, and nothing in the queue's design puts one on it.
+* **Events made with a `GITHUB_TOKEN` start no workflows**, except `workflow_dispatch` and
+  `repository_dispatch`: a rerun made with the token fires nothing to wait on.
+* **An explicit `permissions` block zeroes every scope it does not name.** `build_main.yml`'s
+  `packages: write` left its job without `actions: read`, and a reusable workflow's job can only
+  narrow what its caller grants.
+* **Unauthenticated reads get 60 an hour per IP**, an address every hosted runner shares; read
+  through the reading repository's own token, which gets 1,000 an hour.
+* **`runs/<id>/jobs` returns the latest attempt only**, with the earlier attempt's times on the
+  jobs it carried over; `attempts/<n>/jobs` returns an earlier one.
+* **A `concurrency` group is decided before any job runs**, from contexts such as the ref, so it
+  cannot tell a full-matrix run from a scoped one and would serialize both.
+* **"Re-run failed jobs" keeps the first attempt's `admit`**, so its matrix fans out at once;
+  only "Re-run all jobs" queues again.
+* **A branch name goes to a shell step through `env`, not a `${{ }}` expression**, and two SHAs
+  are compared by git, not as strings, since an abbreviated one defeats the string.

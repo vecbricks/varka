@@ -781,3 +781,53 @@ results file from the Java class's simple name as it does for a Scala benchmark.
 places. Only an unforked sbt `run` misses the method. `VarkaBenchmarkBase` in the catalyst test
 tree is the adapter: `section(title, Runnable)` and a builder for Spark's `Benchmark` whose cases
 are `IntConsumer`s, with Spark's class still timing them and writing the table.
+
+## After a warm-up's `RELEASED` verdict, the "once compiled" rows measure the row engine
+
+From VARKA-322 (17 October 2026, the last section of `VARKA-322.md` 9, row 322's marker and the
+pairs of #900). `VarkaColdStartBenchmark`'s warm-up arm reports a verdict per shape: `COMPILED`
+when the background warm-up saw the kernel stop allocating within its 60 seconds, `RELEASED`
+when it gave the shape up. A released shape's batches keep taking Spark's row path, so every
+"once compiled" row after it times vanilla Spark's code under Varka's name, and a pair reads its
+two sides moving in both directions by tens of per cent with the code unchanged.
+
+* The Java port's comparison runs, on three loaded cores, read `COMPILED` on one side and
+  `RELEASED` on the other in four lines of the cold-start runs, in both directions, and the full
+  cold-path run read `RELEASED` at every rung on both sides: the kernel's C2 compile competes
+  with the queries' own.
+* On a 4-core GitHub runner (#900) the warm-up reached `COMPILED` on 20 of 25 shapes in three of
+  four JVMs and on all 25 in the fourth, and the steady-state rows moved from 70 to 3,876 ms
+  between JVMs for the same code (`m9/SCOPE.md` item 103).
+* So read the verdict column before any row of a cold-start table, and read a row whose verdict
+  is `RELEASED` as a measurement of the row engine: a pair with a `RELEASED` side is neither a
+  regression nor a win, and the cold-start headline is quoted with that spread stated. It is
+  the-jit.md's "the Varka arm times vanilla" trap in another form: there a guard sent every batch
+  to the row path, here the warm-up's deadline does.
+
+## Spark's codegen cache: what a compile count and a cache hit measure
+
+From VARKA-258 and VARKA-259 (October 2026, `VARKA-258.md` 9 and `VARKA-259.md` 9), which
+measured Spark's code generator for two posts. Five facts anyone timing Janino against Varka
+needs first:
+
+* **A stage compiles twice in local mode.** `CodeGenerator`'s cache is keyed by the compiling
+  thread's class loader as well as the source (SPARK-44795), and a task runs under the executor's
+  loader, so one new literal costs three classes: the stage on the driver, the stage again in the
+  task, and the cached table's batch filter, which holds the value too.
+* **A `CASE WHEN` stage is compiled while its code is generated**, to decide whether to split it
+  (SPARK-33301), so a timed compile of its source afterwards is a cache hit. Cold-compile rows
+  use projections and aggregates.
+* **The cache evicts per segment.** Guava's cache evicts within each of its four segments, so at
+  three classes a query the 100-entry cache holds about 30 queries, not 33, and a loop one query
+  larger evicts each class just before it is needed: all 150 of a second loop compiled again.
+* **A cache hit is not free.** Spark generates the source again on every call, and at 16 and 64
+  `IN` entries that alone costs about what a cold Varka build does. Before timing a list against
+  Janino, check that Varka fused the whole of it (the check prints the declines by position): a
+  partial kernel against a whole projection compares nothing, and the first int list did not
+  compile, since a checked multiply whose operands do not rule out overflow is declined.
+* **Say which machine, and which warm-up.** The laptop's Janino cold row took its literal from
+  the iteration index, which is -1 through the whole warm-up, so Janino's own code reached the
+  timed compiles barely JIT-compiled; the runner's rows, warmed on hundreds of compiles, read
+  four to six times faster, with the different machines as the other part of the gap. A hosted
+  run cannot pin its CPU (one run's two attempts landed on two EPYC models), so the CPU is
+  recorded per attempt, and relative columns measured on different machines are never compared.

@@ -1035,3 +1035,33 @@ batch histories and proves per compared call which tier ran it, with no diagnost
 * **The warm-up's allocation verdict fires before the epilogues are compiled.** It reads what a
   1,024-row call allocates; an epilogue running only the remainder allocates too little to show,
   so in 32 of 39 drawn kernels an epilogue was still interpreted when the verdict fired.
+
+## Why a warmed kernel still allocates: C2 sums class-check traps over the whole compile
+
+From VARKA-295 (15 and 16 October 2026, `VARKA-295.md` 9.5 to 9.9), the cause of the warm-up
+flake, which released a few kernels in a hundred warm-ups as compiled and still allocating.
+
+* **The mechanism.** The Vector API's templates (`VectorOperators.opKind`, `ImplCache::find`,
+  the `lanewise` forms) are shared by every kernel in the JVM and carry one profile each.
+  Standalone C2 compiles of them speculated on the operator class they had seen and trapped on
+  the next, and C2 charges a shared method's trap and decompile counts to every compile that
+  inlines it, once per inlined copy, against two whole-compile limits: class-check traps against
+  `PerMethodTrapLimit` (100) and decompiles against `PerMethodRecompilationCutoff`. A clean loop
+  method totals 4 traps; a released one passed 100 at parse 427 of 3,309, with `opKind` inlined
+  170 times at 4 to 5 traps each. Past the limit the miss path is a real virtual call, the vector
+  joining from it is a non-exact `IntVector`, the `binaryOp` intrinsic refuses it, and the box
+  that stays is a `new int[16]` an iteration that escape analysis cannot remove: 80 bytes, 20,480
+  a call of four methods at 64 iterations. Counts, not receiver-type profiles: raising both limits
+  removed every release in 1,000 warm-ups, and `TypeProfileLevel` moved nothing.
+* **The fix.** `VarkaVectorTemplateWarmup` runs once per JVM before the warm-up worker's first
+  job: every Vector API method the emitter's kernels call, on `IntVector`, `LongVector` and
+  `DoubleVector` at the preferred species, with the operator classes interleaved in each round so
+  every template site sees several while it is profiled. At the preferred species the warm arm's
+  deadline releases went from 442 to 0 in 2,000 compositions on each of five seeds. It does
+  nothing at a 128-bit preferred species (VARKA-374) or under a 4-lane override (VARKA-373), and
+  the section above says what it leaves on the long lane after a history.
+* **Reading the allocation probe.** A last-probe value is calls x iterations x array size, so
+  20,480 bytes is exactly one surviving vector array an iteration and the larger values are its
+  multiples. A magnitude alone cannot tell compiled-with-residue from a loop still interpreted,
+  whose one long call boxes tens of kilobytes, which is why the rule that allowed 32 times the
+  settled bytes was withdrawn.
