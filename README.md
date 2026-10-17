@@ -579,7 +579,7 @@ Ten methods check the kernels against that oracle. Each, with what it found:
 
 Nine defects in all; the one every method passed over, a fused condition run
 on rows an earlier condition had excluded, was found by reading. The post
-[Where the checking stops](https://vecbricks.github.io/where-the-checking-stops/)
+[How a SQL engine is tested](https://vecbricks.github.io/where-the-checking-stops/)
 says what each method costs and where it stops. The files: the
 [proofs](sql/varka/proofs/) with the
 [SQL-92 definitions and Spark's departures](sql/varka/proofs/spec/), the

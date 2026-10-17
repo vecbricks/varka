@@ -55,7 +55,7 @@ milestone 8, and the close.
   [Why a warmed kernel can still allocate](https://vecbricks.github.io/why-a-warmed-kernel-can-still-allocate/)
   for JVM developers; the cliff's sequel,
   [A large CASE WHEN, split only where it has to be](https://vecbricks.github.io/split-only-where-it-has-to-be/);
-  and the milestone's own, [Where the checking stops](https://vecbricks.github.io/where-the-checking-stops/),
+  and the milestone's own, [How a SQL engine is tested](https://vecbricks.github.io/where-the-checking-stops/),
   for testers.
 * **Moved to milestone 8.** Promotion as a standing cadence, and the filter whose answer
   depends on Spark's pending upstream decision, with the nightly's nested-tree switch that
