@@ -544,6 +544,49 @@ morsel layout, the emitted method anatomy, the null and predication algebra,
 configuration and limitations. Read it alongside step 4 when the emitter stops
 being obvious.
 
+## How Varka is checked
+
+"Right" means what vanilla Spark says: the same rows, the same nulls, and
+where Spark raises an error, the same error, compared by error class, SQLSTATE
+and message parameters. A kernel that cannot promise that for a batch declines
+it and Spark's row engine computes the batch; a kernel that throws is caught the
+same way. Under test that safety net may hide nothing: a fallback no test
+declared fails the test.
+
+Ten methods check the kernels against that oracle. Each, with what it found:
+
+* **Solver proofs** of every bounded arithmetic rewrite, Z3 and cvc5 agreeing:
+  a textbook magic-number shift that fails its own theorem for 327 million
+  divisors, none in use; and a date column assumed inside years 1 to 9999
+  where Spark stores any 32-bit day - a wrong answer, fixed.
+* **Enumeration** of every kernel tree to five nodes, nearly four million, and
+  eight **variants** of each that must keep its answer, against the reference
+  evaluator: nothing.
+* **The reference evaluator against Spark's expression engine**: one
+  disagreement, the harness's own.
+* **Random queries against Spark with Varka off**, failures shrunk and saved
+  as replaying reproducers: four defects.
+* **Spark's own tests**, its golden SQL files and 731 date statements:
+  nothing; Varka computes under 4% of those queries.
+* **Coverage of the generated code**: a quarter of the kernels run had both
+  loops compared at first, nearly nine in ten now.
+* **Mutation testing**, 1,760 planted faults in the two kernel-planning
+  classes: no wrong answer, five missing tests.
+* **The JIT's tiers**, seven JVM configurations and eight warm-up histories,
+  a witness naming the compiler that answered: no disagreement; the JIT's log
+  found a warmed kernel still allocating.
+* **Memory checking** on every suite: one output mapped at twice its width.
+
+Nine defects in all; the one every method passed over, a fused condition run
+on rows an earlier condition had excluded, was found by reading. The post
+[Where the checking stops](https://vecbricks.github.io/where-the-checking-stops/)
+says what each method costs and where it stops. The files: the
+[proofs](sql/varka/proofs/) with the
+[SQL-92 definitions and Spark's departures](sql/varka/proofs/spec/), the
+[saved reproducers](sql/varka/fuzz/spark/), the
+[coverage report over every emitted class](sql/varka/coverage/generated.md)
+and the [mutation survivors' notes](sql/varka/mutation/notes.tsv).
+
 ## Status and roadmap
 
 Development happens in `sql/varka/plans/`, one plan file per milestone and
