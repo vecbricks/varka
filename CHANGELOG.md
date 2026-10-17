@@ -5,6 +5,62 @@ One section per milestone, newest first, written at each milestone's close by it
 the plan that records it row by row, and the posts that published it. Tags `varka-m<n>` mark the
 commit that closed each milestone from 6 on.
 
+## Milestone 7: trust and maintainability (2 to [MORNING: tag date] October 2026)
+
+Tag `varka-m7`. Plan: [`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md),
+112 task rows: 109 done (one, the IR hash cache, closed on its measurement), 2 moved to
+milestone 8, and the close.
+
+* **Every bounded lowering is proven.** SMT-LIB proofs under `sql/varka/proofs/`, Java's
+  operators stated once and held to the JVM, run by `dev/varka_prove.sh` in the linters' job
+  under Z3 and nightly under cvc5 as well: the multiply-high division exact for every divisor
+  in use, both long-lane division forms with their exact dividend bounds, every calendar
+  division site with its first failing dividend pinned, and the range analyses that supply the
+  guards' bounds (one latent unsound rule found and fixed). A specification fragment from the
+  SQL-92 text (`proofs/spec/STANDARD.md`), Spark's eleven departures as named deltas with a
+  test each (`DELTAS.md`), and the lowerings restated as refinements of it in Spark mode and
+  standard mode (216 checks).
+* **The tests reach what they missed.** Vanilla Spark as the oracle at random, with a shrinker,
+  saved reproducers, pivot-rectified filters, nested trees with casts and forced declines;
+  Spark's own golden files through an Arrow cache in both arms; every IR tree to size 5 at both
+  lanes; eight variants of every passing shape; kernels compared compiled by C2 and under the
+  interpreter, C1, intrinsics off and C2's stress flags, with JFR naming the tier; a memory
+  sanitizer on in every suite; poisoned null lanes and both validity fills; a verdict per guard
+  at every bound; the reference evaluator held to Catalyst's `eval`; a hidden kernel failure
+  fails its test. Measured by branch coverage of the emitter and of the classes it emits, what
+  the emitter reached, and a mutation run of 1,760 mutants with every survivor answered. The
+  warm-up flake's cause named - C2's compile-wide trap sums - and removed at the preferred
+  species by a once-per-JVM template warm-up.
+* **Varka's code is Java and legible.** The compiler, its shape cache, the evaluators, the
+  reference evaluator, the fuzz infrastructure, the test helpers, the censuses and all 26
+  benchmarks ported, each with the proof its row named; Error Prone and NullAway on every pull
+  request; one options table, one class for method names, `emitBody` split, the size loop as
+  named steps, the refusals and the operand admission each stated once, about 290 comments
+  rewritten to describe the code as it is; and a family kill switch, error conditions with a
+  context record, a reproduction file per kernel failure, and a troubleshooting runbook.
+* **CI off the laptop.** An admission job inside the Build, master's head run after each merge,
+  benchmark pairs and results files on GitHub-hosted runners, a step-time budget, section-wise
+  benchmark regeneration, the gate in parallel, and the slow mode a kernel meets after other
+  kernels as a number in the nightly.
+* **Wrong answers found and fixed.** A declined filter batch refiltered out of Spark's conjunct
+  order; a fused conjunct run before a residual conjunct Spark evaluates first; a cached date
+  column past years 0001 to 9999 given wrong calendar fields; a filter raising a later row's
+  error before the projection's earlier one; a `NULL`-typed column crashing the filter
+  fallback; a `Long.MIN_VALUE` interval admitted by a one-day guard; and a narrowed output
+  mapped at twice its width, found by the sanitizer. One disagreement waits on Spark's own
+  answer upstream (SPARK-60315).
+* **Six posts.** [How Spark compiles a query](https://vecbricks.github.io/how-spark-compiles-a-query/)
+  and [Spark's code generator by the numbers](https://vecbricks.github.io/nine-numbers/) for
+  Spark users; [The class got cheaper](https://vecbricks.github.io/the-class-got-cheaper/) and
+  [Why a warmed kernel can still allocate](https://vecbricks.github.io/why-a-warmed-kernel-can-still-allocate/)
+  for JVM developers; the cliff's sequel,
+  [A large CASE WHEN, split only where it has to be](https://vecbricks.github.io/split-only-where-it-has-to-be/);
+  and the milestone's own, [Where the checking stops](https://vecbricks.github.io/where-the-checking-stops/),
+  for testers.
+* **Moved to milestone 8.** Promotion as a standing cadence, and the filter whose answer
+  depends on Spark's pending upstream decision, with the nightly's nested-tree switch that
+  waits on it.
+
 ## Milestone 6: the compiler's foundation (23 September to 3 October 2026)
 
 Tag `varka-m6`. Plan: [`sql/varka/plans/m6/PLAN.md`](sql/varka/plans/m6/PLAN.md),
