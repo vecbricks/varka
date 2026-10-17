@@ -4,6 +4,8 @@
 types, and more casts and expressions on the existing ones. The decisions in section 1 are his
 and fixed; this plan works inside them.*
 
+*17 October 2026: milestone 7 closed (`m7/VARKA-261.md`), and this plan is the one in flight.*
+
 This is a task plan, not a scope catalogue. Under the house rule (`sql/varka/AGENTS.md`), the
 catalogue moved forward in the same pull request: the catalogue that sat in this folder is now
 `m9/SCOPE.md`, with its item numbers unchanged, its reading note (`READING_LAYOUTS.md`) and the
@@ -60,6 +62,10 @@ the cheapest-first order shaped (2.3, 2.9, section 4, 10.4) carry dated notes.*
 
 *Owner's decision, 14 October 2026: no milestone 7 row moves.* The rows still open in
 `m7/PLAN.md` stay there and close there; nothing below depends on one except where a row says so.
+
+*17 October 2026, at milestone 7's close: two rows moved here after all, 180 (promotion, a
+cadence no milestone closes) and 386 (a filter whose answer waits on Spark's own decision
+upstream); `m7/PLAN.md`'s rows 180 and 386 record the move and the rows below carry it.*
 
 ## 1. The question, and what "done" means
 

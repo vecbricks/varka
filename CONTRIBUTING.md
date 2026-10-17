@@ -27,7 +27,7 @@ applies to anything that touches Spark itself.
 Development runs in milestones, and each milestone is one file under
 [`sql/varka/plans/`](sql/varka/plans/) with a numbered task table. The
 milestone in flight is the highest-numbered `m<n>/PLAN.md` there,
-[`m7/PLAN.md`](sql/varka/plans/m7/PLAN.md) as this is
+[`m8/PLAN.md`](sql/varka/plans/m8/PLAN.md) as this is
 written; a row whose first bold marker begins with **Done** is finished and
 carries a pointer to its outcome, **Withdrawn** rows are closed, and every
 other row is open, whether marked **Scoped**, **Planned** or not yet marked.

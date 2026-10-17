@@ -627,9 +627,13 @@ not have ended it either: a CPU-bound loop checks no interrupt.
 * **`VarkaTestWatchdog`**, mixed into every Varka suite, runs each test beside a watchdog thread.
   At the cap (`varka.test.watchdog.minutes`, ten) it interrupts the test thread, which ends a body
   that blocks or checks interrupts; thirty seconds later, if the test still runs, it writes every
-  thread's stack under the test's name and halts the JVM, so sbt reports the suite aborted and
-  the log's last lines say which test and what it was doing. `Thread.stop` is gone since JDK 20,
-  so a halt is what remains for a loop that will not stop.
+  thread's stack under the test's name and halts the JVM; the log's last lines say which test
+  and what it was doing. `Thread.stop` is gone since JDK 20, so a halt is what remains for a
+  loop that will not stop. sbt does not report the halted suite aborted: it waits on the forked
+  JVM's socket indefinitely, printing "Unable to read from client" (VARKA-283, which found the
+  gate's sweep step had not passed since the watchdog landed), so every gate and nightly step
+  runs under `dev/varka_deadline.sh`, which waits on the process it started, never on a name,
+  and kills the process group at its deadline.
 * **Size the cap from the slowest test on record**, not the job's limit: the width audit's census
   takes about two minutes, and the suites' CI jobs finish in eleven to seventeen minutes whole,
   so a single test past ten is a hang. A suite meant to run longer overrides `watchdogMinutes`.
@@ -1204,7 +1208,9 @@ assertion holds, so a message that indexes into an empty result throws on succes
 
 VARKA-266. `dev/varka_errorprone.sh` runs Error Prone and NullAway as a javac plugin over Varka's
 Java alone, against sbt's exported classpath, writing class files nothing reads; the gate's lint
-step runs it. Four things cost a run each to learn:
+step runs it, and since VARKA-382 so does every pull request's Build, after a finding merged
+between two green pull requests while only the gate looked (`VARKA-382.md` 9.1). Four things
+cost a run each to learn:
 
 - Error Prone's with-dependencies jar does not bundle the Checker Framework dataflow its analyses
   load (`io.github.eisop:dataflow-errorprone`); without it the plugin dies on

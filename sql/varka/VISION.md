@@ -5,9 +5,9 @@
 > (the fused vector loop, done), `m3/PLAN.md` (reach, done), `m4/PLAN.md`
 > (the date family and the emitter under it, done), `m5/PLAN.md` (64-bit lanes and
 > TIME, done), `m6/PLAN.md` (the compiler's foundation, closed 3 October 2026),
-> `m7/PLAN.md` (trust and maintainability, in flight), `m8/PLAN.md` (every numeric and
-> temporal type, planned) and `m9/SCOPE.md` (coverage - what the benchmark corpora say is
-> missing); `CHANGELOG.md` at the repository
+> `m7/PLAN.md` (trust and maintainability, closed 17 October 2026), `m8/PLAN.md` (every
+> numeric and temporal type, in flight) and `m9/SCOPE.md` (coverage - what the benchmark
+> corpora say is missing); `CHANGELOG.md` at the repository
 > root records each milestone's close.
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
 > actually built. Section 13 answers the whole-stage charter question (VARKA-22).
@@ -200,9 +200,9 @@ spark-submit \
 
 > **Status:** this list is done or superseded (step 6's `JavaClassFileEngine` was built,
 > never routed, and deliberately deleted in milestone 2 - `VARKA-9.md` section 5.4).
-> The steps since are milestones 3 to 6, all closed (`m3/PLAN.md` to
-> `m6/PLAN.md`, and `CHANGELOG.md`); milestone 7 (`m7/PLAN.md`) is in
-> flight, milestone 8 (`m8/PLAN.md`) adds the numeric and temporal types after it, and
+> The steps since are milestones 3 to 7, all closed (`m3/PLAN.md` to
+> `m7/PLAN.md`, and `CHANGELOG.md`); milestone 8 (`m8/PLAN.md`) is in
+> flight, adding the numeric and temporal types, and
 > `m9/SCOPE.md` scopes benchmark coverage beyond that.
 
 When proceeding to implementation:

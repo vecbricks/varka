@@ -570,7 +570,7 @@ The milestones:
   Class-File emitter, nested chains with DAG-CSE, predication, partial
   eligibility with zero-copy forwarding, telemetry attributes, and the
   benchmark/docs pass that produced the numbers above.
-* **Milestone 3 (in progress)**: *reach* - the task plan is in
+* **Milestone 3 (done)**: *reach* - the task plan is in
   [`sql/varka/plans/m3/PLAN.md`](sql/varka/plans/m3/PLAN.md).
   Its spine: reuse the emitted class across tasks (done - VARKA-18's shape
   cache removed the per-task JIT warm-up and moved every committed
@@ -618,12 +618,20 @@ The milestones:
   [the 8000-byte cliff](https://vecbricks.github.io/the-8000-byte-cliff/),
   [under 8000 bytes by construction](https://vecbricks.github.io/under-8000-bytes-by-construction/)
   and [when Spark stops compiling your query](https://vecbricks.github.io/when-spark-stops-compiling-your-query/).
-  The record of every milestone is [`CHANGELOG.md`](CHANGELOG.md).
-* **Milestone 7**: *trust and maintainability* - the task plan is
+* **Milestone 7**: *trust and maintainability*, closed on 17 October 2026 - the
+  task plan is
   [`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md):
-  machine-checked proofs of the bounded arithmetic, the differential tests'
-  gaps closed, the compiler ported to Java and refactored with no emitted byte
-  moved, and CI that needs no laptop.
+  every bounded lowering proven by solver over its guarded range, the tests
+  reaching what they had missed (the section "How Varka is checked" above), the
+  compiler and the evaluators ported to Java with no emitted byte moved, CI
+  that needs no laptop, and six posts:
+  [how Spark compiles a query](https://vecbricks.github.io/how-spark-compiles-a-query/),
+  [Spark's code generator by the numbers](https://vecbricks.github.io/nine-numbers/),
+  [the class got cheaper](https://vecbricks.github.io/the-class-got-cheaper/),
+  [why a warmed kernel can still allocate](https://vecbricks.github.io/why-a-warmed-kernel-can-still-allocate/),
+  [a large CASE WHEN, split only where it has to be](https://vecbricks.github.io/split-only-where-it-has-to-be/)
+  and [where the checking stops](https://vecbricks.github.io/where-the-checking-stops/).
+  The record of every milestone is [`CHANGELOG.md`](CHANGELOG.md).
 * **Milestone 8**: *every numeric and temporal type* - the task plan is
   [`sql/varka/plans/m8/PLAN.md`](sql/varka/plans/m8/PLAN.md): `BOOLEAN`,
   `TINYINT`, `SMALLINT`, `FLOAT`, `DOUBLE`, `TIMESTAMP_NTZ` and `DECIMAL` up to
@@ -649,7 +657,7 @@ which live in [`sql/varka/skills/`](sql/varka/skills/)).
 
 The work is organised as milestones with a numbered task table each; the
 milestone in flight is
-[`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md),
+[`sql/varka/plans/m8/PLAN.md`](sql/varka/plans/m8/PLAN.md),
 and its rows marked **Scoped** or **Planned** are open. Pick one, open an
 issue naming the row, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
 the work is done here: plans as records, numbers that trace to committed

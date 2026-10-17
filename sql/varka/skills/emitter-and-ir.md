@@ -263,8 +263,11 @@ VARKA-52. VARKA-26 checked the narrowed civil-from-days range at every calendar 
 lane, per batch; VARKA-51 removed that on the argument that the range is decidable once; VARKA-52
 is the decision. Three things came out of building it.
 
-- **Most of the guard is a compile-time interval.** A date column is the contract range
-  0001..9999 (`VarkaChrono.CONTRACT_MIN/MAX_DAYS`, derived from `LocalDate` in source), a literal
+- **Most of the guard is a compile-time interval.** A bare date column is read as the contract
+  range 0001..9999 (`VarkaChrono.CONTRACT_MIN/MAX_DAYS`, derived from `LocalDate` in source) -
+  a range the kernel checks per batch and declines past, since VARKA-379 found that Spark stores
+  any int32 day and a cached column past the range was served wrong calendar fields
+  (`VARKA-379.md` 2, 10) - a literal
   day offset shifts it by exactly its value, `next_day` by 1..7, `add_months(n)` by 28n..31n,
   `last_day` by 0..30, and `greatest`/`least`/`if`/`coalesce` take the hull. The check is one
   compare of that interval against `NARROW_MIN_DAYS`/`NARROW_DECOMPOSE_MAX_DAYS` in the
