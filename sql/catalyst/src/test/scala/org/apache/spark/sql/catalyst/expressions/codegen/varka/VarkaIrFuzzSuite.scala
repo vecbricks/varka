@@ -798,7 +798,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(sig.kind == "emitter rejection", sig)
     assert(shrunk.runs <= 600 && shrunk.millis < 60000L && !shrunk.stoppedEarly)
     assert(shrunk.stable)
-    assert(nodes(small) < nodes(c))
+    // A seed's first failing draw can already be within the bound above (three nodes at seed
+    // 202610133, two at 202610181), and then there is nothing to remove; a larger one must come
+    // out smaller.
+    if (nodes(c) > 5) assert(nodes(small) < nodes(c))
   }
 
   test("a planted bug in the generated class is classified and shrunk, not left to escape") {

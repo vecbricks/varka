@@ -92,10 +92,14 @@ jobs:
         grep -q scalatest target/catalyst-test-classpath.txt
     # One JVM per core, each with its own seed and log, waited on by process id, which exits
     # on every path (sql/varka/skills/testing-and-debugging.md, "A fuzz campaign is sixteen
-    # JVMs, not one sbt"). The iteration count keeps each lane well under the suite's
-    # twenty-minute cap per test at a runner's rate of about a hundred trees a second. Every
-    # tenth passing draw is also run in each of its variants (VARKA-278), which costs about four
-    # draws' worth each, so the variants add about half to the step.
+    # JVMs, not one sbt"). Every tenth passing draw is also run in each of its variants
+    # (VARKA-278), which costs about four draws' worth each, so the variants add about half to
+    # the step. Each JVM already runs this one suite alone, so the suite runs in it directly
+    # (-Dvarka.ownJvm=true) rather than forking the child VarkaOwnJvm would start: that child's
+    # budget is a per-test cap less a minute for the whole suite, nine minutes, which the
+    # suite's sixteen tests outgrew at this volume on 13 October and every night after
+    # (VARKA-392). The per-test caps are raised to the job's scale, as the variants step does:
+    # the compiled test of VARKA-274 alone took 13 minutes with four JVMs on four cores.
     - name: Run the IR fuzzer, one JVM per core
       env:
         ITERATIONS: ${{ inputs.iterations || '40000' }}
@@ -110,7 +114,8 @@ jobs:
         for k in $(seq 0 $((cores - 1))); do
           seed="${base}${k}"
           java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
-            -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" \
+            -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" -Dvarka.ownJvm=true \
+            -Dspark.test.timeout=45 -Dvarka.test.watchdog.minutes=45 \
             -Dvarka.fuzz.iterations="$ITERATIONS" -Dvarka.fuzz.seed="$seed" \
             -Dvarka.fuzz.variantsEvery=10 \
             -cp "$CP" org.scalatest.tools.Runner -oW \
@@ -132,7 +137,10 @@ jobs:
           grep -h -E "Tests: succeeded|FAILED|varka.fuzz.seed=" target/fuzz/ir-*.log | sort | uniq -c
         } | tee -a "$GITHUB_STEP_SUMMARY"
         exit $failed
+    # Each fuzzer below runs whether or not the one before it failed: a failed step otherwise
+    # skips the rest, and one fuzzer's failure hid the other two for six nights (VARKA-392).
     - name: Run the coverage composition fuzzer
+      if: ${{ !cancelled() }}
       env:
         COMPOSITIONS: ${{ inputs.compositions || '400' }}
         SEED: ${{ inputs.seed }}
@@ -141,9 +149,10 @@ jobs:
         CP="$(cat target/catalyst-test-classpath.txt)"
         seed="${SEED:-$(date -u +%Y%m%d)}"
         # sbt sets spark.test.home for its tests; a plain JVM needs it passed, or every test
-        # that reads a workspace file - the coverage table here - fails before it starts.
+        # that reads a workspace file - the coverage table here - fails before it starts. The
+        # suite runs in this JVM, alone, as the IR fuzzer runs in each of its JVMs.
         java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
-          -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" \
+          -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" -Dvarka.ownJvm=true \
           -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
           -cp "$CP" org.scalatest.tools.Runner -oW \
           -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
@@ -157,6 +166,7 @@ jobs:
     # Every small tree to size 4 in each of the eight variants of VARKA-278, one JVM per core,
     # each taking every n-th tree. Size 3 runs in pull requests; size 4 is a few minutes here.
     - name: Run every tree's variants to size 4, one JVM per core
+      if: ${{ !cancelled() }}
       run: |
         set -uo pipefail
         CP="$(cat target/catalyst-test-classpath.txt)"

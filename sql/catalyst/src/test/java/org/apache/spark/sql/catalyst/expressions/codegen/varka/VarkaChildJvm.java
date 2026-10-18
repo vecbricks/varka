@@ -205,8 +205,12 @@ public final class VarkaChildJvm {
     Optional<String> aborted = VarkaSuiteReport.abortOf(report);
     int exit = process.exitValue();
     if (timedOut.get()) {
-      return failAll(parsed,
-          suite + " did not finish in " + budget.getAsLong() + " minutes in its own JVM", false);
+      // The budget is one test's cap for the whole suite, and the parent's waiting test has that
+      // cap too, so a larger budget alone cannot help a long run: a JVM that runs only this suite
+      // runs it directly instead, as the nightly fuzz workflow does (VARKA-392).
+      return failAll(parsed, suite + " did not finish in " + budget.getAsLong()
+          + " minutes in its own JVM, one test's cap for the whole suite; a JVM that runs only"
+          + " this suite can run it directly with -D" + PROPERTY + "=true", false);
     } else if (aborted.isPresent()) {
       return failAll(parsed, "in its own JVM, " + suite + " aborted: " + aborted.get(), true);
     } else if (parsed.isEmpty()) {

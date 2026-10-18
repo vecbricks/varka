@@ -121,7 +121,10 @@ run_step() {
   grep -h -E "Tests: succeeded|FAILED \*\*\*|^failed \(|verdict|[[:space:]]OFF$|seed=|^\[info\] - " "$logdir/$name.log" \
     | sed 's/^\[info\] //' | head -6 | sed 's/^/   /'
 }
-fuzz_opts="set Test/javaOptions ++= Seq(\"-Dvarka.fuzz.iterations=$iterations\", \"-Dvarka.fuzz.seed=$seed\")"
+# The fuzz step's test JVM runs VarkaIrFuzzSuite alone, so the suite runs in it directly rather
+# than in the child VarkaOwnJvm forks, whose budget is one test's cap for the whole suite
+# (VARKA-392).
+fuzz_opts="set Test/javaOptions ++= Seq(\"-Dvarka.fuzz.iterations=$iterations\", \"-Dvarka.fuzz.seed=$seed\", \"-Dvarka.ownJvm=true\")"
 
 run_step canary dev/varka_bench_canary.sh
 run_step fuzz build/sbt -batch "project catalyst" "$fuzz_opts" 'testOnly *VarkaIrFuzzSuite'
