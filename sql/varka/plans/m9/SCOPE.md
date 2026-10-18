@@ -5289,6 +5289,48 @@ bounds labelled sufficient or exact, and the refinements in Spark mode and stand
 (`m7/VARKA-240.md` to `VARKA-245.md`, `m7/VARKA-281.md`). **Done when** the owner chooses it and
 it is published, or the record says it is not wanted.
 
+### Item 105. A code generator of our own for the kernels, through JVMCI
+
+*Added 18 October 2026 at the owner's request, from the discussion of the post "Two compilers,
+two queues" (`m7/POST_TWO_QUEUES.md`).* Everything that post and `m7/VARKA-389.md` describe,
+the tiers, the two queues, the profiles a kernel inherits from the templates it inlines, the
+8,000-byte limit, the template warm-up and its order, is the price of letting C2 compile the
+kernels. JDK 25 ships the interface that would let Varka compile them itself: the JVMCI module
+(`jdk.internal.vm.ci`, JEP 243) lets a compiler written in Java read a method's bytecode and
+profiles and install machine code into HotSpot's code cache (`CodeCacheProvider.installCode`),
+with backends described for amd64, aarch64 and riscv64. Three shapes are possible, and one is
+worth a spike.
+
+* **A full JIT in place of C2** (`-XX:+UseJVMCICompiler`): every method, with GC barriers,
+  safepoints, deoptimisation metadata and every intrinsic. Graal is the one production example,
+  about a million lines over a decade. Not for us.
+* **A backend for the kernels alone, with C2 kept for everything else.** `EnableJVMCI` without
+  `UseJVMCICompiler` leaves C2 in place and still lets a program install code for a chosen
+  method. Varka's kernels are a narrow language: loads and stores of primitive buffers, lane-wise
+  arithmetic, compares and blends, a counted loop, no allocation and almost no object references.
+  A code generator from Varka's own IR straight to AVX2 or AVX-512, later NEON or SVE, for that
+  language is a bounded piece of work, and it takes the kernels out of the tier story entirely:
+  compiled on first use in microseconds, no profiles, no queue, no warm-up, no method-size limit.
+* **The same backend outside the JVM**, through the FFM API: native kernels generated at runtime
+  and called through downcall handles, a few tens of nanoseconds a call, amortised over a batch;
+  the Arrow buffers are already off-heap. No experimental flags and no HotSpot metadata, but a
+  native code generator to ship and trust, and no profile to speculate on.
+
+The second shape is the spike, because Varka already has what makes such a backend verifiable:
+the IR, the reference evaluator, and the fuzzers that compare a kernel's answers with the
+evaluator's and with vanilla Spark's. Its costs, to be measured by the spike rather than argued:
+one backend per ISA; the frame and safepoint metadata JVMCI requires even for a leaf loop; a
+debugging story of our own; and a deployment that passes `-XX:+UnlockExperimentalVMOptions
+-XX:+EnableJVMCI` and the module's exports to every executor, since the flags are experimental
+and the module is not exported. A Graal compiler plugin would be cheaper than all three but ties
+Varka to Graal as the JIT, which Spark deployments rarely run.
+
+This is a milestone's worth of work, not a row, and a direction decision for after milestone 7's
+close. **Done when** a spike installs one kernel family's code through JVMCI on one ISA, passes
+the reference evaluator and the fuzzers on it, and is measured against C2's kernel of the same
+shape at the sizes the cold-start and throughput benchmarks use, and the owner decides whether a
+milestone follows; or the record says which cost closed the door.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
