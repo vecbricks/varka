@@ -82,8 +82,12 @@ failed_suites() {   # simple names of the suites with a failed or errored test u
     || true; } | sed -E 's#.*/TEST-(.*)\.xml$#\1#; s#.*\.##' | sort -u | tr '\n' ' '
 }
 failed_tests() {    # the failed tests' names under $1, one line, for the annotation
+  # A <testcase> tag's attributes follow on the next line, as the suite tag's do, so the name is
+  # the first name="..." after the tag, wherever the line break falls.
   { cat "$1"/runs/defaults/*/junit/TEST-*.xml 2>/dev/null || true; } |
-    awk '/<testcase/ { match($0, / name="[^"]*"/); n = substr($0, RSTART + 7, RLENGTH - 8) }
+    awk '/<testcase/ { n = ""; want = 1 }
+         want && / name="[^"]*"/ { match($0, / name="[^"]*"/)
+                                   n = substr($0, RSTART + 7, RLENGTH - 8); want = 0 }
          /<failure|<error/ { printf "%s\"%s\"", sep, n; sep = "; " }'
 }
 is_flaky() {        # whether $1 heads an entry of the list
