@@ -1,22 +1,22 @@
 label:          varka-off-jdk25
 spark:          5.0.0-SNAPSHOT
-commit:         751def147b0
+commit:         9435783beb2
 cores:          1
-datapath:       136.4 lane-ops/ns at 256 bits, 155.8 at 512 bits, ratio 1.14
-canary:         ok (compute +0.2% cache +0.9% memory -0.6% )
+datapath:       136.4 lane-ops/ns at 256 bits, 155.5 at 512 bits, ratio 1.14
+canary:         ok (compute +0.2% cache +7.5% memory +0.0% )
 host:           aqua
-spark home:     /home/max/proj/varka-surfaces-m6
-date:           2026-10-04T01:27:29Z
+spark home:     /home/max/proj/varka-surfaces-m7
+date:           2026-10-17T23:03:43Z
 jdk:            OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
-kernel:         7.0.0-34-generic
+kernel:         7.0.0-38-generic
 cpu:            AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 cpu flags:      avx avx2 avx512f avx512dq avx512ifma avx512cd avx512bw avx512vl avx_vnni avx512_bf16 avx512vbmi avx512_vbmi2 avx512_vnni avx512_bitalg avx512_vpopcntdq avx512_vp2intersect
 MaxVectorSize:  64
-power:          governor=performance epp=performance
-load at start:  0.85
+power:          governor=powersave epp=balance_performance
+load at start:  1.12
 rows:           1000000000
 partitions:     1
-cache:          1 of 1 partitions cached, 6.1 GiB in memory, 0.0 GiB on disk, Memory Deserialized 1x Replicated
+cache:          1 of 1 partitions cached, 6.2 GiB in memory, 0.0 GiB on disk, Memory Deserialized 1x Replicated
 input:          cache
 table columns:  all (6)
 benchmark:      surface
@@ -26,152 +26,152 @@ methodology:    5+ iterations over 2s windows after 2s warm-up; wall time by nan
 
 date_add(d, 3) over 1000000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     11701          11955         394         85.5          11.7       1.0X
+projection, columnar consumer                     10298          10548         368         97.1          10.3       1.0X
 
 date_add(d, 3) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                               11674          11928         393         85.7          11.7       1.0X
+projection, columnar consumer                               10272          10521         366         97.4          10.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=479392471982429328
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.3%
 
 date_add(d, i) over 1000000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15913          16033         190         62.8          15.9       1.0X
+projection, columnar consumer                     13668          13927         193         73.2          13.7       1.0X
 
 date_add(d, i) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                               15889          16009         190         62.9          15.9       1.0X
+projection, columnar consumer                               13644          13902         194         73.3          13.6       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=482271804982669882
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 date_sub(d, 5) over 1000000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     11775          11893         144         84.9          11.8       1.0X
+projection, columnar consumer                     10344          10389          52         96.7          10.3       1.0X
 
 date_sub(d, 5) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                               11754          11872         143         85.1          11.8       1.0X
+projection, columnar consumer                               10322          10367          52         96.9          10.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=478239947541419952
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 d + CAST(i AS INTERVAL DAY) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                             16411          16470          44         60.9          16.4       1.0X
+projection, columnar consumer                             13816          13959         124         72.4          13.8       1.0X
 
 d + CAST(i AS INTERVAL DAY) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                            16391          16449          44         61.0          16.4       1.0X
+projection, columnar consumer                                            13796          13937         122         72.5          13.8       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=482271804982669882
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 datediff(d2, d) over 1000000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15930          15963          38         62.8          15.9       1.0X
+projection, columnar consumer                     13668          13682          16         73.2          13.7       1.0X
 
 datediff(d2, d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                15909          15943          39         62.9          15.9       1.0X
+projection, columnar consumer                                13650          13662          15         73.3          13.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=482188999081549253
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 unix_date(d) over 1000000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     11637          11759         221         85.9          11.6       1.0X
+projection, columnar consumer                     10312          10520         178         97.0          10.3       1.0X
 
 unix_date(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                             11618          11740         221         86.1          11.6       1.0X
+projection, columnar consumer                             10288          10497         180         97.2          10.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=478946829260659346
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 date_from_unix_date(unix_date(d)) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                   11630          11656          22         86.0          11.6       1.0X
+projection, columnar consumer                                   10315          10541         468         96.9          10.3       1.0X
 
 date_from_unix_date(unix_date(d)) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                  11612          11638          22         86.1          11.6       1.0X
+projection, columnar consumer                                                  10294          10520         468         97.1          10.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=478946829260659346
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 year(d) over 1000000000 rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     14363          14404          48         69.6          14.4       1.0X
-filter, columnar consumer                          8514           8605          52        117.5           8.5       1.7X
-filter, counted                                    7037           7060          21        142.1           7.0       2.0X
+projection, columnar consumer                     12350          12420          96         81.0          12.4       1.0X
+filter, columnar consumer                          7362           7394          26        135.8           7.4       1.7X
+filter, counted                                    5946           5962          22        168.2           5.9       2.1X
 
 year(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        14347          14386          48         69.7          14.3       1.0X
-filter, columnar consumer                             8494           8585          52        117.7           8.5       1.7X
-filter, counted                                       7013           7035          22        142.6           7.0       2.0X
+projection, columnar consumer                        12333          12400          95         81.1          12.3       1.0X
+filter, columnar consumer                             7342           7368          18        136.2           7.3       1.7X
+filter, counted                                       5925           5940          22        168.8           5.9       2.1X
 # plan: projection, columnar consumer plain, filter, columnar consumer plain, filter, counted plain
 # selectivity: 241935658 of 1000000000 rows, 24.2%
 # checksum: projection rows=1000000000 nonnull=967741935 fold=546945582723340291, filter rows=241935658 nonnull=241935658 fold=117022169408894742
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%, filter, columnar consumer 0.2%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%, filter, columnar consumer 0.3%, filter, counted 0.4%
 
 month(d) over 1000000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15155          15324         293         66.0          15.2       1.0X
+projection, columnar consumer                     13213          13260          70         75.7          13.2       1.0X
 
 month(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                         15139          15307         293         66.1          15.1       1.0X
+projection, columnar consumer                         13192          13242          71         75.8          13.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=513330345209107262
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 day(d) over 1000000000 rows:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15491          15533          43         64.6          15.5       1.0X
+projection, columnar consumer                     13736          13820          84         72.8          13.7       1.0X
 
 day(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       15474          15516          43         64.6          15.5       1.0X
+projection, columnar consumer                       13718          13801          85         72.9          13.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=494310783375268649
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 quarter(d) over 1000000000 rows:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15849          16136         572         63.1          15.8       1.0X
+projection, columnar consumer                     14078          14125          43         71.0          14.1       1.0X
 
 quarter(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           15834          16120         572         63.2          15.8       1.0X
+projection, columnar consumer                           14061          14106          43         71.1          14.1       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=467120484024475685
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 dayofyear(d) over 1000000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     18279          18362         140         54.7          18.3       1.0X
+projection, columnar consumer                     16374          16426          47         61.1          16.4       1.0X
 
 dayofyear(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                             18262          18347         140         54.8          18.3       1.0X
+projection, columnar consumer                             16358          16409          46         61.1          16.4       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=498663658990500579
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 dayofweek(d) over 1000000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     23479          23786         647         42.6          23.5       1.0X
-filter, columnar consumer                         16644          16671          28         60.1          16.6       1.4X
-filter, counted                                   15734          15805         103         63.6          15.7       1.5X
+projection, columnar consumer                     21054          21107          57         47.5          21.1       1.0X
+filter, columnar consumer                         15255          15281          32         65.6          15.3       1.4X
+filter, counted                                   14495          14745         460         69.0          14.5       1.5X
 
 dayofweek(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                             23460          23769         647         42.6          23.5       1.0X
-filter, columnar consumer                                 16627          16654          28         60.1          16.6       1.4X
-filter, counted                                           15716          15784         103         63.6          15.7       1.5X
+projection, columnar consumer                             21038          21091          57         47.5          21.0       1.0X
+filter, columnar consumer                                 15235          15261          34         65.6          15.2       1.4X
+filter, counted                                           14475          14724         460         69.1          14.5       1.5X
 # plan: projection, columnar consumer plain, filter, columnar consumer plain, filter, counted plain
 # selectivity: 137870085 of 1000000000 rows, 13.8%
 # checksum: projection rows=1000000000 nonnull=967741935 fold=436005316447429059, filter rows=137870085 nonnull=137870085 fold=69796277073099880
@@ -179,365 +179,365 @@ filter, counted                                           15716          15784  
 
 weekday(d) over 1000000000 rows:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     21768          21820          61         45.9          21.8       1.0X
+projection, columnar consumer                     19328          19363          42         51.7          19.3       1.0X
 
 weekday(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           21752          21802          60         46.0          21.8       1.0X
+projection, columnar consumer                           19310          19346          43         51.8          19.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=391563824797831114
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 last_day(d) over 1000000000 rows:         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     17215          17353         171         58.1          17.2       1.0X
+projection, columnar consumer                     15243          15319          78         65.6          15.2       1.0X
 
 last_day(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                            17200          17337         171         58.1          17.2       1.0X
+projection, columnar consumer                            15227          15302          77         65.7          15.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=522946138165645457
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 next_day(d, 'MONDAY') over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       14220          14244          17         70.3          14.2       1.0X
+projection, columnar consumer                       12424          12481          45         80.5          12.4       1.0X
 
 next_day(d, 'MONDAY') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                      14205          14229          16         70.4          14.2       1.0X
+projection, columnar consumer                                      12409          12466          45         80.6          12.4       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=482527847894526641
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 weekofyear(d) over 1000000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     33264          33532         263         30.1          33.3       1.0X
+projection, columnar consumer                     30543          30677         116         32.7          30.5       1.0X
 
 weekofyear(d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                              33240          33480         238         30.1          33.2       1.0X
+projection, columnar consumer                              30523          30657         116         32.8          30.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=525492921549054870
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 extract(DAYOFWEEK_ISO FROM d) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                               22115          22151          59         45.2          22.1       1.0X
+projection, columnar consumer                               19691          19726          31         50.8          19.7       1.0X
 
 extract(DAYOFWEEK_ISO FROM d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                              22078          22113          62         45.3          22.1       1.0X
+projection, columnar consumer                                              19676          19710          31         50.8          19.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=436032849216181482
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 extract(YEAROFWEEK FROM d) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                            20566          20738         182         48.6          20.6       1.0X
+projection, columnar consumer                            18056          18204         117         55.4          18.1       1.0X
 
 extract(YEAROFWEEK FROM d) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                           20530          20707         183         48.7          20.5       1.0X
+projection, columnar consumer                                           18037          18184         117         55.4          18.0       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=546188657394003090
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 add_months(d, 3) over 1000000000 rows:    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     26359          26425          61         37.9          26.4       1.0X
+projection, columnar consumer                     23760          23866         103         42.1          23.8       1.0X
 
 add_months(d, 3) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 26333          26397          64         38.0          26.3       1.0X
+projection, columnar consumer                                 23742          23849         103         42.1          23.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=476703732169864441
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 add_months(d, i) over 1000000000 rows:    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     26575          26659          53         37.6          26.6       1.0X
+projection, columnar consumer                     24363          24490         103         41.0          24.4       1.0X
 
 add_months(d, i) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 26551          26630          50         37.7          26.6       1.0X
+projection, columnar consumer                                 24347          24474         103         41.1          24.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=478038226254972622
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d + INTERVAL 3 MONTH over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                      26340          26370          22         38.0          26.3       1.0X
+projection, columnar consumer                      23804          23851          57         42.0          23.8       1.0X
 
 d + INTERVAL 3 MONTH over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                     26316          26346          22         38.0          26.3       1.0X
+projection, columnar consumer                                     23788          23836          57         42.0          23.8       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=476703732169864441
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d + ymm over 1000000000 rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     26615          26643          29         37.6          26.6       1.0X
+projection, columnar consumer                     24499          24560          86         40.8          24.5       1.0X
 
 d + ymm over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        26590          26620          30         37.6          26.6       1.0X
+projection, columnar consumer                        24485          24544          86         40.8          24.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=483966304492624132
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d + ymy over 1000000000 rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     26987          27054          60         37.1          27.0       1.0X
+projection, columnar consumer                     24646          24701          72         40.6          24.6       1.0X
 
 d + ymy over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        26964          27030          60         37.1          27.0       1.0X
+projection, columnar consumer                        24628          24684          72         40.6          24.6       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=484343467042923547
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d + ym over 1000000000 rows:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     27642          27690          89         36.2          27.6       1.0X
+projection, columnar consumer                     25823          25990         172         38.7          25.8       1.0X
 
 d + ym over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       27624          27675          89         36.2          27.6       1.0X
+projection, columnar consumer                       25809          25973         171         38.7          25.8       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=480703567492408699
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 CAST(i AS INTERVAL MONTH) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           11519          11563          25         86.8          11.5       1.0X
+projection, columnar consumer                           10590          10623          34         94.4          10.6       1.0X
 
 CAST(i AS INTERVAL MONTH) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                          11503          11547          25         86.9          11.5       1.0X
+projection, columnar consumer                                          10574          10608          34         94.6          10.6       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=504758285348216540
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 CAST(ymm AS INT) over 1000000000 rows:    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     11571          11604          30         86.4          11.6       1.0X
+projection, columnar consumer                     10696          10767          62         93.5          10.7       1.0X
 
 CAST(ymm AS INT) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 11556          11589          31         86.5          11.6       1.0X
+projection, columnar consumer                                 10679          10750          63         93.6          10.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=536248708710204331
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 ymm + ymy over 1000000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     20672          20791         200         48.4          20.7       1.0X
+projection, columnar consumer                     18243          18529         296         54.8          18.2       1.0X
 
 ymm + ymy over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                          20648          20765         199         48.4          20.6       1.0X
+projection, columnar consumer                          18222          18504         296         54.9          18.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=521721078064332013
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 ymm - ymy over 1000000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     20711          20988         233         48.3          20.7       1.0X
+projection, columnar consumer                     18260          18476         138         54.8          18.3       1.0X
 
 ymm - ymy over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                          20685          20963         234         48.3          20.7       1.0X
+projection, columnar consumer                          18239          18455         137         54.8          18.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=524734272762482838
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 -ymm over 1000000000 rows:                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     12086          12334         460         82.7          12.1       1.0X
+projection, columnar consumer                     10407          10466          55         96.1          10.4       1.0X
 
 -ymm over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     12065          12309         460         82.9          12.1       1.0X
+projection, columnar consumer                     10392          10451          55         96.2          10.4       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=491081545657135303
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 abs(ymm) over 1000000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     11748          11762          16         85.1          11.7       1.0X
+projection, columnar consumer                     10516          10746         322         95.1          10.5       1.0X
 
 abs(ymm) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                         11723          11736          16         85.3          11.7       1.0X
+projection, columnar consumer                         10500          10731         322         95.2          10.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=536248708710204331
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d - ymm over 1000000000 rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     26756          26823          44         37.4          26.8       1.0X
+projection, columnar consumer                     26358          26417          67         37.9          26.4       1.0X
 
 d - ymm over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        26732          26797          43         37.4          26.7       1.0X
+projection, columnar consumer                        26343          26402          67         38.0          26.3       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=479833162070914042
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d + CAST(month(d) AS INTERVAL YEAR) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                     27169          27444         538         36.8          27.2       1.0X
+projection, columnar consumer                                     24880          24992         114         40.2          24.9       1.0X
 
 d + CAST(month(d) AS INTERVAL YEAR) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                    27147          27417         538         36.8          27.1       1.0X
+projection, columnar consumer                                                    24865          24976         115         40.2          24.9       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=490900818839494162
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 CAST(month(d) AS INTERVAL YEAR) * 3 over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                     15491          15741         394         64.6          15.5       1.0X
+projection, columnar consumer                                     13469          13513          56         74.2          13.5       1.0X
 
 CAST(month(d) AS INTERVAL YEAR) * 3 over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                    15467          15716         393         64.7          15.5       1.0X
+projection, columnar consumer                                                    13454          13497          56         74.3          13.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=387622050381860090
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 make_ym_interval(year(d), month(d)) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                     17741          17825          98         56.4          17.7       1.0X
+projection, columnar consumer                                     15560          15819         363         64.3          15.6       1.0X
 
 make_ym_interval(year(d), month(d)) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                    17723          17805          99         56.4          17.7       1.0X
+projection, columnar consumer                                                    15542          15803         364         64.3          15.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=474829100947889712
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 trunc(d, 'YEAR') over 1000000000 rows:    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     18629          18658          32         53.7          18.6       1.0X
+projection, columnar consumer                     16564          16604          28         60.4          16.6       1.0X
 
 trunc(d, 'YEAR') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 18615          18644          31         53.7          18.6       1.0X
+projection, columnar consumer                                 16549          16590          29         60.4          16.5       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=585466034920442414
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 trunc(d, 'MONTH') over 1000000000 rows:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15860          15909          35         63.1          15.9       1.0X
+projection, columnar consumer                     13902          13954          34         71.9          13.9       1.0X
 
 trunc(d, 'MONTH') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                  15847          15896          34         63.1          15.8       1.0X
+projection, columnar consumer                                  13889          13939          33         72.0          13.9       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=477435082701302977
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 trunc(d, 'QUARTER') over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     27217          27323          96         36.7          27.2       1.0X
+projection, columnar consumer                     25079          25180          76         39.9          25.1       1.0X
 
 trunc(d, 'QUARTER') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                    27196          27301          97         36.8          27.2       1.0X
+projection, columnar consumer                                    25007          25136          88         40.0          25.0       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=432622132169666106
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.3%
 
 trunc(d, 'WEEK') over 1000000000 rows:    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15263          15305          34         65.5          15.3       1.0X
+projection, columnar consumer                     15047          15087          44         66.5          15.0       1.0X
 
 trunc(d, 'WEEK') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 15242          15283          33         65.6          15.2       1.0X
+projection, columnar consumer                                 15014          15041          37         66.6          15.0       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=482676497266259840
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 if(d < d2, d, d2) over 1000000000 rows:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15961          16207         293         62.7          16.0       1.0X
+projection, columnar consumer                     15265          15298          38         65.5          15.3       1.0X
 
 if(d < d2, d, d2) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                  15939          16184         293         62.7          15.9       1.0X
+projection, columnar consumer                                  15244          15276          37         65.6          15.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=492811877368428627
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 CASE WHEN d < d2 THEN d ELSE d2 END over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                     16029          16118         114         62.4          16.0       1.0X
+projection, columnar consumer                                     15255          15536         539         65.6          15.3       1.0X
 
 CASE WHEN d < d2 THEN d ELSE d2 END over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                    16003          16092         114         62.5          16.0       1.0X
+projection, columnar consumer                                                    15234          15517         540         65.6          15.2       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=492811877368428627
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 coalesce(d, d2) over 1000000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     15851          15991         227         63.1          15.9       1.0X
+projection, columnar consumer                     15171          15213          49         65.9          15.2       1.0X
 
 coalesce(d, d2) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                15830          15970         227         63.2          15.8       1.0X
+projection, columnar consumer                                15147          15195          51         66.0          15.1       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=494784647453872860
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
 
 greatest(d, d2) over 1000000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     16671          16917         350         60.0          16.7       1.0X
+projection, columnar consumer                     15823          15988         206         63.2          15.8       1.0X
 
 greatest(d, d2) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                16649          16895         351         60.1          16.6       1.0X
+projection, columnar consumer                                15802          15971         207         63.3          15.8       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=492945291512959843
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 least(d, d2) over 1000000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                     16500          16894         747         60.6          16.5       1.0X
+projection, columnar consumer                     15704          15776          55         63.7          15.7       1.0X
 
 least(d, d2) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                             16479          16873         747         60.7          16.5       1.0X
+projection, columnar consumer                             15686          15759          55         63.8          15.7       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=1000000000 fold=492811877368428627
 # fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 year(date_add(d, 30)) over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       14519          14546          44         68.9          14.5       1.0X
+projection, columnar consumer                       14379          14470          63         69.5          14.4       1.0X
 
 year(date_add(d, 30)) over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                      14495          14523          43         69.0          14.5       1.0X
+projection, columnar consumer                                      14365          14454          62         69.6          14.4       1.0X
 # plan: projection, columnar consumer plain
 # checksum: projection rows=1000000000 nonnull=967741935 fold=544761476082231615
-# fixed share (wall - executor) / wall: projection, columnar consumer 0.2%
+# fixed share (wall - executor) / wall: projection, columnar consumer 0.1%
 
 d < d2 over 1000000000 rows:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                         14081          14151          89         71.0          14.1       1.0X
-filter, counted                                    9437           9456          18        106.0           9.4       1.5X
+filter, columnar consumer                         13410          13511         143         74.6          13.4       1.0X
+filter, counted                                    9130           9178          70        109.5           9.1       1.5X
 
 d < d2 over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                           14067          14136          89         71.1          14.1       1.0X
-filter, counted                                      9421           9440          17        106.1           9.4       1.5X
+filter, columnar consumer                           13395          13495         143         74.7          13.4       1.0X
+filter, counted                                      9111           9160          71        109.8           9.1       1.5X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 705257168 of 1000000000 rows, 70.5%
 # checksum: filter rows=705257168 nonnull=705257168 fold=348723429050150683
@@ -545,69 +545,69 @@ filter, counted                                      9421           9440        
 
 d = d2 over 1000000000 rows:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          9760           9830         144        102.5           9.8       1.0X
-filter, counted                                    9363          10017        1414        106.8           9.4       1.0X
+filter, columnar consumer                          7797           8464         376        128.3           7.8       1.0X
+filter, counted                                    8318           8344          33        120.2           8.3       0.9X
 
 d = d2 over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                            9746           9816         144        102.6           9.7       1.0X
-filter, counted                                      9343           9999        1415        107.0           9.3       1.0X
+filter, columnar consumer                            7783           8449         376        128.5           7.8       1.0X
+filter, counted                                      8301           8328          34        120.5           8.3       0.9X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 0 of 1000000000 rows, 0.0%
 # checksum: filter rows=0 nonnull=0 fold=0
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.1%, filter, counted 0.2%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.2%
 
 d BETWEEN DATE'2020-06-01' AND DATE'2021-06-01' over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                                      6945           6997          62        144.0           6.9       1.0X
-filter, counted                                                                5198           5214          17        192.4           5.2       1.3X
+filter, columnar consumer                                                      6768           6802          45        147.7           6.8       1.0X
+filter, counted                                                                4890           4905          14        204.5           4.9       1.4X
 
 d BETWEEN DATE'2020-06-01' AND DATE'2021-06-01' over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                                                     6928           6981          62        144.3           6.9       1.0X
-filter, counted                                                                               5180           5198          18        193.1           5.2       1.3X
+filter, columnar consumer                                                                     6752           6785          45        148.1           6.8       1.0X
+filter, counted                                                                               4873           4885          14        205.2           4.9       1.4X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 242598496 of 1000000000 rows, 24.3%
 # checksum: filter rows=242598496 nonnull=242598496 fold=122515906033715003
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.4%
 
 d IN (DATE'2020-01-01', DATE'2020-07-01', DATE'2021-01-01') over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                                                  5280           5286           7        189.4           5.3       1.0X
-filter, counted                                                                            5130           5159          32        194.9           5.1       1.0X
+filter, columnar consumer                                                                  4976           4990          16        201.0           5.0       1.0X
+filter, counted                                                                            4698           4727          31        212.8           4.7       1.1X
 
 d IN (DATE'2020-01-01', DATE'2020-07-01', DATE'2021-01-01') over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                                                                 5266           5272           7        189.9           5.3       1.0X
-filter, counted                                                                                           5115           5144          32        195.5           5.1       1.0X
+filter, columnar consumer                                                                                 4960           4974          17        201.6           5.0       1.0X
+filter, counted                                                                                           4681           4711          32        213.6           4.7       1.1X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 1988512 of 1000000000 rows, 0.2%
 # checksum: filter rows=1988512 nonnull=1988512 fold=880846324926995
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.3%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.3%, filter, counted 0.4%
 
 d IS NULL over 1000000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          5164           5178          14        193.6           5.2       1.0X
-filter, counted                                    4818           4906         113        207.6           4.8       1.1X
+filter, columnar consumer                          4933           4983          47        202.7           4.9       1.0X
+filter, counted                                    4431           4451          20        225.7           4.4       1.1X
 
 d IS NULL over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                               5151           5165          14        194.1           5.2       1.0X
-filter, counted                                         4803           4889         114        208.2           4.8       1.1X
+filter, columnar consumer                               4918           4964          44        203.3           4.9       1.0X
+filter, counted                                         4415           4434          20        226.5           4.4       1.1X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 32258065 of 1000000000 rows, 3.2%
 # checksum: filter rows=32258065 nonnull=0 fold=1354838730
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.3%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.3%, filter, counted 0.4%
 
 d IS NOT NULL over 1000000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                         11603          11632          29         86.2          11.6       1.0X
-filter, counted                                    5668           5721          89        176.4           5.7       2.0X
+filter, columnar consumer                         11652          11719          94         85.8          11.7       1.0X
+filter, counted                                    5228           5283          40        191.3           5.2       2.2X
 
 d IS NOT NULL over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                  11589          11617          28         86.3          11.6       1.0X
-filter, counted                                             5653           5706          89        176.9           5.7       2.1X
+filter, columnar consumer                                  11636          11704          94         85.9          11.6       1.0X
+filter, counted                                             5212           5267          39        191.9           5.2       2.2X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 967741935 of 1000000000 rows, 96.8%
 # checksum: filter rows=967741935 nonnull=967741935 fold=478946827905820616
@@ -615,15 +615,15 @@ filter, counted                                             5653           5706 
 
 d < d2 AND month(d) = 6 over 1000000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                             10923          10987          94         91.6          10.9       1.0X
-filter, counted                                       11554          11575          32         86.6          11.6       0.9X
+filter, columnar consumer                              9767           9804          65        102.4           9.8       1.0X
+filter, counted                                        9189           9210          18        108.8           9.2       1.1X
 
 d < d2 AND month(d) = 6 over 1000000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                            10908          10973          95         91.7          10.9       1.0X
-filter, counted                                                      11538          11559          32         86.7          11.5       0.9X
+filter, columnar consumer                                             9751           9787          65        102.6           9.8       1.0X
+filter, counted                                                       9170           9191          19        109.1           9.2       1.1X
 # plan: filter, columnar consumer plain, filter, counted plain
 # selectivity: 58568133 of 1000000000 rows, 5.9%
 # checksum: filter rows=58568133 nonnull=58568133 fold=28065774302029130
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.1%, filter, counted 0.1%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.2%
 

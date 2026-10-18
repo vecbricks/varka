@@ -1,19 +1,19 @@
 label:          varka-jdk25
 spark:          5.0.0-SNAPSHOT
-commit:         751def147b0
+commit:         9435783beb2
 cores:          1
-datapath:       136.4 lane-ops/ns at 256 bits, 155.3 at 512 bits, ratio 1.14
-canary:         ok (compute +0.1% cache +1.9% memory -0.5% )
+datapath:       136.5 lane-ops/ns at 256 bits, 155.4 at 512 bits, ratio 1.14
+canary:         ok (compute +0.1% cache -0.9% memory -0.8% )
 host:           aqua
-spark home:     /home/max/proj/varka-surfaces-m6
-date:           2026-10-04T23:13:53Z
+spark home:     /home/max/proj/varka-surfaces-m7
+date:           2026-10-18T03:04:24Z
 jdk:            OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu
-kernel:         7.0.0-34-generic
+kernel:         7.0.0-38-generic
 cpu:            AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 cpu flags:      avx avx2 avx512f avx512dq avx512ifma avx512cd avx512bw avx512vl avx_vnni avx512_bf16 avx512vbmi avx512_vbmi2 avx512_vnni avx512_bitalg avx512_vpopcntdq avx512_vp2intersect
 MaxVectorSize:  64
 power:          governor=performance epp=performance
-load at start:  0.85
+load at start:  1.18
 rows:           500000000
 partitions:     1
 cache:          1 of 1 partitions cached, 22.8 GiB in memory, 0.0 GiB on disk, Memory Deserialized 1x Replicated
@@ -26,208 +26,208 @@ methodology:    5+ iterations over 2s windows after 2s warm-up; wall time by nan
 
 hour(t) over 500000000 rows:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       487            498           7       1026.0           1.0       1.0X
+projection, columnar consumer                       461            464           4       1085.6           0.9       1.0X
 
 hour(t) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                         461            468           5       1084.6           0.9       1.0X
-# plan: projection, columnar consumer Varka (kernel 400000 batches, fallback 0)
+projection, columnar consumer                         435            438           3       1149.4           0.9       1.0X
+# plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=483870967 fold=257602284495225787
-# fixed share (wall - executor) / wall: projection, columnar consumer 5.4%
+# fixed share (wall - executor) / wall: projection, columnar consumer 5.6%
 
 minute(t) over 500000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       600            604           3        833.1           1.2       1.0X
+projection, columnar consumer                       581            584           3        860.4           1.2       1.0X
 
 minute(t) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           573            576           3        872.6           1.1       1.0X
+projection, columnar consumer                           560            562           2        892.9           1.1       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=483870967 fold=262622477179075458
-# fixed share (wall - executor) / wall: projection, columnar consumer 4.5%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.6%
 
 second(t) over 500000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       594            595           1        841.6           1.2       1.0X
+projection, columnar consumer                       580            584           3        861.4           1.2       1.0X
 
 second(t) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           575            576           1        869.6           1.2       1.0X
+projection, columnar consumer                           562            564           2        889.7           1.1       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=483870967 fold=262622477241239166
 # fixed share (wall - executor) / wall: projection, columnar consumer 3.2%
 
 time_trunc('MINUTE', t) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                          505            509           3        989.8           1.0       1.0X
-filter, columnar consumer                             1650           1667          27        303.0           3.3       0.3X
-filter, counted                                       3433           3542         226        145.6           6.9       0.1X
+projection, columnar consumer                          499            510          20       1002.3           1.0       1.0X
+filter, columnar consumer                             1590           1592           2        314.4           3.2       0.3X
+filter, counted                                       3477           3524          75        143.8           7.0       0.1X
 
 time_trunc('MINUTE', t) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                         486            490           3       1028.8           1.0       1.0X
-filter, columnar consumer                                            1629           1642          26        306.9           3.3       0.3X
-filter, counted                                                      3410           3518         226        146.6           6.8       0.1X
+projection, columnar consumer                                         480            490          21       1041.7           1.0       1.0X
+filter, columnar consumer                                            1570           1571           2        318.5           3.1       0.3X
+filter, counted                                                      3455           3497          73        144.7           6.9       0.1X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0), filter, columnar consumer Varka (kernel 350000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 241935484 of 500000000 rows, 48.4%
 # checksum: projection rows=500000000 nonnull=483870967 fold=231638857851571727, filter rows=241935484 nonnull=241935484 fold=121562981949484068
-# fixed share (wall - executor) / wall: projection, columnar consumer 3.8%, filter, columnar consumer 1.3%, filter, counted 0.7%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.8%, filter, columnar consumer 1.3%, filter, counted 0.6%
 
 time_trunc('MILLISECOND', t2) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                519            535          18        962.7           1.0       1.0X
+projection, columnar consumer                                508            526          32        984.5           1.0       1.0X
 
 time_trunc('MILLISECOND', t2) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                               501            512          16        998.0           1.0       1.0X
+projection, columnar consumer                                               488            507          31       1024.6           1.0       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=500000000 fold=249476594873918472
-# fixed share (wall - executor) / wall: projection, columnar consumer 3.5%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.9%
 
 t - t2 over 500000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       627            630           2        797.9           1.3       1.0X
-filter, columnar consumer                          3086           3092           7        162.0           6.2       0.2X
-filter, counted                                    4972           5003          35        100.6           9.9       0.1X
+projection, columnar consumer                       621            625           3        805.3           1.2       1.0X
+filter, columnar consumer                          2978           2989          10        167.9           6.0       0.2X
+filter, counted                                    5046           5054           8         99.1          10.1       0.1X
 
 t - t2 over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        611            613           2        818.3           1.2       1.0X
-filter, columnar consumer                           3066           3073           7        163.1           6.1       0.2X
-filter, counted                                     4951           4981          35        101.0           9.9       0.1X
+projection, columnar consumer                        601            604           3        831.9           1.2       1.0X
+filter, columnar consumer                           2957           2967          10        169.1           5.9       0.2X
+filter, counted                                     5025           5032           8         99.5          10.0       0.1X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0), filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 241774188 of 500000000 rows, 48.4%
 # checksum: projection rows=500000000 nonnull=483870967 fold=244613522734100255, filter rows=241774188 nonnull=241774188 fold=121549669219139880
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.5%, filter, columnar consumer 0.6%, filter, counted 0.4%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.2%, filter, columnar consumer 0.7%, filter, counted 0.4%
 
 time_diff('HOUR', t, t2) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                           620            640          34        806.5           1.2       1.0X
-filter, columnar consumer                              2717           2729          18        184.0           5.4       0.2X
-filter, counted                                        4125           4136          11        121.2           8.2       0.2X
+projection, columnar consumer                           618            635          36        808.7           1.2       1.0X
+filter, columnar consumer                              2601           2604           3        192.3           5.2       0.2X
+filter, counted                                        4244           4249           4        117.8           8.5       0.1X
 
 time_diff('HOUR', t, t2) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                          603            623          34        829.2           1.2       1.0X
-filter, columnar consumer                                             2699           2710          18        185.3           5.4       0.2X
-filter, counted                                                       4105           4115          10        121.8           8.2       0.1X
+projection, columnar consumer                                          599            618          35        834.7           1.2       1.0X
+filter, columnar consumer                                             2580           2582           2        193.8           5.2       0.2X
+filter, counted                                                       4222           4227           4        118.4           8.4       0.1X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0), filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 201612904 of 500000000 rows, 40.3%
 # checksum: projection rows=500000000 nonnull=483870967 fold=300880227098382072, filter rows=201612904 nonnull=201612904 fold=100751057042611607
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.7%, filter, columnar consumer 0.7%, filter, counted 0.5%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.1%, filter, columnar consumer 0.8%, filter, counted 0.5%
 
 time_diff('microsecond', t2, t) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                  626            628           1        798.3           1.3       1.0X
+projection, columnar consumer                                  614            619           4        814.0           1.2       1.0X
 
 time_diff('microsecond', t2, t) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                 610            611           2        819.7           1.2       1.0X
+projection, columnar consumer                                                 599            603           4        834.7           1.2       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=483870967 fold=244613522734100255
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.6%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.5%
 
 t + dt over 500000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       730            734           5        684.6           1.5       1.0X
-filter, columnar consumer                          3866           3874           9        129.3           7.7       0.2X
-filter, counted                                    5598           5614          13         89.3          11.2       0.1X
+projection, columnar consumer                       715            719           4        699.0           1.4       1.0X
+filter, columnar consumer                          4148           4156          10        120.5           8.3       0.2X
+filter, counted                                    5407           5432          23         92.5          10.8       0.1X
 
 t + dt over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                        715            718           4        699.3           1.4       1.0X
-filter, columnar consumer                           3849           3857           9        129.9           7.7       0.2X
-filter, counted                                     5578           5594          13         89.6          11.2       0.1X
+projection, columnar consumer                        699            702           4        715.3           1.4       1.0X
+filter, columnar consumer                           4130           4138          10        121.1           8.3       0.2X
+filter, counted                                     5386           5410          23         92.8          10.8       0.1X
 # plan: projection, columnar consumer Varka (kernel 400000 batches, fallback 0), filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 238794590 of 500000000 rows, 47.8%
 # checksum: projection rows=500000000 nonnull=473575841 fold=235727782931546896, filter rows=238794590 nonnull=238794590 fold=120047171019299114
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.1%, filter, columnar consumer 0.4%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.3%, filter, columnar consumer 0.4%, filter, counted 0.4%
 
 greatest(t, t2) over 500000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       571            582           7        875.0           1.1       1.0X
-filter, columnar consumer                          2842           2852           8        175.9           5.7       0.2X
-filter, counted                                    4400           4461          64        113.6           8.8       0.1X
+projection, columnar consumer                       554            563          16        902.7           1.1       1.0X
+filter, columnar consumer                          2843           2867          25        175.9           5.7       0.2X
+filter, counted                                    4474           4493          29        111.7           8.9       0.1X
 
 greatest(t, t2) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 555            566           7        900.9           1.1       1.0X
-filter, columnar consumer                                    2827           2836           8        176.9           5.7       0.2X
-filter, counted                                              4379           4441          66        114.2           8.8       0.1X
+projection, columnar consumer                                 536            546          17        932.8           1.1       1.0X
+filter, columnar consumer                                    2827           2850          25        176.9           5.7       0.2X
+filter, counted                                              4457           4474          28        112.2           8.9       0.1X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0), filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 185483872 of 500000000 rows, 37.1%
 # checksum: projection rows=500000000 nonnull=500000000 fold=254196043825646023, filter rows=185483872 nonnull=181451614 fold=91422907584832042
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.9%, filter, columnar consumer 0.5%, filter, counted 0.5%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.2%, filter, columnar consumer 0.6%, filter, counted 0.4%
 
 CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                          592            595           3        844.5           1.2       1.0X
+projection, columnar consumer                                                          573            577           5        872.4           1.1       1.0X
 
 CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                                         574            579           3        871.1           1.1       1.0X
+projection, columnar consumer                                                                         557            561           5        897.7           1.1       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=500000000 fold=248312548518388902
-# fixed share (wall - executor) / wall: projection, columnar consumer 3.0%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.8%
 
 greatest(l, l2) over 500000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       557            572          14        898.2           1.1       1.0X
-filter, columnar consumer                         12736          12832         125         39.3          25.5       0.0X
-filter, counted                                    7524           7576          54         66.5          15.0       0.1X
+projection, columnar consumer                       540            549          16        925.3           1.1       1.0X
+filter, columnar consumer                         11703          11715          11         42.7          23.4       0.0X
+filter, counted                                    7593           7626          52         65.8          15.2       0.1X
 
 greatest(l, l2) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                 543            557          14        920.8           1.1       1.0X
-filter, columnar consumer                                   12717          12813         126         39.3          25.4       0.0X
-filter, counted                                              7505           7555          56         66.6          15.0       0.1X
+projection, columnar consumer                                 526            534          16        950.6           1.1       1.0X
+filter, columnar consumer                                   11687          11699          11         42.8          23.4       0.0X
+filter, counted                                              7576           7609          51         66.0          15.2       0.1X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0), filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 372640835 of 500000000 rows, 74.5%
 # checksum: projection rows=500000000 nonnull=500000000 fold=249998423352236242, filter rows=372640835 nonnull=360620157 fold=180934469590304036
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.5%, filter, columnar consumer 0.1%, filter, counted 0.3%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.7%, filter, columnar consumer 0.1%, filter, counted 0.2%
 
 least(l, 5000000000) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       419            423           4       1194.3           0.8       1.0X
+projection, columnar consumer                       405            407           1       1233.8           0.8       1.0X
 
 least(l, 5000000000) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                      402            407           5       1243.8           0.8       1.0X
+projection, columnar consumer                                      391            392           1       1278.8           0.8       1.0X
 # plan: projection, columnar consumer Varka (kernel 500000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=500000000 fold=236388248471941040
-# fixed share (wall - executor) / wall: projection, columnar consumer 4.0%
+# fixed share (wall - executor) / wall: projection, columnar consumer 3.5%
 
 CASE WHEN l < l2 THEN l ELSE l2 END over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                      568            590          25        880.5           1.1       1.0X
+projection, columnar consumer                                      557            560           2        897.8           1.1       1.0X
 
 CASE WHEN l < l2 THEN l ELSE l2 END over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                                     553            574          24        904.2           1.1       1.0X
+projection, columnar consumer                                                     544            546           2        919.1           1.1       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=490566038 fold=245291713125781824
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.6%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.3%
 
 if(l IS NULL, l2, l) over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                       551            555           3        907.2           1.1       1.0X
+projection, columnar consumer                       533            534           1        937.7           1.1       1.0X
 
 if(l IS NULL, l2, l) over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------
-projection, columnar consumer                                      538            541           3        929.4           1.1       1.0X
+projection, columnar consumer                                      519            520           1        963.4           1.0       1.0X
 # plan: projection, columnar consumer Varka (kernel 450000 batches, fallback 0)
 # checksum: projection rows=500000000 nonnull=500000000 fold=250006521005595222
-# fixed share (wall - executor) / wall: projection, columnar consumer 2.4%
+# fixed share (wall - executor) / wall: projection, columnar consumer 2.7%
 
 t < t2 over 500000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          6424           6455          42         77.8          12.8       1.0X
-filter, counted                                    6304           6340          38         79.3          12.6       1.0X
+filter, columnar consumer                          5873           5894          37         85.1          11.7       1.0X
+filter, counted                                    6344           6426         141         78.8          12.7       0.9X
 
 t < t2 over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                           6405           6438          43         78.1          12.8       1.0X
-filter, counted                                     6286           6321          38         79.5          12.6       1.0X
+filter, columnar consumer                           5858           5878          36         85.4          11.7       1.0X
+filter, counted                                     6324           6403         139         79.1          12.6       0.9X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 241774198 of 500000000 rows, 48.4%
 # checksum: filter rows=241774198 nonnull=241774198 fold=120957545176737372
@@ -235,41 +235,41 @@ filter, counted                                     6286           6321         
 
 t < TIME'12:00:00' over 500000000 rows:   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          3209           3217           7        155.8           6.4       1.0X
-filter, counted                                    4011           4021          18        124.7           8.0       0.8X
+filter, columnar consumer                          2987           3017          56        167.4           6.0       1.0X
+filter, counted                                    4111           4137          30        121.6           8.2       0.7X
 
 t < TIME'12:00:00' over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                       3195           3202           7        156.5           6.4       1.0X
-filter, counted                                                 3991           4002          18        125.3           8.0       0.8X
+filter, columnar consumer                                       2971           3000          55        168.3           5.9       1.0X
+filter, counted                                                 4088           4115          30        122.3           8.2       0.7X
 # plan: filter, columnar consumer Varka (kernel 300000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 241935484 of 500000000 rows, 48.4%
 # checksum: filter rows=241935484 nonnull=241935484 fold=121562981949484068
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.4%, filter, counted 0.5%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.5%, filter, counted 0.5%
 
 dt > dt2 over 500000000 rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          9570           9597          36         52.2          19.1       1.0X
-filter, counted                                    5946           5971          25         84.1          11.9       1.6X
+filter, columnar consumer                          8881           8932          61         56.3          17.8       1.0X
+filter, counted                                    5973           5997          29         83.7          11.9       1.5X
 
 dt > dt2 over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                             9552           9579          37         52.3          19.1       1.0X
-filter, counted                                       5925           5951          25         84.4          11.9       1.6X
+filter, columnar consumer                             8864           8915          60         56.4          17.7       1.0X
+filter, counted                                       5955           5977          28         84.0          11.9       1.5X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 242604517 of 500000000 rows, 48.5%
 # checksum: filter rows=242604517 nonnull=234778565 fold=117978138591018583
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.4%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.3%
 
 dt < INTERVAL '0' SECOND over 500000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                              6709           6719          11         74.5          13.4       1.0X
-filter, counted                                        4332           4358          15        115.4           8.7       1.5X
+filter, columnar consumer                              6255           6271          19         79.9          12.5       1.0X
+filter, counted                                        4453           4461           5        112.3           8.9       1.4X
 
 dt < INTERVAL '0' SECOND over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                             6692           6703          12         74.7          13.4       1.0X
-filter, counted                                                       4314           4340          15        115.9           8.6       1.6X
+filter, columnar consumer                                             6234           6250          19         80.2          12.5       1.0X
+filter, counted                                                       4434           4440           5        112.8           8.9       1.4X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 244678086 of 500000000 rows, 48.9%
 # checksum: filter rows=244678086 nonnull=236785247 fold=118621497771984704
@@ -277,27 +277,27 @@ filter, counted                                                       4314      
 
 dt IS NOT NULL over 500000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                         10949          10963          12         45.7          21.9       1.0X
-filter, counted                                    7102           7120          16         70.4          14.2       1.5X
+filter, columnar consumer                         10092          10150          62         49.5          20.2       1.0X
+filter, counted                                    7297           7334          55         68.5          14.6       1.4X
 
 dt IS NOT NULL over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                  10934          10949          12         45.7          21.9       1.0X
-filter, counted                                             7086           7104          16         70.6          14.2       1.5X
+filter, columnar consumer                                  10075          10133          63         49.6          20.2       1.0X
+filter, counted                                             7278           7314          54         68.7          14.6       1.4X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 489361703 of 500000000 rows, 97.9%
 # checksum: filter rows=489361703 nonnull=473575841 fold=237599143125623866
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.1%, filter, counted 0.2%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.3%
 
 l > l2 over 500000000 rows:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          9069           9099          25         55.1          18.1       1.0X
-filter, counted                                    5808           5847          40         86.1          11.6       1.6X
+filter, columnar consumer                          8300           8339          42         60.2          16.6       1.0X
+filter, counted                                    5850           5895          92         85.5          11.7       1.4X
 
 l > l2 over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                           9055           9084          25         55.2          18.1       1.0X
-filter, counted                                     5792           5829          41         86.3          11.6       1.6X
+filter, columnar consumer                           8285           8324          42         60.4          16.6       1.0X
+filter, counted                                     5834           5879          92         85.7          11.7       1.4X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 245283150 of 500000000 rows, 49.1%
 # checksum: filter rows=245283150 nonnull=237370794 fold=119109447073561986
@@ -305,29 +305,29 @@ filter, counted                                     5792           5829         
 
 l >= 5000000000 over 500000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          6119           6137          16         81.7          12.2       1.0X
-filter, counted                                    4068           4091          39        122.9           8.1       1.5X
+filter, columnar consumer                          5589           5619          47         89.5          11.2       1.0X
+filter, counted                                    4175           4194          24        119.8           8.3       1.3X
 
 l >= 5000000000 over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                                    6106           6123          16         81.9          12.2       1.0X
-filter, counted                                              4052           4075          39        123.4           8.1       1.5X
+filter, columnar consumer                                    5575           5604          47         89.7          11.2       1.0X
+filter, counted                                              4159           4177          24        120.2           8.3       1.3X
 # plan: filter, columnar consumer Varka (kernel 600000 batches, fallback 0), filter, counted Varka (kernel 300000 batches, fallback 0)
 # selectivity: 249999500 of 500000000 rows, 50.0%
 # checksum: filter rows=249999500 nonnull=241935000 fold=121381899023551082
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.2%, filter, counted 0.4%
+# fixed share (wall - executor) / wall: filter, columnar consumer 0.3%, filter, counted 0.4%
 
 l2 IS NULL over 500000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                          1552           1556           5        322.3           3.1       1.0X
-filter, counted                                     757            760           2        660.4           1.5       2.0X
+filter, columnar consumer                          1291           1304          18        387.4           2.6       1.0X
+filter, counted                                     755            762           5        662.0           1.5       1.7X
 
 l2 IS NULL over 500000000 rows, executor time:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------
-filter, columnar consumer                               1539           1543           4        324.9           3.1       1.0X
-filter, counted                                          741            743           2        674.8           1.5       2.1X
+filter, columnar consumer                               1277           1289          18        391.5           2.6       1.0X
+filter, counted                                          739            745           5        676.6           1.5       1.7X
 # plan: filter, columnar consumer Varka (kernel 700000 batches, fallback 0), filter, counted Varka (kernel 400000 batches, fallback 0)
 # selectivity: 9433962 of 500000000 rows, 1.9%
 # checksum: filter rows=9433962 nonnull=9129641 fold=4580445779653329
-# fixed share (wall - executor) / wall: filter, columnar consumer 0.8%, filter, counted 2.1%
+# fixed share (wall - executor) / wall: filter, columnar consumer 1.1%, filter, counted 2.2%
 
