@@ -732,6 +732,20 @@ Whether the methods a change touched are the ones a quoted number ran is answere
 diff of its method table against today's - a quarter of an hour, against a sentence a reader
 can falsify.
 
+## A queue of benchmark arms must wait out the previous JVM's load average
+
+- `dev/varka_bench_surface.sh` refuses to start when the one-minute load average is above 1.0,
+  so that no measurement starts on a busy machine. A queue that starts the next arm the second
+  the previous one exits meets its own exhaust: a JVM that ran single-threaded for two hours
+  leaves the one-minute average at 1.0 to 1.1 for a minute or two after it exits. On 18 October
+  2026 the milestone 7 regeneration lost its TIME surface and both JDK 17 arms that way, one
+  second after the date surface ended (`VARKA-261.md` 5.5); VARKA-256 had met the same tail in
+  the canary, which read 38 to 41 per cent off inside that window.
+- Between arms, poll `/proc/loadavg` until the one-minute average is under 0.9 (thirty seconds a
+  poll, about two minutes in practice) before the next arm; a queue script does it once in its
+  `run` step and the surface script's own gate then passes. Do not pass `--force` to get past it:
+  `--force` says the machine is not in its measured state, and the file records that.
+
 ## A full-load night flips the power profile, and a regeneration after it measures the profile
 
 - On the night of 3 October 2026 twenty test JVMs ran on the laptop with its 100 W charger

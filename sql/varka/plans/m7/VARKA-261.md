@@ -99,7 +99,9 @@ Run on 17 October 2026, from the audit and the reads of this evening:
 
 * **Step 1, the rows.** `python3 dev/varka_issues.py` before the change listed two open
   milestone 7 rows, 222 ("Closed on the measurement", read as open) and 261 (not started); after
-  the change `[MORNING: the dry run's count of open m7 rows, expected 261 alone]`.
+  the change (18 October, on this branch) the dry run lists 261 alone as open, to update, and
+  would close three issues: 222's and the two moved rows' (180 and 386), which it reads as
+  withdrawn.
 * **Step 2, the record.** Section 5 below.
 * **Step 3, the documents.** The audit's grep for `milestone in flight`, `m7/PLAN.md` and
   `in flight` over the README, `CONTRIBUTING.md`, `VISION.md`, the plans and the skills files;
@@ -174,8 +176,10 @@ preferred species, 0 releases in 2,000 against 442 (295, 370). The caveats:
    preferred species, with no operator setting that helps. "Recorded with what an operator can
    set" is met by `VARKA-295.md` 9.6's two JVM options and the post (371), not by a runbook entry
    in `docs/sql-varka.md`.
-3. Row 274b left predictions 1, 6 and 9 to the first nightly `compiled` step.
-   `[MORNING: whether the nightly of 16 to 17 October ran that step and what it scored.]`
+3. Row 274b left predictions 1, 6 and 9 to the first nightly `compiled` step. No laptop nightly
+   has run since 26 September 2026: that is the only dated directory under
+   `target/varka-nightly/` in any worktree on the machine on 18 October, so the step is unscored
+   at the close, and the first `dev/varka_nightly.sh` after it scores the three predictions.
 4. Row 271 did not build the patch-per-Spark-version form its source (Comet) uses; its admission
    check replaced it with the Arrow-cached arm over Spark's golden files, and Varka serves under
    4 per cent of those executions. The point's "Spark's own SQL suites run with Varka on" is met
@@ -278,18 +282,43 @@ the tag: `VarkaTierWitnessSuite` under the sanitizer, the hand-ported conjunct o
 compiler entry points, the dead runs in the admission queue, "Re-run failed jobs" skipping the
 queue and a port's pair near the job's cap are work with no row, and section 8 proposes the first
 two; `catalyst/Test/checkstyle` on master waits for upstream's fix by a sync.
-`[MORNING: section 10 rewritten accordingly, and the plan's section 11, "The close", written in
-m6's shape with the date, the tag, the posts and the rows that moved.]`
+Done on 18 October: each of section 10's entries ends with what the sweep found and where the
+debt went, the four with no row (the public compiler entry points, the dead admission runs,
+"Re-run failed jobs", a port's pair near the cap) are items 105 to 108 of `m9/SCOPE.md`, and the
+plan's section 11, "The close", is written in m6's shape with the date, the tag, the posts and
+the rows that moved.
 
 ### 5.5 Predictions scored
 
-1. `[MORNING: prediction 1, the document count, once the morning's grep over the regenerated
-   files is done; this evening's count is the audit's fourteen places plus the README's milestone
-   3 bullet, which said "in progress" since September.]`
+1. **Missed on the count, held on `docs/sql-varka.md`.** The audit's fourteen places and the
+   README's milestone 3 bullet were found and corrected, but the regeneration touched the README
+   in a dozen more: the four "milestone 6 build" lines, the headline and its section (37x to 39x,
+   four places), `date_add(d, 3)`'s rate and the per-job constant (two), and the cold-start row;
+   with the docs' cold-start line that is about 27 places, not under twenty. The audit counted
+   the README's benchmark prose as one regeneration rather than place by place.
+   `docs/sql-varka.md` had none but the cold-start headline.
 2. `[MORNING: prediction 2, the oracles.]`
-3. `[MORNING: prediction 3, the issue mirror, scored on the merge.]`
+3. **Pending the merge, and already missed by one.** The dry run on this branch closes three
+   issues, 222's and the two moved rows' (180 and 386), which were open and which "changes no
+   other" overlooked; 261's closes with the merge, four in all against the two predicted.
 4. `[MORNING: prediction 4, the cold-start headline and the runner pair's verdicts.]`
-5. `[MORNING: prediction 5, the cleanup counts.]`
+5. **Held on the fork and near on the rest.** `dev/varka_worktree.sh gc --yes` removed 87 clean
+   worktrees of merged pull requests with their branches, exactly the audit's count, and four
+   detached clean ones (`varka-270-qa`, `varka-fuzz-1006`, `varka-night-1012`,
+   `varka-base-267c`) went by hand, since `gc` reads a branch; 21 more local branches of merged
+   pull requests had no worktree, so 108 local branches went against about 113 predicted; 247
+   fork branches of this repository's merged or closed pull requests were deleted against about
+   248: the 248th is `varka-262`, kept with its worktree, which is three commits ahead of its
+   merged pull request. The open work's branches stay (`varka-260-capacity`, `varka-383`,
+   `varka-388`, `varka-326`, `varka-322c`, `varka-default-switcher`, `varka-fuzz-0930`,
+   `varka-jegg-0-1-0`, `varka-task-200-plan`, and the close's two). 26 worktrees remain; 13 are
+   dirty and were left for the owner, each holding one or two files: a probe suite never
+   committed (`varka-278`, `varka-279`, `varka-repro-farday`), a benchmark source or results
+   file (`varka-216`, `varka-251-master`, `varka-263`, `varka-263-on`, `varka-pre214`,
+   `varka-night`, `varka-surfaces-m6`), a fuzz-suite edit with five untracked files
+   (`varka-320-base`), a JVM replay log (`varka-291-e`), and the close's own surfaces worktree.
+   The fork's other 695 branches are the owner's Apache Spark branches, untouched as
+   `VARKA-282.md` 5 learned.
 6. `[MORNING: prediction 6, the sweep's checks.]`
 
 ### 5.6 What the morning fills
@@ -328,9 +357,10 @@ Collected from the placeholders above, so nothing is missed:
 ## 7. Lessons owed to a later sweep
 
 The audit read the 107 task records' Outcome and Verification sections against the skills files
-and found, beside the five the close writes (the `RELEASED` verdict, VARKA-295's mechanism,
+and found, beside the six the close writes (the `RELEASED` verdict, VARKA-295's mechanism,
 VARKA-271's golden-file facts, VARKA-255's GitHub Actions facts, VARKA-258 and 259's
-codegen-cache facts) and the three corrections of step 3, about 140 candidates that no skills
+codegen-cache facts, and the load tail after a benchmark JVM exits, which the close's own
+surface queue met) and the three corrections of step 3, about 140 candidates that no skills
 file holds. They are listed here by the file they belong in, each with its source, so a later
 sweep re-reads the source before writing it up; the audit's reads are `file:line` evidence, not
 verified text. Items the audit found already recorded are left out.
@@ -403,8 +433,6 @@ verified text. Items the audit found already recorded are left out.
   dominates; `RuntimeConfig.get` returns a default, so restore through `contains`; a context a
   failed benchmark leaves running keeps its master; two loops 10 to 15 per cent slower on the
   laptop were faster on an EPYC runner.
-* `VARKA-256.md:138`: for a minute or two after a benchmark JVM exits the load stays above 1.0
-  and the canary reads 38 to 41 per cent off; wait for load under 0.8.
 * `VARKA-292.md:87, 90`: a pair whose regeneration refused on load produced six "results" that
   were the committed file copied; a benchmark nobody runs rots (`VarkaTimeBenchmark` had thrown
   for weeks).

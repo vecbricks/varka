@@ -5,7 +5,7 @@ One section per milestone, newest first, written at each milestone's close by it
 the plan that records it row by row, and the posts that published it. Tags `varka-m<n>` mark the
 commit that closed each milestone from 6 on.
 
-## Milestone 7: trust and maintainability (2 to [MORNING: tag date] October 2026)
+## Milestone 7: trust and maintainability (2 to 18 October 2026)
 
 Tag `varka-m7`. Plan: [`sql/varka/plans/m7/PLAN.md`](sql/varka/plans/m7/PLAN.md),
 112 task rows: 109 done (one, the IR hash cache, closed on its measurement), 2 moved to

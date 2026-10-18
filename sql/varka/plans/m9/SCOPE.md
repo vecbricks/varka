@@ -5272,6 +5272,37 @@ bounds labelled sufficient or exact, and the refinements in Spark mode and stand
 (`m7/VARKA-240.md` to `VARKA-245.md`, `m7/VARKA-281.md`). **Done when** the owner chooses it and
 it is published, or the record says it is not wanted.
 
+### Item 105. The compiler entry points without the family switches
+
+*Added 18 October 2026 from `m7/PLAN.md` 10 by the close (`m7/VARKA-261.md` 5.4).* The compiler's
+entry points that take no family switches stay public (`m7/VARKA-318.md` 9.3); tests and tools
+call them with every family on, and a production caller that used one would ignore the user's
+switches silently. **Done when** one compile-context value carries the options and the switches
+through every compiler signature, and the switch-less entry points are gone or test-scoped.
+
+### Item 106. The admission queue keeps dead runs
+
+*Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* A run whose pull request has merged, or
+whose branch has been pushed again, still counts as ahead in the admission queue until it is
+cancelled by hand; on 16 October 2026 two such runs held four pull requests' full runs for hours.
+**Done when** `dev/varka_ci_admit.py` skips a run whose pull request is closed or whose head is
+no longer its branch's, with a test of each case.
+
+### Item 107. "Re-run failed jobs" on a full run skips the queue
+
+*Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* The rerun reuses the first attempt's
+admission (`m7/VARKA-255.md` 9.4), so a rerun of a full run starts its module jobs ahead of every
+queued run. **Done when** the admission job reruns with the failed jobs whenever any module job
+does, or `docs/sql-varka.md` tells the operator to use "Re-run all jobs" and says why.
+
+### Item 108. A port's timing pair near the job's cap
+
+*Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* `VarkaSizeLadderBenchmark`'s pair took
+about four and a half hours of the job's 355-minute limit (#877); the next pair of a class that
+size can time out and lose every round. **Done when** the pair tooling splits a long class's pair
+across jobs by section, or records a per-class round count that keeps the pair under the cap, and
+the ladder's pair has run that way once.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

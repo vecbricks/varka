@@ -40,6 +40,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Another engine's number is timed only on the plan it actually took](sql/varka/skills/benchmarking.md#another-engines-number-is-timed-only-on-the-plan-it-actually-took)
 * [An arm named for a form must set that form, not read it from the defaults](sql/varka/skills/benchmarking.md#an-arm-named-for-a-form-must-set-that-form-not-read-it-from-the-defaults)
 * [A drawing of an emitted class is a measurement at a commit, and the timing beside it has one too](sql/varka/skills/benchmarking.md#a-drawing-of-an-emitted-class-is-a-measurement-at-a-commit-and-the-timing-beside-it-has-one-too)
+* [A queue of benchmark arms must wait out the previous JVM's load average](sql/varka/skills/benchmarking.md#a-queue-of-benchmark-arms-must-wait-out-the-previous-jvms-load-average)
 * [A full-load night flips the power profile, and a regeneration after it measures the profile](sql/varka/skills/benchmarking.md#a-full-load-night-flips-the-power-profile-and-a-regeneration-after-it-measures-the-profile)
 * [A cold comparison prices two things, and a baseline that hashes its subtree flatters whatever replaces it](sql/varka/skills/benchmarking.md#a-cold-comparison-prices-two-things-and-a-baseline-that-hashes-its-subtree-flatters-whatever-replaces-it)
 * [A Java benchmark extends `BenchmarkBase` and declares no `main`](sql/varka/skills/benchmarking.md#a-java-benchmark-extends-benchmarkbase-and-declares-no-main)
