@@ -478,6 +478,26 @@ at 256-bit lanes too, the test JVM's preferred species here.
 | G13, passed | 640 calls | 1.6 | 7 | 3 | 23,552 calls | 0 |
 | G14a, failed | 768 calls | 1.0 | 17 | 2 | 641 calls | 3 (G3's compile) |
 
+The template's reports in the two traced runs, as `-XX:+PrintTieredEvents` printed them
+(`results/VARKA-389-tiered-events.txt` has the lines): the calls counted at the report, the
+threshold scale `k` from C1's queue, both queue lengths, and what the policy decided.
+
+| run | calls | `k` | C1 queue | C2 queue | decision |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| G13, passed | 128 | 6.6 | 28 | 30 | wait |
+| G13, passed | 256 | 4.2 | 16 | 42 | wait |
+| G13, passed | 384 | 4.0 | 15 | 7 | wait |
+| G13, passed | 512 | 2.6 | 8 | 7 | wait |
+| G13, passed | 640 | 1.6 | 3 | 7 | compile at tier 3 |
+| G13, passed | 24,064 | 1.0 | 0 | 17 | compile at tier 4, profile at 23,552 |
+| G14a, failed | 128 | 3.4 | 12 | 26 | wait |
+| G14a, failed | 256 | 3.4 | 12 | 14 | wait |
+| G14a, failed | 384 | 2.0 | 5 | 11 | wait |
+| G14a, failed | 512 | 2.8 | 9 | 13 | wait |
+| G14a, failed | 640 | 5.0 | 20 | 11 | wait |
+| G14a, failed | 768 | 1.0 | 0 | 17 | compile at tier 2 |
+| G14a, failed | 2,689 | 2.0 | 5 | 19 | compile at tier 4, profile at 641 |
+
 * **Why the warm-up's rounds are not where it happens.** The rounds call `max(Vector)` and
   `min(Vector)` once each, 300 calls in all, under the scaled thresholds; their first compile
   fires 200 to 300 ms after the rounds end, during the kernel warm-up that follows, when C2's
