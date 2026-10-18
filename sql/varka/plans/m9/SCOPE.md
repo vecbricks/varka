@@ -5325,6 +5325,46 @@ debugging story of our own; and a deployment that passes `-XX:+UnlockExperimenta
 and the module is not exported. A Graal compiler plugin would be cheaper than all three but ties
 Varka to Graal as the JIT, which Spark deployments rarely run.
 
+**What it would buy**, each against a number the repository already holds:
+
+* **The first query runs the kernel.** A fresh shape's first query runs Spark's row path while
+  C2 compiles the kernel, about 1.5 s at 16 entries and longer for wide shapes, and without the
+  warm-up the interpreted kernel is slower than Spark: the cold-start file's first runs read
+  237 ms for Varka against 119 for vanilla at 16 entries and 680 against 464 at 54, with the
+  warm-up 137 and 253 (`sql/core/benchmarks/VarkaColdStartBenchmark-jdk25-results.txt`). A
+  backend that compiles a kernel in microseconds makes the first run the steady-state run, the
+  README's 1.6x from the first batch, and the warm-up worker, its probes, verdicts and 60-second
+  deadline go with it.
+* **No released kernel, ever.** A kernel C2 compiled but left allocating runs 2.5x to 4x slower
+  at two million rows (`m7/VARKA-389.md` 9.3); the verdict machinery exists because C2's output
+  cannot be trusted unseen. Code we emit is known by construction.
+* **The JIT rows stop.** 23 of milestone 7's 129 rows are about getting C2 to compile the
+  kernels as needed rather than about answers or speed: the trap sums and releases (VARKA-295,
+  370, 373, 374), the warm-up's order (389), the tier-2 coin (391), and the method-size rows
+  behind four posts. That time returns to types and operators.
+* **No method-size cliffs.** The group budgets, the splitting and the epilogue escape exist to
+  keep a kernel under C2's 8,000-byte inlining limit and the 64 KB method cap; a backend of our
+  own compiles a kernel of any size as one loop, and the emitter loses that machinery (register
+  pressure stays ours to manage).
+* **Instructions C2 cannot be asked for.** The Vector API reaches what the intrinsics offer;
+  where they do not, the code falls back to allocating Java, as a long kernel with a mask does on
+  x86 capped at 128-bit vectors (`m7/POST_TRAP_SUMS.md`). Our backend emits the instruction:
+  compress and expand, ternary logic, gathers, non-temporal stores, the unrolling and software
+  pipelining a shape wants, and the per-CPU choices the option matrix measures become code
+  generation policy rather than the JIT's luck.
+* **Deterministic kernels, so deterministic tests.** The suites that measure the JIT, the quiet
+  JVMs CI runs them in, this week's coin and the retry of row 390 all exist because a kernel's
+  compiled form depends on the JVM's history; a kernel that is a function of the IR and the ISA
+  is byte-identical run after run, and the fuzzers compare exactly that.
+* **Code we can keep.** Machine code per shape and ISA can be cached across JVMs and
+  re-installed in milliseconds; C2's cannot, since the kernels are classes generated at runtime
+  that no AOT cache sees. And with compiles that cheap, variants per constant, per null-free
+  batch or per selectivity stop costing a C2 compile and a warm-up each.
+
+What it does not buy on its own: steady-state throughput, since C2's vector code is good and
+beating it is the spike's measurement, not its premise; and portability, since one backend
+serves one ISA where the Vector API served all.
+
 This is a milestone's worth of work, not a row, and a direction decision for after milestone 7's
 close. **Done when** a spike installs one kernel family's code through JVMCI on one ISA, passes
 the reference evaluator and the fuzzers on it, and is measured against C2's kernel of the same
