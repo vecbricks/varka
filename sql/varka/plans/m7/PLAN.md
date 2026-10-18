@@ -1091,4 +1091,4 @@ its bisection's first step (`VARKA-261.md` 5.5, prediction 4); the runner pair r
 count on two other CPUs, split by shape, every projection shape releasing and the range filters
 compiling, so the cause is in the code since 28 September and the item is a row's work for the
 milestone that opens next. The close itself needed none of
-the laptop's time; the README's numbers did, and item 109 separates the two from milestone 8 on.
+the laptop's time; the README's numbers did, and item 110 separates the two from milestone 8 on.

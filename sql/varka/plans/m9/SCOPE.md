@@ -5306,7 +5306,89 @@ bounds labelled sufficient or exact, and the refinements in Spark mode and stand
 (`m7/VARKA-240.md` to `VARKA-245.md`, `m7/VARKA-281.md`). **Done when** the owner chooses it and
 it is published, or the record says it is not wanted.
 
-### Item 105. The compiler entry points without the family switches
+### Item 105. A code generator of our own for the kernels, through JVMCI
+
+*Added 18 October 2026 at the owner's request, from the discussion of the post "Two compilers,
+two queues" (`m7/POST_TWO_QUEUES.md`).* Everything that post and `m7/VARKA-389.md` describe,
+the tiers, the two queues, the profiles a kernel inherits from the templates it inlines, the
+8,000-byte limit, the template warm-up and its order, is the price of letting C2 compile the
+kernels. JDK 25 ships the interface that would let Varka compile them itself: the JVMCI module
+(`jdk.internal.vm.ci`, JEP 243) lets a compiler written in Java read a method's bytecode and
+profiles and install machine code into HotSpot's code cache (`CodeCacheProvider.installCode`),
+with backends described for amd64, aarch64 and riscv64. Three shapes are possible, and one is
+worth a spike.
+
+* **A full JIT in place of C2** (`-XX:+UseJVMCICompiler`): every method, with GC barriers,
+  safepoints, deoptimisation metadata and every intrinsic. Graal is the one production example,
+  about a million lines over a decade. Not for us.
+* **A backend for the kernels alone, with C2 kept for everything else.** `EnableJVMCI` without
+  `UseJVMCICompiler` leaves C2 in place and still lets a program install code for a chosen
+  method. Varka's kernels are a narrow language: loads and stores of primitive buffers, lane-wise
+  arithmetic, compares and blends, a counted loop, no allocation and almost no object references.
+  A code generator from Varka's own IR straight to AVX2 or AVX-512, later NEON or SVE, for that
+  language is a bounded piece of work, and it takes the kernels out of the tier story entirely:
+  compiled on first use in microseconds, no profiles, no queue, no warm-up, no method-size limit.
+* **The same backend outside the JVM**, through the FFM API: native kernels generated at runtime
+  and called through downcall handles, a few tens of nanoseconds a call, amortised over a batch;
+  the Arrow buffers are already off-heap. No experimental flags and no HotSpot metadata, but a
+  native code generator to ship and trust, and no profile to speculate on.
+
+The second shape is the spike, because Varka already has what makes such a backend verifiable:
+the IR, the reference evaluator, and the fuzzers that compare a kernel's answers with the
+evaluator's and with vanilla Spark's. Its costs, to be measured by the spike rather than argued:
+one backend per ISA; the frame and safepoint metadata JVMCI requires even for a leaf loop; a
+debugging story of our own; and a deployment that passes `-XX:+UnlockExperimentalVMOptions
+-XX:+EnableJVMCI` and the module's exports to every executor, since the flags are experimental
+and the module is not exported. A Graal compiler plugin would be cheaper than all three but ties
+Varka to Graal as the JIT, which Spark deployments rarely run.
+
+**What it would buy**, each against a number the repository already holds:
+
+* **The first query runs the kernel.** A fresh shape's first query runs Spark's row path while
+  C2 compiles the kernel, about 1.5 s at 16 entries and longer for wide shapes, and without the
+  warm-up the interpreted kernel is slower than Spark: the cold-start file's first runs read
+  237 ms for Varka against 119 for vanilla at 16 entries and 680 against 464 at 54, with the
+  warm-up 137 and 253 (`sql/core/benchmarks/VarkaColdStartBenchmark-jdk25-results.txt`). A
+  backend that compiles a kernel in microseconds makes the first run the steady-state run, the
+  README's 1.6x from the first batch, and the warm-up worker, its probes, verdicts and 60-second
+  deadline go with it.
+* **No released kernel, ever.** A kernel C2 compiled but left allocating runs 2.5x to 4x slower
+  at two million rows (`m7/VARKA-389.md` 9.3); the verdict machinery exists because C2's output
+  cannot be trusted unseen. Code we emit is known by construction.
+* **The JIT rows stop.** 23 of milestone 7's 129 rows are about getting C2 to compile the
+  kernels as needed rather than about answers or speed: the trap sums and releases (VARKA-295,
+  370, 373, 374), the warm-up's order (389), the tier-2 coin (391), and the method-size rows
+  behind four posts. That time returns to types and operators.
+* **No method-size cliffs.** The group budgets, the splitting and the epilogue escape exist to
+  keep a kernel under C2's 8,000-byte inlining limit and the 64 KB method cap; a backend of our
+  own compiles a kernel of any size as one loop, and the emitter loses that machinery (register
+  pressure stays ours to manage).
+* **Instructions C2 cannot be asked for.** The Vector API reaches what the intrinsics offer;
+  where they do not, the code falls back to allocating Java, as a long kernel with a mask does on
+  x86 capped at 128-bit vectors (`m7/POST_TRAP_SUMS.md`). Our backend emits the instruction:
+  compress and expand, ternary logic, gathers, non-temporal stores, the unrolling and software
+  pipelining a shape wants, and the per-CPU choices the option matrix measures become code
+  generation policy rather than the JIT's luck.
+* **Deterministic kernels, so deterministic tests.** The suites that measure the JIT, the quiet
+  JVMs CI runs them in, this week's coin and the retry of row 390 all exist because a kernel's
+  compiled form depends on the JVM's history; a kernel that is a function of the IR and the ISA
+  is byte-identical run after run, and the fuzzers compare exactly that.
+* **Code we can keep.** Machine code per shape and ISA can be cached across JVMs and
+  re-installed in milliseconds; C2's cannot, since the kernels are classes generated at runtime
+  that no AOT cache sees. And with compiles that cheap, variants per constant, per null-free
+  batch or per selectivity stop costing a C2 compile and a warm-up each.
+
+What it does not buy on its own: steady-state throughput, since C2's vector code is good and
+beating it is the spike's measurement, not its premise; and portability, since one backend
+serves one ISA where the Vector API served all.
+
+This is a milestone's worth of work, not a row, and a direction decision for after milestone 7's
+close. **Done when** a spike installs one kernel family's code through JVMCI on one ISA, passes
+the reference evaluator and the fuzzers on it, and is measured against C2's kernel of the same
+shape at the sizes the cold-start and throughput benchmarks use, and the owner decides whether a
+milestone follows; or the record says which cost closed the door.
+
+### Item 106. The compiler entry points without the family switches
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close (`m7/VARKA-261.md` 5.4).* The compiler's
 entry points that take no family switches stay public (`m7/VARKA-318.md` 9.3); tests and tools
@@ -5314,7 +5396,7 @@ call them with every family on, and a production caller that used one would igno
 switches silently. **Done when** one compile-context value carries the options and the switches
 through every compiler signature, and the switch-less entry points are gone or test-scoped.
 
-### Item 106. The admission queue keeps dead runs
+### Item 107. The admission queue keeps dead runs
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* A run whose pull request has merged, or
 whose branch has been pushed again, still counts as ahead in the admission queue until it is
@@ -5322,14 +5404,14 @@ cancelled by hand; on 16 October 2026 two such runs held four pull requests' ful
 **Done when** `dev/varka_ci_admit.py` skips a run whose pull request is closed or whose head is
 no longer its branch's, with a test of each case.
 
-### Item 107. "Re-run failed jobs" on a full run skips the queue
+### Item 108. "Re-run failed jobs" on a full run skips the queue
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* The rerun reuses the first attempt's
 admission (`m7/VARKA-255.md` 9.4), so a rerun of a full run starts its module jobs ahead of every
 queued run. **Done when** the admission job reruns with the failed jobs whenever any module job
 does, or `docs/sql-varka.md` tells the operator to use "Re-run all jobs" and says why.
 
-### Item 108. A port's timing pair near the job's cap
+### Item 109. A port's timing pair near the job's cap
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* `VarkaSizeLadderBenchmark`'s pair took
 about four and a half hours of the job's 355-minute limit (#877); the next pair of a class that
@@ -5337,7 +5419,7 @@ size can time out and lose every round. **Done when** the pair tooling splits a 
 across jobs by section, or records a per-class round count that keeps the pair under the cap, and
 the ladder's pair has run that way once.
 
-### Item 109. A milestone close that needs no laptop
+### Item 110. A milestone close that needs no laptop
 
 *Added 18 October 2026 from `m7/VARKA-261.md` by the close, on the owner's word.* Milestone 7's
 close spent a night and a morning of the development laptop on the README's numbers: two surface

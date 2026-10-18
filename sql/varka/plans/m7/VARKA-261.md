@@ -328,7 +328,7 @@ queue and a port's pair near the job's cap are work with no row, and section 8 p
 two; `catalyst/Test/checkstyle` on master waits for upstream's fix by a sync.
 Done on 18 October: each of section 10's entries ends with what the sweep found and where the
 debt went, the four with no row (the public compiler entry points, the dead admission runs,
-"Re-run failed jobs", a port's pair near the cap) are items 105 to 108 of `m9/SCOPE.md`, and the
+"Re-run failed jobs", a port's pair near the cap) are items 106 to 109 of `m9/SCOPE.md`, and the
 plan's section 11, "The close", is written in m6's shape with the date, the tag, the posts and
 the rows that moved.
 
@@ -698,7 +698,7 @@ Candidates for after the close, drawn from the caveats of 5.1 and the newest ite
    edition's clause beside each SQL-92 definition in `STANDARD.md`.
 7. **The NULL-mode masked loop C2 cannot settle** (items 99 and 100): which predicate it hoists
    and loses, and what `-XX:-UseProfiledLoopPredicate` costs the kernels that never cycle.
-8. **A milestone close that needs no laptop** (item 109, on the owner's word at this close). This
+8. **A milestone close that needs no laptop** (item 110, on the owner's word at this close). This
    close spent a night and a morning of the laptop on the README's numbers; the next quotes the
    latest committed files, runs the surfaces on the runner workflow as a row of their own when
    the engine changed, and takes the cold-start row from the runner pair, spread included. The
