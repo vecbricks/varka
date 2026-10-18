@@ -195,7 +195,7 @@ final class VarkaVectorTemplateWarmup {
     return Math.max(1, compilers - compilers / 3);
   }
 
-  private static final ObjectName DIAGNOSTIC_COMMAND = diagnosticCommand();
+  private static final @Nullable ObjectName DIAGNOSTIC_COMMAND = diagnosticCommand();
 
   private static @Nullable ObjectName diagnosticCommand() {
     try {
@@ -373,7 +373,7 @@ final class VarkaVectorTemplateWarmup {
   static int c2QueueLength(String queueText) {
     boolean inC2 = false;
     int n = 0;
-    for (String line : queueText.split("\\R")) {
+    for (String line : queueText.lines().toList()) {
       String t = line.strip();
       if (t.startsWith("C2 compile queue")) {
         inC2 = true;
