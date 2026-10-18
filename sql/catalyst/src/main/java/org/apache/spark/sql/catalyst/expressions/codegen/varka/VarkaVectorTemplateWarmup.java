@@ -18,10 +18,13 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.management.ManagementFactory;
+import com.sun.management.HotSpotDiagnosticMXBean;
 import java.nio.ByteOrder;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+import javax.management.ObjectName;
 
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.IntVector;
@@ -72,6 +75,31 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * some CPU) ends the warm-up there: the int, long and double groups run in that order, the
  * conversions last, and the rest stay cold.
  *
+ * <p><b>Paced on C2's queue, and heavy enough on the wrappers.</b> HotSpot's tiered policy
+ * compiles a method due for its profiling tier at tier 2 instead, C1 code with counters and no
+ * profiling, whenever C2's queue is longer than {@code Tier3DelayOn} (5) times C2's compiler
+ * threads at the instant the method crosses its first threshold: ten entries on a four-core
+ * host. A one-line wrapper such as {@code IntVector.max(Vector)} that takes that path never
+ * returns to profiling, because C1 at tier 2 marks a call as a profiling point only when its
+ * target is final and the wrapper's one call is to the abstract {@code lanewise}, so its tier-2
+ * compile ends with "nothing to profile" and the policy sends it straight to tier 4 with a
+ * profile frozen under C2's maturity line of 1,000 calls; every kernel that inlines it
+ * afterwards reads no receiver type at that call, keeps a real virtual call, and boxes one
+ * vector per iteration ({@code VARKA-389.md} 9.5, {@code VARKA-391.md}). Two things decide
+ * where that first crossing falls and what the queue is then. The wrappers are called
+ * {@link #THIN_CALLS_PER_ROUND} times a round, so that they cross inside the rounds even when
+ * C1's queue has scaled the threshold several-fold, rather than later in the kernel warm-up's
+ * traffic; and before the rounds, after every round and once at the end, the warm-up reads C2's
+ * queue through the diagnostic command the JVM exposes and waits until it is within
+ * {@link #PACE_QUEUE_TARGET}, the shorter queue at which the policy itself resumes profiling,
+ * {@link #PACE_BUDGET_MILLIS} in all at most; where the command or the options are unavailable
+ * it does not wait. Either alone was not enough: paced to the policy's limit the four-core
+ * suite passed by luck, nine tests of ten; paced to the resume line with one call a round it
+ * released two of five three times, the wrappers crossing 200 to 300 ms after the rounds; with
+ * both, the wrappers compiled at tier 3 inside the rounds with C2's queue at 0 to 2, and the
+ * suite passed every test in every run. The one log line the warm-up writes says what the
+ * pacing saw, so a JVM where it could not hold the queue can be told from one where it did.
+ *
  * <p><b>When it runs.</b> Before any vector code of the engine runs in the JVM, not before the
  * first warmed shape: {@link #beforeVectorCode} is called by the shape cache's first build, by
  * the first kernel instance of a task, by the query-path helpers' class initialisers and by the
@@ -105,7 +133,77 @@ final class VarkaVectorTemplateWarmup {
    */
   static final int ROUNDS = 300;
 
+  /**
+   * How many times a round calls each one-line wrapper the kernels call ({@code add},
+   * {@code min}, {@code max}, {@code blend} and the rest). One call a round left them at 300
+   * calls when the rounds ended, under the policy's first threshold once C1's queue had scaled
+   * it (200 calls times a load factor the trace showed as high as 6.6), so their first compile
+   * fell in the kernel warm-up's traffic, where C2's queue decided the tier
+   * ({@code VARKA-389.md} 9.5). Eight calls a round put the crossing inside the paced rounds
+   * and take every wrapper past the policy's "old" mark of 2,000 calls before the rounds end,
+   * after which its later decisions ignore the queue and its queued task cannot go stale.
+   */
+  static final int THIN_CALLS_PER_ROUND = 8;
+
   private static final int BYTES = 4096;
+
+  /**
+   * Rounds between two looks at C2's queue: every round, since one round's burst can put the
+   * queue over the limit on a small host. See the class doc, "Paced on C2's queue".
+   */
+  static final int PACE_ROUNDS = 1;
+
+  // What the pacing saw in this JVM, for the one log line: C2's queue before the rounds, the
+  // longest queue met during them, and the milliseconds waited in all.
+  private static volatile int queueBefore = -1;
+  private static volatile int queuePeak = -1;
+  private static volatile long waitedMillis;
+
+  /** The most the warm-up waits for C2's queue in all, so a JVM with a slow C2 is not held. */
+  static final long PACE_BUDGET_MILLIS = 20_000;
+
+  /**
+   * The queue length C2 may have for the policy to still choose the profiling tier:
+   * {@code Tier3DelayOn} times C2's compiler threads, read from the JVM's options once;
+   * HotSpot's defaults, 5 and two thirds of {@code CICompilerCount}, where they cannot be read.
+   * The log line reports the queue against it.
+   */
+  static final int PROFILING_TIER_QUEUE_LIMIT =
+      Math.max(1, vmOption("Tier3DelayOn", 5) * c2Threads());
+
+  /**
+   * What the pacing waits for: the shorter queue at which the policy sends a method it compiled
+   * without profiling back to the profiling tier, {@code Tier3DelayOff} (2) times C2's threads.
+   * Below {@link #PROFILING_TIER_QUEUE_LIMIT} for the reason HotSpot's own is: a round's burst
+   * lifts the queue, and a round started at the limit crosses it, by one in the runs of
+   * {@code VARKA-389.md} 9.5, the failing one as the passing ones.
+   */
+  static final int PACE_QUEUE_TARGET = Math.max(1, vmOption("Tier3DelayOff", 2) * c2Threads());
+
+  private static int vmOption(String name, int fallback) {
+    try {
+      var bean = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+      return Integer.parseInt(bean.getVMOption(name).getValue());
+    } catch (Exception | LinkageError e) {
+      return fallback;
+    }
+  }
+
+  /** C2's compiler threads: all but a third of {@code CICompilerCount}, HotSpot's split. */
+  private static int c2Threads() {
+    int compilers = vmOption("CICompilerCount", 3);
+    return Math.max(1, compilers - compilers / 3);
+  }
+
+  private static final @Nullable ObjectName DIAGNOSTIC_COMMAND = diagnosticCommand();
+
+  private static @Nullable ObjectName diagnosticCommand() {
+    try {
+      return new ObjectName("com.sun.management:type=DiagnosticCommand");
+    } catch (Exception e) {
+      return null;
+    }
+  }
 
   private static final List<Unary> UNARY = List.of(VectorOperators.NEG, VectorOperators.ABS,
       VectorOperators.NOT);
@@ -165,7 +263,10 @@ final class VarkaVectorTemplateWarmup {
     nanos = took;
     settled = true;
     LOG.info("Vector API template warm-up took " + TimeUnit.NANOSECONDS.toMillis(took)
-        + " ms, before the JVM's first vector code.");
+        + " ms, before the JVM's first vector code; C2's queue was " + queueBefore
+        + " before the rounds and at most " + queuePeak + " during them, against the policy's"
+        + " limit of " + PROFILING_TIER_QUEUE_LIMIT + " and the pacing's target of "
+        + PACE_QUEUE_TARGET + "; waited " + waitedMillis + " ms for it.");
     return took;
   }
 
@@ -214,6 +315,78 @@ final class VarkaVectorTemplateWarmup {
   }
 
   /**
+   * Waits until C2's compile queue is within {@link #PACE_QUEUE_TARGET}, polling the
+   * JVM's {@code Compiler.queue} diagnostic command, for at most {@code maxMillis}; returns the
+   * milliseconds waited. Where the command is unavailable or fails, returns at once. See the
+   * class doc, "Paced on C2's queue".
+   */
+  static long awaitC2Queue(long maxMillis) {
+    if (DIAGNOSTIC_COMMAND == null || maxMillis <= 0) {
+      return 0;
+    }
+    long start = System.nanoTime();
+    try {
+      while (true) {
+        Object reply = ManagementFactory.getPlatformMBeanServer().invoke(DIAGNOSTIC_COMMAND,
+            "compilerQueue", new Object[] {null}, new String[] {String[].class.getName()});
+        int length = c2QueueLength(String.valueOf(reply));
+        if (length > queuePeak) {
+          queuePeak = length;
+        }
+        if (length <= PACE_QUEUE_TARGET) {
+          break;
+        }
+        long waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        if (waited >= maxMillis) {
+          break;
+        }
+        Thread.sleep(5);
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (Exception | LinkageError e) {
+      // No diagnostic command in this JVM: the rounds run unpaced, as they did before.
+      return 0;
+    }
+    return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+  }
+
+  /** C2's queue length now, or -1 where the diagnostic command is unavailable. */
+  static int c2QueueLengthNow() {
+    if (DIAGNOSTIC_COMMAND == null) {
+      return -1;
+    }
+    try {
+      Object reply = ManagementFactory.getPlatformMBeanServer().invoke(DIAGNOSTIC_COMMAND,
+          "compilerQueue", new Object[] {null}, new String[] {String[].class.getName()});
+      return c2QueueLength(String.valueOf(reply));
+    } catch (Exception | LinkageError e) {
+      return -1;
+    }
+  }
+
+  /**
+   * How many methods the {@code Compiler.queue} text lists in C2's queue: the non-blank lines
+   * after "C2 compile queue:", none when it says "Empty". Unknown text reads as zero, so a format
+   * this does not know never holds the warm-up.
+   */
+  static int c2QueueLength(String queueText) {
+    boolean inC2 = false;
+    int n = 0;
+    for (String line : queueText.lines().toList()) {
+      String t = line.strip();
+      if (t.startsWith("C2 compile queue")) {
+        inC2 = true;
+      } else if (inC2 && t.endsWith("compile queue:")) {
+        break;
+      } else if (inC2 && !t.isEmpty() && !t.equals("Empty")) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /**
    * The calls themselves, {@link #ROUNDS} rounds of them, and a checksum of the results, which
    * is the same on every call and every machine for the lane counts of one species set (a test
    * pins that the work is deterministic and computed, not discarded).
@@ -246,12 +419,22 @@ final class VarkaVectorTemplateWarmup {
     }
     MemorySegment segment = Arena.ofAuto().allocate(BYTES, 64);
     long acc = 0;
+    queueBefore = c2QueueLengthNow();
+    long waited = awaitC2Queue(PACE_BUDGET_MILLIS);
+    long paceLeft = PACE_BUDGET_MILLIS - waited;
     for (int round = 0; round < ROUNDS; round++) {
       acc += ints(is, ia, ib, segment);
       acc += longs(ls, la, lb, segment);
       acc += doubles(ds, da, db);
       acc += conversions(is, ls, ds, ia, la, da);
+      if ((round + 1) % PACE_ROUNDS == 0) {
+        long w = awaitC2Queue(paceLeft);
+        paceLeft -= w;
+        waited += w;
+      }
     }
+    waited += awaitC2Queue(paceLeft);
+    waitedMillis = waited;
     sink = acc;
     synchronized (VarkaVectorTemplateWarmup.class) {
       completed++;
@@ -280,11 +463,13 @@ final class VarkaVectorTemplateWarmup {
       acc += a.compare(op, b).toLong() + a.compare(op, 4).toLong()
           + a.compare(op, b, m).toLong();
     }
-    acc += a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.add(4).lane(0)
-        + a.sub(4, m).lane(0) + a.add(b, m).lane(0) + a.mul(4).lane(1) + a.min(b).lane(0)
-        + a.max(b).lane(0) + a.and(b).lane(0) + a.or(b).lane(0) + a.and(1).lane(1)
-        + a.div(7).lane(0) + a.blend(b, m).lane(0) + a.blend(9, m).lane(0)
-        + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0);
+    for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
+      acc += a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.add(4).lane(0)
+          + a.sub(4, m).lane(0) + a.add(b, m).lane(0) + a.mul(4).lane(1) + a.min(b).lane(0)
+          + a.max(b).lane(0) + a.and(b).lane(0) + a.or(b).lane(0) + a.and(1).lane(1)
+          + a.div(7).lane(0) + a.blend(b, m).lane(0) + a.blend(9, m).lane(0)
+          + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0);
+    }
     acc += a.compress(m).lane(0);
     a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
     a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
@@ -314,10 +499,12 @@ final class VarkaVectorTemplateWarmup {
       acc += a.compare(op, b).toLong() + a.compare(op, 4L).toLong()
           + a.compare(op, b, m).toLong();
     }
-    acc += a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.add(4L).lane(0)
-        + a.sub(4L, m).lane(0) + a.add(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0)
-        + a.and(b).lane(0) + a.or(b).lane(0) + a.blend(b, m).lane(0) + a.blend(9L, m).lane(0)
-        + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0);
+    for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
+      acc += a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.add(4L).lane(0)
+          + a.sub(4L, m).lane(0) + a.add(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0)
+          + a.and(b).lane(0) + a.or(b).lane(0) + a.blend(b, m).lane(0) + a.blend(9L, m).lane(0)
+          + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0);
+    }
     a.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
     a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
     acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
@@ -330,9 +517,11 @@ final class VarkaVectorTemplateWarmup {
     DoubleVector b = DoubleVector.fromArray(s, db, 0);
     VectorMask<Double> m = a.compare(VectorOperators.GT, b);
     long acc = m.toLong();
-    acc += (long) (a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.div(b).lane(0)
-        + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.MAX, b).lane(0)
-        + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0));
+    for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
+      acc += (long) (a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.div(b).lane(0)
+          + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.MAX, b).lane(0)
+          + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0));
+    }
     for (Comparison op : List.of(VectorOperators.EQ, VectorOperators.LT, VectorOperators.GE)) {
       acc += a.compare(op, b).toLong();
     }

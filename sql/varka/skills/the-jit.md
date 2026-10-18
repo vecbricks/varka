@@ -1095,8 +1095,14 @@ warm-up (#827), and the JIT's log said why in two runs, warm-up on and off:
   cannot reach it, since the compile fires after the rounds: paced every round to the policy's
   limit the suite passed twice and released once; to the resume limit, with the queue at most 7
   through the rounds, it released three times of three. A 4-core AVX2 runner is where CI meets
-  it, so a pass of the end-to-end warm-up suite on the pool is a draw. The way out is to make the
-  templates' first compile fall inside the warm-up and at tier 3 (enough calls to cross `200 x k`
-  or the policy's old mark of 2,000, after which the queue feedback is off for that method), and
-  to check through `Compiler.codelist` that every template is at tier 3 or 4 before the warm-up
-  returns; a row's work, measured on four cores with the trace.
+  it, so a pass of the end-to-end warm-up suite on the pool was a draw. Why tier 2 is final for
+  these wrappers: C1 at tier 2 marks a call as a profiling point only when its target is final
+  (`GraphBuilder::invoke`, `need_null_check`), and `max(Vector)`, `min(Vector)`, `add(Vector)`
+  hold one call each, to the abstract `lanewise(Binary, Vector)`, so their tier-2 compile says
+  "nothing to profile" and `transition_from_limited_profile` sends them straight to tier 4;
+  `min(int)` calls the final `lanewise(Binary, int)` and went to tier 3 in the same run. The fix
+  (`m7/VARKA-391.md`) is in the warm-up: eight calls a round for every one-line wrapper, so each
+  crosses its first threshold inside the rounds and passes the policy's old mark of 2,000 calls
+  before they end, and the rounds paced on C2's queue to the policy's resume line
+  (`Tier3DelayOff` times the threads); the wrappers then compiled at tier 3 with the queue at 0
+  to 2 in every traced run, and the suite passed every test in every run on four cores.
