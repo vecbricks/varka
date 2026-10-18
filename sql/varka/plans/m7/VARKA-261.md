@@ -71,8 +71,9 @@ on the commit where every row is closed and the changelog entry quotes the tag.
 7. **The debt sweep.** Five items fixed on branch `varka-261-debt` (section 5.3), merged as a
    pull request of their own before the tag; the register's other entries rewritten in the past
    tense with what the sweep found, or handed to `m9/SCOPE.md` with the reason.
-8. **The tag and the cleanup.** An annotated tag `varka-m7` on the merge commit of
-   the close, its message the changelog entry's headline and the posts' addresses; then
+8. **The tag and the cleanup.** An annotated tag `varka-m7`, its message the changelog entry's
+   headline and the posts' addresses, planned for the merge commit of the close and placed, on
+   the owner's word, on master with the debt sweep merged (section 4, step 8); then
    `dev/varka_worktree.sh gc` for the worktrees of merged pull requests, the local branches of
    merged pull requests, and on the fork only the branches of this repository's merged or closed
    pull requests, as `VARKA-282.md` 5 learned.
@@ -154,9 +155,11 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   the container path being a new cache version, installed online and saved it, and every later
   job of its kind restored it and installed offline, the container jobs from the lint job's save.
 * **Step 8, the tag and the cleanup.** The counts against prediction 5 are in section 5.5: 87
-  worktrees by `gc` and four by hand, 108 local branches, 247 fork branches. The tag goes on the
-  merge commit of the close's pull request, which does not exist while this record is written,
-  so the record names it by the tag: `git rev-parse 'varka-m7^{commit}'` after the merge.
+  worktrees by `gc` and four by hand, 108 local branches, 247 fork branches. The tag: on the
+  owner's word of 18 October it went on `793536853ab`, master with the debt sweep (#918) merged,
+  before the close's own pull request, since the close is documents only and the engine that
+  commit holds is the one every file of this record measured; annotated, pushed to
+  vecbricks/varka at 10:37, its message the changelog headline and the six posts' addresses.
 
 ## 5. Outcome
 

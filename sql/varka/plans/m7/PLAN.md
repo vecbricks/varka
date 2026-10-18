@@ -1047,7 +1047,8 @@ no laptop in the loop, pairs and results files on GitHub-hosted runners. (5) Six
 corrected, the README's account of how Varka is checked written, the README's surfaces
 regenerated on the milestone 7 build (`d88e4a7e7f5`), the oracles regenerated and unchanged, the
 `CHANGELOG.md` entry, six lessons in the skills files, the debt sweep's five fixes (#918) in a pull
-request of their own, and the tag `varka-m7` on the commit that merges VARKA-261's pull request;
+request of their own, and the tag `varka-m7` on `793536853ab`, master with the debt sweep merged,
+placed on the owner's word on 18 October before the close's own pull request merged;
 the worktrees and branches of merged pull requests were removed before it: 91 worktrees, 108
 local branches and 247 fork branches.
 
