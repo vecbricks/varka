@@ -129,8 +129,8 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   file is committed next to the others; nothing in the README quotes that arm, and its lightest
   rows read 10 to 24% below 5 October, which with the JDK 25 arm's move the other way is the
   machine's spread between runs of stock Spark, not a change in either. The cold-start
-  regeneration ran wide width only, gate ok; what it found is prediction 4 in 5.5, and the
-  requote is the ratios with the verdicts beside them.
+  regeneration ran wide width only, gate ok; what it found is prediction 4 in 5.5, resolved by
+  rows 389 and 391 before the tag moved, and the requote is from the regenerated file.
 * **Step 7, the debt sweep.** Run the morning of 18 October under the lock. `VarkaEmitterChronoSuite`
   under `dev/varka_matrix.sh` in the defaults, `shareChronoPrefix=false` and `methodByteBudget=0`:
   65, 47 and 44 tests pass with no failure, the rest cancelling themselves where a configuration
@@ -156,12 +156,13 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   job of its kind restored it and installed offline, the container jobs from the lint job's save.
 * **Step 8, the tag and the cleanup.** The counts against prediction 5 are in section 5.5: 87
   worktrees by `gc` and four by hand, 108 local branches, 247 fork branches. The tag: on the
-  owner's word of 18 October it went on `793536853ab`, master with the debt sweep (#918) merged,
-  before the close's own pull request, since the close is documents only and the engine that
-  commit holds is the one every file of this record measured; annotated, pushed to
-  vecbricks/varka at 10:37, its message the changelog headline and the six posts' addresses.
-  The message says "three wrong answers found and fixed" where the changelog lists seven, a
-  slip left as pushed rather than rewrite a published tag.
+  owner's word of 18 October it went first on `793536853ab`, master with the debt sweep (#918)
+  merged, at 10:37, since the close was documents only and that engine was the one every file of
+  this record had measured. Prediction 4 then turned out to be a regression of the engine (row
+  389), and on the owner's word of the same evening the tag moved to `ab9900cdca7`, the merge of
+  the post's sources (#922) behind the fix (#921) and the four-core fix (#924), re-created with
+  its message corrected: seven wrong answers where the first said three, the regression and its
+  fix named, and the seventh post listed.
 
 ## 5. Outcome
 
@@ -365,9 +366,16 @@ the rows that moved.
    without against stock's 113 ms. The signature, about 56,000 calls in the 60 seconds and no
    compile, is VARKA-295's; between the two files the warm-up changed in #679, #807 and #827 and
    the laptop's kernel from 7.0.0-31 to 7.0.0-38, so the cause is open and the core count is not
-   the whole of it. It is a finding before the tag, carried by `m9/SCOPE.md` item 103 with the
-   first step of its bisection; the README and the docs quote the ratios with the verdicts beside
-   them rather than a headline.
+   the whole of it. It was a finding before the tag, and the owner held the close for it: row 389
+   (`VARKA-389.md`) found the cause the same day, VARKA-295's template warm-up (#827) running after
+   other vector code had taken the shared templates to C2 and deoptimising them, one decompile
+   each that a wide kernel inlines six hundred times past C2's cutoff, and #921 moved the warm-up
+   before any vector code; the regenerated file reads 71 of 71 COMPILED at both widths and a
+   runner pair the same. The four-core coin behind it, a one-line wrapper's first compile landing
+   at tier 2, is row 391 (#924), with CI's retry of listed flaky suites as row 390 (#923); item 103
+   stays resolved in part until #924 has run on the pool's 4-core AVX2 runners for a while. The
+   README and the docs quote the cold-start row from the regenerated file: 1.6x once the
+   warm-up's kernel is in, the first run itself on the row path.
 5. **Held on the fork and near on the rest.** `dev/varka_worktree.sh gc --yes` removed 87 clean
    worktrees of merged pull requests with their branches, exactly the audit's count, and four
    detached clean ones (`varka-270-qa`, `varka-fuzz-1006`, `varka-night-1012`,
@@ -404,9 +412,9 @@ Collected from the placeholders the evening left, so nothing is missed:
   rows above 40x explained beside it; the TIME surface's (13.9x to 37.5x, median 16.2x; filters
   0.34x to 9.9x) now 13.2x to 39.2x with a median of 14.8x and filters 0.35x to 10.5x; the `WHERE
   d < d2` rows 7.7x and 0.70x now 7.1x and 0.69x; the headline 37x now 39x. Done, step 6.
-* The cold-start headline: README's cold-start row and `docs/sql-varka.md`'s line, regenerated
-  and stating the spread between JVMs a 4-core runner shows. Done, with the finding of
-  prediction 4 beside it: the laptop's own warm-up now releases, and the row is a spread.
+* The cold-start headline: README's cold-start row and `docs/sql-varka.md`'s line. Done, after
+  the finding of prediction 4 became row 389 and was fixed: the row is requoted from the
+  regenerated file, 1.6x once the warm-up's kernel is in.
 * The three oracles' regeneration and diff: unchanged, prediction 2.
 * The debt sweep's verification and its pull request: step 7, vecbricks/varka#918.
 * The nightly `compiled` step's score for row 274b's predictions 1, 6 and 9: not scored, since
@@ -693,5 +701,5 @@ Candidates for after the close, drawn from the caveats of 5.1 and the newest ite
 8. **A milestone close that needs no laptop** (item 109, on the owner's word at this close). This
    close spent a night and a morning of the laptop on the README's numbers; the next quotes the
    latest committed files, runs the surfaces on the runner workflow as a row of their own when
-   the engine changed, and takes the cold-start row from the runner pair, spread included. With
-   it, the warm-up's laptop release of prediction 4, which item 103 now carries.
+   the engine changed, and takes the cold-start row from the runner pair, spread included. The
+   warm-up's laptop release of prediction 4 went to rows 389 and 391 the same day.

@@ -694,7 +694,7 @@ the survey of other engines, and 273 to 281 from reading the papers (the notes a
 | 385 | **Done on the host runners; the container jobs to the close's debt sweep** (17 October 2026, run 39017334406: the 14 jobs on host runners restore the cache and install offline with no download, at 5 to 6 s against 12 cold; the 12 container jobs, every PySpark job, lint and docs, restore it to `/github/home/.m2` while Maven reads `/root/.m2/repository`, so their offline install fails on `maven-resources-plugin` 3.4.0 and falls back to downloading, still exposed to the miss this row removes. Until then: `VARKA-385.md` 9, 16 October 2026): the engine install restores a 35 MB local Maven repository of its own, keyed on the engine pom (which now pins every plugin the build runs) and the test mode, installs offline (`-o`) on an exact hit, retries an online transfer failure twice, and saves right after a cold install; locally the offline install succeeds with no download. Done when the first CI run's log shows what `VARKA-385.md` 9 lists. The Varka engine's Maven plugins from the cache. CI's "Install the Varka engine" step skips the Maven cache and downloads its plugins on every run, and on 16 October 2026 a transient Maven Central miss of `maven-resources-plugin` 3.4.0 failed it twice (#888, #889), each costing a rerun. In milestone 7 because every full CI run of the remaining rows takes that step (section 10, the second CI entry). Restore the cache in the jobs that install the engine, or pin the engine pom's plugin versions so a cached copy is always found. **Done when** a run whose cache is warm downloads no plugin in that step, shown by its log | section 10, opened 16 October 2026 | small |
 | 270 | **Done** (published 17 October 2026 at https://vecbricks.github.io/where-the-checking-stops/, and recast for testers and republished the same day on the owner's review, `VARKA-270.md` 10.5; `VARKA-270.md` 10, pull request #914; the paragraphs on rows 379 and 387 said "a proposed change" until #874 and #911 merged the same evening, and the page was republished saying so). The milestone's own post, for JVM and database engineers: how Varka knows its answers are right, and where that stops | the plan review (2.5), item 58 | medium |
 | 288 | **Done** (`VARKA-288.md` 9.3, 12 October 2026): published as "A large CASE WHEN, split only where it has to be"; the fix 4.5 times faster than the cliff post's workaround at 300 branches and that workaround within 3% of whole-stage off, C2's inlining shown from its own log. The cliff's sequel, for the readers of "The 8000-byte cliff in Spark SQL": a large CASE WHEN inside a stage split only where its method is past 8000 bytes, as apache/spark#59225 (SPARK-33301) does it; the cliff post's workaround measured against the fix, and C2's inlining under splitting always; published once the pull request merges, naming the release (`VARKA-288.md`) | the owner, 5 October 2026 | small |
-| 261 | **Done** (`VARKA-261.md` and section 11, 18 October 2026: 1.1 scored point by point with its caveats, the documents corrected, the README's account of how Varka is checked, the surfaces regenerated on the milestone 7 build and requoted, the oracles, the changelog entry, six lessons, the debt sweep's five fixes in their own pull request (#918), 91 worktrees and 355 branches removed, the tag `varka-m7`). The closing task: 1.1 read row by row, and the README's account of how Varka is checked rewritten; then the close `CONTRIBUTING.md` asks of every milestone, in VARKA-282's shape - the documents, the issue mirror, the lessons, the oracles, the `CHANGELOG.md` entry, the tag `varka-m7`, the cleanup. The README's and `docs/sql-varka.md`'s cold-start headline (1.8x, 17 ms against 31 ms) is regenerated with the rest and states the spread between JVMs a runner shows, where the warm-up compiles a shape in some JVMs and gives it up in others (PR #900's pairs, `m9/SCOPE.md` item 103). The debt sweep takes, beside the register, what the last rows left (17 October 2026): the option-matrix test "inside a Spark task, the forms without a scratch address refuse a kernel with scratch", which fails under `methodByteBudget=0` and `shareChronoPrefix=false` with no `skips.tsv` line (found by #910); the noisy plan-size bisection test (#910); a scoped push running `admit` and `Precompile Spark` on `pyspark-periodic`, and the check sync re-sending an unchanged status while a run is rerun (row 255); and the container jobs' engine cache restored where Maven does not read it (row 385). Each is fixed or moved to `m9/SCOPE.md` | this plan | small |
+| 261 | **Done** (`VARKA-261.md` and section 11, 18 October 2026: 1.1 scored point by point with its caveats, the documents corrected, the README's account of how Varka is checked, the surfaces regenerated on the milestone 7 build and requoted, the oracles, the changelog entry, six lessons, the debt sweep's five fixes in their own pull request (#918), 91 worktrees and 355 branches removed, the tag `varka-m7`). The closing task: 1.1 read row by row, and the README's account of how Varka is checked rewritten; then the close `CONTRIBUTING.md` asks of every milestone, in VARKA-282's shape - the documents, the issue mirror, the lessons, the oracles, the `CHANGELOG.md` entry, the tag `varka-m7`, the cleanup. The README's and `docs/sql-varka.md`'s cold-start headline (1.8x, 17 ms against 31 ms) is regenerated with the rest; the regeneration found the warm-up releasing every wide shape, which became rows 389 to 391 and was fixed before the tag moved, and the row now reads 1.6x once the warm-up's kernel is in (`VARKA-389.md`, `m9/SCOPE.md` item 103). The debt sweep takes, beside the register, what the last rows left (17 October 2026): the option-matrix test "inside a Spark task, the forms without a scratch address refuse a kernel with scratch", which fails under `methodByteBudget=0` and `shareChronoPrefix=false` with no `skips.tsv` line (found by #910); the noisy plan-size bisection test (#910); a scoped push running `admit` and `Precompile Spark` on `pyspark-periodic`, and the check sync re-sending an unchanged status while a run is rerun (row 255); and the container jobs' engine cache restored where Maven does not read it (row 385). Each is fixed or moved to `m9/SCOPE.md` | this plan | small |
 
 ## 4. Ordering
 
@@ -1027,8 +1027,8 @@ bound (`m9/SCOPE.md` item 102), the generated-class families the coverage analys
 ## 11. The close, 18 October 2026
 
 Opened 2 October 2026 while milestone 6 closed, closed 18 October 2026 by VARKA-261 under the
-rule of `CONTRIBUTING.md` "Finding work", in the shape `m6/VARKA-282.md` gave a close. Of the 112
-task rows in section 3, 109 read **Done** (222 closed on its measurement without a change), 2
+rule of `CONTRIBUTING.md` "Finding work", in the shape `m6/VARKA-282.md` gave a close. Of the 115
+task rows in section 3, 112 read **Done** (222 closed on its measurement without a change), 2
 moved to milestone 8 on 17 October 2026 (180, promotion, as the standing cadence it is; 386,
 Spark's two filters disagreeing, waiting on apache/spark#59573), none was withdrawn, and 261 is
 this close.
@@ -1044,13 +1044,14 @@ survivor answered; the warm-up flake's cause named and removed at the preferred 
 Varka's code is Java and legible: the compiler, its cache, the evaluators, the fuzz
 infrastructure and all 26 benchmarks ported with the oracle unchanged at each step, Error Prone
 and NullAway on every pull request, about 290 comments rewritten. (4) CI reaches a verdict with
-no laptop in the loop, pairs and results files on GitHub-hosted runners. (5) Six posts, listed in
+no laptop in the loop, pairs and results files on GitHub-hosted runners. (5) Seven posts, listed in
 `CHANGELOG.md`'s entry. (6) This close: the documents that named the milestone in flight
 corrected, the README's account of how Varka is checked written, the README's surfaces
 regenerated on the milestone 7 build (`d88e4a7e7f5`), the oracles regenerated and unchanged, the
 `CHANGELOG.md` entry, six lessons in the skills files, the debt sweep's five fixes (#918) in a pull
-request of their own, and the tag `varka-m7` on `793536853ab`, master with the debt sweep merged,
-placed on the owner's word on 18 October before the close's own pull request merged;
+request of their own, and the tag `varka-m7` on `ab9900cdca7`, the merge of the seventh post's
+sources behind the regression's fix, where it moved on the owner's word on 18 October from
+`793536853ab`, its first place of that morning, once the close had found the regression below;
 the worktrees and branches of merged pull requests were removed before it: 91 worktrees, 108
 local branches and 247 fork branches.
 
@@ -1058,6 +1059,17 @@ local branches and 247 fork branches.
 owed to a later sweep, by source) and 8 (seven proposals for the owner), `m8/PLAN.md` rows 180
 and 386 with their records here, and `VARKA-295.md` 9.6 for the flake's remainder; every other
 task file of VARKA-240 to VARKA-388 is a record, read when a number or a decision is traced.
+
+**Found at the close, inside its scope.** The cold-start regeneration of step 6 released every
+projection shape of 16 to 100 entries at the warm-up's deadline, on the laptop and on two runners,
+where the file of 28 September had all 71 compiled, and the owner held the close for it. Row 389
+found the cause the same day, VARKA-295's template warm-up deoptimising the shared templates when
+it ran after other vector code, a decompile count a wide kernel sums past C2's cutoff, and moved
+the warm-up before any vector code (#921); its own CI then exposed an older coin on four-core
+hosts, a one-line wrapper's first compile landing at tier 2 when C2's queue is long, which row 391
+closed by calling the wrappers enough inside the paced rounds (#924), with row 390 making CI retry
+a listed flaky suite in a fresh JVM meanwhile (#923). The seventh post, "Two compilers, two
+queues", is what the four-core trace taught. The tag moved behind the fix.
 
 **Found at the close, outside its scope.** The laptop nightly has not run since 26 September
 2026, so row 274b's three predictions for its `compiled` step are unscored. In the surface
