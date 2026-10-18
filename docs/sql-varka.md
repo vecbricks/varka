@@ -1460,12 +1460,18 @@ files, which are the source of truth as the code moves):
   loss is unchanged: `COUNT(*)` over an 85%-selective filter is 0.8x (1.8x at
   15%) - nearly every row crosses the row boundary into the aggregate.
 * **Cold start** (`VarkaColdStartBenchmark`, first execution of a fresh plan
-  shape over 100K rows): 1.8x - 17 ms vs 31 ms best, 22 ms vs 37 ms average.
-  A fresh shape misses the class cache, and the benchmark enforces that by
-  invalidating the cache before each timed iteration - its column-and-literal
-  freshness is invisible to the structural shape key. The varka side pays
-  emission plus the class define here, essentially the per-task era's 18 ms;
-  only repeated shapes get the cache's win.
+  shape over 100K rows): 0.8x with the warm-up and 0.5x without on the
+  milestone 7 build - 136 ms and 241 ms against 113 ms for the first run of a
+  16-entry shape, 66 ms and 235 ms against 54 ms for the second. A fresh shape
+  misses the class cache, and the benchmark enforces that by invalidating the
+  cache before each timed iteration - its column-and-literal freshness is
+  invisible to the structural shape key. The varka side pays emission plus
+  the class define here; only repeated shapes get the cache's win. In that
+  run the warm-up gave the kernel up at its 60-second deadline on 51 of 71
+  verdicts, where the file of 28 September on the same machine had all 71
+  compiled, and a 4-core runner compiles 20 of 25 shapes in most JVMs; why
+  is `sql/varka/plans/m9/SCOPE.md` item 103's question, so the cold-start
+  figure is a spread, not a number, until it is answered.
 * **Class generation in isolation** (`VarkaCodegenBenchmark`): emitting,
   defining, loading and instantiating a fused two-output kernel takes
   ~99 us against ~6.5 ms for one Janino projection compile - 66x. (The

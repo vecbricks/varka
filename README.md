@@ -117,9 +117,11 @@ HX PRO 370 (JDK 25). This is the coverage document, and it commits the losses.
 45 projection rows span 11.4x to 53.8x with a median of 20.2x; 18 filter rows
 span 0.43x to 13.7x. Measured on the milestone 7 build (`varka-m7`). The two
 rows above 40x, `-ymm` and `abs(ymm)`, are not Varka getting faster: the stock
-arm ran them at half its 5 October rate in this run (33 against 76 M rows/s),
-while against this fork's engine-off arm they read 18.6x and 17.7x. Without
-them the projections span 11.4x to 36.5x.
+arm ran them at half its 5 October rate in this run (33 against 76 M rows/s).
+Rerun alone the next morning it gave 82 and 83 M rows/s
+(`DateSurface-spark-4.2.0-jdk25-ymm-recheck-results.txt`), against which the
+two rows read 21.8x and 20.2x, and against this fork's engine-off arm they read
+18.6x and 17.7x. Without them the projections span 11.4x to 36.5x.
 
 **The two remaining losses are both counted rows**, and neither is the kernel.
 (An earlier version of this section said all three were one bug; the
@@ -419,7 +421,7 @@ read-back floor - live in `sql/core/benchmarks/` and `sql/catalyst/benchmarks/`
 | Chain of 8 date ops, columnar consumer | 6.9x - flat from depth 1 to 8 since the VARKA-18 class cache |
 | The same chains through a **row** consumer | 0.8x - the ~25 ns/row read-back floor; heavy shapes clear it |
 | `COUNT(*)` over an 85%-selective filter | 0.8x - nearly every row crosses the floor (1.8x at 15%) |
-| Cold start: first run of a fresh plan shape | 1.8x - a fresh shape misses the class cache by design |
+| Cold start: first run of a fresh plan shape | 0.8x with the warm-up, 0.5x without - a fresh shape misses the class cache by design; on the milestone 7 build the warm-up gave the kernel up at its 60-second deadline on 51 of 71 verdicts on the laptop, where the file of 28 September had none (`sql/varka/plans/m9/SCOPE.md` item 103) |
 | Emit + load + instantiate a kernel vs one Janino compile | 66x cheaper (~99 us vs ~6.5 ms) |
 
 Regenerate with `SPARK_GENERATE_BENCHMARK_FILES=1`:

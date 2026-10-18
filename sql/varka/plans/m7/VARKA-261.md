@@ -28,8 +28,8 @@ The input to the scoring is a read-only audit of the repository at `9435783beb2`
 2026 (`close-audit.md` in the session's scratch area; its tables are reproduced below where they
 carry the score). Nothing was built or run for this record beyond shell reads, `git`, the GitHub
 API read for one step's time and `dev/varka_issues.py`; a benchmark that must not be disturbed
-runs on the machine tonight, so every step that needs a JVM is the morning's and is marked
-`[MORNING: ...]` below.
+runs on the machine tonight, so every step that needs a JVM ran the morning of 18 October under
+the heavy lock, after the night's arms; section 5 holds what each found.
 
 ## 2. The change
 
@@ -61,7 +61,7 @@ on the commit where every row is closed and the changelog entry quotes the tag.
    found (VARKA-295's mechanism, VARKA-271's golden-file facts, VARKA-255's GitHub Actions facts,
    VARKA-258 and 259's codegen-cache facts); the other candidates, about 140, are listed in
    section 7 as owed to a later sweep, by file and line.
-6. **The oracles and the surfaces** `[MORNING]`. `sql/varka/emitted_bytes.json`,
+6. **The oracles and the surfaces.** `sql/varka/emitted_bytes.json`,
    `sql/varka/emit_cost_audit.json` and `sql/varka/coverage.json` regenerated on the closing commit
    and expected unchanged; a difference is a finding and a row before the tag. The README's
    surfaces (the date and TIME tables, lines 118, 131, 138 and 203 say "milestone 6 build") and
@@ -71,7 +71,7 @@ on the commit where every row is closed and the changelog entry quotes the tag.
 7. **The debt sweep.** Five items fixed on branch `varka-261-debt` (section 5.3), merged as a
    pull request of their own before the tag; the register's other entries rewritten in the past
    tense with what the sweep found, or handed to `m9/SCOPE.md` with the reason.
-8. **The tag and the cleanup** `[MORNING]`. An annotated tag `varka-m7` on the merge commit of
+8. **The tag and the cleanup.** An annotated tag `varka-m7` on the merge commit of
    the close, its message the changelog entry's headline and the posts' addresses; then
    `dev/varka_worktree.sh gc` for the worktrees of merged pull requests, the local branches of
    merged pull requests, and on the fork only the branches of this repository's merged or closed
@@ -111,15 +111,48 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   trace to a committed results file.
 * **Step 5, the changelog and the lessons.** `dev/varka_toc.py SKILLS.md --from
   sql/varka/skills` after the sections were added; the pre-commit hook checks it.
-* **Step 6, the oracles and the surfaces.** `[MORNING: the three oracles' regeneration on the
-  closing commit and the diff, expected empty; the surface runs and the requote, with
-  dev/varka_bench_diff.py --requote empty or every line left saying why.]`
-* **Step 7, the debt sweep.** `[MORNING: the matrix configurations the option-matrix test
-  names, the bisection test run twice in one JVM, and the first CI runs of the three workflow
-  changes - a scoped push whose admit and Precompile Spark skip, a rerun whose check is patched
-  once, a container job whose offline install downloads nothing.]`
-* **Step 8, the tag and the cleanup.** `[MORNING: the tag's commit; the counts of worktrees,
-  local branches and fork branches removed, against prediction 5.]`
+* **Step 6, the oracles and the surfaces.** The three oracles regenerated on the close branch
+  at `e5b8cb0085b` the morning of 18 October, with the three regeneration switches; `git status`
+  on the three files is empty, so the closing build emits the oracles the rows left. The
+  surfaces: the six files the README quotes, taken the night of 17 to 18 October (section 11 of
+  the plan has the arms and their times), every ratio recomputed from their wall-time rows by
+  one script over the six files and requoted at the places prediction 1 lists;
+  `dev/varka_quote_check.py README.md` finds 0 orphans. The stock arm's two slow interval rows,
+  `-ymm` and `abs(ymm)` at 33 M rows/s against 76 on 5 October, were rerun alone in the morning
+  with the five other interval entries (`DateSurface-spark-4.2.0-jdk25-ymm-recheck-results.txt`,
+  canary ok): the two came back at 82 and 83 M rows/s and the five agree with the night's file
+  within 4%, so the night's file stands as taken and the README states the rerun beside the
+  span. Against 5 October the stock JDK 25 arm was otherwise 4 to 13% faster on its light rows
+  this night, so no ratio in the README rests on a slow stock night. The stock JDK 17 date arm
+  ran as well (its TIME arm was cut, since the queue's load gate cost the night two hours) and its
+  file is committed next to the others; nothing in the README quotes that arm, and its lightest
+  rows read 10 to 24% below 5 October, which with the JDK 25 arm's move the other way is the
+  machine's spread between runs of stock Spark, not a change in either. The cold-start
+  regeneration ran wide width only, gate ok; what it found is prediction 4 in 5.5, and the
+  requote is the ratios with the verdicts beside them.
+* **Step 7, the debt sweep.** Run the morning of 18 October under the lock. `VarkaEmitterChronoSuite`
+  under `dev/varka_matrix.sh` in the defaults, `shareChronoPrefix=false` and `methodByteBudget=0`:
+  65, 47 and 44 tests pass with no failure, the rest cancelling themselves where a configuration
+  removes their premise, where the two configurations failed the option-matrix test before.
+  `VarkaShapeCacheSuite` and `VarkaExpressionCompilerSuite`: 164 tests pass. `dev/varka_pit.sh
+  --classes Analysis --methods pureOf`, the sample VARKA-265 started from: 86 mutants, 85 killed
+  by a behavioural test, 0 by the bytes oracle alone, 1 survived and already answered in
+  `notes.tsv`; PIT runs the suite once per mutant in one JVM, so that is the bisection test 86
+  times in one JVM without a failure of its own, where the milestone's full run counted 87
+  bytes-only kills from it. The pull request is vecbricks/varka#918. Its CI: the branch edits
+  workflow files, so its own run (39103095958) is the full matrix and shows the container jobs'
+  offline install. A throwaway branch with one Varka-scoped change on top of it
+  (`varka-261-debt-scoped`, run 39103099821) was meant to show the scoped path, admit and
+  Precompile Spark skipping, but a push's scope is its diff against the merge base with master,
+  so every branch carrying the workflow change reads as `spark` until the change is on master;
+  the run was cancelled and the branch left on the fork. The scoped path is first exercised by
+  the first Varka-scoped push after the merge, and the check sync's change by the first rerun
+  after it, since that workflow runs from the default branch on a schedule. `[MORNING: the full
+  run's outcome.]`
+* **Step 8, the tag and the cleanup.** The counts against prediction 5 are in section 5.5: 87
+  worktrees by `gc` and four by hand, 108 local branches, 247 fork branches. The tag goes on the
+  merge commit of the close's pull request, which does not exist while this record is written,
+  so the record names it by the tag: `git rev-parse 'varka-m7^{commit}'` after the merge.
 
 ## 5. Outcome
 
@@ -269,8 +302,9 @@ their own pull request before the tag:
   and went online (run 39017334406). On a host runner the two agree, so the host jobs' cache
   version is unchanged.
 
-`[MORNING: the sweep's verification - the matrix configurations, the bisection test twice in one
-JVM, the first CI runs of the three workflow changes - and the pull request's number.]`
+Verified the morning of 18 October; section 4, step 7 has the runs and their counts. The pull
+request is vecbricks/varka#918, opened once the local checks had passed and merged before the
+close's own.
 
 ### 5.4 The register after the sweep
 
@@ -297,11 +331,23 @@ the rows that moved.
    with the docs' cold-start line that is about 27 places, not under twenty. The audit counted
    the README's benchmark prose as one regeneration rather than place by place.
    `docs/sql-varka.md` had none but the cold-start headline.
-2. `[MORNING: prediction 2, the oracles.]`
+2. **Held.** The three oracles regenerated on `e5b8cb0085b`, the close branch with the surfaces
+   on it, are byte-identical to the committed files: the closing build emits what the rows left.
 3. **Pending the merge, and already missed by one.** The dry run on this branch closes three
    issues, 222's and the two moved rows' (180 and 386), which were open and which "changes no
    other" overlooked; 261's closes with the merge, four in all against the two predicted.
-4. `[MORNING: prediction 4, the cold-start headline and the runner pair's verdicts.]`
+4. **Missed on the laptop; the runner pair `[MORNING: the pair]`.** The regenerated file (wide
+   width only, on the owner's word; the 128-bit companion stays from 28 September and the
+   provenance says so) has no 1.8x to be within 20% of: the warm-up's verdict was RELEASED at its
+   60-second deadline on 51 of 71 iterations, where the committed file of 28 September, same
+   machine, same eight-core pin, same JDK, had 71 COMPILED; the once-compiled rows read 22 to 50%
+   below that file, and the first run of a 16-entry shape reads 136 ms with the warm-up and 241 ms
+   without against stock's 113 ms. The signature, about 56,000 calls in the 60 seconds and no
+   compile, is VARKA-295's; between the two files the warm-up changed in #679, #807 and #827 and
+   the laptop's kernel from 7.0.0-31 to 7.0.0-38, so the cause is open and the core count is not
+   the whole of it. It is a finding before the tag, carried by `m9/SCOPE.md` item 103 with the
+   first step of its bisection; the README and the docs quote the ratios with the verdicts beside
+   them rather than a headline.
 5. **Held on the fork and near on the rest.** `dev/varka_worktree.sh gc --yes` removed 87 clean
    worktrees of merged pull requests with their branches, exactly the audit's count, and four
    detached clean ones (`varka-270-qa`, `varka-fuzz-1006`, `varka-night-1012`,
@@ -319,27 +365,35 @@ the rows that moved.
    (`varka-320-base`), a JVM replay log (`varka-291-e`), and the close's own surfaces worktree.
    The fork's other 695 branches are the owner's Apache Spark branches, untouched as
    `VARKA-282.md` 5 learned.
-6. `[MORNING: prediction 6, the sweep's checks.]`
+6. **Held on the laptop; the CI part `[MORNING: the full run]`.** The option-matrix test passes
+   under both configurations and the defaults; the bisection test ran 86 times in one JVM under
+   PIT without a failure of its own; the matrix's three configurations took 15, 14 and 15 seconds
+   for the suite, so the pinned options added nothing. Of the three workflow changes only the
+   container jobs' install can run before the merge (step 7): a push's scope is its diff against
+   master, so no branch carrying the change takes the scoped path, and the check sync runs from
+   the default branch; "their first CI runs" was written without allowing for either.
 
-### 5.6 What the morning fills
+### 5.6 What the morning filled
 
-Collected from the placeholders above, so nothing is missed:
+Collected from the placeholders the evening left, so nothing is missed:
 
-* The README's surfaces regenerated on the milestone 7 build and relabelled: lines 118, 131, 138
-  and 203 ("milestone 6 build", "`varka-m6`"), the date surface's "45 projection rows span 12.3x
-  to 37.4x with a median of 21.2x; 18 filter rows span 0.46x to 14.7x" and the TIME surface's "15
-  projection rows span 13.9x to 37.5x with a median of 16.2x; 28 filter rows span 0.34x to 9.9x",
-  and the `WHERE d < d2` rows quoted at 7.7x and 0.70x.
-* The cold-start headline: README line 413 ("1.8x - a fresh shape misses the class cache by
-  design") and `docs/sql-varka.md` line 1463 ("1.8x - 17 ms vs 31 ms best, 22 ms vs 37 ms
-  average"), regenerated and stating the spread between JVMs a 4-core runner shows.
-* The three oracles' regeneration and diff.
-* The debt sweep's verification and its pull request.
-* The nightly `compiled` step's score for row 274b's predictions 1, 6 and 9.
+* The README's surfaces regenerated on the milestone 7 build and relabelled: the four "milestone
+  6 build" lines, the date surface's span sentence (12.3x to 37.4x, median 21.2x; filters 0.46x
+  to 14.7x) now 11.4x to 53.8x with a median of 20.2x and filters 0.43x to 13.7x, with the two
+  rows above 40x explained beside it; the TIME surface's (13.9x to 37.5x, median 16.2x; filters
+  0.34x to 9.9x) now 13.2x to 39.2x with a median of 14.8x and filters 0.35x to 10.5x; the `WHERE
+  d < d2` rows 7.7x and 0.70x now 7.1x and 0.69x; the headline 37x now 39x. Done, step 6.
+* The cold-start headline: README's cold-start row and `docs/sql-varka.md`'s line, regenerated
+  and stating the spread between JVMs a 4-core runner shows. Done, with the finding of
+  prediction 4 beside it: the laptop's own warm-up now releases, and the row is a spread.
+* The three oracles' regeneration and diff: unchanged, prediction 2.
+* The debt sweep's verification and its pull request: step 7, vecbricks/varka#918.
+* The nightly `compiled` step's score for row 274b's predictions 1, 6 and 9: not scored, since
+  the laptop nightly has not run since 26 September (section 1.2, caveat 3).
 * Section 10 rewritten and section 11 written in `m7/PLAN.md`; row 261 marked **Done** with the
-  date, the tag and the pointer to section 11.
-* The cleanup's counts and the tag `varka-m7`.
-* `CHANGELOG.md`'s date, left as `[MORNING: tag date]`.
+  date, the tag and the pointer to section 11. Done the evening before.
+* The cleanup's counts (prediction 5) and the tag `varka-m7` (step 8, after the merge).
+* `CHANGELOG.md`'s date: 2 to 18 October 2026.
 
 ## 6. Explicitly out of this task
 
