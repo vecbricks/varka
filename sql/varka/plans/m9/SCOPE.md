@@ -5248,6 +5248,23 @@ the new bound.
 
 ### Item 103. Why the kernel warm-up gives up on small runners
 
+*Resolved in part on 18 October 2026 by `m7/VARKA-389.md`, which the milestone 7 close opened
+when it found the same releases on the laptop; what the row could not close is below.* The
+benchmark's cause was not the host: the template warm-up of VARKA-295
+(#827, 15 October, the day before the pairs below ran) deoptimised the shared Vector API templates
+that the benchmark's unwarmed arms had already compiled, and a wide kernel's group method, which
+inlines each template hundreds of times, summed the resulting decompile count past C2's cutoff and
+kept its class checks as virtual calls, which box (`VARKA-389.md` 8.4a). Row 389 moves the warm-up
+before any vector code of the engine and adds the end-to-end check in the benchmark's order; its
+runner pair after the fix is the measurement this item asked for on a 4-core host. What remains
+of the item is the fourth JVM's "all 25 compiled" against the other three, which the fix explains
+as the order in which that JVM happened to compile the templates, and is kept here only until a
+pair after the fix shows three JVMs out of three. The small-host releases of the end-to-end
+warm-up suite are a second cause the row traced and did not fix (`VARKA-389.md` 9.5): on four
+cores a template's first compile falls after the warm-up's rounds, and lands at tier 2 whenever
+C2's queue is over ten at that instant, so the kernel that inlines it keeps a virtual call; the
+warm-up-side fix is named there for a row of its own (390 proposed). The text as added follows.
+
 *Added 17 October 2026 from `m7/VARKA-322.md` and PR #900's pairs.* On a 4-core GitHub runner
 (Intel Xeon 6973P-C, run 39002664252), `VarkaColdStartBenchmark`'s warm-up arm reached a COMPILED
 verdict on only 20 of 25 shapes in three of four JVMs, and the other five were RELEASED after the

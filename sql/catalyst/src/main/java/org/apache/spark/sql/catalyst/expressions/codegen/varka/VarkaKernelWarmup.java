@@ -223,12 +223,9 @@ public final class VarkaKernelWarmup {
   // Replaced when it has died; see ensureWorker.
   private static Thread worker;
 
-  // What the Vector API template warm-up took on the worker's first start, for diagnostics.
-  private static volatile long templateWarmupNanos;
-
   /** Nanoseconds the one-time Vector API template warm-up took, or zero if it has not run. */
   public static long templateWarmupNanos() {
-    return templateWarmupNanos;
+    return VarkaVectorTemplateWarmup.nanos();
   }
 
   private VarkaKernelWarmup() {
@@ -454,26 +451,23 @@ public final class VarkaKernelWarmup {
   }
 
   /**
-   * Runs the Vector API template warm-up for the worker's first start, and never throws: this
-   * runs outside the job loop's guard, and a worker that dies here is restarted by the next claim
-   * to die the same way. That includes a failure to initialize the warm-up class itself.
+   * Runs the Vector API template warm-up if nothing has yet, for the worker's first start, and
+   * never throws: this runs outside the job loop's guard, and a worker that dies here is
+   * restarted by the next claim to die the same way. That includes a failure to initialize the
+   * warm-up class itself. In a JVM where a kernel or a query-path helper ran first, the warm-up
+   * has already run on that thread ({@link VarkaVectorTemplateWarmup}, "When it runs").
    */
   static void templateWarmup() {
     try {
-      long nanos = VarkaVectorTemplateWarmup.ensure();
-      if (nanos > 0) {
-        templateWarmupNanos = nanos;
-        LOG.info("Vector API template warm-up took " + TimeUnit.NANOSECONDS.toMillis(nanos)
-            + " ms.");
-      }
+      VarkaVectorTemplateWarmup.beforeVectorCode();
     } catch (Throwable t) {
       LOG.warn("The Vector API template warm-up could not run; kernels warm without it.", t);
     }
   }
 
   private static void work() {
-    // Once per JVM, before the first kernel's calls give the shared Vector API templates a
-    // profile of one kernel's operators (VARKA-295).
+    // Once per JVM, normally already done by the first kernel build or instance (VARKA-389);
+    // here for a JVM whose first vector code is a warm-up job (VARKA-295).
     templateWarmup();
     while (true) {
       Job job;

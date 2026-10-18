@@ -91,6 +91,51 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
     assert(ensure() > 0L)
   }
 
+  test("beforeVectorCode runs the warm-up once, on the caller's thread, then is settled") {
+    resetForTest(null)
+    beforeVectorCode()
+    assert(completedRuns() === 1, "the first entry point to arrive runs the warm-up")
+    assert(nanos() > 0L, "the run's time is kept for the worker's log line and the tests")
+    assert(VarkaKernelWarmup.templateWarmupNanos() === nanos())
+    beforeVectorCode()
+    assert(completedRuns() === 1, "settled: one volatile read, no second run")
+    // Switched off, the hook settles without running, and a JVM that decided off stays off.
+    resetForTest(null)
+    System.setProperty(PROPERTY, "false")
+    try {
+      beforeVectorCode()
+      assert(completedRuns() === 0)
+      assert(nanos() === 0L)
+    } finally {
+      System.clearProperty(PROPERTY)
+    }
+    beforeVectorCode()
+    assert(completedRuns() === 0, "a JVM that decided off stays off")
+  }
+
+  test("the pacing reads C2's queue as the JVM prints it, within its budget") {
+    val drained = "Current compiles:\n\nC1 compile queue:\nEmpty\n\nC2 compile queue:\nEmpty\n"
+    assert(c2QueueLength(drained) === 0)
+    val busyC1Only = "Current compiles:\n\nC1 compile queue:\n" +
+      "   10 3  java.lang.String::hashCode (49 bytes)\n\nC2 compile queue:\nEmpty\n"
+    assert(c2QueueLength(busyC1Only) === 0, "C1's queue is not what the pacing waits for")
+    val busyC2 = "Current compiles:\n\nC1 compile queue:\nEmpty\n\nC2 compile queue:\n" +
+      "   11 4  java.lang.String::hashCode (49 bytes)\n" +
+      "   12 4  java.lang.String::equals (11 bytes)\n"
+    assert(c2QueueLength(busyC2) === 2)
+    assert(c2QueueLength("") === 0, "a format the parser does not know must not hold the warm-up")
+    assert(PROFILING_TIER_QUEUE_LIMIT >= 1)
+    assert(PACE_QUEUE_TARGET >= 1 && PACE_QUEUE_TARGET <= PROFILING_TIER_QUEUE_LIMIT,
+      "the pacing waits for the shorter queue at which the policy resumes profiling")
+    assert(THIN_CALLS_PER_ROUND * ROUNDS >= 2000,
+      "every one-line wrapper must pass the policy's old mark of 2,000 calls inside the rounds")
+    val started = System.nanoTime()
+    val waited = awaitC2Queue(300)
+    val elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+    assert(waited >= 0L && waited <= elapsed + 1)
+    assert(elapsed < 5000, s"the wait must end within its budget, took $elapsed ms")
+  }
+
   test("the property switches the warm-up off") {
     resetForTest(null)
     System.setProperty(PROPERTY, "false")

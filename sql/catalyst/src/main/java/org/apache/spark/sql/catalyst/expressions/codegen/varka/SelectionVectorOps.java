@@ -70,6 +70,12 @@ import jdk.incubator.vector.VectorSpecies;
 public final class SelectionVectorOps {
 
   private static final VectorSpecies<Integer> SPECIES = IntVector.SPECIES_PREFERRED;
+
+  static {
+    // This class runs vector code on the query path without a kernel, so the shared Vector API
+    // templates are warmed before its first use (VARKA-389; see VarkaVectorTemplateWarmup).
+    VarkaVectorTemplateWarmup.beforeVectorCode();
+  }
   private static final java.nio.ByteOrder ORDER = java.nio.ByteOrder.LITTLE_ENDIAN;
 
   private SelectionVectorOps() {}

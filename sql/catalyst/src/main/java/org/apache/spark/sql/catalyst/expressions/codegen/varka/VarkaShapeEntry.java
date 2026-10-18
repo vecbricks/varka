@@ -81,6 +81,9 @@ public record VarkaShapeEntry(
    * rather than its execution and are rethrown as they are.
    */
   public VarkaFusedKernel newKernel() {
+    // The executor's first vector code is a kernel instance or a query-path helper; the shared
+    // templates are warmed before either (VARKA-389). One volatile read after the first call.
+    VarkaVectorTemplateWarmup.beforeVectorCode();
     try {
       return (VarkaFusedKernel) constructor.newInstance();
     } catch (InvocationTargetException e) {

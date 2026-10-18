@@ -284,6 +284,9 @@ public final class VarkaShapeCacheImpl {
 
   /** The shape's class bytes, as {@link #emit} defines them; {@code hash} is the key's. */
   private byte[] build(String hash, VarkaShapeKey key) {
+    // Before the first emitted class exists in this JVM, so that the shared Vector API templates
+    // are warmed before any kernel can take them to a standalone compile (VARKA-389).
+    VarkaVectorTemplateWarmup.beforeVectorCode();
     builds.increment();
     return VarkaLoopEmitter.emit(classNameFor(hash), key.outputs(), key.numInputs(),
         key.numLiterals(), sourceFileFor(hash), "shape " + hash, key.options());

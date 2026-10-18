@@ -76,12 +76,12 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The probe's budget: its warm-up deadline (120 s), its wait for the verdict, and slack. */
   private val probeBudgetSeconds = 240L
 
-  private def warmUpInFork(claimed: Nulls): Forked = {
+  private def warmUpInFork(claimed: Nulls, wide: Boolean = false): Forked = {
     val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
       "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120",
       "-cp", testClasspath,
-      classOf[VarkaKernelWarmupProbe].getName, claimed.word)
+      classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil)
     val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
@@ -147,6 +147,24 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(o("entryState") == State.COMPILED.toString && o("ready") == "true", o)
     // The verdict's evidence: the first probe boxed, the last one did not.
     assert(o("last").toLong * VarkaKernelWarmup.COMPILED_DROP <= o("first").toLong, o("outcome"))
+  }
+
+  test("a wide shape warmed after an unwarmed kernel took the templates to C2 still compiles") {
+    // The order of VarkaColdStartBenchmark, and of any JVM whose first vector code is not a
+    // warm-up: a kernel runs unwarmed first, its interpreted calls take the shared Vector API
+    // templates to their standalone C2 compiles, and only then does a shape warm. Before
+    // VARKA-389 the template warm-up ran at that point, deoptimised those compiles, and a wide
+    // kernel, which inlines each template hundreds of times, summed the decompile count past
+    // C2's cutoff and was released at the deadline on every machine (`VARKA-389.md` 8.4a). The
+    // probe's wide shape is the benchmark's at sixteen entries, four groups of four outputs; the
+    // JVM is the probe's own, so no earlier suite can have warmed the templates first.
+    val run = warmUpInFork(Nulls.SOME_NULLS, wide = true)
+    assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
+    assume(run.support("canWarm") == "true", "this JVM cannot warm kernels")
+    val o = run.outcome
+    assert(o("queued") == "true" && o("idle") == "true", o)
+    assert(o("matches") == "true", o("outcome"))
+    assert(o("state") == State.COMPILED.toString, o("outcome"))
   }
 
   Seq(Nulls.NO_NULLS, Nulls.SOME_NULLS, Nulls.ALL_NULL).foreach { claimed =>

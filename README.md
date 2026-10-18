@@ -421,7 +421,7 @@ read-back floor - live in `sql/core/benchmarks/` and `sql/catalyst/benchmarks/`
 | Chain of 8 date ops, columnar consumer | 6.9x - flat from depth 1 to 8 since the VARKA-18 class cache |
 | The same chains through a **row** consumer | 0.8x - the ~25 ns/row read-back floor; heavy shapes clear it |
 | `COUNT(*)` over an 85%-selective filter | 0.8x - nearly every row crosses the floor (1.8x at 15%) |
-| Cold start: first run of a fresh plan shape | 0.8x with the warm-up, 0.5x without - a fresh shape misses the class cache by design; on the milestone 7 build the warm-up gave the kernel up at its 60-second deadline on 51 of 71 verdicts on the laptop, where the file of 28 September had none (`sql/varka/plans/m9/SCOPE.md` item 103) |
+| Cold start: a fresh plan shape of 16 entries | 1.6x once the warm-up's kernel is in (31 ms against 49 ms best); the first run itself takes the row path at 0.9x - a fresh shape misses the class cache by design, and the warm-up's verdict comes in about two seconds on the milestone 7 build |
 | Emit + load + instantiate a kernel vs one Janino compile | 66x cheaper (~99 us vs ~6.5 ms) |
 
 Regenerate with `SPARK_GENERATE_BENCHMARK_FILES=1`:

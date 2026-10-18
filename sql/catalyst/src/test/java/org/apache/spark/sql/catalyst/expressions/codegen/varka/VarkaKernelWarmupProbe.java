@@ -76,6 +76,36 @@ public final class VarkaKernelWarmupProbe {
 
   public static final int NUM_OUTPUTS = 3;
 
+  /**
+   * The cold-start benchmark's shape at sixteen entries, {@code greatest(add_months(d, k),
+   * date_add(d, k), last_day(d))} with a literal slot per entry: four groups of four outputs, the
+   * width whose warm-up the milestone 7 close found released on every machine (VARKA-389).
+   */
+  public static VarkaShapeKey wideShape() {
+    var d = new VarkaVectorIR.ColumnRef(0);
+    var roots = new java.util.ArrayList<VarkaVectorIR>();
+    for (int i = 0; i < WIDE_OUTPUTS; i++) {
+      var k = new VarkaVectorIR.LiteralSlot(i);
+      roots.add(new VarkaVectorIR.Greatest(
+          new VarkaVectorIR.Greatest(new VarkaVectorIR.AddMonths(d, k),
+              new VarkaVectorIR.AddDays(d, k)),
+          new VarkaVectorIR.LastDay(d)));
+    }
+    return new VarkaShapeKey(List.copyOf(roots), 1, WIDE_OUTPUTS, VarkaEmitOptions.DEFAULTS,
+        true);
+  }
+
+  public static final int WIDE_OUTPUTS = 16;
+
+  /** The wide shape's literals, the month and day counts 1 to 16. */
+  static int[] wideLiterals() {
+    int[] literals = new int[WIDE_OUTPUTS];
+    for (int i = 0; i < WIDE_OUTPUTS; i++) {
+      literals[i] = i + 1;
+    }
+    return literals;
+  }
+
   /** Where a batch of {@link #dates} has its nulls; {@code word} is how {@link #main} is told. */
   public enum Nulls {
     NO_NULLS("no nulls", "none"),
@@ -136,7 +166,13 @@ public final class VarkaKernelWarmupProbe {
    * so it cannot fail on a fresh cache.
    */
   public static Warmed warm(VarkaShapeCacheImpl cache, int rows, Nulls nulls) {
-    var entry = cache.getOrEmit(Utils.getContextOrSparkClassLoader(), shape(), "warmup-suite")
+    return warm(cache, rows, nulls, shape(), NUM_OUTPUTS, new int[] {2});
+  }
+
+  /** As above, for {@code shape} with {@code numOutputs} outputs and {@code scalarArgs}. */
+  public static Warmed warm(VarkaShapeCacheImpl cache, int rows, Nulls nulls,
+      VarkaShapeKey shape, int numOutputs, int[] scalarArgs) {
+    var entry = cache.getOrEmit(Utils.getContextOrSparkClassLoader(), shape, "warmup-suite")
         .entry();
     if (!entry.warmth().tryClaim()) {
       throw new IllegalArgumentException(
@@ -148,7 +184,7 @@ public final class VarkaKernelWarmupProbe {
       boolean queued = VarkaKernelWarmup.start(entry.warmth(), entry.shapeHash(),
           entry.newKernel(), false, new long[] {batch.data().address()},
           new long[] {validityAddress}, new int[] {batch.nullCount()}, new int[] {4}, true, rows,
-          NUM_OUTPUTS, new int[] {2}, new long[0]);
+          numOutputs, scalarArgs, new long[0]);
       // The warm-up copies the batch before start returns, so the batch can go at once.
       return new Warmed(entry, queued);
     }
@@ -187,11 +223,41 @@ public final class VarkaKernelWarmupProbe {
     }
   }
 
-  public static void main(String[] args) throws InterruptedException {
-    if (args.length != 1) {
-      throw new IllegalArgumentException(
-          "requirement failed: usage: VarkaKernelWarmupProbe <none|some|all>");
+  /**
+   * Runs {@code kernel} unwarmed over {@code calls} batches of 1,024 rows, dense and masked in
+   * turn, as a session with the warm-up off runs a kernel: its interpreted calls take the shared
+   * Vector API templates past C2's thresholds, so that they are compiled standalone from this one
+   * kernel's profile before any warm-up has run (VARKA-389's order, the cold-start benchmark's).
+   * Waits two seconds after, for the compiles to land.
+   */
+  static void runUnwarmed(VarkaFusedKernel kernel, int numOutputs, int[] literals, int calls)
+      throws InterruptedException {
+    int rows = 1024;
+    try (var arena = Arena.ofConfined()) {
+      var dense = dates(arena, rows, Nulls.NO_NULLS);
+      var masked = dates(arena, rows, Nulls.SOME_NULLS);
+      long[] dstData = new long[numOutputs];
+      long[] dstValidity = new long[numOutputs];
+      for (int o = 0; o < numOutputs; o++) {
+        dstData[o] = arena.allocate(rows * 4L, 64).address();
+        dstValidity[o] = arena.allocate(rows / 8L + 8, 64).address();
+      }
+      for (int k = 0; k < calls; k++) {
+        var batch = k % 2 == 0 ? dense : masked;
+        long[] validity = {batch.nullCount() == 0 ? 0L : batch.validity().address()};
+        kernel.run(new long[] {batch.data().address()}, validity,
+            new int[] {batch.nullCount()}, dstData, dstValidity, literals, rows);
+      }
     }
+    Thread.sleep(2000);
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    if (args.length < 1 || args.length > 2 || (args.length == 2 && !"wide".equals(args[1]))) {
+      throw new IllegalArgumentException(
+          "requirement failed: usage: VarkaKernelWarmupProbe <none|some|all> [wide]");
+    }
+    boolean wide = args.length == 2;
     Nulls claimed = null;
     for (var n : Nulls.values()) {
       if (n.word.equals(args[0])) {
@@ -206,7 +272,20 @@ public final class VarkaKernelWarmupProbe {
     boolean canWarm = VarkaKernelWarmup.canWarm();
     System.out.println(SUPPORT_PREFIX + "sampler=" + sampler + " canWarm=" + canWarm);
     if (sampler) {
-      var warmed = warm(new VarkaShapeCacheImpl(8), 10000, claimed);
+      Warmed warmed;
+      if (wide) {
+        // The benchmark's order: the shape runs unwarmed first, from a cache of its own, and a
+        // new class of it is then warmed, as VarkaColdStartBenchmark does between its arms.
+        var unwarmed = new VarkaShapeCacheImpl(8)
+            .getOrEmit(Utils.getContextOrSparkClassLoader(), wideShape(), "warmup-suite")
+            .entry();
+        runUnwarmed(unwarmed.newKernel(), WIDE_OUTPUTS, wideLiterals(), 600);
+        VarkaShapeCache.invalidateAll();
+        warmed = warm(new VarkaShapeCacheImpl(8), 10000, claimed, wideShape(), WIDE_OUTPUTS,
+            wideLiterals());
+      } else {
+        warmed = warm(new VarkaShapeCacheImpl(8), 10000, claimed);
+      }
       var entry = warmed.entry();
       boolean queued = warmed.queued();
       boolean idle = queued && VarkaKernelWarmup.awaitIdle(200000);
@@ -219,7 +298,7 @@ public final class VarkaKernelWarmupProbe {
           + " first=" + (outcome == null ? -1L : outcome.firstProbeBytes())
           + " last=" + (outcome == null ? -1L : outcome.lastProbeBytes())
           + " outcome=" + (outcome == null ? "none" : outcome.toString()));
-      if (queued) {
+      if (queued && !wide) {
         var kernel = entry.newKernel();
         for (var served : List.of(Nulls.NO_NULLS, Nulls.SOME_NULLS)) {
           System.out.println(ALLOC_PREFIX + "served=" + served.word + " bytes="

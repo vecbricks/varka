@@ -78,7 +78,7 @@ class Rough:
         roughness=1.0,
         bg="#ffffff",
         sketchy=False,
-        fill_style="hachure",
+        fill_style="outline",
     ):
         self.w, self.h = width, height
         self.rnd = random.Random(seed)
@@ -90,11 +90,16 @@ class Rough:
         # its edges overshooting the corners, its fill a bolder marker-like hachure at an angle of
         # its own. Off, a rectangle is the tidy double stroke every figure before had.
         self.sketchy = sketchy
-        # How a rectangle's fill is laid: "hachure" (the diagonal lines every figure before
-        # had), "solid" (a pale tint), "sparse" (thin lines far apart), "drop" (a white box
-        # over a hatched shadow), "tint-hatch" (a pale tint with thin lines over it), or
-        # "outline" (no fill; the box's line takes the colour).
-        self.fill_style = fill_style
+        # How a shape's fill is laid: "outline" (no fill; the shape's line takes the colour,
+        # the default since figure 56), "hachure" (the diagonal lines the figures before it
+        # had), "solid" (a pale tint), "wash" (the tint deepening toward a corner), "spots"
+        # (a few big blurred blots of the colour), "sparse" (thin lines far apart), "drop" (a
+        # white box over a hatched shadow) or "tint-hatch" (a pale tint with thin lines over
+        # it).
+        # VARKA_FILL_STYLE in the environment overrides the style, so one script can be
+        # rendered in several styles side by side when the look is being chosen.
+        self.fill_style = os.environ.get("VARKA_FILL_STYLE", fill_style)
+        self._clips = 0
 
     # -- strokes ---------------------------------------------------------------------------
     def _o(self, k=1.0):
@@ -218,6 +223,42 @@ class Rough:
                 self._stroke(self._line_path(x1, y1, x2, y2, 0.6), fill, width)
             c += gap + self._o(0.3)
 
+    def _spots(self, poly, fill, opacity=0.42):
+        """A few big blurred blots of `fill` inside the convex polygon `poly`, like colour
+        dabbed on with a wet brush: each blot is an ellipse under a Gaussian blur, and the
+        group is clipped to the polygon so the blur fades toward the outline and stops there."""
+        col = PALETTE.get(fill, fill)
+        xs = [px for px, _ in poly]
+        ys = [py for _, py in poly]
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        w, h = x1 - x0, y1 - y0
+        self._clips += 1
+        clip, blur_id = "clip%d" % self._clips, "blur%d" % self._clips
+        pts = " ".join("%.1f,%.1f" % p for p in poly)
+        blur = 0.11 * min(w, h) + 3
+        # The filter is applied before the clip, so the blur fades inside the outline and
+        # nothing spills past it; the filter region is widened so the blur is not cut short.
+        self.parts.append(
+            '<defs><clipPath id="%s"><polygon points="%s"/></clipPath>'
+            '<filter id="%s" x="-60%%" y="-60%%" width="220%%" height="220%%">'
+            '<feGaussianBlur stdDeviation="%.1f"/></filter></defs>' % (clip, pts, blur_id, blur)
+        )
+        n = 3 if w * h < 20000 else 4 if w * h < 45000 else 5
+        spots = []
+        for i in range(n):
+            # Centres spread along the shape, each nudged off the axis, radii of its own.
+            cx = x0 + w * (0.5 + (i - (n - 1) / 2) / n * 0.9 + (self.rnd.random() - 0.5) * 0.18)
+            cy = y0 + h * (0.5 + (self.rnd.random() - 0.5) * 0.5)
+            rx = w / n * (0.55 + self.rnd.random() * 0.35)
+            ry = h * (0.32 + self.rnd.random() * 0.3)
+            spots.append(
+                '<ellipse cx="%.1f" cy="%.1f" rx="%.1f" ry="%.1f" fill="%s" '
+                'fill-opacity="%.2f"/>' % (cx, cy, rx, ry, col, opacity)
+            )
+        self.parts.append(
+            '<g clip-path="url(#%s)" filter="url(#%s)">%s</g>' % (clip, blur_id, "".join(spots))
+        )
+
     # -- shapes ----------------------------------------------------------------------------
     def rect(
         self,
@@ -257,9 +298,24 @@ class Rough:
         """Lay the fill of a box in the figure's style; returns the outline colour to use."""
         col = PALETTE.get(fill, fill)
         tint = LIGHT.get(fill, "#f1f3f5")
-        cx = sum(px for px, _ in poly) / 4
-        cy = sum(py for _, py in poly) / 4
+        cx = sum(px for px, _ in poly) / len(poly)
+        cy = sum(py for _, py in poly) / len(poly)
         style = self.fill_style
+        if style == "spots":
+            self._spots(poly, fill)
+            return None
+        if style == "wash":
+            # A marker wash: the pale tint deepening a little toward one corner.
+            self._clips += 1
+            gid = "wash%d" % self._clips
+            pts = " ".join("%.1f,%.1f" % (px + self._o(0.4), py + self._o(0.4)) for px, py in poly)
+            self.parts.append(
+                '<defs><linearGradient id="%s" x1="0" y1="0" x2="1" y2="1">'
+                '<stop offset="0" stop-color="%s"/>'
+                '<stop offset="1" stop-color="%s" stop-opacity="0.45"/></linearGradient></defs>'
+                '<polygon points="%s" fill="url(#%s)" stroke="none"/>' % (gid, tint, col, pts, gid)
+            )
+            return None
 
         def flat(points, colour):
             pts = " ".join(
@@ -281,7 +337,8 @@ class Rough:
             flat(poly, tint)
             self._hachure(inset, col, gap=15.0, angle=angle, width=1.1)
         elif style == "outline":
-            return col
+            # A white box keeps the figure's dark line; a white outline would vanish.
+            return None if fill == "white" else col
         elif sketchy:
             self._hachure(inset, col, gap=8.0, angle=angle, width=2.3)
         else:
@@ -314,7 +371,7 @@ class Rough:
                 (cx + rx * math.cos(t), cy + ry * math.sin(t))
                 for t in [i * 2 * math.pi / 40 for i in range(40)]
             ]
-            self._hachure(poly, PALETTE.get(fill, fill))
+            self._fill_rect(poly, fill)
         for k in (1.0, 0.6):
             n = 24
             start = self.rnd.random() * 2 * math.pi
