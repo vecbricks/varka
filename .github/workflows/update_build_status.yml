@@ -160,6 +160,16 @@ jobs:
               // but workflow_run may also report requested / waiting / pending.
               : {status: run.status == 'in_progress' ? 'in_progress' : 'queued', conclusion: null}
 
+            // What this loop last patched each check to, by check id, as 'status/conclusion'.
+            // GitHub keeps a completed check completed: a PATCH to in_progress is accepted and
+            // changes nothing, so while a fork run is rerun its check reads 'completed' on
+            // every pass against a run that reads 'in_progress', and comparing the check with
+            // the run alone sent the same patch every two minutes (51 times for one check in
+            // job 117303119123). A patch goes out when the check differs from its run and the
+            // wanted state differs from the last one sent; the memory is this run's, so the
+            // next loop sends a still-standing state once more, which is the cost of a patch.
+            const sent = new Map()
+
             // A completed run's steps against the budget, as markdown for the check's summary,
             // or '' when the tool fails; the summary is a disclosure, never worth a failed pass.
             const { execFileSync } = require('child_process')
@@ -271,6 +281,10 @@ jobs:
                       if (cr.status == want.status && (cr.conclusion || null) == want.conclusion) {
                         continue
                       }
+                      const wantKey = want.status + '/' + (want.conclusion || '')
+                      if (sent.get(cr.id) == wantKey) {
+                        continue
+                      }
                       patches++
                       // A failed patch skips this check until the next pass rather than
                       // ending the loop, which every other pull request's sync rides on.
@@ -297,6 +311,7 @@ jobs:
                             details_url: run.data.details_url
                           })
                         }
+                        sent.set(cr.id, wantKey)
                       } catch (error) {
                         console.error('    Run ' + cr.id + ': patch failed; a later pass retries it')
                         console.error(error)

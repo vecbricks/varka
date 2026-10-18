@@ -193,8 +193,10 @@ public final class VarkaShapeCache {
   }
 
   /**
-   * Test hook, mirroring {@code CodeGenerator.invalidateCodegenCache}. Internal to Spark's SQL
-   * code and its tests; a Java class cannot say {@code private[sql]}.
+   * Test hook, mirroring {@code CodeGenerator.invalidateCodegenCache}: the classes, the admitted
+   * bytes and the remembered declines all go, so a count of builds taken after it starts from a
+   * cold cache however often the JVM has compiled the shape before. Internal to Spark's SQL code
+   * and its tests; a Java class cannot say {@code private[sql]}.
    */
   public static void invalidateAll() {
     cache().invalidateAll();

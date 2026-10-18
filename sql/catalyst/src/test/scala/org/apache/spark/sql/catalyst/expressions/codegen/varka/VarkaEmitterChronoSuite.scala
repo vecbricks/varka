@@ -1904,7 +1904,13 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     // A task runs kernels for a living and owes them their scratch; a pool thread served from
     // the per-thread fallback would keep its largest buffer for the JVM's life. The form with an
     // address runs there as anywhere, and a kernel without scratch never asks.
-    val on = VarkaMatrix.base.withMaterializeChronoPrefix(true)
+    // The subject is the run forms, not the emitted structure, so the test pins everything a
+    // kernel with scratch takes: a prefix is materialized only across two or more groups, under
+    // the fragment sharing it builds on and the byte budget whose per-group methods it needs
+    // (Analysis.planMaterialized); with sharing off or the budget off the kernel has no
+    // scratch and nothing here would be exercised.
+    val on = VarkaMatrix.base.withMaterializeChronoPrefix(true).withShareChronoPrefix(true)
+      .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
       .withGroupBudget(1).withFusedCeiling(1)
     val col = new ColumnRef(0)
     val roots = Seq[VarkaVectorIR](new Year(col), new Month(col))

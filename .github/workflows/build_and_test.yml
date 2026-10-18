@@ -234,6 +234,11 @@ jobs:
             build_core_utils=false
             pyspark=false
             pandas=false
+            # pyspark-periodic depends on sql, so a change under sql/catalyst sets it like
+            # pyspark, and every flag the admit job's condition reads has to be reset here:
+            # with this one left standing a scoped push waited 67 minutes for a full-matrix
+            # slot and precompiled Spark for a PySpark job that never ran (run 39008460283).
+            pyspark_periodic=false
             pyspark_install=false
             pyspark_connect_old_client=false
             tpcds=false
@@ -663,10 +668,12 @@ jobs:
   # - the module matrix, the PySpark groups, the Docker and Kubernetes jobs - waits here while
   # another such run is ahead of it, so two full-matrix runs never share the fork's job slots,
   # and a pull request labelled ci-hold on vecbricks/varka stops here. A Varka-scoped or
-  # documents-only run skips this job and never waits. The condition is Precompile Spark's,
-  # which now runs only when this job succeeds, so the two cannot drift apart. It runs on
-  # ubuntu-latest, not ubuntu-slim, because a slim job is cut off at 15 minutes and this one
-  # may wait hours; on apache/spark and vecbricks/varka it admits at once.
+  # documents-only run skips this job and never waits: the precondition's scope override
+  # resets every flag this condition reads, pyspark-periodic included, so the condition
+  # itself needs no scope clause. The condition is Precompile Spark's, which now runs only
+  # when this job succeeds, so the two cannot drift apart. It runs on ubuntu-latest, not
+  # ubuntu-slim, because a slim job is cut off at 15 minutes and this one may wait hours; on
+  # apache/spark and vecbricks/varka it admits at once.
   admit:
     needs: precondition
     if: >-

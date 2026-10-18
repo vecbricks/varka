@@ -631,6 +631,22 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(cache.buildCount === builds)
   }
 
+  test("invalidateAll forgets a remembered decline, so the next admission builds and declines " +
+      "again") {
+    // The compiler suite counts a bisection's probes as builds after invalidateAll; a decline
+    // that outlived the hook would be rethrown unbuilt on a second run in the same JVM, and the
+    // count would come out short (VARKA-261).
+    val cache = new VarkaShapeCacheImpl(8)
+    val key = new VarkaShapeKey(java.util.List.of(chain(bits = 5, depth = 6)), 1, 1,
+      VarkaMatrix.base.withMethodByteBudget(50))
+    val first = intercept[VarkaEmitDeclined](cache.admit(parent, key, true))
+    val builds = cache.buildCount
+    cache.invalidateAll()
+    val second = intercept[VarkaEmitDeclined](cache.admit(parent, key, true))
+    assert(cache.buildCount === builds + 1, "the forgotten decline was not built again")
+    assert(second ne first, "the hook kept the remembered decline")
+  }
+
   test("a cache that retains nothing holds no admitted bytes either") {
     val cache = new VarkaShapeCacheImpl(0)
     val key = keyOf(chain(bits = 9, depth = 4))

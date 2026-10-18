@@ -58,13 +58,40 @@ runs:
     # build entry of the same pom. The entry also holds the engine jar of the
     # commit that saved it, which every install overwrites. Restore, install
     # and save are separate steps so that the save runs right after the
-    # install, before anything later in the job adds to ~/.m2/repository.
+    # install, before anything later in the job adds to the repository.
+    #
+    # Where that repository is: Maven's default is ${user.home}/.m2/repository,
+    # and Java reads user.home from the uid's passwd entry, not from $HOME.
+    # actions/cache expands ~ with $HOME. On a host runner both are
+    # /home/runner; in a container job GitHub sets HOME=/github/home while the
+    # uid is root, so a cache restored to ~/.m2 landed where Maven never looked
+    # and every container job's offline install failed and went online (run
+    # 39017334406). The path is therefore asked of the JVM, and spelled
+    # ~/.m2/repository wherever the two agree, so that the host jobs' cache
+    # version, which hashes the path as written, stays what it was.
+    - name: Find the local Maven repository
+      id: m2-path
+      if: inputs.cache == 'true'
+      shell: bash
+      run: |
+        user_home=$("${JAVA_HOME:+$JAVA_HOME/bin/}java" -XshowSettings:properties -version 2>&1 \
+          | sed -n 's/^ *user\.home = //p' | head -n 1)
+        if [ -z "$user_home" ] || [ "$user_home" = "$HOME" ]; then
+          # A literal tilde on purpose: actions/cache expands it, and the path as
+          # written is part of the cache version the host jobs' entries carry.
+          # shellcheck disable=SC2088
+          repository='~/.m2/repository'
+        else
+          repository="$user_home/.m2/repository"
+        fi
+        echo "Maven's local repository: $repository (user.home=${user_home:-?}, HOME=$HOME)"
+        echo "repository=$repository" >> "$GITHUB_OUTPUT"
     - name: Restore the engine's local Maven repository
       id: m2-restore
       if: inputs.cache == 'true'
       uses: actions/cache/restore@v6
       with:
-        path: ~/.m2/repository
+        path: ${{ steps.m2-path.outputs.repository }}
         key: >-
           varka-engine-m2-v1-${{ runner.os }}-${{ inputs.run-tests == 'true' && 'test' || 'build'
           }}-${{ hashFiles('sql/varka/engine/pom.xml') }}
@@ -122,5 +149,5 @@ runs:
       if: inputs.cache == 'true' && steps.m2-restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
-        path: ~/.m2/repository
+        path: ${{ steps.m2-path.outputs.repository }}
         key: ${{ steps.m2-restore.outputs.cache-primary-key }}

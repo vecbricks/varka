@@ -2663,6 +2663,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // kernels. The loop finds the first by bisection, ten or more emissions each building and
     // measuring a class; the plan reads the cut off the driver built alone and declines before
     // any build, so the first emission builds nothing and each kernel is then built once.
+    // The counts read the cache's global build counter, so the cache is emptied first - the
+    // remembered declines included, or a second run of this test in one JVM (PIT's minions
+    // rerun it per mutant) would find the probes that declined last time rethrown unbuilt and
+    // count too few emissions.
     def entry(k: Int): NamedExpression =
       out(Greatest(Seq(AddMonths(d, Literal(k)), DateAdd(d, Literal(k)), LastDay(d))))
     val list = (1 to 800).map(entry)

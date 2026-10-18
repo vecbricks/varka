@@ -466,11 +466,18 @@ public final class VarkaShapeCacheImpl {
     return cache.size();
   }
 
-  /** Test hook: drops every entry (releasing the loaders) and the side table. */
+  /**
+   * Test hook: drops every entry (releasing the loaders), the side table, the admitted bytes and
+   * the remembered declines, so that what follows meets a cold cache. The declines count: a test
+   * that counts the builds of a bisection after this hook counts every probe only if the probes
+   * that declined last time are built again, and a JVM that runs such a test twice - PIT's
+   * minions do - would otherwise count a different number the second time.
+   */
   public void invalidateAll() {
     cache.invalidateAll();
     executions.invalidateAll();
     admitted.invalidateAll();
+    declined.invalidateAll();
   }
 
   /**

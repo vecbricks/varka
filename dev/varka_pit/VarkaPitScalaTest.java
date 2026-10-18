@@ -207,6 +207,10 @@ public final class VarkaPitScalaTest implements TestPluginFactory {
         outcome.failure = t;
       }
       if (outcome.failure != null) {
+        // PIT records a kill without the test's message, and the mutant's stack trace stays in
+        // the minion; this line reaches the run's log (the MINION lines under --verbose), so a
+        // test that fails for reasons of its own can be read there rather than guessed at.
+        System.out.println("varka_pit: " + test + " failed: " + outcome.failure);
         rc.notifyEnd(d, outcome.failure);
       } else if (outcome.skipped) {
         rc.notifySkipped(d);
