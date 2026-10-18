@@ -73,8 +73,13 @@ run would leave and exiting as a scenario says, drives the script through six ru
 quiet run, no annotation); a failure then a pass (two runs, one annotation naming the suite and
 the test); two failures then a pass (three runs, two annotations); three failures (exit 1 after
 three runs); a failure in a suite not in the list (exit 1 after one run, no retry); a failure
-without a JUnit report (exit 1 after one run). All six behave as listed. The real run is the
-pull request's own "Varka suites: sql" job, since a change to this script runs the scoped jobs.
+without a JUnit report (exit 1 after one run). All six behave as listed. The stub writes the
+report as ScalaTest does, with the `<testsuite` tag's counts on the line after the tag: the
+first version of the parser looked for them on the tag's line, the stub of that version did
+the same, and the pull request's own first run, a real release on an Int256Vector runner, took
+the "no JUnit report" exit instead of retrying; the parser now looks anywhere in the file, where
+no other element carries those attributes. The real run is the pull request's own "Varka
+suites: sql" job, since a change to this script runs the scoped jobs.
 
 ## 6. The measurement
 

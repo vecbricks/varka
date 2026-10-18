@@ -76,8 +76,10 @@ quiet() {   # the JIT-measuring suites $2, alone and without the sanitizer, unde
     --out "$1" --suites "$2" -j 1 --no-sanitizer
 }
 failed_suites() {   # simple names of the suites with a failed or errored test under $1
-  { grep -l -E '<testsuite[^>]* (failures|errors)="[1-9]' "$1"/runs/defaults/*/junit/TEST-*.xml \
-    2>/dev/null || true; } | sed -E 's#.*/TEST-(.*)\.xml$#\1#; s#.*\.##' | sort -u | tr '\n' ' '
+  # The counts are attributes of the report's <testsuite> tag, which ScalaTest writes on the line
+  # after the tag itself, so they are looked for anywhere in the file; no other element has them.
+  { grep -l -E '(failures|errors)="[1-9]' "$1"/runs/defaults/*/junit/TEST-*.xml 2>/dev/null \
+    || true; } | sed -E 's#.*/TEST-(.*)\.xml$#\1#; s#.*\.##' | sort -u | tr '\n' ' '
 }
 failed_tests() {    # the failed tests' names under $1, one line, for the annotation
   { cat "$1"/runs/defaults/*/junit/TEST-*.xml 2>/dev/null || true; } |
