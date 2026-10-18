@@ -147,8 +147,12 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   so every branch carrying the workflow change reads as `spark` until the change is on master;
   the run was cancelled and the branch left on the fork. The scoped path is first exercised by
   the first Varka-scoped push after the merge, and the check sync's change by the first rerun
-  after it, since that workflow runs from the default branch on a schedule. `[MORNING: the full
-  run's outcome.]`
+  after it, since that workflow runs from the default branch on a schedule. The full run is green
+  (37 jobs passed, the usual 4 skipped): the install step resolved the repository to
+  `/root/.m2/repository` in the container jobs (`user.home=/root` against `HOME=/github/home`)
+  and to `~/.m2/repository` on the host runners; the first job of each kind missed the cache,
+  the container path being a new cache version, installed online and saved it, and every later
+  job of its kind restored it and installed offline, the container jobs from the lint job's save.
 * **Step 8, the tag and the cleanup.** The counts against prediction 5 are in section 5.5: 87
   worktrees by `gc` and four by hand, 108 local branches, 247 fork branches. The tag goes on the
   merge commit of the close's pull request, which does not exist while this record is written,
@@ -365,7 +369,8 @@ the rows that moved.
    (`varka-320-base`), a JVM replay log (`varka-291-e`), and the close's own surfaces worktree.
    The fork's other 695 branches are the owner's Apache Spark branches, untouched as
    `VARKA-282.md` 5 learned.
-6. **Held on the laptop; the CI part `[MORNING: the full run]`.** The option-matrix test passes
+6. **Held on the laptop and on the one CI check that could run before the merge.** The
+   option-matrix test passes
    under both configurations and the defaults; the bisection test ran 86 times in one JVM under
    PIT without a failure of its own; the matrix's three configurations took 15, 14 and 15 seconds
    for the suite, so the pinned options added nothing. Of the three workflow changes only the
