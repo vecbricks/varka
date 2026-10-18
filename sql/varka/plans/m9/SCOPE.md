@@ -5271,7 +5271,13 @@ seconds of batches 150 ms best and 1,639 ms average against 46 and 60. Between t
 warm-up changed in #679, #807 and #827 (row 295) and the laptop's kernel from 7.0.0-31 to
 7.0.0-38. The bisection's cheap first step: the 28 September engine's cold-start rung on today's
 machine, and today's engine's on a JVM with `-XX:+PrintCompilation`, to see whether the loop
-method is compiled late or never asked for.
+method is compiled late or never asked for. The close's runner pair (runs 39107597853 and
+39107602708, an AMD EPYC 7763 and a Xeon 8370C, files
+`VarkaColdStartBenchmark-jdk25-runner-*-m7-*`) read the same 51 of 71, and on all three machines
+the split is by shape: every projection shape releases, only the range-filter shapes compile; on
+the Xeon the once-compiled 16-entry row is 64 ms against 37 on 28 September. So the cause is in
+the code since 28 September, not the host, and this item is a row's work for whatever milestone
+opens next.
 
 ### Item 104. A post on the proofs alone
 

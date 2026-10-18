@@ -345,10 +345,18 @@ the rows that moved.
 3. **Pending the merge, and already missed by one.** The dry run on this branch closes three
    issues, 222's and the two moved rows' (180 and 386), which were open and which "changes no
    other" overlooked; 261's closes with the merge, four in all against the two predicted.
-4. **Missed on the laptop; the runner pair's verdicts follow.** Two "Run benchmarks" dispatches
-   of the class on GitHub-hosted runners (39107597853 and 39107602708, from the debt branch,
-   whose engine is master's) were running when this pull request opened; their verdicts are
-   added here when they end. The regenerated laptop file (wide
+4. **Missed on the laptop, held on the pair, and the pair sharpens the finding.** Two "Run
+   benchmarks" dispatches of the class on GitHub-hosted runners (39107597853 on an AMD EPYC
+   7763, 39107602708 on a Xeon 8370C, from the debt branch, whose engine is master's; files
+   `VarkaColdStartBenchmark-jdk25-runner-7763-m7-*` and `-runner-xeon8370c-m7-*`) read
+   RELEASED on 51 of 71 verdicts each, the laptop's count exactly, and the split is by shape on
+   all three machines: every projection shape (`greatest(add_months(d, k), date_add(d, k),
+   last_day(d))` at all nine rungs, the back-to-back and the steady-state tables) releases at
+   the 60-second deadline, and only the two range-filter tables compile, 10 of 10 each. On the
+   Xeon the once-compiled row of the 16-entry shape reads 64 ms against 37 ms in the file of
+   28 September on the same CPU class. So this is not a machine's JIT luck: something in the
+   engine or the warm-up since 28 September keeps these projection kernels from a verdict on
+   every machine, and it is a row's work, not an item's. The regenerated laptop file (wide
    width only, on the owner's word; the 128-bit companion stays from 28 September and the
    provenance says so) has no 1.8x to be within 20% of: the warm-up's verdict was RELEASED at its
    60-second deadline on 51 of 71 iterations, where the committed file of 28 September, same

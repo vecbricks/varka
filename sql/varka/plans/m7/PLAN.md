@@ -1072,5 +1072,8 @@ The cold-start regeneration on the laptop read RELEASED on 51 of 71 warm-up verd
 file of 28 September on the same machine and pin had 71 COMPILED, and its once-compiled rows 22 to
 50% slower; the README's cold-start row now quotes the first-run ratios (0.8x with the warm-up,
 0.5x without) with the verdicts beside them, and `m9/SCOPE.md` item 103 carries the finding with
-its bisection's first step (`VARKA-261.md` 5.5, prediction 4). The close itself needed none of
+its bisection's first step (`VARKA-261.md` 5.5, prediction 4); the runner pair read the same
+count on two other CPUs, split by shape, every projection shape releasing and the range filters
+compiling, so the cause is in the code since 28 September and the item is a row's work for the
+milestone that opens next. The close itself needed none of
 the laptop's time; the README's numbers did, and item 109 separates the two from milestone 8 on.

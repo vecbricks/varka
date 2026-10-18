@@ -1,0 +1,273 @@
+================================================================================================
+the first query: greatest(add_months(d, k), date_add(d, k), last_day(d))
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+16 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             23             35          11          4.4         229.8       1.0X
+vanilla Spark, first run                            221            288         109          0.5        2205.4       0.1X
+vanilla Spark, second run                            94            105          13          1.1         940.0       0.2X
+Varka, plan only                                     42             54          12          2.4         422.6       0.5X
+Varka, first run                                    460            491          41          0.2        4599.1       0.0X
+Varka, second run                                   418            458          48          0.2        4178.0       0.1X
+Varka with warm-up, plan only                        28             33           8          3.6         276.4       0.8X
+Varka with warm-up, first run                       332            381          68          0.3        3324.4       0.1X
+Varka with warm-up, second run                      131            168          24          0.8        1309.0       0.2X
+Varka with warm-up, once compiled                    64             71           8          1.6         636.7       0.4X
+
+rung 16: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60053 ms and 55248 calls; RELEASED after 60047 ms and 55508 calls; RELEASED after 60047 ms and 55512 calls; RELEASED after 60038 ms and 55764 calls; RELEASED after 60041 ms and 55764 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+32 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             14             15           2          7.3         137.5       1.0X
+vanilla Spark, first run                            309            341          38          0.3        3086.6       0.0X
+vanilla Spark, second run                           116            125           8          0.9        1155.1       0.1X
+Varka, plan only                                     31             32           3          3.3         306.7       0.4X
+Varka, first run                                    777            801          19          0.1        7768.4       0.0X
+Varka, second run                                   774            782           8          0.1        7740.8       0.0X
+Varka with warm-up, plan only                        29             31           3          3.4         292.0       0.5X
+Varka with warm-up, first run                       454            503          49          0.2        4544.7       0.0X
+Varka with warm-up, second run                      204            222          14          0.5        2040.8       0.1X
+Varka with warm-up, once compiled                    79             86           7          1.3         787.0       0.2X
+
+rung 32: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60051 ms and 49656 calls; RELEASED after 60045 ms and 50124 calls; RELEASED after 60030 ms and 49892 calls; RELEASED after 60033 ms and 50008 calls; RELEASED after 60033 ms and 49560 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+48 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             13             14           2          7.8         128.3       1.0X
+vanilla Spark, first run                            347            407          34          0.3        3470.1       0.0X
+vanilla Spark, second run                           232            248          16          0.4        2321.3       0.1X
+Varka, plan only                                     38             41           3          2.6         381.9       0.3X
+Varka, first run                                   1150           1164          22          0.1       11501.8       0.0X
+Varka, second run                                  1129           1135           6          0.1       11289.4       0.0X
+Varka with warm-up, plan only                        37             39           4          2.7         370.2       0.3X
+Varka with warm-up, first run                       601            660          65          0.2        6005.1       0.0X
+Varka with warm-up, second run                      291            302           8          0.3        2910.9       0.0X
+Varka with warm-up, once compiled                   104            110           6          1.0        1042.5       0.1X
+
+rung 48: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60056 ms and 44196 calls; RELEASED after 60033 ms and 44580 calls; RELEASED after 60033 ms and 44376 calls; RELEASED after 60034 ms and 44704 calls; RELEASED after 60034 ms and 44784 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+52 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             13             14           2          7.9         126.2       1.0X
+vanilla Spark, first run                            438            461          40          0.2        4381.6       0.0X
+vanilla Spark, second run                           292            305          20          0.3        2917.7       0.0X
+Varka, plan only                                     39             41           3          2.6         391.6       0.3X
+Varka, first run                                   1235           1246          12          0.1       12347.5       0.0X
+Varka, second run                                  1218           1225           7          0.1       12176.8       0.0X
+Varka with warm-up, plan only                        39             40           3          2.6         387.7       0.3X
+Varka with warm-up, first run                       654            731          93          0.2        6543.9       0.0X
+Varka with warm-up, second run                      277            294          19          0.4        2774.8       0.0X
+Varka with warm-up, once compiled                   110            117           6          0.9        1098.5       0.1X
+
+rung 52: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60049 ms and 43440 calls; RELEASED after 60043 ms and 43220 calls; RELEASED after 60032 ms and 43168 calls; RELEASED after 60035 ms and 44148 calls; RELEASED after 60034 ms and 43308 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+54 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             12             14           2          8.1         123.5       1.0X
+vanilla Spark, first run                            705            733          47          0.1        7051.2       0.0X
+vanilla Spark, second run                           667            674           7          0.1        6669.0       0.0X
+Varka, plan only                                     40             41           3          2.5         396.0       0.3X
+Varka, first run                                   1277           1289          15          0.1       12769.7       0.0X
+Varka, second run                                  1264           1270           6          0.1       12642.3       0.0X
+Varka with warm-up, plan only                        40             42           4          2.5         396.1       0.3X
+Varka with warm-up, first run                       656            694          40          0.2        6557.4       0.0X
+Varka with warm-up, second run                      276            304          18          0.4        2759.1       0.0X
+Varka with warm-up, once compiled                   114            122           7          0.9        1137.3       0.1X
+
+rung 54: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60042 ms and 42884 calls; RELEASED after 60033 ms and 43216 calls; RELEASED after 60029 ms and 42908 calls; RELEASED after 60029 ms and 42588 calls; RELEASED after 60032 ms and 42716 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+56 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             12             14           2          8.2         122.4       1.0X
+vanilla Spark, first run                            726            754          40          0.1        7264.8       0.0X
+vanilla Spark, second run                           696            701           4          0.1        6960.0       0.0X
+Varka, plan only                                     40             42           3          2.5         401.2       0.3X
+Varka, first run                                   1316           1330          12          0.1       13159.2       0.0X
+Varka, second run                                  1301           1305           4          0.1       13012.4       0.0X
+Varka with warm-up, plan only                        40             42           3          2.5         402.3       0.3X
+Varka with warm-up, first run                       722            755          25          0.1        7220.4       0.0X
+Varka with warm-up, second run                      281            297          18          0.4        2808.6       0.0X
+Varka with warm-up, once compiled                   116            119           6          0.9        1156.3       0.1X
+
+rung 56: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60036 ms and 42068 calls; RELEASED after 60035 ms and 42168 calls; RELEASED after 60036 ms and 42548 calls; RELEASED after 60038 ms and 41884 calls; RELEASED after 60036 ms and 42228 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+64 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             13             15           2          7.5         132.5       1.0X
+vanilla Spark, first run                            840            859          32          0.1        8400.3       0.0X
+vanilla Spark, second run                           799            803           4          0.1        7985.5       0.0X
+Varka, plan only                                     45             47           3          2.2         451.6       0.3X
+Varka, first run                                   1504           1516          17          0.1       15039.6       0.0X
+Varka, second run                                  1490           1494           3          0.1       14896.5       0.0X
+Varka with warm-up, plan only                        46             47           3          2.2         455.7       0.3X
+Varka with warm-up, first run                       801            818          27          0.1        8011.2       0.0X
+Varka with warm-up, second run                      309            323          11          0.3        3094.4       0.0X
+Varka with warm-up, once compiled                   131            139           5          0.8        1308.4       0.1X
+
+rung 64: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60039 ms and 39868 calls; RELEASED after 60037 ms and 40220 calls; RELEASED after 60034 ms and 40212 calls; RELEASED after 60036 ms and 39768 calls; RELEASED after 60037 ms and 39916 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+80 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                             15             16           2          6.7         149.7       1.0X
+vanilla Spark, first run                           1059           1078          32          0.1       10591.6       0.0X
+vanilla Spark, second run                          1005           1008           3          0.1       10047.7       0.0X
+Varka, plan only                                     55             57           3          1.8         550.6       0.3X
+Varka, first run                                   1894           1903          15          0.1       18939.2       0.0X
+Varka, second run                                  1866           1874           8          0.1       18664.4       0.0X
+Varka with warm-up, plan only                        54             57           3          1.9         539.6       0.3X
+Varka with warm-up, first run                       964           1011          47          0.1        9644.5       0.0X
+Varka with warm-up, second run                      357            396          44          0.3        3565.2       0.0X
+Varka with warm-up, once compiled                   157            163           5          0.6        1566.4       0.1X
+
+rung 80: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60043 ms and 35488 calls; RELEASED after 60034 ms and 35764 calls; RELEASED after 60035 ms and 35720 calls; RELEASED after 60037 ms and 36292 calls; RELEASED after 60039 ms and 35912 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+100 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                              17             19           3          5.9         170.8       1.0X
+vanilla Spark, first run                            1328           1356          35          0.1       13281.4       0.0X
+vanilla Spark, second run                           1256           1263           6          0.1       12559.5       0.0X
+Varka, plan only                                      67             71           4          1.5         673.5       0.3X
+Varka, first run                                    2335           2366          62          0.0       23346.1       0.0X
+Varka, second run                                   2333           2341           7          0.0       23329.0       0.0X
+Varka with warm-up, plan only                         68             71           4          1.5         675.6       0.3X
+Varka with warm-up, first run                       1242           1258          12          0.1       12416.1       0.0X
+Varka with warm-up, second run                       459            472          25          0.2        4587.5       0.0X
+Varka with warm-up, once compiled                    193            202          10          0.5        1928.5       0.1X
+
+rung 100: the warm-up's verdicts, one per once-compiled iteration: RELEASED after 60053 ms and 30924 calls; RELEASED after 60034 ms and 31764 calls; RELEASED after 60035 ms and 31160 calls; RELEASED after 60039 ms and 31384 calls; RELEASED after 60036 ms and 31780 calls
+  5 of 5 once-compiled iterations followed a RELEASED verdict, so they time a kernel the warm-up gave up on
+
+================================================================================================
+the first query of modified-q3's filter: the range set against the split conditions
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+48 ranges over 100000 Arrow-cached rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                                        29             43          14          3.4         292.1       1.0X
+vanilla Spark, first run                                       201            238          61          0.5        2011.5       0.1X
+vanilla Spark, second run                                       44             62          17          2.3         437.8       0.7X
+Varka, range set, plan only                                     19             25           6          5.2         193.3       1.5X
+Varka, range set, first run                                     86            114          30          1.2         861.7       0.3X
+Varka, range set, second run                                    44             47           2          2.3         441.3       0.7X
+Varka with warm-up, range set, plan only                        17             19           4          5.8         171.1       1.7X
+Varka with warm-up, range set, first run                       459            517          37          0.2        4587.9       0.1X
+Varka with warm-up, range set, second run                      380            403          13          0.3        3797.5       0.1X
+Varka with warm-up, range set, once compiled                    35             38           6          2.9         346.2       0.8X
+Varka, split conditions, plan only                              23             28           9          4.4         225.6       1.3X
+Varka, split conditions, first run                             118            143          40          0.8        1184.4       0.2X
+Varka, split conditions, second run                            113            120           6          0.9        1130.6       0.3X
+Varka with warm-up, split conditions, plan only                 20             23           4          4.9         204.4       1.4X
+Varka with warm-up, split conditions, first run                888            912          22          0.1        8881.1       0.0X
+Varka with warm-up, split conditions, second run               293            316          16          0.3        2929.7       0.1X
+Varka with warm-up, split conditions, once compiled             36             39           4          2.8         358.6       0.8X
+
+rung 48 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 1315 ms and 16168 calls; range set: COMPILED after 1076 ms and 11084 calls; range set: COMPILED after 1213 ms and 16144 calls; range set: COMPILED after 1294 ms and 16176 calls; range set: COMPILED after 1057 ms and 11900 calls; split conditions: COMPILED after 1289 ms and 11356 calls; split conditions: COMPILED after 1213 ms and 9452 calls; split conditions: COMPILED after 1285 ms and 11356 calls; split conditions: COMPILED after 1414 ms and 13804 calls; split conditions: COMPILED after 1391 ms and 13736 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+200 ranges over 100000 Arrow-cached rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------
+vanilla Spark, plan only                                        39             47          15          2.6         388.8       1.0X
+vanilla Spark, first run                                      1440           1555         133          0.1       14401.8       0.0X
+vanilla Spark, second run                                     1215           1224          10          0.1       12150.7       0.0X
+Varka, range set, plan only                                     40             42           5          2.5         396.3       1.0X
+Varka, range set, first run                                    172            184          21          0.6        1720.6       0.2X
+Varka, range set, second run                                    71             75           6          1.4         708.4       0.5X
+Varka with warm-up, range set, plan only                        40             42           4          2.5         397.6       1.0X
+Varka with warm-up, range set, first run                       414            441          22          0.2        4142.0       0.1X
+Varka with warm-up, range set, second run                       72             97          28          1.4         719.0       0.5X
+Varka with warm-up, range set, once compiled                    74             77           5          1.3         740.9       0.5X
+Varka, split conditions, plan only                             151            170          16          0.7        1514.9       0.3X
+Varka, split conditions, first run                             532            545          20          0.2        5324.7       0.1X
+Varka, split conditions, second run                            425            443          25          0.2        4247.8       0.1X
+Varka with warm-up, split conditions, plan only                152            164          16          0.7        1519.5       0.3X
+Varka with warm-up, split conditions, first run               2024           2060          26          0.0       20235.3       0.0X
+Varka with warm-up, split conditions, second run              1434           1465          20          0.1       14344.3       0.0X
+Varka with warm-up, split conditions, once compiled             92            100           9          1.1         923.7       0.4X
+
+rung 200 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 148 ms and 952 calls; range set: COMPILED after 177 ms and 884 calls; range set: COMPILED after 201 ms and 952 calls; range set: COMPILED after 158 ms and 884 calls; range set: COMPILED after 153 ms and 884 calls; split conditions: COMPILED after 5348 ms and 16076 calls; split conditions: COMPILED after 4597 ms and 11424 calls; split conditions: COMPILED after 4455 ms and 11492 calls; split conditions: COMPILED after 4431 ms and 10540 calls; split conditions: COMPILED after 4698 ms and 13940 calls
+
+================================================================================================
+the same shape back to back: ms per query
+================================================================================================
+
+16 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
+  vanilla Spark        197 76 72 87 78 64 66 64 72 68 70 64 67 88 73
+  Varka                540 402 398 368 370 367 374 371 368 374 446 370 372 372 371
+  Varka with warm-up   282 121 120 79 83 110 120 100 90 116 122 108 113 79 79
+  the warm-up's verdict: RELEASED after 60069 ms and 55352 calls
+54 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
+  vanilla Spark        713 667 667 670 675 667 664 667 669 670 675 674 675 667 673
+  Varka                1266 1236 1182 1186 1188 1185 1211 1189 1182 1200 1219 1217 1223 1212 1214
+  Varka with warm-up   752 356 219 225 214 218 211 229 218 210 226 214 227 217 211
+  the warm-up's verdict: RELEASED after 60054 ms and 42912 calls
+100 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
+  vanilla Spark        1330 1272 1261 1266 1261 1269 1268 1262 1264 1258 1259 1256 1263 1270 1270
+  Varka                2264 2262 2175 2171 2181 2174 2169 2186 2181 2178 2211 2191 2197 2187 2191
+  Varka with warm-up   1411 598 390 389 441 463 394 403 392 389 411 399 408 388 386
+  the warm-up's verdict: RELEASED after 60050 ms and 31248 calls
+
+================================================================================================
+steady state: the kernel the warm-up compiled against the batches' own
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+16 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka, after two seconds of its own batches                                     360           5570        4827          5.6         179.9       1.0X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+16 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka with warm-up, straight after its verdict                                  336            372          68          6.0         167.8       1.0X
+
+rung 16: the warm-up's verdict: RELEASED after 60044 ms and 55788 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+54 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka, after two seconds of its own batches                                   16651          20245        2768          0.1        8325.3       1.0X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+54 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka with warm-up, straight after its verdict                                 1066           1111          72          1.9         533.0       1.0X
+
+rung 54: the warm-up's verdict: RELEASED after 60038 ms and 43016 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+100 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka, after two seconds of its own batches                                     3704          36255       22265          0.5        1852.2       1.0X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS on Linux 6.17.0-1022-azure
+Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+100 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+Varka with warm-up, straight after its verdict                                  2062           2106          81          1.0        1031.1       1.0X
+
+rung 100: the warm-up's verdict: RELEASED after 60031 ms and 31908 calls
+
