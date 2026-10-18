@@ -91,6 +91,28 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
     assert(ensure() > 0L)
   }
 
+  test("beforeVectorCode runs the warm-up once, on the caller's thread, then is settled") {
+    resetForTest(null)
+    beforeVectorCode()
+    assert(completedRuns() === 1, "the first entry point to arrive runs the warm-up")
+    assert(nanos() > 0L, "the run's time is kept for the worker's log line and the tests")
+    assert(VarkaKernelWarmup.templateWarmupNanos() === nanos())
+    beforeVectorCode()
+    assert(completedRuns() === 1, "settled: one volatile read, no second run")
+    // Switched off, the hook settles without running, and a JVM that decided off stays off.
+    resetForTest(null)
+    System.setProperty(PROPERTY, "false")
+    try {
+      beforeVectorCode()
+      assert(completedRuns() === 0)
+      assert(nanos() === 0L)
+    } finally {
+      System.clearProperty(PROPERTY)
+    }
+    beforeVectorCode()
+    assert(completedRuns() === 0, "a JVM that decided off stays off")
+  }
+
   test("the property switches the warm-up off") {
     resetForTest(null)
     System.setProperty(PROPERTY, "false")

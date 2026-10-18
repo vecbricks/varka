@@ -20,6 +20,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
 import jdk.incubator.vector.DoubleVector;
@@ -70,6 +71,21 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * templates receivers of the preferred species only. A call that throws (an unsupported shape on
  * some CPU) ends the warm-up there: the int, long and double groups run in that order, the
  * conversions last, and the rest stay cold.
+ *
+ * <p><b>When it runs.</b> Before any vector code of the engine runs in the JVM, not before the
+ * first warmed shape: {@link #beforeVectorCode} is called by the shape cache's first build, by
+ * the first kernel instance of a task, by the query-path helpers' class initialisers and by the
+ * warm-up worker before its first job, and the first of those to arrive runs it on its own
+ * thread, once, 200 to 600 ms on a fresh JVM. The order matters because of what the warm-up does
+ * to a template that is already compiled: its rounds take branches the template's standalone
+ * compile never saw, the compile is deoptimised with an {@code unstable_if} trap, and the
+ * template's {@code MethodData} keeps a decompile count from then on. C2 sums that count once per
+ * inlined copy when it compiles a kernel, and a wide kernel's group method inlines a template
+ * hundreds of times, so one decompile is enough to pass the cutoff of 201 and leave the method's
+ * class checks as virtual calls, which box - the release of every wide shape on every machine
+ * that the milestone 7 close found ({@code VARKA-389.md} 8.4a). Run first, the warm-up has
+ * nothing to deoptimise, and the templates' later standalone compiles are made from its mixed
+ * profile, which is what VARKA-295 measured.
  */
 final class VarkaVectorTemplateWarmup {
 
@@ -107,6 +123,11 @@ final class VarkaVectorTemplateWarmup {
       VectorOperators.UGE);
 
   private static boolean done;
+  // Whether ensure() has decided for this JVM - ran, switched off or failed - so that the hooks
+  // on the engine's hot paths are one volatile read after the first call.
+  private static volatile boolean settled;
+  // What the one run took, or zero: for the worker's log line and the tests.
+  private static volatile long nanos;
 
   // Calls to warmUp that finished, and the failure a test asks the next one to throw; see
   // resetForTest.
@@ -128,6 +149,7 @@ final class VarkaVectorTemplateWarmup {
    */
   static synchronized long ensure() {
     if (done || "false".equals(System.getProperty(PROPERTY))) {
+      settled = true;
       return 0;
     }
     done = true;
@@ -136,9 +158,39 @@ final class VarkaVectorTemplateWarmup {
       warmUp();
     } catch (Throwable e) {
       LOG.warn("The Vector API template warm-up failed; kernels warm without it.", e);
+      settled = true;
       return 0;
     }
-    return System.nanoTime() - start;
+    long took = System.nanoTime() - start;
+    nanos = took;
+    settled = true;
+    LOG.info("Vector API template warm-up took " + TimeUnit.NANOSECONDS.toMillis(took)
+        + " ms, before the JVM's first vector code.");
+    return took;
+  }
+
+  /**
+   * The hook the engine's entry points call before their first vector code (see the class doc,
+   * "When it runs"): one volatile read once the warm-up has decided, {@link #ensure} the first
+   * time. It never throws - {@code ensure} absorbs the warm-up's own failures, and a failure to
+   * initialize this class is caught here, so that a kernel or a helper is never lost to its
+   * warm-up.
+   */
+  static void beforeVectorCode() {
+    if (settled) {
+      return;
+    }
+    try {
+      ensure();
+    } catch (Throwable t) {
+      settled = true;
+      LOG.warn("The Vector API template warm-up could not run; kernels warm without it.", t);
+    }
+  }
+
+  /** Nanoseconds the one run of this JVM took, or zero if it has not run, is off or failed. */
+  static long nanos() {
+    return nanos;
   }
 
   /** How many times {@link #warmUp} ran to the end in this JVM; for tests. */
@@ -155,6 +207,8 @@ final class VarkaVectorTemplateWarmup {
   @SuppressWarnings("StaticAssignmentOfThrowable")
   static synchronized void resetForTest(@Nullable Throwable failure) {
     done = false;
+    settled = false;
+    nanos = 0;
     completed = 0;
     failWith = failure;
   }

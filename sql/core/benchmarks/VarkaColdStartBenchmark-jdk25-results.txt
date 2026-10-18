@@ -2,263 +2,263 @@
 the first query: greatest(add_months(d, k), date_add(d, k), last_day(d))
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             17             18           1          6.1         165.2       1.0X
-vanilla Spark, first run                            110            139          34          0.9        1097.7       0.2X
-vanilla Spark, second run                            53             55           2          1.9         525.8       0.3X
-Varka, plan only                                     18             20           2          5.4         184.1       0.9X
-Varka, first run                                    241            267          30          0.4        2406.7       0.1X
-Varka, second run                                   213            218           7          0.5        2132.6       0.1X
-Varka with warm-up, plan only                        14             15           1          7.0         143.5       1.2X
-Varka with warm-up, first run                       140            168          43          0.7        1396.6       0.1X
-Varka with warm-up, second run                       62             68           4          1.6         616.0       0.3X
-Varka with warm-up, once compiled                    27             34          12          3.7         268.2       0.6X
+vanilla Spark, plan only                             17             19           2          6.0         166.2       1.0X
+vanilla Spark, first run                            119            141          41          0.8        1189.6       0.1X
+vanilla Spark, second run                            49             54           4          2.1         486.6       0.3X
+Varka, plan only                                     21             37          17          4.8         207.8       0.8X
+Varka, first run                                    237            265          36          0.4        2365.7       0.1X
+Varka, second run                                   229            231           2          0.4        2293.3       0.1X
+Varka with warm-up, plan only                        17             19           3          5.8         171.5       1.0X
+Varka with warm-up, first run                       137            168          44          0.7        1374.8       0.1X
+Varka with warm-up, second run                       69             74           5          1.4         694.0       0.2X
+Varka with warm-up, once compiled                    31             40          12          3.2         311.8       0.5X
 
-rung 16: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 1873 ms and 13532 calls; COMPILED after 1842 ms and 12716 calls; COMPILED after 1826 ms and 12988 calls; COMPILED after 1580 ms and 10812 calls; COMPILED after 1845 ms and 13192 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 16: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 1958 ms and 13328 calls; COMPILED after 1739 ms and 12444 calls; COMPILED after 1734 ms and 12920 calls; COMPILED after 1711 ms and 12512 calls; COMPILED after 1914 ms and 13804 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 32 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             12             12           1          8.6         116.8       1.0X
-vanilla Spark, first run                            158            169          10          0.6        1581.0       0.1X
-vanilla Spark, second run                            72             74           2          1.4         716.6       0.2X
-Varka, plan only                                     16             18           3          6.3         157.9       0.7X
-Varka, first run                                    413            429          33          0.2        4129.2       0.0X
-Varka, second run                                   395            403          13          0.3        3946.1       0.0X
-Varka with warm-up, plan only                        15             16           1          6.5         153.4       0.8X
-Varka with warm-up, first run                       198            296          75          0.5        1978.8       0.1X
-Varka with warm-up, second run                       86             95          13          1.2         855.6       0.1X
-Varka with warm-up, once compiled                    28             35          12          3.6         275.5       0.4X
+vanilla Spark, plan only                             11             12           0          8.7         114.3       1.0X
+vanilla Spark, first run                            154            165          13          0.6        1542.2       0.1X
+vanilla Spark, second run                            72             74           2          1.4         718.9       0.2X
+Varka, plan only                                     20             21           1          5.0         198.1       0.6X
+Varka, first run                                    416            435          13          0.2        4159.7       0.0X
+Varka, second run                                   407            422          28          0.2        4067.3       0.0X
+Varka with warm-up, plan only                        20             22           2          5.0         199.8       0.6X
+Varka with warm-up, first run                       176            228          47          0.6        1758.3       0.1X
+Varka with warm-up, second run                      104            110           6          1.0        1037.7       0.1X
+Varka with warm-up, once compiled                    34             36           3          2.9         340.1       0.3X
 
-rung 32: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 3574 ms and 15504 calls; COMPILED after 3366 ms and 12104 calls; COMPILED after 3332 ms and 12172 calls; COMPILED after 3284 ms and 14484 calls; COMPILED after 3225 ms and 13124 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 32: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 3598 ms and 12784 calls; COMPILED after 3481 ms and 12716 calls; COMPILED after 3509 ms and 12920 calls; COMPILED after 3336 ms and 14212 calls; COMPILED after 3328 ms and 13940 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             11             13           1          8.8         114.0       1.0X
-vanilla Spark, first run                            226            238          11          0.4        2263.6       0.1X
-vanilla Spark, second run                           118            120           1          0.8        1183.3       0.1X
-Varka, plan only                                     18             19           1          5.7         175.2       0.7X
-Varka, first run                                    604            615          13          0.2        6043.5       0.0X
-Varka, second run                                   581            585           4          0.2        5806.8       0.0X
-Varka with warm-up, plan only                        17             18           2          5.8         173.7       0.7X
-Varka with warm-up, first run                       238            267          27          0.4        2380.1       0.0X
-Varka with warm-up, second run                      134            138           5          0.7        1342.8       0.1X
-Varka with warm-up, once compiled                    27             31           3          3.8         266.2       0.4X
+vanilla Spark, plan only                             11             12           1          8.9         112.4       1.0X
+vanilla Spark, first run                            226            239          14          0.4        2257.9       0.0X
+vanilla Spark, second run                           147            156           6          0.7        1471.6       0.1X
+Varka, plan only                                     23             24           1          4.3         232.5       0.5X
+Varka, first run                                    604            617          13          0.2        6042.5       0.0X
+Varka, second run                                   599            613          10          0.2        5994.3       0.0X
+Varka with warm-up, plan only                        23             25           3          4.4         227.0       0.5X
+Varka with warm-up, first run                       234            257          14          0.4        2340.9       0.0X
+Varka with warm-up, second run                      142            148           4          0.7        1419.2       0.1X
+Varka with warm-up, once compiled                    38             40           2          2.6         383.9       0.3X
 
-rung 48: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 4669 ms and 14144 calls; COMPILED after 5136 ms and 16048 calls; COMPILED after 5210 ms and 16064 calls; COMPILED after 4445 ms and 11832 calls; COMPILED after 4615 ms and 14620 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 48: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 4747 ms and 12376 calls; COMPILED after 4990 ms and 16060 calls; COMPILED after 5173 ms and 13396 calls; COMPILED after 5191 ms and 12852 calls; COMPILED after 4695 ms and 15232 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 52 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             11             12           1          8.8         113.0       1.0X
-vanilla Spark, first run                            246            256          14          0.4        2460.2       0.0X
-vanilla Spark, second run                           143            147           5          0.7        1430.7       0.1X
-Varka, plan only                                     18             19           2          5.7         175.8       0.6X
-Varka, first run                                    648            656          12          0.2        6481.6       0.0X
-Varka, second run                                   634            644          15          0.2        6335.5       0.0X
-Varka with warm-up, plan only                        16             18           2          6.1         163.0       0.7X
-Varka with warm-up, first run                       250            278          23          0.4        2501.4       0.0X
-Varka with warm-up, second run                      129            138           6          0.8        1289.7       0.1X
-Varka with warm-up, once compiled                    29             31           2          3.4         294.9       0.4X
+vanilla Spark, plan only                             11             12           1          9.2         108.9       1.0X
+vanilla Spark, first run                            243            259          17          0.4        2429.9       0.0X
+vanilla Spark, second run                           129            142           7          0.8        1293.1       0.1X
+Varka, plan only                                     21             24           2          4.9         205.2       0.5X
+Varka, first run                                    646            656          11          0.2        6456.4       0.0X
+Varka, second run                                   638            644           5          0.2        6375.3       0.0X
+Varka with warm-up, plan only                        23             24           2          4.3         231.3       0.5X
+Varka with warm-up, first run                       244            266          16          0.4        2438.5       0.0X
+Varka with warm-up, second run                      140            153           8          0.7        1396.7       0.1X
+Varka with warm-up, once compiled                    39             40           2          2.6         386.0       0.3X
 
-rung 52: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 4966 ms and 12648 calls; COMPILED after 5560 ms and 12716 calls; COMPILED after 4949 ms and 12512 calls; COMPILED after 4969 ms and 13124 calls; COMPILED after 5296 ms and 12580 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 52: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 5412 ms and 13260 calls; COMPILED after 4978 ms and 12988 calls; COMPILED after 4973 ms and 12920 calls; COMPILED after 5787 ms and 14076 calls; COMPILED after 5361 ms and 13532 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             11             12           2          9.0         110.6       1.0X
-vanilla Spark, first run                            463            470          11          0.2        4627.9       0.0X
-vanilla Spark, second run                           436            441           4          0.2        4359.9       0.0X
-Varka, plan only                                     18             19           1          5.5         182.4       0.6X
-Varka, first run                                    675            686          11          0.1        6750.3       0.0X
-Varka, second run                                   645            654           6          0.2        6452.8       0.0X
-Varka with warm-up, plan only                        18             19           2          5.5         183.3       0.6X
-Varka with warm-up, first run                       255            262          11          0.4        2548.5       0.0X
-Varka with warm-up, second run                      137            147           9          0.7        1372.6       0.1X
-Varka with warm-up, once compiled                    26             30           3          3.8         263.0       0.4X
+vanilla Spark, plan only                             11             12           2          9.0         111.5       1.0X
+vanilla Spark, first run                            464            473          16          0.2        4640.0       0.0X
+vanilla Spark, second run                           426            442          12          0.2        4259.8       0.0X
+Varka, plan only                                     23             24           1          4.3         234.1       0.5X
+Varka, first run                                    680            691          13          0.1        6795.7       0.0X
+Varka, second run                                   663            667           3          0.2        6627.4       0.0X
+Varka with warm-up, plan only                        23             25           3          4.3         234.4       0.5X
+Varka with warm-up, first run                       253            284          35          0.4        2533.4       0.0X
+Varka with warm-up, second run                      151            159          12          0.7        1513.2       0.1X
+Varka with warm-up, once compiled                    39             41           3          2.6         388.2       0.3X
 
-rung 54: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 5132 ms and 11968 calls; COMPILED after 5730 ms and 14212 calls; COMPILED after 5732 ms and 14212 calls; COMPILED after 5438 ms and 14280 calls; COMPILED after 5713 ms and 13872 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 54: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 5228 ms and 12308 calls; COMPILED after 5610 ms and 14552 calls; COMPILED after 5620 ms and 15232 calls; COMPILED after 5188 ms and 13328 calls; COMPILED after 5227 ms and 14076 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 56 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             11             12           1          8.9         112.5       1.0X
-vanilla Spark, first run                            477            491          15          0.2        4773.0       0.0X
-vanilla Spark, second run                           454            457           3          0.2        4544.0       0.0X
-Varka, plan only                                     18             19           2          5.5         181.2       0.6X
-Varka, first run                                    695            703           9          0.1        6954.1       0.0X
-Varka, second run                                   677            679           2          0.1        6774.6       0.0X
-Varka with warm-up, plan only                        18             19           1          5.5         181.6       0.6X
-Varka with warm-up, first run                       269            283          13          0.4        2687.7       0.0X
-Varka with warm-up, second run                      136            147           9          0.7        1358.2       0.1X
-Varka with warm-up, once compiled                    30             31           2          3.4         297.5       0.4X
+vanilla Spark, plan only                             11             12           1          9.1         109.9       1.0X
+vanilla Spark, first run                            473            481          11          0.2        4733.2       0.0X
+vanilla Spark, second run                           449            455           6          0.2        4492.2       0.0X
+Varka, plan only                                     24             25           2          4.2         236.6       0.5X
+Varka, first run                                    700            716          12          0.1        6999.0       0.0X
+Varka, second run                                   681            691           9          0.1        6807.4       0.0X
+Varka with warm-up, plan only                        23             24           2          4.3         234.5       0.5X
+Varka with warm-up, first run                       266            298          21          0.4        2658.7       0.0X
+Varka with warm-up, second run                      154            161           5          0.6        1542.2       0.1X
+Varka with warm-up, once compiled                    39             42           2          2.5         393.9       0.3X
 
-rung 56: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 6136 ms and 16060 calls; COMPILED after 6000 ms and 16064 calls; COMPILED after 5972 ms and 16056 calls; COMPILED after 5875 ms and 14076 calls; COMPILED after 5897 ms and 14212 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 56: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 6114 ms and 14688 calls; COMPILED after 6029 ms and 15096 calls; COMPILED after 5738 ms and 14348 calls; COMPILED after 6061 ms and 14484 calls; COMPILED after 6079 ms and 14824 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             11             12           1          8.7         114.5       1.0X
-vanilla Spark, first run                            547            564          16          0.2        5470.0       0.0X
-vanilla Spark, second run                           518            522           4          0.2        5178.6       0.0X
-Varka, plan only                                     17             21           2          5.8         173.7       0.7X
-Varka, first run                                    790            805          17          0.1        7899.4       0.0X
-Varka, second run                                   759            784          19          0.1        7591.3       0.0X
-Varka with warm-up, plan only                        20             20           2          5.1         195.4       0.6X
-Varka with warm-up, first run                       284            314          38          0.4        2841.5       0.0X
-Varka with warm-up, second run                      163            169           5          0.6        1628.5       0.1X
-Varka with warm-up, once compiled                    32             33           2          3.1         318.2       0.4X
+vanilla Spark, plan only                             11             12           1          9.0         111.1       1.0X
+vanilla Spark, first run                            548            559          13          0.2        5482.7       0.0X
+vanilla Spark, second run                           515            521           4          0.2        5147.4       0.0X
+Varka, plan only                                     26             27           2          3.9         255.5       0.4X
+Varka, first run                                    798            815          19          0.1        7978.5       0.0X
+Varka, second run                                   782            790          10          0.1        7815.8       0.0X
+Varka with warm-up, plan only                        26             27           2          3.9         256.3       0.4X
+Varka with warm-up, first run                       297            326          36          0.3        2966.3       0.0X
+Varka with warm-up, second run                      173            178           5          0.6        1725.9       0.1X
+Varka with warm-up, once compiled                    41             47           7          2.5         407.3       0.3X
 
-rung 64: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 6888 ms and 16056 calls; COMPILED after 6045 ms and 14348 calls; COMPILED after 6018 ms and 14892 calls; COMPILED after 6373 ms and 13328 calls; COMPILED after 6398 ms and 14076 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 64: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 7066 ms and 16084 calls; COMPILED after 6246 ms and 15096 calls; COMPILED after 6243 ms and 14756 calls; COMPILED after 6296 ms and 15504 calls; COMPILED after 6781 ms and 15232 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 80 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                             12             13           2          8.1         124.0       1.0X
-vanilla Spark, first run                            694            707          16          0.1        6944.1       0.0X
-vanilla Spark, second run                           658            663           3          0.2        6584.9       0.0X
-Varka, plan only                                     23             24           2          4.4         226.7       0.5X
-Varka, first run                                    981           1002          15          0.1        9811.7       0.0X
-Varka, second run                                   944            958          10          0.1        9443.3       0.0X
-Varka with warm-up, plan only                        23             24           2          4.4         228.5       0.5X
-Varka with warm-up, first run                       351            400          65          0.3        3505.1       0.0X
-Varka with warm-up, second run                      192            197           3          0.5        1921.6       0.1X
-Varka with warm-up, once compiled                    36             38           4          2.8         357.2       0.3X
+vanilla Spark, plan only                             12             13           2          8.3         120.2       1.0X
+vanilla Spark, first run                            664            693          21          0.2        6638.5       0.0X
+vanilla Spark, second run                           627            659          24          0.2        6268.7       0.0X
+Varka, plan only                                     30             31           2          3.4         296.1       0.4X
+Varka, first run                                    985            997          12          0.1        9845.2       0.0X
+Varka, second run                                   978            984           7          0.1        9776.9       0.0X
+Varka with warm-up, plan only                        30             31           1          3.3         300.5       0.4X
+Varka with warm-up, first run                       363            390          16          0.3        3627.2       0.0X
+Varka with warm-up, second run                      205            210           4          0.5        2054.0       0.1X
+Varka with warm-up, once compiled                    48             50           2          2.1         483.5       0.2X
 
-rung 80: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 7678 ms and 13192 calls; COMPILED after 7548 ms and 13124 calls; COMPILED after 7913 ms and 14212 calls; COMPILED after 8117 ms and 15708 calls; COMPILED after 8425 ms and 13872 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 80: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 8317 ms and 16060 calls; COMPILED after 8344 ms and 16064 calls; COMPILED after 8244 ms and 15504 calls; COMPILED after 7763 ms and 13872 calls; COMPILED after 8224 ms and 13872 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 100000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                              13             14           2          7.6         131.5       1.0X
-vanilla Spark, first run                             874            885          12          0.1        8743.4       0.0X
-vanilla Spark, second run                            818            832          15          0.1        8175.3       0.0X
-Varka, plan only                                      25             27           2          4.1         246.0       0.5X
-Varka, first run                                    1232           1243          13          0.1       12316.9       0.0X
-Varka, second run                                   1202           1210          13          0.1       12017.8       0.0X
-Varka with warm-up, plan only                         25             27           3          4.1         246.4       0.5X
-Varka with warm-up, first run                        431            459          18          0.2        4309.7       0.0X
-Varka with warm-up, second run                       232            243           9          0.4        2323.4       0.1X
-Varka with warm-up, once compiled                     42             44           2          2.4         416.2       0.3X
+vanilla Spark, plan only                              13             14           2          7.9         126.9       1.0X
+vanilla Spark, first run                             870            881          13          0.1        8704.3       0.0X
+vanilla Spark, second run                            807            817           8          0.1        8068.5       0.0X
+Varka, plan only                                      33             36           2          3.0         328.4       0.4X
+Varka, first run                                    1204           1253          68          0.1       12041.0       0.0X
+Varka, second run                                   1225           1233           7          0.1       12253.8       0.0X
+Varka with warm-up, plan only                         35             39           4          2.9         346.5       0.4X
+Varka with warm-up, first run                        437            463          24          0.2        4371.3       0.0X
+Varka with warm-up, second run                       252            256           6          0.4        2522.7       0.1X
+Varka with warm-up, once compiled                     57             65          12          1.7         574.4       0.2X
 
-rung 100: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 10644 ms and 16064 calls; COMPILED after 10474 ms and 14280 calls; COMPILED after 10554 ms and 13940 calls; COMPILED after 10607 ms and 16064 calls; COMPILED after 10119 ms and 14960 calls
+rung 100: the warm-up's verdicts, one per once-compiled iteration: COMPILED after 10876 ms and 14960 calls; COMPILED after 10712 ms and 15232 calls; COMPILED after 10333 ms and 14280 calls; COMPILED after 10736 ms and 15028 calls; COMPILED after 10352 ms and 15232 calls
 
 ================================================================================================
 the first query of modified-q3's filter: the range set against the split conditions
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 48 ranges over 100000 Arrow-cached rows:             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                                        16             18           2          6.2         162.4       1.0X
-vanilla Spark, first run                                       117            132          14          0.9        1170.6       0.1X
-vanilla Spark, second run                                       29             37          12          3.5         286.0       0.6X
-Varka, range set, plan only                                     15             16           2          6.8         147.3       1.1X
-Varka, range set, first run                                     56             62           9          1.8         562.9       0.3X
-Varka, range set, second run                                    28             31           3          3.6         279.7       0.6X
-Varka with warm-up, range set, plan only                        14             16           2          7.2         138.1       1.2X
-Varka with warm-up, range set, first run                       177            190          16          0.6        1771.7       0.1X
-Varka with warm-up, range set, second run                      125            143          18          0.8        1248.1       0.1X
-Varka with warm-up, range set, once compiled                    25             27           3          4.1         246.9       0.7X
-Varka, split conditions, plan only                              15             17           3          6.6         152.3       1.1X
-Varka, split conditions, first run                              75             84          14          1.3         745.2       0.2X
-Varka, split conditions, second run                             66             68           2          1.5         664.0       0.2X
-Varka with warm-up, split conditions, plan only                 13             15           3          7.9         126.7       1.3X
-Varka with warm-up, split conditions, first run                155            278          70          0.6        1548.0       0.1X
-Varka with warm-up, split conditions, second run               103            108           3          1.0        1031.1       0.2X
-Varka with warm-up, split conditions, once compiled             23             35          15          4.3         231.8       0.7X
+vanilla Spark, plan only                                        18             25           7          5.7         175.1       1.0X
+vanilla Spark, first run                                       117            141          17          0.9        1172.8       0.1X
+vanilla Spark, second run                                       29             32           2          3.4         292.4       0.6X
+Varka, range set, plan only                                     16             17           2          6.4         157.3       1.1X
+Varka, range set, first run                                     54             60           8          1.8         542.8       0.3X
+Varka, range set, second run                                    28             32           5          3.5         283.7       0.6X
+Varka with warm-up, range set, plan only                        14             16           3          6.9         144.2       1.2X
+Varka with warm-up, range set, first run                       200            213          15          0.5        1997.6       0.1X
+Varka with warm-up, range set, second run                       95            140          32          1.0         953.5       0.2X
+Varka with warm-up, range set, once compiled                    25             28           3          4.0         249.2       0.7X
+Varka, split conditions, plan only                              16             19           4          6.2         161.0       1.1X
+Varka, split conditions, first run                              82             88          10          1.2         822.1       0.2X
+Varka, split conditions, second run                             78             80           1          1.3         782.5       0.2X
+Varka with warm-up, split conditions, plan only                 15             16           2          6.5         153.1       1.1X
+Varka with warm-up, split conditions, first run                112            118           9          0.9        1121.6       0.2X
+Varka with warm-up, split conditions, second run               108            109           2          0.9        1076.0       0.2X
+Varka with warm-up, split conditions, once compiled             26             27           1          3.9         258.7       0.7X
 
-rung 48 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 317 ms and 9724 calls; range set: COMPILED after 306 ms and 7820 calls; range set: COMPILED after 339 ms and 9792 calls; range set: COMPILED after 334 ms and 11288 calls; range set: COMPILED after 311 ms and 10404 calls; split conditions: COMPILED after 407 ms and 10540 calls; split conditions: COMPILED after 411 ms and 10472 calls; split conditions: COMPILED after 409 ms and 10608 calls; split conditions: COMPILED after 409 ms and 10540 calls; split conditions: COMPILED after 434 ms and 10608 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 48 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 329 ms and 9180 calls; range set: COMPILED after 286 ms and 7548 calls; range set: COMPILED after 297 ms and 7820 calls; range set: COMPILED after 301 ms and 8976 calls; range set: COMPILED after 305 ms and 8296 calls; split conditions: COMPILED after 442 ms and 9996 calls; split conditions: COMPILED after 439 ms and 9928 calls; split conditions: COMPILED after 443 ms and 9996 calls; split conditions: COMPILED after 444 ms and 9928 calls; split conditions: COMPILED after 445 ms and 10064 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 200 ranges over 100000 Arrow-cached rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------
-vanilla Spark, plan only                                        24             25           2          4.2         236.9       1.0X
-vanilla Spark, first run                                       903            920          11          0.1        9034.9       0.0X
-vanilla Spark, second run                                      754            760           4          0.1        7538.1       0.0X
-Varka, range set, plan only                                     25             26           2          4.0         251.3       0.9X
-Varka, range set, first run                                    107            112           7          0.9        1067.3       0.2X
-Varka, range set, second run                                    41             43           2          2.4         408.4       0.6X
-Varka with warm-up, range set, plan only                        25             26           2          4.0         247.6       1.0X
-Varka with warm-up, range set, first run                       171            184          16          0.6        1711.6       0.1X
-Varka with warm-up, range set, second run                       47             56           8          2.1         465.9       0.5X
-Varka with warm-up, range set, once compiled                    44             46           3          2.3         438.1       0.5X
-Varka, split conditions, plan only                              43             46           4          2.3         427.7       0.6X
-Varka, split conditions, first run                             285            293          11          0.4        2852.3       0.1X
-Varka, split conditions, second run                            241            244           3          0.4        2407.7       0.1X
-Varka with warm-up, split conditions, plan only                 43             45           2          2.3         426.4       0.6X
-Varka with warm-up, split conditions, first run                535            588          44          0.2        5350.8       0.0X
-Varka with warm-up, split conditions, second run               406            461          65          0.2        4059.0       0.1X
-Varka with warm-up, split conditions, once compiled             46             49           3          2.2         459.3       0.5X
+vanilla Spark, plan only                                        23             26           3          4.3         234.8       1.0X
+vanilla Spark, first run                                       892            910          18          0.1        8916.0       0.0X
+vanilla Spark, second run                                      754            770          13          0.1        7537.3       0.0X
+Varka, range set, plan only                                     25             26           3          4.1         245.3       1.0X
+Varka, range set, first run                                    104            107           4          1.0        1038.0       0.2X
+Varka, range set, second run                                    44             50           6          2.3         442.7       0.5X
+Varka with warm-up, range set, plan only                        24             28           5          4.1         242.9       1.0X
+Varka with warm-up, range set, first run                       173            265         182          0.6        1730.2       0.1X
+Varka with warm-up, range set, second run                       53            146         197          1.9         529.0       0.4X
+Varka with warm-up, range set, once compiled                    45             48           3          2.2         446.7       0.5X
+Varka, split conditions, plan only                              78             84          10          1.3         776.7       0.3X
+Varka, split conditions, first run                             329            333           5          0.3        3287.5       0.1X
+Varka, split conditions, second run                            283            284           1          0.4        2826.8       0.1X
+Varka with warm-up, split conditions, plan only                 74             77           3          1.3         744.6       0.3X
+Varka with warm-up, split conditions, first run                520            657         191          0.2        5203.2       0.0X
+Varka with warm-up, split conditions, second run               342            447          74          0.3        3416.6       0.1X
+Varka with warm-up, split conditions, once compiled             54             62          16          1.9         537.4       0.4X
 
-rung 200 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 51 ms and 612 calls; range set: COMPILED after 57 ms and 544 calls; range set: COMPILED after 72 ms and 1020 calls; range set: COMPILED after 69 ms and 952 calls; range set: COMPILED after 67 ms and 1020 calls; split conditions: COMPILED after 2096 ms and 12240 calls; split conditions: COMPILED after 2116 ms and 12308 calls; split conditions: COMPILED after 1922 ms and 10676 calls; split conditions: COMPILED after 1344 ms and 8228 calls; split conditions: COMPILED after 1369 ms and 8432 calls
+rung 200 ranges: the warm-up's verdicts, one per once-compiled iteration: range set: COMPILED after 59 ms and 612 calls; range set: COMPILED after 1182 ms and 16408 calls; range set: COMPILED after 80 ms and 952 calls; range set: COMPILED after 74 ms and 952 calls; range set: COMPILED after 59 ms and 680 calls; split conditions: COMPILED after 2236 ms and 12036 calls; split conditions: COMPILED after 2047 ms and 10948 calls; split conditions: COMPILED after 2261 ms and 11356 calls; split conditions: COMPILED after 2109 ms and 10812 calls; split conditions: COMPILED after 2329 ms and 12444 calls
 
 ================================================================================================
 the same shape back to back: ms per query
 ================================================================================================
 
 16 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
-  vanilla Spark        102 42 42 44 45 40 45 44 37 43 43 39 42 46 40
-  Varka                303 210 213 211 212 209 211 210 210 210 218 209 211 213 212
-  Varka with warm-up   129 51 48 47 47 48 47 49 46 46 47 47 69 44 47
-  the warm-up's verdict: COMPILED after 1922 ms and 13464 calls
+  vanilla Spark        186 78 69 39 41 45 41 42 40 37 43 43 36 41 41
+  Varka                313 218 209 207 208 206 204 203 203 204 209 216 212 213 236
+  Varka with warm-up   197 65 47 48 48 50 50 48 50 47 50 48 51 50 44
+  the warm-up's verdict: COMPILED after 1845 ms and 12376 calls
 54 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
-  vanilla Spark        471 420 420 428 432 436 458 433 427 431 433 435 423 425 433
-  Varka                701 668 659 662 658 662 657 661 659 654 658 657 673 692 684
-  Varka with warm-up   282 145 132 132 127 124 128 128 125 128 128 125 126 128 124
-  the warm-up's verdict: COMPILED after 5843 ms and 13804 calls
+  vanilla Spark        520 426 452 430 425 430 432 430 415 427 427 429 442 429 434
+  Varka                684 678 656 661 658 659 657 660 651 676 655 672 697 679 675
+  Varka with warm-up   410 283 183 183 187 183 185 184 187 186 186 184 183 185 182
+  the warm-up's verdict: COMPILED after 5998 ms and 14552 calls
 100 entries over 100000 Arrow-cached rows, 15 queries of one shape back to back, in ms:
-  vanilla Spark        870 826 823 822 844 818 818 829 821 824 828 826 815 830 800
-  Varka                1254 1216 1210 1215 1214 1221 1210 1209 1214 1216 1215 1216 1213 1207 1253
-  Varka with warm-up   567 268 239 242 241 243 242 242 240 239 240 236 236 237 237
-  the warm-up's verdict: COMPILED after 10782 ms and 14688 calls
+  vanilla Spark        872 825 813 832 860 823 828 832 826 813 823 848 825 823 824
+  Varka                1243 1235 1200 1195 1210 1202 1193 1211 1201 1205 1211 1206 1273 1240 1264
+  Varka with warm-up   673 374 335 336 338 333 343 362 336 331 333 338 336 337 332
+  the warm-up's verdict: COMPILED after 10808 ms and 14688 calls
 
 ================================================================================================
 steady state: the kernel the warm-up compiled against the batches' own
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka, after two seconds of its own batches                                      46             60          59         43.8          22.9       1.0X
+Varka, after two seconds of its own batches                                      41            546         982         49.1          20.4       1.0X
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 16 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka with warm-up, straight after its verdict                                   48             50           3         42.0          23.8       1.0X
+Varka with warm-up, straight after its verdict                                   41             45           5         48.4          20.7       1.0X
 
-rung 16: the warm-up's verdict: COMPILED after 1733 ms and 12988 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 16: the warm-up's verdict: COMPILED after 1787 ms and 12852 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka, after two seconds of its own batches                                     134            233         291         14.9          66.9       1.0X
+Varka, after two seconds of its own batches                                     108           1527        3057         18.4          54.2       1.0X
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 54 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka with warm-up, straight after its verdict                                  133            140           9         15.0          66.6       1.0X
+Varka with warm-up, straight after its verdict                                  105            114          14         19.0          52.7       1.0X
 
-rung 54: the warm-up's verdict: COMPILED after 6226 ms and 16056 calls
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+rung 54: the warm-up's verdict: COMPILED after 5956 ms and 14960 calls
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 2000000 Arrow-cached rows, compiled from its batches:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka, after two seconds of its own batches                                      243            560         705          8.2         121.5       1.0X
+Varka, after two seconds of its own batches                                      192           2705        5615         10.4          95.9       1.0X
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-31-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 100 entries over 2000000 Arrow-cached rows, compiled from the warm-up:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------
-Varka with warm-up, straight after its verdict                                   250            263           9          8.0         125.0       1.0X
+Varka with warm-up, straight after its verdict                                   186            194          15         10.8          93.0       1.0X
 
-rung 100: the warm-up's verdict: COMPILED after 10259 ms and 14688 calls
+rung 100: the warm-up's verdict: COMPILED after 10999 ms and 15300 calls
 

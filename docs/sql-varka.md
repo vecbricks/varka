@@ -1459,13 +1459,15 @@ files, which are the source of truth as the code moves):
   previously-parity `WHERE d IN (5 literals)` anchor runs 2.0x. The honest
   loss is unchanged: `COUNT(*)` over an 85%-selective filter is 0.8x (1.8x at
   15%) - nearly every row crosses the row boundary into the aggregate.
-* **Cold start** (`VarkaColdStartBenchmark`, first execution of a fresh plan
-  shape over 100K rows): 1.8x - 17 ms vs 31 ms best, 22 ms vs 37 ms average.
-  A fresh shape misses the class cache, and the benchmark enforces that by
-  invalidating the cache before each timed iteration - its column-and-literal
-  freshness is invisible to the structural shape key. The varka side pays
-  emission plus the class define here, essentially the per-task era's 18 ms;
-  only repeated shapes get the cache's win.
+* **Cold start** (`VarkaColdStartBenchmark`, a fresh plan shape of 16 entries
+  over 100K rows, on the milestone 7 build): the first run takes the row path
+  while the warm-up compiles the kernel, 137 ms against stock's 119 ms; once
+  the kernel is in, 1.6x - 31 ms vs 49 ms best, 40 ms vs 54 ms average - and
+  the warm-up's verdict comes in about two seconds. A fresh shape misses the
+  class cache, and the benchmark enforces that by invalidating the cache
+  before each timed iteration - its column-and-literal freshness is invisible
+  to the structural shape key. The Varka side pays emission plus the class
+  define here; only repeated shapes get the cache's win.
 * **Class generation in isolation** (`VarkaCodegenBenchmark`): emitting,
   defining, loading and instantiating a fused two-output kernel takes
   ~99 us against ~6.5 ms for one Janino projection compile - 66x. (The
