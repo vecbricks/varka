@@ -160,6 +160,8 @@ Run on 17 October 2026, from the audit and the reads of this evening:
   before the close's own pull request, since the close is documents only and the engine that
   commit holds is the one every file of this record measured; annotated, pushed to
   vecbricks/varka at 10:37, its message the changelog headline and the six posts' addresses.
+  The message says "three wrong answers found and fixed" where the changelog lists seven, a
+  slip left as pushed rather than rewrite a published tag.
 
 ## 5. Outcome
 
@@ -343,7 +345,10 @@ the rows that moved.
 3. **Pending the merge, and already missed by one.** The dry run on this branch closes three
    issues, 222's and the two moved rows' (180 and 386), which were open and which "changes no
    other" overlooked; 261's closes with the merge, four in all against the two predicted.
-4. **Missed on the laptop; the runner pair `[MORNING: the pair]`.** The regenerated file (wide
+4. **Missed on the laptop; the runner pair's verdicts follow.** Two "Run benchmarks" dispatches
+   of the class on GitHub-hosted runners (39107597853 and 39107602708, from the debt branch,
+   whose engine is master's) were running when this pull request opened; their verdicts are
+   added here when they end. The regenerated laptop file (wide
    width only, on the owner's word; the 128-bit companion stays from 28 September and the
    provenance says so) has no 1.8x to be within 20% of: the warm-up's verdict was RELEASED at its
    60-second deadline on 51 of 71 iterations, where the committed file of 28 September, same
@@ -677,3 +682,8 @@ Candidates for after the close, drawn from the caveats of 5.1 and the newest ite
    edition's clause beside each SQL-92 definition in `STANDARD.md`.
 7. **The NULL-mode masked loop C2 cannot settle** (items 99 and 100): which predicate it hoists
    and loses, and what `-XX:-UseProfiledLoopPredicate` costs the kernels that never cycle.
+8. **A milestone close that needs no laptop** (item 109, on the owner's word at this close). This
+   close spent a night and a morning of the laptop on the README's numbers; the next quotes the
+   latest committed files, runs the surfaces on the runner workflow as a row of their own when
+   the engine changed, and takes the cold-start row from the runner pair, spread included. With
+   it, the warm-up's laptop release of prediction 4, which item 103 now carries.
