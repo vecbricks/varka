@@ -172,6 +172,17 @@ representation stays the measured alternative for the int-heavy kernels; the rep
 proposes it as an emit option beside 340, since only that row's kernels can tell the two apart.
 Every per-half concern of this section and of risks 2 and 3 below falls away with it.
 
+*Correction, 19 October 2026, after the A/B (9.3): the int loads and stores of the loop are whole.*
+As first emitted, every int load and store sat under the low-half mask, and the kernel ran at half
+the long lane's rate at 512 bits and a sixth at 128. A masked load costs two to five unmasked ones,
+so the loop of a mixed kernel now stops a long lane group early, `loopBound(length - lanes)`, which
+leaves every iteration a whole int vector of rows to load and store unmasked; the epilogue runs the
+masked group once or twice for the last one to two groups. The upper int lanes in the loop are then
+the next group's rows, not zero - harmless for the same reason zero was, since a guard's mask is
+narrowed to the long species before it is collected, and a lowering sees row values either way. A
+destination therefore must not overlap a source, which no caller does (`VarkaFusedKernel`'s
+contract now says so).
+
 ### 3.3 What the IR needs
 
 One new node, on VARKA-88's `ConstDivide` precedent - the last node added, and the
@@ -408,7 +419,8 @@ step 6's benchmark class is committed and its run is owed (9.2).
 below a root, the compiler builds both from the two `INT` and `BIGINT` casts, and every promotion
 under an operator the long lane already fuses compiles. Three departures from the plan, each
 recorded where it applies: the loop is driven at the long lane (3.2), the arithmetic promotion
-waits on 104 (3.5), and the A/B is not run here (9.2).
+waits on 104 (3.5), and the A/B, run at the end, failed prediction 1 until the loop's int loads and
+stores were made whole and a conversion's target species constant (9.3).
 
 **The refactor (step 2).** The emitter asks `Analysis.laneOf(node)` for the lane a node's
 instructions name, `Slots.species(lane)` for its species local and `lanesOf`/`literalsOf` for its
@@ -469,10 +481,13 @@ declined list for a `CASE` arm and a false `AND` are gone, since they are served
 `INT` to `BIGINT` in every mode and `BIGINT` to `INT` in LEGACY and ANSI, and holds them to the
 rows that cast them (VARKA-328's four-way rule); its fused count moves from 122 to 124. `emitted_bytes.json` gains the nine rows and the `fuzz_mixed` blocks; no existing row or block
 moved (checked by key, not by eye), and the option-arm digests, taken over the whole table, moved
-with the new shapes. `width_audit.json` gains the rows: at 128 bits their refusals are the long lane's
-two-lane masks the existing long rows have, at 512 none, and neither conversion is refused at
-either width. The cost model prices `WidenLane` from one probe; refitting moved eight existing
-prices in their third decimal and no emitted byte.
+with the new shapes. `width_audit.json` gains the rows: at 512 bits no refusal, and neither
+conversion is refused at either width; at 128 bits the long lane's two-lane masks the existing long
+rows have, and since the fix of 9.3 the epilogue's on every row, `CAST(i AS BIGINT)` and `hour(t) =
+12` included, which the docs table's 128-bit column now reads as per-lane. The cost model prices
+`WidenLane` from one probe; refitting moved eight existing prices in their third decimal and no
+emitted byte, and after the fix `WidenLane`'s own price moved, since a mixed kernel has no fixed
+term of its own and the epilogue's loop is charged to the node every such probe holds.
 
 **Found on the way.** The gate over both modules found what the row's own suites had not: an
 int-lane column-bound guard in a mixed kernel kept its min-and-max accumulators, which are the
@@ -488,7 +503,7 @@ only once it takes them.
 
 | | prediction | measured | |
 | :-- | :-- | :-- | :-- |
-| 1 | a mixed kernel matches the single-lane long kernel per row | not measured: 9.2 | open |
+| 1 | a mixed kernel matches the single-lane long kernel per row | as first emitted, half the long lane's rate at 512 bits and a sixth at 128 in L2; after the fix, at or above it at every rung and both widths but 128 bits in L2, 0.91 of it (9.3) | held after a fix; failed as first emitted |
 | 2 | `cast(int AS long) + long` beats the row engine by the long lane's margin on `l + l` | not measured, and not compiled until 104 | open |
 | 3 | no single-width benchmark moves | no single-width kernel's bytes moved, which is what the prediction rested on | held, structurally |
 
@@ -496,9 +511,72 @@ No calibration entry: the predictions are of throughput, not of a cost the calib
 
 ### 9.2 What is owed
 
-The A/B of section 6 is `VarkaLaneConversionBenchmark`: a mixed arm beside the single-lane arm of
-the same work and a scalar loop, on `VarkaLongLaneBenchmark`'s ladder. It was not run here: two
-other agents' JVMs shared the machine, and the house method refuses a loaded one. Its results, at
-both widths with the 128-bit release rate beside them (6), are owed to the next quiet window, and
-predictions 1 and 2 are scored from them.
+Prediction 2 waits on 104's long `Add`, which `cast(int AS long) + long` compiles through. The
+128-bit release rate section 6 asks beside the numbers was not measured; what the change does to it
+is in 9.3. The pair representation stays the alternative to measure for the int-heavy kernels of
+340, where a mixed kernel computes its int work over twice the lanes it needs.
 
+### 9.3 The A/B, and the loop it changed
+
+`VarkaLaneConversionBenchmark` was run first at the commit that implemented the row, alone on the
+machine under both JVM slots, and its mixed arm failed prediction 1 outright: `cast(i AS bigint) + l`
+ran 3969.0 M rows/s at 512 bits in L2 against 7861.8 for `l2 + l` and 5144.1 for a scalar loop, and
+at 128 bits 1424.6 against 8346.4 (`sql/varka/spikes/lane-conversion/results/before-fix-*`). Two
+causes, each read from the JIT rather than guessed from the timing:
+
+* **The conversion was not intrinsified.** `convertShape` took its target species from the
+  species local, and `-XX:+PrintIntrinsics` refuses both `I2L` calls with `missing constant ...
+  vlen_to=LoadI` (`results/convert-intrinsic.txt`): C2 needs the target's lane count as a
+  constant, and the local, though it holds a static final species, is a load. The emitter now
+  loads the target from the named species field.
+* **A masked load costs two to five unmasked ones.** A hand-written loop of the same work
+  (`src/Hand28.java`, `results/hand-loop.txt`) ran 4702 M rows/s at 512 bits and 16384 rows with
+  the int load under the low-half mask against 12646 unmasked and 12204 for the long lane alone,
+  and at 128 bits 1552 against 7362 and 8552. The pair representation of 3.2 ran 11788 and 5127:
+  close at 512, a third slower at 128. The bounded loop the emitter now takes - stop a long lane
+  group early, load and store whole in the loop, masked in the epilogue - ran 10652 and 7150, and
+  keeps the long-driven design. A branch between the whole and the masked form inside the loop,
+  tried first, kept C2 from removing the vector boxes at the join and ran at 4604 at 512 bits,
+  allocating on every call (`results/branch-form.txt`).
+
+The benchmark after the fix, under both slots at a load of 0.93 (the committed files under
+`sql/catalyst/benchmarks/`; an earlier run of the same commit, `results/first-run-*`, agrees but at
+512 bits and 262144 rows, where the mixed arm read 6262.7 against the long lane's 6441.5, a tie rather
+than a lead), against the first run:
+
+| arm, 512 bits | 16384 rows | 262144 rows | 1000000 rows | 8388608 rows |
+| :-- | --: | --: | --: | --: |
+| `cast(i AS bigint) + l` | 3969.0 to 9972.0 | 7493.0 to 7547.0 | 3281.0 to 4166.3 | 1692.8 to 2020.1 |
+| `l2 + l`, the long lane | 7861.8 to 7790.8 | 6459.0 to 6298.8 | 3364.7 to 3378.6 | 1811.6 to 1804.6 |
+| `cast(i AS bigint) < l` | 8987.4 to 11122.9 | 8011.5 to 11450.8 | 6522.9 to 9867.8 | 2171.2 to 4605.9 |
+| `l2 < l`, the long lane | 11122.9 to 11198.9 | 7836.4 to 9351.6 | 6575.3 to 6775.3 | 2834.5 to 3085.3 |
+| `cast(l AS int) + i` | 10157.5 to 11206.6 | 9047.6 to 7919.3 | 4651.3 to 6195.7 | 1944.5 to 2926.7 |
+| the scalar loop | 5144.1 to 5160.3 | 4790.4 to 4806.3 | 2956.0 to 2962.1 | 1915.4 to 1828.5 |
+
+| arm, 128 bits | 16384 rows | 262144 rows | 1000000 rows | 8388608 rows |
+| :-- | --: | --: | --: | --: |
+| `cast(i AS bigint) + l` | 1424.6 to 7865.6 | 4665.6 to 7230.0 | 2045.0 to 3339.0 | 1180.9 to 2114.3 |
+| `l2 + l`, the long lane | 8346.4 to 8655.0 | 5173.0 to 5163.9 | 2886.5 to 2902.4 | 1751.6 to 1756.3 |
+| `cast(l AS int) + i` | 4824.5 to 7790.8 | 4509.0 to 6872.8 | 2826.4 to 5006.2 | 1379.5 to 2691.1 |
+| the scalar loop | 4568.9 to 4581.7 | 4260.8 to 4151.3 | 2860.2 to 2839.5 | 2089.9 to 2092.3 |
+
+A mixed kernel now matches or beats the long lane per row at every rung of both widths but one,
+128 bits in L2, where it runs 0.91 of it; past L2 it is ahead because it reads four bytes a row
+fewer. Three things the numbers carry that are not the mixed kernel's to answer:
+
+* **The 128-bit selections run at about 240 M rows/s, mixed and long alike,** before and after.
+  That is `m7` row 374's finding - x86 C2 lowers no two-lane mask, so a long selection runs the
+  Vector API's Java fallback per mask operation - and `m9/SCOPE.md` item 101's design work, not a
+  cost of the conversion.
+* **At 128 bits a mixed kernel's epilogue now runs on every batch,** since the bounded loop leaves
+  at least one long lane group to it, and its bounds mask is a two-lane long mask: about 90 to 120
+  bytes a call of fallback allocation in a probe at 4096 and 16384 rows, under the 256 a column the
+  warm-up's verdict allows (`VarkaKernelWarmup.SEGMENT_BYTES_PER_COLUMN`), so the verdict should
+  stand; the release rate itself was not measured (9.2). A single-lane long kernel pays the same
+  epilogue only on a batch of odd length.
+* **The int-lane reference arm at 16384 rows is the tiered JIT's, not the kernel's.** `i2 + i` read
+  24786.7 at 512 bits in the first run and 1160.7 in the committed one, though its kernel's bytes
+  did not change. Run alone it reads 2595.7 at the first commit and 2894.7 at the fixed one, 20202.2
+  under `-XX:-TieredCompilation`, and the 262144-row rung is unaffected
+  (`results/int-arm-tiering.txt`): which compile the harness's call site ends up with at that rung
+  depends on what ran before it. Not this row's; reported for a row of its own.

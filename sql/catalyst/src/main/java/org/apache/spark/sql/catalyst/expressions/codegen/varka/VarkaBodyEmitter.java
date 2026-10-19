@@ -492,9 +492,9 @@ final class VarkaBodyEmitter {
     if (analysis.mixed()) {
       // A kernel that converts between lanes reads an int column a whole int vector at a time,
       // twice the rows a long lane group covers, so its loop stops a long lane group early: every
-      // int load in it is then whole and unmasked, which costs a masked one's third
-      // (`VARKA-28.md` 9.2), and the rest - one long lane group to just under two - is the
-      // epilogue's.
+      // int load and store in it is then whole and unmasked, where a masked one costs two to
+      // five times as much (`VARKA-28.md` 9.3), and the rest - one long lane group to just
+      // under two - is the epilogue's.
       cb.iload(s.lanes);
       cb.isub();
     }
@@ -735,8 +735,9 @@ final class VarkaBodyEmitter {
    * and the stores take. Nothing between a load and a store is masked, exactly as in the
    * loop.
    *
-   * <p>A kernel that converts between lanes runs this body in a loop of its own, up to twice
-   * ({@code emitMixedEpilogue}), since its loop leaves up to two long lane groups.
+   * <p>A kernel that converts between lanes is the exception to "no back edge": its loop stops a
+   * long lane group early, so its epilogue runs this body in a loop of its own, up to twice
+   * ({@code emitMixedEpilogue}), the first time over a whole group.
    *
    * <p>The masked load is not an optimization here: the data segment is sized to
    * {@code length * 4}, so an unmasked load of the last partial group would run off the end
@@ -855,8 +856,9 @@ final class VarkaBodyEmitter {
   /**
    * Whether this call site takes the width-specialised helper: a whole lane group, in an emission
    * that baked a lane count. The epilogue's partial group never does - its row count is the batch's
-   * remainder rather than a width, and it runs once per batch, so the general form's switch costs
-   * nothing worth naming a method over.
+   * remainder rather than a width, and it runs once per batch (twice at most, in a kernel that
+   * converts between lanes), so the general form's switch costs nothing worth naming a method
+   * over.
    */
   private static boolean widthSpecialised(Analysis analysis, Slots s) {
     return !s.epilogue && analysis.lanes != 0;
@@ -894,7 +896,9 @@ final class VarkaBodyEmitter {
    * since the destination is an int column. The mask is {@code indexInRange(0, lanes)} on the
    * int species - the low {@code lanes} lanes, which in the loop is the long species' count and
    * in the epilogue the remainder - so one form serves both bodies and C2 folds it to a
-   * constant where {@code lanes} is one.
+   * constant where {@code lanes} is one. In the loop of a kernel that converts between lanes the
+   * store is whole instead, its upper half's zeros landing on the next group's rows, which that
+   * group stores over ({@link #emitLowHalfStore}).
    *
    * <p>Two choices are deliberate. The int species is the width's own and not a half-width
    * one: a second {@code IntVector} species in the JVM makes the shared templates inline
@@ -952,7 +956,8 @@ final class VarkaBodyEmitter {
   /**
    * The store of an int vector whose low half holds the lane group's rows, in a kernel driven at
    * the long lane: {@code [int vector] -> []}, four bytes a row at {@code (long) i * 4}, under the
-   * mask of the int species' first {@code lanes} lanes. A narrowed root's tail, and the store of
+   * mask of the int species' first {@code lanes} lanes - or whole, in the loop of a kernel that
+   * converts between lanes, which leaves room for it. A narrowed root's tail, and the store of
    * every int-valued root of a kernel that converts between lanes, whose int values all fill the
    * low half of their species.
    */
@@ -992,7 +997,8 @@ final class VarkaBodyEmitter {
   /**
    * One lane group: this group's validity words, then each output's vector walk and store.
    * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
-   * with {@code s.epilogue} set - the only difference between them inside here.
+   * with {@code s.epilogue} set (up to twice in a kernel that converts between lanes) - the only
+   * difference between them inside here.
    */
   private static void emitLaneGroup(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {

@@ -120,7 +120,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  * beside it.
  *
  * <p><b>The epilogue, not a scalar tail.</b> The rows past {@code loopBound} are one more
- * iteration of the same lane-group body, under the mask {@code indexInRange} builds for a
+ * iteration of the same lane-group body (two at most in a kernel that converts between lanes,
+ * whose loop stops a group early), under the mask {@code indexInRange} builds for a
  * partial group - {@code i} is {@code loopBound}, {@code lanes} becomes the remainder so every
  * validity helper stays bounded by the group, and only the loads and the stores take their
  * masked overloads. The masked load is required rather than preferred: the data segment is
