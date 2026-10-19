@@ -77,6 +77,20 @@ jobs:
         java-version: '25'
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
+    # The runner's CPU and the vector width HotSpot uses, recorded before any kernel runs: GitHub's
+    # pool mixes AVX2 and AVX-512 machines, and a wrong answer from C2's code that one runner
+    # showed and the laptop and a second runner did not (VARKA-396) could not be placed without
+    # them. Written to the step summary and beside the logs the job keeps.
+    - name: Record the CPU and the vector width
+      run: |
+        mkdir -p target/fuzz
+        {
+          echo "## Runner CPU and vector width"
+          echo "CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) cores"
+          echo "AVX/SVE flags: $(lscpu | tr ' ' '\n' | grep -E '^avx|^sve' | sort -u | tr '\n' ' ')"
+          echo "JVM: $(java -XX:+PrintFlagsFinal -version 2>/dev/null \
+            | grep -E ' (MaxVectorSize|UseAVX|UseSVE) ' | awk '{print $2 "=" $4}' | tr '\n' ' ')"
+        } | tee target/fuzz/platform.txt | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Compile the catalyst tests and export their classpath
       run: |
         # The shell opens the redirect's file before sbt runs, and a fresh checkout has no
@@ -241,6 +255,20 @@ jobs:
         java-version: '25'
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
+    # The runner's CPU and the vector width HotSpot uses, recorded before any kernel runs: GitHub's
+    # pool mixes AVX2 and AVX-512 machines, and a wrong answer from C2's code that one runner
+    # showed and the laptop and a second runner did not (VARKA-396) could not be placed without
+    # them. Written to the step summary and beside the logs the job keeps.
+    - name: Record the CPU and the vector width
+      run: |
+        mkdir -p target/series
+        {
+          echo "## Runner CPU and vector width"
+          echo "CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) cores"
+          echo "AVX/SVE flags: $(lscpu | tr ' ' '\n' | grep -E '^avx|^sve' | sort -u | tr '\n' ' ')"
+          echo "JVM: $(java -XX:+PrintFlagsFinal -version 2>/dev/null \
+            | grep -E ' (MaxVectorSize|UseAVX|UseSVE) ' | awk '{print $2 "=" $4}' | tr '\n' ' ')"
+        } | tee target/series/platform.txt | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Compile the catalyst tests and export their classpath
       run: |
         mkdir -p target
