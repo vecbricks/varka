@@ -750,6 +750,56 @@ What made it small, and what to carry to the next width change:
   one combined run they audited the old rows and passed; run the coverage suite
   first and the readers after, and rerun the readers when it changed the file.
 
+*19 October 2026:* VARKA-28 lifted the root-only rule; the next section is what replaced it.
+
+## A kernel of both lanes is driven at the long lane, its int values in the low half of their species
+
+VARKA-28 planned the opposite: the loop at the int species, every long value a pair of
+`LongVector`s, every long operation emitted twice. The narrowing root above had already shown the
+cheaper shape, and the row generalized it instead (`VARKA-28.md` 3.2): a kernel that holds both
+lanes is driven at the long lane, and each int value fills the low half of the int species of the
+same width - an int column loaded at `(long) i * 4`, an int output stored there, a widening one
+`I2L` and a narrowing one `L2I`, both part 0. What made it a refactor rather than a rewrite:
+
+- **The upper lanes are not the group's rows.** In the loop they hold the next group's rows (see
+  the load below), in the epilogue zero, and every lowering was already safe over both: a lane's
+  value is a row's or a padding lane's either way. The one consumer that can be hurt is a guard,
+  which would condemn a batch from another group's row, a null one included; its int mask goes
+  through `toLong` and `fromLong` at the long species before the accumulator, which drops the
+  upper lanes. A stored-value guard keeps the
+  compares there instead of its min and max, which no mask can trim.
+- **Ask the node's lane, the species' local and the lane's table.** `Analysis.laneOf(node)`,
+  `Slots.species(lane)` and `literalsOf(lane)` answer what `analysis.lane` did in every single-lane
+  kernel, so the refactor was proved on its own by the bytes oracle before any node existed. The
+  words need nothing: they are bits a row, and `fromLong` reads only its species' lane count.
+- **Map every buffer at its own width.** An int column of a long-driven kernel is four bytes a row;
+  mapped at the driving stride it would be twice its buffer, which the memory sanitizer reports
+  (the same lesson as the narrowed root's, VARKA-292).
+- **One species per lane type still.** `narrowHalfSpecies` is ignored in such a kernel, and a
+  suite reads the constant pool for exactly two species, the width's own.
+
+The price is on the int side: an int value is computed over twice the lanes it needs. Casts and
+promotions do not notice; a kernel whose int work dominates - a calendar over a narrowed timestamp -
+pays it per row, and the pair representation is the alternative to measure there.
+
+As first emitted the design ran at half the long lane's rate at 512 bits and a sixth at 128, slower
+than a scalar loop (`VARKA-28.md` 9.3). Two causes, each found from the JIT rather than the timing:
+
+- **A conversion's target species must be a constant.** `convertShape(I2L, species, 0)` with the
+  species loaded from a local is not intrinsified: `-XX:+PrintIntrinsics` says `missing constant
+  ... vlen_to=LoadI`, and C2 falls back to the Java conversion. The local held a static final
+  species, but C2 sees the load, not the constant. Emit the target as a `getstatic` of the named
+  species field.
+- **A masked load costs two to five unmasked ones.** A hand-written loop over the same work (two
+  loads, a conversion, an add, a store) ran 4702 M rows/s with the int load under the low-half
+  mask against 12646 unmasked at 512 bits and 16384 rows, and 1552 against 7362 at 128
+  (`sql/varka/spikes/lane-conversion/results/hand-loop.txt`). The loop now
+  stops a long lane group early (`loopBound(length - lanes)`), so every iteration has a whole int
+  vector of rows left and loads and stores it whole; the epilogue takes the last one to two groups
+  under masks. Do not branch between a whole and a masked form inside the loop instead: two vector
+  forms meeting at a join keep C2 from removing the boxes, and that form ran at 4604 M rows/s and
+  allocated on every call (`results/branch-form.txt` in the same spike).
+
 ## The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal
 
 The IR caps (`MAX_FUSED_NODES` 64, `MAX_CHAIN_DEPTH` 16) bound what one kernel can carry, and

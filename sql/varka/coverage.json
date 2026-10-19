@@ -1116,6 +1116,94 @@
     "domain" : "",
     "note" : "the widening cast written out; a narrowing one floors the nanoseconds and declines"
   }, {
+    "sql" : "CAST(i AS BIGINT)",
+    "executable" : "CAST(i AS BIGINT)",
+    "family" : "Width conversions",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a sign extension, exact in every mode"
+  }, {
+    "sql" : "CAST(time_to_millis(t) AS INT)",
+    "executable" : "CAST(time_to_millis(t) AS INT)",
+    "family" : "Width conversions",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimeToMillis" ],
+    "casts" : [ "bigint>int:ansi" ],
+    "operands" : [ "Cast:bigint", "TimeToMillis:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "time_to_millis(t) BETWEEN -2147483648 AND 2147483647",
+    "note" : "a bigint narrowed to an int: under ANSI a value past the int range declines and the row engine raises CAST_OVERFLOW, and the legacy mode keeps the low 32 bits, as Spark does; a day's milliseconds always fit"
+  }, {
+    "sql" : "greatest(i, l)",
+    "executable" : "greatest(i, l)",
+    "family" : "Width conversions",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "Greatest" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "Greatest:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "type coercion widens the int, and the pick is the long lane's"
+  }, {
+    "sql" : "CASE WHEN i < l THEN i ELSE l END",
+    "executable" : "CASE WHEN i < l THEN i ELSE l END",
+    "family" : "Width conversions",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "Cast", "LessThan" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "CaseWhen:bigint", "Cast:int", "LessThan:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the widened int in a condition and in a branch of a long-valued conditional"
+  }, {
+    "sql" : "i < l",
+    "executable" : "i < l",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThan" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "LessThan:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "an int against a bigint compares in the long lane, the int widened"
+  }, {
+    "sql" : "l = i",
+    "executable" : "l = i",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "EqualTo" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "EqualTo:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "CAST(time_to_millis(t) AS INT) > i",
+    "executable" : "CAST(time_to_millis(t) AS INT) > i",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "TimeToMillis" ],
+    "casts" : [ "bigint>int:ansi" ],
+    "operands" : [ "Cast:bigint", "GreaterThan:int", "TimeToMillis:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "time_to_millis(t) BETWEEN -2147483648 AND 2147483647",
+    "note" : "the narrowed value compared in the int lane"
+  }, {
+    "sql" : "hour(t) = 12",
+    "executable" : "hour(t) = 12",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "HoursOfTime" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:int", "HoursOfTime:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the TIME extract narrowed inside the predicate"
+  }, {
     "sql" : "greatest(l, l2)",
     "executable" : "greatest(l, l2)",
     "family" : "Long-lane choice",
@@ -1246,7 +1334,18 @@
     "operands" : [ "HoursOfTime:time" ],
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
     "domain" : "",
-    "note" : "an int computed in the 64-bit lane and narrowed at the kernel's store, the one place a lane changes width until VARKA-28; so the extract fuses as an output and declines under another expression"
+    "note" : "an int computed in the 64-bit lane and narrowed at the kernel's store; under another expression it narrows where it is"
+  }, {
+    "sql" : "hour(t) + 1",
+    "executable" : "hour(t) + 1",
+    "family" : "Time arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Add", "HoursOfTime" ],
+    "casts" : [ ],
+    "operands" : [ "Add:int", "HoursOfTime:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "hour(t) < 2147483647",
+    "note" : "the extract narrowed inside the tree, under an int add checked under ANSI; the check cannot fire, since an hour is at most 23"
   }, {
     "sql" : "minute(t2)",
     "executable" : "minute(t2)",

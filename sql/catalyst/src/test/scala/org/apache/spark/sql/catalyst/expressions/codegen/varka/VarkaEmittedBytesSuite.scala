@@ -261,6 +261,18 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     FuzzShape(drawn.roots.asScala.toSeq, drawn.numInputs, drawn.numLiterals)
   }
 
+  /**
+   * Shape `k` of the sequence of both lanes (VARKA-28): `VarkaIrGrammar`'s mixed draw from its
+   * own seed, which `VarkaIrFuzzSuite` runs against `mixedValue`. A sequence of its own, so that
+   * the two corpora above stay what they were.
+   */
+  private def mixedFuzzShape(k: Int): FuzzShape = mixedShapes(k)
+
+  private lazy val mixedShapes: IndexedSeq[FuzzShape] = (0 until shapes).map { k =>
+    val drawn = drawMixedShape(shapeRandom(MIXED_FUZZ_SEED, k))
+    FuzzShape(drawn.roots.asScala.toSeq, drawn.numInputs, drawn.numLiterals)
+  }
+
   /** The digest of one block of a sequence at one width. */
   private def blockDigest(shapeAt: Int => FuzzShape, block: Int, lanes: Int): String = {
     val sb = new StringBuilder
@@ -411,7 +423,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val r = rows(i)
       line(r.sql, r.roots, r.numInputs, r.numLiterals)
     }
-    val shapeLines = Seq(intShapes, longShapes).flatMap { sequence =>
+    val shapeLines = Seq(intShapes, longShapes, mixedShapes).flatMap { sequence =>
       inOrder(shapes) { k =>
         val sh = sequence(k)
         line(k.toString, sh.roots, sh.numInputs, sh.numLiterals)
@@ -435,6 +447,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val blockCount = (shapes + blockSize - 1) / blockSize
       val blocks = inOrder(blockCount)(blockDigest(fuzzShape, _, lanes))
       val longBlocks = inOrder(blockCount)(blockDigest(longFuzzShape, _, lanes))
+      val mixedBlocks = inOrder(blockCount)(blockDigest(mixedFuzzShape, _, lanes))
       lanes.toString -> ordered(
         "coverage" -> coverageHashes,
         "fuzz" -> ordered(
@@ -442,7 +455,10 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "blocks" -> blocks.asJava),
         "fuzz_long" -> ordered(
           "seed" -> LONG_FUZZ_SEED, "shapes" -> shapes, "block_size" -> blockSize,
-          "blocks" -> longBlocks.asJava))
+          "blocks" -> longBlocks.asJava),
+        "fuzz_mixed" -> ordered(
+          "seed" -> MIXED_FUZZ_SEED, "shapes" -> shapes, "block_size" -> blockSize,
+          "blocks" -> mixedBlocks.asJava))
     }
     val armHashes = ordered(pinnedArms.map { case (name, arm) =>
       name -> ordered(widths.map(w => w.toString -> armDigest(arm, w)): _*)
@@ -451,7 +467,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       "generated_by" -> ("VarkaEmittedBytesSuite; regenerate with VARKA_BYTES_REGEN=true " +
         "build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'"),
       "description" -> ("Hashes of every emitted method body, rendered symbolically, for every " +
-        "coverage row and for a fixed sequence of fuzz shapes at each lane, at 128 and 512 bits " +
+        "coverage row and for a fixed sequence of fuzz shapes at each lane and over both, at " +
+        "128 and 512 bits " +
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a " +
         "change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every shape at each width " +
@@ -565,7 +582,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
                 if (hashOf(was, m) != hashOf(now, m)) moved += s"lanes $lanes: $row method $m"
               }
             }
-            Seq("fuzz", "fuzz_long").foreach { sequence =>
+            Seq("fuzz", "fuzz_long", "fuzz_mixed").foreach { sequence =>
               val bb = Option(b.get(sequence)).map(_.get("blocks")).orNull
               val ab = a.get(sequence).get("blocks")
               ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>

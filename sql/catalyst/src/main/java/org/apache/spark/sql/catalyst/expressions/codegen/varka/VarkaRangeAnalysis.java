@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -262,6 +263,11 @@ public final class VarkaRangeAnalysis {
       // throughout, above, and its callers prove their bounds structurally (VARKA-102) or
       // through a guard like this one.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
+      // A sign extension keeps every value, so an int's range is its widening's, asked as an
+      // int: what a long-lane consumer such as a division by a constant needs to know of its
+      // dividend.
+      case WidenLane n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
+          : range(n.child(), Kind.INT, policy, literals, columns);
       // A 32-bit value computed in the long lane, whose ranges this lattice does not track.
       case NarrowLane n -> VarkaValueRange.UNKNOWN;
       case Greatest n -> hull(n.left(), n.right(), kind, policy, literals, columns);

@@ -135,6 +135,10 @@ final class VarkaDescriptors {
   static final MethodTypeDesc SPECIES_LENGTH = MethodTypeDesc.of(ConstantDescs.CD_int);
   static final MethodTypeDesc LOOP_BOUND =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code int Math.min/max(int, int)} - the loop bounds of a kernel that converts lanes. */
+  static final ClassDesc MATH = ClassDesc.of("java.lang.Math");
+  static final MethodTypeDesc MATH_INT_PAIR =
+      MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int, ConstantDescs.CD_int);
   /**
    * {@code VectorMask VectorSpecies.indexInRange(int, int)} - the partial lane group's mask,
    * and the whole reason the epilogue can replace a scalar walk.

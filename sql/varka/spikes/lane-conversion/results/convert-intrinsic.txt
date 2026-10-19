@@ -1,0 +1,6 @@
+# -XX:+PrintIntrinsics over the probe kernel cast(i AS bigint) + l, emitted at e412cb42b8d, whose
+# convertShape took its target species from a local: the two I2L conversions are refused, vlen_to
+# being a load (LoadI) rather than a constant. Lines 1902-1903 of the full log; the rest is the
+# probe's other compiles.
+  ** missing constant: opr=ConI vclass_from=ConP etype_from=ConP vlen_from=ConI vclass_to=ConP etype_to=ConP vlen_to=LoadI
+  ** missing constant: opr=ConI vclass_from=ConP etype_from=ConP vlen_from=ConI vclass_to=ConP etype_to=ConP vlen_to=LoadI

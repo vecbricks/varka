@@ -742,13 +742,13 @@ final class VarkaChronoCompiler {
       // IR node is a compile error here until it is classified as one that carries a day
       // interval (above) or one that does not.
       case VarkaVectorIR.ColumnRef _, LiteralSlot _, GuardedDay _, VarkaVectorIR.GuardedRange _,
-          VarkaVectorIR.NarrowLane _, VarkaVectorIR.DateDiff _, VarkaVectorIR.DayOfWeek _,
-          VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _, VarkaVectorIR.Month _,
-          VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _, VarkaVectorIR.DayOfYear _,
-          VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _, VarkaVectorIR.MakeDate _,
-          VarkaVectorIR.Compare _, VarkaVectorIR.And _, VarkaVectorIR.Or _,
-          VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _, VarkaVectorIR.InRanges _,
-          VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
+          VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.DateDiff _,
+          VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
+          VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _,
+          VarkaVectorIR.DayOfYear _, VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _,
+          VarkaVectorIR.MakeDate _, VarkaVectorIR.Compare _, VarkaVectorIR.And _,
+          VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
+          VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _ -> new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =

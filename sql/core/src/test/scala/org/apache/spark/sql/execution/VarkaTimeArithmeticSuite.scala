@@ -269,10 +269,9 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
     }
   }
 
-  test("an extract under another expression is left to the row engine, beside a fused one") {
-    // The narrowing is the store's, so `hour(t) + 1` has no fused form until VARKA-28 narrows
-    // inside a tree: the entry declines with its reason and the row engine answers it, while
-    // the extract beside it is still served by the kernel.
+  test("an extract under another expression fuses beside a fused one") {
+    // VARKA-28: `hour(t) + 1` narrows inside the tree, so both entries are one kernel's, which
+    // holds both lanes, and both agree with the row engine.
     val query = s"SELECT hour(t) + 1 AS h, minute(t) AS m FROM $day"
     val actual = varkaSpark.sql(query)
     assertFused(actual.queryExecution.executedPlan)
