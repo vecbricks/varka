@@ -166,10 +166,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * The lane every output root agrees on. The roots are the emission's outputs, and a class
-   * holds one species: its loop, its epilogue and its stores are all that species, so two roots
-   * on different lanes are two kernels rather than one. `analyze` re-checks every node below
-   * them against this, which is where a mixed *tree* is caught.
+   * The lane every output root's kernel is driven at, which they must agree on. The roots are the
+   * emission's outputs, and a class is driven at one species: its loop and its epilogue are that
+   * species', so two roots driven at different lanes are two kernels rather than one. A root that
+   * converts between lanes is driven at the long lane (VARKA-28). `analyze` re-checks every node
+   * below them against this.
    */
   private static Lane laneOf(List<VarkaVectorIR> outputs) {
     if (outputs.isEmpty()) {

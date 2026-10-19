@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.IsoFields;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -84,10 +85,12 @@ public final class VarkaReference {
       // A range guard changes no value; a lane outside it declines the batch, which the suites
       // assert on the status rather than on a value this evaluator could spell.
       case GuardedRange g -> value(g.child(), row, isNull, lits);
-      // A narrowing root is a long-lane shape: its child is computed over 64-bit rows, so it is
-      // answered by `longValue`, and a suite takes the low 32 bits of that as the store does.
+      // A conversion reads rows of the other lane: a narrowing root alone is a long-lane shape,
+      // answered by `longValue`, and any tree that holds a conversion by `mixedValue`.
       case NarrowLane n -> throw new IllegalArgumentException(
-          "a narrowing root is evaluated through evalLong: " + n);
+          "a narrowing is evaluated through longValue or mixedValue: " + n);
+      case WidenLane n -> throw new IllegalArgumentException(
+          "a widening is evaluated through mixedValue: " + n);
       case DateDiff(var end, var start) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
       case DayOfWeek n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 4) % 7 + 1);
       case WeekDay n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 3) % 7);
@@ -318,6 +321,8 @@ public final class VarkaReference {
       // in full and the suite narrows it the way the store does, so a value that does not fit an
       // int shows as a difference rather than being truncated on both sides.
       case NarrowLane n -> longValue(n.child(), row, isNull, lits);
+      case WidenLane n -> throw new IllegalArgumentException(
+          "a widening reads int rows, and is evaluated through mixedValue: " + n);
       case Greatest(var left, var right) ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits), Math::max);
       case Least(var left, var right) ->
@@ -404,6 +409,121 @@ public final class VarkaReference {
       case InRanges n -> throw new IllegalArgumentException(
           "a range set is on the int lane only: " + n);
     };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Both lanes (VARKA-28).
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The value of {@code node} over a row of both lanes, sign-extended where the node is on the int
+   * lane; empty for a null. {@code row[c]} is column {@code c}'s value, an int column's widened,
+   * and {@code intLits} and {@code longLits} are the two literal tables, each lane's slots
+   * indexing its own.
+   *
+   * <p>Written from the conversions' meaning, on top of the two single-lane evaluators rather
+   * than beside them: each conversion is answered first - a widening is its int child's value,
+   * a narrowing its long child's low 32 bits, Spark's {@code CAST(bigint AS int)} under
+   * {@code LEGACY} - and stands in the tree as a column of its own lane holding that answer, so
+   * that every other node is answered by {@link #value} or {@link #longValue} exactly as in a
+   * single-lane tree. A narrowing that the ANSI cast guards is a declined batch wherever the value
+   * does not fit, which the suites assert on the status, as for every guard.
+   */
+  public static OptionalLong mixedValue(VarkaVectorIR node, long[] row, boolean[] isNull,
+      int[] intLits, long[] longLits) {
+    var rows = new MixedRow(row, isNull);
+    VarkaVectorIR flat = rows.flatten(node, intLits, longLits);
+    if (flat.laneType() == LaneType.INT) {
+      OptionalInt v = value(flat, rows.ints(), rows.nulls(), intLits);
+      return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
+    }
+    return longValue(flat, rows.longs(), rows.nulls(), longLits);
+  }
+
+  /** {@link #mixedValue}'s counterpart for a condition. */
+  public static Truth mixedCond(Cond cond, long[] row, boolean[] isNull, int[] intLits,
+      long[] longLits) {
+    var rows = new MixedRow(row, isNull);
+    Cond flat = (Cond) rows.flatten(cond, intLits, longLits);
+    return flat.laneType() == LaneType.INT
+        ? cond(flat, rows.ints(), rows.nulls(), intLits)
+        : longCond(flat, rows.longs(), rows.nulls(), longLits);
+  }
+
+  /**
+   * One row of a tree of both lanes, with a column appended per conversion answered: the
+   * conversion's value, null where it is, at the conversion's own lane.
+   */
+  private static final class MixedRow {
+    private final List<Long> values = new ArrayList<>();
+    private final List<Boolean> nulls = new ArrayList<>();
+
+    MixedRow(long[] row, boolean[] isNull) {
+      for (int c = 0; c < row.length; c++) {
+        values.add(row[c]);
+        nulls.add(isNull[c]);
+      }
+    }
+
+    /** {@code node} with every conversion replaced by a column holding its answer. */
+    VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
+      if (node instanceof WidenLane w) {
+        // Exact: the int child's value, which `mixedValue` already sign-extends.
+        return column(mixedOf(w.child(), intLits, longLits), LaneType.LONG);
+      }
+      if (node instanceof NarrowLane n) {
+        OptionalLong v = mixedOf(n.child(), intLits, longLits);
+        return column(v.isPresent() ? OptionalLong.of((int) v.getAsLong()) : v, LaneType.INT);
+      }
+      VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);
+      if (children.length == 0) {
+        return node;
+      }
+      VarkaVectorIR[] flat = new VarkaVectorIR[children.length];
+      for (int k = 0; k < children.length; k++) {
+        flat[k] = flatten(children[k], intLits, longLits);
+      }
+      return VarkaVectorIR.withChildren(node, flat);
+    }
+
+    private OptionalLong mixedOf(VarkaVectorIR child, int[] intLits, long[] longLits) {
+      VarkaVectorIR flat = flatten(child, intLits, longLits);
+      if (flat.laneType() == LaneType.INT) {
+        OptionalInt v = value(flat, ints(), nulls(), intLits);
+        return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
+      }
+      return longValue(flat, longs(), nulls(), longLits);
+    }
+
+    private VarkaVectorIR column(OptionalLong v, LaneType lane) {
+      values.add(v.orElse(0L));
+      nulls.add(v.isEmpty());
+      return new ColumnRef(values.size() - 1, lane);
+    }
+
+    long[] longs() {
+      long[] out = new long[values.size()];
+      for (int c = 0; c < out.length; c++) {
+        out[c] = values.get(c);
+      }
+      return out;
+    }
+
+    int[] ints() {
+      int[] out = new int[values.size()];
+      for (int c = 0; c < out.length; c++) {
+        out[c] = (int) (long) values.get(c);
+      }
+      return out;
+    }
+
+    boolean[] nulls() {
+      boolean[] out = new boolean[nulls.size()];
+      for (int c = 0; c < out.length; c++) {
+        out[c] = nulls.get(c);
+      }
+      return out;
+    }
   }
 
   // ---------------------------------------------------------------------------------------------

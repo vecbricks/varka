@@ -200,7 +200,7 @@ final class VarkaTimeCompiler {
       // itself into (see `TIME_TARGETS`). The lowered ones are matched by the method they
       // invoke; the rest decline by name through the same table.
       case StaticInvoke si when isTimeTarget(si) ->
-          () -> compileTime(si, inputs, literals, sink, false);
+          () -> compileTime(si, inputs, literals, sink);
       default -> null;
     };
   }
@@ -291,17 +291,12 @@ final class VarkaTimeCompiler {
         + "Varka output writes yet; the value is an unscaled long the lane holds (VARKA-157)";
   }
 
-  /**
-   * The lowering of a TIME function's replacement. {@code atRoot} is true only for an output
-   * root, the one position that can take the three field extracts, whose result is an int
-   * computed in the long lane (see {@code compileRoot}).
-   */
+  /** The lowering of a TIME function's replacement. */
   static Optional<VarkaVectorIR> compileTime(
       StaticInvoke si,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
-      DeclineSink sink,
-      boolean atRoot) {
+      DeclineSink sink) {
     // A node outside the table fails here, as the Scala `timeTargets(key)` did, rather than
     // reaching a decline text as "null".
     String label = Objects.requireNonNull(
@@ -362,31 +357,29 @@ final class VarkaTimeCompiler {
       }
       // The three field extracts (group C): hour is one division of the nanoseconds of day,
       // minute and second a division and the remainder of a further division by sixty, each
-      // built the way `DateTimeUtils` computes it through `LocalTime` and delivered as an int
-      // column by a narrowing root - the value stays in the long lane and narrows at the store
-      // (`VARKA-102.md` 8.3). Every dividend is nanoseconds of day or a quotient of it,
-      // under the type's bound and so under `ConstDivide.EXACT_DIVIDEND_BOUND` structurally,
-      // and every result is under 86400, so nothing overflows and nothing is guarded.
+      // built the way `DateTimeUtils` computes it through `LocalTime` and delivered as an int by
+      // a narrowing - at an output root the value stays in the long lane and narrows at the
+      // store (`VARKA-102.md` 8.3), and under another node it narrows where it is (VARKA-28).
+      // Every dividend is nanoseconds of day or a quotient of it, under the type's bound and so
+      // under `ConstDivide.EXACT_DIVIDEND_BOUND` structurally, and every result is under 86400,
+      // so nothing overflows and nothing is guarded.
       case "getHoursOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = narrowedOperand(
-              args.get(0), atRoot, label, si, inputs, literals, sink);
+          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
           return t.map(v -> new NarrowLane(
               new ConstDivide(v, NANOS_PER_TIME_UNIT.get("HOUR"), DAY_OF_NANOS)));
         }
       }
       case "getMinutesOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = narrowedOperand(
-              args.get(0), atRoot, label, si, inputs, literals, sink);
+          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
           return t.map(v -> new NarrowLane(remainderOfSixty(
               new ConstDivide(v, NANOS_PER_TIME_UNIT.get("MINUTE"), DAY_OF_NANOS), sink)));
         }
       }
       case "getSecondsOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = narrowedOperand(
-              args.get(0), atRoot, label, si, inputs, literals, sink);
+          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
           return t.map(v -> new NarrowLane(remainderOfSixty(
               new ConstDivide(v, NANOS_PER_TIME_UNIT.get("SECOND"), DAY_OF_NANOS), sink)));
         }
@@ -530,26 +523,6 @@ final class VarkaTimeCompiler {
       return Optional.empty();
     }
     return compiled;
-  }
-
-  /**
-   * The operand of an int computed in the long lane, which only an output root can deliver (see
-   * {@code compileRoot}): the narrowing is the kernel's store, so under another node the entry
-   * declines and says why.
-   */
-  private static Optional<VarkaVectorIR> narrowedOperand(
-      Expression time,
-      boolean atRoot,
-      String label,
-      StaticInvoke si,
-      VarkaSlotTable inputs,
-      VarkaSlotTable literals,
-      DeclineSink sink) {
-    if (atRoot) {
-      return longOperand(time, inputs, literals, sink);
-    }
-    return sink.decline(label + " is an int computed in the long lane, which the kernel narrows at "
-        + "its store: only an output can take it until VARKA-28 narrows inside a tree", si);
   }
 
   /** The nanoseconds of the unit a literal names, or empty after noting why it cannot. */

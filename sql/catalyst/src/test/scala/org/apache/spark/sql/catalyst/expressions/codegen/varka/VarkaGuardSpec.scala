@@ -46,9 +46,13 @@ object VarkaGuardSpec {
 
   /** The verdict on a batch of `rows` (each a value or None per column) for the kernel `g`. */
   def verdict(g: Guards, lits: Array[Long], rows: Seq[Seq[Option[Long]]],
+      shifts: Seq[Shift]): Verdict = verdict(g, lits, Array.empty[Int], rows, shifts)
+
+  /** [[verdict]] for a long-lane kernel that also reads its int literal table (VARKA-28). */
+  def verdict(g: Guards, lits: Array[Long], intLits: Array[Int], rows: Seq[Seq[Option[Long]]],
       shifts: Seq[Shift]): Verdict = {
     val (values, isNull) = columns(rows)
-    VarkaGuardSpecs.verdict(g.toJava, lits, values, isNull, shifts.asJava)
+    VarkaGuardSpecs.verdict(g.toJava, lits, intLits, values, isNull, shifts.asJava)
   }
 
   /** [[verdict]] for a kernel whose guards are read for this one call. */

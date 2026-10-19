@@ -64,6 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -290,9 +291,13 @@ public final class VarkaIrGrammar {
       // make_date guards its own year, so its output is a date inside the column contract.
       case MakeDate n ->
           new Bounds(VarkaChrono.CONTRACT_MAX_DAYS, guard(n.year(), n.month(), n.day()));
-      case NarrowLane _ -> throw new IllegalStateException(
-          "boundsOf has no rule for NarrowLane: the int grammar never builds one, and a rule "
-              + "added for it must say what a calendar node over it may assume");
+      // The conversions: a widening keeps every value, and a narrowing keeps the low 32 bits,
+      // whose magnitude is the child's where that fits an int and an int's otherwise.
+      case WidenLane n -> boundsOf(n.child());
+      case NarrowLane n -> {
+        Bounds b = boundsOf(n.child());
+        yield new Bounds(b.value() <= Integer.MAX_VALUE ? b.value() : 1L << 31, b.guarded());
+      }
     };
   }
 
@@ -1010,6 +1015,330 @@ public final class VarkaIrGrammar {
         return new NarrowLane(v.node());
       }
       return v.node();
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Both lanes in one kernel (VARKA-28).
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The seed of the third corpus, trees of both lanes, which the fuzzer runs and the bytes oracle
+   * pins as {@code fuzz_mixed}. A sequence of its own, so that drawing it moves neither committed
+   * corpus.
+   */
+  public static final long MIXED_FUZZ_SEED = 20261019L;
+
+  /**
+   * One drawn shape of both lanes: the roots, the int columns {@code [0, intInputs)} and the long
+   * ones {@code [intInputs, numInputs)}, and the two literal tables' counts.
+   */
+  public record DrawnMixed(List<VarkaVectorIR> roots, int intInputs, int numInputs,
+      int intLiterals, int longLiterals) {
+    public DrawnMixed {
+      roots = List.copyOf(roots);
+    }
+
+    /**
+     * The literal count the emitter is told, as the compiler's tables would give it: both
+     * tables' where the roots read the int table, and the long table's alone where they do not,
+     * since a kernel that holds no int literal reads only the long table, of that count.
+     */
+    public int numLiterals() {
+      for (VarkaVectorIR root : roots) {
+        if (readsIntLiteral(root)) {
+          return intLiterals + longLiterals;
+        }
+      }
+      return longLiterals;
+    }
+
+    private static boolean readsIntLiteral(VarkaVectorIR node) {
+      if (node instanceof LiteralSlot l) {
+        return l.lane() == LaneType.INT;
+      }
+      for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+        if (readsIntLiteral(child)) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+
+  /**
+   * {@link #drawShape}'s twin over both lanes: the column and literal counts of each lane, the
+   * depth and the roots, every root holding a long-lane node so that the kernel is one
+   * (`VARKA-28.md` 9).
+   */
+  public static DrawnMixed drawMixedShape(Random rnd) {
+    int intInputs = 1 + rnd.nextInt(2);
+    int longInputs = 1 + rnd.nextInt(2);
+    int intLiterals = rnd.nextInt(3);
+    int longLiterals = rnd.nextInt(3);
+    var shapes = new MixedShapes(rnd, intInputs, longInputs, intLiterals, longLiterals);
+    int depth = 1 + rnd.nextInt(4);
+    List<VarkaVectorIR> roots;
+    if (rnd.nextInt(5) == 0) {
+      roots = List.of(shapes.rootCond(depth));
+    } else {
+      int count = 1 + rnd.nextInt(3);
+      var drawn = new ArrayList<VarkaVectorIR>();
+      for (int i = 0; i < count; i++) {
+        drawn.add(shapes.root(depth));
+      }
+      roots = distinct(drawn);
+    }
+    return new DrawnMixed(roots, intInputs, intInputs + longInputs, intLiterals, longLiterals);
+  }
+
+  /** {@code node} with every column's ordinal moved up by {@code by}, the rest kept. */
+  static VarkaVectorIR shiftColumns(VarkaVectorIR node, int by) {
+    if (node instanceof ColumnRef c) {
+      return new ColumnRef(c.ordinal() + by, c.lane());
+    }
+    VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);
+    if (children.length == 0) {
+      return node;
+    }
+    VarkaVectorIR[] shifted = new VarkaVectorIR[children.length];
+    for (int k = 0; k < children.length; k++) {
+      shifted[k] = shiftColumns(children[k], by);
+    }
+    return VarkaVectorIR.withChildren(node, shifted);
+  }
+
+  /**
+   * The generator over both lanes: the int lane's trees are {@link Shapes}' - the calendar, the
+   * divisions and the range sets among them - over the int columns, the long lane's are
+   * {@link LongShapes}' over the long ones, and between them the two conversions, with the
+   * arithmetic, the picks and the conditional over either lane above them. A widening is exact,
+   * so its bound is its child's; a narrowing is a truncation, whose bound is the child's where
+   * that fits an int, and is drawn in its ANSI form - over a range guard of the int range - only
+   * there, since a guard that fires declines the batch and the reference has no spelling for
+   * that. A checked mode is drawn only where the bounds rule its overflow out, as in the two
+   * single-lane grammars.
+   */
+  public static final class MixedShapes {
+    private static final long INT_MAX = Integer.MAX_VALUE;
+
+    private final Random rnd;
+    private final int intInputs;
+    private final int longInputs;
+    private final int intLiterals;
+    private final int longLiterals;
+    private int budget = 20;
+
+    public MixedShapes(Random rnd, int intInputs, int longInputs, int intLiterals,
+        int longLiterals) {
+      this.rnd = rnd;
+      this.intInputs = intInputs;
+      this.longInputs = longInputs;
+      this.intLiterals = intLiterals;
+      this.longLiterals = longLiterals;
+    }
+
+    private Gen intLeaf() {
+      if (intLiterals > 0 && rnd.nextInt(4) == 0) {
+        return new Gen(new LiteralSlot(rnd.nextInt(intLiterals)), LITERAL_BOUND);
+      }
+      return new Gen(new ColumnRef(rnd.nextInt(intInputs)), COLUMN_BOUND);
+    }
+
+    private Gen longLeaf() {
+      if (longLiterals > 0 && rnd.nextInt(4) == 0) {
+        return new Gen(new LiteralSlot(rnd.nextInt(longLiterals), LaneType.LONG),
+            LONG_LITERAL_BOUND);
+      }
+      return new Gen(new ColumnRef(intInputs + rnd.nextInt(longInputs), LaneType.LONG),
+          LONG_COLUMN_BOUND);
+    }
+
+    /** An int value whose magnitude stays within {@code bound}, saturating. */
+    private static long intBound(long bound) {
+      return Math.min(bound, INT_MAX + 1);
+    }
+
+    private Overflow mode(long bound, long limit) {
+      if (bound > limit) {
+        return Overflow.WRAP;
+      }
+      return switch (rnd.nextInt(3)) {
+        case 0 -> Overflow.WRAP;
+        case 1 -> Overflow.FAIL;
+        default -> Overflow.NULL;
+      };
+    }
+
+    public Gen intValue(int depth) {
+      if (depth == 0 || budget <= 1) {
+        return intLeaf();
+      }
+      budget -= 1;
+      switch (rnd.nextInt(7)) {
+        case 0: {
+          // The LEGACY narrowing: the low 32 bits, of any value.
+          Gen a = longValue(depth - 1);
+          return new Gen(new NarrowLane(a.node()), intBound(a.bound()));
+        }
+        case 1: {
+          // The ANSI narrowing, over a value that fits.
+          Gen a = longValue(depth - 1);
+          if (a.bound() > INT_MAX) {
+            return new Gen(new NarrowLane(a.node()), INT_MAX + 1);
+          }
+          return new Gen(new NarrowLane(new GuardedRange(a.node(), Integer.MIN_VALUE,
+              Integer.MAX_VALUE)), a.bound());
+        }
+        case 2: {
+          // The int lane's own grammar, over the int columns.
+          var inner = new Shapes(rnd, intInputs, intLiterals, -1, -1);
+          Gen g = inner.value(depth - 1);
+          return new Gen(g.node(), intBound(g.bound()));
+        }
+        case 3: {
+          Gen a = intValue(depth - 1);
+          Gen b = rnd.nextBoolean() ? intLeaf() : intValue(depth - 1);
+          long sum = satAdd(a.bound(), b.bound());
+          IntOp op = rnd.nextBoolean() ? IntOp.ADD : IntOp.SUB;
+          return new Gen(new IntArith(op, mode(sum, INT_MAX - 1), a.node(), b.node()),
+              intBound(sum));
+        }
+        case 4: {
+          Gen a = intValue(depth - 1);
+          Gen b = intValue(depth - 1);
+          VarkaVectorIR node = rnd.nextBoolean() ? new Greatest(a.node(), b.node())
+              : new Least(a.node(), b.node());
+          return new Gen(node, Math.max(a.bound(), b.bound()));
+        }
+        case 5: {
+          Cond c = intCond(depth - 1);
+          Gen a = intValue(depth - 1);
+          Gen b = intValue(depth - 1);
+          return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
+        }
+        default:
+          return intLeaf();
+      }
+    }
+
+    public Gen longValue(int depth) {
+      if (depth == 0 || budget <= 1) {
+        return longLeaf();
+      }
+      budget -= 1;
+      switch (rnd.nextInt(7)) {
+        case 0:
+        case 1: {
+          // The widening, exact over every int.
+          Gen a = intValue(depth - 1);
+          return new Gen(new WidenLane(a.node()), a.bound());
+        }
+        case 2: {
+          // The long lane's own grammar, over the long columns.
+          var inner = new LongShapes(rnd, longInputs, longLiterals);
+          Gen g = inner.value(depth - 1);
+          return new Gen(shiftColumns(g.node(), intInputs), g.bound());
+        }
+        case 3: {
+          Gen a = longValue(depth - 1);
+          Gen b = rnd.nextBoolean() ? longLeaf() : longValue(depth - 1);
+          long sum = satAdd(a.bound(), b.bound());
+          IntOp op = rnd.nextBoolean() ? IntOp.ADD : IntOp.SUB;
+          return new Gen(new IntArith(op, mode(sum, Long.MAX_VALUE - 1), a.node(), b.node()),
+              sum);
+        }
+        case 4: {
+          Gen a = longValue(depth - 1);
+          Gen b = longValue(depth - 1);
+          VarkaVectorIR node = rnd.nextBoolean() ? new Greatest(a.node(), b.node())
+              : new Least(a.node(), b.node());
+          return new Gen(node, Math.max(a.bound(), b.bound()));
+        }
+        case 5: {
+          Cond c = longCond(depth - 1);
+          Gen a = longValue(depth - 1);
+          Gen b = longValue(depth - 1);
+          return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
+        }
+        default:
+          return longLeaf();
+      }
+    }
+
+    public Cond intCond(int depth) {
+      budget -= 1;
+      if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
+        CompareOp[] ops = CompareOp.values();
+        CompareOp op = ops[rnd.nextInt(ops.length)];
+        VarkaVectorIR left = intValue(depth).node();
+        return new Compare(op, left, intValue(depth).node());
+      }
+      return switch (rnd.nextInt(4)) {
+        case 0 -> {
+          Cond left = intCond(depth - 1);
+          yield new And(left, intCond(depth - 1));
+        }
+        case 1 -> {
+          Cond left = intCond(depth - 1);
+          yield new Or(left, intCond(depth - 1));
+        }
+        case 2 -> new Not(intCond(depth - 1));
+        default -> new IsNotNull(new ColumnRef(rnd.nextInt(intInputs)));
+      };
+    }
+
+    public Cond longCond(int depth) {
+      budget -= 1;
+      if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
+        CompareOp[] ops = CompareOp.values();
+        CompareOp op = ops[rnd.nextInt(ops.length)];
+        VarkaVectorIR left = longValue(depth).node();
+        return new Compare(op, left, longValue(depth).node());
+      }
+      return switch (rnd.nextInt(4)) {
+        case 0 -> {
+          Cond left = longCond(depth - 1);
+          yield new And(left, longCond(depth - 1));
+        }
+        case 1 -> {
+          Cond left = longCond(depth - 1);
+          yield new Or(left, longCond(depth - 1));
+        }
+        case 2 -> new Not(longCond(depth - 1));
+        default -> new IsNotNull(new ColumnRef(intInputs + rnd.nextInt(longInputs),
+            LaneType.LONG));
+      };
+    }
+
+    /**
+     * An output root: a long-lane value, or an int-lane one that holds a narrowing, at the root or
+     * under an add, so that every root of the kernel is driven at the long lane.
+     */
+    public VarkaVectorIR root(int depth) {
+      if (rnd.nextBoolean()) {
+        return longValue(depth).node();
+      }
+      Gen narrowed = intValue(0);
+      Gen a = longValue(Math.max(0, depth - 1));
+      VarkaVectorIR narrow = new NarrowLane(a.node());
+      if (rnd.nextBoolean()) {
+        return narrow;
+      }
+      Gen b = rnd.nextBoolean() ? narrowed : intValue(Math.max(0, depth - 1));
+      return new IntArith(rnd.nextBoolean() ? IntOp.ADD : IntOp.SUB, Overflow.WRAP, narrow,
+          b.node());
+    }
+
+    /** A selection root: a long-lane condition, or an int one over a narrowing. */
+    public Cond rootCond(int depth) {
+      if (rnd.nextBoolean()) {
+        return longCond(depth);
+      }
+      CompareOp[] ops = CompareOp.values();
+      CompareOp op = ops[rnd.nextInt(ops.length)];
+      VarkaVectorIR narrow = new NarrowLane(longValue(Math.max(0, depth - 1)).node());
+      return new Compare(op, narrow, intValue(Math.max(0, depth - 1)).node());
     }
   }
 }

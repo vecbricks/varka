@@ -55,9 +55,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  *
  * <p>The long literal table lives here rather than beside the int one in every signature because
  * every compile arm already carries the sink, and because it is the second half of one table
- * rather than a second table: a kernel is single-lane, so it reads the int slots or the long
- * slots and never both. It follows the bounds' rollback discipline - a mark before an entry, a
- * truncate when the entry declines.
+ * rather than a second table: a kernel driven at the int lane reads only the int slots, and one
+ * driven at the long lane the long slots and, where it converts between lanes, the int ones too
+ * (VARKA-28), each lane's slots indexing its own table. It follows the bounds' rollback
+ * discipline - a mark before an entry, a truncate when the entry declines.
  *
  * <p>The recursion works on bound expressions, whose {@code BoundReference}s render as
  * {@code input[1, int, true]}; the child's attributes go back in before the text is kept, so a

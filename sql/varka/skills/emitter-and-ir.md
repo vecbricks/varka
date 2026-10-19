@@ -750,6 +750,38 @@ What made it small, and what to carry to the next width change:
   one combined run they audited the old rows and passed; run the coverage suite
   first and the readers after, and rerun the readers when it changed the file.
 
+*19 October 2026:* VARKA-28 lifted the root-only rule; the next section is what replaced it.
+
+## A kernel of both lanes is driven at the long lane, its int values in the low half of their species
+
+VARKA-28 planned the opposite: the loop at the int species, every long value a pair of
+`LongVector`s, every long operation emitted twice. The narrowing root above had already shown the
+cheaper shape, and the row generalized it instead (`VARKA-28.md` 3.2): a kernel that holds both
+lanes is driven at the long lane, and each int value fills the low half of the int species of the
+same width - an int column loaded under `indexInRange(0, lanes)` at `(long) i * 4`, an int output
+stored under the same mask, a widening one `I2L` and a narrowing one `L2I`, both part 0. What made
+it a refactor rather than a rewrite:
+
+- **The upper lanes are an epilogue's padding lanes.** They read zero, and every lowering was
+  already required to be safe over zero lanes by the masked epilogue, so nothing between a load and
+  a store needed to know. The one consumer that can be hurt is a guard, which would condemn a
+  batch from a row that does not exist; its int mask goes through `toLong` and `fromLong` at the
+  long species before the accumulator, which drops the upper lanes. A stored-value guard keeps the
+  compares there instead of its min and max, which no mask can trim.
+- **Ask the node's lane, the species' local and the lane's table.** `Analysis.laneOf(node)`,
+  `Slots.species(lane)` and `literalsOf(lane)` answer what `analysis.lane` did in every single-lane
+  kernel, so the refactor was proved on its own by the bytes oracle before any node existed. The
+  words need nothing: they are bits a row, and `fromLong` reads only its species' lane count.
+- **Map every buffer at its own width.** An int column of a long-driven kernel is four bytes a row;
+  mapped at the driving stride it would be twice its buffer, which the memory sanitizer reports
+  (the same lesson as the narrowed root's, VARKA-292).
+- **One species per lane type still.** `narrowHalfSpecies` is ignored in such a kernel, and a
+  suite reads the constant pool for exactly two species, the width's own.
+
+The price is on the int side: an int value is computed over twice the lanes it needs. Casts and
+promotions do not notice; a kernel whose int work dominates - a calendar over a narrowed timestamp -
+pays it per row, and the pair representation is the alternative to measure there.
+
 ## The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal
 
 The IR caps (`MAX_FUSED_NODES` 64, `MAX_CHAIN_DEPTH` 16) bound what one kernel can carry, and

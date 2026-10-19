@@ -158,10 +158,13 @@ if [ "$golden" -eq 1 ]; then
   # Each arm's own deadline keeps both arms and the build inside the step's.
   run_step golden dev/varka_golden_suite.sh --attribute --deadline 4800 --out "$logdir/golden"
 fi
+# A JUnit suite matches no ScalaTest `-z` filter and runs nothing under it, so the JUnit suite with
+# an opt-in sweep (VARKA-28's conversions) runs whole, its sweep switched on by the property.
 if [ "$sweep" -eq 1 ]; then
   run_step sweep build/sbt -batch "project catalyst" \
     'set Test/javaOptions += "-Dvarka.sweep=true"' \
-    'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in'
+    'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in' \
+    'testOnly *VarkaEmitterMixedLaneSuite'
 fi
 # The proofs under Z3 and cvc5, each held to every expectation, so the two agree (VARKA-240); the
 # lint job runs Z3 alone. Beside the sweep step, whose multiply-high sweep checks the statement of

@@ -31,7 +31,7 @@ int	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		332
 int	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion		332
 int	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion		332
 int	int	yes	yes	yes	identity		exhaustion		332
-int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion		332,28
+int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	every mode	332,28
 int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion		343
 int	double	yes	yes	yes	widening	exact	exhaustion		343
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364
@@ -40,7 +40,7 @@ int	dt	yes	yes	yes	scale up	times the unit; a DAY end overflows past 106,751,991
 bigint	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332
 bigint	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28
 bigint	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28
-bigint	int	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28
+bigint	int	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY and ANSI; TRY's null waits on row 332	332,28
 bigint	bigint	yes	yes	yes	identity		SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332
 bigint	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	sampled regions and the fuzzer		343
 bigint	double	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	sampled regions and the fuzzer		343

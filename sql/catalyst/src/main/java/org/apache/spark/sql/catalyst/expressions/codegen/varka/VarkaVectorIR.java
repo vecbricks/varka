@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.HashSet;
 import java.util.Set;
 import java.util.List;
 import java.util.Locale;
@@ -62,7 +63,8 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide,
             VarkaVectorIR.Cond,
-            VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.NarrowLane {
+            VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
+            VarkaVectorIR.NarrowLane {
 
   /**
    * The physical lane a node's value occupies: {@code INT} is a 32-bit lane, {@code LONG} a
@@ -102,6 +104,7 @@ public sealed interface VarkaVectorIR
       case DateDiff n -> LaneType.INT;
       case GuardedDay n -> LaneType.INT;
       case GuardedRange n -> n.child().laneType();
+      case WidenLane n -> LaneType.LONG;
       case NarrowLane n -> LaneType.INT;
       case DayOfWeek n -> LaneType.INT;
       case WeekDay n -> LaneType.INT;
@@ -127,14 +130,33 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * The lane an emission with this root drives its loop at. It is the root's own lane for every
-   * node but {@link NarrowLane}, whose value is a 32-bit lane computed in a 64-bit one: the
-   * loop runs at the child's species and the root narrows at its store. The emitter, its
-   * budget mirror and the compiled plan all read this rather than {@link #laneType()} when
-   * they ask which species a kernel is, so the three cannot disagree about it.
+   * The lane an emission with this root drives its loop at: the long lane wherever the root's
+   * tree holds a node on it, and the int lane otherwise. A tree of one lane drives at that lane.
+   * A tree that holds both - a {@link NarrowLane} root over a long computation, a
+   * {@link WidenLane} under a long one, or a narrowing below another node - is driven at the long
+   * lane, one row a long lane per iteration, and its int-lane values occupy the low half of the
+   * int species of the same width (`VARKA-28.md` 9). The emitter, its budget mirror and the
+   * compiled plan all read this rather than {@link #laneType()} when they ask which species a
+   * kernel is, so the three cannot disagree about it.
    */
   static LaneType emissionLane(VarkaVectorIR root) {
-    return root instanceof NarrowLane n ? n.child().laneType() : root.laneType();
+    return holdsLong(root, new HashSet<>()) ? LaneType.LONG : LaneType.INT;
+  }
+
+  /** Whether {@code node}'s tree holds a long-lane node, memoised over the DAG on {@code seen}. */
+  private static boolean holdsLong(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (!seen.add(node)) {
+      return false;
+    }
+    if (node.laneType() == LaneType.LONG) {
+      return true;
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      if (holdsLong(child, seen)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -330,22 +352,49 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@code (int) child}: a value computed in 64-bit lanes, delivered as a 32-bit column. The
-   * {@code TIME} extracts are the first case - {@code hour(t)} is a division of nanoseconds of
-   * day whose quotient is an {@code IntegerType} (VARKA-102 group C, {@code VARKA-102.md}
-   * 8.3) - and the node is VARKA-28's, admitted ahead of that task's bi-lane kernel under one
-   * restriction the emitter enforces: it may only be an <b>output root</b>. The loop then
-   * still runs at one species, the child's, and the root narrows once, at its store, into a
-   * four-byte-per-row destination under a mask of the low half of the int lanes. VARKA-28
-   * lifts the restriction rather than adding a node.
+   * {@code (long) child}: an int-lane value sign-extended into a 64-bit lane, Spark's
+   * {@code CAST(int AS BIGINT)} and the widening Catalyst's type coercion puts under every
+   * operator that meets an int and a bigint ({@code i < l} arrives as
+   * {@code CAST(i AS BIGINT) < l}). Exact for every int, so it has no overflow mode and no
+   * guard, and its validity is its child's.
    *
-   * <p>The narrowing is a truncation of the low 32 bits, with no overflow check: the compiler
-   * builds it only over values it has proven to fit - a field of a time is at most 86399 - and
-   * Spark's own {@code CAST(bigint AS int)}, which needs the ANSI decline, is VARKA-28's to
-   * build over the same node with a guard.
+   * <p>The emitter lowers it as one {@code I2L} conversion, part 0, from the int species of the
+   * long species' width: a kernel holding it is driven at the long lane, so its int values fill
+   * the low half of their species and the conversion takes exactly them (`VARKA-28.md` 9).
    *
-   * <p>The child must be on the long lane: a narrowing of an int lane is the identity and
-   * would only hide a missing widening somewhere below it.
+   * <p>The child must be on the int lane: a widening of a long lane is the identity and would
+   * only hide a missing narrowing somewhere below it.
+   */
+  record WidenLane(VarkaVectorIR child) implements VarkaVectorIR {
+    public WidenLane {
+      if (child.laneType() != LaneType.INT) {
+        throw VarkaErrors.illegalArgument("widenLane takes an INT child, not "
+            + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+    }
+  }
+
+  /**
+   * {@code (int) child}: a value computed in 64-bit lanes, delivered as a 32-bit one - the low 32
+   * bits, Spark's {@code CAST(bigint AS int)} under {@code LEGACY}. The {@code TIME} extracts
+   * build it as an output root - {@code hour(t)} is a division of nanoseconds of day whose
+   * quotient is an {@code IntegerType} (VARKA-102 group C, {@code VARKA-102.md} 8.3) - and the
+   * cast builds it anywhere an int goes, under another node as well as at a root.
+   *
+   * <p>At an output root that nothing else reads, the value stays in the long lane and narrows
+   * once, at its store, into a four-byte-per-row destination under a mask of the low half of the
+   * int lanes. Anywhere else it is one {@code L2I} conversion, part 0, into the int species of the
+   * long species' width, so the int value fills the low half of its lanes as every int value of a
+   * kernel driven at the long lane does (`VARKA-28.md` 9).
+   *
+   * <p>The narrowing is a truncation of the low 32 bits, with no overflow check of its own: the
+   * {@code TIME} extracts build it only over values they have proven to fit - a field of a time is
+   * at most 86399 - and the ANSI cast, which must raise where the value does not fit, builds it
+   * over a {@link GuardedRange} of the int range, which declines the batch so that the row engine
+   * raises Spark's own error on the row.
+   *
+   * <p>The child must be on the long lane: a narrowing of an int lane is the identity and would
+   * only hide a missing widening somewhere below it.
    */
   record NarrowLane(VarkaVectorIR child) implements VarkaVectorIR {
     public NarrowLane {
@@ -1036,6 +1085,7 @@ public sealed interface VarkaVectorIR
       case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
       case GuardedRange n -> "(guardedRange " + canonical(n.child()) + " " + n.lo() + " "
           + n.hi() + ")";
+      case WidenLane n -> "(widen " + canonical(n.child()) + ")";
       case NarrowLane n -> "(narrow " + canonical(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
       case Compare n ->
@@ -1110,6 +1160,7 @@ public sealed interface VarkaVectorIR
       case GuardedDay n -> "(guardedDay " + lineOf.applyAsInt(n.days()) + ")";
       case GuardedRange n -> "(guardedRange " + lineOf.applyAsInt(n.child()) + " " + n.lo()
           + " " + n.hi() + ")";
+      case WidenLane n -> "(widen " + lineOf.applyAsInt(n.child()) + ")";
       case NarrowLane n -> "(narrow " + lineOf.applyAsInt(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + lineOf.applyAsInt(n.end()) + " "
           + lineOf.applyAsInt(n.start()) + ")";
@@ -1183,6 +1234,7 @@ public sealed interface VarkaVectorIR
       case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case GuardedDay n -> new VarkaVectorIR[] {n.days()};
       case GuardedRange n -> new VarkaVectorIR[] {n.child()};
+      case WidenLane n -> new VarkaVectorIR[] {n.child()};
       case NarrowLane n -> new VarkaVectorIR[] {n.child()};
       case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
       case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
@@ -1243,6 +1295,7 @@ public sealed interface VarkaVectorIR
       case SubDays n -> new SubDays(children[0], children[1]);
       case GuardedDay n -> new GuardedDay(children[0]);
       case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi());
+      case WidenLane n -> new WidenLane(children[0]);
       case NarrowLane n -> new NarrowLane(children[0]);
       case DateDiff n -> new DateDiff(children[0], children[1]);
       case DayOfWeek n -> new DayOfWeek(children[0]);
