@@ -84,10 +84,10 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
  * tree of a size has none to miss.
  *
  * <p>The series is the grammar's, arm by arm: the same nodes, the same structural rules (a day
- * offset is a leaf, {@code IsNotNull} is over a column, a month count is a literal or the small
- * column, a trunc level the level column) and the same magnitude gates (a calendar node over a
- * subtree that stays inside the narrowed range, a checked mode where the bounds rule overflow
- * out, a range guard whose bounds contain its child's), through the grammar's own
+ * offset is a leaf, {@code IsNotNull} is over a column or a condition, a month count is a literal
+ * or the small column, a trunc level the level column) and the same magnitude gates (a calendar
+ * node over a subtree that stays inside the narrowed range, a checked mode where the bounds rule
+ * overflow out, a range guard whose bounds contain its child's), through the grammar's own
  * {@code boundsOf}. So a tree here is one the grammar could draw, and the series answers what the
  * grammar's distribution never promised: whether every such tree of a size was checked.
  * {@code gated = false} drops the magnitude gates, which is how the suite asks what they keep out.
@@ -282,7 +282,8 @@ public final class VarkaIrSeries {
               flatMap(cond(s[0]).iterator(), a ->
                   flatMap(cond(s[1]).iterator(), b ->
                       List.<Cond>of(new And(a, b), new Or(a, b)).iterator()))),
-          () -> map(cond(n - 1).iterator(), Not::new));
+          () -> map(cond(n - 1).iterator(), Not::new),
+          () -> map(cond(n - 1).iterator(), IsNotNull::new));
     }
 
     /** Every {@code IfElse} of {@code n} productions, which both lanes have. */
@@ -438,7 +439,8 @@ public final class VarkaIrSeries {
       if (n <= 0) {
         return Collections.emptyIterator();
       }
-      // IsNotNull reads a column's validity word directly, so its child is a column.
+      // A leaf condition: IsNotNull over a column, which reads the column's validity word. Over
+      // a condition it is an arm of its own (compareAndConnectives).
       if (n == 1) {
         return map(IntStream.range(0, NUM_INPUTS).iterator(),
             c -> new IsNotNull(new ColumnRef(c)));

@@ -100,6 +100,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The IR's storage: flat columns behind one class, FFM rows as the alternative, Arrow at the edges](sql/varka/skills/emitter-and-ir.md#the-irs-storage-flat-columns-behind-one-class-ffm-rows-as-the-alternative-arrow-at-the-edges)
 * [A kernel's mapping is its entitlement, so size it by the column's width and not the lane's](sql/varka/skills/emitter-and-ir.md#a-kernels-mapping-is-its-entitlement-so-size-it-by-the-columns-width-and-not-the-lanes)
 * [A split filter has to keep Spark's errors, and Spark evaluates a filter in two orders](sql/varka/skills/emitter-and-ir.md#a-split-filter-has-to-keep-sparks-errors-and-spark-evaluates-a-filter-in-two-orders)
+* [An edge the emission skips must be skipped by every plan that walks the tree](sql/varka/skills/emitter-and-ir.md#an-edge-the-emission-skips-must-be-skipped-by-every-plan-that-walks-the-tree)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)
