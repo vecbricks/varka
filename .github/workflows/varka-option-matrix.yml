@@ -68,6 +68,13 @@ jobs:
         java-version: '25'
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
+    # The runner's CPU and the vector width HotSpot uses, before any kernel runs: the pool mixes
+    # 256-bit and 512-bit machines, and a shard that fails on one and passes on the other has to
+    # be read against the machine it ran on (VARKA-399).
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target
     # Two JVMs at a time on the runner's four cores and 16 GB: a configuration's catalyst and
     # SQL suites, each with a 4 GB heap.
     - name: Run this shard's configurations
@@ -94,6 +101,7 @@ jobs:
         name: varka-option-matrix-shard-${{ matrix.shard }}
         path: |
           target/varka-matrix-report.txt
+          target/platform.txt
           target/varka-matrix/runs/*/*/run.log
           target/varka-matrix/runs/*/*/fused.tsv
         if-no-files-found: ignore

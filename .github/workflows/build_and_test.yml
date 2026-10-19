@@ -541,6 +541,12 @@ jobs:
       run: |
         zstd -dc compile-artifact.tar.zst | tar -xf -
         rm compile-artifact.tar.zst
+    # The runner's CPU and the vector width HotSpot uses, before any kernel runs: the pool mixes
+    # 256-bit and 512-bit machines, and C2 emits different vector code for each (VARKA-399).
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target
     # Run the tests.
     - name: Run tests
       env: ${{ fromJSON(inputs.envs) }}
@@ -562,6 +568,7 @@ jobs:
         path: |
           **/target/test-reports/*.xml
           **/target/surefire-reports/*.xml
+          target/platform.txt
     - name: Test Summary
       if: always()
       uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
@@ -1230,6 +1237,12 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    # The runner's CPU and the vector width HotSpot uses, before any kernel runs: the pool mixes
+    # 256-bit and 512-bit machines, and C2 emits different vector code for each (VARKA-399).
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target
     - name: Build and test the Varka engine
       uses: ./.github/actions/install-varka-engine
       with:
@@ -1382,6 +1395,12 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ inputs.java }}
+    # The runner's CPU and the vector width HotSpot uses, before any kernel runs: the pool mixes
+    # 256-bit and 512-bit machines, and C2 emits different vector code for each (VARKA-399).
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target
     # The suites' JUnit times from this module's previous run, which the runner balances its
     # JVMs by (VARKA-287.md 3.1); saved under this run's key, restored from the latest.
     - name: Cache the Varka suites' times
