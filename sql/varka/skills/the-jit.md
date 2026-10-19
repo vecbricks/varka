@@ -1176,3 +1176,27 @@ rule: test-only instrumentation inlined into a kernel must see the same state wh
 warms as when it is measured. A warm-up and its measured calls both run in the sanitizer's window
 (`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
 with a `speculate_*` reason, points here before it points at the kernel.
+
+## HotSpot counts calls per dispatched method, and stops counting a callee C2 has inlined
+
+Read in `m8/VARKA-397.md`, building the check that the template warm-up calls every Vector API
+method the kernels call past the tiered policy's "old" mark: 2,000 calls,
+`Tier3InvocationThreshold` times `TieredOldPercentage` / 100 in `CompilationPolicy::is_old`. Two
+facts decide what a count of calls means to the policy:
+
+- **The counter belongs to the method a call dispatches to, not to the call's symbolic reference.**
+  `Vector.convertShape` is implemented by each vector class, so a kernel's call is
+  `Int512Vector.convertShape` or `Long512Vector.convertShape` by its receiver, one counter each;
+  every `reinterpretAs*` call, whether written against `Vector` or `LongVector`, is the one
+  `AbstractVector` method; a call written against `VectorMask` counts on its lane's mask class
+  (`Int512Mask.and`). So calls are compared by their dispatch target, found by walking the
+  receiver class up to the first declaration with a body, and a warm-up's calls are counted with
+  their receivers, since a call site written against `VectorMask` serves every lane.
+- **A callee's count stops once a C2-compiled caller has inlined it.** C1's profiling tier counts
+  inlined calls (`C1ProfileInlinedCalls`); C2's code does not. A count taken at the call sites
+  equals HotSpot's while the callers run interpreted or at C1, and runs ahead of it after a caller
+  passes C2's threshold (`Tier4InvocationThreshold`, 5,000). A warm-up helper called more often
+  than that should already have taken its callees past the mark when it compiles.
+
+`TieredOldPercentage` is a diagnostic flag: `HotSpotDiagnosticMXBean.getVMOption` reports it as
+absent unless the JVM runs with `-XX:+UnlockDiagnosticVMOptions`.

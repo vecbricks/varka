@@ -168,3 +168,63 @@ Explicitly out of this row: the warm-up at other species (3.2), transitive credi
 Vector API (3.2), and any change to the pacing or the round count.
 
 ## 9. Outcome
+
+19 October 2026. Built as section 3 planned. On master the check fails on the 38 methods of 2.7,
+of the 75 the corpus reaches; on the change each of the 38 gets 2,400 calls or more, and the planted
+omission of `DoubleVector.add(double)` is named with 0 calls. At 256 bits (`-XX:MaxVectorSize=32`)
+the corpus reaches the same 75, named `Int256Vector` and the rest, and the suite passes, before
+the review's corpus changes and after them. The lesson on what HotSpot counts is in
+`skills/the-jit.md`.
+`VarkaVectorTemplateWarmupSuite` passes its 12 tests on the change, its deterministic-result test
+included. The four-core end-to-end suite, alternated with master's rounds
+(`results/VARKA-397-warmup-runs.txt`):
+
+| arm | runs passed | warm-up | waited | C2's queue at most |
+| :--- | ---: | ---: | ---: | ---: |
+| master, four cores | 3 of 3 | 301 to 432 ms, median 375 | 78 to 124 ms | 6 |
+| change, four cores | 3 of 3 | 326 to 484 ms, median 336 | 133 to 210 ms | 7 to 9 |
+
+The runs were beside another agent's option-matrix run, at a load average of 5 to 9. The change's
+pacing waits a little longer and meets a longer queue, from the methods its blocks now take past
+the tier thresholds inside the rounds; the warm-up's time did not move beyond the arms' spread, and
+stays inside the class doc's 200 to 830 ms.
+
+What the build found that the plan did not list: the mark's second factor, `TieredOldPercentage`,
+is a diagnostic flag, which `HotSpotDiagnosticMXBean` reports as absent without
+`-XX:+UnlockDiagnosticVMOptions`. The mark test reads it where the JVM shows it and otherwise
+takes its default, 1000; `Tier3InvocationThreshold` is a product flag and is always read.
+
+The independent review of the diff found no correctness bug; it checked the rewrite's stack and
+locals, the counter's reset, and that every call the rounds lost outside a loop is back inside a
+block. It found, and this row changed: the planted test proved only that an omitted call reads 0,
+so it now also holds one call to its exact count, 2,400, which a counter crediting a call twice
+would miss; under a matrix configuration the plain defaults' kernels were not in the corpus, so the
+defaults are emitted beside the matrix's base; the lane-count configurations are left out, since
+their kernels name another species and only over-asked of the preferred one's classes; a
+configuration whose every shape declined would have added nothing unseen, so it now fails the
+check; and the warm-up's doc now says "in these blocks or in the operator loops", since `lanewise`
+and `compare` reach the mark through the operator loops. Two corrections to sections 3 and 7:
+
+* **3.2's "a lower bound on HotSpot's count" is not always true.** The counter counts every call a
+  call site makes; HotSpot stops counting a callee once a C2-compiled caller has inlined it (C1's
+  profiling tier counts inlined calls too). Of the rounds' methods only the new `masks()` helper,
+  7,200 calls, passes C2's 5,000; the species' `length`, `loopBound` and `indexInRange` and
+  `VectorMask.fromLong`, which C2 may inline there, have about 5,000 calls when it does, past the
+  mark. The count equals HotSpot's while the callers run interpreted or at C1.
+* **7.4's "resets them before the tests that run the warm-up"**: `VarkaVectorTemplateWarmupSuite`
+  resets them after each test, and then runs the warm-up again.
+
+The rest of the review's findings were the house rules (a history comment, `var` where the
+right-hand side does not name the type) and parsing a kernel's bytes once; all fixed.
+
+### 9.1 Predictions scored
+
+1. **The suite's time, 15 to 45 s: held.** 28 s for the three tests alone in a test JVM, nearly
+   all of it the corpus test's emission, and 41 s with sbt's start; 27 s after the review's
+   corpus changes, and 15 s when another suite has warmed the compiler and the emitter first.
+2. **The warm-up's time within 1.5 times master's median: held.** A median of 336 ms against
+   master's 375, 0.9 times; the arms' ranges overlap.
+3. **The pacing's waits within the 2 s budget: held.** 133 to 210 ms.
+4. **The four-core suite, five of five in three runs of three: held.**
+5. **At 256 bits, the suite passes and the corpus reaches 75 methods: held.**
+
