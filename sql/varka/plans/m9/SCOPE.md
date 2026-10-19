@@ -5436,6 +5436,22 @@ appendix that proves the fixed-share bound; and the cold-start row quotes the ru
 between JVMs included (item 103), since that is what a user's cluster sees. The milestone 8 close
 is the first to run this way.
 
+### Item 111. A child JVM outside any timed test body
+
+*Added 19 October 2026 from `m7/PLAN.md` 12 by the close's review.* A suite that mixes in
+`VarkaOwnJvm` (or carries `VarkaSuiteExtension`'s marker) runs, when its JVM is shared, in a child
+JVM the first test forks and waits for. The child's budget is one test's cap less a minute for the
+whole suite: `min(varka.test.watchdog.minutes, spark.test.timeout) - 1` for a ScalaTest suite, its
+`@VarkaSuite(watchdogMinutes)` less one for a JUnit suite. `-Dvarka.ownJvm.timeoutMinutes` raises
+it, but a larger budget alone cannot help a ScalaTest suite: the waiting test's own body is capped
+by `SparkFunSuite`'s `failAfter(spark.test.timeout)`. `VarkaIrFuzzSuite` outgrew the nine minutes on
+13 October, failed the nightly fuzz for six nights (`m8/VARKA-392.md`), and still fails the option
+matrix under two options (row 394), where a shard's runner JVM holds other suites and cannot run it
+directly. **Done when** the child runs before or beside the suite's tests rather than inside one,
+with a budget scaled to the suite (its test count times the cap, or a stated suite budget), the
+parent's tests report the child's results without a timed wait of their own, and the JUnit
+counterpart does the same.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

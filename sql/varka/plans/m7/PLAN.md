@@ -1092,3 +1092,125 @@ count on two other CPUs, split by shape, every projection shape releasing and th
 compiling, so the cause is in the code since 28 September and the item is a row's work for the
 milestone that opens next. The close itself needed none of
 the laptop's time; the README's numbers did, and item 110 separates the two from milestone 8 on.
+
+## 12. Review at the close, 18 and 19 October 2026
+
+*Added on 18 October 2026 at the owner's request, while the close's pull request ran CI, as
+section 9 was at the halfway point, and completed on 19 October with the night's runs: the laptop
+nightly, the first since 26 September, and dispatches of the weekly and option matrices on master
+`25d8b251098`. Section 11 and `VARKA-261.md` 5.1 already hold the state against 1.1, so this review
+does not repeat it. It scores 9.5's practices, says what the second half found, and proposes
+practices for milestone 8.*
+
+### 12.1 9.5's practices, scored
+
+| Practice (9.5) | Held? | Evidence |
+| :-- | :-- | :-- |
+| Against the drift: points 1 and 5 first | **Held** | 243 merged 14 Oct, 281 15 Oct, 244 and 245 16 Oct; 259 and 260 16 Oct, 258 and 270 17 Oct, 371 15 to 16 Oct. Every point of 1.1 closed |
+| A two-line state note every five merged rows | **Not kept** | No note; about forty rows merged after 13 Oct (`VARKA-261.md` 5.2 records it and drops the practice) |
+| 255 next, pairs on runners | **Held** | 255 merged 13 to 17 Oct; pairs and results files moved to `benchmark.yml` |
+| Step budget, 5% rule | **Built, rarely cited** | `sql/varka/ci/step-budget.tsv` exists (255 3.6); 26 of 138 pull-request bodies since 13 Oct name a budget |
+| Self-review before opening | **Unscorable, and slipped at the close** | 31 of 81 row pull requests from 14 Oct do not say a review ran, among them the close's own code pull requests #921, #923 and #924. The owner's reviews leave no GitHub comments to count |
+| No `git stash`, named files | **Held** | No collision recorded after 13 Oct |
+| Calibration at the observed ratio | **Overcorrected** | The misses flipped side. Before: 1.5, 3.8 to 5.0 too optimistic. After the ratio of 2: 0.03, 0.08, 0.15, 0.26, 0.5. Performance predictions still miss optimistically (379: 3 to 6) |
+| A finding becomes a row only through 1.1 | **Mostly held** | The flake rows (370 to 374, 378, 389 to 391) name point 2's flake clause. Other findings went to `m9/SCOPE.md` as items 93 to 110, eighteen in five days |
+| A benchmark port merges with its pair | **Held, with named exceptions** | 322's pairs ran on runners; the two wide-kernel pairs were closed without a pair, with the reason (#842, #843) |
+
+### 12.2 What the review finds
+
+**The nightly fuzz failed every night from 13 October, and nobody noticed.** The scheduled
+`varka-fuzz.yml` on vecbricks/varka failed on 13, 14, 15, 16, 17 and 18 October. In each run all 16
+tests of `VarkaIrFuzzSuite` failed as "did not finish in 9 minutes in its own JVM": the suite mixes
+in `VarkaOwnJvm`, whose child JVM runs the whole suite on one test's cap less a minute, a budget
+unchanged since VARKA-246 (#685, 9 October). The suite outgrew it on 13 October, when it went from
+10 tests to 16 (`m8/VARKA-392.md` 2). A failed step skips the steps after it, so the
+coverage-composition fuzzer and the size-4 variants step did not run either. The fuzzers at volume
+checked nothing for the second half of the milestone, the close included. Row 392 (#926) runs the
+suite directly in the workflow's JVMs and the later steps whatever the earlier ones did; its replay
+of the five missed nights' 20 seeds, with 18 October's four, found no wrong answer. The close read
+the laptop nightly's silence since 26 September but not the runner nightly's failures: whatever
+GitHub sends when a scheduled workflow fails reached neither the agents nor the close's checklist.
+
+**The other two scheduled matrices fail too.** `varka-weekly-matrix.yml` failed every week since
+its first run on 27 September. Its dispatch on master after #921 and #924 failed one test of
+9,628 in sql's extended tests, upstream's "SPARK-33084: Add jar support Ivy URI in SQL", which
+fetches from Maven Central; the two warm-up tests of 18 October's run passed. The option matrix
+failed both scheduled runs and the dispatch: 51 failures in 13 configurations. 32 of them are
+`VarkaIrFuzzSuite`'s whole-suite timeout of row 392 again, under `useAVX=0` and
+`groupLocalSlots=false`, where it ran past the nine minutes; there the runner JVM shares its
+shard with other suites, so the workflow's fix does not carry over. The other 19 are tests that
+fail under a non-default option. Rows 393 and 394 of milestone 8 carry both.
+
+**The close's regression was visible two days earlier and was explained away.** #900's runner
+pairs of 16 October showed the warm-up releasing the projection shapes. That was filed as a
+small-host effect (item 103), although the committed file of 28 September on the same Xeon class
+showed every shape compiled. The cause was #827, the warm-up flake's own fix. A check against the
+committed baseline on the same CPU class would have caught it on 16 October, the day 42 pull
+requests merged.
+
+**One flake took about a third of the second half.** Rows 295, 326, 370 to 374, 378 and 389 to
+391 were the warm-up and its consequences. They ended in a real fix (#921, #924), two posts, and
+a CI retry list (#923). The retry list is a mask, removable only once #924 has run quiet on the
+pool's four-core runners. The post-merge reviews of #921 and #924 found the fix's own costs, row
+395. The review of #923 found two smaller things: the stub runner that `VARKA-390.md` 5 drove the
+six scenarios with was never committed, so a reader cannot rerun them; and
+`dev/varka_scoped_suites.sh` says "failed without a JUnit report" whenever the quiet run exits
+non-zero with every report clean, which is any non-test failure of the matrix script.
+
+**Predictions are now padded rather than optimistic.** Applying one observed ratio to every
+estimate moved test-time predictions from too low to far too high. Performance predictions did
+not move. They are two kinds of prediction, and one ratio does not serve both.
+
+**Practices that need a human to remember them lapsed.** The state note and the self-review line
+were both written down and agreed. Neither had a check that fails, and both slipped under load.
+The practices that held were enforced by code or habit: the hook against pattern kills, Error
+Prone in CI, runner pairs.
+
+**The laptop nightly's first night since 26 September** (18 to 19 October, `dev/varka_nightly.sh`
+on row 392's branch) passed 14 of its 16 steps, and no step found a wrong answer. `platform`
+failed in two of its seven JVM arms, and `cliff` in one fork:
+
+* `platform`, the fastdebug arm: HotSpot's C2 crashed on an assertion in
+  `opto/predicates.cpp:1286`, "CountedLoopNode should be dead when found in
+  OpaqueTemplateAssertionPredicateNode being marked useless", under the stress flags at seed
+  20261018. It is a JDK 25 compiler bug that a Varka kernel reaches, not a wrong answer; a product
+  build does not check the assertion. The `hs_err`, replay and JFR files are kept outside the
+  worktree for a report (row 397).
+* `platform`, the `-Xcomp` arm: the compiled test of row 274a (13 October) and the `-Xcomp` arm
+  had not met before. The test failed as "history not reached", 797 histories, because its tier
+  witness reads a kernel interpreted at both edges where `-Xcomp` has no interpreter to run it;
+  VARKA-274's risk 1 is that this reads as not reached, never as a wrong answer. The test should
+  skip the tier verdict under `-Xcomp` (row 397).
+* `cliff`: one of 15 forks never settled in 1 s, at 40 outputs with heavy groups to 6, C2 refusing
+  "callee is too large" 201 times. With no run since 26 September to compare, it is unclassified.
+
+### 12.3 What the close leaves unverified
+
+* Row 391 (#924) has not yet run long on the pool's four-core AVX2 runners. Item 103 stays
+  partly resolved until it has.
+* Row 274b's predictions are scored from the night (`VARKA-274.md` 9.8): 1 held, 6 and 9 missed.
+* Row 386 waits on apache/spark#59573. Row 180 moved to milestone 8.
+* The fuzz workflow after #926 on a runner: the step's time, and the composition and variants
+  steps after six skipped nights.
+* The option matrix has no green run in the milestone, and the weekly matrix none that is not
+  red for an upstream cause.
+
+### 12.4 Practices proposed for milestone 8
+
+1. **A failed scheduled workflow is a finding the same day.** Machine-checked rather than
+   remembered: a scheduled workflow that fails opens or comments on an issue (row 393), and a
+   review or a close lists each scheduled workflow's recent runs.
+2. **An unexpected benchmark verdict is compared with the committed file on the same CPU class
+   before it is named a host effect.** The pair tooling prints that comparison beside the verdict.
+3. **Practices get a check, or they are dropped.** The state note goes, replaced by a two-line
+   state in each merge's report. The self-review line becomes a section of the pull request's
+   description that a check reads.
+4. **Two calibration ratios**: one for test time, one for performance. Each is applied only to
+   its own kind.
+5. **A retry list carries an expiry**: each entry names the row whose fix removes it and the
+   date it is re-read, and the script fails once the date has passed.
+
+Practices 2, 3 (the check), 4 and 5 are row 396 of milestone 8, with the two findings of #923's
+review; practice 1 is row 393's second half. The two failed arms of the laptop nightly are row
+397. The harness's own fix of row 392's trap, a child JVM run outside any timed test body, is
+`m9/SCOPE.md` item 111.

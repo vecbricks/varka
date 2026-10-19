@@ -689,3 +689,23 @@ sample's minute too; that is the trait's documented cost, and a test that skips 
 filter would leave the gate's runs without it. **Listing `compiled` in the summary loop** instead
 of its own block after it: the loop's line is shared with row 257's step in flight, which the
 brief kept every agent off.
+
+### 9.8 The first nightly, 18 to 19 October 2026
+
+The laptop nightly's `compiled` step (`target/varka-nightly/2026-10-18/compiled.log`, seed
+20261018, row 392's branch) ran eight JVMs of 125 draws a lane, the owner's 1,000 a lane of 16
+October, and the 92 coverage rows, in 2,449 s. It scores predictions 1, 6 and 9 (`m7/PLAN.md` 12.3):
+
+* **1, held.** No wrong answer in 1,580 compiled cases over the two lanes and the 92 coverage
+  rows; 0 histories not reached, 0 failed tests.
+* **6, missed low.** Unsettled at 10 s: 13 of 790 int-lane cases (1.6%), 11 of them trapping at
+  `profile_predicate`, and 1 of 790 long-lane cases (0.1%), trapping there. Both lanes sit under
+  the band's 2%, and two int-lane cases unsettled without that trap. The 3 of 40 the band came
+  from was a small sample on a loaded machine.
+* **9, missed.** 4,000 kernels under 30 minutes: the night ran half that count, 2,000 kernels, in
+  41 minutes, so the registered count scales to about 82 minutes, a ratio of about 2.7, where the
+  extrapolation of 16 October said 3.2 (`skills/calibration/VARKA-274-6.1-9.md`).
+
+The same night's `platform` step met this test under `-Xcomp` for the first time and read 797
+histories as not reached (`m7/PLAN.md` 12.2): the tier witness takes a kernel with no compiled
+code at both edges for an interpreted one, and under `-Xcomp` there is no interpreter to run it.
