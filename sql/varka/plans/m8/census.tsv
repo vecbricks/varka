@@ -11,8 +11,8 @@ zeroifnull	ZeroIfNull	conditionalExpressions	in		byte,short,int,bigint,float,dou
 when	CaseWhen	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint,date,dt	bool,byte,short,float,double,dec,ntz	plumbing	333,359	the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
 between	Between	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool		bool,byte,short,float,double,dec,ntz	plumbing	333	rewritten to two comparisons and an AND; no coverage row yet
 isnan	IsNaN	predicateExpressions	in		float,double	bool		bool,float,double	plumbing	341	
-isnull	IsNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bigint,date	bool,byte,short,float,double,dec,ntz	plumbing	333,334,359	a validity read; item 93 over a predicate
-isnotnull	IsNotNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,dt	bool,byte,short,float,double,dec,ntz	plumbing	333,334,359	a validity read; item 93 over a predicate
+isnull	IsNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	333,334,359	a validity read; item 93 over a predicate
+isnotnull	IsNotNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	333,334,359	a validity read; item 93 over a predicate
 like	Like	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 ilike	ILike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 rlike	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
@@ -20,16 +20,16 @@ regexp_like	RLike	predicateExpressions	out	STRING input or output: owner's decis
 regexp	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 equal_null	EqualNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool		bool,byte,short,float,double,dec,ntz	semantics	336,359	null-tolerant: item 34
 and	And	predicateExpressions	in		bool	bool		bool	plumbing	331,27	fused today as a condition, not over a BOOLEAN column or as an output
-in	In	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date	bool,byte,short,float,double,dec,ntz	plumbing	333,341,348,359	NaN equals NaN in Spark's IN
+in	In	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date,ym	bool,byte,short,float,double,dec,ntz	plumbing	333,341,348,359	NaN equals NaN in Spark's IN
 not	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	fused today as a condition, not over a BOOLEAN column or as an output
 or	Or	predicateExpressions	in		bool	bool		bool	plumbing	331,27	fused today as a condition, not over a BOOLEAN column or as an output
 <=>	EqualNullSafe	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool		bool,byte,short,float,double,dec,ntz	semantics	336,359	null-tolerant: item 34
-=	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN and -0.0 rules on floats
-==	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	alias of =
->	GreaterThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
->=	GreaterThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bigint,date	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
-<	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date,time,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
-<=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
+=	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN and -0.0 rules on floats
+==	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	alias of =
+>	GreaterThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
+>=	GreaterThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
+<	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
+<=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	int,bigint,date,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359	Spark's NaN ordering on floats
 !	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	alias of not
 abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws
 greatest	Greatest	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint,date,time	bool,byte,short,float,double,dec,ntz	semantics	333,341,348,359	NaN is the greatest float
@@ -599,7 +599,7 @@ vector_normalize	VectorNormalize	vectorExpressions	out	arrays of floats: nested 
 vector_avg	VectorAvg	vectorExpressions	out	arrays of floats: nested types, no representation							
 vector_sum	VectorSum	vectorExpressions	out	arrays of floats: nested types, no representation							
 try_cast	Cast	implicit: conversion	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,364,365,366,368	the parser's TRY mode: null instead of an error
-in_set	InSet	implicit: predicate	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date	bool,byte,short,float,double,dec,ntz	plumbing	333,341,348,359	IN over many literals
+in_set	InSet	implicit: predicate	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	date,ym	bool,byte,short,float,double,dec,ntz	plumbing	333,341,348,359	IN over many literals
 date_minus_date	SubtractDates	implicit: datetime	in		date	dt			semantics	39	row 39: days times micros per day, exact
 ntz_minus_ntz	SubtractTimestamps	implicit: datetime	in		ntz	dt		ntz	semantics	339	plain long arithmetic in UTC, exact or raise
 time_minus_time	SubtractTimes	implicit: datetime	in		time	dt	time		done		

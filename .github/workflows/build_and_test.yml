@@ -1449,6 +1449,13 @@ jobs:
       run: ./dev/varka_quote_check.py
     - name: SKILLS.md's index matches the lesson files
       run: ./dev/varka_toc.py --check SKILLS.md --from sql/varka/skills
+    # Milestone 8 counts its progress in the census and the cast matrix (VARKA-328), so both are
+    # rendered again from their inputs and compared with the committed files; and no file may
+    # still cite a path the scope catalogue moved away from.
+    - name: The census and the cast matrix match their inputs
+      run: ./dev/varka_census.py --check
+    - name: Nothing cites a moved catalogue path
+      run: ./dev/varka_catalogue_move.sh --check 8 9
     - name: The CI queue's admission decision, over recorded API responses
       run: python3 dev/varka_ci_admit.py --self-test
     - name: The step-time budget's tool, over recorded API responses

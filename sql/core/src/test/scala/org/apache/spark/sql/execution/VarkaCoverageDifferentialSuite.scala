@@ -555,7 +555,7 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       "quarter(d)", "dayofyear(d)", "dayofweek(d)", "weekday(d)",
       "extract(DAYOFWEEK_ISO FROM d)", "weekofyear(d)", "extract(YEAROFWEEK FROM d)",
       "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
-      "-i", "year(d) + i")
+      "-i", "year(d) + i", "CAST(ymm AS INT)")
     val timeFields = Seq("hour(t)", "minute(t2)", "second(t)")
     // `CAST(i AS INTERVAL DAY)` throws past `INTERVAL_DAY_LIMIT_DAYS`, so the compiler puts a
     // bound on `i` that the evaluator checks before the kernel runs; the bound belongs to the

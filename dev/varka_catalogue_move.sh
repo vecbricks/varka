@@ -72,9 +72,16 @@ for f in "$plans/m$from"/VARKA-*.md "$plans/m$to"/VARKA-*.md; do
 done
 
 files_to_move=(SCOPE.md)
-for f in "$plans/m$from"/READING_*.md; do
-  [ -e "$f" ] && files_to_move+=("$(basename "$f")")
-done
+# The old folder's reading notes are the catalogue's only until it moves: once SCOPE.md has left,
+# a READING_*.md there belongs to the plan that took the folder (m8's READING_SLEEF.md, written
+# for its math rows), and neither moves nor counts as a stale citation.
+# Before the move every note there is taken for the catalogue's, so a plan that writes a
+# reading note of its own does so after its milestone's catalogue has moved on.
+if [ -e "$plans/m$from/SCOPE.md" ]; then
+  for f in "$plans/m$from"/READING_*.md; do
+    [ -e "$f" ] && files_to_move+=("$(basename "$f")")
+  done
+fi
 # After a first run the reading notes are already in the new folder; keep naming them.
 for f in "$plans/m$to"/READING_*.md; do
   [ -e "$f" ] && files_to_move+=("$(basename "$f")")

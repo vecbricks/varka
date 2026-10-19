@@ -32,12 +32,12 @@ the curated file's [implicit] section.
 The script fails rather than guess when the two halves disagree: a registered name with neither
 a curated row nor an exclusion, a curated name the registry no longer has, a class named in the
 census that the source does not define, an entry line in a registry section the parser did not
-read, and a type claimed as fused for a class that no row of `sql/varka/coverage.json` both names
-and reads a column of. That last check is a check and not a proof: a coverage row naming several
-classes credits each with every column it reads, so `year(d) = 2021 AND i > 0` would support an
-int claim for Year. Row 328 adds the single-expression coverage rows that make it exact. A type
-marked `~` is fused only over a derived operand, and its note must quote the coverage row that
-shows it. The cast aliases' source types are not curated: they are the sources `legal()` allows.
+read, a type claimed as fused for a class that takes no operand of that type in any row of
+`sql/varka/coverage.json` (each row lists its classes' operand types, so `year(d) = 2021 AND
+i > 0` supports a date claim for Year and no int one; VARKA-328), and a cast pair the matrix marks
+fused that no row casts, or one a row casts that it does not mark. A type marked `~` is fused only
+over a derived operand, and its note must quote the coverage row that shows it. The cast aliases'
+source types are not curated: they are the sources `legal()` allows.
 So the census is regenerated, not edited, and a registry change upstream shows up here.
 """
 
@@ -72,17 +72,6 @@ GROUPS = {
     "NUM": ["byte", "short", "int", "bigint", "float", "double", "dec"],
     "IVL": ["ym", "dt"],
     "ALL": ORDER,
-}
-# Coverage column names, by the type they hold (coverage.json "columns").
-COVERAGE_TYPES = {
-    "date": "date",
-    "int": "int",
-    "interval month": "ym",
-    "interval year": "ym",
-    "interval year to month": "ym",
-    "bigint": "bigint",
-    "time(6)": "time",
-    "interval day to second": "dt",
 }
 NEEDS = ["done", "plumbing", "semantics", "ulp", "hard"]  # hard: empty since 14 October 2026
 DECLINED = "owner's decision, 14 October 2026"
@@ -337,16 +326,24 @@ def parse_table(text, width):
 
 
 def coverage_index():
+    """The types each Catalyst class takes in some coverage row, from the row's operand list: a
+    class is credited only with the types its own node takes (VARKA-328), not with every column
+    its row reads, so `year(d) = 2021 AND i > 0` supports a date claim for Year and no int one.
+    Also returned: each row's SQL to its classes, for the `~` claims, and the casts the rows
+    perform, as (from, to, mode) in this file's type names."""
     data = json.loads(read(COVERAGE))
-    columns = {c: COVERAGE_TYPES.get(t) for c, t in data["columns"].items()}
     index = collections.defaultdict(set)
     index["#sql"] = {}
+    index["#casts"] = set()
     for row in data["expressions"]:
-        tokens = set(re.findall(r"\b[a-z]\w*\b", row["executable"]))
-        types = {columns[c] for c in tokens if c in columns and columns[c]}
-        for cls in row["catalyst"]:
-            index[cls] |= types
+        for operand in row["operands"]:
+            cls, t = operand.split(":")
+            index[cls].add(t)
         index["#sql"][row["sql"]] = set(row["catalyst"])
+        for cast in row["casts"]:
+            pair, mode = cast.split(":")
+            src, dst = pair.split(">")
+            index["#casts"].add((src, dst, mode))
     return index
 
 
@@ -438,8 +435,8 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
     res = t if result == "same" else expand(result)
     f = expand(fused)
     # A type marked `~` is fused in a coverage row whose operand of that type is derived (a
-    # literal, or another expression's result) rather than a column, so the column check cannot
-    # see it; the note must quote that row's SQL, and the row must name the class.
+    # literal, or another expression's result) rather than a column; the note must quote that
+    # row's SQL, and the row must name the class.
     derived = {p.rstrip("~") for p in fused.split(",") if p.endswith("~")}
     if derived:
         quoted = re.findall(r"`([^`]+)`", note)
@@ -451,10 +448,10 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
     for x in f:
         if x not in t:
             errors.append(f"{name}: fused type {x} is not among its types")
-        if check_cls not in cov:
-            errors.append(f"{name}: no coverage row names {check_cls}")
-        elif x not in derived and x not in cov[check_cls]:
-            errors.append(f"{name}: no coverage row names {check_cls} and reads a {x} column")
+        if x in derived:
+            continue
+        if x not in cov.get(check_cls, set()):
+            errors.append(f"{name}: no coverage row has a {check_cls} node over a {x} operand")
     if need not in NEEDS:
         errors.append(f"{name}: unknown need {need!r}")
     if (need == "done") != (set(f) == set(t)):
@@ -774,16 +771,41 @@ def cast_rows(src, dst):
 
 
 # The pairs Varka fuses today, each a cast arm of the compiler (VarkaIntervalCompiler,
-# VarkaTimeCompiler, VarkaNodeCompiler) and a coverage row: in part, as the note says.
+# VarkaTimeCompiler, VarkaNodeCompiler) and a coverage row casting that pair: in part, as the
+# note says. `cast_errors` holds the two to each other (VARKA-328).
 FUSED_CASTS = {
-    ("date", "date"): "identity",
     ("ym", "ym"): "MONTH end field only (CAST(ymy AS INTERVAL MONTH), ym - ymm)",
     ("dt", "dt"): "SECOND end field only (dt < INTERVAL '0' SECOND)",
     ("time", "time"): "widening precision only",
-    ("int", "ym"): "MONTH and YEAR units",
+    ("int", "ym"): "MONTH unit only (CAST(i AS INTERVAL MONTH))",
     ("ym", "int"): "MONTH-ended source only",
     ("int", "dt"): "DAY unit, only as date_add's offset (d + CAST(i AS INTERVAL DAY))",
 }
+
+# The mode a coverage row's cast runs in, to the legal() answer that admits it.
+MODE_LEGAL = {"legacy": 0, "ansi": 1, "try": 1}
+
+
+def cast_errors(cov):
+    """Comet's four-way rule over the matrix and the coverage table, per mode: a pair marked fused
+    has a coverage row casting it; a row's cast is legal in its mode and not an identity, which
+    the analyzer removes before a cast exists; and a pair a row casts is marked fused. The rows
+    resolve under ANSI, Spark's default, so a pair fused only in another mode cannot be claimed
+    until a row runs in it."""
+    errors = []
+    cast = cov["#casts"]
+    for src, dst, mode in sorted(cast):
+        if mode not in MODE_LEGAL or not legal(src, dst)[MODE_LEGAL[mode]]:
+            errors.append(f"a coverage row casts {src} to {dst} under {mode}, where it is illegal")
+        elif cast_kind(src, dst)[0] == "identity":
+            errors.append(f"a coverage row casts {src} to {dst}, an identity")
+        elif (src, dst) not in FUSED_CASTS:
+            errors.append(f"a coverage row casts {src} to {dst}; mark it in FUSED_CASTS")
+    for src, dst in FUSED_CASTS:
+        if not any((src, dst) == (s, d) for s, d, _ in cast):
+            errors.append(f"cast {src} to {dst} is marked fused and no coverage row casts it")
+    return errors
+
 
 CAST_HEADER = ["from", "to", "legacy", "ansi", "try", "kind", "semantics", "proof"]
 CAST_HEADER += ["fused_today", "rows"]
@@ -838,6 +860,7 @@ def main():
     ap.add_argument("--summary", action="store_true", help="print the counts only")
     args = ap.parse_args()
     out, errors = build()
+    errors += cast_errors(coverage_index())
     if errors:
         for e in errors:
             print("census: " + e, file=sys.stderr)

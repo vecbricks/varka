@@ -376,6 +376,12 @@ driver and on the first task's thread on an executor, where VARKA-295 had it on 
 The owner accepted that in choosing the option; a later row can take it back to a background
 thread if it learns to run before the helpers without a race.
 
+*Correction, 19 October 2026 (`m8/VARKA-395.md`): the 200 to 600 ms above predate #924's pacing,
+which on this placement could hold the first thread and every thread waiting on it for up to 20 s
+for C2's queue. VARKA-395 bounds the pacing at about 2 s, lets waiting threads wait on a latch
+rather than the warm-up's monitor, and measured the warm-up at 203 to 514 ms on four cores and
+424 to 828 ms on two.*
+
 ### 9.2 The checks
 
 * `VarkaVectorTemplateWarmupSuite`, "beforeVectorCode runs the warm-up once, on the caller's

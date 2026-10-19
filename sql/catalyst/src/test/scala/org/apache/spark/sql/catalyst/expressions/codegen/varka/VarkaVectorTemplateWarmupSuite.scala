@@ -23,8 +23,9 @@ import org.scalatest.BeforeAndAfterEach
 import org.apache.spark.SparkFunSuite
 
 /**
- * The Vector API template warm-up (VARKA-295): it runs the same calls every time and computes
-
+ * The Vector API template warm-up (VARKA-295): it runs the same calls every time and computes a
+ * result from them, runs once per JVM however many threads ask, makes a thread that arrives during
+ * the run wait for it, and never fails the thread that calls it. Whether it removes the templates'
  * traps is measured, not asserted here: `VARKA-295.md` 9.7 has the fuzz arm and the reproducer.
  */
 class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEach
@@ -67,6 +68,120 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
     threads.foreach(_.join())
     assert(completedRuns() === 1)
     assert(results.asScala.count(_ > 0L) === 1, s"results $results")
+  }
+
+  /**
+   * Starts a run held at its gate (and failing with `failure` once released, if not null), calls
+   * `body` on a second thread once the run is claimed, waits until that thread is parked on the
+   * run's latch, then opens the gate. Returns what `body`
+   * returned and whether the run had ended when the second thread returned.
+   */
+  private def duringARun[T](body: () => T, failure: Throwable = null): (T, Boolean) = {
+    resetForTest(failure)
+    val gate = new java.util.concurrent.CountDownLatch(1)
+    holdRunsForTest(gate)
+    val runner = new Thread(() => ensure())
+    runner.start()
+    while (!runClaimed()) {
+      Thread.onSpinWait()
+    }
+    @volatile var result: Option[(T, Boolean)] = None
+    @volatile var thrown: Throwable = null
+    val waiter = new Thread(() => {
+      try {
+        val r = body()
+        result = Some((r, runner.getState == Thread.State.TERMINATED || !gateClosed(gate)))
+      } catch {
+        case t: Throwable => thrown = t
+      }
+    })
+    waiter.start()
+    // Parked means still WAITING 50 ms after first seen so: a thread can pass through a short wait
+    // of the JVM's own on its way to the latch.
+    val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
+    var parked = false
+    while (!parked && waiter.isAlive && System.nanoTime() < deadline) {
+      if (waiter.getState == Thread.State.WAITING) {
+        Thread.sleep(50)
+        parked = waiter.getState == Thread.State.WAITING
+      } else {
+        Thread.onSpinWait()
+      }
+    }
+    gate.countDown()
+    waiter.join()
+    runner.join()
+    if (thrown != null) {
+      throw thrown
+    }
+    assert(parked, "the second thread must wait while the run is held")
+    result.get
+  }
+
+  private def gateClosed(gate: java.util.concurrent.CountDownLatch): Boolean = gate.getCount > 0
+
+  test("a thread that arrives during the run waits for it to end") {
+    val (returned, ended) = duringARun(() => ensure())
+    assert(returned === 0L, "the waiter did not run the warm-up")
+    assert(ended, "the waiter must not return before the run has been released")
+    assert(completedRuns() === 1, "a second run must never start")
+  }
+
+  test("an interrupted waiter still waits for the run, and keeps its interrupt") {
+    val (interrupted, ended) = duringARun { () =>
+      Thread.currentThread().interrupt()
+      ensure()
+      Thread.currentThread().isInterrupted
+    }
+    assert(ended, "an interrupt must not let a thread run vector code before the warm-up ends")
+    assert(interrupted, "the interrupt is put back on the thread")
+    assert(completedRuns() === 1)
+  }
+
+  test("a waiter wakes when the run fails") {
+    val (returned, ended) = duringARun(() => ensure(), new InternalError("injected"))
+    assert(returned === 0L)
+    assert(ended)
+    assert(completedRuns() === 0, "the run failed")
+    assert(nanos() === 0L)
+  }
+
+  test("an interrupt does not cut the pacing's wait short, and is kept") {
+    Thread.currentThread().interrupt()
+    val started = System.nanoTime()
+    val waited = awaitC2Queue(200, () => 1000)
+    val elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+    // Thread.interrupted() reads and clears the flag, so the thread leaves the test clean.
+    assert(Thread.interrupted(), "the interrupt is put back on the thread")
+    assert(waited >= 200L, s"an interrupted wait must still last its budget, waited $waited ms")
+    assert(elapsed < 5000, s"and end at it, took $elapsed ms")
+    assert(awaitC2Queue(5000, () => -1) < 1000L, "no reading of the queue means no wait")
+  }
+
+  test("C2's threads are counted as HotSpot splits CICompilerCount") {
+    // CompilationPolicy::initialize: C1 gets max(count / 3, 1), C2 the rest, at least one.
+    assert(c2Threads(1) === 1)
+    assert(c2Threads(2) === 1, "the count of one to three processors leaves C2 one thread")
+    assert(c2Threads(3) === 2, "four processors")
+    assert(c2Threads(4) === 3)
+    assert(c2Threads(12) === 8, "24 processors")
+    // The count HotSpot's ergonomics choose at two and three processors, from a JVM of each.
+    val javaBin = s"${System.getProperty("java.home")}/bin/java"
+    for (processors <- Seq(2, 3)) {
+      val builder = new ProcessBuilder(javaBin, s"-XX:ActiveProcessorCount=$processors",
+        "-XX:+PrintFlagsFinal", "-version").redirectErrorStream(true)
+      // Options from the environment could set the count or the compilers themselves.
+      Seq("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS")
+        .foreach(builder.environment().remove(_))
+      val process = builder.start()
+      val flags = new String(process.getInputStream.readAllBytes(), "UTF-8")
+      assert(process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS), "the JVM must exit")
+      assert(process.exitValue() === 0)
+      val count = flags.linesIterator.map(_.trim.split("\\s+"))
+        .collectFirst { case f if f.length > 3 && f(1) == "CICompilerCount" => f(3).toInt }
+      assert(count === Some(2), s"CICompilerCount at $processors processors")
+      assert(c2Threads(count.get) === 1, s"one C2 thread at $processors processors")
+    }
   }
 
   test("a failure, an Error included, is absorbed and the thread goes on") {
@@ -124,6 +239,9 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
       "   12 4  java.lang.String::equals (11 bytes)\n"
     assert(c2QueueLength(busyC2) === 2)
     assert(c2QueueLength("") === 0, "a format the parser does not know must not hold the warm-up")
+    val busyJvmci = "Current compiles:\n\nC1 compile queue:\nEmpty\n\nJVMCI compile queue:\n" +
+      "   11 4  java.lang.String::hashCode (49 bytes)\n"
+    assert(c2QueueLength(busyJvmci) === 1, "a JVMCI compiler's queue stands in C2's place")
     assert(PROFILING_TIER_QUEUE_LIMIT >= 1)
     assert(PACE_QUEUE_TARGET >= 1 && PACE_QUEUE_TARGET <= PROFILING_TIER_QUEUE_LIMIT,
       "the pacing waits for the shorter queue at which the policy resumes profiling")

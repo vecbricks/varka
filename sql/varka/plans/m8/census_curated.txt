@@ -16,8 +16,9 @@
 # A DECIMAL(p, s) with s < 0 (allowed only under spark.sql.legacy.allowNegativeScaleOfDecimal) is
 # declined by the compiler for every entry below and is not a type of its own here (m8/PLAN.md 2.8).
 # A fused type marked ~ is fused in a coverage row whose operand of
-# that type is derived (a literal or another expression's result), which the column check cannot
-# see. A need is the hardest work left once the lanes the row names exist: done; plumbing (an arm
+# that type is derived (a literal or another expression's result), and its note quotes that row.
+# A fused type needs a coverage row whose node of the entry's class takes that type.
+# A need is the hardest work left once the lanes the row names exist: done; plumbing (an arm
 # and IR on the lanes); semantics (Spark's overflow, NaN, rounding or scale rules); ulp (the math
 # family: fused within a bound stated per function and host library, under row 345's contract and
 # its configuration, the owner's decision of 14 October 2026); hard (no exact construction known:
@@ -37,20 +38,20 @@ zeroifnull|NUM|same||plumbing|333,359|rewritten to coalesce(a, 0)
 when|ALL|same|date,bigint,dt|plumbing|333,359|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
 between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no coverage row yet
 isnan|FLOAT|bool||plumbing|341|
-isnull|ALL|bool|date,bigint|plumbing|333,334,359|a validity read; item 93 over a predicate
-isnotnull|ALL|bool|date,int,bigint,dt|plumbing|333,334,359|a validity read; item 93 over a predicate
+isnull|ALL|bool|int,bigint,date,time,ym,dt|plumbing|333,334,359|a validity read; item 93 over a predicate
+isnotnull|ALL|bool|int,bigint,date,time,ym,dt|plumbing|333,334,359|a validity read; item 93 over a predicate
 equal_null|ALL|bool||semantics|336,359|null-tolerant: item 34
 and|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
-in|ALL|bool|date|plumbing|333,341,348,359|NaN equals NaN in Spark's IN
+in|ALL|bool|date,ym|plumbing|333,341,348,359|NaN equals NaN in Spark's IN
 not|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
 or|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
 <=>|ALL|bool||semantics|336,359|null-tolerant: item 34
-=|ALL|bool|date,int,bigint,time|semantics|341,348,359|Spark's NaN and -0.0 rules on floats
-==|ALL|bool|date,int,bigint,time|semantics|341,348,359|alias of =
->|ALL|bool|date,int,bigint,dt|semantics|341,348,359|Spark's NaN ordering on floats
->=|ALL|bool|date,bigint|semantics|341,348,359|Spark's NaN ordering on floats
-<|ALL|bool|date,time,dt|semantics|341,348,359|Spark's NaN ordering on floats
-<=|ALL|bool|date|semantics|341,348,359|Spark's NaN ordering on floats
+=|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN and -0.0 rules on floats
+==|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|alias of =
+>|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN ordering on floats
+>=|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN ordering on floats
+<|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN ordering on floats
+<=|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN ordering on floats
 !|bool|bool||plumbing|331,27|alias of not
 abs|NUM,IVL|same|ym|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
 greatest|ALL|same|date,bigint,time|semantics|333,341,348,359|NaN is the greatest float
@@ -183,7 +184,7 @@ bitmap_bit_position|bigint|bigint||plumbing|335|a remainder over a constant
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
-in_set|InSet|predicate|ALL|bool|date|plumbing|333,341,348,359|IN over many literals
+in_set|InSet|predicate|ALL|bool|date,ym|plumbing|333,341,348,359|IN over many literals
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
 ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt||semantics|339|plain long arithmetic in UTC, exact or raise
 time_minus_time|SubtractTimes|datetime|time|dt|time|done||

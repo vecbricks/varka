@@ -35,7 +35,7 @@ int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion		332,28
 int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion		343
 int	double	yes	yes	yes	widening	exact	exhaustion		343
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364
-int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	MONTH and YEAR units	103,332
+int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	MONTH unit only (CAST(i AS INTERVAL MONTH))	103,332
 int	dt	yes	yes	yes	scale up	times the unit; a DAY end overflows past 106,751,991: raises under LEGACY and ANSI, TRY nulls; the other ends never	exhaustion	DAY unit, only as date_add's offset (d + CAST(i AS INTERVAL DAY))	103,332
 bigint	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332
 bigint	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28
@@ -81,7 +81,7 @@ date	bigint	yes	no	no	always null	LEGACY returns null for every date	exhaustion	
 date	float	yes	no	no	always null	LEGACY returns null for every date	exhaustion		343
 date	double	yes	no	no	always null	LEGACY returns null for every date	exhaustion		343
 date	dec	yes	no	no	always null	LEGACY returns null for every date	exhaustion		350,364
-date	date	yes	yes	yes	identity		exhaustion	identity	332
+date	date	yes	yes	yes	identity		exhaustion		332
 date	ntz	yes	yes	yes	scale up	days times micros per day; past 106,751,991 days multiplyExact raises under LEGACY and ANSI, TRY nulls	exhaustion		338
 ntz	date	yes	yes	yes	floor division	floorDiv by micros per day, exact	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		338
 ntz	ntz	yes	yes	yes	identity		SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		338
