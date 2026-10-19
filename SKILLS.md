@@ -90,6 +90,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A projection that only forwards columns is a selection, and the node with no kernel is the fast path](sql/varka/skills/emitter-and-ir.md#a-projection-that-only-forwards-columns-is-a-selection-and-the-node-with-no-kernel-is-the-fast-path)
 * [The bytes oracle pins one point in the option space, so an option a session can set needs an arm of its own](sql/varka/skills/emitter-and-ir.md#the-bytes-oracle-pins-one-point-in-the-option-space-so-an-option-a-session-can-set-needs-an-arm-of-its-own)
 * [A lane can change width at a root's store without the loop ever holding two widths](sql/varka/skills/emitter-and-ir.md#a-lane-can-change-width-at-a-roots-store-without-the-loop-ever-holding-two-widths)
+* [A kernel of both lanes is driven at the long lane, its int values in the low half of their species](sql/varka/skills/emitter-and-ir.md#a-kernel-of-both-lanes-is-driven-at-the-long-lane-its-int-values-in-the-low-half-of-their-species)
 * [The class-file cap on a method is met before it can be measured: the JDK refuses the class, and the emitter reads the refusal](sql/varka/skills/emitter-and-ir.md#the-class-file-cap-on-a-method-is-met-before-it-can-be-measured-the-jdk-refuses-the-class-and-the-emitter-reads-the-refusal)
 * [The single-epilogue form is a reference variant at `methodByteBudget` 0, and the tests that pin its facts say so](sql/varka/skills/emitter-and-ir.md#the-single-epilogue-form-is-a-reference-variant-at-methodbytebudget-0-and-the-tests-that-pin-its-facts-say-so)
 * [A columnar row path writes primitive entries through `MutableColumnarRow`, and nothing else](sql/varka/skills/emitter-and-ir.md#a-columnar-row-path-writes-primitive-entries-through-mutablecolumnarrow-and-nothing-else)
@@ -187,6 +188,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Why a warmed kernel still allocates: C2 sums class-check traps over the whole compile](sql/varka/skills/the-jit.md#why-a-warmed-kernel-still-allocates-c2-sums-class-check-traps-over-the-whole-compile)
 * [A template warm-up run after the templates' first compile deoptimises them, and a wide kernel sums one decompile past C2's cutoff](sql/varka/skills/the-jit.md#a-template-warm-up-run-after-the-templates-first-compile-deoptimises-them-and-a-wide-kernel-sums-one-decompile-past-c2s-cutoff)
 * [Reading C2's queue from Java stops the JVM, and below four processors HotSpot runs one C2 thread](sql/varka/skills/the-jit.md#reading-c2s-queue-from-java-stops-the-jvm-and-below-four-processors-hotspot-runs-one-c2-thread)
+* [A warm-up outside the sanitizer's window makes C2 trap at its first checked call](sql/varka/skills/the-jit.md#a-warm-up-outside-the-sanitizers-window-makes-c2-trap-at-its-first-checked-call)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)

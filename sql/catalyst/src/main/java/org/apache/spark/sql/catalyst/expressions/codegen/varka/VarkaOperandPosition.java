@@ -86,6 +86,7 @@ public enum VarkaOperandPosition {
       case AddDays _, SubDays _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
            WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, AddMonths _, MakeDate _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, GuardedDay _, GuardedRange _,
+           WidenLane _,
            NarrowLane _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, And _, Or _, Not _, IsNotNull _, InRanges _ -> false;
@@ -117,6 +118,7 @@ public enum VarkaOperandPosition {
       case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
            WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, GuardedDay _, GuardedRange _,
+           WidenLane _,
            NarrowLane _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
            TruncDate _, WeekOfYear _, Compare _, And _, Or _, Not _, IsNotNull _, InRanges _ ->
           List.of();

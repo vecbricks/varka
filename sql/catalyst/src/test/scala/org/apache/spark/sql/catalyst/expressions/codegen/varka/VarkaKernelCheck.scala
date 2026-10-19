@@ -117,9 +117,10 @@ object VarkaKernelCheck {
   /** [[VarkaKernelChecks.runAndCompareLong]]. */
   def runAndCompareLong(context: String, className: String, bytes: Array[Byte],
       roots: Seq[VarkaVectorIR], numInputs: Int, lits: Array[Long], batch: LongBatch,
-      declineAllowed: Boolean = false, spark: Option[VarkaSparkOracle] = None): Boolean =
+      declineAllowed: Boolean = false, spark: Option[VarkaSparkOracle] = None,
+      intLits: Array[Int] = Array.empty): Boolean =
     VarkaKernelChecks.runAndCompareLong(context, className, bytes, roots.asJava, numInputs, lits,
-      batch.toJava, declineAllowed, answers(spark))
+      intLits, batch.toJava, declineAllowed, answers(spark))
 
   /** [[VarkaKernelChecks.runAndCompareLongStatus]]. */
   def runAndCompareLongStatus(context: String, className: String, bytes: Array[Byte],
@@ -129,19 +130,22 @@ object VarkaKernelCheck {
       numInputs, lits, batch.toJava, declineAllowed)
 
   /** [[VarkaKernelChecks.runOwnBodyLong]]. */
+  // scalastyle:off argcount
   def runOwnBodyLong(context: String, className: String, bytes: Array[Byte],
       roots: Seq[VarkaVectorIR], numInputs: Int, lits: Array[Long], batch: LongBatch,
       declineAllowed: Boolean = false, spark: Option[VarkaSparkOracle] = None,
-      fills: Seq[VarkaKernelChecks.ValidityFill] = bothFills): Boolean =
+      fills: Seq[VarkaKernelChecks.ValidityFill] = bothFills,
+      intLits: Array[Int] = Array.empty): Boolean =
     VarkaKernelChecks.runOwnBodyLong(context, className, bytes, roots.asJava, numInputs, lits,
-      batch.toJava, declineAllowed, answers(spark), fills.asJava)
+      intLits, batch.toJava, declineAllowed, answers(spark), fills.asJava)
+  // scalastyle:on argcount
 
   /** [[VarkaKernelChecks.validityBytesWrittenLong]]. */
   def validityBytesWrittenLong(className: String, bytes: Array[Byte],
       roots: Seq[VarkaVectorIR], numInputs: Int, lits: Array[Long], batch: LongBatch,
-      fill: VarkaKernelChecks.ValidityFill): Int =
+      fill: VarkaKernelChecks.ValidityFill, intLits: Array[Int] = Array.empty): Int =
     VarkaKernelChecks.validityBytesWrittenLong(className, bytes, roots.asJava, numInputs, lits,
-      batch.toJava, fill)
+      intLits, batch.toJava, fill)
 
   /** [[VarkaKernelChecks.otherBody]], with the null flags as patterns. */
   private[varka] def otherBody(numInputs: Int, length: Int, patterns: Seq[Int => Boolean],

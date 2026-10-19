@@ -72,7 +72,7 @@ final class VarkaBodyEmitter {
     if (analysis.options.driverOutputTable()) {
       emitTableDriver(cb, dense, classDesc, outputs, analysis, groups, s);
     } else {
-      emitUnrolledDriver(cb, dense, classDesc, outputs, all, analysis, numLiterals, groups, s);
+      emitUnrolledDriver(cb, dense, classDesc, outputs, all, analysis, groups, s);
     }
     noteDriverReached(dense, outputs, analysis);
   }
@@ -138,7 +138,7 @@ final class VarkaBodyEmitter {
    * driver, the bitmap pass for the outputs it serves and the all-null shortcut; then the calls.
    */
   private static void emitUnrolledDriver(CodeBuilder cb, boolean dense, ClassDesc classDesc,
-      List<VarkaVectorIR> outputs, List<Integer> all, Analysis analysis, int numLiterals,
+      List<VarkaVectorIR> outputs, List<Integer> all, Analysis analysis,
       List<List<Integer>> groups, Slots s) {
     emitEmptyReturn(cb, analysis);
     emitSizes(cb, analysis, s);
@@ -180,7 +180,7 @@ final class VarkaBodyEmitter {
       cb.labelBinding(live);
     }
     emitSpecies(cb, analysis, s);
-    emitLiterals(cb, analysis, numLiterals, s);
+    emitLiterals(cb, analysis, s);
     emitGroupCalls(cb, dense, classDesc, analysis, groups, s);
   }
 
@@ -209,7 +209,7 @@ final class VarkaBodyEmitter {
         analysis, s);
     emitInputState(cb, dense, analysis, s);
     emitSpecies(cb, analysis, s);
-    emitLiterals(cb, analysis, numLiterals, s);
+    emitLiterals(cb, analysis, s);
     if (s.guardAcc != null) {
       // An empty mask: no lane has been found out of range yet. One per reason under
       // `exactRefusalStatus`.
@@ -320,9 +320,13 @@ final class VarkaBodyEmitter {
   private static void emitOutputSegments(CodeBuilder cb, boolean dense, BodyMode mode,
       List<VarkaVectorIR> outputs, List<Integer> prologueOutputs, Analysis analysis, Slots s) {
     for (int o : prologueOutputs) {
-      if (outputs.get(o) instanceof NarrowLane) {
-        loadNarrowedSegment(cb, analysis, o, s.dstSeg[o]);
-      } else if (!(outputs.get(o) instanceof Cond)) {
+      VarkaVectorIR root = outputs.get(o);
+      // An int-valued root of a kernel driven at the long lane - a narrowing root, or any int
+      // root of a kernel that converts between lanes - is an int column, four bytes a row.
+      if (!(root instanceof Cond) && analysis.lane == Lane.LONG
+          && root.laneType() == VarkaVectorIR.LaneType.INT) {
+        loadNarrowedSegment(cb, analysis, P_DST_DATA, o, s.dstSeg[o]);
+      } else if (!(root instanceof Cond)) {
         loadSegment(cb, P_DST_DATA, o, s.dataBytes, s.dstSeg[o]);
       }
       // Under elideUnreadLocals a loop or epilogue body maps no validity segment for an output
@@ -392,7 +396,7 @@ final class VarkaBodyEmitter {
         // A column only a skipped date reads, with its word dead too, is read by nothing here.
         // Nor one the body reads only for its validity, under elideUnreadLocals (Slots.plan).
         if ((s.skippedColumns >>> i & 1L) == 0 && s.srcSeg[i] >= 0) {
-          loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+          loadInputSegment(cb, analysis, s, i);
         }
         continue;
       }
@@ -434,7 +438,7 @@ final class VarkaBodyEmitter {
       cb.astore(s.srcValSeg[i]);
       cb.labelBinding(stateDone);
       if (s.srcSeg[i] >= 0) {
-        loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+        loadInputSegment(cb, analysis, s, i);
       }
     }
   }
@@ -469,6 +473,13 @@ final class VarkaBodyEmitter {
     cb.getstatic(analysis.lane.vector, analysis.lane.speciesField(analysis.lanes),
         VECTOR_SPECIES);
     cb.astore(s.species);
+    if (s.intSpecies >= 0) {
+      // The int species of the driving species' width, in a kernel that converts between lanes:
+      // the width's own species, never a half-width one (`VARKA-28.md` 2.2).
+      cb.getstatic(Lane.INT.vector, Lane.INT.speciesField(analysis.lanesOf(Lane.INT)),
+          VECTOR_SPECIES);
+      cb.astore(s.intSpecies);
+    }
     if (analysis.lanes != 0) {
       cb.loadConstant(analysis.lanes);
     } else {
@@ -478,25 +489,51 @@ final class VarkaBodyEmitter {
     cb.istore(s.lanes);
     cb.aload(s.species);
     cb.iload(analysis.lane.pLength);
+    if (analysis.mixed()) {
+      // A kernel that converts between lanes reads an int column a whole int vector at a time,
+      // twice the rows a long lane group covers, so its loop stops a long lane group early: every
+      // int load and store in it is then whole and unmasked, where a masked one costs two to
+      // five times as much (`VARKA-28.md` 9.3), and the rest - one long lane group to just
+      // under two - is the epilogue's.
+      cb.iload(s.lanes);
+      cb.isub();
+    }
     cb.invokeinterface(VECTOR_SPECIES, "loopBound", LOOP_BOUND);
+    if (analysis.mixed()) {
+      // A batch shorter than a long lane group rounds down below zero: no loop, all epilogue.
+      cb.iconst_0();
+      cb.invokestatic(MATH, "max", MATH_INT_PAIR);
+    }
     cb.istore(s.loopBound);
   }
 
   /** The literals the body reads, hoisted out of the loop, and broadcast where it wants vectors. */
-  private static void emitLiterals(CodeBuilder cb, Analysis analysis, int numLiterals, Slots s) {
-    for (int j = 0; j < numLiterals; j++) {
-      if (s.scalarArg[j] < 0) {
+  private static void emitLiterals(CodeBuilder cb, Analysis analysis, Slots s) {
+    emitLiterals(cb, analysis.lane, s.scalarArg.length, s);
+    if (s.intScalarArg != null) {
+      // The int table, in a kernel that converts between lanes; read from the int array, which
+      // the long lane's `run` takes beside its own.
+      emitLiterals(cb, Lane.INT, s.intScalarArg.length, s);
+    }
+  }
+
+  /** {@code lane}'s table: its {@code count} slots, hoisted, and broadcast where wanted. */
+  private static void emitLiterals(CodeBuilder cb, Lane lane, int count, Slots s) {
+    int[] scalarArg = s.scalarArgs(lane);
+    int[] broadcastSlot = s.broadcastSlots(lane);
+    for (int j = 0; j < count; j++) {
+      if (scalarArg[j] < 0) {
         continue; // a literal no output of this body reads (per-group planning, VARKA-87)
       }
-      cb.aload(analysis.lane.scalarArgsSlot());
+      cb.aload(lane == Lane.INT ? P_SCALAR_ARGS : lane.scalarArgsSlot());
       cb.loadConstant(j);
-      analysis.lane.arrayLoad(cb);
-      analysis.lane.storeScalar(cb, s.scalarArg[j]);
-      if (s.broadcastSlot != null) {
-        cb.aload(s.species);
-        analysis.lane.loadScalar(cb, s.scalarArg[j]);
-        cb.invokestatic(analysis.lane.vector, "broadcast", analysis.lane.broadcast);
-        cb.astore(s.broadcastSlot[j]);
+      lane.arrayLoad(cb);
+      lane.storeScalar(cb, scalarArg[j]);
+      if (broadcastSlot != null) {
+        cb.aload(s.species(lane));
+        lane.loadScalar(cb, scalarArg[j]);
+        cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
+        cb.astore(broadcastSlot[j]);
       }
     }
   }
@@ -698,6 +735,10 @@ final class VarkaBodyEmitter {
    * and the stores take. Nothing between a load and a store is masked, exactly as in the
    * loop.
    *
+   * <p>A kernel that converts between lanes is the exception to "no back edge": its loop stops a
+   * long lane group early, so its epilogue runs this body in a loop of its own, up to twice
+   * ({@code emitMixedEpilogue}), the first time over a whole group.
+   *
    * <p>The masked load is not an optimization here: the data segment is sized to
    * {@code length * 4}, so an unmasked load of the last partial group would run off the end
    * of the segment. Its other consequence is the invariant recorded in the class doc - lanes
@@ -722,6 +763,10 @@ final class VarkaBodyEmitter {
 
     cb.iload(s.loopBound);
     cb.istore(s.iVar);
+    if (analysis.mixed()) {
+      emitMixedEpilogue(cb, dense, outputs, outputIdx, analysis, s);
+      return;
+    }
     // `lanes` means "how many rows this group covers" everywhere below, which for the last
     // group is the remainder - not a lane width, which is why the validity helpers switch to
     // their partial-group forms (see validityBits / orValidityBits). This one store is what
@@ -739,6 +784,53 @@ final class VarkaBodyEmitter {
     }
 
     emitLaneGroup(cb, dense, outputs, outputIdx, analysis, s);
+  }
+
+  /**
+   * The epilogue of a kernel that converts between lanes. Its loop leaves up to two long lane
+   * groups (see {@code emitSpecies}), so the masked lane group runs once per group, starting at
+   * {@code loopBound}. Each time, {@code lanes} is the rows that group covers, at most a long
+   * lane group, and the bounds mask is rebuilt for it.
+   */
+  private static void emitMixedEpilogue(CodeBuilder cb, boolean dense,
+      List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
+    Label top = cb.newLabel();
+    Label done = cb.newLabel();
+    cb.labelBinding(top);
+    cb.iload(s.iVar);
+    cb.iload(analysis.lane.pLength);
+    cb.if_icmpge(done);
+    // lanes = min(length - i, the long lane count)
+    cb.iload(analysis.lane.pLength);
+    cb.iload(s.iVar);
+    cb.isub();
+    emitLaneCount(cb, analysis, s);
+    cb.invokestatic(MATH, "min", MATH_INT_PAIR);
+    cb.istore(s.lanes);
+    if (s.epilogueMask != null) {
+      cb.aload(s.species);
+      cb.iload(s.iVar);
+      cb.iload(analysis.lane.pLength);
+      cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
+      cb.astore(s.epilogueMask);
+    }
+    emitLaneGroup(cb, dense, outputs, outputIdx, analysis, s);
+    cb.iload(s.iVar);
+    emitLaneCount(cb, analysis, s);
+    cb.iadd();
+    cb.istore(s.iVar);
+    cb.goto_(top);
+    cb.labelBinding(done);
+  }
+
+  /** The driving lane's count: the baked constant, or the species' length where none is. */
+  private static void emitLaneCount(CodeBuilder cb, Analysis analysis, Slots s) {
+    if (analysis.lanes != 0) {
+      cb.loadConstant(analysis.lanes);
+    } else {
+      cb.aload(s.species);
+      cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+    }
   }
 
   /**
@@ -764,8 +856,9 @@ final class VarkaBodyEmitter {
   /**
    * Whether this call site takes the width-specialised helper: a whole lane group, in an emission
    * that baked a lane count. The epilogue's partial group never does - its row count is the batch's
-   * remainder rather than a width, and it runs once per batch, so the general form's switch costs
-   * nothing worth naming a method over.
+   * remainder rather than a width, and it runs once per batch (twice at most, in a kernel that
+   * converts between lanes), so the general form's switch costs nothing worth naming a method
+   * over.
    */
   private static boolean widthSpecialised(Analysis analysis, Slots s) {
     return !s.epilogue && analysis.lanes != 0;
@@ -803,7 +896,9 @@ final class VarkaBodyEmitter {
    * since the destination is an int column. The mask is {@code indexInRange(0, lanes)} on the
    * int species - the low {@code lanes} lanes, which in the loop is the long species' count and
    * in the epilogue the remainder - so one form serves both bodies and C2 folds it to a
-   * constant where {@code lanes} is one.
+   * constant where {@code lanes} is one. In the loop of a kernel that converts between lanes the
+   * store is whole instead, its upper half's zeros landing on the next group's rows, which that
+   * group stores over ({@link #emitLowHalfStore}).
    *
    * <p>Two choices are deliberate. The int species is the width's own and not a half-width
    * one: a second {@code IntVector} species in the JVM makes the shared templates inline
@@ -817,7 +912,10 @@ final class VarkaBodyEmitter {
     // count, half the bits, so the converted vector is exactly the group's values and the
     // dense body stores it whole. Only where the count is baked, since the half of the
     // preferred species has no named constant.
-    boolean half = analysis.options.narrowHalfSpecies() && analysis.lanes != 0;
+    // Never in a kernel that converts between lanes, whose other int values are the int species
+    // of the long species' width: a half-width one beside it is a second int species.
+    boolean half = analysis.options.narrowHalfSpecies() && analysis.lanes != 0
+        && !analysis.mixed();
     if (half) {
       String halfSpecies = Lane.INT.speciesField(analysis.lanes);
       cb.getstatic(VECTOR_OPERATORS, "L2I", VO_CONVERSION);
@@ -852,7 +950,33 @@ final class VarkaBodyEmitter {
     cb.loadConstant(0);
     cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
     cb.checkcast(INT_VECTOR);                                   // [ints, low half live]
+    emitLowHalfStore(cb, analysis, s, o);
+  }
+
+  /**
+   * The store of an int vector whose low half holds the lane group's rows, in a kernel driven at
+   * the long lane: {@code [int vector] -> []}, four bytes a row at {@code (long) i * 4}, under the
+   * mask of the int species' first {@code lanes} lanes - or whole, in the loop of a kernel that
+   * converts between lanes, which leaves room for it. A narrowed root's tail, and the store of
+   * every int-valued root of a kernel that converts between lanes, whose int values all fill the
+   * low half of their species.
+   */
+  private static void emitLowHalfStore(CodeBuilder cb, Analysis analysis, Slots s, int o) {
+    String intSpecies = Lane.INT.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
     cb.aload(s.dstSeg[o]);
+    if (analysis.mixed() && !s.epilogue) {
+      // In the loop of a kernel that converts between lanes the whole int vector is stored:
+      // its loop stops while a whole int vector still fits (`emitSpecies`), the upper half's
+      // rows are the next lane group's, which that group stores over, and a masked store costs
+      // what a masked load does.
+      cb.iload(s.iVar);
+      cb.i2l();
+      cb.loadConstant(4L);
+      cb.lmul();
+      cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+      cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
+      return;
+    }
     // The int column's offset is derived from the row index the way the lane's own offset
     // is, `(long) i * 4`, and not as `byteOffset >>> 1`: C2 folds a linear function of the
     // induction variable into the store's addressing mode and hoists its bounds check out of
@@ -873,7 +997,8 @@ final class VarkaBodyEmitter {
   /**
    * One lane group: this group's validity words, then each output's vector walk and store.
    * Shared by the loop, which calls it per iteration, and the epilogue, which calls it once
-   * with {@code s.epilogue} set - the only difference between them inside here.
+   * with {@code s.epilogue} set (up to twice in a kernel that converts between lanes) - the only
+   * difference between them inside here.
    */
   private static void emitLaneGroup(CodeBuilder cb, boolean dense,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, Slots s) {
@@ -964,8 +1089,10 @@ final class VarkaBodyEmitter {
         emitRootValidityOr(cb, dense, analysis, s, o, root);
       }
       emitValue(cb, root, dense, analysis, s, computed);
-      if (root instanceof NarrowLane) {
+      if (analysis.narrowsAtStore(root)) {
         emitNarrowStore(cb, analysis, s, o);
+      } else if (analysis.laneOf(root) != analysis.lane) {
+        emitLowHalfStore(cb, analysis, s, o);
       } else {
         cb.aload(s.dstSeg[o]);
         cb.lload(s.byteOffset);
@@ -1299,8 +1426,8 @@ final class VarkaBodyEmitter {
    * lane's stride.
    */
   private static void loadNarrowedSegment(
-      CodeBuilder cb, Analysis analysis, int index, int destSlot) {
-    cb.aload(P_DST_DATA);
+      CodeBuilder cb, Analysis analysis, int arrayParam, int index, int destSlot) {
+    cb.aload(arrayParam);
     cb.loadConstant(index);
     cb.laload();
     cb.iload(analysis.lane.pLength);
@@ -1309,6 +1436,18 @@ final class VarkaBodyEmitter {
     cb.lmul();
     cb.invokestatic(SUPPORT, "ofAddress", OF_ADDRESS);
     cb.astore(destSlot);
+  }
+
+  /**
+   * Input {@code i}'s data segment: {@code dataBytes}, the driving lane's stride a row, or for an
+   * int column of a kernel driven at the long lane four bytes a row, which is all its buffer has.
+   */
+  private static void loadInputSegment(CodeBuilder cb, Analysis analysis, Slots s, int i) {
+    if (analysis.inputLane(i) != analysis.lane) {
+      loadNarrowedSegment(cb, analysis, P_SRC_DATA, i, s.srcSeg[i]);
+    } else {
+      loadSegment(cb, P_SRC_DATA, i, s.dataBytes, s.srcSeg[i]);
+    }
   }
 
   /** {@code local = VarkaVectorSupport.ofAddress(param[index], lload(bytes))}. */

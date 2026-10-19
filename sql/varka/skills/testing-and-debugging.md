@@ -734,7 +734,12 @@ names, but the child runs the whole suite. To run one test directly, set
 replay every test reads a millisecond or so and the first carries the child's whole run, which put
 VARKA-240's eleven exhaustive sweeps at a millisecond each in the nightly's log. The child is ended after the shortest per-test cap
 less a minute (`-Dvarka.ownJvm.timeoutMinutes` overrides), so a hung child is reported before a cap
-halts the parent. Run a new width-dependent test at all three widths a runner may have
+halts the parent. That budget is one test's cap for the whole suite, and the parent's waiting test
+has the same cap, so a slow suite cannot be given more room there: `dev/varka_matrix.sh` (the
+option matrix, the gate and CI's Varka jobs) gives each such suite a runner JVM of its own that
+runs it directly, each test under its own cap, since `VarkaIrFuzzSuite` takes about the nine
+minutes on a runner under any configuration and ran past them in two (VARKA-394), as the nightly
+fuzz workflow does for its JVMs (VARKA-392). Run a new width-dependent test at all three widths a runner may have
 (`-XX:MaxVectorSize=64`, `32`, `16`): a 16-lane override is the preferred width at 512 bits and a
 second species at the others.
 

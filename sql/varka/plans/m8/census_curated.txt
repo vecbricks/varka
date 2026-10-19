@@ -172,8 +172,8 @@ cast|ALL|ALL||semantics|332,343,350,338,28,364,365,366,368|the matrix in m8/PLAN
 boolean|legal|bool||semantics|332,343,350,364|cast alias
 tinyint|legal|byte||semantics|332,343,350,364,365|cast alias
 smallint|legal|short||semantics|332,343,350,364,365|cast alias
-int|legal|int||semantics|332,343,350,364,365|cast alias
-bigint|legal|bigint||semantics|332,343,350,28,364|cast alias
+int|legal|int|bigint|semantics|332,343,350,364,365|cast alias
+bigint|legal|bigint|int|semantics|332,343,350,28,364|cast alias
 float|legal|float||semantics|343,364,366|cast alias
 double|legal|double||semantics|343,364,366|cast alias
 decimal|legal|dec||semantics|350,364,366|cast alias; DECIMAL(10,0) by default

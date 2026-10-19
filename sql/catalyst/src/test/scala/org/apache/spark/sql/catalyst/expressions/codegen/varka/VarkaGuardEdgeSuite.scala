@@ -407,8 +407,10 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     // are under null rows is answered by its own, masked body, and declined by the dense one once
     // its nulls are cleared and those days read as valid. The masked body forced over a batch
     // with no nulls answers inside the bound and declines one far day. The split
-    // shape gives each output a method of its own, the guarded output last, so its guard is in a
-    // group method other than the first. At the JVM's own width, one species per test JVM
+    // shape puts the guarded output in a method of its own, last, so its guard is in a group
+    // method other than the first: the budget of 700 bytes holds the guarded month's loop under
+    // every validity form (506 bytes at the defaults, 611 masked with validityByBitmap off) and
+    // not the two outputs before it with it (803). At the JVM's own width, one species per test JVM
     // (VARKA-246): the gate runs the suite at the host's width and under -XX:MaxVectorSize=16,
     // and row 16 is past every whole lane group at 128, 256 and 512 bits.
     val d = AttributeReference("d", DateType)()
@@ -419,7 +421,7 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
       ("datediff(d, d2) + 1 under ANSI", Seq(Add(SqlDateDiff(d, d2), Literal(1), EvalMode.ANSI)),
         -1),
       ("a kernel split by output, the guarded one last",
-        Seq(SqlDayOfWeek(d2), SqlWeekDay(d2), SqlMonth(d)), 600))
+        Seq(SqlDayOfWeek(d2), SqlWeekDay(d2), SqlMonth(d)), 700))
     var batches = 0
     for ((name, entries, budget) <- shapes) {
       val base = VarkaMatrix.base.withExactRefusalStatus(true).withSeveralKernels(false)

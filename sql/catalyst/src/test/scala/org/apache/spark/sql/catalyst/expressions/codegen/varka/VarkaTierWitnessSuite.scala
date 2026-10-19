@@ -36,7 +36,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * The verdicts are facts about the JIT, so the suite runs with the other JIT-measuring suites,
  * on a quiet machine and without the memory sanitizer (`dev/varka_gate.sh`'s quiet step), and in
  * a JVM of its own: production's compiler directive, which the warmed histories install, is
- * JVM-wide.
+ * JVM-wide. It holds under the sanitizer too, as `dev/varka_matrix.sh --defaults` runs it: the
+ * check's warm-up calls the kernel in the sanitizer's window, as the compared calls are, so C2's
+ * code is not compiled for a check that never finds a window (VARKA-400).
  */
 class VarkaTierWitnessSuite extends SparkFunSuite with VarkaOwnJvm {
 

@@ -31,7 +31,8 @@
 #
 # The gate's options (VARKA-286): --defaults runs no configuration, only the defaults, over
 # every Varka suite including those the matrix leaves out; --split N spreads each module's
-# suites over N JVMs, longest first by the previous run's JUnit times; --jvm-arg puts an option
+# suites over N JVMs, longest first by the previous run's JUnit times, beside the JVM each suite
+# that runs alone takes; --jvm-arg puts an option
 # on every test JVM's command line; --out names the working directory and --build-dir the one
 # holding a shared build's classpath; --suites and --skip-suites take comma-separated simple
 # names.
@@ -188,44 +189,60 @@ fi
 # Varka...Suite under src/test/scala, and the JUnit classes named Varka...Suite under @VarkaSuite
 # in src/test/java (VARKA-312). Each module runs in JVMs of its own, as sbt runs it: a shape a
 # catalyst suite compiled must not already be warm when a SQL suite asks for its first query.
+# A suite that runs in a JVM of its own (VarkaOwnJvm, or @VarkaSuite(ownJvm = true)) is marked
+# "@own " before its name: it gets a runner JVM to itself, below.
 module_suites() {
-  local root=$1 class_re=$2 marker=$3 file pkg cls entry skip
+  local root=$1 class_re=$2 marker=$3 own_re=$4 file pkg cls entry skip own
   [ -d "$root" ] || return 0
   while IFS= read -r file; do
     [ -n "$marker" ] && ! grep -qE "$marker" "$file" && continue
+    own=""
+    grep -qE "$own_re" "$file" && own="@own "
     pkg=$(sed -n 's/^package \([^;]*\);\{0,1\}$/\1/p' "$file" | head -1)
     for cls in $(grep -oE "$class_re" "$file" | awk '{print $NF}'); do
       skip=0
       for entry in "${EXCLUDED[@]}"; do [ "${entry%%:*}" = "$cls" ] && skip=1; done
       [ -n "$only_suites" ] && ! [[ ",$only_suites," == *",$cls,"* ]] && skip=1
       [ -n "$skip_suites" ] && [[ ",$skip_suites," == *",$cls,"* ]] && skip=1
-      [ "$skip" = 0 ] && echo "$pkg.$cls"
+      [ "$skip" = 0 ] && echo "$own$pkg.$cls"
     done
   done < <(grep -rlE "$class_re" "$root" | sort)
 }
 SCALA_SUITE='^class Varka[A-Za-z0-9]*Suite\b'
 JAVA_SUITE='^(public )?(final )?class Varka[A-Za-z0-9]*Suite\b'
+SCALA_OWN='^[^/*]*\b(with|extends) VarkaOwnJvm\b'
+JAVA_OWN='^@VarkaSuite\(.*ownJvm *= *true'
 declare -A module_root=([catalyst]=sql/catalyst/src/test [sql]=sql/core/src/test)
 # Each module's suites over --split JVMs, longest first by the previous run's JUnit times: one
-# line of space-separated suites per JVM, in shards/<module>.
+# line of space-separated suites per JVM, in shards/<module>. A suite that runs in a JVM of its own
+# takes a line of its own, first, marked "@own ", and its JVM runs it directly
+# (-Dvarka.ownJvm=true) instead of forking the child VarkaOwnJvm would start. That child's budget
+# is one test's cap for the whole suite, nine minutes, and VarkaIrFuzzSuite takes about that long
+# on a runner under any configuration, past it in two of them on 18 October (VARKA-394); a runner
+# JVM that holds the suite alone is what the child exists to guarantee, and each test keeps its
+# own cap. The Scala pattern skips comment lines, so that a suite which only mentions the trait
+# stays in the shared JVM.
 mkdir -p "$OUT/shards"
 total=0
 for module in "${modules[@]}"; do
-  mapfile -t found < <(module_suites "${module_root[$module]}/scala" "$SCALA_SUITE" "";
-    module_suites "${module_root[$module]}/java" "$JAVA_SUITE" '^@VarkaSuite\b')
+  mapfile -t found < <(module_suites "${module_root[$module]}/scala" "$SCALA_SUITE" "" \
+      "$SCALA_OWN";
+    module_suites "${module_root[$module]}/java" "$JAVA_SUITE" '^@VarkaSuite\b' "$JAVA_OWN")
   for extra in "${extra_suites[@]}"; do
     [ "${extra%%:*}" = "$module" ] && found+=("${extra#*:}")
   done
   total=$((total + ${#found[@]}))
-  if [ ${#found[@]} -gt 0 ]; then
-    python3 dev/varka_suite_shards.py "$split" "${defaults_from:-$OUT}/runs" "${found[@]}" \
-      > "$OUT/shards/$module"
-  else
-    : > "$OUT/shards/$module"
-  fi
+  shared=()
+  for suite in "${found[@]}"; do [[ "$suite" == "@own "* ]] || shared+=("$suite"); done
+  {
+    for suite in "${found[@]}"; do [[ "$suite" == "@own "* ]] && echo "$suite"; done
+    if [ ${#shared[@]} -gt 0 ]; then
+      python3 dev/varka_suite_shards.py "$split" "${defaults_from:-$OUT}/runs" "${shared[@]}"
+    fi
+  } > "$OUT/shards/$module"
 done
 echo "== ${#configs[@]} configuration(s) and the defaults, $total suites," \
-  "$split JVM(s) a module, $jobs JVMs at a time"
+  "$split JVM(s) a module and one for each suite that runs alone, $jobs JVMs at a time"
 
 # One JVM's suites under one configuration, in runs/<configuration>/<module>[-<k>]/. The runner
 # takes ScalaTest's Runner's arguments and runs the JUnit suites after the ScalaTest ones, then
@@ -234,14 +251,19 @@ RUNNER=org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner
 run_one() {
   local config=$1 module=$2 part=$3 name=${1:-defaults}
   local leaf=$module
-  [ "$split" -gt 1 ] && leaf=$module-$part
+  [ "$(wc -l < "$OUT/shards/$module")" -gt 1 ] && leaf=$module-$part
   local dir=$OUT/runs/${name//[^A-Za-z0-9=_.-]/_}/$leaf
-  local -a suites=()
-  local suite
-  for suite in $(sed -n "$((part + 1))p" "$OUT/shards/$module"); do suites+=(-s "$suite"); done
+  local -a suites=() own=()
+  local suite line
+  line=$(sed -n "$((part + 1))p" "$OUT/shards/$module")
+  if [[ "$line" == "@own "* ]]; then
+    own=(-Dvarka.ownJvm=true)
+    line=${line#@own }
+  fi
+  for suite in $line; do suites+=(-s "$suite"); done
   rm -rf "$dir"; mkdir -p "$dir/tmp"
   local start; start=$(date +%s)
-  (cd "$dir" && SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 java "${OPTS[@]}" \
+  (cd "$dir" && SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 java "${OPTS[@]}" "${own[@]}" \
     -Djava.io.tmpdir="$dir/tmp" -Dvarka.matrix.config="$config" \
     -Dvarka.matrix.report="$dir/fused.tsv" \
     -cp "$CP" "$RUNNER" -oW -u "$dir/junit" "${suites[@]}" > "$dir/run.log" 2>&1)

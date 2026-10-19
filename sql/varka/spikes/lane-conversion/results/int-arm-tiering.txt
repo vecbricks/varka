@@ -1,0 +1,16 @@
+# The benchmark's int-lane reference arm, "i2 + i, the int lane", run alone
+# (-Dvarka.bench.only='i2 + i') through java directly with the test JVM options, under one JVM
+# slot, 19 October 2026. Rate (M/s) per rung: 16384 / 262144 / 1000000 / 8388608 rows.
+#
+# The arm's kernel is a single-lane int kernel whose bytes this row does not change (the bytes
+# oracle), and C2 compiles its loop with every Vector API call intrinsified (-XX:+PrintCompilation,
+# CompileCommand PrintInlining). Its 16384-row rate is the tiered JIT's, not the kernel's.
+emitter at 512bb292da3, tiered (default)    2894.7   10657.6    9942.5   3536.0
+emitter at e412cb42b8d, tiered (default)    2595.7   11686.2   11249.0   3585.6
+emitter at 512bb292da3, -XX:-TieredCompilation  20202.2   10571.6   12380.7   3888.4
+emitter at 512bb292da3, -XX:-UseOnStackReplacement  2642.2   11105.9   184.0   208.7
+#
+# The same kernel in a plain loop (scratch probe Seq: 2 s warm-up, 1 s timed, 16384 rows),
+# test JVM options / -ea only / no options: 17213 / 15655 / 17289 M/s. In the full benchmark at
+# e412cb42b8d the arm read 24786.7; in the two full runs at 512bb292da3, 1189.3 (first-run-*)
+# and 1160.7 (the committed one).

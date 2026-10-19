@@ -29,7 +29,8 @@
 # Steps, by name:
 #   compile   build/sbt catalyst/Test/compile sql/Test/compile, and the test classpath exported
 #   wide      catalyst and sql/core Varka suites at the host's vector width, split over several
-#             JVMs per module (dev/varka_matrix.sh --defaults --split)
+#             JVMs per module and one for each suite that runs alone (dev/varka_matrix.sh
+#             --defaults --split)
 #   narrow    the same under -XX:MaxVectorSize=16 (128-bit lanes), on each test JVM's own
 #             command line
 #             Every suite step runs with the memory sanitizer on (VARKA-263); quiet does not.
