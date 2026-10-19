@@ -224,12 +224,17 @@ without the fix.
 
 * The compiler, analysis, slots and walk as the branch had them, with the exemption of item 1, the
   guard rule and dispatch of item 2 and the plan of item 3.
-* Twelve coverage rows, 131 from 119 (predicates 61 from 52): the branch's four; a conjunction
-  under `IS NULL` with its domain, a disjunction under `IS NOT NULL`, a negation under `IS NULL`,
-  the long lane's `IS NOT NULL`, the comparison shared by its null test and itself as a filter
-  (`(d < d2) IS NULL OR d < d2`) and as a `CASE` (`CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2
-  ...`), which section 5's test 4 asked for, and an equality under each test, as a filter and as
-  a `CASE`. No existing row's bytes moved in `emitted_bytes.json`.
+* Fourteen coverage rows, 142 from 128 once row 28's merged (predicates 67 from 56): the branch's
+  four; a conjunction under `IS NULL` with its domain, a disjunction under `IS NOT NULL`, a negation
+  under `IS NULL`, the long lane's `IS NOT NULL`, the comparison shared by its null test and itself
+  as a filter (`(d < d2) IS NULL OR d < d2`) and as a `CASE` (`CASE WHEN (d < d2) IS NULL THEN d
+  WHEN d < d2 ...`), which section 5's test 4 asked for, an equality under each test, as a filter
+  and as a `CASE`, and two across the lanes, `(i = 5 AND l = l2) IS NOT NULL` and `(i = 5) IS NULL
+  OR l = l2`. No existing row's bytes moved in `emitted_bytes.json`.
+* **Beside row 28's kernels of both lanes** (merged 20 October 2026): `onLongLane`, which lifts an
+  int condition to meet a bigint one, widened an `IsNotNull`'s child as a value, which over a
+  condition would build a widening of a condition; it now lifts the condition under the test. And
+  the null test's column checks read a column through a widening as a column.
 * **What a default session reaches.** Spark's `NullDownPropagation`, on by default, rewrites a
   null test over an ordered comparison (`<`, `<=`, `>`, `>=`) or a negation into null tests on its
   operands (`supportedNullIntolerant` in `optimizer/expressions.scala`): `(d < d2) IS NULL` reaches
@@ -250,8 +255,8 @@ without the fix.
   under the same conditions, and must be Spark's and exactly the true and the false rows.
 * **Every predicate row as a `CASE` condition.** `CASE WHEN (p) IS NULL THEN a ELSE b END` and its
   `IS NOT NULL`, over the row's lane, on the three fixtures with the rewrites excluded: the kernel
-  serves the whole projection for each of the 41 rows whose predicate can be null, and every
-  answer is Spark's.
+  serves the whole projection for each of the 41 rows whose predicate can be null (46 after the
+  merge), and every answer is Spark's.
 * The grammar and the series draw the null test over a condition (`VarkaIrGrammar`,
   `VarkaIrSeries`); the cost model counts it as its own feature, `IsNotNull/cond/<lane>`, priced
   in both tables. The redraw moved two pinned lists: the wide shapes that gain a loop method under

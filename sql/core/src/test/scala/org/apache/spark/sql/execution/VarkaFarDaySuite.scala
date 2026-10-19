@@ -106,6 +106,13 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
     }
   }
 
+  /** The batches the cache holds `varka_far_days` in, each of which a kernel is handed alone. */
+  private def cachedBatches(): Long =
+    varkaSpark.table("varka_far_days").queryExecution.withCachedData
+      .collectFirst { case r: columnar.InMemoryRelation => r }
+      .getOrElse(fail("expected varka_far_days to be cached"))
+      .cacheBuilder.cachedColumnBuffers.count()
+
   private def metric(plan: SparkPlan, name: String): Long =
     collect(plan) { case v if isVarkaNode(v) => v.metrics.get(name).map(_.value).getOrElse(0L) }
       .sum
@@ -260,7 +267,8 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
     // ops, fill the first kernel and the calendar fields over d are the second's, which alone
     // carries the guard. A far day in d declines that kernel after the first has served its
     // outputs, and the whole batch goes to the row engine: the answer is Spark's, and no kernel
-    // output of it is kept.
+    // output of it is kept. The other cached batches, which the batch-size axis makes (VARKA-301),
+    // hold no far day and are served.
     val first = (1 to 32).map(k => s"dayofweek(date_add(d2, $k)) AS w$k")
     val second = (1 to 12).map(k => s"year(date_add(d, $k)) AS y$k")
     val query = s"SELECT v, ${(first ++ second).mkString(", ")} FROM varka_far_days"
@@ -272,9 +280,12 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
           val explained = varkaSpark.sql(query).queryExecution.explainString(FormattedMode)
           assert(explained.contains("kernel 2 of 2"), explained)
           assert(check(query).exists(_ > 0L), s"nulls=$nulls: the far day did not decline")
-          // The one batch was declined as a whole: no node counts it as served.
+          // The far day's batch was declined as a whole: no node counts it as served, and every
+          // other batch is.
           val plan = runOutcome(varkaSpark, query)._2.getOrElse(fail("no plan"))
-          assert(metric(plan, "numVarkaBatches") === 0L, s"nulls=$nulls: a kernel served it")
+          val (served, batches) = (metric(plan, "numVarkaBatches"), cachedBatches())
+          assert(served === batches - 1L,
+            s"nulls=$nulls: $served of $batches cached batches served, want all but the far day's")
         }
         withDays(Seq(0, 19000, 5), nulls) {
           assert(check(query).contains(0L), s"nulls=$nulls: a batch inside the bound declined")

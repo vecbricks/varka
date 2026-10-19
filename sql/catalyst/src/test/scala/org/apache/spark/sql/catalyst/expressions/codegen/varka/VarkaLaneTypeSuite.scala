@@ -101,10 +101,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The list above is the specification of what "derived" means per node, so it has to name
     // every type: a node type added without a lane rule would otherwise go unchecked here even
     // though the emitter walks it.
-    assert(everyIntNode.map(_.getClass).toSet === concreteNodeTypes(classOf[VarkaVectorIR]))
+    // The widening is the one node type absent: its value is on the long lane by definition,
+    // over an int child (VARKA-28).
+    assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] ===
+      concreteNodeTypes(classOf[VarkaVectorIR]))
     everyIntNode.foreach { node =>
       assert(node.laneType() === LaneType.INT, s"${VarkaVectorIR.canonical(node)}")
     }
+    assert(new WidenLane(intCol).laneType() === LaneType.LONG)
   }
 
   test("a leaf carries its lane, and the short form is the int lane") {
@@ -320,6 +324,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         // the long lane, so it is the one type that reaches the emitter from both rows below
         // and is emitted at the long species either way.
         case "NarrowLane" => new NarrowLane(new ColumnRef(0, LaneType.LONG))
+        // Its mirror: always over an int child, a long value, emitted at the long species.
+        case "WidenLane" => new WidenLane(new ColumnRef(0, LaneType.INT))
         case "AddDays" => new AddDays(c, l)
         case "SubDays" => new SubDays(c, l)
         case "DateDiff" => new DateDiff(c, c1)
@@ -367,18 +373,17 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
       "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide", "GuardedRange",
-      "NarrowLane"),
+      "NarrowLane", "WidenLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard and " +
-        "its narrowing root")
+        "the two conversions, which build over the other lane's child whatever the row")
   }
 
-  test("a narrowing is an int over a long child, emitted at the long lane, and a root only") {
-    // `VARKA-102.md` 8.3: the TIME extracts compute a 64-bit division and deliver an int,
-    // and until VARKA-28 gives the emitter a width conversion the only place a lane changes
-    // width is a root's store. So the node answers INT for its value and LONG for the lane it
-    // is emitted at, refuses an int child where it is built (there is nothing to narrow), and
-    // the emitter refuses it under another node - where its 32-bit value would meet a 64-bit
-    // computation - with a reason that names the position, ahead of the lane mix it implies.
+  test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +
+      "long lane, at a root or under another node") {
+    // `VARKA-102.md` 8.3 and VARKA-28: the node answers INT for its value and LONG for the
+    // lane its kernel is driven at, and refuses an int child where it is built (there is nothing
+    // to narrow). At a root nothing else reads it narrows at the store; under another node it
+    // converts where it is, and the kernel holds both lanes.
     val narrowed = new NarrowLane(longCol)
     assert(narrowed.laneType() === LaneType.INT)
     assert(VarkaVectorIR.emissionLane(narrowed) === LaneType.LONG)
@@ -388,11 +393,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val overInt = intercept[IllegalArgumentException](new NarrowLane(intCol))
     assert(overInt.getMessage.contains("narrowLane takes a LONG child"), overInt.getMessage)
     val interior = new IntArith(IntOp.ADD, Overflow.WRAP, narrowed, intLit)
-    val belowRoot = intercept[IllegalArgumentException] {
-      VarkaLoopEmitter.emit("VarkaInteriorNarrowKernel", Seq[VarkaVectorIR](interior).asJava,
-        1, 1, null, null, VarkaMatrix.base)
-    }
-    assert(belowRoot.getMessage.contains("an output root only"), belowRoot.getMessage)
+    assert(VarkaVectorIR.emissionLane(interior) === LaneType.LONG)
+    VarkaLoopEmitter.emit("VarkaInteriorNarrowKernel", Seq[VarkaVectorIR](interior).asJava,
+      1, 1, null, null, VarkaMatrix.base)
   }
 
   test("a baked lane count has both a species constant and a validity helper pair") {

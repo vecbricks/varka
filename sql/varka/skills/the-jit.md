@@ -1162,3 +1162,17 @@ Found by the post-merge reviews of the template warm-up's pacing and measured in
   `-XX:-UseDynamicNumberOfCompilerThreads`, which starts every compiler thread at once. With a
   JVMCI compiler the top tier's queue is named "JVMCI compile queue" (`compileBroker.cpp`), and
   with its native library the split is `JVMCINativeLibraryThreadFraction` of the count.
+
+## A warm-up outside the sanitizer's window makes C2 trap at its first checked call
+
+Found by `VarkaTierWitnessSuite` failing under the memory sanitizer and read in `m8/VARKA-400.md`:
+a warmed history reported as `Trapped[reason=speculate_null_assert, action=make_not_entrant,
+at=VarkaMemorySanitizer.check]` was not a memory violation but a deoptimization. The check tests
+its thread's window against null, and the warm-up ran on a thread with no window, so the profile
+said the value was always null. C2's parser turns an `ifnull` whose operand's speculative type is
+always null into a `null_assert` guarded by an uncommon trap of that reason (`opto/parse2.cpp`,
+`handle_if_null`), and the first call that opened a window threw both drivers' code away. The
+rule: test-only instrumentation inlined into a kernel must see the same state while the kernel
+warms as when it is measured. A warm-up and its measured calls both run in the sanitizer's window
+(`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
+with a `speculate_*` reason, points here before it points at the kernel.

@@ -489,24 +489,30 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
 
   /**
    * Each predicate row's null tests as the condition of a CASE: `CASE WHEN (p) IS NULL THEN a
-   * ELSE b END` and the same with `IS NOT NULL`, `a` and `b` two columns of the row's lane, since
-   * a kernel holds one lane. Run with the partition rewrites excluded, since `NullDownPropagation`
-   * would otherwise turn the test into null tests on the columns, which the per-row test already
-   * runs; the kernel must serve the whole projection, and its answer is Spark's.
+   * ELSE b END` and the same with `IS NOT NULL`. Run with the partition rewrites excluded, since
+   * `NullDownPropagation` would otherwise turn the test into null tests on the columns, which the
+   * per-row test already runs. The arms are two dates or two bigints: a kernel holds its
+   * condition on the arms' lane, or lifts an int condition to meet bigint arms, and which lane a
+   * predicate's condition lands on (`i < l` compares bigints, `hour(t) = 12` ints) is the
+   * compiler's, not the SQL's, so one pair of arms must have its kernel serve the whole
+   * projection. Every answer is Spark's.
    */
   private def nullTestConditionCheck(row: CoverageRow, fixture: String): Seq[String] = {
     val p = row.executable
-    val (a, b) = if (row.family.startsWith("Long-lane")) ("l", "l2") else ("d", "d2")
     Seq("IS NULL", "IS NOT NULL").flatMap { test =>
-      val query = s"SELECT CASE WHEN ($p) $test THEN $a ELSE $b END AS v FROM $fixture"
-      val actual = varkaSpark.sql(query)
-      val plan = actual.queryExecution.executedPlan
-      val rows = actual.collect().toSeq
-      // Read after the run: the metric counts the batches the kernel served.
-      val served = Option.when(nullable(p, fixture) && !kernelServed(plan))(
-        s"no kernel served all of $query:\n${plan.treeString}")
-      served.toSeq ++ QueryTest.sameRows(spark.sql(query).collect().toSeq, rows).map(d =>
-        s"$query differs from Spark's:\n$d")
+      val outcomes = Seq(("d", "d2"), ("l", "l2")).map { case (a, b) =>
+        val query = s"SELECT CASE WHEN ($p) $test THEN $a ELSE $b END AS v FROM $fixture"
+        val actual = varkaSpark.sql(query)
+        val plan = actual.queryExecution.executedPlan
+        val rows = actual.collect().toSeq
+        // Read after the run: the metric counts the batches the kernel served.
+        val served = kernelServed(plan)
+        val wrong = QueryTest.sameRows(spark.sql(query).collect().toSeq, rows).map(d =>
+          s"$query differs from Spark's:\n$d")
+        (served, s"$query:\n${plan.treeString}", wrong.toSeq)
+      }
+      outcomes.flatMap(_._3) ++ Option.when(nullable(p, fixture) && !outcomes.exists(_._1))(
+        "no kernel served all of either arm pair:\n" + outcomes.map(_._2).mkString("\n"))
     }
   }
 
@@ -633,14 +639,12 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   private val ansiDeclined: Map[(String, String), String] = {
     val intCoalesce = "Varka's COALESCE takes only a bare date column before its last operand, " +
       "and compiles no bare int column as a value (m9/SCOPE.md item 55)"
-    val narrowed = "an int computed on the long lane is narrowed only at a kernel's store, so " +
-      "it cannot sit under a CASE, a COALESCE or a comparison with an int (VARKA-28)"
     val intValued = Seq("datediff(d2, d)", "unix_date(d)", "year(d)", "month(d)", "day(d)",
       "quarter(d)", "dayofyear(d)", "dayofweek(d)", "weekday(d)",
       "extract(DAYOFWEEK_ISO FROM d)", "weekofyear(d)", "extract(YEAROFWEEK FROM d)",
       "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
-      "-i", "year(d) + i", "CAST(ymm AS INT)")
-    val timeFields = Seq("hour(t)", "minute(t2)", "second(t)")
+      "-i", "year(d) + i", "CAST(ymm AS INT)", "hour(t)", "minute(t2)", "second(t)",
+      "hour(t) + 1", "CAST(time_to_millis(t) AS INT)")
     // `CAST(i AS INTERVAL DAY)` throws past `INTERVAL_DAY_LIMIT_DAYS`, so the compiler puts a
     // bound on `i` that the evaluator checks before the kernel runs; the bound belongs to the
     // column, not to the arm reading it, and the extremes row's `Int.MaxValue` declines the
@@ -658,8 +662,6 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     val checkedRight = Seq("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
       "ym - ymm", "i + 1", "year(d) + i")
     intValued.map(sql => (sql, CoalesceTail) -> intCoalesce).toMap ++
-      timeFields.flatMap(sql =>
-        Seq(CaseArm, CoalesceTail, FalseAnd).map(p => (sql, p) -> narrowed)) ++
       Seq(CaseArm, CoalesceTail, FalseAnd).map(p => (dayCast, p) -> columnBound) ++
       checkedRight.map(sql => (sql, FalseAnd) -> unqualified)
   }
@@ -902,7 +904,12 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     "time_from_micros(time_to_micros(t))" ->
       "a TIME's microsecond count is inside the day by construction",
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" ->
-      "a zero interval leaves the sum where the time was, inside the day")
+      "a zero interval leaves the sum where the time was, inside the day",
+    "CAST(time_to_millis(t) AS INT)" ->
+      "a day's milliseconds, under 86400000, always fit an int",
+    "CAST(time_to_millis(t) AS INT) > i" ->
+      "a day's milliseconds, under 86400000, always fit an int",
+    "hour(t) + 1" -> "an hour is at most 23, so the checked add cannot overflow")
 
   /** The statuses as the fallback accounting names them. */
   private def describe(statuses: Seq[Int]): String =
@@ -978,6 +985,9 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     val lits: Array[Long] =
       if (long) kernel.longLiterals.asScala.map(_.longValue).toArray
       else kernel.literals.asScala.map(_.longValue).toArray
+    // A kernel of both lanes (VARKA-28) reads the int table beside the long one.
+    val intLits: Array[Int] =
+      if (long) kernel.literals.asScala.map(_.intValue).toArray else Array.empty[Int]
     val ordinals = kernel.inputOrdinals.asScala.map(_.intValue).toSeq
     val types = child.output.map(_.dataType)
     val names = child.output.map(a => s"`${a.name}`").mkString(", ")
@@ -996,7 +1006,7 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       val outside = kernel.inputBounds.asScala.exists(b =>
         batch.exists(_(b.inputIndex).exists(v => v < b.lo || v > b.hi)))
       if (outside) Verdict(VarkaKernelRunner.STATUS_INPUT_BOUND, 0)
-      else VarkaGuardSpec.verdict(guards, lits, batch, Nil)
+      else VarkaGuardSpec.verdict(guards, lits, intLits, batch, Nil)
     }
   }
 

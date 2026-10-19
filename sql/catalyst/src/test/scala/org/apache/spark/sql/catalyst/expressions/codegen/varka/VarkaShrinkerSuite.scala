@@ -155,8 +155,10 @@ class VarkaShrinkerSuite extends SparkFunSuite {
     def signOf(emitted: VarkaVectorIR, checked: VarkaVectorIR, inputs: Int): String = {
       val name = s"org.apache.spark.sql.varka.execution.VarkaSignedMismatch${inputs}" +
         s"${emitted.getClass.getSimpleName}"
+      // From the matrix's base, so that under a lanes override the kernel takes the JVM's one
+      // species rather than putting a second one beside it (VARKA-246).
       val bytes = VarkaLoopEmitter.emit(name, java.util.List.of(emitted), inputs, 1, null, null,
-        VarkaEmitOptions.DEFAULTS)
+        VarkaMatrix.base)
       val batch = VarkaKernelCheck.Batch(16, Seq.fill(inputs)((_: Int) => false),
         Array.tabulate(inputs, 16)((c, i) => i * 3 + c), forceMasked = false)
       val thrown = intercept[IllegalStateException] {

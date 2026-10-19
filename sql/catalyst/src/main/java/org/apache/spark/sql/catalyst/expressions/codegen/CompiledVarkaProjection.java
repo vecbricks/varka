@@ -29,8 +29,8 @@ import org.apache.spark.sql.types.DataType;
  * A whole projection compiled to the Varka vector IR: the trees {@code VarkaLoopEmitter} turns
  * into one fused loop, plus everything the evaluator needs to drive the emitted class - which
  * child columns it reads (dense kernel input index = position in {@code inputOrdinals}), the
- * runtime {@code scalarArgs} values (slot index = position in {@code literals}, or in
- * {@code longLiterals} for a kernel on the 64-bit lane), and each output's Spark type, which is
+ * runtime {@code scalarArgs} values (slot index = position in {@code literals} for an int-lane
+ * slot, in {@code longLiterals} for a long-lane one), and each output's Spark type, which is
  * what tells a {@code datediff} day-count column ({@code IntegerType}) apart from a date column
  * when the output vectors are allocated. {@code families} are the switchable expression families
  * whose nodes the accepted entries hold, in declaration order (VARKA-318): the switches a failure
@@ -57,12 +57,15 @@ public record CompiledVarkaProjection(
     derivedInputs = List.copyOf(derivedInputs);
     longLiterals = List.copyOf(longLiterals);
     families = List.copyOf(families);
-    // A kernel is single-lane - every output root agrees, which the emitter enforces - so it reads
-    // exactly one of the two literal tables. Both non-empty would mean an entry of the other lane
-    // left its literals behind when it was demoted, which the per-entry rollback rules out.
-    if (!literals.isEmpty() && !longLiterals.isEmpty()) {
+    // Every output root agrees on the lane its kernel is driven at, which the emitter enforces. A
+    // kernel driven at the int lane reads only the int table, so a long literal beside one would
+    // mean an entry of the other lane left its literals behind when it was demoted, which the
+    // per-entry rollback rules out. A kernel driven at the long lane may read both: the long table
+    // and, where it converts between lanes (VARKA-28), the int table of its int values.
+    if (!longLiterals.isEmpty() && !outputs.isEmpty()
+        && VarkaVectorIR.emissionLane(outputs.get(0)) == LaneType.INT) {
       throw VarkaErrors.illegalArgument(
-          "a kernel is single-lane, so at most one of its literal tables is populated");
+          "a kernel driven at the int lane reads no long literal table");
     }
   }
 
@@ -75,7 +78,10 @@ public record CompiledVarkaProjection(
     return VarkaVectorIR.emissionLane(outputs.get(0));
   }
 
-  /** The slot count of the one literal table this kernel reads - what the emitter is told. */
+  /**
+   * Both tables' slot counts together - what the emitter is told, and keyed on: a single-lane
+   * kernel reads one table, and a kernel that converts between lanes indexes each lane's own.
+   */
   public int numLiterals() {
     return literals.size() + longLiterals.size();
   }

@@ -230,11 +230,12 @@ public final class VarkaVectorSupport {
   /**
    * {@link #validityBitsAt} for the last, <i>partial</i> lane group: {@code rows} rows starting
    * at {@code row}, where {@code rows} is anything from 1 to {@code lanes - 1} and therefore
-   * not a width the byte-span switch above can serve. That switch exists because a whole group
-   * spans exactly {@code groupBytes(lanes)} bytes and can be read in one access; a partial
-   * group spans {@code (row % 8 + rows + 7) / 8} bytes, which is 1, 2 or 3 and is not a layout
-   * size. So this walks those bytes instead - once per batch, on the cold path, where a byte
-   * loop costs nothing that matters.
+   * not a width the byte-span switch above can serve - or {@code lanes} itself, the whole group
+   * a kernel that converts between lanes leaves its epilogue, which it reads correctly too. That
+   * switch exists because a whole group spans exactly {@code groupBytes(lanes)} bytes and can be
+   * read in one access; a partial group spans {@code (row % 8 + rows + 7) / 8} bytes, which is 1,
+   * 2 or 3 and is not a layout size. So this walks those bytes instead - once per batch, on the
+   * cold path, where a byte loop costs nothing that matters.
    *
    * <p>Passing {@code rows} to {@link #validityBitsAt} instead is the bug this method exists to
    * prevent, and it is silent: {@code groupBytes(9)} is 1, so a nine-row group would read one byte

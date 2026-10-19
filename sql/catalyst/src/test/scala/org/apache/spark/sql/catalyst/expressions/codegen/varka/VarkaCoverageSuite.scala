@@ -342,6 +342,29 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
       Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote))),
 
+    // Both lanes in one kernel (VARKA-28): the casts between int and bigint, and the widening
+    // Catalyst's type coercion puts under every operator that meets the two.
+    Family("Width conversions", predicates = false, Seq(
+      Row("CAST(i AS BIGINT)", "a sign extension, exact in every mode"),
+      Row("CAST(time_to_millis(t) AS INT)", "a bigint narrowed to an int: under ANSI a value " +
+        "past the int range declines and the row engine raises CAST_OVERFLOW, and the legacy " +
+        "mode keeps the low 32 bits, as Spark does; a day's milliseconds always fit",
+        domain = Some(s"time_to_millis(t) BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
+      Row("greatest(i, l)", "type coercion widens the int, and the pick is the long lane's"),
+      Row("CASE WHEN i < l THEN i ELSE l END",
+        "the widened int in a condition and in a branch of a long-valued conditional"))),
+
+    Family("Width conversion predicates", predicates = true, Seq(
+      Row("i < l", "an int against a bigint compares in the long lane, the int widened"),
+      Row("l = i"),
+      Row("CAST(time_to_millis(t) AS INT) > i", "the narrowed value compared in the int lane",
+        domain = Some(s"time_to_millis(t) BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
+      Row("hour(t) = 12", "the TIME extract narrowed inside the predicate"),
+      Row("(i = 5 AND l = l2) IS NOT NULL",
+        "the int conjunct widened to meet the bigint one, and the null test over both"),
+      Row("(i = 5) IS NULL OR l = l2",
+        "a null test over an int comparison lifted whole to the long lane beside a bigint one"))),
+
     Family("Long-lane choice", predicates = false, Seq(
       Row("greatest(l, l2)"),
       Row("least(l, 5000000000)"),
@@ -358,9 +381,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "DateTimeUtils reads them"),
       Row("time_trunc('MINUTE', t)"),
       Row("time_trunc('MILLISECOND', t2)"),
-      Row("hour(t)", "an int computed in the 64-bit lane and narrowed at the kernel's store, " +
-        "the one place a lane changes width until VARKA-28; so the extract fuses as an output " +
-        "and declines under another expression"),
+      Row("hour(t)", "an int computed in the 64-bit lane and narrowed at the kernel's store; " +
+        "under another expression it narrows where it is"),
+      Row("hour(t) + 1", "the extract narrowed inside the tree, under an int add checked under " +
+        "ANSI; the check cannot fire, since an hour is at most 23",
+        domain = Some(s"hour(t) < ${Int.MaxValue}")),
       Row("minute(t2)"),
       Row("second(t)"),
       Row("time_to_millis(t)"),
