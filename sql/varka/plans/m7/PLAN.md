@@ -1127,9 +1127,10 @@ unchanged since VARKA-246 (#685, 9 October). The suite outgrew it on 13 October,
 coverage-composition fuzzer and the size-4 variants step did not run either. The fuzzers at volume
 checked nothing for the second half of the milestone, the close included. Row 392 (#926) runs the
 suite directly in the workflow's JVMs and the later steps whatever the earlier ones did; its replay
-of the five missed nights' 20 seeds, with 18 October's four, found no wrong answer. The close read
-the laptop nightly's silence since 26 September but not the runner nightly's failures: whatever
-GitHub sends when a scheduled workflow fails reached neither the agents nor the close's checklist.
+of the five missed nights' 20 seeds, with 18 October's four, found no wrong answer on the laptop;
+the first runner night after it found three in C2's code (`m8/PLAN.md` row 396). The close read the
+laptop nightly's silence since 26 September but not the runner nightly's failures: whatever GitHub
+sends when a scheduled workflow fails reached neither the agents nor the close's checklist.
 
 **The other two scheduled matrices fail too.** `varka-weekly-matrix.yml` failed every week since
 its first run on 27 September. Its dispatch on master after #921 and #924 failed one test of

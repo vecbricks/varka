@@ -65,6 +65,9 @@ every tenth draw):
   test; 202610133 failed only the shrinker test. **The six dark nights hid no wrong answer** in
   the IR fuzzer: every random tree, compiled tree, long-lane tree and wide composition agreed
   with the reference evaluator.
+  *19 October 2026: this holds for the laptop's runs only. The first runner night after the merge
+  ran the compiled test to the end on a runner for the first time, and three of its four JVMs
+  found wrong answers in C2's code, which do not reproduce on the laptop alone (row 396).*
 * **The fix of the shrinker test**, run alone at 202610133, 202610181 and 202610180: passes at
   each.
 * What only the next scheduled run shows: the step's time on a runner, and the composition and
