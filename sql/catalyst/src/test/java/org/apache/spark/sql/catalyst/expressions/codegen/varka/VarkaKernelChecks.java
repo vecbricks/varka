@@ -142,7 +142,7 @@ public final class VarkaKernelChecks {
   }
 
   /** What a kernel's {@code run} is handed besides its buffers: the scratch address. */
-  private interface Run {
+  interface Run {
     int apply(long scratch);
   }
 
@@ -151,9 +151,11 @@ public final class VarkaKernelChecks {
    * window over the buffers this harness allocated, so that every mapping the kernel makes is
    * checked against them when the sanitizer is on. {@code inStride} and {@code outStride} are a
    * value's bytes in each input and output buffer.
-   * Nothing is registered, and nothing changes, when it is off.
+   * Nothing is registered, and nothing changes, when it is off. {@link VarkaCompiledCheck}'s
+   * warm-up calls go through here too, so that the warm-up's profile of the sanitizer's check is
+   * the one its compared calls meet.
    */
-  private static int sanitized(VarkaFusedKernel kernel, int length, long[] inStride,
+  static int sanitized(VarkaFusedKernel kernel, int length, long[] inStride,
       long[] outStride, long[] srcData, long[] srcValidity, long[] outData, long[] outValidity,
       Run run) {
     long scratch = VarkaEmitterTestSupport.scratch(kernel, length);

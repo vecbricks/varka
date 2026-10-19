@@ -1135,3 +1135,44 @@ warm-up (#827), and the JIT's log said why in two runs, warm-up on and off:
   before they end, and the rounds paced on C2's queue to the policy's resume line
   (`Tier3DelayOff` times the threads); the wrappers then compiled at tier 3 with the queue at 0
   to 2 in every traced run, and the suite passed every test in every run on four cores.
+
+## Reading C2's queue from Java stops the JVM, and below four processors HotSpot runs one C2 thread
+
+Found by the post-merge reviews of the template warm-up's pacing and measured in
+`m8/VARKA-395.md`:
+
+* **`Compiler.queue` is a safepoint.** The diagnostic command (reached from Java through the
+  `com.sun.management:type=DiagnosticCommand` MBean's `compilerQueue`) runs `VM_PrintCompileQueue`
+  on the VM thread (`diagnosticCommand.cpp`), and a VM operation is evaluated at a global safepoint
+  unless it says otherwise (`vmOperation.hpp`), which this one does not. Each reading stops every
+  Java thread. In the end-to-end warm-up suite the median reading cost 8 to 22 us, but on two cores
+  or a loaded machine single ones took 2 to 6 ms, and about 320 readings summed 10 to 36 ms
+  there against 6 to 9 ms on four idle cores. Read `-Xlog:safepoint` for the
+  `Safepoint "PrintCompileQueue"` lines. No cheaper reading exists: the `sun.ci` perf counters
+  count compiles and times, `sun.ci.threads` is C1 and C2 together, and `CompilationMXBean` has
+  only the total time. So a loop that polls the queue pays a safepoint a poll; poll at the speed
+  the queue moves (a C2 compile is milliseconds to hundreds of them), not faster.
+* **HotSpot's compiler-thread split has a floor.** `CompilationPolicy::initialize` gives C1
+  `max(count / 3, 1)` threads and C2 the rest, at least one, and the ergonomics choose
+  `CICompilerCount` = `max(log2(n) * log2(max(log2(n), 1)) * 3 / 2, 2)` for `n` processors: 2 at
+  1 to 3 processors, so one C2 thread, 3 at 4 to 7, 4 at 8, 12 at 24. `count - count / 3` without
+  the floor reads two C2 threads at a count of 2, and so doubles every queue limit the policy
+  computes from C2's threads (`Tier3DelayOn` and `Tier3DelayOff` times C2's threads) on exactly
+  the small hosts where the queue decides tiers. Check it with `jcmd <pid> Thread.print` under
+  `-XX:-UseDynamicNumberOfCompilerThreads`, which starts every compiler thread at once. With a
+  JVMCI compiler the top tier's queue is named "JVMCI compile queue" (`compileBroker.cpp`), and
+  with its native library the split is `JVMCINativeLibraryThreadFraction` of the count.
+
+## A warm-up outside the sanitizer's window makes C2 trap at its first checked call
+
+Found by `VarkaTierWitnessSuite` failing under the memory sanitizer and read in `m8/VARKA-400.md`:
+a warmed history reported as `Trapped[reason=speculate_null_assert, action=make_not_entrant,
+at=VarkaMemorySanitizer.check]` was not a memory violation but a deoptimization. The check tests
+its thread's window against null, and the warm-up ran on a thread with no window, so the profile
+said the value was always null. C2's parser turns an `ifnull` whose operand's speculative type is
+always null into a `null_assert` guarded by an uncommon trap of that reason (`opto/parse2.cpp`,
+`handle_if_null`), and the first call that opened a window threw both drivers' code away. The
+rule: test-only instrumentation inlined into a kernel must see the same state while the kernel
+warms as when it is measured. A warm-up and its measured calls both run in the sanitizer's window
+(`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
+with a `speculate_*` reason, points here before it points at the kernel.
