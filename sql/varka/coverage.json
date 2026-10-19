@@ -489,6 +489,204 @@
     "domain" : "unix_date(d) BETWEEN -719162 AND 2932896 AND i <= 2147483647 - year(d)",
     "note" : "checked under ANSI; the lower bound is out of reach, since a year is at least 1"
   }, {
+    "sql" : "i & 255",
+    "executable" : "i & 255",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseAnd" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseAnd:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "i | 4096",
+    "executable" : "i | 4096",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseOr" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseOr:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "i ^ 21845",
+    "executable" : "i ^ 21845",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseXor" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseXor:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "~i",
+    "executable" : "~i",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseNot" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseNot:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "i << 3",
+    "executable" : "i << 3",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftLeft" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftLeft:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the count is masked to its low five bits as Java's `<<` does, so `i << 33` is `i << 1`"
+  }, {
+    "sql" : "shiftright(i, i)",
+    "executable" : "shiftright(i, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftRight" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftRight:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a column count, masked the same way"
+  }, {
+    "sql" : "i >>> 28",
+    "executable" : "i >>> 28",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftRightUnsigned" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftRightUnsigned:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "bit_count(i)",
+    "executable" : "bit_count(i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseCount" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseCount:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the bits of the value widened to a bigint, so a negative int counts its 32 high bits as well"
+  }, {
+    "sql" : "l & l2",
+    "executable" : "l & l2",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseAnd" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseAnd:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "l | 5000000000",
+    "executable" : "l | 5000000000",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseOr" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseOr:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "l ^ l2",
+    "executable" : "l ^ l2",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseXor" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseXor:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "~l",
+    "executable" : "~l",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseNot" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseNot:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "l << 3",
+    "executable" : "l << 3",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftLeft" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftLeft:bigint", "ShiftLeft:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a literal count only: a bigint shifted by an int column waits for the conversion between the lanes"
+  }, {
+    "sql" : "l >> 40",
+    "executable" : "l >> 40",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftRight" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftRight:bigint", "ShiftRight:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "shiftrightunsigned(l, 63)",
+    "executable" : "shiftrightunsigned(l, 63)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftRightUnsigned" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftRightUnsigned:bigint", "ShiftRightUnsigned:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "bit_count(l)",
+    "executable" : "bit_count(l)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseCount" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseCount:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "as an output only: a count computed in the long lane and stored as an int, so `bit_count(l) + 1` declines"
+  }, {
+    "sql" : "bitmap_bucket_number(l)",
+    "executable" : "bitmap_bucket_number(l)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitmapBucketNumber" ],
+    "casts" : [ ],
+    "operands" : [ "BitmapBucketNumber:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "bitmap_bit_position(l)",
+    "executable" : "bitmap_bit_position(l)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitmapBitPosition" ],
+    "casts" : [ ],
+    "operands" : [ "BitmapBitPosition:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
     "sql" : "if(d < d2, d, d2)",
     "executable" : "if(d < d2, d, d2)",
     "family" : "Choice and nulls",
@@ -1325,5 +1523,5 @@
     "domain" : "time_to_micros(t) + 0 BETWEEN 0 AND 86399999999",
     "note" : "a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's"
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "Subtract", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Subtract", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

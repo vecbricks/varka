@@ -724,33 +724,34 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
-  // VARKA-323: five draws of the night of 12 October 2026 whose variants grew past the op cap
-  // and failed as shapes the emitter rejected. A variant that fits is preferred, and a variant
-  // with no form that fits is skipped, counted. Each test first checks that its draw still grows
-  // past the cap, so a change to the grammar that moves these draws fails here rather than
-  // leaving the tests passing on draws that test nothing.
+  // VARKA-323: draws whose variants grow past the op cap and failed, before it, as shapes the
+  // emitter rejected. A variant that fits is preferred, and a variant with no form that fits is
+  // skipped, counted. Each test first checks that its draw still grows past the cap, so a change
+  // to the grammar that moves these draws fails here rather than leaving the tests passing on
+  // draws that test nothing. The first draws were of the night of 12 October 2026; VARKA-335's
+  // bitwise arms moved them, and these were found again by scanning the same nights' seeds.
   test("a variant grown past the op cap with no smaller form is skipped, not failed") {
-    // Every one of the untaken-arm variant's 16 replacements puts it over the cap.
-    assert(firstChoiceOver(2026101306003L, 44588, VarkaVariants.Kind.UNTAKEN_ARM))
-    val (opCap, counts) = variantsOf(2026101306003L, 44588)
+    // Every one of the untaken-arm variant's replacements puts it over the cap.
+    assert(firstChoiceOver(2026101303002L, 4259, VarkaVariants.Kind.UNTAKEN_ARM))
+    val (opCap, counts) = variantsOf(2026101303002L, 4259)
     assert(opCap == 1 && counts.get("untaken arm replaced skipped").contains(1), counts)
   }
 
   test("with no byte budget, a variant over the op cap is tried under the defaults' budget") {
     // The same draw with the budget off: the form without one rejects the variant at once, the
     // defaults' budget form is tried, declines it on size, and the variant is skipped.
-    val (opCap, counts) = variantsOf(2026101306003L, 44588,
+    val (opCap, counts) = variantsOf(2026101303002L, 4259,
       c => c.withOptions(c.options.withMethodByteBudget(0)))
     assert(opCap == 1 && counts.get("untaken arm replaced skipped").contains(1), counts)
   }
 
   test("a variant grown past the op cap is rebuilt within it where it can be") {
-    // An untaken-arm replacement that fits (7 of 29), and a stranger that fits (1 of 2).
-    assert(firstChoiceOver(2026101307001L, 47340, VarkaVariants.Kind.UNTAKEN_ARM))
-    val (armSkips, arm) = variantsOf(2026101307001L, 47340)
+    // An untaken-arm replacement that fits, and a stranger that fits.
+    assert(firstChoiceOver(2026101307006L, 32279, VarkaVariants.Kind.UNTAKEN_ARM))
+    val (armSkips, arm) = variantsOf(2026101307006L, 32279)
     assert(armSkips == 0 && arm.get("untaken arm replaced compared").contains(1), arm)
-    assert(firstChoiceOver(2026101303005L, 29063, VarkaVariants.Kind.BESIDE_A_STRANGER))
-    val (strangerSkips, stranger) = variantsOf(2026101303005L, 29063)
+    assert(firstChoiceOver(2026101300002L, 195413, VarkaVariants.Kind.BESIDE_A_STRANGER))
+    val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413)
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
   }
 

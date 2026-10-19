@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -113,6 +115,8 @@ final class VarkaEmitCost {
       case IntArith n -> name + '/' + n.op() + '/' + n.mode() + '/' + n.laneType();
       case IntNeg n -> name + '/' + n.mode() + '/' + n.laneType();
       case ConstDivide n -> name + '/' + n.laneType() + (n.divisor() < 0 ? "/neg" : "/pos");
+      case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
+      case BitCount n -> name + '/' + n.laneType();
       case GuardedRange n -> name + '/' + n.laneType();
       case Compare n -> name + '/' + n.op() + '/' + n.laneType();
       case TruncDate n -> name + '/' + n.level();

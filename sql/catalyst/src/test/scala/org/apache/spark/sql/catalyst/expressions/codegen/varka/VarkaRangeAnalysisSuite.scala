@@ -411,6 +411,8 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: IntNeg => value(x.child(), Kind.INT)
         case x: ConstDivide => value(x.child(), Kind.INT)
         case x: BoundedDivide => value(x.child(), Kind.INT)
+        case x: BitOp => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
+        case x: BitCount => value(x.child(), Kind.INT)
         case c: Cond => cond(c)
       }
     }
@@ -425,7 +427,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     val rootKind = root match {
       case _: DateDiff | _: Year | _: Month | _: DayOfMonth | _: Quarter | _: DayOfYear |
           _: WeekOfYear | _: DayOfWeek | _: DayOfWeekIso | _: WeekDay | _: IntArith |
-          _: IntNeg | _: ConstDivide | _: BoundedDivide => Kind.INT
+          _: IntNeg | _: ConstDivide | _: BoundedDivide | _: BitOp | _: BitCount => Kind.INT
       case _ => Kind.DAY
     }
     value(root, rootKind)
@@ -499,6 +501,8 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: IntNeg => go(x.child(), armed)
       case x: ConstDivide => go(x.child(), armed)
       case x: BoundedDivide => go(x.child(), armed)
+      case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
+      case x: BitCount => go(x.child(), armed)
       case _: ColumnRef | _: LiteralSlot => true
       case c: Cond => goCond(c, armed)
     }

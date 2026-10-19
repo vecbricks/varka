@@ -26,6 +26,12 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 import org.apache.spark.sql.catalyst.expressions.Add;
+import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
+import org.apache.spark.sql.catalyst.expressions.BitwiseAnd;
+import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
+import org.apache.spark.sql.catalyst.expressions.BitwiseNot;
+import org.apache.spark.sql.catalyst.expressions.BitwiseOr;
+import org.apache.spark.sql.catalyst.expressions.BitwiseXor;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode$;
@@ -35,15 +41,25 @@ import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
+import org.apache.spark.sql.catalyst.expressions.ShiftLeft;
+import org.apache.spark.sql.catalyst.expressions.ShiftRight;
+import org.apache.spark.sql.catalyst.expressions.ShiftRightUnsigned;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
+import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -89,6 +105,19 @@ final class VarkaNodeCompiler {
    * instead of silently losing the whole kernel at emission.
    */
   static final int MAX_IN_LITERALS = 16;
+
+  /**
+   * The bits per bitmap of Spark's bitmap functions, {@code BitmapExpressionUtils.NUM_BITS}, as
+   * the bitmap lowering's shift and mask divide by it: 2^15.
+   */
+  static final int BITMAP_SHIFT = Integer.numberOfTrailingZeros(BitmapExpressionUtils.NUM_BITS);
+
+  static {
+    if (1 << BITMAP_SHIFT != BitmapExpressionUtils.NUM_BITS) {
+      throw VarkaErrors.illegalState("BitmapExpressionUtils.NUM_BITS is no longer a power of "
+          + "two: " + BitmapExpressionUtils.NUM_BITS);
+    }
+  }
 
   /** Tests whether a family claims a node; the claim returns its lowering, deferred. */
   @FunctionalInterface
@@ -352,8 +381,153 @@ final class VarkaNodeCompiler {
             boolean checked = n.failOnError() && !boundedByIntMax(x, literals, sink);
             return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x);
           });
+      // The bitwise family (VARKA-335): one lane-wise operation at the operand's width, which
+      // neither overflows nor nulls a valid lane, so the evaluation mode does not reach it.
+      case BitwiseAnd b when onBitLane(b) ->
+          () -> bitOp(BitOpKind.AND, b.left(), b.right(), inputs, literals, sink);
+      case BitwiseOr b when onBitLane(b) ->
+          () -> bitOp(BitOpKind.OR, b.left(), b.right(), inputs, literals, sink);
+      case BitwiseXor b when onBitLane(b) ->
+          () -> bitOp(BitOpKind.XOR, b.left(), b.right(), inputs, literals, sink);
+      // `~x` is `x ^ -1`, the literal on the operand's lane.
+      case BitwiseNot b when isInt(b) -> () -> intOperand(b.child(), inputs, literals, sink)
+          .map(x -> new BitOp(BitOpKind.XOR, x, intSlot(-1, literals)));
+      case BitwiseNot b when isLong(b) -> () -> longOperand(b.child(), inputs, literals, sink)
+          .map(x -> new BitOp(BitOpKind.XOR, x, sink.longSlot(-1L)));
+      case ShiftLeft s when onBitLane(s) ->
+          () -> shift(BitOpKind.SHL, s.left(), s.right(), s, inputs, literals, sink);
+      case ShiftRight s when onBitLane(s) ->
+          () -> shift(BitOpKind.SHR, s.left(), s.right(), s, inputs, literals, sink);
+      case ShiftRightUnsigned s when onBitLane(s) ->
+          () -> shift(BitOpKind.USHR, s.left(), s.right(), s, inputs, literals, sink);
+      case BitwiseCount c when isInt(c.child()) ->
+          () -> intOperand(c.child(), inputs, literals, sink).map(BitCount::new);
+      // The long lane's count is an int computed in the long lane, which the kernel narrows at
+      // its store: an output root takes it (`bitCountAtRoot`), and under another node it waits
+      // for VARKA-28's narrowing inside a tree, as the TIME field extracts do.
+      case BitwiseCount c when isLong(c.child()) -> () -> sink.decline("bit_count of a bigint is "
+          + "an int computed in the long lane, which the kernel narrows at its store: only an "
+          + "output can take it until VARKA-28 narrows inside a tree", c);
+      case StaticInvoke si when isBitmap(si) -> () -> bitmap(si, inputs, literals, sink);
       default -> null;
     };
+  }
+
+  /** Whether a bitwise or shift expression's value is on a lane: an int or a bigint. */
+  private static boolean onBitLane(Expression e) {
+    return isInt(e) || isLong(e);
+  }
+
+  private static boolean isLong(Expression e) {
+    return DataTypes.LongType.equals(e.dataType());
+  }
+
+  /** The operand on {@code e}'s own lane: the int operand rule, or a long-lane read. */
+  private static Optional<VarkaVectorIR> laneOperand(
+      Expression e, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    return isLong(e) ? longOperand(e, inputs, literals, sink)
+        : intOperand(e, inputs, literals, sink);
+  }
+
+  /**
+   * An operand on the long lane: a {@code bigint} column or literal, or a long-valued node. One
+   * that compiles onto the int lane is a width conversion, which declines with its reason.
+   */
+  private static Optional<VarkaVectorIR> longOperand(
+      Expression e, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Optional<VarkaVectorIR> compiled = compileNode(e, inputs, literals, sink);
+    if (compiled.isPresent() && compiled.get().laneType() != LaneType.LONG) {
+      return sink.decline("a bigint operand computed on the int lane, which needs VARKA-28's "
+          + "lane conversion", e);
+    }
+    return compiled;
+  }
+
+  private static Optional<VarkaVectorIR> bitOp(
+      BitOpKind op,
+      Expression l,
+      Expression r,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> x = laneOperand(l, inputs, literals, sink);
+    if (x.isEmpty()) {
+      return x;
+    }
+    return laneOperand(r, inputs, literals, sink).map(y -> new BitOp(op, x.get(), y));
+  }
+
+  /**
+   * A shift: the value on its lane and the count, an {@code INT}, on the same one. At the int
+   * lane the count is any int operand. At the long lane an int literal count is the same count
+   * as a long literal, since the shift reads only its low six bits and Java widens the int count
+   * by its sign; an int column count is a width conversion, which waits on VARKA-28.
+   */
+  private static Optional<VarkaVectorIR> shift(
+      BitOpKind op,
+      Expression value,
+      Expression count,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (isInt(value)) {
+      return bitOp(op, value, count, inputs, literals, sink);
+    }
+    if (!(count instanceof Literal l && l.value() instanceof Integer n)) {
+      return sink.decline("a bigint shifted by an int count that is not a literal mixes the two "
+          + "lanes, which waits on VARKA-28's lane conversion", whole);
+    }
+    return longOperand(value, inputs, literals, sink)
+        .map(x -> new BitOp(op, x, sink.longSlot(n.longValue())));
+  }
+
+  /**
+   * {@code bit_count} of a {@code bigint} as an output root: the long lane's popcount, which is at
+   * most 64, delivered as the int column Spark types it by a narrowing root.
+   */
+  static Optional<VarkaVectorIR> bitCountAtRoot(
+      BitwiseCount c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    return longOperand(c.child(), inputs, literals, sink)
+        .map(x -> new VarkaVectorIR.NarrowLane(new BitCount(x)));
+  }
+
+  /** Whether {@code si} is the replacement of {@code bitmap_bucket_number} or its sibling. */
+  static boolean isBitmap(StaticInvoke si) {
+    return si.staticObject() == BitmapExpressionUtils.class && si.arguments().size() == 1
+        && (si.functionName().equals("bitmapBucketNumber")
+            || si.functionName().equals("bitmapBitPosition"));
+  }
+
+  /**
+   * {@code bitmap_bucket_number} and {@code bitmap_bit_position}, from Spark's
+   * {@code BitmapExpressionUtils}: for {@code v > 0} the bucket is {@code 1 + (v - 1) / N} and the
+   * position {@code (v - 1) % N}, otherwise {@code v / N} and {@code (-v) % N}, with
+   * {@code N = 2^15}. Both arms divide a non-negative magnitude {@code w}: {@code v - 1} when
+   * {@code v > 0} and {@code -v} otherwise, which wraps only at {@code Long.MIN_VALUE}, where
+   * {@code -v} is {@code 2^63} read unsigned. So the position is {@code w & (N - 1)} on both arms,
+   * and with {@code q = w >>> 15} the bucket is {@code q + 1} or {@code -q}, Java's truncating
+   * quotient of a non-positive {@code v}; {@code sql/varka/proofs/bitmap.smt2} proves both over
+   * every long. One blend for {@code w} and one for the bucket, no division.
+   */
+  private static Optional<VarkaVectorIR> bitmap(
+      StaticInvoke si, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Expression arg = si.arguments().apply(0);
+    if (!isLong(arg)) {
+      return sink.decline("a bitmap function over a " + arg.dataType().simpleString(), si);
+    }
+    return longOperand(arg, inputs, literals, sink).map(v -> {
+      var positive = new Compare(CompareOp.GT, v, sink.longSlot(0L));
+      VarkaVectorIR w = new IfElse(positive,
+          new IntArith(IntOp.SUB, Overflow.WRAP, v, sink.longSlot(1L)),
+          new IntNeg(Overflow.WRAP, v));
+      if (si.functionName().equals("bitmapBitPosition")) {
+        return new BitOp(BitOpKind.AND, w, sink.longSlot((1L << BITMAP_SHIFT) - 1));
+      }
+      VarkaVectorIR q = new BitOp(BitOpKind.USHR, w, sink.longSlot(BITMAP_SHIFT));
+      return new IfElse(positive, new IntArith(IntOp.ADD, Overflow.WRAP, q, sink.longSlot(1L)),
+          new IntNeg(Overflow.WRAP, q));
+    });
   }
 
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {

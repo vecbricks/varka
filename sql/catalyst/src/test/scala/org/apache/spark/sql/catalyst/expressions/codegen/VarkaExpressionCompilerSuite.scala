@@ -2723,4 +2723,99 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declines.keySet === Set(0, 1))
     assert(declines.values.forall(_.reason.startsWith("the projection has a nondeterministic")))
   }
+
+  // -------------------------------------------------------------------------------------------
+  // VARKA-335: the bitwise family
+  // -------------------------------------------------------------------------------------------
+
+  test("the bitwise operations and shifts compile to one node at the operand's lane") {
+    import org.apache.spark.sql.catalyst.expressions.{BitwiseAnd, BitwiseNot, BitwiseOr,
+      BitwiseXor, ShiftLeft, ShiftRight, ShiftRightUnsigned}
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{BitOp,
+      BitOpKind}
+    val ints = VarkaExpressionCompiler.compile(Seq(
+      out(BitwiseAnd(i, sh2)), out(BitwiseOr(i, Literal(7))), out(BitwiseXor(sh2, i)),
+      out(BitwiseNot(i)), out(ShiftLeft(i, Literal(3))), out(ShiftRight(i, sh2)),
+      out(ShiftRightUnsigned(i, Literal(40)))), intPairOutput).get
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    // Literal slots by first use: 7, then -1 for `~`, then the counts 3 and 40.
+    assert(ints.outputs.asScala.toSeq === Seq(
+      new BitOp(BitOpKind.AND, c0, c1),
+      new BitOp(BitOpKind.OR, c0, new LiteralSlot(0)),
+      new BitOp(BitOpKind.XOR, c1, c0),
+      new BitOp(BitOpKind.XOR, c0, new LiteralSlot(1)),
+      new BitOp(BitOpKind.SHL, c0, new LiteralSlot(2)),
+      new BitOp(BitOpKind.SHR, c0, c1),
+      new BitOp(BitOpKind.USHR, c0, new LiteralSlot(3))))
+    assert(ints.literals.asScala.toSeq === Seq(7, -1, 3, 40))
+    assert(ints.outputTypes.asScala.toSeq === Seq.fill(7)(IntegerType))
+
+    // At the long lane an int literal count is the same count as a long literal.
+    val longs = VarkaExpressionCompiler.compile(Seq(
+      out(BitwiseAnd(l, l2)), out(BitwiseNot(l)), out(ShiftLeft(l, Literal(3))),
+      out(ShiftRightUnsigned(l, Literal(-1)))), withLong).get
+    assert(longs.outputs.asScala.toSeq === Seq(
+      new BitOp(BitOpKind.AND, longCol, longCol2),
+      new BitOp(BitOpKind.XOR, longCol, longSlot(0)),
+      new BitOp(BitOpKind.SHL, longCol, longSlot(1)),
+      new BitOp(BitOpKind.USHR, longCol, longSlot(0))))
+    assert(longs.longLiterals.asScala.toSeq === Seq(-1L, 3L))
+    assert(longs.lane === LaneType.LONG)
+  }
+
+  test("a bigint shifted by an int column declines, waiting on the lane conversion") {
+    import org.apache.spark.sql.catalyst.expressions.ShiftLeft
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(ShiftLeft(l, i)), out(Greatest(Seq(l, l2)))), withLong).get
+    val reason = partial.declines.asScala(0).reason
+    assert(reason.contains("VARKA-28"), reason)
+    assert(reason.contains("not a literal"), reason)
+  }
+
+  test("bit_count compiles to a popcount: over an int anywhere, over a bigint as an output") {
+    import org.apache.spark.sql.catalyst.expressions.BitwiseCount
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount
+    val int = VarkaExpressionCompiler.compile(
+      Seq(out(BitwiseCount(i)), out(Add(BitwiseCount(i), Literal(1)))), childOutput).get
+    // The count is at most 64, so the checked add over it needs no check.
+    assert(int.outputs.asScala.toSeq === Seq(new BitCount(new ColumnRef(0)),
+      new IntArith(IntOp.ADD, Overflow.WRAP, new BitCount(new ColumnRef(0)), new LiteralSlot(0))))
+    val long = VarkaExpressionCompiler.compile(Seq(out(BitwiseCount(l))), withLong).get
+    assert(long.outputs.asScala.toSeq === Seq(new NarrowLane(new BitCount(longCol))))
+    assert(long.outputTypes.asScala.toSeq === Seq(IntegerType))
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(Add(BitwiseCount(l), Literal(1))), out(Greatest(Seq(l, l2)))), withLong).get
+    val reason = partial.declines.asScala(0).reason
+    assert(reason.startsWith("bit_count of a bigint"), reason)
+    assert(reason.contains("VARKA-28"), reason)
+    // A narrow operand waits for its lane.
+    assert(!fuses(BitwiseCount(sh)))
+    assert(!fuses(BitwiseCount(by)))
+  }
+
+  test("the bitmap functions compile, as written and as the StaticInvoke they are replaced by") {
+    import org.apache.spark.sql.catalyst.expressions.{BitmapBitPosition, BitmapBucketNumber}
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{BitOp,
+      BitOpKind}
+    val positive = new Compare(CompareOp.GT, longCol, longSlot(0))
+    val w = new IfElse(positive, new IntArith(IntOp.SUB, Overflow.WRAP, longCol, longSlot(1)),
+      new IntNeg(Overflow.WRAP, longCol))
+    val q = new BitOp(BitOpKind.USHR, w, longSlot(2))
+    for (replaced <- Seq(false, true)) {
+      def form(e: Expression): Expression = if (replaced) ReplaceExpressions(
+        Project(Seq(Alias(e, "x")()), OneRowRelation())).expressions.head.children.head else e
+      val bucket = VarkaExpressionCompiler.compile(
+        Seq(out(form(BitmapBucketNumber(l)))), withLong).get
+      assert(bucket.outputs.asScala.toSeq === Seq(new IfElse(positive,
+        new IntArith(IntOp.ADD, Overflow.WRAP, q, longSlot(1)), new IntNeg(Overflow.WRAP, q))),
+        s"replaced=$replaced")
+      assert(bucket.longLiterals.asScala.toSeq === Seq(0L, 1L, 15L))
+      val position = VarkaExpressionCompiler.compile(
+        Seq(out(form(BitmapBitPosition(l)))), withLong).get
+      assert(position.outputs.asScala.toSeq === Seq(new BitOp(BitOpKind.AND, w, longSlot(2))),
+        s"replaced=$replaced")
+      assert(position.longLiterals.asScala.toSeq === Seq(0L, 1L, 32767L))
+    }
+  }
 }

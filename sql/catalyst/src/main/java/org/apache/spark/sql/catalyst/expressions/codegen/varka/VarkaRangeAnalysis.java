@@ -40,6 +40,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Gua
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -259,8 +261,8 @@ public final class VarkaRangeAnalysis {
       // A range guard's own bounds are what leaves it, whatever the child was - the same
       // promise the day guard makes, with the bounds the node names - asked as days (a date
       // column guarded by the column bound, VARKA-379) or as ints. The long lane is UNKNOWN
-      // throughout, above, and its callers prove their bounds structurally (VARKA-102) or
-      // through a guard like this one.
+      // above, and but for the popcount's bound below, and its callers prove their bounds
+      // structurally (VARKA-102) or through a guard like this one.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
       // A 32-bit value computed in the long lane, whose ranges this lattice does not track.
       case NarrowLane n -> VarkaValueRange.UNKNOWN;
@@ -293,6 +295,12 @@ public final class VarkaRangeAnalysis {
       // The bound is the node's contract, so the quotient's range follows from it alone.
       case BoundedDivide n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
           : VarkaValueRange.of(0, (n.bound() - 1) / n.divisor());
+      // The lattice tracks no bitwise rule: a mask or a shift moves a value anywhere in the
+      // lane, so a node over one keeps whatever overflow check it has.
+      case BitOp n -> VarkaValueRange.UNKNOWN;
+      // A count of the 64 bits of the widened value, whatever the operand.
+      case BitCount n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
+          : VarkaValueRange.of(0, Long.SIZE);
       // A condition has no value of its own.
       case Cond c -> VarkaValueRange.UNKNOWN;
     };

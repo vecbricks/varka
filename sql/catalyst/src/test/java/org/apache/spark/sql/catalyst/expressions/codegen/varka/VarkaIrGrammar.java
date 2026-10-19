@@ -25,6 +25,9 @@ import java.util.Random;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -102,6 +105,8 @@ public final class VarkaIrGrammar {
 
   public static final long COLUMN_BOUND = 2500000L;
   public static final int LITERAL_BOUND = 4000;
+  /** The widest magnitude an int lane holds, the bound of a value the grammar cannot narrow. */
+  public static final long INT_LANE_BOUND = 1L << 31;
 
   /**
    * The seed both shape corpora are drawn from: {@code VarkaIrFuzzSuite} runs shape {@code k}
@@ -279,6 +284,9 @@ public final class VarkaIrGrammar {
       case ConstDivide n -> over(n.child(), v -> v / Math.abs(n.divisor()));
       case BoundedDivide n ->
           new Bounds((long) ((n.bound() - 1) / n.divisor()), guard(n.child()));
+      // A mask or a shift reaches any int; the count is at most 64.
+      case BitOp n -> new Bounds(INT_LANE_BOUND, guard(n.left(), n.right()));
+      case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
       // The dynamic form moves the date down like the literal one, whatever the level; the
       // level column contributes no day magnitude of its own, only whatever guarded producer
       // might sit under it, which `guard` picks up.
@@ -360,6 +368,17 @@ public final class VarkaIrGrammar {
    * lane values and null patterns picks up.
    */
   public static Drawn drawShape(Random rnd) {
+    return drawShape(rnd, true);
+  }
+
+  /**
+   * {@link #drawShape} with or without the arms added after the emit cost model's corpus was
+   * fixed: the bitwise ones (VARKA-335). Without them the draws are the ones the grammar made
+   * before those arms existed, which is what the cost corpus takes ({@code VarkaEmitCostCorpus}),
+   * so a fuzz arm added for a new node refits no price of an existing one. A later arm joins
+   * them, drawn as the last numbers of its {@code nextInt}.
+   */
+  public static Drawn drawShape(Random rnd, boolean newArms) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     // The last input, when there is more than one, holds month-count-magnitude values so a
@@ -369,7 +388,7 @@ public final class VarkaIrGrammar {
     // The second special column, and only when there are three: with two, taking one for
     // trunc levels would leave a single day column and starve every other arm.
     int levelOrdinal = numInputs > 2 ? numInputs - 2 : -1;
-    var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal);
+    var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal, newArms);
     int depth = 1 + rnd.nextInt(4);
     // Either a projection of value roots or one selection root: the two kinds of kernel
     // production emits, never mixed in one class.
@@ -395,6 +414,11 @@ public final class VarkaIrGrammar {
    * ({@code VarkaEmitCostCorpus}). A sequence of its own, so drawing it moves no committed corpus.
    */
   public static Drawn drawWideShape(Random rnd) {
+    return drawWideShape(rnd, true);
+  }
+
+  /** {@link #drawWideShape} with or without the newer arms; see {@link #drawShape}. */
+  public static Drawn drawWideShape(Random rnd, boolean newArms) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     int smallOrdinal = numInputs > 1 ? numInputs - 1 : -1;
@@ -402,7 +426,7 @@ public final class VarkaIrGrammar {
     int count = 20 + rnd.nextInt(181);
     var drawn = new ArrayList<VarkaVectorIR>();
     for (int i = 0; i < count; i++) {
-      var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal);
+      var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal, newArms);
       drawn.add(shapes.value(1 + rnd.nextInt(4)).node());
     }
     return new Drawn(distinct(drawn), numInputs, numLiterals, smallOrdinal, levelOrdinal);
@@ -438,15 +462,23 @@ public final class VarkaIrGrammar {
     private final int numLiterals;
     private final int smallOrdinal;
     private final int levelOrdinal;
+    /** Whether the newer arms are drawn; see {@link VarkaIrGrammar#drawShape(Random, boolean)}. */
+    private final boolean newArms;
     private int budget = 20;
 
     public Shapes(Random rnd, int numInputs, int numLiterals, int smallOrdinal,
         int levelOrdinal) {
+      this(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal, true);
+    }
+
+    public Shapes(Random rnd, int numInputs, int numLiterals, int smallOrdinal,
+        int levelOrdinal, boolean newArms) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.smallOrdinal = smallOrdinal;
       this.levelOrdinal = levelOrdinal;
+      this.newArms = newArms;
     }
 
     /**
@@ -493,7 +525,8 @@ public final class VarkaIrGrammar {
         return leaf();
       }
       budget -= 1;
-      int arm = rnd.nextInt(24);
+      // The newer arms come last, so without them the draw is the one made before them.
+      int arm = rnd.nextInt(newArms ? 26 : 24);
       switch (arm) {
         case 0: {
           Gen a = value(depth - 1);
@@ -659,6 +692,20 @@ public final class VarkaIrGrammar {
           long lo = wide ? Integer.MIN_VALUE : -bound;
           return new Gen(new GuardedRange(a.node(), lo, bound), a.bound());
         }
+        case 24: {
+          // VARKA-335's bitwise operations and shifts, the right operand a subtree or a leaf:
+          // a shift count of any value, which the lanes mask to five bits as Java does. The
+          // grammar tracks no sign, and a mask or a shift can reach any int, so the bound is the
+          // lane's own.
+          Gen a = value(depth - 1);
+          Gen b = rnd.nextBoolean() ? leaf() : value(depth - 1);
+          BitOpKind[] ops = BitOpKind.values();
+          return new Gen(new BitOp(ops[rnd.nextInt(ops.length)], a.node(), b.node()),
+              INT_LANE_BOUND);
+        }
+        case 25:
+          // bit_count, at most 64 whatever it counts.
+          return new Gen(new BitCount(value(depth - 1).node()), Long.SIZE);
         default:
           return calendar(arm, depth);
       }
@@ -809,9 +856,14 @@ public final class VarkaIrGrammar {
 
   /** {@link #drawShape}'s twin at the long lane, shared by the fuzzer and the bytes oracle. */
   public static DrawnLong drawLongShape(Random rnd) {
+    return drawLongShape(rnd, true);
+  }
+
+  /** {@link #drawLongShape} with or without the newer arms; see {@link #drawShape}. */
+  public static DrawnLong drawLongShape(Random rnd, boolean newArms) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new LongShapes(rnd, numInputs, numLiterals);
+    var shapes = new LongShapes(rnd, numInputs, numLiterals, newArms);
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -829,12 +881,17 @@ public final class VarkaIrGrammar {
 
   /** {@link #drawWideShape}'s twin at the long lane. */
   public static DrawnLong drawWideLongShape(Random rnd) {
+    return drawWideLongShape(rnd, true);
+  }
+
+  /** {@link #drawWideLongShape} with or without the newer arms; see {@link #drawShape}. */
+  public static DrawnLong drawWideLongShape(Random rnd, boolean newArms) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     int count = 20 + rnd.nextInt(181);
     var drawn = new ArrayList<VarkaVectorIR>();
     for (int i = 0; i < count; i++) {
-      var shapes = new LongShapes(rnd, numInputs, numLiterals);
+      var shapes = new LongShapes(rnd, numInputs, numLiterals, newArms);
       drawn.add(shapes.root(1 + rnd.nextInt(4)));
     }
     return new DrawnLong(distinct(drawn), numInputs, numLiterals);
@@ -870,12 +927,19 @@ public final class VarkaIrGrammar {
     private final Random rnd;
     private final int numInputs;
     private final int numLiterals;
+    /** Whether the newer arms are drawn; see {@link VarkaIrGrammar#drawShape(Random, boolean)}. */
+    private final boolean newArms;
     private int budget = 20;
 
     public LongShapes(Random rnd, int numInputs, int numLiterals) {
+      this(rnd, numInputs, numLiterals, true);
+    }
+
+    public LongShapes(Random rnd, int numInputs, int numLiterals, boolean newArms) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
+      this.newArms = newArms;
     }
 
     private static boolean saturated(long bound) {
@@ -899,7 +963,8 @@ public final class VarkaIrGrammar {
         return leaf();
       }
       budget -= 1;
-      switch (rnd.nextInt(9)) {
+      // As at the int lane, the newer arms are the last numbers drawn.
+      switch (rnd.nextInt(newArms ? 11 : 9)) {
         case 0:
         case 1: {
           // Add and subtract, over two subtrees or a subtree and a leaf. A checked mode only
@@ -965,6 +1030,16 @@ public final class VarkaIrGrammar {
           Gen b = value(depth - 1);
           return new Gen(new Least(a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
+        case 9: {
+          // The bitwise operations and shifts (VARKA-335), which can reach any long.
+          Gen a = value(depth - 1);
+          Gen b = rnd.nextBoolean() ? leaf() : value(depth - 1);
+          BitOpKind[] ops = BitOpKind.values();
+          return new Gen(new BitOp(ops[rnd.nextInt(ops.length)], a.node(), b.node()),
+              Long.MAX_VALUE);
+        }
+        case 10:
+          return new Gen(new BitCount(value(depth - 1).node()), Long.SIZE);
         default: {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);

@@ -43,6 +43,7 @@ import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.BindReferences;
+import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
@@ -1048,13 +1049,14 @@ public final class VarkaExpressionCompiler {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * An output root: {@code VarkaNodeCompiler.compileNode}, plus the one lowering only a root may
+   * An output root: {@code VarkaNodeCompiler.compileNode}, plus the lowerings only a root may
    * take. The three {@code TIME} field extracts compute a 64-bit division and deliver an int, and
    * the emitter narrows a lane at the kernel's store and nowhere else until VARKA-28 gives it a
    * width conversion; so {@code hour(t)} as an output fuses under a narrowing root, while
    * {@code hour(t) + 1} and {@code hour(t) = 12}, which put the narrowed value under another node,
    * reach {@link VarkaTimeCompiler#compileTime} through {@code VarkaNodeCompiler.compileNode} and
-   * decline with that reason.
+   * decline with that reason. {@code bit_count} of a {@code bigint} is the same case: a popcount
+   * in the long lane delivered as an int.
    */
   private static Optional<VarkaVectorIR> compileRoot(
       Expression expr, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
@@ -1064,6 +1066,11 @@ public final class VarkaExpressionCompiler {
       case StaticInvoke si when VarkaTimeCompiler.isTimeTarget(si) ->
           VarkaNodeCompiler.inFamily(VarkaFamily.TIME,
               () -> VarkaTimeCompiler.compileTime(si, inputs, literals, sink, true), si, sink);
+      // bit_count of a bigint: a count of at most 64 computed in the long lane, which a root
+      // narrows at its store as it does the TIME extracts.
+      case BitwiseCount c when DataTypes.LongType.equals(c.child().dataType()) ->
+          VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
+              () -> VarkaNodeCompiler.bitCountAtRoot(c, inputs, literals, sink), c, sink);
       default -> VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
     };
   }

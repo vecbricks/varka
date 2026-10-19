@@ -351,6 +351,29 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-i` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
 | `year(d) + i` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896 AND i <= 2147483647 - year(d)` | checked under ANSI; the lower bound is out of reach, since a year is at least 1 | vector |
 
+#### Bitwise and shifts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `i & 255` | `intArithmetic` |  |  | vector |
+| `i \| 4096` | `intArithmetic` |  |  | vector |
+| `i ^ 21845` | `intArithmetic` |  |  | vector |
+| `~i` | `intArithmetic` |  |  | vector |
+| `i << 3` | `intArithmetic` |  | the count is masked to its low five bits as Java's `<<` does, so `i << 33` is `i << 1` | vector |
+| `shiftright(i, i)` | `intArithmetic` |  | a column count, masked the same way | vector |
+| `i >>> 28` | `intArithmetic` |  |  | vector |
+| `bit_count(i)` | `intArithmetic` |  | the bits of the value widened to a bigint, so a negative int counts its 32 high bits as well | vector |
+| `l & l2` | `intArithmetic` |  |  | vector |
+| `l \| 5000000000` | `intArithmetic` |  |  | vector |
+| `l ^ l2` | `intArithmetic` |  |  | vector |
+| `~l` | `intArithmetic` |  |  | vector |
+| `l << 3` | `intArithmetic` |  | a literal count only: a bigint shifted by an int column waits for the conversion between the lanes | vector |
+| `l >> 40` | `intArithmetic` |  |  | vector |
+| `shiftrightunsigned(l, 63)` | `intArithmetic` |  |  | vector |
+| `bit_count(l)` | `intArithmetic` |  | as an output only: a count computed in the long lane and stored as an int, so `bit_count(l) + 1` declines | vector |
+| `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+
 #### Choice and nulls
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |

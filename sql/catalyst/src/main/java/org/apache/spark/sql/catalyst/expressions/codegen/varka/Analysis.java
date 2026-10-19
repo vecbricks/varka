@@ -35,6 +35,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowe
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -623,6 +625,8 @@ final class Analysis {
         case WeekOfYear n -> { }
         case ConstDivide n -> { }
         case BoundedDivide n -> { }
+        case BitOp n -> { }
+        case BitCount n -> { }
         case Compare n -> { }
         case And n -> { }
         case Or n -> { }
@@ -803,6 +807,8 @@ final class Analysis {
       case IntNeg n -> wordOwner.get(n.child());
       case ConstDivide n -> wordOwner.get(n.child());
       case BoundedDivide n -> wordOwner.get(n.child());
+      case BitOp n -> andOwner(node, n.left(), n.right());
+      case BitCount n -> wordOwner.get(n.child());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -856,6 +862,8 @@ final class Analysis {
       case IntNeg n -> pureWord.get(n.child());
       case ConstDivide n -> pureWord.get(n.child());
       case BoundedDivide n -> pureWord.get(n.child());
+      case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
+      case BitCount n -> pureWord.get(n.child());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1029,6 +1037,10 @@ final class Analysis {
       // The bounded division: exact by its constructor over the bound the caller proved,
       // and like the constant division it neither overflows nor nulls a lane.
       case BoundedDivide n -> analyzeOp(node, false, n.child());
+      // The bitwise operations and the popcount neither overflow nor null a lane: a null
+      // operand nulls the result and nothing else does.
+      case BitOp n -> analyzeOp(node, false, n.left(), n.right());
+      case BitCount n -> analyzeOp(node, false, n.child());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way

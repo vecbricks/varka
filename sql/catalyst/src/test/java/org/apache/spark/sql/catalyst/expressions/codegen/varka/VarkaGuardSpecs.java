@@ -381,7 +381,7 @@ public final class VarkaGuardSpecs {
       // class does not know, which is the case to add.
       case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, Cond _, NarrowLane _ ->
+          BoundedDivide _, BitOp _, BitCount _, Cond _, NarrowLane _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

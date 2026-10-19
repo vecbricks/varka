@@ -749,7 +749,8 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.Compare _, VarkaVectorIR.And _, VarkaVectorIR.Or _,
           VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _, VarkaVectorIR.InRanges _,
           VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
-          VarkaVectorIR.BoundedDivide _ -> new Rebuilt(node, false, false);
+          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _ ->
+          new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =
         dayRange(rebuilt.node(), literals, VarkaRangeAnalysis.GuardPolicy.ARMED);

@@ -177,17 +177,17 @@ quote	Quote	stringExpressions	out	STRING input or output: owner's decision, 14 O
 normalize	Normalize	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 to_binary	ToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 mask	MaskExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-shiftleft	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	item 32; byte and short widen to int first
-shiftright	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	item 32
-shiftrightunsigned	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	item 32
-&	BitwiseAnd	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint		byte,short	plumbing	335	item 32
-~	BitwiseNot	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint		byte,short	plumbing	335	item 32
-|	BitwiseOr	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint		byte,short	plumbing	335	item 32
-^	BitwiseXor	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint		byte,short	plumbing	335	item 32
-<<	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	alias of shiftleft
->>	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	alias of shiftright
->>>	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint			plumbing	335	alias of shiftrightunsigned
-bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int		bool,byte,short	plumbing	335	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int
+shiftleft	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; byte and short widen to int first; a bigint shifted by an int column waits on row 28 (335b)
+shiftright	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column waits on row 28 (335b)
+shiftrightunsigned	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column waits on row 28 (335b)
+&	BitwiseAnd	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	int,bigint	byte,short	plumbing	335,329	item 32; byte and short with row 329 (335b)
+~	BitwiseNot	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	int,bigint	byte,short	plumbing	335,329	item 32; byte and short with row 329 (335b)
+|	BitwiseOr	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	int,bigint	byte,short	plumbing	335,329	item 32; byte and short with row 329 (335b)
+^	BitwiseXor	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	int,bigint	byte,short	plumbing	335,329	item 32; byte and short with row 329 (335b)
+<<	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftleft
+>>	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftright
+>>>	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftrightunsigned
+bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int	int,bigint	bool,byte,short	plumbing	335,329,331	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, as an output only until row 28; byte, short and bool with rows 329 and 331 (335b)
 bit_get	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	item 32; the byte result was its blocker
 getbit	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	alias of bit_get
 try_to_timestamp	TryToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
@@ -534,8 +534,8 @@ reflect	CallMethodViaReflection	miscExpressions	out	STRING input or output: owne
 java_method	CallMethodViaReflection	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 version	SparkVersion	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 typeof	TypeOf	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-bitmap_bucket_number	BitmapBucketNumber	miscExpressions	in		bigint	bigint			plumbing	335	a division and an offset over a constant
-bitmap_bit_position	BitmapBitPosition	miscExpressions	in		bigint	bigint			plumbing	335	a remainder over a constant
+bitmap_bucket_number	BitmapBucketNumber	miscExpressions	in		bigint	bigint	bigint		done		a shift and an offset over a blend, proven by SMT (bitmap.smt2)
+bitmap_bit_position	BitmapBitPosition	miscExpressions	in		bigint	bigint	bigint		done		a mask over a blend, proven by SMT (bitmap.smt2)
 bitmap_count	BitmapCount	miscExpressions	out	BINARY input: outside the type set							
 bitmap_and	BitmapAnd	miscExpressions	out	BINARY: outside the type set							
 bitmap_or	BitmapOr	miscExpressions	out	BINARY: outside the type set							

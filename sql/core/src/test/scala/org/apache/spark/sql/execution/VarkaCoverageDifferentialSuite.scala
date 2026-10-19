@@ -555,8 +555,10 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       "quarter(d)", "dayofyear(d)", "dayofweek(d)", "weekday(d)",
       "extract(DAYOFWEEK_ISO FROM d)", "weekofyear(d)", "extract(YEAROFWEEK FROM d)",
       "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
-      "-i", "year(d) + i", "CAST(ymm AS INT)")
-    val timeFields = Seq("hour(t)", "minute(t2)", "second(t)")
+      "-i", "year(d) + i", "CAST(ymm AS INT)", "i & 255", "i | 4096", "i ^ 21845", "~i",
+      "i << 3", "shiftright(i, i)", "i >>> 28", "bit_count(i)")
+    // bit_count(l) is the same: a count computed on the long lane and narrowed at the store.
+    val timeFields = Seq("hour(t)", "minute(t2)", "second(t)", "bit_count(l)")
     // `CAST(i AS INTERVAL DAY)` throws past `INTERVAL_DAY_LIMIT_DAYS`, so the compiler puts a
     // bound on `i` that the evaluator checks before the kernel runs; the bound belongs to the
     // column, not to the arm reading it, and the extremes row's `Int.MaxValue` declines the

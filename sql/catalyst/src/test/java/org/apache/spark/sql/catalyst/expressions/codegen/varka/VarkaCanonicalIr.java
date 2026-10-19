@@ -180,6 +180,8 @@ public final class VarkaCanonicalIr {
         String[] pair = parts[1].split("/");
         yield BoundedDivide.of(node(), Integer.parseInt(pair[0]), Integer.parseInt(pair[1]));
       }
+      case "bit" -> new BitOp(BitOpKind.valueOf(parts[1]), node(), node());
+      case "bitCount" -> new BitCount(node());
       default -> throw new IllegalArgumentException("no IR node is rendered as '" + head + "'");
     };
     expect(")");

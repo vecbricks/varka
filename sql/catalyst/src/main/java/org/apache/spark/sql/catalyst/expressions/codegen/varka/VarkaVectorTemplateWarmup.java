@@ -524,7 +524,7 @@ final class VarkaVectorTemplateWarmup {
     private static final int BYTES = 4096;
 
     private static final List<Unary> UNARY = List.of(VectorOperators.NEG, VectorOperators.ABS,
-        VectorOperators.NOT);
+        VectorOperators.NOT, VectorOperators.BIT_COUNT);
 
     private static final List<Binary> BINARY = List.of(VectorOperators.ADD, VectorOperators.SUB,
         VectorOperators.MUL, VectorOperators.DIV, VectorOperators.MIN, VectorOperators.MAX,

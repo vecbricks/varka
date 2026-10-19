@@ -155,6 +155,9 @@ public final class VarkaWordCensus {
           pure(x.months(), coalesce, absorb), absorb);
       case DateDiff x -> andW(pure(x.end(), coalesce, absorb), pure(x.start(), coalesce, absorb),
           absorb);
+      case BitOp x -> andW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
+          absorb);
+      case BitCount x -> pure(x.child(), coalesce, absorb);
       case Greatest x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
           absorb);
       case Least x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),

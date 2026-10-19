@@ -225,6 +225,30 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("year(d) + i", "checked under ANSI; the lower bound is out of reach, since a year is "
         + "at least 1", domain = Some(s"$dayBound AND i <= ${Int.MaxValue} - year(d)")))),
 
+    Family("Bitwise and shifts", predicates = false, Seq(
+      Row("i & 255"),
+      Row("i | 4096"),
+      Row("i ^ 21845"),
+      Row("~i"),
+      Row("i << 3", "the count is masked to its low five bits as Java's `<<` does, so `i << 33` "
+        + "is `i << 1`"),
+      Row("shiftright(i, i)", "a column count, masked the same way"),
+      Row("i >>> 28"),
+      Row("bit_count(i)", "the bits of the value widened to a bigint, so a negative int counts "
+        + "its 32 high bits as well"),
+      Row("l & l2"),
+      Row("l | 5000000000"),
+      Row("l ^ l2"),
+      Row("~l"),
+      Row("l << 3", "a literal count only: a bigint shifted by an int column waits for the "
+        + "conversion between the lanes"),
+      Row("l >> 40"),
+      Row("shiftrightunsigned(l, 63)"),
+      Row("bit_count(l)", "as an output only: a count computed in the long lane and stored as an "
+        + "int, so `bit_count(l) + 1` declines"),
+      Row("bitmap_bucket_number(l)"),
+      Row("bitmap_bit_position(l)"))),
+
     Family("Choice and nulls", predicates = false, Seq(
       Row("if(d < d2, d, d2)"),
       Row("CASE WHEN d < d2 THEN d ELSE d2 END"),
@@ -840,14 +864,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       sb.append(if (family.predicates) "| Predicate | Switches | Domain | Notes | 128-bit lanes |\n"
         else "| Expression | Switches | Domain | Notes | 128-bit lanes |\n")
       sb.append("|---|---|---|---|---|\n")
+      // A cell's own `|`, as in `i | 4096`, is escaped, or the table reads it as a column break;
+      // GitHub's tables take `\|` as a literal bar inside a code span as well.
+      def cell(text: String): String = text.replace("|", "\\|")
       family.rows.foreach { r =>
-        val domain = r.domain.map(d => s"`$d`").getOrElse("")
+        val domain = r.domain.map(d => s"`${cell(d)}`").getOrElse("")
         val switches = switchesOf(family, r) match {
           case Seq() => "none"
           case held => held.map(f => s"`${f.key}`").mkString(", ")
         }
-        sb.append(
-          s"| `${r.sql}` | $switches | $domain | ${r.note} | ${narrowVerdict(r.sql)} |\n")
+        sb.append(s"| `${cell(r.sql)}` | $switches | $domain | ${cell(r.note)} | " +
+          s"${narrowVerdict(r.sql)} |\n")
       }
       sb.append("\n")
     }

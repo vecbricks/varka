@@ -60,7 +60,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.NextDay, VarkaVectorIR.ThursdayOf, VarkaVectorIR.Chrono,
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
-            VarkaVectorIR.BoundedDivide,
+            VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.Cond,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.NarrowLane {
 
@@ -88,6 +88,8 @@ public sealed interface VarkaVectorIR
       case IntNeg n -> n.child().laneType();
       case ConstDivide n -> n.child().laneType();
       case BoundedDivide n -> LaneType.INT;
+      case BitOp n -> n.left().laneType();
+      case BitCount n -> n.child().laneType();
       case Greatest n -> n.left().laneType();
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
@@ -191,6 +193,12 @@ public sealed interface VarkaVectorIR
 
   /** The lane-wise integer operation an {@link IntArith} performs. */
   enum IntOp { ADD, SUB, MUL }
+
+  /**
+   * The lane-wise bitwise operation a {@link BitOp} performs: the three logical ones and Java's
+   * three shifts, {@code <<}, {@code >>} and {@code >>>}.
+   */
+  enum BitOpKind { AND, OR, XOR, SHL, SHR, USHR }
 
   /**
    * What an integer operation does when its result leaves the int32 range, which is
@@ -655,6 +663,39 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * {@code left OP right} lane-wise for one of the bitwise operations of {@link BitOpKind} -
+   * Spark's {@code BitwiseAnd}, {@code BitwiseOr} and {@code BitwiseXor}, and {@code ShiftLeft},
+   * {@code ShiftRight} and {@code ShiftRightUnsigned} with {@code right} the shift count. Both
+   * operands are on the node's lane, which the constructor requires to agree: a {@code BIGINT}
+   * shifted by an {@code INT} literal carries the count as a long literal, and one shifted by an
+   * {@code INT} column is a width conversion, which this node does not do.
+   *
+   * <p>The shifts mask their count as Java does, to its low five bits at the int lane and six at
+   * the long lane, because the Vector API's {@code LSHL}, {@code ASHR} and {@code LSHR} are
+   * defined with exactly that mask; Spark's shift expressions are Java's operators, so a count
+   * of 33 or -1 is answered as the row engine answers it. No operation here overflows or nulls a
+   * valid lane, so the node is null-intolerant like every plain binary node: its result is
+   * valid where both operands are. {@code ~x} is {@code XOR} with a literal -1, which is why the
+   * IR has no unary bitwise node.
+   */
+  record BitOp(BitOpKind op, VarkaVectorIR left, VarkaVectorIR right) implements VarkaVectorIR {
+    public BitOp {
+      Objects.requireNonNull(op, "op");
+      requireSameLane("a bitwise operation", left, right);
+    }
+  }
+
+  /**
+   * Spark's {@code bit_count}: the number of one bits of the value sign-extended to 64 bits,
+   * {@code Long.bitCount} of the widened operand, which is what {@code BitwiseCount} computes for
+   * every integral type. At the long lane that is the popcount itself. At the int lane the 32
+   * high bits the widening adds are all ones exactly when the value is negative, so the count is
+   * {@code bitCount(x) + ((x >> 31) & 32)}. The result is at most 64 on both lanes, so a long-lane
+   * count can be delivered as an int column by a {@link NarrowLane} root.
+   */
+  record BitCount(VarkaVectorIR child) implements VarkaVectorIR {}
+
+  /**
    * {@code left OP right} over two operands on one lane, which the constructor requires to
    * agree - dates at the int lane, and the mask this produces is of that lane's species.
    * Null-intolerant: the result is known (true or false) exactly where both operands are valid,
@@ -1074,6 +1115,9 @@ public sealed interface VarkaVectorIR
       case ConstDivide n -> "(divc:" + n.divisor() + " " + canonical(n.child()) + ")";
       case BoundedDivide n ->
           "(divb:" + n.divisor() + "/" + n.bound() + " " + canonical(n.child()) + ")";
+      case BitOp n -> "(bit:" + n.op().name() + " " + canonical(n.left()) + " "
+          + canonical(n.right()) + ")";
+      case BitCount n -> "(bitCount " + canonical(n.child()) + ")";
     };
   }
 
@@ -1157,6 +1201,9 @@ public sealed interface VarkaVectorIR
       case ConstDivide n -> "(divc:" + n.divisor() + " " + lineOf.applyAsInt(n.child()) + ")";
       case BoundedDivide n ->
           "(divb:" + n.divisor() + "/" + n.bound() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case BitOp n -> "(bit:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "
+          + lineOf.applyAsInt(n.right()) + ")";
+      case BitCount n -> "(bitCount " + lineOf.applyAsInt(n.child()) + ")";
     };
   }
 
@@ -1214,6 +1261,8 @@ public sealed interface VarkaVectorIR
       case IntNeg n -> new VarkaVectorIR[] {n.child()};
       case ConstDivide n -> new VarkaVectorIR[] {n.child()};
       case BoundedDivide n -> new VarkaVectorIR[] {n.child()};
+      case BitOp n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case BitCount n -> new VarkaVectorIR[] {n.child()};
     };
   }
 
@@ -1275,6 +1324,8 @@ public sealed interface VarkaVectorIR
       case ConstDivide n -> new ConstDivide(children[0], n.divisor(), n.dividendBound());
       case BoundedDivide n -> new BoundedDivide(
           children[0], n.divisor(), n.bound(), n.multiplier(), n.shift());
+      case BitOp n -> new BitOp(n.op(), children[0], children[1]);
+      case BitCount n -> new BitCount(children[0]);
     };
   }
 

@@ -112,17 +112,17 @@ try_divide|double,dec!|same||semantics|342|zero divisor gives null; decimal divi
 try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
 try_subtract|NUM,IVL|same||semantics|330,104,103,342,349,360|overflow gives null
 try_multiply|NUM|same||semantics|330,104,342,349,361,362|overflow gives null
-shiftleft|int,bigint|same||plumbing|335|item 32; byte and short widen to int first
-shiftright|int,bigint|same||plumbing|335|item 32
-shiftrightunsigned|int,bigint|same||plumbing|335|item 32
-&|INTEGRAL|same||plumbing|335|item 32
-~|INTEGRAL|same||plumbing|335|item 32
-||INTEGRAL|same||plumbing|335|item 32
-^|INTEGRAL|same||plumbing|335|item 32
-<<|int,bigint|same||plumbing|335|alias of shiftleft
->>|int,bigint|same||plumbing|335|alias of shiftright
->>>|int,bigint|same||plumbing|335|alias of shiftrightunsigned
-bit_count|INTEGRAL,bool|int||plumbing|335|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int
+shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column waits on row 28 (335b)
+shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column waits on row 28 (335b)
+shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column waits on row 28 (335b)
+&|INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
+~|INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
+||INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
+^|INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
+<<|int,bigint|same|int,bigint|done||alias of shiftleft
+>>|int,bigint|same|int,bigint|done||alias of shiftright
+>>>|int,bigint|same|int,bigint|done||alias of shiftrightunsigned
+bit_count|INTEGRAL,bool|int|int,bigint|plumbing|335,329,331|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, as an output only until row 28; byte, short and bool with rows 329 and 331 (335b)
 bit_get|INTEGRAL|byte||plumbing|335|item 32; the byte result was its blocker
 getbit|INTEGRAL|byte||plumbing|335|alias of bit_get
 add_months|date,int|date|date,int|done||
@@ -179,8 +179,8 @@ double|legal|double||semantics|343,364,366|cast alias
 decimal|legal|dec||semantics|350,364,366|cast alias; DECIMAL(10,0) by default
 date|legal|date||plumbing|340|cast alias
 time|legal|time||plumbing|340|cast alias; TIME widening is fused today
-bitmap_bucket_number|bigint|bigint||plumbing|335|a division and an offset over a constant
-bitmap_bit_position|bigint|bigint||plumbing|335|a remainder over a constant
+bitmap_bucket_number|bigint|bigint|bigint|done||a shift and an offset over a blend, proven by SMT (bitmap.smt2)
+bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SMT (bitmap.smt2)
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error

@@ -130,6 +130,18 @@ public final class VarkaReference {
       // The definition, a true division: the kernel's single multiply must agree with it over
       // the bound, and a dividend outside the bound is one the suites never hand the kernel.
       case BoundedDivide n -> map(n.child(), row, isNull, lits, v -> v / n.divisor());
+      // Java's own operators, which are what Spark's bitwise and shift expressions evaluate:
+      // the shifts mask their count to five bits here, as `x << n` does.
+      case BitOp n -> both(n.left(), n.right(), row, isNull, lits, (a, b) -> switch (n.op()) {
+        case AND -> a & b;
+        case OR -> a | b;
+        case XOR -> a ^ b;
+        case SHL -> a << b;
+        case SHR -> a >> b;
+        case USHR -> a >>> b;
+      });
+      // BitwiseCount's definition: the popcount of the value widened to a long.
+      case BitCount n -> map(n.child(), row, isNull, lits, v -> Long.bitCount((long) v));
       case Greatest(var left, var right) ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits), Math::max);
       case Least(var left, var right) ->
@@ -327,6 +339,31 @@ public final class VarkaReference {
           ? longValue(thenNode, row, isNull, lits) : longValue(elseNode, row, isNull, lits);
       case BoundedDivide n -> throw new IllegalArgumentException(
           "a bounded division is an int-lane node: " + n);
+      // Java's long operators: the shifts mask their count to six bits.
+      case BitOp n -> {
+        var l = longValue(n.left(), row, isNull, lits);
+        if (l.isEmpty()) {
+          yield l;
+        }
+        var r = longValue(n.right(), row, isNull, lits);
+        if (r.isEmpty()) {
+          yield r;
+        }
+        long a = l.getAsLong();
+        long b = r.getAsLong();
+        yield OptionalLong.of(switch (n.op()) {
+          case AND -> a & b;
+          case OR -> a | b;
+          case XOR -> a ^ b;
+          case SHL -> a << b;
+          case SHR -> a >> b;
+          case USHR -> a >>> b;
+        });
+      }
+      case BitCount n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(Long.bitCount(c.getAsLong()));
+      }
       case AddDays n -> noLongReference(n);
       case SubDays n -> noLongReference(n);
       case DateDiff n -> noLongReference(n);

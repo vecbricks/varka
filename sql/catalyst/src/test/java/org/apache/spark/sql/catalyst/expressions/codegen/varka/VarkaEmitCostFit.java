@@ -33,6 +33,9 @@ import java.util.TreeSet;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitCostCorpus.Group;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitCostCorpus.Shape;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -146,6 +149,10 @@ final class VarkaEmitCostFit {
       }
       f.add("ConstDivide/" + lane + "/pos");
       f.add("ConstDivide/" + lane + "/neg");
+      for (BitOpKind op : BitOpKind.values()) {
+        f.add("BitOp/" + op + "/" + lane);
+      }
+      f.add("BitCount/" + lane);
     }
     for (TruncLevel level : TruncLevel.values()) {
       f.add("TruncDate/" + level);
@@ -257,7 +264,7 @@ final class VarkaEmitCostFit {
   private static VarkaVectorIR synthetic(String feature) {
     String[] p = feature.split("/");
     if (!Set.of("IntArith", "IntNeg", "Compare", "Greatest", "Least", "IsNotNull", "And", "Or",
-        "Not", "ConstDivide").contains(p[0])) {
+        "Not", "ConstDivide", "BitOp", "BitCount").contains(p[0])) {
       return null;
     }
     LaneType lane = LaneType.valueOf(p[0].equals("ConstDivide") ? p[1] : p[p.length - 1]);
@@ -274,6 +281,8 @@ final class VarkaEmitCostFit {
       case "And" -> new And(cmp, new Compare(CompareOp.GT, c0, c1));
       case "Or" -> new Or(cmp, new Compare(CompareOp.GT, c0, c1));
       case "Not" -> new Not(cmp);
+      case "BitOp" -> new BitOp(BitOpKind.valueOf(p[1]), c0, c1);
+      case "BitCount" -> new BitCount(c0);
       case "ConstDivide" -> new ConstDivide(c0, p[2].equals("neg") ? -7 : 7,
           lane == LaneType.LONG ? ConstDivide.EXACT_DIVIDEND_BOUND : Integer.MAX_VALUE);
       default -> null;

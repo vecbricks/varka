@@ -42,6 +42,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordOwne
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -861,6 +863,8 @@ final class Slots {
       case IntNeg n -> s.wordRef.get(n.child());
       case ConstDivide n -> s.wordRef.get(n.child());
       case BoundedDivide n -> s.wordRef.get(n.child());
+      case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
+      case BitCount n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1309,6 +1313,8 @@ final class Slots {
         case IntNeg x -> { }
         case ConstDivide x -> { }
         case BoundedDivide x -> { }
+        case BitOp x -> { }
+        case BitCount x -> { }
         case IfElse x -> { }
         case And x -> { }
         case Or x -> { }
@@ -1374,6 +1380,9 @@ final class Slots {
         case IntNeg x -> { }
         case ConstDivide x -> { }
         case BoundedDivide x -> { }
+        case BitOp x -> { demand(analysis.wordOwner.get(x.left()));
+          demand(analysis.wordOwner.get(x.right())); }
+        case BitCount x -> { }
         case Compare x -> { }
         case And x -> { }
         case Or x -> { }

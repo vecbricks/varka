@@ -60,6 +60,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     new IntNeg(Overflow.WRAP, intCol),
     new ConstDivide(intCol, 12),
     BoundedDivide.of(intCol, 60, 3600),
+    new BitOp(BitOpKind.SHL, intCol, intLit),
+    new BitCount(intCol),
     new Compare(CompareOp.LT, intCol, intLit),
     new And(new IsNotNull(intCol), new IsNotNull(intCol)),
     new Or(new IsNotNull(intCol), new IsNotNull(intCol)),
@@ -89,7 +91,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val derivesItsLane: Set[Class[_]] = Set(
     classOf[IntArith], classOf[IntNeg], classOf[Greatest], classOf[Least], classOf[IfElse],
     classOf[Compare], classOf[And], classOf[Or], classOf[Not], classOf[IsNotNull],
-    classOf[ConstDivide], classOf[GuardedRange])
+    classOf[ConstDivide], classOf[GuardedRange], classOf[BitOp], classOf[BitCount])
 
   /** Every concrete node type the sealed hierarchy permits, nested interfaces expanded. */
   private def concreteNodeTypes(root: Class[_]): Set[Class[_]] =
@@ -121,6 +123,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val nodes = Seq(
       new IntArith(IntOp.MUL, Overflow.WRAP, longCol, longLit),
       new IntNeg(Overflow.FAIL, longCol),
+      new BitOp(BitOpKind.XOR, longCol, longLit),
+      new BitCount(longCol),
       new Greatest(longCol, longLit),
       new Least(longCol, longLit),
       new IfElse(new Compare(CompareOp.GT, longCol, longLit), longCol, longLit),
@@ -306,6 +310,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
           new InRanges(c, java.util.List.of(Integer.valueOf(-10), Integer.valueOf(10)))
         case "ConstDivide" => new ConstDivide(c, 12, ConstDivide.EXACT_DIVIDEND_BOUND)
         case "BoundedDivide" => BoundedDivide.of(c, 60, 3600)
+        case "BitOp" => new BitOp(BitOpKind.USHR, c, c1)
+        case "BitCount" => new BitCount(c)
         case "Greatest" => new Greatest(c, c1)
         case "Least" => new Least(c, c1)
         case "Compare" => new Compare(CompareOp.LT, c, c1)
@@ -367,9 +373,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
       "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide", "GuardedRange",
-      "NarrowLane"),
-      "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard and " +
-        "its narrowing root")
+      "NarrowLane", "BitOp", "BitCount"),
+      "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
+        "its narrowing root and VARKA-335's bitwise operations")
   }
 
   test("a narrowing is an int over a long child, emitted at the long lane, and a root only") {

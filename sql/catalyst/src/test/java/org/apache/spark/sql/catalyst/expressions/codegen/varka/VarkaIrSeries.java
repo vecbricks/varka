@@ -35,6 +35,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar.Ge
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -331,6 +334,7 @@ public final class VarkaIrSeries {
       out.add(new Gen(new ThursdayOf(n), VarkaIrGrammar.satAdd(a.bound(), 3)));
       out.add(new Gen(new DayOfWeekIso(n), 7));
       out.add(new Gen(new IntNeg(Overflow.WRAP, n), a.bound()));
+      out.add(new Gen(new BitCount(n), Long.SIZE));
       // Negation overflows on one value, which a bound inside the int range rules out.
       if (!gated || a.bound() <= Integer.MAX_VALUE) {
         out.add(new Gen(new IntNeg(Overflow.FAIL, n), a.bound()));
@@ -384,6 +388,9 @@ public final class VarkaIrSeries {
       }
       out.add(new Gen(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(), b.node()),
           VarkaIrGrammar.satMul(a.bound(), b.bound())));
+      for (BitOpKind op : BitOpKind.values()) {
+        out.add(new Gen(new BitOp(op, a.node(), b.node()), VarkaIrGrammar.INT_LANE_BOUND));
+      }
       return out;
     }
 
@@ -473,6 +480,7 @@ public final class VarkaIrSeries {
     private List<Gen> unary(Gen a) {
       var out = new ArrayList<Gen>();
       out.add(new Gen(new IntNeg(Overflow.WRAP, a.node()), a.bound()));
+      out.add(new Gen(new BitCount(a.node()), Long.SIZE));
       if (!saturated(a.bound())) {
         out.add(new Gen(new IntNeg(Overflow.FAIL, a.node()), a.bound()));
       }
@@ -504,6 +512,9 @@ public final class VarkaIrSeries {
           VarkaIrGrammar.satMul(a.bound(), b.bound())));
       out.add(new Gen(new Greatest(a.node(), b.node()), Math.max(a.bound(), b.bound())));
       out.add(new Gen(new Least(a.node(), b.node()), Math.max(a.bound(), b.bound())));
+      for (BitOpKind op : BitOpKind.values()) {
+        out.add(new Gen(new BitOp(op, a.node(), b.node()), Long.MAX_VALUE));
+      }
       return out;
     }
 

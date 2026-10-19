@@ -644,6 +644,11 @@ final class VarkaEmitBudget {
           : INT_CONST_DIVIDE_WEIGHT + (n.divisor() < 0 ? 1 : 0);
       // The single multiply-high and its shift.
       case BoundedDivide _ -> 2;
+      // One lanewise op: the logical operation, or the shift by its count's vector.
+      case BitOp _ -> 1;
+      // The popcount alone at the long lane; at the int lane the popcount, the sign shift, the
+      // mask and the add of the widening's 32 high bits.
+      case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
     };
   }
 

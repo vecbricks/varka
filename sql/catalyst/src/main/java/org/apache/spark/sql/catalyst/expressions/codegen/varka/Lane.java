@@ -104,6 +104,8 @@ enum Lane {
   final MethodTypeDesc lanewiseBinaryV;
   /** {@code V V.lanewise(VectorOperators.Binary, scalar)} - the shifts. */
   final MethodTypeDesc lanewiseBinaryI;
+  /** {@code V V.lanewise(VectorOperators.Unary)} - the popcount. */
+  final MethodTypeDesc lanewiseUnary;
   /** {@code VectorMask V.compare(VectorOperators.Comparison, Vector)} - erased. */
   final MethodTypeDesc compareVV;
   /** {@code VectorMask V.compare(VectorOperators.Comparison, scalar)}. */
@@ -136,6 +138,7 @@ enum Lane {
     this.lanewiseVIMasked = MethodTypeDesc.of(vector, scalar, VECTOR_MASK);
     this.lanewiseBinaryV = MethodTypeDesc.of(vector, VO_BINARY, VECTOR);
     this.lanewiseBinaryI = MethodTypeDesc.of(vector, VO_BINARY, scalar);
+    this.lanewiseUnary = MethodTypeDesc.of(vector, VO_UNARY);
     this.compareVV = MethodTypeDesc.of(VECTOR_MASK, VO_COMPARISON, VECTOR);
     this.compareVI = MethodTypeDesc.of(VECTOR_MASK, VO_COMPARISON, scalar);
     this.blend = MethodTypeDesc.of(vector, VECTOR, VECTOR_MASK);

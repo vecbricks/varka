@@ -29,6 +29,8 @@ import java.util.Set;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -210,6 +212,8 @@ final class VarkaVectorWalk {
         cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
         emitShift(cb, "LSHR", n.shift());
       }
+      case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
+      case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         analysis.lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
@@ -502,6 +506,64 @@ final class VarkaVectorWalk {
     }
     analysis.lane.pushScalar(cb, -1);
     cb.invokevirtual(analysis.lane.vector, "mul", analysis.lane.lanewiseVI);
+  }
+
+  /**
+   * {@code BitOp}: one {@code lanewise} by the operator, the right operand a vector whether it is
+   * a column or a broadcast literal, so a shift by a literal count and by a column count are one
+   * emission. The Vector API's shifts mask their count to the lane's width as Java's operators
+   * do. Null-intolerant, so the word is the operands' AND, as {@link #emitAndValidatedOp} stores
+   * it.
+   */
+  private static void emitBitOp(CodeBuilder cb, BitOp n, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.left(), dense, analysis, s, computed);
+    emitValue(cb, n.right(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    // The logical operators are declared Associative and the shifts Binary, and a getstatic
+    // names the field's declared type.
+    switch (n.op()) {
+      case AND -> cb.getstatic(VECTOR_OPERATORS, "AND", VO_ASSOCIATIVE);
+      case OR -> cb.getstatic(VECTOR_OPERATORS, "OR", VO_ASSOCIATIVE);
+      case XOR -> cb.getstatic(VECTOR_OPERATORS, "XOR", VO_ASSOCIATIVE);
+      case SHL -> cb.getstatic(VECTOR_OPERATORS, "LSHL", VO_BINARY);
+      case SHR -> cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
+      case USHR -> cb.getstatic(VECTOR_OPERATORS, "LSHR", VO_BINARY);
+    }
+    // [left, right, op] -> [left, op, right], the receiver's argument order.
+    cb.swap();
+    cb.invokevirtual(analysis.lane.vector, "lanewise", analysis.lane.lanewiseBinaryV);
+    if (!dense && s.ownWord.contains(n)) {
+      emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
+    }
+  }
+
+  /**
+   * {@code BitCount}: the popcount of the value widened to 64 bits. The long lane's is the
+   * popcount itself. The int lane adds the 32 one bits a negative value gains in the widening:
+   * {@code bitCount(x) + ((x >> 31) & 32)}, the operand's second copy riding the stack under the
+   * popcount. The word is the operand's, since nothing here nulls a lane.
+   */
+  private static void emitBitCount(CodeBuilder cb, BitCount n, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.lane;
+    if (lane == Lane.LONG) {
+      cb.getstatic(VECTOR_OPERATORS, "BIT_COUNT", VO_UNARY);
+      cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseUnary);
+      return;
+    }
+    cb.dup();                                                       // [x, x]
+    cb.getstatic(VECTOR_OPERATORS, "BIT_COUNT", VO_UNARY);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseUnary);  // [x, pop32(x)]
+    cb.swap();                                                      // [pop32(x), x]
+    cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
+    cb.loadConstant(Integer.SIZE - 1);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseBinaryI);  // [pop32(x), x >> 31]
+    cb.loadConstant(Integer.SIZE);
+    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);          // [pop32(x), high]
+    cb.invokevirtual(lane.vector, "add", lane.lanewiseVV);
   }
 
   /**

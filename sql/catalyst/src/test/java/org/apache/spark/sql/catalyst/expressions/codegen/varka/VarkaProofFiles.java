@@ -29,6 +29,7 @@ import java.util.function.IntBinaryOperator;
 import java.util.function.IntUnaryOperator;
 import java.util.function.LongBinaryOperator;
 
+import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
@@ -73,6 +74,7 @@ final class VarkaProofFiles {
     files.put("range_analysis.smt2", rangeAnalysis());
     files.put("range_calendar.smt2", rangeCalendar());
     files.put("time_bounds.smt2", timeBounds());
+    files.put("bitmap.smt2", bitmap());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -1777,6 +1779,80 @@ final class VarkaProofFiles {
               "(assert (not (< (* n " + unit + ") " + day + ")))"));
     }
     return out.toString();
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The bitmap functions (VARKA-335).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * {@code bitmap.smt2}: {@code VarkaNodeCompiler.bitmap}'s lowering of
+   * {@code bitmap_bucket_number} and {@code bitmap_bit_position} is
+   * {@code BitmapExpressionUtils}' for every long, with the shift and the mask rendered from
+   * Spark's {@code NUM_BITS} as the compiler derives them.
+   */
+  static String bitmap() {
+    long n = BitmapExpressionUtils.NUM_BITS;
+    int shift = Long.numberOfTrailingZeros(n);
+    if (1L << shift != n) {
+      throw new IllegalStateException("bitmap.smt2 states a shift and a mask for a power of two, "
+          + "and NUM_BITS is " + n);
+    }
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The bitmap functions' lowering (VARKA-335) is Spark's for every long. Spark's
+        ; BitmapExpressionUtils, with N = NUM_BITS:
+        ;
+        ;   bitmapBucketNumber(v) = v > 0 ? 1 + (v - 1) / N : v / N
+        ;   bitmapBitPosition(v)  = v > 0 ? (v - 1) % N : (-v) % N
+        ;
+        ; VarkaNodeCompiler.bitmap, over the long lane, with N = 2^shift:
+        ;
+        ;   w = v > 0 ? v - 1 : -v           a blend of a wrapping subtract and negate
+        ;   position = w & (N - 1)
+        ;   q = w >>> shift
+        ;   bucket = v > 0 ? q + 1 : -q      a second blend on the same comparison
+        ;
+        ; w is never negative but at Long.MIN_VALUE, where -v wraps to itself, Spark's (-v) % N
+        ; is 0 and so is the mask, and w >>> shift is 2^(63 - shift), whose negation is
+        ; Long.MIN_VALUE / N. Every operation is by a constant, so each claim is linear. Beside
+        ; them, that the domain admits Long.MIN_VALUE, and the neighbours: the shift one less, the
+        ; mask one bit narrower, and the arithmetic shift in place of the logical one. The logic
+        ; is ALL because cvc5 answers the position's claim unknown under QF_NIA and proves it in a
+        ; fraction of a second under ALL.
+        """);
+    out.append(rendered("ALL"));
+    String v = "(declare-const v Int)\n(assert (jlong.in v))";
+    String w = "(define-fun w () Int (ite (> v 0) (jlong.sub v 1) (jlong.neg v)))";
+    String bucketSpec = "(ite (> v 0) (jlong.add 1 (jlong.div (jlong.sub v 1) " + n
+        + ")) (jlong.div v " + n + "))";
+    String positionSpec = "(ite (> v 0) (jlong.rem (jlong.sub v 1) " + n
+        + ") (jlong.rem (jlong.neg v) " + n + "))";
+    check(out, "bitmap_bucket_number: the lowering is BitmapExpressionUtils.bitmapBucketNumber "
+        + "for every long", "unsat",
+        List.of(v, w, "(assert (not (= " + bitmapBucket("jlong.ushr", shift) + " " + bucketSpec
+            + ")))"));
+    check(out, "bitmap_bit_position: the lowering is BitmapExpressionUtils.bitmapBitPosition "
+        + "for every long", "unsat",
+        List.of(v, w, "(assert (not (= (jlong.and.low w " + n + ") " + positionSpec + ")))"));
+    check(out, "the domain admits Long.MIN_VALUE, where -v wraps", "sat",
+        List.of(v, w, "(assert (= v jlong.MIN))", "(assert (= w jlong.MIN))"));
+    check(out, "bitmap_bucket_number: with the shift one less it is not", "sat",
+        List.of(v, w, "(assert (not (= " + bitmapBucket("jlong.ushr", shift - 1) + " "
+            + bucketSpec + ")))"));
+    check(out, "bitmap_bucket_number: with the arithmetic shift it is not, at Long.MIN_VALUE",
+        "sat", List.of(v, w, "(assert (not (= " + bitmapBucket("jlong.shr", shift) + " "
+            + bucketSpec + ")))"));
+    check(out, "bitmap_bit_position: with the mask a bit narrower it is not", "sat",
+        List.of(v, w, "(assert (not (= (jlong.and.low w " + (n / 2) + ") " + positionSpec
+            + ")))"));
+    return out.toString();
+  }
+
+  /** The lowering's bucket over {@code w}, with {@code op} its shift by {@code k}. */
+  private static String bitmapBucket(String op, int k) {
+    return "(ite (> v 0) (jlong.add (" + op + " w " + k + ") 1) (jlong.neg (" + op + " w " + k
+        + ")))";
   }
 
   // -----------------------------------------------------------------------------------------
