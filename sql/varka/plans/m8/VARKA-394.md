@@ -117,7 +117,9 @@ Locally, under the shared slots, from this branch's build (`dev/varka_matrix.sh 
   matrix script, for the per-test times of prediction 1 and 2;
 * one configuration's whole catalyst module, for the layout and its times.
 
-What only the runners show: the dispatch on this branch. The workflow has no shard selector, so the
+What only the runners show: the matrix's first dispatch on master after the merge. It cannot run
+on this branch: the fork the pull request comes from does not carry the workflow on its default
+branch, and the branch is not pushed to vecbricks/varka. The workflow has no shard selector, so the
 whole matrix is dispatched; section 8 says which shards must change.
 
 ## 6. Explicitly out of this row
@@ -208,8 +210,8 @@ sentence on why the fuzz suite ran out, which had named the options as the cause
 this file, the count of nineteen and the far-day batches with the null row. The seventh, the
 commit's attribution line, is the form the row's rules set.
 
-**What only the runners show.** The dispatch of `varka-option-matrix.yml` on this branch. The
-shards that must change are 0 (`arrowBatchSize=3`, the validity subject), 1 (`validityByBitmap=false`),
+**What only the runners show.** The first dispatch of `varka-option-matrix.yml` on master after
+the merge (section 5 says why not on this branch). The shards that must change are 0 (`arrowBatchSize=3`, the validity subject), 1 (`validityByBitmap=false`),
 2 (`checkIntOverflow=false`), 3 (`driverOutputTable=false`, `lanesOverride=4`), 4
 (`lanesOverride=16`), 5 (`splitDriver=false`), 7 (`methodByteBudget=0`), 10 (`useAVX=0`,
 `groupLocalSlots=false`) and 11 (`arrowBatchSize=1`); shard 1's `heavyGroupOutputs=0` failure is
