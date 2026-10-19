@@ -1,0 +1,105 @@
+# The template warm-up in VarkaWarmupEndToEndSuite, eighteen JVMs, 19 October 2026, on the laptop
+# (AMD Zen 5, JDK 25.0.4.1) with -XX:MaxVectorSize=32 and -Xlog:safepoint, pinned with taskset
+# to four cores (0-3, CICompilerCount 3, two C2 threads) or two (0-1, CICompilerCount 2, one C2
+# thread).
+# master = e11d025e91e; fix = VARKA-395 with a pacing budget of 5000 ms (the budget never bound;
+# the shipped 2000 ms is set from these waits). fix2b and fix2c ran at a load average of 7 to 20
+# from other agents' JVMs; the rest at 0.5 to 7.
+# Per run: the suite's result, the warm-up's own log line, and the PrintCompileQueue safepoints of
+# the test JVM: count, summed total time (time to reach the safepoint plus the operation), the
+# median and the largest single one.
+
+== master4a
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 167 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 6 during them, against the policy's limit of 10 and the pacing's target of 4; waited 41 ms for it.
+PrintCompileQueue safepoints: 309, total 6190 us, median 10 us, largest 192 us
+
+== master4b
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 231 ms, before the JVM's first vector code; C2's queue was 2 before the rounds and at most 6 during them, against the policy's limit of 10 and the pacing's target of 4; waited 105 ms for it.
+PrintCompileQueue safepoints: 321, total 7843 us, median 10 us, largest 379 us
+
+== master4c
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 232 ms, before the JVM's first vector code; C2's queue was 2 before the rounds and at most 6 during them, against the policy's limit of 10 and the pacing's target of 4; waited 110 ms for it.
+PrintCompileQueue safepoints: 322, total 7132 us, median 11 us, largest 82 us
+
+== master2a
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 274 ms, before the JVM's first vector code; C2's queue was 4 before the rounds and at most 5 during them, against the policy's limit of 10 and the pacing's target of 4; waited 95 ms for it.
+PrintCompileQueue safepoints: 311, total 23989 us, median 9 us, largest 3371 us
+
+== master2b
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 361 ms, before the JVM's first vector code; C2's queue was 4 before the rounds and at most 9 during them, against the policy's limit of 10 and the pacing's target of 4; waited 188 ms for it.
+PrintCompileQueue safepoints: 331, total 13742 us, median 10 us, largest 736 us
+
+== master2c
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 310 ms, before the JVM's first vector code; C2's queue was 7 before the rounds and at most 8 during them, against the policy's limit of 10 and the pacing's target of 4; waited 143 ms for it.
+PrintCompileQueue safepoints: 322, total 23762 us, median 17 us, largest 3358 us
+
+== fix4a
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 293 ms, before the JVM's first vector code; C2's queue was 0 before the rounds and at most 7 during them, against the policy's limit of 10 and the pacing's target of 4; waited 149 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 315, total 7344 us, median 12 us, largest 136 us
+
+== fix4b
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 203 ms, before the JVM's first vector code; C2's queue was 11 before the rounds and at most 11 during them, against the policy's limit of 10 and the pacing's target of 4; waited 54 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 307, total 7211 us, median 12 us, largest 144 us
+
+== fix4c
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 335 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 8 during them, against the policy's limit of 10 and the pacing's target of 4; waited 181 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 318, total 9099 us, median 13 us, largest 457 us
+
+== fix2a
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 424 ms, before the JVM's first vector code; C2's queue was 0 before the rounds and at most 6 during them, against the policy's limit of 5 and the pacing's target of 2; waited 263 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 325, total 17678 us, median 8 us, largest 3521 us
+
+== fix2b
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 731 ms, before the JVM's first vector code; C2's queue was 4 before the rounds and at most 7 during them, against the policy's limit of 5 and the pacing's target of 2; waited 422 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 329, total 36351 us, median 12 us, largest 6011 us
+
+== fix2c
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 828 ms, before the JVM's first vector code; C2's queue was 19 before the rounds and at most 19 during them, against the policy's limit of 5 and the pacing's target of 2; waited 537 ms for it, of a budget of 5000.
+PrintCompileQueue safepoints: 338, total 28464 us, median 11 us, largest 6410 us
+
+# The shipped code (budget 2000 ms), four cores, three more JVMs at a load average of 5 to 10.
+
+== fix4d
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 298 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 5 during them, against the policy's limit of 10 and the pacing's target of 4; waited 94 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 306, total 18823 us, median 19 us, largest 3335 us
+
+== fix4e
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 514 ms, before the JVM's first vector code; C2's queue was 6 before the rounds and at most 8 during them, against the policy's limit of 10 and the pacing's target of 4; waited 275 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 322, total 31261 us, median 22 us, largest 3805 us
+
+== fix4f
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 477 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 5 during them, against the policy's limit of 10 and the pacing's target of 4; waited 220 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 316, total 34414 us, median 12 us, largest 4086 us
+
+# The shipped code after the review's changes (the log line now says "while paced"), four
+# cores, three more JVMs at a load average of 6 to 17.
+
+== fix4g
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 285 ms, before the JVM's first vector code; C2's queue was 5 before the rounds and at most 7 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 123 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 313, total 9559 us, median 15 us, largest 720 us
+
+== fix4h
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 423 ms, before the JVM's first vector code; C2's queue was 3 before the rounds and at most 6 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 171 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 310, total 32409 us, median 13 us, largest 5120 us
+
+== fix4i
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 367 ms, before the JVM's first vector code; C2's queue was 2 before the rounds and at most 7 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 184 ms for it, of a budget of 2000.
+PrintCompileQueue safepoints: 318, total 12820 us, median 17 us, largest 2099 us
