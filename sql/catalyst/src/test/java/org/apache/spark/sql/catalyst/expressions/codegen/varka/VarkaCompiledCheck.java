@@ -1368,8 +1368,13 @@ public final class VarkaCompiledCheck {
      * mappings. With the sanitizer off nothing is registered.
      */
     void call() {
-      VarkaKernelChecks.sanitized(kernel, rows, isLong ? 8L : 4L, srcData, srcValidity, outData,
-          outValidity, this);
+      long stride = isLong ? 8L : 4L;
+      long[] inStride = new long[srcData.length];
+      long[] outStride = new long[outData.length];
+      Arrays.fill(inStride, stride);
+      Arrays.fill(outStride, stride);
+      VarkaKernelChecks.sanitized(kernel, rows, inStride, outStride, srcData, srcValidity,
+          outData, outValidity, this);
     }
 
     @Override

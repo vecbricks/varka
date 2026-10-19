@@ -1,0 +1,53 @@
+================================================================================================
+kernels of both lanes against one lane
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16384 rows - every arm in L2:                   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              0           0       9972.0           0.1       1.0X
+l2 + l, the long lane                                       0              0           0       7790.8           0.1       0.8X
+cast(i AS bigint) < l, both lanes, a selection              0              0           0      11122.9           0.1       1.1X
+l2 < l, the long lane, a selection                          0              0           0      11198.9           0.1       1.1X
+cast(l AS int) + i, both lanes                              0              0           0      11206.6           0.1       1.1X
+i2 + i, the int lane                                        0              0           0       1160.7           0.9       0.1X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       5160.3           0.2       0.5X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - every arm in L3:                  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              0           0       7547.0           0.1       1.0X
+l2 + l, the long lane                                       0              0           0       6298.8           0.2       0.8X
+cast(i AS bigint) < l, both lanes, a selection              0              0           0      11450.8           0.1       1.5X
+l2 < l, the long lane, a selection                          0              0           0       9351.6           0.1       1.2X
+cast(l AS int) + i, both lanes                              0              0           0       7919.3           0.1       1.0X
+i2 + i, the int lane                                        0              0           0      12927.5           0.1       1.7X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       4806.3           0.2       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows - the long arms leave L3:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              0           0       4166.3           0.2       1.0X
+l2 + l, the long lane                                       0              0           0       3378.6           0.3       0.8X
+cast(i AS bigint) < l, both lanes, a selection              0              0           0       9867.8           0.1       2.4X
+l2 < l, the long lane, a selection                          0              0           0       6775.3           0.1       1.6X
+cast(l AS int) + i, both lanes                              0              0           0       6195.7           0.2       1.5X
+i2 + i, the int lane                                        0              0           0      12256.0           0.1       2.9X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       2962.1           0.3       0.7X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+8388608 rows - every arm past L3:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           4              4           0       2020.1           0.5       1.0X
+l2 + l, the long lane                                       5              5           0       1804.6           0.6       0.9X
+cast(i AS bigint) < l, both lanes, a selection              2              2           0       4605.9           0.2       2.3X
+l2 < l, the long lane, a selection                          3              3           0       3085.3           0.3       1.5X
+cast(l AS int) + i, both lanes                              3              3           0       2926.7           0.3       1.4X
+i2 + i, the int lane                                        2              2           0       3889.6           0.3       1.9X
+cast(i AS bigint) + l, a scalar loop                        5              5           0       1828.5           0.5       0.9X
+
+

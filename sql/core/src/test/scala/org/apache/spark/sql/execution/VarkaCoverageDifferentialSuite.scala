@@ -549,14 +549,12 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   private val ansiDeclined: Map[(String, String), String] = {
     val intCoalesce = "Varka's COALESCE takes only a bare date column before its last operand, " +
       "and compiles no bare int column as a value (m9/SCOPE.md item 55)"
-    val narrowed = "an int computed on the long lane is narrowed only at a kernel's store, so " +
-      "it cannot sit under a CASE, a COALESCE or a comparison with an int (VARKA-28)"
     val intValued = Seq("datediff(d2, d)", "unix_date(d)", "year(d)", "month(d)", "day(d)",
       "quarter(d)", "dayofyear(d)", "dayofweek(d)", "weekday(d)",
       "extract(DAYOFWEEK_ISO FROM d)", "weekofyear(d)", "extract(YEAROFWEEK FROM d)",
       "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
-      "-i", "year(d) + i", "CAST(ymm AS INT)")
-    val timeFields = Seq("hour(t)", "minute(t2)", "second(t)")
+      "-i", "year(d) + i", "CAST(ymm AS INT)", "hour(t)", "minute(t2)", "second(t)",
+      "hour(t) + 1", "CAST(time_to_millis(t) AS INT)")
     // `CAST(i AS INTERVAL DAY)` throws past `INTERVAL_DAY_LIMIT_DAYS`, so the compiler puts a
     // bound on `i` that the evaluator checks before the kernel runs; the bound belongs to the
     // column, not to the arm reading it, and the extremes row's `Int.MaxValue` declines the
@@ -574,8 +572,6 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     val checkedRight = Seq("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
       "ym - ymm", "i + 1", "year(d) + i")
     intValued.map(sql => (sql, CoalesceTail) -> intCoalesce).toMap ++
-      timeFields.flatMap(sql =>
-        Seq(CaseArm, CoalesceTail, FalseAnd).map(p => (sql, p) -> narrowed)) ++
       Seq(CaseArm, CoalesceTail, FalseAnd).map(p => (dayCast, p) -> columnBound) ++
       checkedRight.map(sql => (sql, FalseAnd) -> unqualified)
   }
@@ -818,7 +814,12 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     "time_from_micros(time_to_micros(t))" ->
       "a TIME's microsecond count is inside the day by construction",
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" ->
-      "a zero interval leaves the sum where the time was, inside the day")
+      "a zero interval leaves the sum where the time was, inside the day",
+    "CAST(time_to_millis(t) AS INT)" ->
+      "a day's milliseconds, under 86400000, always fit an int",
+    "CAST(time_to_millis(t) AS INT) > i" ->
+      "a day's milliseconds, under 86400000, always fit an int",
+    "hour(t) + 1" -> "an hour is at most 23, so the checked add cannot overflow")
 
   /** The statuses as the fallback accounting names them. */
   private def describe(statuses: Seq[Int]): String =
@@ -894,6 +895,9 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     val lits: Array[Long] =
       if (long) kernel.longLiterals.asScala.map(_.longValue).toArray
       else kernel.literals.asScala.map(_.longValue).toArray
+    // A kernel of both lanes (VARKA-28) reads the int table beside the long one.
+    val intLits: Array[Int] =
+      if (long) kernel.literals.asScala.map(_.intValue).toArray else Array.empty[Int]
     val ordinals = kernel.inputOrdinals.asScala.map(_.intValue).toSeq
     val types = child.output.map(_.dataType)
     val names = child.output.map(a => s"`${a.name}`").mkString(", ")
@@ -912,7 +916,7 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       val outside = kernel.inputBounds.asScala.exists(b =>
         batch.exists(_(b.inputIndex).exists(v => v < b.lo || v > b.hi)))
       if (outside) Verdict(VarkaKernelRunner.STATUS_INPUT_BOUND, 0)
-      else VarkaGuardSpec.verdict(guards, lits, batch, Nil)
+      else VarkaGuardSpec.verdict(guards, lits, intLits, batch, Nil)
     }
   }
 

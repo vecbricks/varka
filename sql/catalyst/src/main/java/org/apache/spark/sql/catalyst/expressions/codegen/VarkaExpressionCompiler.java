@@ -57,7 +57,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
-import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.package$;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -616,13 +615,13 @@ public final class VarkaExpressionCompiler {
           .map(ir -> sink.guardDayColumns(ir, marks.bounds()));
       if (compiled.isPresent()) {
         VarkaVectorIR ir = compiled.get();
-        // One kernel holds one lane: its loop, its epilogue and its stores are one species. The
-        // first fused entry fixes the lane and an entry of the other lane is demoted to residual
-        // with a reason that says so - checked here, before the budgets, because `fitsBudgets`
-        // would refuse the mix too but only answers yes or no, and a lane mismatch reported as a
-        // budget breach sends a reader hunting a chain-depth problem that is not there.
-        // VARKA-28's width conversion is what will let both lanes share a tree; until then the
-        // mixed projection fuses one lane and leaves the other.
+        // One kernel is driven at one lane: its loop, its epilogue and its driving stores are that
+        // lane's species. The first fused entry fixes the lane and an entry driven at the other is
+        // demoted to residual with a reason that says so - checked here, before the budgets,
+        // because `fitsBudgets` would refuse the mix too but only answers yes or no, and a lane
+        // mismatch reported as a budget breach sends a reader hunting a chain-depth problem that
+        // is not there. An entry that converts between lanes is driven at the long lane
+        // (VARKA-28), so it joins a long kernel and not an int one.
         LaneType lane = VarkaVectorIR.emissionLane(ir);
         if (!outputs.isEmpty() && lane != VarkaVectorIR.emissionLane(outputs.get(0))) {
           marks.restore(inputs, literals, sink);
@@ -856,19 +855,41 @@ public final class VarkaExpressionCompiler {
       if (compiled.isPresent()) {
         Cond cond = compiled.get();
         // The lane rule of `compilePartial`, for conjuncts: the AND fold below would refuse a mix
-        // by construction, so it is asked here first and answered with the lane's reason.
+        // by construction. Conjuncts of the two lanes meet on the long one, the int ones
+        // compared widened (VARKA-28); one with no long-lane form is declined with the lane's
+        // reason.
+        // The fused conjuncts as this one would leave them: lifted with it where the lanes
+        // differ, and committed only once the budget below takes them.
+        List<Cond> before = fused;
+        boolean liftedBefore = false;
         if (!fused.isEmpty() && cond.laneType() != fused.get(0).laneType()) {
+          Optional<Cond> lifted = VarkaConditionCompiler.onLongLane(cond);
+          List<Cond> liftedFused = new ArrayList<>();
+          for (Cond f : fused) {
+            VarkaConditionCompiler.onLongLane(f).ifPresent(liftedFused::add);
+          }
+          if (lifted.isPresent() && liftedFused.size() == fused.size()) {
+            cond = lifted.get();
+            before = liftedFused;
+            liftedBefore = true;
+          }
+        }
+        if (!before.isEmpty() && cond.laneType() != before.get(0).laneType()) {
           marks.restore(inputs, literals, sink);
           sink.take();
           sink.note(laneMismatch(cond.laneType(), fused.get(0).laneType()), bound);
           specs.add(new VarkaConjunctSpec(conjunct, false, sink.take()));
           continue;
         }
-        List<Cond> with = new ArrayList<>(fused);
+        List<Cond> with = new ArrayList<>(before);
         with.add(cond);
         if (VarkaLoopEmitter.fitsBudgets(
             List.of(VarkaConditionCompiler.andFold(with)), inputs.size(), options)) {
           sink.take();
+          if (liftedBefore) {
+            fused.clear();
+            fused.addAll(before);
+          }
           fused.add(cond);
           specs.add(new VarkaConjunctSpec(conjunct, true, Optional.empty()));
           continue;
@@ -1048,22 +1069,13 @@ public final class VarkaExpressionCompiler {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * An output root: {@code VarkaNodeCompiler.compileNode}, plus the one lowering only a root may
-   * take. The three {@code TIME} field extracts compute a 64-bit division and deliver an int, and
-   * the emitter narrows a lane at the kernel's store and nowhere else until VARKA-28 gives it a
-   * width conversion; so {@code hour(t)} as an output fuses under a narrowing root, while
-   * {@code hour(t) + 1} and {@code hour(t) = 12}, which put the narrowed value under another node,
-   * reach {@link VarkaTimeCompiler#compileTime} through {@code VarkaNodeCompiler.compileNode} and
-   * decline with that reason.
+   * An output root: {@code VarkaNodeCompiler.compileNode} over the expression, or over its
+   * replacement where it is a {@code RuntimeReplaceable}.
    */
   private static Optional<VarkaVectorIR> compileRoot(
       Expression expr, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
     return switch (expr) {
       case RuntimeReplaceable r -> compileRoot(r.replacement(), inputs, literals, sink);
-      // The time family's one entry outside the chain, under its switch as the chain's are.
-      case StaticInvoke si when VarkaTimeCompiler.isTimeTarget(si) ->
-          VarkaNodeCompiler.inFamily(VarkaFamily.TIME,
-              () -> VarkaTimeCompiler.compileTime(si, inputs, literals, sink, true), si, sink);
       default -> VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
     };
   }

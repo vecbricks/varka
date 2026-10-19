@@ -1,0 +1,25 @@
+# 2026-10-19T17:19:59Z, commit 512bb292da3
+# OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+# AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+# load before: 0.93 3.38 4.38 1/1871 1510638
+host width             n=4096   longs 9908 Mrows/s
+host width             n=4096   masked 4685 Mrows/s
+host width             n=4096   unmasked 11304 Mrows/s
+host width             n=4096   pair 11250 Mrows/s
+host width             n=4096   bounded 11130 Mrows/s
+host width             n=16384  longs 12204 Mrows/s
+host width             n=16384  masked 4702 Mrows/s
+host width             n=16384  unmasked 12646 Mrows/s
+host width             n=16384  pair 11788 Mrows/s
+host width             n=16384  bounded 10652 Mrows/s
+-XX:MaxVectorSize=16   n=4096   longs 8599 Mrows/s
+-XX:MaxVectorSize=16   n=4096   masked 1525 Mrows/s
+-XX:MaxVectorSize=16   n=4096   unmasked 7597 Mrows/s
+-XX:MaxVectorSize=16   n=4096   pair 5220 Mrows/s
+-XX:MaxVectorSize=16   n=4096   bounded 7474 Mrows/s
+-XX:MaxVectorSize=16   n=16384  longs 8552 Mrows/s
+-XX:MaxVectorSize=16   n=16384  masked 1552 Mrows/s
+-XX:MaxVectorSize=16   n=16384  unmasked 7362 Mrows/s
+-XX:MaxVectorSize=16   n=16384  pair 5127 Mrows/s
+-XX:MaxVectorSize=16   n=16384  bounded 7150 Mrows/s
+# load after: 1.16 3.31 4.34 1/1877 1511621

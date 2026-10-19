@@ -129,7 +129,9 @@ object VarkaWidthAuditProbe {
       }.toArray
       val dstValidity = outValidity.map(_.address()).toArray
       val srcData = inputs.map(_.address()).toArray
-      val intLits = Array.fill(if (wide) 0 else shape.numLiterals)(7)
+      // Both tables at the long lane: a kernel that converts between lanes (VARKA-28) reads its
+      // int literals from the int table beside the long one.
+      val intLits = Array.fill(shape.numLiterals)(7)
       val longLits = Array.fill(if (wide) shape.numLiterals else 0)(7L)
       def call(masked: Boolean): Int = {
         val srcValidity = Array.fill(shape.numInputs)(if (masked) validity.address() else 0L)

@@ -149,26 +149,28 @@ public final class VarkaKernelChecks {
   /**
    * Runs {@code run} with the scratch address the kernel takes, inside the memory sanitizer's
    * window over the buffers this harness allocated, so that every mapping the kernel makes is
-   * checked against them when the sanitizer is on. {@code stride} is a value's bytes in the lane.
+   * checked against them when the sanitizer is on. {@code inStride} and {@code outStride} are a
+   * value's bytes in each input and output buffer.
    * Nothing is registered, and nothing changes, when it is off. {@link VarkaCompiledCheck}'s
    * warm-up calls go through here too, so that the warm-up's profile of the sanitizer's check is
    * the one its compared calls meet.
    */
-  static int sanitized(VarkaFusedKernel kernel, int length, long stride, long[] srcData,
-      long[] srcValidity, long[] outData, long[] outValidity, Run run) {
+  static int sanitized(VarkaFusedKernel kernel, int length, long[] inStride,
+      long[] outStride, long[] srcData, long[] srcValidity, long[] outData, long[] outValidity,
+      Run run) {
     long scratch = VarkaEmitterTestSupport.scratch(kernel, length);
     VarkaMemorySanitizer.begin();
     try {
       if (VarkaMemorySanitizer.ENABLED) {
         for (int c = 0; c < srcData.length; c++) {
-          VarkaMemorySanitizer.register("input data", c, srcData[c], length * stride);
+          VarkaMemorySanitizer.register("input data", c, srcData[c], length * inStride[c]);
           if (srcValidity[c] != 0L) {
             VarkaMemorySanitizer.register("input validity", c, srcValidity[c], wordBytes(length));
           }
         }
         for (int o = 0; o < outData.length; o++) {
           if (outData[o] != 0L) {
-            VarkaMemorySanitizer.register("output data", o, outData[o], length * stride);
+            VarkaMemorySanitizer.register("output data", o, outData[o], length * outStride[o]);
           }
           VarkaMemorySanitizer.register("output validity", o, outValidity[o], wordBytes(length));
         }
@@ -343,10 +345,21 @@ public final class VarkaKernelChecks {
   public static boolean runAndCompareLong(String context, String className, byte[] bytes,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch,
       boolean declineAllowed, SparkAnswers spark) {
+    return runAndCompareLong(context, className, bytes, roots, numInputs, lits, NO_INT_LITS,
+        batch, declineAllowed, spark);
+  }
+
+  /**
+   * {@link #runAndCompareLong} for a kernel compiled at the long lane that may hold both lanes:
+   * {@code intLits} is its int literal table, read where it converts (VARKA-28).
+   */
+  public static boolean runAndCompareLong(String context, String className, byte[] bytes,
+      List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
+      boolean declineAllowed, SparkAnswers spark) {
     return bodies(context, numInputs, batch.length(), batch.nulls(), batch.forceMasked(),
         (label, nulls, forced) -> runOne(label, className, bytes, roots, numInputs,
-            new LongLane(batch.withNulls(nulls, forced), lits), declineAllowed, spark,
-            ValidityFill.BOTH))[0] == 0;
+            longLane(batch.withNulls(nulls, forced), lits, intLits, roots), declineAllowed,
+            spark, ValidityFill.BOTH))[0] == 0;
   }
 
   /** {@link #runAndCompareStatus} at the long lane. */
@@ -355,8 +368,8 @@ public final class VarkaKernelChecks {
       boolean declineAllowed) {
     int[] statuses = bodies(context, numInputs, batch.length(), batch.nulls(),
         batch.forceMasked(), (label, nulls, forced) -> runOne(label, className, bytes, roots,
-            numInputs, new LongLane(batch.withNulls(nulls, forced), lits), declineAllowed, null,
-            ValidityFill.BOTH));
+            numInputs, longLane(batch.withNulls(nulls, forced), lits, NO_INT_LITS, roots),
+            declineAllowed, null, ValidityFill.BOTH));
     return statuses[0] != 0 ? statuses[0] : statuses[1];
   }
 
@@ -365,22 +378,114 @@ public final class VarkaKernelChecks {
       byte[] bytes, List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch) {
     return each(context, numInputs, batch.length(), batch.nulls(), batch.forceMasked(),
         (label, nulls, forced) -> runOne(label, className, bytes, roots, numInputs,
-            new LongLane(batch.withNulls(nulls, forced), lits), true, null, ValidityFill.BOTH));
+            longLane(batch.withNulls(nulls, forced), lits, NO_INT_LITS, roots), true, null,
+            ValidityFill.BOTH));
   }
 
   /** {@link #runOwnBody} at the long lane. */
   public static boolean runOwnBodyLong(String context, String className, byte[] bytes,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch,
       boolean declineAllowed, SparkAnswers spark, List<ValidityFill> fills) {
-    return runOne(context, className, bytes, roots, numInputs, new LongLane(batch, lits),
-        declineAllowed, spark, fills) == 0;
+    return runOwnBodyLong(context, className, bytes, roots, numInputs, lits, NO_INT_LITS, batch,
+        declineAllowed, spark, fills);
+  }
+
+  /** {@link #runOwnBodyLong} with the int literal table of a kernel of both lanes. */
+  public static boolean runOwnBodyLong(String context, String className, byte[] bytes,
+      List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
+      boolean declineAllowed, SparkAnswers spark, List<ValidityFill> fills) {
+    return runOne(context, className, bytes, roots, numInputs,
+        longLane(batch, lits, intLits, roots), declineAllowed, spark, fills) == 0;
   }
 
   /** {@link #validityBytesWritten} at the long lane. */
   public static int validityBytesWrittenLong(String className, byte[] bytes,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch, ValidityFill fill) {
-    return validityBytesWritten(className, bytes, roots, numInputs, new LongLane(batch, lits),
+    return validityBytesWrittenLong(className, bytes, roots, numInputs, lits, NO_INT_LITS, batch,
         fill);
+  }
+
+  /** {@link #validityBytesWrittenLong} with the int literal table of a kernel of both lanes. */
+  public static int validityBytesWrittenLong(String className, byte[] bytes,
+      List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
+      ValidityFill fill) {
+    return validityBytesWritten(className, bytes, roots, numInputs,
+        longLane(batch, lits, intLits, roots), fill);
+  }
+
+  private static final int[] NO_INT_LITS = new int[0];
+
+  /**
+   * The lane a long-lane kernel's batch runs through: the long lane's own, or both lanes' where
+   * the roots hold a value of each (VARKA-28) - a widening anywhere, a narrowing under another
+   * node, or an int root that is not a narrowing - whose int columns, int outputs and int table
+   * are the int lane's.
+   */
+  private static Lane longLane(LongBatch batch, long[] lits, int[] intLits,
+      List<VarkaVectorIR> roots) {
+    return holdsBothLanes(roots) ? new MixedLane(batch, intLits, lits, roots)
+        : new LongLane(batch, lits);
+  }
+
+  /** Whether {@code roots} hold a value of each lane; see {@link #longLane}. */
+  static boolean holdsBothLanes(List<VarkaVectorIR> roots) {
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>();
+    for (VarkaVectorIR root : roots) {
+      if (!(root instanceof NarrowLane) && root.laneType() == VarkaVectorIR.LaneType.INT) {
+        return true;
+      }
+      todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(root)));
+      if (root instanceof VarkaVectorIR.WidenLane) {
+        return true;
+      }
+    }
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane) {
+        return true;
+      }
+      if (seen.add(node)) {
+        todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
+      }
+    }
+    return false;
+  }
+
+  /**
+   * {@link #runAndCompare} for a kernel of both lanes (VARKA-28): each column at its lane's
+   * width, the drawn values of an int column narrowed to it, the long lane's {@code run} with
+   * {@code intLits} and {@code longLits} as its two tables, and {@link VarkaReference#mixedValue}
+   * as the oracle. An int-valued output is read at four bytes a row and sign-extended.
+   */
+  public static boolean runAndCompareMixed(String context, String className, byte[] bytes,
+      List<VarkaVectorIR> roots, int numInputs, int[] intLits, long[] longLits, LongBatch batch,
+      boolean declineAllowed, SparkAnswers spark) {
+    return bodies(context, numInputs, batch.length(), batch.nulls(), batch.forceMasked(),
+        (label, nulls, forced) -> runOne(label, className, bytes, roots, numInputs,
+            new MixedLane(batch.withNulls(nulls, forced), intLits, longLits, roots),
+            declineAllowed, spark, ValidityFill.BOTH))[0] == 0;
+  }
+
+  /** {@link #runAndCompareStatus} for a kernel of both lanes. */
+  public static int runAndCompareMixedStatus(String context, String className, byte[] bytes,
+      List<VarkaVectorIR> roots, int numInputs, int[] intLits, long[] longLits, LongBatch batch,
+      boolean declineAllowed) {
+    int[] statuses = bodies(context, numInputs, batch.length(), batch.nulls(),
+        batch.forceMasked(), (label, nulls, forced) -> runOne(label, className, bytes, roots,
+            numInputs, new MixedLane(batch.withNulls(nulls, forced), intLits, longLits, roots),
+            declineAllowed, null, ValidityFill.BOTH));
+    return statuses[0] != 0 ? statuses[0] : statuses[1];
+  }
+
+  /** {@link #runEachBodyStatus} for a kernel of both lanes. */
+  public static List<Integer> runEachBodyMixedStatus(String context, String className,
+      byte[] bytes, List<VarkaVectorIR> roots, int numInputs, int[] intLits, long[] longLits,
+      LongBatch batch) {
+    return each(context, numInputs, batch.length(), batch.nulls(), batch.forceMasked(),
+        (label, nulls, forced) -> runOne(label, className, bytes, roots, numInputs,
+            new MixedLane(batch.withNulls(nulls, forced), intLits, longLits, roots), true, null,
+            ValidityFill.BOTH));
   }
 
   /**
@@ -424,7 +529,7 @@ public final class VarkaKernelChecks {
   public static int runLoadedLong(String context, VarkaFusedKernel kernel,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch,
       boolean declineAllowed, CallHook hook) {
-    return runLoaded(context, kernel, roots, numInputs, new LongLane(batch, lits),
+    return runLoaded(context, kernel, roots, numInputs, longLane(batch, lits, NO_INT_LITS, roots),
         declineAllowed, null, ValidityFill.BOTH, hook);
   }
 
@@ -535,7 +640,7 @@ public final class VarkaKernelChecks {
    * sentinel an unwritten output keeps, the {@code run} overload, the reference's overload, and
    * how an output is read back. {@link #runOne} is the one harness both lanes go through.
    */
-  private sealed interface Lane permits IntLane, LongLane {
+  private sealed interface Lane permits IntLane, LongLane, MixedLane {
     int length();
 
     boolean[][] nulls();
@@ -544,6 +649,36 @@ public final class VarkaKernelChecks {
 
     /** A value's bytes in the lane. */
     long stride();
+
+    /** A value's bytes in column {@code c}'s buffer: the lane's, but per column where they mix. */
+    default long columnStride(int c) {
+      return stride();
+    }
+
+    /** A value's bytes in {@code root}'s output buffer. */
+    default long outputStride(VarkaVectorIR root) {
+      return stride();
+    }
+
+    /** Writes {@code v} at row {@code i} of column {@code c}'s buffer, at its width. */
+    default void putColumn(int c, MemorySegment d, int i, long v) {
+      put(d, i, v);
+    }
+
+    /** Writes {@code v} at row {@code i} of {@code root}'s output buffer, at its width. */
+    default void putOutput(VarkaVectorIR root, MemorySegment d, int i, long v) {
+      put(d, i, v);
+    }
+
+    /** {@link #poison} for column {@code c}, whose lane's extremes it takes. */
+    default long poisonColumn(int c, int nullOrdinal) {
+      return poison(nullOrdinal);
+    }
+
+    /** {@link #sentinel} for {@code root}'s output buffer. */
+    default long sentinelOutput(VarkaVectorIR root) {
+      return sentinel();
+    }
 
     /** Column {@code c}'s drawn value at row {@code i}, widened. */
     long value(int c, int i);
@@ -691,6 +826,129 @@ public final class VarkaKernelChecks {
   }
 
   /**
+   * Both lanes in one kernel (VARKA-28): each column at its own lane's width - an int column four
+   * bytes a row, its values the drawn ones narrowed - each output at its root's, the long lane's
+   * eight-argument {@code run} with both literal tables, and {@link VarkaReference#mixedValue} as
+   * the oracle. A column's lane is the one the roots read it at; one they do not read is held at
+   * eight bytes a row.
+   */
+  private record MixedLane(LongBatch batch, int[] intLits, long[] longLits,
+      VarkaVectorIR.LaneType[] columnLanes) implements Lane {
+    MixedLane(LongBatch batch, int[] intLits, long[] longLits, List<VarkaVectorIR> roots) {
+      this(batch, intLits, longLits, VarkaKernelChecks.columnLanes(roots, batch.data().length));
+    }
+
+    private boolean intColumn(int c) {
+      return columnLanes[c] == VarkaVectorIR.LaneType.INT;
+    }
+
+    @Override public int length() {
+      return batch.length();
+    }
+
+    @Override public boolean[][] nulls() {
+      return batch.nulls();
+    }
+
+    @Override public boolean forceMasked() {
+      return batch.forceMasked();
+    }
+
+    @Override public long stride() {
+      return 8L;
+    }
+
+    @Override public long columnStride(int c) {
+      return intColumn(c) ? 4L : 8L;
+    }
+
+    @Override public long outputStride(VarkaVectorIR root) {
+      return root.laneType() == VarkaVectorIR.LaneType.INT ? 4L : 8L;
+    }
+
+    @Override public long value(int c, int i) {
+      long v = batch.data()[c][i];
+      return intColumn(c) ? (int) v : v;
+    }
+
+    @Override public void put(MemorySegment d, int i, long v) {
+      d.set(ValueLayout.JAVA_LONG, i * 8L, v);
+    }
+
+    @Override public void putColumn(int c, MemorySegment d, int i, long v) {
+      if (intColumn(c)) {
+        d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
+      } else {
+        put(d, i, v);
+      }
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, MemorySegment d, int i, long v) {
+      if (outputStride(root) == 4L) {
+        d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
+      } else {
+        put(d, i, v);
+      }
+    }
+
+    @Override public long poison(int nullOrdinal) {
+      return (nullOrdinal & 1) == 0 ? Long.MIN_VALUE : Long.MAX_VALUE;
+    }
+
+    @Override public long poisonColumn(int c, int nullOrdinal) {
+      return intColumn(c) ? VarkaEmitterFixtures.poison(nullOrdinal) : poison(nullOrdinal);
+    }
+
+    @Override public long sentinel() {
+      return 0xDEADBEEFCAFEBABEL;
+    }
+
+    @Override public long sentinelOutput(VarkaVectorIR root) {
+      return outputStride(root) == 4L ? 0xDEADBEEF : sentinel();
+    }
+
+    @Override public int run(VarkaFusedKernel kernel, long[] srcData, long[] srcValidity,
+        int[] nullCounts, long[] outData, long[] outValidity, long scratch) {
+      return kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
+          longLits, length(), scratch);
+    }
+
+    @Override public OptionalLong reference(VarkaVectorIR root, long[] values, boolean[] isNull) {
+      return VarkaReference.mixedValue(root, values, isNull, intLits, longLits);
+    }
+
+    @Override public VarkaReference.Truth reference(Cond cond, long[] values, boolean[] isNull) {
+      return VarkaReference.mixedCond(cond, values, isNull, intLits, longLits);
+    }
+
+    @Override public long got(MemorySegment out, int i, VarkaVectorIR root) {
+      return outputStride(root) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
+          : out.get(ValueLayout.JAVA_LONG, i * 8L);
+    }
+  }
+
+  /** Each of {@code numInputs} columns' lane as {@code roots} read it; the long lane if unread. */
+  static VarkaVectorIR.LaneType[] columnLanes(List<VarkaVectorIR> roots, int numInputs) {
+    var lanes = new VarkaVectorIR.LaneType[numInputs];
+    Arrays.fill(lanes, VarkaVectorIR.LaneType.LONG);
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(roots);
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (!seen.add(node)) {
+        continue;
+      }
+      if (node instanceof ColumnRef c && c.ordinal() < numInputs) {
+        lanes[c.ordinal()] = c.lane();
+      }
+      for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+        todo.push(child);
+      }
+    }
+    return lanes;
+  }
+
+  /**
    * Loads the generated class. A failure the class's own construction throws is rethrown as it is
    * - a {@code NoSuchMethodError} from a misdescribed helper call stays one - so the failure
    * classifier names it, instead of reading the reflection that carried it.
@@ -760,12 +1018,11 @@ public final class VarkaKernelChecks {
       List<VarkaVectorIR> roots) {
     long boundColumns = columnBoundColumns(roots);
     int length = lane.length();
-    long stride = lane.stride();
     long[] srcData = new long[numInputs];
     long[] srcValidity = new long[numInputs];
     int[] nullCounts = new int[numInputs];
     for (int c = 0; c < numInputs; c++) {
-      var d = VarkaEmitterFixtures.alloc(arena, length * stride);
+      var d = VarkaEmitterFixtures.alloc(arena, length * lane.columnStride(c));
       var v = VarkaEmitterFixtures.alloc(arena, wordBytes(length));
       v.fill((byte) 0);
       int nulls = 0;
@@ -775,11 +1032,11 @@ public final class VarkaKernelChecks {
           // `MONTH_ARITH_MAX_MONTHS`, so a null lane holding its drawn value is in range by
           // construction and can never reach a guard's condemning comparison - which is the
           // one thing the fuzzer is here to reach.
-          lane.put(d, i, (boundColumns >>> c & 1L) != 0 ? storedUnderNull(nulls)
-              : lane.poison(nulls));
+          lane.putColumn(c, d, i, (boundColumns >>> c & 1L) != 0 ? storedUnderNull(nulls)
+              : lane.poisonColumn(c, nulls));
           nulls++;
         } else {
-          lane.put(d, i, lane.value(c, i));
+          lane.putColumn(c, d, i, lane.value(c, i));
           long off = i / 8L;
           v.set(ValueLayout.JAVA_BYTE, off,
               (byte) (v.get(ValueLayout.JAVA_BYTE, off) | (1 << (i % 8))));
@@ -810,9 +1067,9 @@ public final class VarkaKernelChecks {
     long[] data = new long[n];
     long[] validity = new long[n];
     for (int o = 0; o < n; o++) {
-      values[o] = VarkaEmitterFixtures.alloc(arena, length * lane.stride());
+      values[o] = VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o]));
       for (int i = 0; i < length; i++) {
-        lane.put(values[o], i, lane.sentinel());
+        lane.putOutput(roots[o], values[o], i, lane.sentinelOutput(roots[o]));
       }
       bits[o] = VarkaEmitterFixtures.alloc(arena, wordBytes(length));
       bits[o].fill(fill.value());
@@ -823,10 +1080,19 @@ public final class VarkaKernelChecks {
   }
 
   /** The kernel over {@code in} into {@code out}, in the sanitizer's window: its status. */
-  private static int run(VarkaFusedKernel kernel, Lane lane, Inputs in, Outputs out) {
-    return sanitized(kernel, lane.length(), lane.stride(), in.data(), in.validity(), out.data(),
-        out.validity(), scratch -> lane.run(kernel, in.data(), in.validity(), in.nullCounts(),
-            out.data(), out.validity(), scratch));
+  private static int run(VarkaFusedKernel kernel, Lane lane, VarkaVectorIR[] roots, Inputs in,
+      Outputs out) {
+    long[] inStride = new long[in.data().length];
+    for (int c = 0; c < inStride.length; c++) {
+      inStride[c] = lane.columnStride(c);
+    }
+    long[] outStride = new long[roots.length];
+    for (int o = 0; o < roots.length; o++) {
+      outStride[o] = lane.outputStride(roots[o]);
+    }
+    return sanitized(kernel, lane.length(), inStride, outStride, in.data(), in.validity(),
+        out.data(), out.validity(), scratch -> lane.run(kernel, in.data(), in.validity(),
+            in.nullCounts(), out.data(), out.validity(), scratch));
   }
 
   /**
@@ -879,7 +1145,7 @@ public final class VarkaKernelChecks {
       hook.before();
       int[] statuses = new int[runs];
       for (int f = 0; f < runs; f++) {
-        statuses[f] = run(kernel, lane, in, outs[f]);
+        statuses[f] = run(kernel, lane, roots, in, outs[f]);
       }
       hook.after(statuses[runs - 1]);
       for (int f = 0; f < runs; f++) {
@@ -1000,7 +1266,7 @@ public final class VarkaKernelChecks {
     var kernel = load(loader, className, bytes);
     try (var arena = Arena.ofConfined()) {
       var out = outputs(arena, lane, roots, fill);
-      run(kernel, lane, inputs(arena, lane, numInputs, rootList), out);
+      run(kernel, lane, roots, inputs(arena, lane, numInputs, rootList), out);
       int changed = 0;
       for (var bits : out.bits()) {
         for (long b = 0; b < bits.byteSize(); b++) {

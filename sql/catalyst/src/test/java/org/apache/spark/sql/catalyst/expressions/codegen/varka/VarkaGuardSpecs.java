@@ -145,9 +145,19 @@ public final class VarkaGuardSpecs {
    */
   public static Verdict verdict(Guards g, long[] lits, long[][] values, boolean[][] isNull,
       List<Shift> shifts) {
+    return verdict(g, lits, new int[0], values, isNull, shifts);
+  }
+
+  /**
+   * {@link #verdict} for a long-lane kernel that also reads the int literal table (VARKA-28):
+   * {@code intLits} is that table, and the values are the reference's over both lanes.
+   */
+  public static Verdict verdict(Guards g, long[] lits, int[] intLits, long[][] values,
+      boolean[][] isNull, List<Shift> shifts) {
     var v = Verdict.ANSWER;
     for (int r = 0; r < values.length; r++) {
-      v = v.or(rowVerdict(g, Values.of(values[r], isNull[r], lits, g.isLong()), shifts));
+      v = v.or(rowVerdict(g, Values.of(values[r], isNull[r], lits, intLits, g.isLong()),
+          shifts));
     }
     return v;
   }
@@ -156,24 +166,36 @@ public final class VarkaGuardSpecs {
   public static Verdict verdict(List<VarkaVectorIR> roots, int numInputs, long[] lits,
       VarkaEmitOptions options, boolean isLong, long[][] values, boolean[][] isNull,
       List<Shift> shifts) {
-    return verdict(new Guards(roots, numInputs, lits.length, options, isLong), lits, values,
-        isNull, shifts);
+    return verdict(roots, numInputs, lits, new int[0], options, isLong, values, isNull, shifts);
+  }
+
+  /** {@link #verdict} with the int literal table of a kernel of both lanes. */
+  public static Verdict verdict(List<VarkaVectorIR> roots, int numInputs, long[] lits,
+      int[] intLits, VarkaEmitOptions options, boolean isLong, long[][] values,
+      boolean[][] isNull, List<Shift> shifts) {
+    return verdict(new Guards(roots, numInputs, lits.length + intLits.length, options, isLong),
+        lits, intLits, values, isNull, shifts);
   }
 
   /**
    * The reference evaluator's values and conditions on one row, at one lane: the row at 64 bits,
-   * and at 32 for the int lane's reference.
+   * and at 32 for the int lane's reference. At the long lane both tables are read, a kernel of
+   * both lanes indexing each lane's own, and a node of either lane is answered
+   * ({@link VarkaReference#mixedValue}).
    */
   private record Values(long[] row, boolean[] isNull, long[] lits, boolean isLong, int[] ints,
       int[] intLits) {
-    static Values of(long[] row, boolean[] isNull, long[] lits, boolean isLong) {
+    static Values of(long[] row, boolean[] isNull, long[] lits, int[] mixedIntLits,
+        boolean isLong) {
       int[] ints = new int[row.length];
       for (int c = 0; c < row.length; c++) {
         ints[c] = (int) row[c];
       }
-      int[] intLits = new int[lits.length];
-      for (int l = 0; l < lits.length; l++) {
-        intLits[l] = (int) lits[l];
+      int[] intLits = isLong ? mixedIntLits : new int[lits.length];
+      if (!isLong) {
+        for (int l = 0; l < lits.length; l++) {
+          intLits[l] = (int) lits[l];
+        }
       }
       return new Values(row, isNull, lits, isLong, ints, intLits);
     }
@@ -181,7 +203,7 @@ public final class VarkaGuardSpecs {
     /** The node's value, or null where it is null. */
     BigInteger value(VarkaVectorIR node) {
       if (isLong) {
-        var v = VarkaReference.longValue(node, row, isNull, lits);
+        var v = VarkaReference.mixedValue(node, row, isNull, intLits, lits);
         return v.isPresent() ? BigInteger.valueOf(v.getAsLong()) : null;
       }
       var v = VarkaReference.value(node, ints, isNull, intLits);
@@ -189,7 +211,7 @@ public final class VarkaGuardSpecs {
     }
 
     boolean holds(Cond cond) {
-      return isLong ? VarkaReference.longCond(cond, row, isNull, lits).isTrue()
+      return isLong ? VarkaReference.mixedCond(cond, row, isNull, intLits, lits).isTrue()
           : VarkaReference.cond(cond, ints, isNull, intLits).isTrue();
     }
   }
@@ -381,7 +403,7 @@ public final class VarkaGuardSpecs {
       // class does not know, which is the case to add.
       case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, Cond _, NarrowLane _ ->
+          BoundedDivide _, Cond _, WidenLane _, NarrowLane _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

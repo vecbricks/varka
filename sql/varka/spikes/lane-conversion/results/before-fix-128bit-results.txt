@@ -1,0 +1,120 @@
+# The same run's 128-bit file.
+Narrow-width companion of VarkaLaneConversionBenchmark-jdk25-results.txt: the same benchmark under
+-XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
+  benchmark:   org.apache.spark.sql.VarkaLaneConversionBenchmark
+  commit:      e412cb42b8d
+  date:        2026-10-19T14:00:04Z
+  jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  kernel:      7.0.0-38-generic
+  cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+  power:       governor=performance epp=performance profile=performance
+  pinned to:   taskset -c 0,12,13,14,15,1,2,3
+  load at start: 0.77
+  canary:      ok (compute -0.2% cache -5.1% memory -1.3% )
+  wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaLaneConversionBenchmark
+  narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaLaneConversionBenchmark"
+
+Running benchmark: 16384 rows - every arm in L2
+  Running case: cast(i AS bigint) + l, both lanes
+  Stopped after 169809 iterations, 2000 ms
+  Running case: l2 + l, the long lane
+  Stopped after 1000479 iterations, 2000 ms
+  Running case: cast(i AS bigint) < l, both lanes, a selection
+  Stopped after 28520 iterations, 2000 ms
+  Running case: l2 < l, the long lane, a selection
+  Stopped after 27807 iterations, 2000 ms
+  Running case: cast(l AS int) + i, both lanes
+  Stopped after 573526 iterations, 2000 ms
+  Running case: i2 + i, the int lane
+  Stopped after 2008364 iterations, 2000 ms
+  Running case: cast(i AS bigint) + l, a scalar loop
+  Stopped after 548701 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+16384 rows - every arm in L2:                   Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              0           0       1424.6           0.7       1.0X
+l2 + l, the long lane                                       0              0           0       8346.4           0.1       5.9X
+cast(i AS bigint) < l, both lanes, a selection              0              0           0        256.0           3.9       0.2X
+l2 < l, the long lane, a selection                          0              0           0        254.1           3.9       0.2X
+cast(l AS int) + i, both lanes                              0              0           0       4824.5           0.2       3.4X
+i2 + i, the int lane                                        0              0           0      16873.3           0.1      11.8X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       4568.9           0.2       3.2X
+Running benchmark: 262144 rows - every arm in L3
+  Running case: cast(i AS bigint) + l, both lanes
+  Stopped after 25083 iterations, 2000 ms
+  Running case: l2 + l, the long lane
+  Stopped after 38908 iterations, 2000 ms
+  Running case: cast(i AS bigint) < l, both lanes, a selection
+  Stopped after 1768 iterations, 2000 ms
+  Running case: l2 < l, the long lane, a selection
+  Stopped after 1763 iterations, 2000 ms
+  Running case: cast(l AS int) + i, both lanes
+  Stopped after 32525 iterations, 2000 ms
+  Running case: i2 + i, the int lane
+  Stopped after 82052 iterations, 2000 ms
+  Running case: cast(i AS bigint) + l, a scalar loop
+  Stopped after 31926 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - every arm in L3:                  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              0           0       4665.6           0.2       1.0X
+l2 + l, the long lane                                       0              0           0       5173.0           0.2       1.1X
+cast(i AS bigint) < l, both lanes, a selection              1              1           0        241.2           4.1       0.1X
+l2 < l, the long lane, a selection                          1              1           0        239.2           4.2       0.1X
+cast(l AS int) + i, both lanes                              0              0           0       4509.0           0.2       1.0X
+i2 + i, the int lane                                        0              0           0      10961.5           0.1       2.3X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       4260.8           0.2       0.9X
+Running benchmark: 1000000 rows - the long arms leave L3
+  Running case: cast(i AS bigint) + l, both lanes
+  Stopped after 3437 iterations, 2000 ms
+  Running case: l2 + l, the long lane
+  Stopped after 5533 iterations, 2000 ms
+  Running case: cast(i AS bigint) < l, both lanes, a selection
+  Stopped after 454 iterations, 2001 ms
+  Running case: l2 < l, the long lane, a selection
+  Stopped after 454 iterations, 2002 ms
+  Running case: cast(l AS int) + i, both lanes
+  Stopped after 4117 iterations, 2000 ms
+  Running case: i2 + i, the int lane
+  Stopped after 19416 iterations, 2000 ms
+  Running case: cast(i AS bigint) + l, a scalar loop
+  Stopped after 5467 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+1000000 rows - the long arms leave L3:          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           0              1           0       2045.0           0.5       1.0X
+l2 + l, the long lane                                       0              0           0       2886.5           0.3       1.4X
+cast(i AS bigint) < l, both lanes, a selection              4              4           0        237.5           4.2       0.1X
+l2 < l, the long lane, a selection                          4              4           0        234.2           4.3       0.1X
+cast(l AS int) + i, both lanes                              0              0           0       2826.4           0.4       1.4X
+i2 + i, the int lane                                        0              0           0      11787.0           0.1       5.8X
+cast(i AS bigint) + l, a scalar loop                        0              0           0       2860.2           0.3       1.4X
+Running benchmark: 8388608 rows - every arm past L3
+  Running case: cast(i AS bigint) + l, both lanes
+  Stopped after 279 iterations, 2002 ms
+  Running case: l2 + l, the long lane
+  Stopped after 416 iterations, 2002 ms
+  Running case: cast(i AS bigint) < l, both lanes, a selection
+  Stopped after 50 iterations, 2013 ms
+  Running case: l2 < l, the long lane, a selection
+  Stopped after 53 iterations, 2002 ms
+  Running case: cast(l AS int) + i, both lanes
+  Stopped after 326 iterations, 2000 ms
+  Running case: i2 + i, the int lane
+  Stopped after 869 iterations, 2001 ms
+  Running case: cast(i AS bigint) + l, a scalar loop
+  Stopped after 494 iterations, 2003 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+8388608 rows - every arm past L3:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+cast(i AS bigint) + l, both lanes                           7              7           0       1180.9           0.8       1.0X
+l2 + l, the long lane                                       5              5           0       1751.6           0.6       1.5X
+cast(i AS bigint) < l, both lanes, a selection             40             40           0        211.4           4.7       0.2X
+l2 < l, the long lane, a selection                         37             38           0        225.0           4.4       0.2X
+cast(l AS int) + i, both lanes                              6              6           0       1379.5           0.7       1.2X
+i2 + i, the int lane                                        2              2           0       3693.5           0.3       3.1X
+cast(i AS bigint) + l, a scalar loop                        4              4           0       2089.9           0.5       1.8X

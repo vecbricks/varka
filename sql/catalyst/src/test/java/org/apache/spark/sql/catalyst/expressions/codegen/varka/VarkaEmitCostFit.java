@@ -54,6 +54,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -150,7 +151,8 @@ final class VarkaEmitCostFit {
     for (TruncLevel level : TruncLevel.values()) {
       f.add("TruncDate/" + level);
     }
-    f.addAll(List.of("MakeDate/ansi", "MakeDate/null", "NarrowLane", "AddDays", "SubDays",
+    f.addAll(List.of("MakeDate/ansi", "MakeDate/null", "NarrowLane", "WidenLane", "AddDays",
+        "SubDays",
         "DateDiff", "DayOfWeek", "WeekDay", "DayOfWeekIso", "NextDay", "ThursdayOf", "AddMonths",
         "Year", "Month", "DayOfMonth", "Quarter", "DayOfYear", "LastDay", "TruncDateDynamic",
         "WeekOfYear", "GuardedDay", "BoundedDivide", "InRanges", VarkaEmitCost.PREFIX,
@@ -189,6 +191,10 @@ final class VarkaEmitCostFit {
     // builds it; it is priced here, on its own root form.
     IntNeg longNeg = new IntNeg(Overflow.WRAP, new ColumnRef(0, LaneType.LONG));
     probe.must("narrow", List.of(longNeg), List.of(new NarrowLane(longNeg)), 1, 0);
+    // The widening, which the two single-lane corpora never draw, priced on its own root: a
+    // probe with no first side adds the one group it reads, whose new feature fits it exactly,
+    // so the regression's other prices are what they were.
+    probe.must("widen", List.of(), List.of(new WidenLane(new ColumnRef(0))), 1, 0);
 
     // Every other kind, from its occurrences in the fuzz sequences, each over its own children:
     // a node's code depends a little on what surrounds it, so the median of several readings is

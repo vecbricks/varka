@@ -891,12 +891,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(both.outputTypes.asScala.toSeq === Seq(IntegerType, TimeType(6)))
   }
 
-  test("an extract under another expression declines, until VARKA-28 narrows inside a tree") {
-    // The narrowing is the kernel's store, so `hour(t) + 1` would put a 32-bit value under a
-    // node of a 64-bit tree, which the emitter refuses; the compiler declines it first, with
-    // the reason, and the entry beside it still fuses.
-    val reason = declineReason(Add(HoursOfTime(t6), Literal(1)), withLong)
-    assert(reason.contains("only an output can take it"), reason)
+  test("an extract under another expression narrows where it is, in a kernel of both lanes") {
+    // VARKA-28: `hour(t) + 1` puts the 32-bit extract under an int add, so the narrowing
+    // converts in the tree and the kernel, driven at the long lane, holds both.
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(Add(HoursOfTime(t6), Literal(1)))), withLong).get
+    assert(compiled.lane === LaneType.LONG)
+    compiled.outputs.get(0) match {
+      case a: IntArith if a.op == IntOp.ADD && a.left.isInstanceOf[NarrowLane] =>
+      case other => fail(s"not an add over the narrowed extract: $other")
+    }
   }
 
   test("time_to_millis and time_to_micros lower to a constant division of the nanoseconds") {
@@ -2355,13 +2359,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(longFirst.fused.longLiterals.asScala.toSeq === Seq(3L))
   }
 
-  test("a predicate that mixes lanes fuses the first lane's conjuncts and names the lane") {
+  test("a predicate that mixes lanes fuses every conjunct on the long lane, the int ones widened") {
+    // VARKA-28: an int comparison keeps its answer with both operands widened, so conjuncts of
+    // the two lanes meet on the long one rather than leaving one lane to the row engine.
     val predicate = VarkaExpressionCompiler.compilePredicate(
       And(And(GreaterThan(d, d2), GreaterThan(l, l2)), LessThan(d, d2)), withLong).get
-    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, false, true))
-    assert(predicate.specs.get(1).decline.get.reason === laneReason)
-    assert(predicate.fused.lane === LaneType.INT)
-    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0, 1))
+    assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, true, true))
+    assert(predicate.fused.lane === LaneType.LONG)
+    assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0, 1, 5, 6))
   }
 
   test("a CASE whose condition and branches disagree on lane declines with the lane reason") {
@@ -2373,9 +2378,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
     assert(partial.declines.asScala(1).reason ===
       "one kernel holds one lane, and this mixes the LONG and INT lanes")
+    // A disjunction meets on the long lane, its int comparison widened (VARKA-28).
     val orMix = VarkaExpressionCompiler.compilePredicate(
       Or(GreaterThan(l, Literal(0L)), GreaterThan(d, d2)), withLong).toScala
-    assert(orMix.isEmpty)
+    assert(orMix.exists(_.fused.lane == LaneType.LONG))
   }
 
   test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {

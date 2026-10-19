@@ -44,12 +44,15 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysi
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
@@ -344,6 +347,17 @@ final class VarkaNodeCompiler {
           () -> intArith(IntOp.SUB, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
       case Multiply a when isInt(a) ->
           () -> intArith(IntOp.MUL, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
+      // The two casts between the int and the long lane (VARKA-28), and with them every
+      // implicit promotion Catalyst's type coercion inserts where an int meets a bigint:
+      // `i < l` arrives as `CAST(i AS BIGINT) < l`. Widening is a sign extension, exact in every
+      // mode. Narrowing keeps the low 32 bits under LEGACY; under ANSI a value past the int range
+      // raises CAST_OVERFLOW, which the kernel cannot, so a range guard of the int range declines
+      // the batch and the row engine raises it on the row; TRY declines (VARKA-332).
+      case Cast c when isInt(c) && DataTypes.LongType.equals(c.child().dataType()) ->
+          () -> narrowing(c, inputs, literals, sink);
+      case Cast c when DataTypes.LongType.equals(c.dataType()) && isInt(c.child()) ->
+          () -> intOperand(c.child(), inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new WidenLane(x));
       case UnaryMinus n when isInt(n) ->
           // Spark has no try_negative, so the mode is only ever WRAP or FAIL here. Negation
           // overflows on exactly one value, `Int.MinValue`, so any bound at all rules it out and
@@ -354,6 +368,27 @@ final class VarkaNodeCompiler {
           });
       default -> null;
     };
+  }
+
+  /** {@code CAST(bigint AS INT)} in its evaluation mode; see the arm in {@link #arithmeticArm}. */
+  private static Optional<VarkaVectorIR> narrowing(
+      Cast c,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Overflow mode = overflowOf(c.evalMode());
+    if (mode == Overflow.NULL) {
+      return sink.decline("try_cast of a bigint to int, whose null where the value does not "
+          + "fit is not fused (VARKA-332)", c);
+    }
+    return compileNode(c.child(), inputs, literals, sink).flatMap(x -> {
+      if (x.laneType() != LaneType.LONG) {
+        return sink.decline("a bigint operand that is not on the long lane", c);
+      }
+      VarkaVectorIR guarded = mode == Overflow.FAIL
+          ? new GuardedRange(x, Integer.MIN_VALUE, Integer.MAX_VALUE) : x;
+      return Optional.of((VarkaVectorIR) new NarrowLane(guarded));
+    });
   }
 
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {
