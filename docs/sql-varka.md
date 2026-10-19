@@ -251,10 +251,10 @@ Anything absent declines and runs on Spark's row engine. A decline is a normal
 outcome, not an error: the entries that fuse still fuse, and the rest of the
 projection is unaffected.
 
-Two conditions are worth stating before the list, because they decide several
-rows and are invisible in the spelling. A comparison reads the date lane, so a
-bare `IntegerType` column in comparison position declines - `year(d) = 2021`
-fuses, `i > 0` does not, although `i` is fine in arithmetic. And a checked
+Two things are worth stating before the list, because they decide several
+rows and are invisible in the spelling. Every comparison and null test fuses
+over each of the six types, a bare `IntegerType` column included (`i > 0`, as
+`year(d) = 2021` does), and `IN` over dates and year-month intervals. And a checked
 multiply fuses only where a bound proves it cannot overflow, which is why the
 multiply rows below are written over a calendar field rather than over a plain
 column.
@@ -336,6 +336,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `abs(ym)` | `interval` | `ym > INTERVAL '-178956970-8' YEAR TO MONTH` | interval arithmetic is exact in every mode: the one count whose negation overflows declines | vector |
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
 | `CAST(ymy AS INTERVAL MONTH)` | none |  |  | vector |
+| `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve and declines | vector |
+| `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides and declines | vector |
 | `extract(YEAR FROM ym)` | `interval` |  | a division by twelve over a month count nothing bounds, so the calendar's range-narrowed magic cannot serve it; a multiply-high through 64-bit lanes does | vector |
 | `extract(YEAR FROM ym) - 1` | `interval`, `intArithmetic` | `extract(YEAR FROM ym) > -2147483648` | the quotient feeding further int arithmetic, checked under ANSI; the check cannot fire, since the quotient is within +/-178956970 | vector |
 
@@ -380,6 +382,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `month(d) > i` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` | an int column against a fused int field | vector |
 | `year(d) = 2021 OR month(d) = 3` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `d IN (11 to 16 date literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
+| `i < 7` | `predicate` |  |  | vector |
+| `i <= 7` | `predicate` |  |  | vector |
+| `i >= 7` | `predicate` |  |  | vector |
+| `i IS NULL` | `predicate` |  |  | vector |
+| `ym = INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `ym < INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `ym <= INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `ym > INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `ym >= INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `ym IN (INTERVAL '1-2' YEAR TO MONTH, INTERVAL '-0-3' YEAR TO MONTH)` | `predicate` |  |  | vector |
+| `ym IN (11 to 16 year-month literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
+| `ym IS NULL` | `predicate` |  |  | vector |
+| `ym IS NOT NULL` | `predicate` |  |  | vector |
 
 #### Long-lane predicates
 
@@ -395,6 +410,18 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt > dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt < INTERVAL '0' SECOND` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `l < l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l <= l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t > t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t >= t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t <= t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `t IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `dt = dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt >= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
 
 #### Long-lane choice
 

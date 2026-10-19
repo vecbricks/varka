@@ -26,7 +26,7 @@ import scala.util.Try
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InSet, LastDay, Literal, NamedExpression, Rand}
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, Cast, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InheritAnalysisRules, InSet, LastDay, Literal, NamedExpression, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
   CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctSpec, VarkaDecline,
   VarkaExpressionCompiler, VarkaOutputSpec}
@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{Forwar
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.util.DateTimeConstants.{NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, DateType, DayTimeIntervalType, IntegerType, LongType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
 
 /**
@@ -203,6 +203,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN "
           + s"${Int.MinValue} AND ${Int.MaxValue}")),
       Row("CAST(ymy AS INTERVAL MONTH)"),
+      Row("CAST(i AS INTERVAL MONTH)",
+        "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve and declines"),
+      Row("CAST(ymm AS INT)",
+        "a relabel of a MONTH-ended interval; a YEAR-ended one divides and declines"),
       Row("extract(YEAR FROM ym)",
         "a division by twelve over a month count nothing bounds, so the calendar's "
           + "range-narrowed magic cannot serve it; a multiply-high through 64-bit lanes does"),
@@ -254,7 +258,25 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d IN (11 to 16 date literals)",
         "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
         Some(InSet(d, (1 to 11).map(v => v.asInstanceOf[Any]).toSet)),
-        Some((1 to 11).map(m => f"DATE '2021-$m%02d-01'").mkString("d IN (", ", ", ")"))))),
+        Some((1 to 11).map(m => f"DATE '2021-$m%02d-01'").mkString("d IN (", ", ", ")"))),
+      // The int lane's other types, one comparison or null test a row, so that each type the
+      // census credits to a class rests on a row naming that class alone (VARKA-328).
+      Row("i < 7"),
+      Row("i <= 7"),
+      Row("i >= 7"),
+      Row("i IS NULL"),
+      Row(s"ym = ${ymLiteral(14)}"),
+      Row(s"ym < ${ymLiteral(14)}"),
+      Row(s"ym <= ${ymLiteral(14)}"),
+      Row(s"ym > ${ymLiteral(14)}"),
+      Row(s"ym >= ${ymLiteral(14)}"),
+      Row(s"ym IN (${ymLiteral(14)}, ${ymLiteral(-3)})"),
+      Row("ym IN (11 to 16 year-month literals)",
+        "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+        Some(InSet(ym, (1 to 11).map(v => v.asInstanceOf[Any]).toSet)),
+        Some((1 to 11).map(ymLiteral(_)).mkString("ym IN (", ", ", ")"))),
+      Row("ym IS NULL"),
+      Row("ym IS NOT NULL"))),
 
     // The long lane (VARKA-29): three types, comparisons only. Arithmetic over them is task
     // 104 (`bigint`), 102 (`TIME`) and 103 (intervals), and stays out of this table until then.
@@ -270,7 +292,21 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           + "which is the identity on nanoseconds"),
       Row("dt > dt2"),
       Row("dt < INTERVAL '0' SECOND"),
-      Row("dt IS NOT NULL"))),
+      Row("dt IS NOT NULL"),
+      // One comparison or null test a row, as in the int lane's family above (VARKA-328).
+      Row("l < l2"),
+      Row("l <= l2"),
+      Row("t > t2"),
+      Row("t >= t2"),
+      Row("t <= t2"),
+      Row("t IS NULL"),
+      Row("t IS NOT NULL"),
+      Row("dt = dt2"),
+      Row("dt >= dt2"),
+      Row("dt <= dt2"),
+      Row("dt IS NULL"),
+      Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
+        "the widening cast written out; a narrowing one floors the nanoseconds and declines"))),
 
     Family("Long-lane choice", predicates = false, Seq(
       Row("greatest(l, l2)"),
@@ -859,6 +895,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           "family" -> family.title,
           "form" -> (if (family.predicates) "predicate" else "projection"),
           "catalyst" -> classes.distinct.sorted.asJava,
+          "casts" -> castsOf(row).asJava,
+          "operands" -> operandsOf(row).asJava,
           "switches" -> switchesOf(family, row).map(_.switchKey).asJava,
           "domain" -> row.domain.getOrElse(""),
           "note" -> row.note)
@@ -883,6 +921,56 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       "catalyst_classes_admitted" -> (admittedByCompiler -- infrastructure).toSeq.sorted.asJava)
     new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(doc) + "\n"
   }
+
+  /** A type's name in milestone 8's census and cast matrix (`dev/varka_census.py`), if any. */
+  private def censusType(t: DataType): Option[String] = t match {
+    case BooleanType => Some("bool")
+    case ByteType => Some("byte")
+    case ShortType => Some("short")
+    case IntegerType => Some("int")
+    case LongType => Some("bigint")
+    case FloatType => Some("float")
+    case DoubleType => Some("double")
+    case _: DecimalType => Some("dec")
+    case DateType => Some("date")
+    case TimestampNTZType => Some("ntz")
+    case _: TimeType => Some("time")
+    case _: YearMonthIntervalType => Some("ym")
+    case _: DayTimeIntervalType => Some("dt")
+    case _ => None
+  }
+
+  /**
+   * The operand types of each class in a row, as `Class:type` in the census's type names: what
+   * the census credits a class with (VARKA-328). A class is credited only with the types its own
+   * node takes, so `year(d) = 2021 AND i > 0` credits `Year` with a date and the comparisons with
+   * an int, where the column types the whole row reads would credit `Year` with the int as well.
+   * A condition's `BOOLEAN` is left out: no lane holds a `BOOLEAN` value until row 331, and an
+   * `AND`'s or an `IF`'s condition credited as one would let a `bool` claim pass.
+   */
+  private def operandsOf(row: Row): Seq[String] = expressionOf(row).collect {
+    case e: Expression if !infrastructure.contains(e.getClass.getSimpleName) =>
+      // A class that inherits its analysis from its replacement keeps its own arguments as
+      // `parameters`: `extract(YEAR FROM ym)` takes the interval, not what its replacement does.
+      val operands = e match {
+        case r: InheritAnalysisRules => r.parameters
+        case _ => e.children
+      }
+      operands.flatMap(c => censusType(c.dataType)).filterNot(_ == "bool")
+        .map(t => s"${e.getClass.getSimpleName}:$t")
+  }.flatten.distinct.sorted
+
+  /**
+   * The casts a row performs, as `from>to:mode` in the census's type names: what the census holds
+   * each pair `m8/casts.tsv` marks fused to (VARKA-328), since a cast's pair and mode are visible
+   * only in the resolved expression, not in the class list. The mode is ANSI's for every row this
+   * suite resolves, Spark's default.
+   */
+  private def castsOf(row: Row): Seq[String] = expressionOf(row).collect {
+    case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
+  }.collect { case (Some(from), Some(to), mode) =>
+    s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
+  }.distinct.sorted
 
   private def between(text: String, marks: (String, String)): String = {
     val (beginMark, endMark) = marks

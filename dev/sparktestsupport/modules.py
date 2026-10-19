@@ -102,6 +102,12 @@ varka_docs_regexes = (
     r"dev/varka_toc\.py$",
     # The CI tools whose self-tests the docs job runs (VARKA-255.md 5).
     r"dev/varka_ci_[a-z_]+\.py$",
+    # The census's inputs, which its --check renders again (VARKA-328): the registry it reads
+    # every name from and the coverage table its fused claims rest on, beside the two tools.
+    r"dev/varka_census\.py$",
+    r"dev/varka_catalogue_move\.sh$",
+    r"sql/varka/coverage\.json$",
+    r"sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/FunctionRegistry\.scala$",
 )
 
 

@@ -92,6 +92,14 @@ building a compiler arm here. The read of `VarkaConditionCompiler` 334 to 350 an
 (`IN` gated by `isDateOrInterval`, which includes year-month) predicts that all of these compile.
 The check would have rejected the row's "coverage rows only" framing if they did not.
 
+*Run 19 October 2026, at `0d055fa623f`.* `dev/varka_emit.sh` compiles projections only, and a
+comparison or null test has no output lane until `BOOLEAN` lands (331), so all 19 expressions above
+printed "unsupported expression" there: a fact about the tool, not the compiler. Asked as
+predicates, the way `VarkaCoverageSuite` compiles its predicate families, all 19 fuse, and so do
+year-month `=`, `<=`, `>` and `>=`, the `INT` comparisons included, so the row is coverage rows
+only, as predicted, and `docs/sql-varka.md` 255 to 257 ("`i > 0` does not") was wrong since
+VARKA-122.
+
 ## 3. The design
 
 ### 3.1 Four checks
@@ -220,4 +228,63 @@ rows prove.
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+*19 October 2026.* The four checks are in, with two departures from section 3, each for a reason
+the work found.
+
+**1. The census in CI.** `dev/varka_census.py --check` and `dev/varka_catalogue_move.sh --check 8 9`
+run in the `varka-docs` job and in `dev/varka_precommit.sh` when an input is staged, and the job's
+trigger now includes the census's inputs: a scratch commit touching only `coverage.json`, and one
+touching only `FunctionRegistry.scala`, printed `false` from `dev/is-changed.py -m varka-docs`
+before and `true` after (test 1). A one-character edit of `census.tsv` fails the check with "is
+stale" (test 2). The catalogue check failed on master: it took every `READING_*.md` under `m8/` for
+a catalogue note to move, milestone 8's own reading notes included, so `m9/SCOPE.md`'s citation of
+`m8/READING_SLEEF.md` failed it, and a real run would have moved those notes to `m9/`. It now takes
+the old folder's notes only while its `SCOPE.md` is still there; a planted citation of the layouts
+note under its old milestone 8 path still fails it.
+
+**2. `VarkaCastMatrixSuite`** asks `Cast.canCast`, `canAnsiCast` and `canTryCast` about all 169
+ordered pairs, every form of each type against every form of the other (two decimals, two `TIME`
+precisions, two interval field ranges each), and `casts.tsv` agrees everywhere. A planted ANSI `yes`
+on `date` to `int` fails it (test 3). *Departure:* the four-way rule is in the census, not in the
+suite. It needs the cast pair and mode of each coverage row, which only the resolved expression
+shows, so `VarkaCoverageSuite` now writes each row's casts to `coverage.json` (`int>ym:ansi`), and
+the census, which renders the fused column, checks it there, in the docs job with no JVM: a pair
+marked fused has a row casting it, a row's cast is legal in its mode and not an identity, and a pair
+a row casts is marked fused. A planted fused mark with no row, and a row's cast with no mark, each
+fail it (test 4). It found the matrix claiming more than its rows: `date` to `date` was marked fused
+as an identity, which the analyzer removes before any cast exists, so it is no longer marked; `int`
+to `ym` claimed the MONTH and YEAR units, and `CAST(i AS INTERVAL YEAR)` declines (a checked
+multiply by twelve), as does `CAST(ymy AS INT)`, so the claim is the MONTH unit, and row 332 carries
+the two YEAR casts. `int` to `ym`, `ym` to `int` and `time` to `time` had no coverage row casting
+them, and now have one each (`CAST(i AS INTERVAL MONTH)`, `CAST(ymm AS INT)`, and a `TIME` literal
+widened to `TIME(6)` and compared with `t`). Six pairs are fused in part, from seven.
+
+**3. One class per fused claim.** *Departure:* not single-class rows but operand types. A class
+never alone in its row cannot have a single-class row: `IF` and `CASE` carry a comparison, an
+`extract` its replacement, `ym - ymm` its widening cast. So `VarkaCoverageSuite` writes, per row,
+the census types each class's own node takes (a replaceable class's are its replacement's), and the
+census credits a class only with those: `year(d) = 2021 AND i > 0` now supports a date claim for
+`Year` and an int one for the comparisons, and no int one for `Year`. A planted int claim for
+`year` fails (test 5). No existing claim was lost (prediction 4).
+
+**4. The rows the documentation claims**: 24 predicates (year-month `=`, `<`, `<=`, `>`, `>=`, `IN`
+with two and with eleven literals, the null tests on `INT`, `TIME`, year-month and day-time, and the
+eleven comparison rows, twelve census pairs since `=` and `==` share a class), and the three cast
+rows above, 27 in all, 119 rows from 92. They pass `VarkaCoverageSuite`,
+`VarkaCoverageDifferentialSuite` (332 tests: each row alone and in Spark's skipped positions under
+ANSI, and over the edges; `CAST(ymm AS INT)` joins the int-valued rows' known decline as a later
+`COALESCE` argument, item 55) and the suites that read the table (family switches and chains,
+widths, cost, grouping, composition fuzz) at both widths (test 6). `emitted_bytes.json` gains the
+new rows, and its option-arm hashes, taken over the whole table, move with them; no existing row's
+bytes moved. `width_audit.json`, regenerated on the host it names, gains the new rows; its 128-bit
+refusals on the long lane are those its existing long-lane rows have. `docs/sql-varka.md` now says
+every comparison and null test fuses over the six types.
+
+### 9.1 The predictions
+
+| | prediction | measured | |
+| :-- | :-- | :-- | :-- |
+| 1 | the census check adds nothing measurable to `varka-docs` | both checks under a second on the laptop; the job's own run is the pull request's | held |
+| 2 | `VarkaCastMatrixSuite` under 5 s of test time | 0.15 s | held, far under |
+| 3 | the fused pair count moves from 96 by at most 26; fully fused entries stay 15 | 96 to 122, +26; 15 | held, at the bound: every `INT` comparison fuses |
+| 4 | no existing claim lost under the new crediting | none lost | held |

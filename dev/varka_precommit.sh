@@ -393,6 +393,23 @@ if printf '%s\n' "${files[@]}" \
   fi
 fi
 
+# Milestone 8 counts its progress in the census and the cast matrix, rendered from the registry,
+# the coverage table and a curated half (VARKA-328): a change to any input that leaves the committed
+# files stale moves the milestone's headline without anyone seeing it. The catalogue check fails
+# while a plan still cites a path the scope catalogue moved away from.
+census_inputs='^(dev/varka_census\.py|dev/varka_catalogue_move\.sh|sql/varka/coverage\.json'
+census_inputs+='|sql/varka/plans/.*'
+census_inputs+='|sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis'
+census_inputs+='/FunctionRegistry\.scala)$'
+if printf '%s\n' "${files[@]}" | grep -qE "$census_inputs"; then
+  for check in "dev/varka_census.py --check" "dev/varka_catalogue_move.sh --check 8 9"; do
+    out="$($check 2>&1)" || {
+      echo "$out" | sed 's/^/census: /'
+      findings=$((findings + 1))
+    }
+  done
+fi
+
 if [ "$docs_changed" -eq 1 ] && [ -x dev/varka_quote_check.py ]; then
   out="$(dev/varka_quote_check.py 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ]; then
