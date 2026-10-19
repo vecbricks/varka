@@ -861,6 +861,7 @@ public final class VarkaExpressionCompiler {
         // The fused conjuncts as this one would leave them: lifted with it where the lanes
         // differ, and committed only once the budget below takes them.
         List<Cond> before = fused;
+        boolean liftedBefore = false;
         if (!fused.isEmpty() && cond.laneType() != fused.get(0).laneType()) {
           Optional<Cond> lifted = VarkaConditionCompiler.onLongLane(cond);
           List<Cond> liftedFused = new ArrayList<>();
@@ -870,6 +871,7 @@ public final class VarkaExpressionCompiler {
           if (lifted.isPresent() && liftedFused.size() == fused.size()) {
             cond = lifted.get();
             before = liftedFused;
+            liftedBefore = true;
           }
         }
         if (!before.isEmpty() && cond.laneType() != before.get(0).laneType()) {
@@ -884,7 +886,7 @@ public final class VarkaExpressionCompiler {
         if (VarkaLoopEmitter.fitsBudgets(
             List.of(VarkaConditionCompiler.andFold(with)), inputs.size(), options)) {
           sink.take();
-          if (before != fused) {
+          if (liftedBefore) {
             fused.clear();
             fused.addAll(before);
           }

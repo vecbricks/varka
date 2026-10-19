@@ -72,7 +72,7 @@ final class VarkaBodyEmitter {
     if (analysis.options.driverOutputTable()) {
       emitTableDriver(cb, dense, classDesc, outputs, analysis, groups, s);
     } else {
-      emitUnrolledDriver(cb, dense, classDesc, outputs, all, analysis, numLiterals, groups, s);
+      emitUnrolledDriver(cb, dense, classDesc, outputs, all, analysis, groups, s);
     }
     noteDriverReached(dense, outputs, analysis);
   }
@@ -138,7 +138,7 @@ final class VarkaBodyEmitter {
    * driver, the bitmap pass for the outputs it serves and the all-null shortcut; then the calls.
    */
   private static void emitUnrolledDriver(CodeBuilder cb, boolean dense, ClassDesc classDesc,
-      List<VarkaVectorIR> outputs, List<Integer> all, Analysis analysis, int numLiterals,
+      List<VarkaVectorIR> outputs, List<Integer> all, Analysis analysis,
       List<List<Integer>> groups, Slots s) {
     emitEmptyReturn(cb, analysis);
     emitSizes(cb, analysis, s);
@@ -180,7 +180,7 @@ final class VarkaBodyEmitter {
       cb.labelBinding(live);
     }
     emitSpecies(cb, analysis, s);
-    emitLiterals(cb, analysis, numLiterals, s);
+    emitLiterals(cb, analysis, s);
     emitGroupCalls(cb, dense, classDesc, analysis, groups, s);
   }
 
@@ -209,7 +209,7 @@ final class VarkaBodyEmitter {
         analysis, s);
     emitInputState(cb, dense, analysis, s);
     emitSpecies(cb, analysis, s);
-    emitLiterals(cb, analysis, numLiterals, s);
+    emitLiterals(cb, analysis, s);
     if (s.guardAcc != null) {
       // An empty mask: no lane has been found out of range yet. One per reason under
       // `exactRefusalStatus`.
@@ -508,7 +508,7 @@ final class VarkaBodyEmitter {
   }
 
   /** The literals the body reads, hoisted out of the loop, and broadcast where it wants vectors. */
-  private static void emitLiterals(CodeBuilder cb, Analysis analysis, int numLiterals, Slots s) {
+  private static void emitLiterals(CodeBuilder cb, Analysis analysis, Slots s) {
     emitLiterals(cb, analysis.lane, s.scalarArg.length, s);
     if (s.intScalarArg != null) {
       // The int table, in a kernel that converts between lanes; read from the int array, which

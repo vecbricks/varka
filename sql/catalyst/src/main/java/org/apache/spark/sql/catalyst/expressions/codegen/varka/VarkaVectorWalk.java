@@ -164,7 +164,7 @@ final class VarkaVectorWalk {
       case ColumnRef c -> {
         line(cb, analysis, node);
         if (lane != analysis.lane) {
-          emitLowHalfLoad(cb, c, analysis, s);
+          emitLowHalfLoad(cb, c, s);
           break;
         }
         cb.aload(s.species(lane));
@@ -438,8 +438,7 @@ final class VarkaVectorWalk {
    * {@code (long) i * 4}, a linear function of the induction variable that C2 folds into the
    * load's address, as {@code VarkaBodyEmitter.emitNarrowStore} derives its own.
    */
-  private static void emitLowHalfLoad(CodeBuilder cb, ColumnRef c, Analysis analysis,
-      Slots s) {
+  private static void emitLowHalfLoad(CodeBuilder cb, ColumnRef c, Slots s) {
     int species = s.species(Lane.INT);
     cb.aload(species);
     cb.aload(s.srcSeg(c.ordinal()));
