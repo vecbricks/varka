@@ -219,10 +219,53 @@ final class VarkaConditionCompiler {
     return false;
   }
 
+  /**
+   * A connective's two operands on one lane: as they are where they agree, both on the long lane
+   * where they do not and each has a form there ({@link #onLongLane}, VARKA-28), and otherwise
+   * empty with the lane's reason noted.
+   */
+  private static Optional<List<Cond>> meetOnOneLane(
+      Expression whole, DeclineSink sink, Cond a, Cond b) {
+    if (a.laneType() != b.laneType()) {
+      Optional<Cond> la = onLongLane(a);
+      Optional<Cond> lb = onLongLane(b);
+      if (la.isPresent() && lb.isPresent()) {
+        return Optional.of(List.of(la.get(), lb.get()));
+      }
+    }
+    return sameLane(whole, sink, a, b) ? Optional.of(List.of(a, b)) : Optional.empty();
+  }
+
   /** {@link #sameLane(Expression, DeclineSink, VarkaVectorIR...)} for the two a connective has. */
   private static boolean sameLane(
       Expression whole, DeclineSink sink, VarkaVectorIR a, VarkaVectorIR b) {
     return a.laneType() == b.laneType() || notMixed(whole, sink, a.laneType(), b.laneType());
+  }
+
+  /**
+   * {@code cond} on the long lane, or empty where it has no form there (VARKA-28): every int
+   * comparison compares its operands widened, which keeps every answer since a sign extension
+   * keeps every value and its order, and an int {@code IS NOT NULL} reads its column through a
+   * widening, whose validity is the column's. A range set has no long-lane form. A long-lane
+   * condition is itself. This is how an int conjunct joins a filter whose other conjuncts compare
+   * on the long lane, as the {@code isnotnull(i)} the optimizer infers beside {@code i < l}.
+   */
+  static Optional<Cond> onLongLane(Cond cond) {
+    if (cond.laneType() == VarkaVectorIR.LaneType.LONG) {
+      return Optional.of(cond);
+    }
+    return switch (cond) {
+      case Compare c -> Optional.of(new Compare(c.op(), new VarkaVectorIR.WidenLane(c.left()),
+          new VarkaVectorIR.WidenLane(c.right())));
+      case VarkaVectorIR.IsNotNull n ->
+          Optional.of(new VarkaVectorIR.IsNotNull(new VarkaVectorIR.WidenLane(n.child())));
+      case VarkaVectorIR.And a -> onLongLane(a.left()).flatMap(l ->
+          onLongLane(a.right()).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
+      case VarkaVectorIR.Or o -> onLongLane(o.left()).flatMap(l ->
+          onLongLane(o.right()).map(r -> (Cond) new VarkaVectorIR.Or(l, r)));
+      case VarkaVectorIR.Not n -> onLongLane(n.child()).map(c -> (Cond) new VarkaVectorIR.Not(c));
+      case InRanges r -> Optional.empty();
+    };
   }
 
   /**
@@ -391,10 +434,8 @@ final class VarkaConditionCompiler {
         if (right.isEmpty()) {
           return right;
         }
-        if (!sameLane(expr, sink, left.get(), right.get())) {
-          return Optional.empty();
-        }
-        return Optional.of(new VarkaVectorIR.And(left.get(), right.get()));
+        return meetOnOneLane(expr, sink, left.get(), right.get())
+            .map(both -> new VarkaVectorIR.And(both.get(0), both.get(1)));
       };
       case Or or -> () -> {
         // A disjunction of ranges over one int or date column - the partition-key filter a BI
@@ -416,10 +457,8 @@ final class VarkaConditionCompiler {
         if (right.isEmpty()) {
           return right;
         }
-        if (!sameLane(expr, sink, left.get(), right.get())) {
-          return Optional.empty();
-        }
-        return Optional.of(new VarkaVectorIR.Or(left.get(), right.get()));
+        return meetOnOneLane(expr, sink, left.get(), right.get())
+            .map(both -> new VarkaVectorIR.Or(both.get(0), both.get(1)));
       };
       case Not not ->
           () -> compileCond(not.child(), inputs, literals, sink).map(v -> new VarkaVectorIR.Not(v));

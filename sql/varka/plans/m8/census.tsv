@@ -448,8 +448,8 @@ cast	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,
 boolean	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	bool		bool,byte,short,float,double,dec	semantics	332,343,350,364	cast alias
 tinyint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	byte		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
 smallint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	short		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
-int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
-bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint		bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias
+int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int	bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
+bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint	int	bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias
 float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
 double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
 decimal	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	dec		bool,byte,short,float,double,dec	semantics	350,364,366	cast alias; DECIMAL(10,0) by default

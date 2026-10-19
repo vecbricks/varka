@@ -287,13 +287,15 @@ class VarkaCoverageCompositionFuzzSuite
         Array.fill(length)(drawLong(rnd, dataType, scale))
       }
       val lits = plan.longLiterals.asScala.map(_.longValue).toArray
+      // A kernel of both lanes (VARKA-28) reads the int table beside the long one.
+      val intLits = plan.literals.asScala.map(_.intValue).toArray
       val batch = VarkaKernelCheck.LongBatch(length, patterns, data, forceMasked)
       if (poisoned) {
         VarkaKernelCheck.runOwnBodyLong(context, className, bytes, roots, numInputs, lits, batch,
-          declineAllowed = true, spark = spark)
+          declineAllowed = true, spark = spark, intLits = intLits)
       } else {
         VarkaKernelCheck.runAndCompareLong(context, className, bytes, roots, numInputs, lits,
-          batch, declineAllowed = true, spark = spark)
+          batch, declineAllowed = true, spark = spark, intLits = intLits)
       }
     } else {
       val data = Array.tabulate(numInputs)(i => Array.fill(length)(intValue(i, scale)))
@@ -559,7 +561,9 @@ class VarkaCoverageCompositionFuzzSuite
       .find { d =>
         val rows = Array.tabulate(length)(r => Array.tabulate(n)(col => d(col)(r)))
         masks.forall { z =>
-          VarkaGuardSpecs.verdict(plan.outputs, n, lits, opts, isLong, rows,
+          VarkaGuardSpecs.verdict(plan.outputs, n, lits,
+            if (isLong) plan.literals.asScala.map(_.intValue).toArray else Array.empty[Int],
+            opts, isLong, rows,
             Array.tabulate(length)(r => Array.tabulate(n)(col => z(col)(r))),
             java.util.List.of()).answers()
         }
@@ -682,14 +686,19 @@ class VarkaCoverageCompositionFuzzSuite
         row.executable -> VarkaExpressionCompiler.compilePredicate(resolve(row.executable),
           columns, opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone")).fused
       }
+      // A kernel that reads both literal tables (VARKA-28) has no form in the compiled check's
+      // case, which holds one; `VarkaEmitterMixedLaneSuite` and the IR fuzzer's mixed corpus run
+      // such kernels instead.
+      val oneTable =
+        rowKernels.filter { case (_, p) => p.literals.isEmpty || p.longLiterals.isEmpty }
       val kernels = coverageRow match {
         case Some(sql) =>
-          rowKernels.filter(_._1 == sql).ensuring(_.nonEmpty, s"no coverage row is $sql")
-        case None if coverageCompiled.contains("all") => rowKernels
+          oneTable.filter(_._1 == sql).ensuring(_.nonEmpty, s"no coverage row is $sql")
+        case None if coverageCompiled.contains("all") => oneTable
         case None =>
           val perLane = coverageCompiled.map(_.toInt).getOrElse(4)
           LaneType.values.toSeq.flatMap { lane =>
-            new Random(seed ^ 274L ^ lane.ordinal).shuffle(rowKernels.filter(_._2.lane == lane))
+            new Random(seed ^ 274L ^ lane.ordinal).shuffle(oneTable.filter(_._2.lane == lane))
               .take(perLane)
           }
       }
@@ -854,9 +863,9 @@ class VarkaCoverageCompositionFuzzSuite
           val batch = longBatch(allNull)
           fill match {
             case Some(f) => VarkaKernelCheck.runOwnBodyLong(context, className, code, roots,
-              numInputs, longLits, batch, fills = Seq(f))
+              numInputs, longLits, batch, fills = Seq(f), intLits = intLits)
             case None => VarkaKernelCheck.runAndCompareLong(context, className, code, roots,
-              numInputs, longLits, batch)
+              numInputs, longLits, batch, intLits = intLits)
           }
         } else {
           val batch = intBatch(allNull)
@@ -874,7 +883,7 @@ class VarkaCoverageCompositionFuzzSuite
           : Int =
         if (plan.lane == LaneType.LONG) {
           VarkaKernelCheck.validityBytesWrittenLong(className, code, roots, numInputs, longLits,
-            longBatch(allNull), fill)
+            longBatch(allNull), fill, intLits)
         } else {
           VarkaKernelCheck.validityBytesWritten(className, code, roots, numInputs, intLits,
             intBatch(allNull), fill)

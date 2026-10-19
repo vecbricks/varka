@@ -120,7 +120,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  * beside it.
  *
  * <p><b>The epilogue, not a scalar tail.</b> The rows past {@code loopBound} are one more
- * iteration of the same lane-group body, under the mask {@code indexInRange} builds for a
+ * iteration of the same lane-group body (two at most in a kernel that converts between lanes,
+ * whose loop stops a group early), under the mask {@code indexInRange} builds for a
  * partial group - {@code i} is {@code loopBound}, {@code lanes} becomes the remainder so every
  * validity helper stays bounded by the group, and only the loads and the stores take their
  * masked overloads. The masked load is required rather than preferred: the data segment is
@@ -166,10 +167,11 @@ public final class VarkaLoopEmitter {
   }
 
   /**
-   * The lane every output root agrees on. The roots are the emission's outputs, and a class
-   * holds one species: its loop, its epilogue and its stores are all that species, so two roots
-   * on different lanes are two kernels rather than one. `analyze` re-checks every node below
-   * them against this, which is where a mixed *tree* is caught.
+   * The lane every output root's kernel is driven at, which they must agree on. The roots are the
+   * emission's outputs, and a class is driven at one species: its loop and its epilogue are that
+   * species', so two roots driven at different lanes are two kernels rather than one. A root that
+   * converts between lanes is driven at the long lane (VARKA-28). `analyze` re-checks every node
+   * below them against this.
    */
   private static Lane laneOf(List<VarkaVectorIR> outputs) {
     if (outputs.isEmpty()) {

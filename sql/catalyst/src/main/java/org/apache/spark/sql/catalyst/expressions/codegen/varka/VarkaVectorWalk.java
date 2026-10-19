@@ -65,6 +65,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -156,43 +157,51 @@ final class VarkaVectorWalk {
       throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonical(node)
           + " twice without a shared slot: its use count (Slots.bodyUses) is too low");
     }
+    // The lane this node's instructions name: the emission's own in a single-lane kernel, the
+    // node's in one that converts between lanes (Analysis.laneOf).
+    Lane lane = analysis.laneOf(node);
     switch (node) {
       case ColumnRef c -> {
         line(cb, analysis, node);
-        cb.aload(s.species);
+        if (lane != analysis.lane) {
+          emitLowHalfLoad(cb, c, s);
+          break;
+        }
+        cb.aload(s.species(lane));
         cb.aload(s.srcSeg(c.ordinal()));
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
-          cb.invokestatic(analysis.lane.vector, "fromMemorySegment",
-              analysis.lane.fromMemorySegmentMasked);
+          cb.invokestatic(lane.vector, "fromMemorySegment",
+              lane.fromMemorySegmentMasked);
         } else {
-          cb.invokestatic(analysis.lane.vector, "fromMemorySegment",
-              analysis.lane.fromMemorySegmentDense);
+          cb.invokestatic(lane.vector, "fromMemorySegment",
+              lane.fromMemorySegmentDense);
         }
       }
       case LiteralSlot l -> {
         line(cb, analysis, node);
-        if (s.broadcastSlot != null) {
-          cb.aload(s.broadcastSlot[l.index()]);
+        int[] broadcast = s.broadcastSlots(lane);
+        if (broadcast != null) {
+          cb.aload(broadcast[l.index()]);
         } else {
-          cb.aload(s.species);
-          analysis.lane.loadScalar(cb, s.scalarArg[l.index()]);
-          cb.invokestatic(analysis.lane.vector, "broadcast", analysis.lane.broadcast);
+          cb.aload(s.species(lane));
+          lane.loadScalar(cb, s.scalarArgs(lane)[l.index()]);
+          cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
         }
       }
       case AddDays n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         // The misdescribe hook: whichever body executes first must fail naming the call.
         MethodTypeDesc desc =
             analysis.options.misdescribeAdd()
-                ? analysis.lane.lanewiseVVWrong : analysis.lane.lanewiseVV;
+                ? lane.lanewiseVVWrong : lane.lanewiseVV;
         emitAndValidatedOp(cb, node, n.days(), n.offset(), "add", desc, dense, analysis, s,
             computed);
       }
       case SubDays n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.days(), n.offset(), "sub", LANEWISE_VV,
             dense, analysis, s, computed);
       }
@@ -211,12 +220,12 @@ final class VarkaVectorWalk {
         emitShift(cb, "LSHR", n.shift());
       }
       case DateDiff n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
             dense, analysis, s, computed);
       }
       case DayOfWeek n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         emitValue(cb, n.days(), dense, analysis, s, computed);
         line(cb, analysis, node);
         VarkaChronoLowering.emitFloorMod7(cb, node, analysis, s);
@@ -225,14 +234,14 @@ final class VarkaVectorWalk {
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
       }
       case WeekDay n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         emitValue(cb, n.days(), dense, analysis, s, computed);
         line(cb, analysis, node);
         VarkaChronoLowering.emitFloorMod7(cb, node, analysis, s);
         VarkaChronoLowering.emitModOffset(cb, s, 3);
       }
       case GuardedDay n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         // The value passes through untouched; what this node adds is two compares beside it.
         // The word is the child's, because a range check does not change validity -
         // it decides whether the batch is answered at all, not which lanes are null.
@@ -244,12 +253,31 @@ final class VarkaVectorWalk {
               analysis, s, VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
         }
       }
-      case NarrowLane n -> {
-        // The value stays in the long lane here; the narrowing happens at the root's store,
-        // which is the only place this node can be (see `emitNarrowStore`). The word is the
-        // child's.
+      case WidenLane n -> {
+        // Sign extension of the int lanes that hold the group's rows, the low half of the int
+        // species, into the long species: one `I2L`, part 0. The word is the child's.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
+        cb.getstatic(VECTOR_OPERATORS, "I2L", VO_CONVERSION);
+        emitConstantSpecies(cb, Lane.LONG, analysis);
+        cb.loadConstant(0);
+        cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
+        cb.checkcast(Lane.LONG.vector);
+      }
+      case NarrowLane n -> {
+        // At a root nothing else reads, the value stays in the long lane and narrows at the
+        // store (`emitNarrowStore`). Anywhere else its consumer computes in the int lane, so it
+        // narrows here: one `L2I`, part 0, the low 32 bits of each long lane into the low half
+        // of the int species, whose upper half is then zero. The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        if (!analysis.narrowsAtStore(node)) {
+          cb.getstatic(VECTOR_OPERATORS, "L2I", VO_CONVERSION);
+          emitConstantSpecies(cb, Lane.INT, analysis);
+          cb.loadConstant(0);
+          cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
+          cb.checkcast(Lane.INT.vector);
+        }
       }
       case GuardedRange n -> {
         // The day guard's twin at whichever lane the child is on, with the bounds the node
@@ -273,7 +301,7 @@ final class VarkaVectorWalk {
         }
       }
       case ThursdayOf n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         // t = d + 3 - weekday0(d), the Thursday of d's Monday-based week, on
         // NextDay's pattern: the date's second copy rides the operand stack across
         // emitFloorMod7, whose two dowTmp slots it would otherwise have to share.
@@ -291,7 +319,7 @@ final class VarkaVectorWalk {
         cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);        // [d + 3 - weekday0]
       }
       case DayOfWeekIso n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         // WeekDay's tail plus one: Monday 1 to Sunday 7.
         emitValue(cb, n.days(), dense, analysis, s, computed);
         line(cb, analysis, node);
@@ -301,7 +329,7 @@ final class VarkaVectorWalk {
         cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
       }
       case NextDay n -> {
-        analysis.lane.requireInt(n);
+        lane.requireInt(n);
         // date is needed twice - once inside w = k - d, once again for the final d + r - and
         // both children must be emitted before line() re-tags the node's own instructions
         // (matching AddDays/SubDays/DateDiff), so it rides the operand stack via dup/swap
@@ -361,11 +389,11 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.condMask.get(n.cond()));
         } else {
-          cb.aload(s.species);
+          cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
           cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
         }
-        cb.invokevirtual(analysis.lane.vector, "blend", analysis.lane.blend);
+        cb.invokevirtual(lane.vector, "blend", lane.blend);
         if (!dense && s.ownWord.contains(node)) {
           // valid = (kT & validThen) | (~kT & validElse), the chosen branch's validity.
           cb.lload(s.kt.get(n.cond()));
@@ -388,6 +416,48 @@ final class VarkaVectorWalk {
       cb.astore(shared);
       computed.add(node);
     }
+  }
+
+  /**
+   * {@code lane}'s species as the constant its class declares, for a conversion's target. Not
+   * the species local: {@code convertShape} intrinsifies only where C2 sees the target's lane
+   * count as a constant, which it does through the static field and not through a local holding
+   * it ("missing constant ... vlen_to=LoadI" under {@code PrintIntrinsics}, and the conversion
+   * then runs as Java, `VARKA-28.md` 9.2).
+   */
+  private static void emitConstantSpecies(CodeBuilder cb, Lane lane, Analysis analysis) {
+    cb.getstatic(lane.vector, lane.speciesField(analysis.lanesOf(lane)), VECTOR_SPECIES);
+  }
+
+  /**
+   * An int column in a kernel driven at the long lane: the group's rows into the low lanes of the
+   * int species of the same width. In a loop body the load is whole, so the upper lanes hold the
+   * next group's rows, which that group reads again; in the epilogue it is under the mask of the
+   * int species' first {@code lanes} lanes, the remainder, and the upper lanes read zero, as an
+   * epilogue's padding lanes do. Either way only the low lanes are the group's. The offset is
+   * {@code (long) i * 4}, a linear function of the induction variable that C2 folds into the
+   * load's address, as {@code VarkaBodyEmitter.emitNarrowStore} derives its own.
+   */
+  private static void emitLowHalfLoad(CodeBuilder cb, ColumnRef c, Slots s) {
+    int species = s.species(Lane.INT);
+    cb.aload(species);
+    cb.aload(s.srcSeg(c.ordinal()));
+    cb.iload(s.iVar);
+    cb.i2l();
+    cb.loadConstant(Lane.INT.byteStride);
+    cb.lmul();
+    cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+    if (!s.epilogue) {
+      // In the loop, whole: the loop stops while a whole int vector still fits
+      // (`VarkaBodyEmitter.emitSpecies`), and the upper lanes are the next group's rows.
+      cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentDense);
+      return;
+    }
+    cb.aload(species);
+    cb.loadConstant(0);
+    cb.iload(s.lanes);
+    cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
+    cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
   }
 
   /**
@@ -422,6 +492,7 @@ final class VarkaVectorWalk {
    */
   private static void emitIntArith(CodeBuilder cb, IntArith n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(n);
     String op = switch (n.op()) {
       case ADD -> "add";
       case SUB -> "sub";
@@ -444,7 +515,7 @@ final class VarkaVectorWalk {
     if (tmp == null) {
       // WRAP, or the check switched off for the A/B: the plain lanewise op, whose word is the
       // operands' AND like every other null-intolerant binary node.
-      emitAndValidatedOp(cb, n, n.left(), n.right(), op, analysis.lane.lanewiseVV, dense,
+      emitAndValidatedOp(cb, n, n.left(), n.right(), op, lane.lanewiseVV, dense,
           analysis, s, computed);
       return;
     }
@@ -455,7 +526,7 @@ final class VarkaVectorWalk {
     emitValue(cb, n.right(), dense, analysis, s, computed);
     line(cb, analysis, n);
     cb.dup2();
-    cb.invokevirtual(analysis.lane.vector, op, analysis.lane.lanewiseVV);
+    cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
     cb.astore(r);
     cb.astore(b);
     cb.astore(a);
@@ -466,16 +537,16 @@ final class VarkaVectorWalk {
     cb.aload(a);
     cb.getstatic(VECTOR_OPERATORS, "XOR", VO_ASSOCIATIVE);
     cb.aload(n.op() == IntOp.ADD ? r : b);
-    cb.invokevirtual(analysis.lane.vector, "lanewise", analysis.lane.lanewiseBinaryV);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseBinaryV);
     cb.getstatic(VECTOR_OPERATORS, "AND", VO_ASSOCIATIVE);
     cb.aload(n.op() == IntOp.ADD ? b : a);
     cb.getstatic(VECTOR_OPERATORS, "XOR", VO_ASSOCIATIVE);
     cb.aload(r);
-    cb.invokevirtual(analysis.lane.vector, "lanewise", analysis.lane.lanewiseBinaryV);
-    cb.invokevirtual(analysis.lane.vector, "lanewise", analysis.lane.lanewiseBinaryV);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseBinaryV);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseBinaryV);
     cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
-    analysis.lane.pushScalar(cb, 0);
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    lane.pushScalar(cb, 0);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     cb.aload(r);
   }
@@ -489,6 +560,7 @@ final class VarkaVectorWalk {
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(n);
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
     // The refusal map decides, so the emitted check and the planner's accumulator cannot disagree.
@@ -496,12 +568,12 @@ final class VarkaVectorWalk {
     if (checked) {
       cb.dup();
       cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
-      analysis.lane.pushScalar(cb, analysis.lane.mostNegative());
-      cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+      lane.pushScalar(cb, lane.mostNegative());
+      cb.invokevirtual(lane.vector, "compare", lane.compareVI);
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
-    analysis.lane.pushScalar(cb, -1);
-    cb.invokevirtual(analysis.lane.vector, "mul", analysis.lane.lanewiseVI);
+    lane.pushScalar(cb, -1);
+    cb.invokevirtual(lane.vector, "mul", lane.lanewiseVI);
   }
 
   /**
@@ -585,10 +657,11 @@ final class VarkaVectorWalk {
   private static void emitAndValidatedOp(CodeBuilder cb, VarkaVectorIR node, VarkaVectorIR left,
       VarkaVectorIR right, String op, MethodTypeDesc desc, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(node);
     emitValue(cb, left, dense, analysis, s, computed);
     emitValue(cb, right, dense, analysis, s, computed);
     line(cb, analysis, node);
-    cb.invokevirtual(analysis.lane.vector, op, desc);
+    cb.invokevirtual(lane.vector, op, desc);
     if (!dense && s.ownWord.contains(node)) {
       emitAndWord(cb, s, s.wordRef.get(node), s.wordRef.get(left), s.wordRef.get(right));
     }
@@ -640,16 +713,17 @@ final class VarkaVectorWalk {
    */
   static void emitRangeGuard(CodeBuilder cb, VarkaVectorIR node, Integer word,
       int guardTmp, boolean dense, Analysis analysis, Slots s, long lo, long hi) {
+    Lane lane = analysis.laneOf(node);
     cb.dup();
     cb.astore(guardTmp);
     cb.aload(guardTmp);
     cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
-    analysis.lane.pushScalar(cb, lo);
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    lane.pushScalar(cb, lo);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.aload(guardTmp);
     cb.getstatic(VECTOR_OPERATORS, "GT", VO_COMPARISON);
-    analysis.lane.pushScalar(cb, hi);
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    lane.pushScalar(cb, hi);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
     emitGuardCollect(cb, node, word, dense, analysis, s);
   }
@@ -665,11 +739,12 @@ final class VarkaVectorWalk {
    */
   static void emitRangeAccumulate(CodeBuilder cb, VarkaVectorIR node, int acc,
       Analysis analysis) {
+    Lane lane = analysis.laneOf(node);
     for (int k = 0; k < 2; k++) {
       cb.dup();
       cb.aload(acc + k);
       cb.swap();
-      cb.invokevirtual(analysis.lane.vector, k == 0 ? "min" : "max", analysis.lane.lanewiseVV);
+      cb.invokevirtual(lane.vector, k == 0 ? "min" : "max", lane.lanewiseVV);
       cb.astore(acc + k);
     }
     analysis.reach(VarkaEmitMechanism.guard(analysis.refusals.get(node)));
@@ -691,6 +766,12 @@ final class VarkaVectorWalk {
    */
   static void emitGuardCollect(CodeBuilder cb, VarkaVectorIR node, Integer word,
       boolean dense, Analysis analysis, Slots s) {
+    // In a kernel that converts between lanes, an int-lane guard's mask has the int species'
+    // lanes, the low half of them the group's rows; the accumulator, the words' masks, the arms'
+    // and the epilogue's are the driving lane's. Its low lanes, through a word, are that mask.
+    if (analysis.laneOf(node) != analysis.lane) {
+      emitToDrivingLane(cb, s);
+    }
     // WORD_DEAD is deliberately not screened here beside the all-true constant. A guarded node
     // whose word the liveness pass killed is a bug in that pass, not a case to emit around: the AND
     // is what keeps a null lane from condemning the batch, so skipping it quietly would turn a
@@ -775,6 +856,9 @@ final class VarkaVectorWalk {
       VarkaVectorIR cond = step.node().cond();
       if (dense) {
         cb.aload(s.condMask.get(cond));
+        if (analysis.laneOf(cond) != analysis.lane) {
+          emitToDrivingLane(cb, s);
+        }
         if (!step.thenBranch()) {
           cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
         }
@@ -792,6 +876,20 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * {@code [int mask] -> [mask]} at the driving lane, in a kernel that converts between lanes:
+   * the int mask's low lanes, which are the lane group's rows, as a mask of the long species,
+   * through the word they spell. The int mask's upper lanes are not the group's rows, and
+   * {@code fromLong} reads only as many bits as the long species has lanes, so they drop out.
+   */
+  private static void emitToDrivingLane(CodeBuilder cb, Slots s) {
+    cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);   // [word]
+    cb.aload(s.species);                                // [word, species]
+    cb.dup_x2();                                        // [species, word, species]
+    cb.pop();                                           // [species, word]
+    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+  }
+
+  /**
    * The null-skipping {@code greatest}/{@code least}: in the dense body a plain lanewise
    * {@code max}/{@code min}; in the masked body each operand substitutes the other where it is
    * null - {@code aSel = a.blend(b, ~validA)} - which reduces every case (both valid, only A,
@@ -800,11 +898,12 @@ final class VarkaVectorWalk {
   private static void emitPick(CodeBuilder cb, VarkaVectorIR node, VarkaVectorIR left,
       VarkaVectorIR right, String op, boolean dense, Analysis analysis, Slots s,
       Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(node);
     if (dense) {
       emitValue(cb, left, dense, analysis, s, computed);
       emitValue(cb, right, dense, analysis, s, computed);
       line(cb, analysis, node);
-      cb.invokevirtual(analysis.lane.vector, op, analysis.lane.lanewiseVV);
+      cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
       return;
     }
     int[] tmp = s.pairTmp.get(node);
@@ -815,21 +914,21 @@ final class VarkaVectorWalk {
     line(cb, analysis, node);
     cb.aload(tmp[0]);
     cb.aload(tmp[1]);
-    cb.aload(s.species);
+    cb.aload(s.species(lane));
     loadWord(cb, s, s.wordRef.get(left));
     cb.loadConstant(-1L);
     cb.lxor();
     cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
-    cb.invokevirtual(analysis.lane.vector, "blend", analysis.lane.blend);
+    cb.invokevirtual(lane.vector, "blend", lane.blend);
     cb.aload(tmp[1]);
     cb.aload(tmp[0]);
-    cb.aload(s.species);
+    cb.aload(s.species(lane));
     loadWord(cb, s, s.wordRef.get(right));
     cb.loadConstant(-1L);
     cb.lxor();
     cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
-    cb.invokevirtual(analysis.lane.vector, "blend", analysis.lane.blend);
-    cb.invokevirtual(analysis.lane.vector, op, analysis.lane.lanewiseVV);
+    cb.invokevirtual(lane.vector, "blend", lane.blend);
+    cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
     if (s.ownWord.contains(node)) {
       loadWord(cb, s, s.wordRef.get(left));
       loadWord(cb, s, s.wordRef.get(right));
@@ -857,6 +956,7 @@ final class VarkaVectorWalk {
    */
   private static void emitInRanges(CodeBuilder cb, InRanges n, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(n);
     emitValue(cb, n.child(), dense, analysis, s, computed);
     int[] tmp = s.rangeTmp.get(n);
     int value = tmp[0];
@@ -869,8 +969,8 @@ final class VarkaVectorWalk {
     // An all-false mask to start from: no lane is below the int minimum.
     cb.aload(value);
     cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
-    analysis.lane.pushScalar(cb, Integer.MIN_VALUE);
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    lane.pushScalar(cb, Integer.MIN_VALUE);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.astore(mask);
     cb.loadConstant(0);
     cb.istore(index);
@@ -888,7 +988,7 @@ final class VarkaVectorWalk {
     cb.getstatic(analysis.owner, table, intArray);
     cb.iload(index);
     cb.iaload();
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.aload(value);
     cb.getstatic(VECTOR_OPERATORS, "LE", VO_COMPARISON);
     cb.getstatic(analysis.owner, table, intArray);
@@ -896,7 +996,7 @@ final class VarkaVectorWalk {
     cb.loadConstant(1);
     cb.iadd();
     cb.iaload();
-    cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVI);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
     cb.astore(mask);
@@ -940,7 +1040,8 @@ final class VarkaVectorWalk {
         cb.getstatic(VECTOR_OPERATORS, n.op().name(), VO_COMPARISON);
         emitValue(cb, n.right(), dense, analysis, s, computed);
         line(cb, analysis, node);
-        cb.invokevirtual(analysis.lane.vector, "compare", analysis.lane.compareVV);
+        Lane lane = analysis.laneOf(node);
+        cb.invokevirtual(lane.vector, "compare", lane.compareVV);
         if (dense) {
           cb.astore(s.condMask.get(node));
         } else {
@@ -1019,7 +1120,7 @@ final class VarkaVectorWalk {
         if (dense) {
           // The dense body ran because every referenced input is null-free, so the
           // predicate is constant true.
-          cb.aload(s.species);
+          cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(-1L);
           cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
           cb.astore(s.condMask.get(node));

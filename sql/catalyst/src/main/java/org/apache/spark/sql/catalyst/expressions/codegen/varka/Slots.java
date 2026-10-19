@@ -77,6 +77,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
 /**
@@ -113,11 +114,26 @@ final class Slots {
   final int[] dstSeg;
   final int[] dstValSeg;
   int ncTmp;
+  /** The species local of the lane the loop is driven at. */
   int species;
+  /**
+   * In a kernel that converts between lanes, the int species local - the int species of the
+   * driving long species' width - or -1 in every other kernel, which has one species.
+   */
+  int intSpecies = -1;
+  /** The lane the loop is driven at, which {@link #species} holds. */
+  Lane drive;
   int lanes;
   int loopBound;
   int[] scalarArg;
   int[] broadcastSlot;
+  /**
+   * In a kernel that converts between lanes, the int literal table's locals and their hoisted
+   * broadcasts, beside {@link #scalarArg} and {@link #broadcastSlot}, which are the long table's;
+   * null in every other kernel.
+   */
+  int[] intScalarArg;
+  int[] intBroadcastSlot;
   int iVar;
   int byteOffset;
   int cmpTmp;
@@ -353,6 +369,28 @@ final class Slots {
   // accessors make that fail at the first emission naming the predicate, rather than as an
   // unboxing NullPointerException or a CodeBuilder's complaint about local -1.
 
+  /** The species local of {@code lane}: the driving lane's, or a mixed kernel's int species. */
+  int species(Lane lane) {
+    if (lane == drive) {
+      return species;
+    }
+    if (intSpecies < 0) {
+      throw VarkaErrors.illegalState("the " + lane + " species is read in a kernel driven at the "
+          + drive + " lane that holds no value of it");
+    }
+    return intSpecies;
+  }
+
+  /** The literal locals of {@code lane}'s table; see {@link #intScalarArg}. */
+  int[] scalarArgs(Lane lane) {
+    return lane == drive ? scalarArg : intScalarArg;
+  }
+
+  /** The hoisted broadcasts of {@code lane}'s literals, or null where none are hoisted. */
+  int[] broadcastSlots(Lane lane) {
+    return lane == drive ? broadcastSlot : intBroadcastSlot;
+  }
+
   /** The epilogue's bounds mask local; see {@link #epilogueReadsMask}. */
   int epilogueMask() {
     if (epilogueMask == null) {
@@ -529,19 +567,30 @@ final class Slots {
       }
     }
     s.ncTmp = slot++;
+    s.drive = analysis.lane;
     s.species = slot++;
     s.lanes = slot++;
     s.loopBound = slot++;
-    s.scalarArg = new int[numLiterals];
+    // One literal table per lane: the driving lane's here, and in a kernel that converts between
+    // lanes the int table's after the broadcasts below. A single-lane kernel's one table is
+    // `numLiterals` long, so its locals are numbered as a single-lane kernel's always are.
+    boolean mixed = analysis.mixed();
+    int driveLiterals = mixed ? analysis.literalsOf(analysis.lane) : numLiterals;
+    s.scalarArg = new int[driveLiterals];
     java.util.BitSet usedLiterals = perGroup ? new java.util.BitSet(numLiterals) : null;
+    java.util.BitSet usedIntLiterals = perGroup && mixed ? new java.util.BitSet() : null;
     if (usedLiterals != null) {
       for (VarkaVectorIR node : body) {
         if (node instanceof VarkaVectorIR.LiteralSlot l) {
-          usedLiterals.set(l.index());
+          if (mixed && l.lane() != analysis.lane.laneType) {
+            usedIntLiterals.set(l.index());
+          } else {
+            usedLiterals.set(l.index());
+          }
         }
       }
     }
-    for (int j = 0; j < numLiterals; j++) {
+    for (int j = 0; j < driveLiterals; j++) {
       // A driver reads no literal - only the loops and epilogues do - so under
       // `driverOutputTable`, which strips the driver to what it reads, none is hoisted there.
       if ((usedLiterals != null && !usedLiterals.get(j)) || strippedDriver) {
@@ -557,11 +606,28 @@ final class Slots {
     // only in the regime where the hoist measures as a win (see `VARKA-9.md`): one output, at
     // most a chain's worth of literals. Any wider body inlines them at each use and lets C2
     // rematerialize under register pressure (VARKA-10.md).
-    s.broadcastSlot = mode == BodyMode.LOOP
-        && outputs.size() == 1 && numLiterals <= MAX_CHAIN_DEPTH ? new int[numLiterals] : null;
+    boolean hoist = mode == BodyMode.LOOP && outputs.size() == 1
+        && numLiterals <= MAX_CHAIN_DEPTH;
+    s.broadcastSlot = hoist ? new int[driveLiterals] : null;
     if (s.broadcastSlot != null) {
-      for (int j = 0; j < numLiterals; j++) {
+      for (int j = 0; j < driveLiterals; j++) {
         s.broadcastSlot[j] = slot++;
+      }
+    }
+    if (mixed) {
+      // The int species and the int table, in a kernel that converts between lanes.
+      s.intSpecies = slot++;
+      int intLiterals = analysis.literalsOf(Lane.INT);
+      s.intScalarArg = new int[intLiterals];
+      for (int j = 0; j < intLiterals; j++) {
+        boolean unused = usedIntLiterals != null && !usedIntLiterals.get(j);
+        s.intScalarArg[j] = unused || strippedDriver ? -1 : slot++;
+      }
+      s.intBroadcastSlot = hoist ? new int[intLiterals] : null;
+      if (s.intBroadcastSlot != null) {
+        for (int j = 0; j < intLiterals; j++) {
+          s.intBroadcastSlot[j] = slot++;
+        }
       }
     }
     s.iVar = slot++;
@@ -841,6 +907,7 @@ final class Slots {
       case ThursdayOf n -> s.wordRef.get(n.days());
       case GuardedDay n -> s.wordRef.get(n.days());
       case GuardedRange n -> s.wordRef.get(n.child());
+      case WidenLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
@@ -1270,8 +1337,9 @@ final class Slots {
             demand(analysis.wordOwner.get(g.child()));
           }
         }
-        // The narrowing reads no word: its validity is its child's, and the one consumer of
-        // that word is its root write, which demands it above unless the bitmap pass serves it.
+        // The conversions read no word: the validity is the child's, demanded by whatever reads
+        // it - a root write, a guard, or a consumer above.
+        case WidenLane g -> { }
         case NarrowLane g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
         // demanded by its root write, by a guard below, or by a consumer above it; a leaf
@@ -1330,6 +1398,7 @@ final class Slots {
           demand(analysis.wordOwner.get(x.offset())); }
         case GuardedDay x -> demand(analysis.wordOwner.get(x.days()));
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
+        case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
           demand(analysis.wordOwner.get(x.offset())); }

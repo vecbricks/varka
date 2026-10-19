@@ -38,7 +38,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     for (k <- 0 until 4000) {
       val int = drawShape(shapeRandom(FUZZ_SEED, k))
       val long = drawLongShape(shapeRandom(LONG_FUZZ_SEED, k))
-      for (root <- (int.roots.asScala ++ long.roots.asScala); node <- nodes(root)) {
+      val mixed = drawMixedShape(shapeRandom(MIXED_FUZZ_SEED, k))
+      for (root <- (int.roots.asScala ++ long.roots.asScala ++ mixed.roots.asScala);
+          node <- nodes(root)) {
         val rebuilt = VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*)
         assert(rebuilt == node, s"${VarkaVectorIR.canonical(node)} rebuilt as " +
           VarkaVectorIR.canonical(rebuilt))

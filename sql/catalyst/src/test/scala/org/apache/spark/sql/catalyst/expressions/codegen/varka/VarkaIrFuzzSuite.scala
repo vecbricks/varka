@@ -117,6 +117,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
 
   private val seed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(fuzzSeed)
   private val longSeed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(longFuzzSeed)
+  private val mixedSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.MIXED_FUZZ_SEED)
   private val iterations = sys.props.get("varka.fuzz.iterations").map(_.toInt).getOrElse(300)
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val variantsEvery = sys.props.get("varka.fuzz.variantsEvery").map(_.toInt).getOrElse(1)
@@ -414,6 +416,48 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private def runOneLong(iteration: Int): Unit = {
     val c = drawLong(iteration)
     if (runChecked(c) && variantsDue(iteration)) runVariants(c, iteration)
+  }
+
+  /**
+   * One draw of the third corpus, trees of both lanes (VARKA-28): the same draw of length, null
+   * patterns, masking and options, the int columns' values inside the int bound and the long
+   * columns' inside the long one, both literal tables, and `VarkaKernelChecks.runAndCompareMixed`
+   * as the check. Not shrunk on failure: the shrinker's case holds one literal table, and the
+   * failure names its seed and iteration for a replay.
+   */
+  private def runOneMixed(iteration: Int): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(mixedSeed, iteration)
+    val drawn = VarkaIrGrammar.drawMixedShape(rnd)
+    val roots = drawn.roots
+    val numInputs = drawn.numInputs
+    val intLits = Array.fill(drawn.intLiterals)(VarkaIrGrammar.intWithin(rnd, literalBound))
+    val longLits = Array.fill(drawn.longLiterals)(VarkaIrGrammar.within(rnd, longLiteralBound))
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    val options = randomOptions(rnd)
+    val data = Array.tabulate(numInputs, length) { (c, _) =>
+      if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
+      else VarkaIrGrammar.within(rnd, longColumnBound)
+    }
+    val label = s"lane=mixed seed=$mixedSeed iteration=$iteration " +
+      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"intLiterals=${intLits.mkString(",")} longLiterals=${longLits.mkString(",")} " +
+      s"forceMasked=$forceMasked"
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzMixed" +
+      classCounter.addAndGet(1)
+    val numLiterals = drawn.numLiterals
+    def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
+      className, roots, numInputs, numLiterals, o, randomTrace)
+    emitOrSkip(label, options)(emitWith).foreach { bytes =>
+      VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs, intLits,
+        longLits, new VarkaKernelChecks.LongBatch(length,
+          Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
+        false, null)
+    }
   }
 
   private def variantsDue(iteration: Int): Boolean =
@@ -908,10 +952,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
-    // Deliberately out of this generator's reach: `NarrowLane` takes a long child, nothing in
-    // the IR widens an int lane, and this grammar builds int trees only, so no int shape can
-    // hold one. The long-lane generator draws it at a root, and the test below asserts that.
-    val missing = permitted -- seen - "NarrowLane"
+    // Deliberately out of this generator's reach: the conversions, which take or give a long
+    // lane, while this grammar builds int trees only. The long-lane generator draws a narrowing
+    // at a root, and the mixed-lane generator both conversions anywhere; the tests below assert
+    // that.
+    val missing = permitted -- seen - "NarrowLane" - "WidenLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1217,6 +1262,45 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     reportReach(reach)
     reportSkipped()
+  }
+
+  test(s"random IR trees of both lanes match the reference evaluator (seed $mixedSeed, " +
+      s"$iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "mixed-lane draws")
+    try {
+      only match {
+        case Some(k) => runOneMixed(k)
+        case None => (0 until iterations).foreach(runOneMixed)
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the mixed-lane generator reaches both conversions, the calendar under a widening and a " +
+      "narrowing below another node") {
+    // The node types the third corpus exists for, asserted rather than assumed, as the two
+    // single-lane generators' reach is above.
+    val seen = scala.collection.mutable.Set.empty[String]
+    var narrowBelow = false
+    def walk(n: VarkaVectorIR, underWiden: Boolean): Unit = {
+      seen += n.getClass.getSimpleName
+      if (underWiden && VarkaEmitBudget.isChrono(n)) seen += "calendar under a widening"
+      VarkaVectorIR.childrenOf(n).foreach { child =>
+        if (child.isInstanceOf[NarrowLane]) narrowBelow = true
+        walk(child, underWiden || n.isInstanceOf[WidenLane])
+      }
+    }
+    for (k <- 0 until 20000) {
+      VarkaIrGrammar.drawMixedShape(VarkaIrGrammar.shapeRandom(mixedSeed, k)).roots.asScala
+        .foreach(walk(_, underWiden = false))
+    }
+    val wanted = Set("WidenLane", "NarrowLane", "GuardedRange", "calendar under a widening",
+      "IfElse", "Compare", "ConstDivide", "IntArith", "Greatest", "Least")
+    assert((wanted -- seen).isEmpty, s"never drawn: ${(wanted -- seen).toSeq.sorted}")
+    assert(narrowBelow, "no narrowing below another node was drawn")
   }
 
   // ---------------------------------------------------------------------------------------------

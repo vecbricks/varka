@@ -1,0 +1,15 @@
+# The emitted kernels with a branch in the loop instead of the bounded loop: each int load and
+# store tests i + 2 * lanes <= length and takes the whole form or the masked one (an emitter
+# variant tried on 19 October 2026 and not kept). Probe kernels emitted with VarkaLoopEmitter.emit
+# at default options, 16384 rows unless noted, the fifth of five rounds, run under both JVM slots;
+# mixed = cast(i AS bigint) + l, long = l2 + l, narrow = cast(l AS int) + i. Each pair of lines is
+# the host width, then -XX:MaxVectorSize=16; the last pair is mixed at 4096 rows.
+load at start: 2.48 2.96 6.14 1/1563 1449945
+mixed round 4: 4604 Mrows/s, 0.0166 bytes/row allocated
+mixed round 4: 1391 Mrows/s, 0.0166 bytes/row allocated
+long round 4: 11517 Mrows/s, 0.0020 bytes/row allocated
+long round 4: 8483 Mrows/s, 0.0020 bytes/row allocated
+narrow round 4: 3943 Mrows/s, 0.0166 bytes/row allocated
+narrow round 4: 1073 Mrows/s, 0.0166 bytes/row allocated
+mixed round 4: 10665 Mrows/s, 0.0078 bytes/row allocated
+mixed round 4: 4547 Mrows/s, 0.0078 bytes/row allocated

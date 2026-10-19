@@ -159,7 +159,7 @@ final class VarkaDivisionLowering {
       return;
     }
     analysis.reach(VarkaEmitMechanism.DIVIDE_CONVERTED);
-    emitDoubleDivide(cb, analysis.lane,
+    emitDoubleDivide(cb, analysis.laneOf(n),
         new Divider(VarkaEmitOptions.Division.DOUBLE_DIV, analysis.divider.species()),
         n.divisor());
   }
@@ -171,7 +171,7 @@ final class VarkaDivisionLowering {
    * since both widen each int half into a lane of twice the width.
    */
   static boolean takesMulHiDivide(Analysis analysis, ConstDivide n) {
-    return analysis.lane == Lane.INT && n.divisor() != 1
+    return analysis.laneOf(n) == Lane.INT && n.divisor() != 1
         && analysis.options.mulHiDivide() && analysis.divider.canConvert();
   }
 
@@ -357,7 +357,7 @@ final class VarkaDivisionLowering {
    * converts, so assuming the worst there would slow it down on a guess.
    */
   static boolean takesMagicDivide(Analysis analysis, ConstDivide n) {
-    return analysis.lane == Lane.LONG && n.divisor() != 1
+    return analysis.laneOf(n) == Lane.LONG && n.divisor() != 1
         && analysis.options.convertsFallBack();
   }
 

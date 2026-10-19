@@ -79,7 +79,7 @@ final class VarkaChronoLowering {
    */
   static void emitMakeDate(CodeBuilder cb, MakeDate n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
-    analysis.lane.requireInt(n);
+    analysis.laneOf(n).requireInt(n);
     int[] t = s.makeDateTmp.get(n);
     int year = t[0];
     int month = t[1];
@@ -109,7 +109,7 @@ final class VarkaChronoLowering {
     cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
     cb.loadConstant(30);
     cb.invokevirtual(INT_VECTOR, "or", LANEWISE_VI);
-    cb.aload(s.species);
+    cb.aload(s.species(Lane.INT));
     cb.loadConstant(28);
     cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
     cb.loadConstant(1);
@@ -368,7 +368,7 @@ final class VarkaChronoLowering {
    */
   static void emitChrono(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
-    analysis.lane.requireInt(node);
+    analysis.laneOf(node).requireInt(node);
     int[] t = s.chronoTmp.get(node);
     int era = t[1];
     int rem = t[2];
@@ -536,7 +536,7 @@ final class VarkaChronoLowering {
           cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
         }
       } else {
-        cb.aload(s.species);
+        cb.aload(s.species(Lane.INT));
         cb.aload(s.scratchSeg);
         emitScratchOffset(cb, s, index);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
@@ -876,7 +876,7 @@ final class VarkaChronoLowering {
    */
   static void emitAddMonths(CodeBuilder cb, AddMonths node, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
-    analysis.lane.requireInt(node);
+    analysis.laneOf(node).requireInt(node);
     int[] t = s.chronoTmp.get(node);
     int era = t[1];
     int rem = t[2];
@@ -997,7 +997,7 @@ final class VarkaChronoLowering {
     cb.aload(monthStartNext);
     cb.aload(monthStart);
     cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-    cb.aload(s.species);
+    cb.aload(s.species(Lane.INT));
     cb.loadConstant(365);
     cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
     cb.loadConstant(1);
@@ -1286,7 +1286,7 @@ final class VarkaChronoLowering {
         cb.astore(year);
         switch (node.level()) {
           case YEAR -> {
-            cb.aload(s.species);
+            cb.aload(s.species(Lane.INT));
             cb.loadConstant(1);
             cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
           }
@@ -1304,7 +1304,7 @@ final class VarkaChronoLowering {
           }
         }
         cb.astore(month);
-        cb.aload(s.species);
+        cb.aload(s.species(Lane.INT));
         cb.loadConstant(1);
         cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
         cb.astore(day);
@@ -1358,7 +1358,7 @@ final class VarkaChronoLowering {
     emitDivide(cb, divider, ChronoDivide.QUARTER);
     cb.astore(quarter);
     // start = 1 (+90 if q >= 2) (+91 if q >= 3) (+92 if q >= 4) (+L if q >= 2)
-    cb.aload(s.species);
+    cb.aload(s.species(Lane.INT));
     cb.loadConstant(1);
     cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
     int[] steps = {90, 91, 92};
@@ -1510,7 +1510,7 @@ final class VarkaChronoLowering {
     cb.aload(monthStartNext);
     cb.aload(monthStart);
     cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-    cb.aload(s.species);
+    cb.aload(s.species(Lane.INT));
     cb.loadConstant(365);
     cb.invokestatic(INT_VECTOR, "broadcast", BROADCAST);
     cb.loadConstant(1);
