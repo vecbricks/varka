@@ -25,7 +25,8 @@
 # change to a Varka script, whose pull request runs the varka-scoped jobs it changes; a change to
 # the workflow runs Spark's module matrix instead (dev/varka_scope.py).
 #
-# The suites run through dev/varka_matrix.sh over two JVMs, the runner's four cores' worth, in
+# The suites run through dev/varka_matrix.sh over two JVMs, the runner's four cores' worth, beside
+# a JVM of its own for each suite that runs alone (VarkaOwnJvm), two at a time, in
 # target/varka-scoped, which the job caches so the next run balances its JVMs by this run's JUnit
 # times. The run records each test's fused batches too, which the option matrix's step
 # (dev/varka_matrix_ci.sh) takes instead of running the defaults again.

@@ -238,10 +238,14 @@ class VarkaFilterRaiseOrderSuite extends QueryTest with VarkaMaybeThrows with Va
 
   test("a split predicate's raising conjunct: the projection's earlier error") {
     // Eighty ranges over k, past what one method holds, so that splitConditions compiles the
-    // predicate into several selection outputs; the first range holds every row's k.
+    // predicate into several selection outputs; the first range holds every row's k. The split
+    // needs the byte budget: with it off the emitter caps a kernel at 64 distinct ops, which these
+    // 160 comparisons are past, so the budget is pinned with the other two options the shape
+    // rests on.
     val ranges = (0 until 80).map(i => s"(k >= ${10 * i + 1} AND k <= ${10 * i + 6})")
       .mkString(" OR ")
     val options = VarkaMatrix.base.withRangeSets(false).withSplitConditions(true)
+      .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
     check(s"SELECT make_date(2021, m1, 1) AS c FROM $view WHERE y + 1 > 0 AND ($ranges)",
       classOf[VarkaFilterExec], options = options,
       planCheck = plan => {

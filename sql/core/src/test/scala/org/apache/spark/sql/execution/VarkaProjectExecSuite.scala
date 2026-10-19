@@ -24,7 +24,7 @@ import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, EvalMode, Expression, ExtractANSIIntervalDays, Greatest, Literal, NamedExpression, Remainder, Year}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAllocationSampler,
   VarkaChrono, VarkaEmitOption, VarkaFallbackEvent, VarkaFusedKernel, VarkaJfrTestSupport,
-  VarkaKernelAllocationEvent, VarkaMatrix}
+  VarkaKernelAllocationEvent, VarkaMatrix, VarkaSpeciesGuard}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.metric.SQLMetrics
@@ -657,7 +657,13 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
     // loop that still boxes - cannot run here without making this JVM box (see
     // VarkaAllocationSamplerSuite). The test plan puts each batch in its own partition, so
     // every batch is its own evaluator's first: the samples are ordered by time, not by the
-    // per-evaluator batch index.
+    // per-evaluator batch index. A kernel wider than the JVM's preferred int vector, which a
+    // lanes override emits on a narrower machine (lanesOverride=16 on an AVX2 runner), boxes
+    // every vector however compiled, so there the samples never go clean.
+    val lanes = VarkaMatrix.base.lanesOverride()
+    assume(lanes <= VarkaSpeciesGuard.preferredIntLanes(),
+      s"a kernel at $lanes int lanes is wider than this JVM's preferred " +
+        s"${VarkaSpeciesGuard.preferredIntLanes()}, so its vectors are heap objects in C2's code")
     val batchesPerRound = 1200
     val maxRounds = 8
     val column = (0 until 1024).map(Int.box)
