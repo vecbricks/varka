@@ -95,7 +95,7 @@ final class VarkaBodyEmitter {
     if (shortcutApplies(dense, outputs, analysis)) {
       analysis.reach(VarkaEmitMechanism.ALL_NULL_SHORTCUT);
     }
-    if (analysis.nullsFromValidInputs) {
+    if (analysis.maskedOnly()) {
       analysis.reach(VarkaEmitMechanism.MASKED_ONLY);
     }
   }

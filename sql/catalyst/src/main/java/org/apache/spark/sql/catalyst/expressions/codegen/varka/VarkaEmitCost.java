@@ -103,9 +103,9 @@ final class VarkaEmitCost {
    * The feature a node is counted under: its record name, with the parts of the node that choose
    * between lowerings appended - the lane of a leaf or of lane-generic arithmetic, an arithmetic's
    * operator and overflow mode, a comparison's operator, a division's divisor sign, a truncation's
-   * level, and whether {@code make_date} fails or nulls. Operands that choose no lowering (a
-   * column's ordinal, a literal's slot, a guard's bounds) are left out, so the feature set stays
-   * finite over the IR.
+   * level, whether {@code make_date} fails or nulls, and whether a null test is over a condition.
+   * Operands that choose no lowering (a column's ordinal, a literal's slot, a guard's bounds) are
+   * left out, so the feature set stays finite over the IR.
    */
   static String kindOf(VarkaVectorIR node) {
     String name = node.getClass().getSimpleName();
@@ -119,6 +119,8 @@ final class VarkaEmitCost {
       case BitCount n -> name + '/' + n.laneType();
       case GuardedRange n -> name + '/' + n.laneType();
       case Compare n -> name + '/' + n.op() + '/' + n.laneType();
+      case VarkaVectorIR.IsNotNull n when n.child() instanceof Cond ->
+          name + "/cond/" + n.laneType();
       case TruncDate n -> name + '/' + n.level();
       case MakeDate n -> name + (n.failOnError() ? "/ansi" : "/null");
       default -> isValueGeneric(node) ? name + '/' + node.laneType() : name;
