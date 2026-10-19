@@ -5388,6 +5388,9 @@ the reference evaluator and the fuzzers on it, and is measured against C2's kern
 shape at the sizes the cold-start and throughput benchmarks use, and the owner decides whether a
 milestone follows; or the record says which cost closed the door.
 
+*Owner's decision, 19 October 2026: the spike does not take the FFM route first; it starts with
+JVMCI inside HotSpot, as the done-when reads.*
+
 ### Item 106. The compiler entry points without the family switches
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close (`m7/VARKA-261.md` 5.4).* The compiler's
@@ -5451,6 +5454,43 @@ directly. **Done when** the child runs before or beside the suite's tests rather
 with a budget scaled to the suite (its test count times the cap, or a stated suite budget), the
 parent's tests report the child's results without a timed wait of their own, and the JUnit
 counterpart does the same.
+
+### Item 112. Checks behind the close review's practices
+
+*Added 19 October 2026 from `m7/PLAN.md` 12.4 by the close's review, here rather than in milestone 8
+on the owner's word.* The review found that the practices with no check lapsed under load (the state
+note, the self-review line) and those enforced by code held. Four checks: (1) a section of the pull
+request's description, "Self-review", saying what review ran and what it changed, read by a check on
+every Varka pull request that fails when it is missing or empty; (2) the pair tooling prints, beside
+each verdict, the committed results file of the same CPU class and the entries that moved past its
+bound, so a slowdown is compared with a baseline before it is called a host effect (the close's
+regression was visible on 16 October in #900's pairs, against the file of 28 September on the same
+Xeon class); (3) each entry under `skills/calibration/` names its kind, test time or performance,
+and `dev/varka_calibration.py` prints the observed ratio of each kind, so a prediction is corrected
+by its own kind's ratio only; (4) each entry of the retry list in `dev/varka_scoped_suites.sh`
+(#923) names the row whose fix removes it and a re-read date, and the script fails once the date has
+passed. With (4) go the two findings of #923's post-merge review: the message for a quiet run that
+fails with every JUnit report clean names that case instead of a missing report, and the stub runner
+`m7/VARKA-390.md` 5 used is committed beside the script. **Done when** each of the four checks is in
+and has failed once on purpose in its own test.
+
+### Item 113. The laptop nightly's two failed JVM arms
+
+*Added 19 October 2026 from `m7/PLAN.md` 12.2 by the close's review, here rather than in milestone 8
+on the owner's word.* The `platform` step of the nightly of 18 October, the first since 26
+September, failed in two of its seven arms. (1) Under `-Xcomp` the compiled test of row 274a read
+797 histories as not reached: its tier witness takes a kernel with no compiled code at both edges
+for an interpreted one, and `-Xcomp` has no interpreter; the test should skip its tier verdict under
+`-Xcomp` and still compare every answer. (2) The fastdebug arm crashed C2 at
+`opto/predicates.cpp:1286` ("CountedLoopNode should be dead when found in
+OpaqueTemplateAssertionPredicateNode being marked useless") compiling `VectorSupport::rearrangeOp`
+under the stress flags at seed 20261018. It is JDK-8360510, reported in June 2025 with the same
+assertion and stack under `-XX:+StressDuplicateBackedge`, which the arm sets: Template Assertion
+Predicates not cloned to the inner counted loop. It is fixed in JDK 26, with no JDK 25 backport
+filed by 19 October 2026, and the assertion is verification code (JDK-8352418) a product build does
+not run. Nothing is left to report. The arm either drops `-XX:+StressDuplicateBackedge` on JDK 25
+with this item named beside it, or builds its fastdebug JDK from a 25u that carries the fix. **Done
+when** the `platform` step is green on a night.
 
 ## 5. Ordering
 

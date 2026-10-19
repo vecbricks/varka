@@ -69,7 +69,7 @@ without a JVM.
 ## 5. Tests, and what each is for
 
 *19 October 2026: the stub runner below was not committed, so the six scenarios cannot be rerun
-from the tree (`m7/PLAN.md` 12.2); `m8/PLAN.md` row 396 commits one beside the script.*
+from the tree (`m7/PLAN.md` 12.2); `m9/SCOPE.md` item 112 commits one beside the script.*
 
 A stub runner in place of `dev/varka_matrix.sh` (`VARKA_MATRIX`), writing the JUnit reports a
 run would leave and exiting as a scenario says, drives the script through six runs: a pass (one

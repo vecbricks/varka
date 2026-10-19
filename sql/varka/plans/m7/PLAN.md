@@ -1174,13 +1174,13 @@ failed in two of its seven JVM arms, and `cliff` in one fork:
   `opto/predicates.cpp:1286`, "CountedLoopNode should be dead when found in
   OpaqueTemplateAssertionPredicateNode being marked useless", under the stress flags at seed
   20261018. It is a JDK 25 compiler bug that a Varka kernel reaches, not a wrong answer; a product
-  build does not check the assertion. The `hs_err`, replay and JFR files are kept outside the
-  worktree for a report (row 397).
+  build does not check the assertion. It is already reported, as JDK-8360510, and fixed in JDK
+  26 with no JDK 25 backport (`m9/SCOPE.md` item 113).
 * `platform`, the `-Xcomp` arm: the compiled test of row 274a (13 October) and the `-Xcomp` arm
   had not met before. The test failed as "history not reached", 797 histories, because its tier
   witness reads a kernel interpreted at both edges where `-Xcomp` has no interpreter to run it;
   VARKA-274's risk 1 is that this reads as not reached, never as a wrong answer. The test should
-  skip the tier verdict under `-Xcomp` (row 397).
+  skip the tier verdict under `-Xcomp` (item 113).
 * `cliff`: one of 15 forks never settled in 1 s, at 40 outputs with heavy groups to 6, C2 refusing
   "callee is too large" 201 times. With no run since 26 September to compare, it is unclassified.
 
@@ -1210,7 +1210,7 @@ failed in two of its seven JVM arms, and `cliff` in one fork:
 5. **A retry list carries an expiry**: each entry names the row whose fix removes it and the
    date it is re-read, and the script fails once the date has passed.
 
-Practices 2, 3 (the check), 4 and 5 are row 396 of milestone 8, with the two findings of #923's
-review; practice 1 is row 393's second half. The two failed arms of the laptop nightly are row
-397. The harness's own fix of row 392's trap, a child JVM run outside any timed test body, is
+Practices 2, 3 (the check), 4 and 5 are `m9/SCOPE.md` item 112, with the two findings of #923's
+review; practice 1 is row 393's second half. The two failed arms of the laptop nightly are item
+113. The harness's own fix of row 392's trap, a child JVM run outside any timed test body, is
 `m9/SCOPE.md` item 111.
