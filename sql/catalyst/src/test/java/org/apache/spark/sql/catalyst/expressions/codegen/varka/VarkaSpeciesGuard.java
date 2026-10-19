@@ -105,6 +105,14 @@ public final class VarkaSpeciesGuard {
     });
   }
 
+  /**
+   * The lanes of {@code IntVector.SPECIES_PREFERRED} on this JVM, the widest int vector its C2
+   * keeps in registers: a kernel emitted wider runs correctly, every vector a heap object.
+   */
+  public static int preferredIntLanes() {
+    return preferred(VECTOR_PREFIX + "IntVector") / Integer.SIZE;
+  }
+
   /** The species constants {@code bytes} names that are not their vector class's preferred. */
   public static List<String> secondSpecies(byte[] bytes) {
     var found = new ArrayList<String>();
