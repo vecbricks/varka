@@ -146,7 +146,7 @@ final class VarkaWarmupReach {
    */
   static String dispatch(Call call, Class<?> receiver) {
     try {
-      var type = MethodTypeDesc.ofDescriptor(call.descriptor());
+      MethodTypeDesc type = MethodTypeDesc.ofDescriptor(call.descriptor());
       MethodHandles.Lookup lookup = MethodHandles.lookup();
       var params = new Class<?>[type.parameterCount()];
       for (int i = 0; i < params.length; i++) {
@@ -325,7 +325,9 @@ final class VarkaWarmupReach {
   /**
    * Adds to {@code into} every method HotSpot counts that the kernels of {@code shapes} reach
    * under {@code options}, each with the call and shape that reach it first; a shape the emitter
-   * declines under them adds nothing. Returns how many shapes it emitted.
+   * declines under them ({@link VarkaEmitDeclined}, a size limit) adds nothing, and any other
+   * failure, a structural refusal or the class-file library's, fails the corpus. Returns how many
+   * shapes it emitted.
    */
   static int emitterTargets(List<Shape> shapes, VarkaEmitOptions options, String label,
       Map<String, String> into) {
@@ -335,7 +337,7 @@ final class VarkaWarmupReach {
       try {
         bytes = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaWarmupReach",
             s.roots(), s.numInputs(), s.numLiterals(), null, null, options);
-      } catch (IllegalArgumentException declined) {
+      } catch (VarkaEmitDeclined declined) {
         continue;
       }
       emitted++;

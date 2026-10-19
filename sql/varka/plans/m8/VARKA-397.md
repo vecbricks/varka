@@ -206,13 +206,44 @@ check; and the warm-up's doc now says "in these blocks or in the operator loops"
 and `compare` reach the mark through the operator loops. Two corrections to sections 3 and 7:
 
 * **3.2's "a lower bound on HotSpot's count" is not always true.** The counter counts every call a
-  call site makes; HotSpot stops counting a callee once a C2-compiled caller has inlined it (C1's
-  profiling tier counts inlined calls too). Of the rounds' methods only the new `masks()` helper,
-  7,200 calls, passes C2's 5,000; the species' `length`, `loopBound` and `indexInRange` and
-  `VectorMask.fromLong`, which C2 may inline there, have about 5,000 calls when it does, past the
-  mark. The count equals HotSpot's while the callers run interpreted or at C1.
+  call site makes; HotSpot stops counting a callee once a compiled caller has inlined it, unless
+  that caller runs at tier 3 (the second review's reading, checked in the JDK 25 source:
+  `profile_inlined_calls()` is `profile_calls() && C1ProfileInlinedCalls`, and `profile_calls()`
+  requires `CompLevel_full_profile`, `c1_Compilation.hpp` 241 to 247). So the count equals
+  HotSpot's while the rounds' methods run interpreted or at tier 3. Two ways it can run ahead:
+  the new `masks()` helper, 7,200 calls, passes C2's 5,000, and the species' `length`,
+  `loopBound` and `indexInRange` and `VectorMask.fromLong`, which C2 may inline there, have about
+  5,000 calls when it does, past the mark; and a round method (`ints`, `longs`, `doubles`,
+  `conversions`, 300 calls each) compiled at tier 2 instead of tier 3. The policy chooses tier 2
+  when C2's queue is over `Tier3DelayOn` times C2's threads, 10 on four cores, as the method
+  crosses its first threshold, about its 200th call (`compilationPolicy.cpp` 1356 and 1357). C1
+  at tier 2 inlines the final wrappers and stops counting them, at about 200 rounds of 300: about
+  1,600 of the 2,400 the check reports. **The check's margin assumes tier-3 compiles of the
+  rounds.** The pacing exists to hold that queue under its target of 4 at each round's start;
+  the change's runs met at most 7 to 9 (master's 6) against the line of 10, so the assumption
+  held with one to three entries to spare on four cores, read from the queue's peak and not from
+  the rounds' own tiers.
+
+  Kept as it is, not made robust here: a margin that holds even if counting stopped at the
+  callers' first compile needs at least 10 calls a round (2,000 by round 200) for every counted
+  method, which means raising `THIN_CALLS_PER_ROUND` from the 8 that rows 389 to 391 measured.
+  That moves where every wrapper crosses its thresholds and so the pacing's behaviour, which only
+  a new round of the four-core runs can judge, while the pacing already holds the queue under the
+  tier-2 line in every run measured. If a run's log line shows the queue at the line, that is the
+  trigger to raise it.
 * **7.4's "resets them before the tests that run the warm-up"**: `VarkaVectorTemplateWarmupSuite`
   resets them after each test, and then runs the warm-up again.
+* **What 7.4 left out**: the counted copy runs a whole pass of the rounds, the pacing included,
+  outside `ensure()`'s guard. In a shared test JVM where it runs before any other Varka test it
+  is the JVM's first vector code, and the real warm-up's log line, "before the JVM's first vector
+  code", is then not quite true. Harmless for the suites, which do not judge that order; stated.
+* **Not in the corpus, and out of scope**: the hand-written Vector API callers on the evaluator's
+  batch path, `SelectionVectorOps` (`compactInts`) and `IntRangeOps` (`allWithin`). They are not
+  called from a kernel, so their methods are not read; each calls the warm-up's hook from its own
+  initializer.
+* The catch around an emission took any `IllegalArgumentException` as a decline; it now takes
+  only `VarkaEmitDeclined`, the emitter's size decline, so a structural refusal or the class-file
+  library's own failure under one configuration fails the check instead of dropping its shapes.
 
 The rest of the review's findings were the house rules (a history comment, `var` where the
 right-hand side does not name the type) and parsing a kernel's bytes once; all fixed.

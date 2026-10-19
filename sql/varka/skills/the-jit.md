@@ -1192,11 +1192,16 @@ facts decide what a count of calls means to the policy:
   (`Int512Mask.and`). So calls are compared by their dispatch target, found by walking the
   receiver class up to the first declaration with a body, and a warm-up's calls are counted with
   their receivers, since a call site written against `VectorMask` serves every lane.
-- **A callee's count stops once a C2-compiled caller has inlined it.** C1's profiling tier counts
-  inlined calls (`C1ProfileInlinedCalls`); C2's code does not. A count taken at the call sites
-  equals HotSpot's while the callers run interpreted or at C1, and runs ahead of it after a caller
-  passes C2's threshold (`Tier4InvocationThreshold`, 5,000). A warm-up helper called more often
-  than that should already have taken its callees past the mark when it compiles.
+- **A callee's count stops once a compiled caller has inlined it, unless the caller runs at tier
+  3.** Only C1's full-profiling tier counts inlined calls: `profile_inlined_calls()` is
+  `profile_calls() && C1ProfileInlinedCalls`, and `profile_calls()` requires
+  `CompLevel_full_profile` (`c1_Compilation.hpp`); tier 1, tier 2 and C2's code do not count
+  them. A count taken at the call sites equals HotSpot's while the callers run interpreted or at
+  tier 3. The policy sends a caller to tier 2 instead of tier 3 when C2's queue is over
+  `Tier3DelayOn` times C2's threads at its first threshold (`compilationPolicy.cpp`, `common()`),
+  so a warm-up that counts on its callees' counts depends on its pacing keeping that queue short;
+  and a caller past C2's threshold (`Tier4InvocationThreshold`, 5,000) stops counting what C2
+  inlines.
 
 `TieredOldPercentage` is a diagnostic flag: `HotSpotDiagnosticMXBean.getVMOption` reports it as
 absent unless the JVM runs with `-XX:+UnlockDiagnosticVMOptions`.

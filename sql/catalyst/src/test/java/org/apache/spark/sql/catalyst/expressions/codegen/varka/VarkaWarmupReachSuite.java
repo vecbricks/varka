@@ -88,7 +88,8 @@ public final class VarkaWarmupReachSuite {
   @Test
   @DisplayName("the mark is the JVM's: Tier3InvocationThreshold scaled by TieredOldPercentage")
   void markIsTheJvms() {
-    var bean = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+    HotSpotDiagnosticMXBean bean =
+        ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
     long threshold = Long.parseLong(bean.getVMOption("Tier3InvocationThreshold").getValue());
     // TieredOldPercentage is a diagnostic flag, visible only under -XX:+UnlockDiagnosticVMOptions;
     // otherwise it holds its default, 1000 in JDK 25's compiler_globals.hpp.
