@@ -623,7 +623,8 @@ public final class VarkaCompiledCheck {
      * {@code required} as C2 code in use, or the deadline passes. Each slice is called once
      * through the dense driver, with no nulls, and once through the masked one, with
      * {@code maskedNulls}' flags; null lanes hold the harness's poison. The buffers are built once,
-     * so a call allocates nothing. Nothing is compared: what the warm-up computes is thrown away.
+     * and each call runs in the memory sanitizer's window, as a compared call does
+     * ({@code Args.call}). Nothing is compared: what the warm-up computes is thrown away.
      */
     private void warm(Cols snapshot, boolean[][] maskedNulls, int rows, TreeSet<String> required) {
       everWarmed = true;
@@ -641,7 +642,7 @@ public final class VarkaCompiledCheck {
         }
         VarkaTierWitness.Decision last = null;
         for (long k = 0; last == null || !last.c2() && System.nanoTime() <= deadline; k++) {
-          sets.get((int) (k % sets.size())).call(kernel, isLong);
+          sets.get((int) (k % sets.size())).call();
           if (k % CALLS_PER_LOOK == CALLS_PER_LOOK - 1) {
             last = VarkaTierWitness.get().decideNow(className, required);
           }
@@ -718,8 +719,8 @@ public final class VarkaCompiledCheck {
       for (int k = 0; k < intLits.length; k++) {
         intLits[k] = (int) c.lits()[k];
       }
-      return new Args(srcData, srcValidity, nullCounts, outData, outValidity, intLits, c.lits(),
-          rows, VarkaEmitterTestSupport.scratch(kernel, rows));
+      return new Args(kernel, isLong, srcData, srcValidity, nullCounts, outData, outValidity,
+          intLits, c.lits(), rows);
     }
 
     /**
@@ -1349,19 +1350,35 @@ public final class VarkaCompiledCheck {
   }
 
   /**
-   * One warm-up call's arguments, built once: the kernel's {@code run} takes them as they are,
-   * the int lane's literals in {@code intLits}, the long lane's in {@code longLits}.
+   * One warm-up call's arguments, built once with the kernel and its lane: the kernel's
+   * {@code run} takes them as they are, the int lane's literals in {@code intLits}, the long
+   * lane's in {@code longLits}. It is the {@link VarkaKernelChecks.Run} that {@link #call} hands
+   * the sanitizer's window.
    */
-  private record Args(long[] srcData, long[] srcValidity, int[] nullCounts, long[] outData,
-      long[] outValidity, int[] intLits, long[] longLits, int rows, long scratch) {
+  private record Args(VarkaFusedKernel kernel, boolean isLong, long[] srcData,
+      long[] srcValidity, int[] nullCounts, long[] outData, long[] outValidity, int[] intLits,
+      long[] longLits, int rows) implements VarkaKernelChecks.Run {
 
-    void call(VarkaFusedKernel kernel, boolean isLong) {
-      if (isLong) {
-        kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, new int[0], longLits,
-            rows, scratch);
-      } else {
-        kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits, rows, scratch);
-      }
+    /**
+     * The kernel over these buffers, in the memory sanitizer's window as a compared call is. A
+     * warm-up outside any window would teach C2 that the sanitizer's check never finds one, and
+     * the first compared call, which opens one, would trap out of the warmed code at that check
+     * ({@code speculate_null_assert} in {@code VarkaMemorySanitizer.check}): no warmed history
+     * would be served by C2 under the sanitizer. The window also checks the warm-up's own
+     * mappings. With the sanitizer off nothing is registered.
+     */
+    void call() {
+      VarkaKernelChecks.sanitized(kernel, rows, isLong ? 8L : 4L, srcData, srcValidity, outData,
+          outValidity, this);
+    }
+
+    @Override
+    public int apply(long scratch) {
+      return isLong
+          ? kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, new int[0],
+              longLits, rows, scratch)
+          : kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits, rows,
+              scratch);
     }
   }
 }

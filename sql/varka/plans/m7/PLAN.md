@@ -940,14 +940,16 @@ bound (`m9/SCOPE.md` item 102), the generated-class families the coverage analys
 
 **In code and tests**
 
-* **`VarkaTierWitnessSuite` fails under the memory sanitizer.** "The witness sees each tier" trips
-  a `speculate_null_assert` trap in `VarkaMemorySanitizer.check` under load, on master as on every
-  branch that ran the gate on 16 October 2026 (`VARKA-318.md` 9.1, `VARKA-265.md` 9.1, row 380's
-  outcome); it passes without the sanitizer. A suite the gate always fails hides a real failure
-  of the same suite. Closing it: run the suite without the sanitizer as the JIT-measuring suites
-  already do (`--no-sanitizer`), or make the witness tolerate the sanitizer's trap, with a lesson in
-  `skills/the-jit.md` either way. Swept by the close on 18 October 2026 and left open: no row owns
-  it, and `VARKA-261.md` 8 proposes it with the conjunct orders below.
+* **`VarkaTierWitnessSuite` failed under the memory sanitizer.** "The witness sees each tier"
+  tripped a `speculate_null_assert` trap in `VarkaMemorySanitizer.check` under load, on master as
+  on every branch that ran the gate on 16 October 2026 (`VARKA-318.md` 9.1, `VARKA-265.md` 9.1,
+  row 380's outcome); it passed without the sanitizer. Swept by the close on 18 October 2026 and
+  left open, then closed by `m8/VARKA-400.md` on 19 October 2026: the trap was a deoptimization,
+  not a memory violation. `VarkaCompiledCheck`'s warm-up called the kernel outside the sanitizer's
+  window, so C2 compiled the inlined check speculating that the window stays null, and the first
+  compared call, inside a window, threw the warmed code away. Neither proposed closing was taken:
+  the warm-up now runs in the window as the compared calls do, the suite passes with the
+  sanitizer on and off, and the lesson is in `skills/the-jit.md`.
 * **Spark's two conjunct orders are hand-ported** (row 380, `VarkaConjunctOrder`). Varka reproduces
   `FilterExec.generatePredicateCode`'s order and codegen's extra null checks by a port linked to
   Spark's code only by a comment, as Spark's own two copies are. An upstream change to either order

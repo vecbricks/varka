@@ -186,6 +186,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Why a warmed kernel still allocates: C2 sums class-check traps over the whole compile](sql/varka/skills/the-jit.md#why-a-warmed-kernel-still-allocates-c2-sums-class-check-traps-over-the-whole-compile)
 * [A template warm-up run after the templates' first compile deoptimises them, and a wide kernel sums one decompile past C2's cutoff](sql/varka/skills/the-jit.md#a-template-warm-up-run-after-the-templates-first-compile-deoptimises-them-and-a-wide-kernel-sums-one-decompile-past-c2s-cutoff)
 * [Reading C2's queue from Java stops the JVM, and below four processors HotSpot runs one C2 thread](sql/varka/skills/the-jit.md#reading-c2s-queue-from-java-stops-the-jvm-and-below-four-processors-hotspot-runs-one-c2-thread)
+* [A warm-up outside the sanitizer's window makes C2 trap at its first checked call](sql/varka/skills/the-jit.md#a-warm-up-outside-the-sanitizers-window-makes-c2-trap-at-its-first-checked-call)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)
