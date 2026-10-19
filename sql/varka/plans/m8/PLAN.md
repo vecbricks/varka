@@ -1137,6 +1137,16 @@ What follows from the order:
 
 At the halfway point the milestone is still reviewed against 1.1, not against this table.
 
+*19 October 2026, on the owner's word: rows 393 to 396, filed by milestone 7's close review and the
+first runner fuzz night after this order was written, run beside wave 0 rather than in a wave, 394
+and 396 first. 394's option matrix is where every new lane is checked across the emit options, and
+it cannot judge one while it fails 51 tests; 396's wrong answers from C2's code sit under every
+lane's kernels, and its runner sampling continues each night until a logged runner fails again.
+395 lands before F1, since every lane's kernels pass through the template warm-up it fixes; 393's
+remainder, the issue a failed scheduled workflow opens, is small and has no edge. Question 2 of
+section 7 holds F2's row 345 and G4, not wave 0 or F1. Wave 0 starts with 328, whose checks count
+every later row.*
+
 ## 5. Verification
 
 Every structural row cites the proof its row names:
