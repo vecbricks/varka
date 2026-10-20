@@ -1,119 +1,119 @@
 Narrow-width companion of VarkaEmissionBenchmark-jdk25-results.txt: the same benchmark under
 -XX:MaxVectorSize=16 (128-bit lanes), written by dev/varka_bench_regen.sh.
   benchmark:   org.apache.spark.sql.VarkaEmissionBenchmark
-  commit:      40371f8e56d
-  date:        2026-10-14T02:20:57Z
+  commit:      36774bc7584
+  date:        2026-10-20T01:38:04Z
   jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
-  kernel:      7.0.0-34-generic
+  kernel:      7.0.0-38-generic
   cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
   power:       governor=performance epp=performance profile=performance
   pinned to:   taskset -c 0,12,13,14,15,1,2,3
-  load at start: 0.99
-  canary:      ok (compute +0.2% cache +2.5% memory -0.6% )
+  load at start: 0.59
+  canary:      ok (compute +0.1% cache +1.7% memory -0.6% )
   wide run:    SPARK_GENERATE_BENCHMARK_FILES=1 taskset -c 0,12,13,14,15,1,2,3 build/sbt catalyst/Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark
   narrow run:  taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.VarkaEmissionBenchmark"
 
 Running benchmark: one emission
   Running case: a column, copied
-  Stopped after 323 iterations, 2000 ms
+  Stopped after 320 iterations, 2001 ms
   Running case: d + 3
-  Stopped after 282 iterations, 2005 ms
+  Stopped after 282 iterations, 2002 ms
   Running case: i + 1, ANSI checked
-  Stopped after 199 iterations, 2009 ms
+  Stopped after 198 iterations, 2000 ms
   Running case: year(d)
-  Stopped after 185 iterations, 2007 ms
+  Stopped after 185 iterations, 2005 ms
   Running case: a predicate: d < d2 AND d IS NOT NULL
-  Stopped after 187 iterations, 2003 ms
+  Stopped after 187 iterations, 2002 ms
   Running case: make_date(year(d), month(d), 1)
-  Stopped after 89 iterations, 2004 ms
+  Stopped after 89 iterations, 2020 ms
   Running case: four calendar outputs over one date
-  Stopped after 74 iterations, 2023 ms
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+  Stopped after 73 iterations, 2020 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission:                             Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-a column, copied                                      6              6           0          0.0       30401.0       1.0X
-d + 3                                                 7              7           0          0.0       34838.1       0.9X
-i + 1, ANSI checked                                  10             10           0          0.0       49500.9       0.6X
-year(d)                                              11             11           0          0.0       53169.2       0.6X
-a predicate: d < d2 AND d IS NOT NULL                10             11           0          0.0       52492.1       0.6X
-make_date(year(d), month(d), 1)                      22             23           0          0.0      110244.9       0.3X
-four calendar outputs over one date                  27             27           0          0.0      134137.0       0.2X
+a column, copied                                      6              6           0          0.0       30428.0       1.0X
+d + 3                                                 7              7           0          0.0       34945.0       0.9X
+i + 1, ANSI checked                                  10             10           0          0.0       49554.6       0.6X
+year(d)                                              11             11           0          0.0       53100.9       0.6X
+a predicate: d < d2 AND d IS NOT NULL                11             11           0          0.0       52709.7       0.6X
+make_date(year(d), month(d), 1)                      22             23           0          0.0      111273.1       0.3X
+four calendar outputs over one date                  27             28           0          0.0      135980.2       0.2X
 Running benchmark: one emission and definition
   Running case: a column, copied
-  Stopped after 156 iterations, 2008 ms
+  Stopped after 160 iterations, 2009 ms
   Running case: d + 3
-  Stopped after 131 iterations, 2007 ms
+  Stopped after 135 iterations, 2008 ms
   Running case: i + 1, ANSI checked
-  Stopped after 113 iterations, 2009 ms
+  Stopped after 115 iterations, 2009 ms
   Running case: year(d)
-  Stopped after 117 iterations, 2010 ms
+  Stopped after 115 iterations, 2010 ms
   Running case: a predicate: d < d2 AND d IS NOT NULL
-  Stopped after 105 iterations, 2008 ms
+  Stopped after 105 iterations, 2014 ms
   Running case: make_date(year(d), month(d), 1)
-  Stopped after 64 iterations, 2017 ms
+  Stopped after 63 iterations, 2010 ms
   Running case: four calendar outputs over one date
-  Stopped after 50 iterations, 2032 ms
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+  Stopped after 50 iterations, 2044 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission and definition:              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-a column, copied                                      9             13           9          0.0       45040.8       1.0X
-d + 3                                                10             15          12          0.0       50310.3       0.9X
-i + 1, ANSI checked                                  14             18          11          0.0       68975.4       0.7X
-year(d)                                              14             17           9          0.0       71506.3       0.6X
-a predicate: d < d2 AND d IS NOT NULL                14             19           9          0.0       70738.8       0.6X
-make_date(year(d), month(d), 1)                      28             32           8          0.0      141270.4       0.3X
-four calendar outputs over one date                  33             41          10          0.0      164893.5       0.3X
+a column, copied                                      9             13           9          0.0       44989.0       1.0X
+d + 3                                                10             15          11          0.0       50864.3       0.9X
+i + 1, ANSI checked                                  14             17          11          0.0       69295.7       0.6X
+year(d)                                              14             17           9          0.0       72005.3       0.6X
+a predicate: d < d2 AND d IS NOT NULL                14             19           9          0.0       71601.2       0.6X
+make_date(year(d), month(d), 1)                      29             32           8          0.0      143523.3       0.3X
+four calendar outputs over one date                  34             41           9          0.0      167887.7       0.3X
 Running benchmark: one emission
   Running case: 25 outputs, kernel-wide frames
-  Stopped after 747 iterations, 2001 ms
+  Stopped after 743 iterations, 2001 ms
   Running case: 25 outputs, group-local frames
-  Stopped after 926 iterations, 2002 ms
+  Stopped after 909 iterations, 2000 ms
   Running case: 50 outputs, kernel-wide frames
-  Stopped after 327 iterations, 2005 ms
+  Stopped after 326 iterations, 2000 ms
   Running case: 50 outputs, group-local frames
-  Stopped after 476 iterations, 2001 ms
+  Stopped after 469 iterations, 2003 ms
   Running case: 100 outputs, kernel-wide frames
-  Stopped after 125 iterations, 2009 ms
+  Stopped after 126 iterations, 2012 ms
   Running case: 100 outputs, group-local frames
-  Stopped after 242 iterations, 2006 ms
+  Stopped after 241 iterations, 2006 ms
   Running case: 200 outputs, kernel-wide frames, budget out of reach
-  Stopped after 42 iterations, 2038 ms
+  Stopped after 42 iterations, 2001 ms
   Running case: 200 outputs, group-local frames, budget out of reach
-  Stopped after 120 iterations, 2010 ms
+  Stopped after 120 iterations, 2014 ms
   Running case: 400 outputs, kernel-wide frames, budget out of reach
-  Stopped after 12 iterations, 2074 ms
+  Stopped after 12 iterations, 2030 ms
   Running case: 400 outputs, group-local frames, budget out of reach
-  Stopped after 58 iterations, 2029 ms
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+  Stopped after 57 iterations, 2010 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission:                                         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------
-25 outputs, kernel-wide frames                                    3              3           0          0.0     2615819.0       1.0X
-25 outputs, group-local frames                                    2              2           0          0.0     2098690.0       1.2X
-50 outputs, kernel-wide frames                                    6              6           0          0.0     6046003.0       0.4X
-50 outputs, group-local frames                                    4              4           0          0.0     4141066.0       0.6X
-100 outputs, kernel-wide frames                                  16             16           0          0.0    15889088.0       0.2X
-100 outputs, group-local frames                                   8              8           0          0.0     8111451.0       0.3X
-200 outputs, kernel-wide frames, budget out of reach             48             49           0          0.0    48091827.0       0.1X
-200 outputs, group-local frames, budget out of reach             16             17           0          0.0    16395145.0       0.2X
-400 outputs, kernel-wide frames, budget out of reach            161            173          12          0.0   161355711.0       0.0X
-400 outputs, group-local frames, budget out of reach             35             35           0          0.0    34600050.0       0.1X
+25 outputs, kernel-wide frames                                    3              3           0          0.0     2638159.0       1.0X
+25 outputs, group-local frames                                    2              2           0          0.0     2147686.0       1.2X
+50 outputs, kernel-wide frames                                    6              6           0          0.0     6015191.0       0.4X
+50 outputs, group-local frames                                    4              4           0          0.0     4174216.0       0.6X
+100 outputs, kernel-wide frames                                  16             16           0          0.0    15740164.0       0.2X
+100 outputs, group-local frames                                   8              8           0          0.0     8149171.0       0.3X
+200 outputs, kernel-wide frames, budget out of reach             47             48           1          0.0    46843141.0       0.1X
+200 outputs, group-local frames, budget out of reach             16             17           0          0.0    16434536.0       0.2X
+400 outputs, kernel-wide frames, budget out of reach            154            169          11          0.0   154057090.0       0.0X
+400 outputs, group-local frames, budget out of reach             35             35           0          0.0    34859836.0       0.1X
 Running benchmark: one emission
   Running case: 400-entry ladder, budget out of reach, weights
-  Stopped after 58 iterations, 2005 ms
+  Stopped after 58 iterations, 2020 ms
   Running case: 400-entry ladder, budget out of reach, predicted
-  Stopped after 58 iterations, 2032 ms
+  Stopped after 57 iterations, 2017 ms
   Running case: 64 cheap tails, weights
-  Stopped after 998 iterations, 2000 ms
+  Stopped after 1062 iterations, 2000 ms
   Running case: 64 cheap tails, predicted
-  Stopped after 2194 iterations, 2000 ms
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+  Stopped after 2233 iterations, 2000 ms
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 one emission:                                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------
-400-entry ladder, budget out of reach, weights               34             35           0          0.0    34143225.0       1.0X
-400-entry ladder, budget out of reach, predicted             35             35           1          0.0    34565676.0       1.0X
-64 cheap tails, weights                                       2              2           0          0.0     1754115.0      19.5X
-64 cheap tails, predicted                                     1              1           0          0.0      884136.0      38.6X
+400-entry ladder, budget out of reach, weights               34             35           1          0.0    34392657.0       1.0X
+400-entry ladder, budget out of reach, predicted             35             35           1          0.0    34719064.0       1.0X
+64 cheap tails, weights                                       2              2           0          0.0     1846285.0      18.6X
+64 cheap tails, predicted                                     1              1           0          0.0      865991.0      39.7X
