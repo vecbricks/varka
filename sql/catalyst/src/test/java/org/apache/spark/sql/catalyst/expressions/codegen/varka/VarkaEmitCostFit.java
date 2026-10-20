@@ -134,6 +134,7 @@ final class VarkaEmitCostFit {
           "IfElse", "IsNotNull", "And", "Or", "Not")) {
         f.add(k + "/" + lane);
       }
+      f.add("IsNotNull/cond/" + lane);
       for (IntOp op : IntOp.values()) {
         for (Overflow mode : Overflow.values()) {
           f.add("IntArith/" + op + "/" + mode + "/" + lane);
@@ -276,7 +277,7 @@ final class VarkaEmitCostFit {
       case "Compare" -> new Compare(CompareOp.valueOf(p[1]), c0, c1);
       case "Greatest" -> new Greatest(c0, c1);
       case "Least" -> new Least(c0, c1);
-      case "IsNotNull" -> new IsNotNull(c0);
+      case "IsNotNull" -> p[1].equals("cond") ? new IsNotNull(cmp) : new IsNotNull(c0);
       case "And" -> new And(cmp, new Compare(CompareOp.GT, c0, c1));
       case "Or" -> new Or(cmp, new Compare(CompareOp.GT, c0, c1));
       case "Not" -> new Not(cmp);

@@ -789,12 +789,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   }
 
   test("a variant grown past the op cap is rebuilt within it where it can be") {
-    // An untaken-arm replacement that fits (7 of 29), and a stranger that fits (1 of 2).
+    // An untaken-arm replacement that fits (7 of 29), and a stranger that fits. The stranger's
+    // draw is rare: one in the first 200,000 draws of seven seeds, searched for when the
+    // grammar's null test over a condition (VARKA-334) redrew the draw named before, so it is
+    // named rather than searched for at each run.
     assert(firstChoiceOver(2026101307001L, 47340, VarkaVariants.Kind.UNTAKEN_ARM))
     val (armSkips, arm) = variantsOf(2026101307001L, 47340)
     assert(armSkips == 0 && arm.get("untaken arm replaced compared").contains(1), arm)
-    assert(firstChoiceOver(2026101303005L, 29063, VarkaVariants.Kind.BESIDE_A_STRANGER))
-    val (strangerSkips, stranger) = variantsOf(2026101303005L, 29063)
+    assert(firstChoiceOver(2026101901002L, 133001, VarkaVariants.Kind.BESIDE_A_STRANGER))
+    val (strangerSkips, stranger) = variantsOf(2026101901002L, 133001)
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
   }
 

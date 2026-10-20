@@ -76,11 +76,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * <p>{@link Shapes} draws value and condition trees over {@code numInputs} int32 columns and
  * {@code numLiterals} literal slots ({@link LongShapes}, at the end of the file, is its twin at
  * the long lane), obeying the emitter's structural rules (a day offset is a literal slot or a
- * column, {@code IsNotNull} is over a column, a calendar node sits only over a subtree whose
- * magnitude bound fits the narrowed day range with slack). {@link #boundsOf} recomputes two
- * magnitude bounds from a built tree - the node's own value and the largest value any guarded day
- * producer under it reaches - which is what decides whether a calendar node may be placed over
- * it. The bounds saturate rather than wrap in every arm that combines two.
+ * column, {@code IsNotNull} is over a column or a condition, a calendar node sits only over a
+ * subtree whose magnitude bound fits the narrowed day range with slack). {@link #boundsOf}
+ * recomputes two magnitude bounds from a built tree - the node's own value and the largest value
+ * any guarded day producer under it reaches - which is what decides whether a calendar node may
+ * be placed over it. The bounds saturate rather than wrap in every arm that combines two.
  *
  * <p>Columns hold days within plus or minus {@link #COLUMN_BOUND} (about six thousand years
  * either side of 1970) and literals within plus or minus {@link #LITERAL_BOUND};
@@ -766,8 +766,11 @@ public final class VarkaIrGrammar {
         }
         case 2 -> new Not(cond(depth - 1));
         case 3 -> rangeSet(depth);
-        // IsNotNull reads a column's validity word directly, so its child must be a column.
-        default -> new IsNotNull(new ColumnRef(rnd.nextInt(numInputs)));
+        // IsNotNull reads a column's validity word, or a condition's masks: whether it is known.
+        // No other value child, since a computed value's word exists only in its value walk.
+        default -> rnd.nextBoolean()
+            ? new IsNotNull(new ColumnRef(rnd.nextInt(numInputs)))
+            : new IsNotNull(cond(depth - 1));
       };
     }
   }
@@ -997,7 +1000,9 @@ public final class VarkaIrGrammar {
           yield new Or(left, cond(depth - 1));
         }
         case 2 -> new Not(cond(depth - 1));
-        default -> new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), LaneType.LONG));
+        default -> rnd.nextBoolean()
+            ? new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), LaneType.LONG))
+            : new IsNotNull(cond(depth - 1));
       };
     }
 

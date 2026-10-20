@@ -336,11 +336,13 @@ public final class VarkaRangeAnalysis {
    * the column and no read of its validity.
    *
    * <p>Two uses are left bare. An {@link IsNotNull}'s column, whose validity is all it reads and
-   * which must stay a column ({@code Analysis}). And a column in a restricted operand position
-   * ({@link VarkaOperandPosition}), none of which admits a guard; a date column cannot sit in one
-   * - each takes an int count or a derived column - but if one did, its slot is added to
-   * {@code unguarded}, and the caller keeps the evaluator's per-batch check for it. A tree the
-   * compiler shares between parents stays shared: each distinct node is rebuilt once.
+   * which must stay a column ({@code Analysis}); over a condition it is guarded as any condition
+   * is, since whether a conjunction or a disjunction is known depends on its operands' values.
+   * And a column in a restricted operand position ({@link VarkaOperandPosition}), none of which
+   * admits a guard; a date column cannot sit in one - each takes an int count or a derived
+   * column - but if one did, its slot is added to {@code unguarded}, and the caller keeps the
+   * evaluator's per-batch check for it. A tree the compiler shares between parents stays shared:
+   * each distinct node is rebuilt once.
    */
   public static VarkaVectorIR guardColumns(
       VarkaVectorIR node, Set<Integer> slots, Set<Integer> unguarded) {
@@ -370,7 +372,7 @@ public final class VarkaRangeAnalysis {
         unguarded.add(c.ordinal());
         rebuilt = c;
       }
-    } else if (node instanceof IsNotNull) {
+    } else if (node instanceof IsNotNull n && !(n.child() instanceof Cond)) {
       rebuilt = node;
     } else {
       VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);

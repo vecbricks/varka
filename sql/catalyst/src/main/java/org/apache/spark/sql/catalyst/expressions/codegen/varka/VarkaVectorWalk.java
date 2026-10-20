@@ -1115,11 +1115,27 @@ final class VarkaVectorWalk {
         // Masked: kT/kF are the child's, swapped - pure slot aliasing, planned, no code.
       }
       case InRanges n -> emitInRanges(cb, n, dense, analysis, s, computed);
+      case IsNotNull n when !dense && n.child() instanceof Cond c -> {
+        // Over a condition: known where it is known true or known false. kT = kT(c) | kF(c),
+        // kF = ~kT - total, like the column form, and with the same truncation argument for
+        // the ~ (VARKA-334). A dense body takes the arm below: no lane is unknown there.
+        emitCond(cb, c, false, analysis, s, computed);
+        line(cb, analysis, node);
+        cb.lload(s.kt.get(c));
+        cb.lload(s.kf.get(c));
+        cb.lor();
+        cb.lstore(s.kt.get(node));
+        cb.lload(s.kt.get(node));
+        cb.loadConstant(-1L);
+        cb.lxor();
+        cb.lstore(s.kf.get(node));
+      }
       case IsNotNull n -> {
         line(cb, analysis, node);
         if (dense) {
-          // The dense body ran because every referenced input is null-free, so the
-          // predicate is constant true.
+          // The dense body ran because every referenced input is null-free and no node makes
+          // a null of valid inputs, so the predicate is constant true, over a column or a
+          // condition alike.
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(-1L);
           cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);

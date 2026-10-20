@@ -354,6 +354,45 @@ final class Analysis {
   final Map<VarkaVectorIR, Refusal> refusals = new HashMap<>();
 
   /**
+   * Whether a guard sits under an {@link IsNotNull} over a condition. A dense body answers such
+   * a test constant true without lowering the condition, so it would serve a batch whose values
+   * the masked body's guard declines; a guard's verdict on a batch must not depend on which body
+   * runs, so the kernel is dispatched to the masked methods for every batch, as for
+   * {@link #nullsFromValidInputs}. Set by {@link #collectRefusals()}.
+   */
+  boolean guardUnderNullTest;
+
+  /** The {@link IsNotNull} nodes over a condition, in topological order. */
+  final List<IsNotNull> nullTestsOverCond = new ArrayList<>();
+
+  /**
+   * Whether the kernel has no dense body: {@link #nullsFromValidInputs}, {@link
+   * #guardUnderNullTest}, or a calendar prefix {@link #materialized} for a date some calendar node
+   * under an {@link IsNotNull} over a condition reads. A dense body does not lower that condition,
+   * so a group that reaches the date only there would never store the prefix a later group loads.
+   * Read at emission, since the materialized prefixes are planned per grouping.
+   */
+  boolean maskedOnly() {
+    return nullsFromValidInputs || guardUnderNullTest || prefixUnderNullTest();
+  }
+
+  private boolean prefixUnderNullTest() {
+    if (materialized.isEmpty() || nullTestsOverCond.isEmpty()) {
+      return false;
+    }
+    Set<VarkaVectorIR> under = new HashSet<>();
+    for (IsNotNull n : nullTestsOverCond) {
+      collectReached(n.child(), under);
+    }
+    for (VarkaVectorIR node : under) {
+      if (isChrono(node) && materialized.containsKey(chronoChild(node))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * for each node, the chain of {@code IfElse} arms every one of its uses sits under, innermost
    * last - or the empty list where its uses do not agree on one, which includes a use outside any
    * arm and a use in a condition. A guard on a node with a non-empty chain condemns the batch
@@ -647,6 +686,17 @@ final class Analysis {
         case Not n -> { }
         case IsNotNull n -> { }
         case InRanges n -> { }
+      }
+    }
+    if (!refusals.isEmpty() && !nullTestsOverCond.isEmpty()) {
+      Set<VarkaVectorIR> under = new HashSet<>();
+      for (IsNotNull n : nullTestsOverCond) {
+        collectReached(n.child(), under);
+      }
+      for (VarkaVectorIR node : under) {
+        if (refusals.containsKey(node)) {
+          guardUnderNullTest = true;
+        }
       }
     }
   }
@@ -1186,18 +1236,22 @@ final class Analysis {
         analyzeOp(node, false, n.child());
       }
       case IsNotNull n -> {
-        // The compiler enforces this too; re-checked here because emitCond reads the
-        // child's per-input validity word, which only a column has before any value walk.
-        // A column read through a widening is the same word: an int column's IS NOT NULL in a
-        // long-lane condition (VARKA-28).
+        // The compiler enforces this too; re-checked here because emitCond reads a column
+        // child's per-input validity word, which only a column has before any value walk, and
+        // a condition child's masks, which the condition lowering computes first. A column read
+        // through a widening is the same word: an int column's IS NOT NULL in a long-lane
+        // condition (VARKA-28).
         VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
-        if (!(column instanceof ColumnRef)) {
+        if (!(column instanceof ColumnRef) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument(
-              "IsNotNull child must be a ColumnRef, got " + n.child());
+              "IsNotNull child must be a ColumnRef, a widened one or a Cond, got " + n.child());
         }
         // skips = true states the semantics - known output from a null input - though a
         // Cond only reaches a root through IfElse, which already marks skipping.
         analyzeOp(node, true, n.child());
+        if (n.child() instanceof Cond) {
+          nullTestsOverCond.add(n);
+        }
       }
     }
     topoOrder.add(node);
@@ -1221,9 +1275,10 @@ final class Analysis {
     boolean childSkips = false;
     for (VarkaVectorIR child : children) {
       // Value children of value ops and of Compare must not be conditions; the ops whose
-      // condition children are legal carry them in Cond-typed record fields already.
+      // condition children are legal carry them in Cond-typed record fields already, except
+      // IsNotNull, whose one child is a column or a condition (its arm in analyze checks which).
       if (child instanceof Cond && !(node instanceof IfElse) && !(node instanceof And)
-          && !(node instanceof Or) && !(node instanceof Not)) {
+          && !(node instanceof Or) && !(node instanceof Not) && !(node instanceof IsNotNull)) {
         requireValue(child, "child of " + node.getClass().getSimpleName());
       }
       operands.add(child);

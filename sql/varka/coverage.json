@@ -511,6 +511,39 @@
     "domain" : "",
     "note" : ""
   }, {
+    "sql" : "CASE WHEN (d < d2) IS NULL THEN d2 ELSE d END",
+    "executable" : "CASE WHEN (d < d2) IS NULL THEN d2 ELSE d END",
+    "family" : "Choice and nulls",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "IsNull", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:date", "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "a condition on whether a comparison is unknown (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2 THEN d2 ELSE d END",
+    "executable" : "CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2 THEN d2 ELSE d END",
+    "family" : "Choice and nulls",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "IsNull", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:date", "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "one comparison under its null test and as a condition of its own, lowered once; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END",
+    "executable" : "CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END",
+    "family" : "Choice and nulls",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "EqualTo", "IsNull" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:date", "EqualTo:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the optimizer leaves an equality under its null test, so a default session reaches this form"
+  }, {
     "sql" : "coalesce(d, d2)",
     "executable" : "coalesce(d, d2)",
     "family" : "Choice and nulls",
@@ -719,6 +752,83 @@
     "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
     "note" : ""
+  }, {
+    "sql" : "(d < d2) IS NULL",
+    "executable" : "(d < d2) IS NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "IsNull", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the unknown partition of a comparison, read off the masks it computes (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "(d < d2) IS NOT NULL",
+    "executable" : "(d < d2) IS NOT NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "IsNotNull", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the comparison known, true or false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "(d = d2) IS NOT NULL",
+    "executable" : "(d = d2) IS NOT NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "IsNotNull" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the optimizer leaves an equality under its null test, so a default session reaches this form"
+  }, {
+    "sql" : "(year(d) = 2021 AND i > 0) IS NULL",
+    "executable" : "(year(d) = 2021 AND i > 0) IS NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "And", "EqualTo", "GreaterThan", "IsNull", "Year" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:int", "GreaterThan:int", "Year:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
+    "note" : "whether a conjunction is known depends on its operands' values, so the calendar field under it keeps its guard"
+  }, {
+    "sql" : "(d < d2 OR i = 5) IS NOT NULL",
+    "executable" : "(d < d2 OR i = 5) IS NOT NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "IsNotNull", "LessThan", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:int", "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a disjunction is not null-intolerant, so a default session reaches this form"
+  }, {
+    "sql" : "(NOT (d = d2)) IS NULL",
+    "executable" : "(NOT (d = d2)) IS NULL",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "IsNull", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a negation's masks are its child's, swapped; a default session drops the negation and keeps the equality under the test"
+  }, {
+    "sql" : "(d < d2) IS NULL OR d < d2",
+    "executable" : "(d < d2) IS NULL OR d < d2",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "IsNull", "LessThan", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "one comparison under its null test and beside it: the rows where it is not false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
   }, {
     "sql" : "d IN (11 to 16 date literals)",
     "executable" : "d IN (DATE '2021-01-01', DATE '2021-02-01', DATE '2021-03-01', DATE '2021-04-01', DATE '2021-05-01', DATE '2021-06-01', DATE '2021-07-01', DATE '2021-08-01', DATE '2021-09-01', DATE '2021-10-01', DATE '2021-11-01')",
@@ -1116,6 +1226,28 @@
     "domain" : "",
     "note" : "the widening cast written out; a narrowing one floors the nanoseconds and declines"
   }, {
+    "sql" : "(l > l2) IS NULL",
+    "executable" : "(l > l2) IS NULL",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThan", "IsNull" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "(t < t2) IS NOT NULL",
+    "executable" : "(t < t2) IS NOT NULL",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "IsNotNull", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
     "sql" : "CAST(i AS BIGINT)",
     "executable" : "CAST(i AS BIGINT)",
     "family" : "Width conversions",
@@ -1203,6 +1335,28 @@
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the TIME extract narrowed inside the predicate"
+  }, {
+    "sql" : "(i = 5 AND l = l2) IS NOT NULL",
+    "executable" : "(i = 5 AND l = l2) IS NOT NULL",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "And", "EqualTo", "IsNotNull" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:bigint", "EqualTo:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the int conjunct widened to meet the bigint one, and the null test over both"
+  }, {
+    "sql" : "(i = 5) IS NULL OR l = l2",
+    "executable" : "(i = 5) IS NULL OR l = l2",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "IsNull", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:bigint", "EqualTo:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a null test over an int comparison lifted whole to the long lane beside a bigint one"
   }, {
     "sql" : "greatest(l, l2)",
     "executable" : "greatest(l, l2)",

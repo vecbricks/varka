@@ -744,9 +744,12 @@ public sealed interface VarkaVectorIR
    * children's pairs, so totality composes without change; what it retires is the reading that
    * an unknown lane always means "some operand was null" - here no lane is ever unknown.
    * {@code IS NULL} is {@link Not} over this node (a slot swap, no emitted code). The child is
-   * restricted to {@link ColumnRef} in milestone 3: a column's validity word is live at every
-   * lane group unconditionally, while a computed node's word materializes only during its
-   * value walk, which runs after condition emission.
+   * a {@link ColumnRef} or a {@link Cond}, never another computed node: a column's validity word
+   * is live at every lane group unconditionally, while a computed node's word materializes only
+   * during its value walk, which runs after condition emission. Over a condition the node is the
+   * condition being known, true or false: {@code kT = kT(child) | kF(child)} and
+   * {@code kF = ~kT}, what SQL's {@code (a < b) IS NOT NULL} asks (VARKA-334). A dense body has no
+   * unknown lane, so there it is true, as over a column.
    */
   record IsNotNull(VarkaVectorIR child) implements Cond {}
 

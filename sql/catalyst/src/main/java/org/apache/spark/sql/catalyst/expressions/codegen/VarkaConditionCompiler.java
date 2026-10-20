@@ -257,8 +257,10 @@ final class VarkaConditionCompiler {
     return switch (cond) {
       case Compare c -> Optional.of(new Compare(c.op(), new VarkaVectorIR.WidenLane(c.left()),
           new VarkaVectorIR.WidenLane(c.right())));
-      case VarkaVectorIR.IsNotNull n ->
-          Optional.of(new VarkaVectorIR.IsNotNull(new VarkaVectorIR.WidenLane(n.child())));
+      // Over a condition the test lifts with it; over a column it reads the column widened.
+      case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
+          ? onLongLane(c).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
+          : Optional.of(new VarkaVectorIR.IsNotNull(new VarkaVectorIR.WidenLane(n.child())));
       case VarkaVectorIR.And a -> onLongLane(a.left()).flatMap(l ->
           onLongLane(a.right()).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
       case VarkaVectorIR.Or o -> onLongLane(o.left()).flatMap(l ->
@@ -562,11 +564,13 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * Compiles the operand of a validity predicate, which must land on a bare column: the emitter
-   * reads the column's per-lane-group validity word, and only a column's word is live before
-   * value emission (the recorded milestone-3 restriction). As in {@code compileCoalesce} above,
-   * the {@code ColumnRef} match is a proxy for "bare column" that depends on every relabel
-   * expression compiling to {@code ColumnRef} staying a null-intolerant identity.
+   * Compiles the operand of a validity predicate, which must be a predicate itself or land on a
+   * bare column. A predicate compiles as a condition, whose validity is whether it is known. A
+   * value must land on a bare column: the emitter reads the column's per-lane-group validity
+   * word, and only a column's word is live before value emission (the recorded milestone-3
+   * restriction). As in {@code compileCoalesce} above, the {@code ColumnRef} match is a proxy for
+   * "bare column" that depends on every relabel expression compiling to {@code ColumnRef}
+   * staying a null-intolerant identity.
    *
    * <p>The column may be a date or an {@code IntegerType} one. Both are the same int32 lane and
    * the same validity word, and the int case is not optional: Spark's optimizer infers
@@ -580,6 +584,11 @@ final class VarkaConditionCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    // A predicate's validity is whether it is known, true or false: `(a < b) IS NULL` is the
+    // unknown partition of `a < b`, read off the masks the condition computes (VARKA-334).
+    if (child.dataType().equals(DataTypes.BooleanType)) {
+      return compileCond(child, inputs, literals, sink).map(VarkaVectorIR.IsNotNull::new);
+    }
     Optional<VarkaVectorIR> compiled;
     if (child instanceof BoundReference br && br.dataType().equals(DataTypes.IntegerType)) {
       compiled = Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.INT));

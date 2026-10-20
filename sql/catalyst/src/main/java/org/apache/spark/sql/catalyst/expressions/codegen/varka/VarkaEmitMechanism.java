@@ -65,7 +65,8 @@ enum VarkaEmitMechanism {
   BITMAP_PASS(Family.VALIDITY, "an output's validity written whole by the driver's bitmap pass"),
   BITMAP_PASS_DECLINED(Family.VALIDITY,
       "an output the bitmap pass declined because its tree mixes AND and OR"),
-  MASKED_ONLY(Family.VALIDITY, "a kernel with no dense body: it nulls valid inputs"),
+  MASKED_ONLY(Family.VALIDITY,
+      "a kernel with no dense body: it nulls valid inputs, or a null test skips a side effect"),
   ALL_NULL_SHORTCUT(Family.VALIDITY, "a driver that returns early when every output is null"),
   DEAD_INPUT_WORD(Family.VALIDITY, "a masked body that never reads an input's validity word"),
 

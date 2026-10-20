@@ -27,6 +27,8 @@ import javax.management.ObjectName
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
+import jdk.incubator.vector.IntVector
+
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth.State
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupProbe._
@@ -38,11 +40,18 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmup
  * claimed the warm-up - its release when the shape leaves the cache, and the compiler directive
  * that keeps C1 off the warmed kernel classes so the verdict can arrive at all.
  *
- * The four tests of the verdict run each warm-up in a JVM of its own, through
+ * The five tests of the verdict run each warm-up in a JVM of its own, through
  * [[VarkaKernelWarmupProbe]]: a verdict is a JIT outcome, and a kernel compiled late in the
  * shared test JVM - after a suite has run a kernel of a second vector species there - boxes every
  * operation and never earns it. The rest of the suite runs in the shared JVM, since nothing it
  * asserts depends on what the JIT made of a kernel.
+ *
+ * A probe's JVM gets this JVM's matrix configuration, so the option matrix warms each
+ * configuration's kernel, and this JVM's `-XX:MaxVectorSize`, `-XX:UseAVX` and `-XX:UseSVE`, so
+ * a run at a narrower vector reaches it and the species this JVM checks is the probe's. It does
+ * not get the memory sanitizer: the probe measures what C2 made of a kernel, and a sanitized call
+ * deoptimises warm code compiled outside the sanitizer's window (`VARKA-400.md` 2). Nor does it
+ * get `-XX:ActiveProcessorCount`, so its compiler threads follow the machine's processors.
  */
 class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
@@ -67,20 +76,25 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * What one warm-up claimed by a batch with `claimed` nulls came to, in a JVM of its own: the
-   * probe's support line and outcome line as fields, and the allocation of the calls it measured
-   * after the verdict, by the batch served.
+   * probe's support line and outcome line as fields, the allocation of the calls it measured
+   * after the verdict, by the batch served, the same calls through the kernel's own `run`, and
+   * its JIT state line after those calls.
    */
   private case class Forked(support: Map[String, String], outcome: Map[String, String],
-      allocated: Map[String, Long])
+      allocated: Map[String, Long], ownRun: Map[String, Long], jit: String)
 
   /** The probe's budget: its warm-up deadline (120 s), its wait for the verdict, and slack. */
   private val probeBudgetSeconds = 240L
 
   private def warmUpInFork(claimed: Nulls, wide: Boolean = false): Forked = {
     val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
+    val vectorFlags = ManagementFactory.getRuntimeMXBean.getInputArguments.asScala.toSeq
+      .filter(a => Seq("-XX:MaxVectorSize=", "-XX:UseAVX=", "-XX:UseSVE=").exists(a.startsWith))
+    val config = VarkaMatrix.config
+    val matrixConfig = if (config.isEmpty) Nil else Seq(s"-D${VarkaMatrix.PROPERTY}=$config")
     val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
-      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120",
-      "-cp", testClasspath,
+      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120") ++
+      vectorFlags ++ matrixConfig ++ Seq("-cp", testClasspath,
       classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil)
     val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
     val reader = new BufferedReader(
@@ -111,7 +125,24 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(support.size == 1, tail)
     Forked(fields(support.head), marked(lines.toSeq, OUTCOME_PREFIX).headOption.map(fields)
       .getOrElse(Map.empty), marked(lines.toSeq, ALLOC_PREFIX).map(fields)
-      .map(f => f("served") -> f("bytes").toLong).toMap)
+      .map(f => f("served") -> f("bytes").toLong).toMap,
+      marked(lines.toSeq, OWN_RUN_PREFIX).map(fields).map(f => f("served") -> f("bytes").toLong)
+        .toMap,
+      marked(lines.toSeq, JIT_PREFIX).headOption.getOrElse("no JIT state printed"))
+  }
+
+  /**
+   * Cancels a forked compile test under a lane count that is not this JVM's preferred int
+   * species, which the probe's JVM shares: the template warm-up compiles the Vector API's shared
+   * templates for the preferred species, so a kernel of a second one boxes its every operation and
+   * never earns the verdict (`vector-api-and-width.md`, "two species in one JVM is a box per
+   * iteration").
+   */
+  private def assumeOneSpecies(): Unit = {
+    val lanes = VarkaMatrix.base.lanesOverride()
+    val preferred = IntVector.SPECIES_PREFERRED.length()
+    assume(lanes == 0 || lanes == preferred,
+      s"a kernel at $lanes int lanes is a second species beside this JVM's preferred $preferred")
   }
 
   test("the copy repeats a short batch's rows and validity bits, bit offsets included") {
@@ -137,6 +168,7 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a warm-up runs a new kernel until it no longer allocates, and says it is compiled") {
+    assumeOneSpecies()
     val run = warmUpInFork(Nulls.SOME_NULLS)
     assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
     val o = run.outcome
@@ -158,6 +190,7 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     // C2's cutoff and was released at the deadline on every machine (`VARKA-389.md` 8.4a). The
     // probe's wide shape is the benchmark's at sixteen entries, four groups of four outputs; the
     // JVM is the probe's own, so no earlier suite can have warmed the templates first.
+    assumeOneSpecies()
     val run = warmUpInFork(Nulls.SOME_NULLS, wide = true)
     assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
     assume(run.support("canWarm") == "true", "this JVM cannot warm kernels")
@@ -171,8 +204,13 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The shape has two groups whose loop methods compile one after the other, and the verdict
     // must wait for both: on a starved machine a verdict read from short calls came while the
     // light group's loop was still interpreted, and these calls, 1024 rows each, boxed in it
-    // (VARKA-221.md 2).
-    test(s"a warm-up claimed by a batch with $claimed compiles both of the kernel's drivers") {
+    // (VARKA-221.md 2). The calls asserted on take the entry the evaluator and the warm-up take,
+    // whose code the verdict read; the same calls through the kernel's own `run`, a chain the
+    // warm-up does not wait for, are reported beside them and not asserted (VARKA-398.md 3,
+    // row 405).
+    test(s"after a warm-up claimed by a batch with $claimed, both drivers run without boxing " +
+        "through the entry the evaluator calls") {
+      assumeOneSpecies()
       val run = warmUpInFork(claimed)
       assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
       assume(run.support("canWarm") == "true", "this JVM cannot warm kernels")
@@ -184,11 +222,15 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
       // column; an interpreted one boxes every vector operation, tens of kilobytes a call.
       val limit = 16L * VarkaKernelWarmup.SEGMENT_BYTES_PER_COLUMN * (1 + NUM_OUTPUTS) +
         VarkaAllocationSampler.FIXED_ALLOWANCE_BYTES
+      val ownRun = Seq(Nulls.NO_NULLS, Nulls.SOME_NULLS)
+        .map(served => s"$served ${run.ownRun.getOrElse(served.word, -1L)} bytes").mkString(", ")
+      info(s"through the kernel's own run, not asserted: $ownRun; ${run.jit}")
       Seq(Nulls.NO_NULLS, Nulls.SOME_NULLS).foreach { served =>
         val allocated = run.allocated(served.word)
         assert(allocated <= limit,
           s"batches with $served allocated $allocated bytes after a warm-up claimed by a batch " +
-            s"with $claimed (${o("outcome")})")
+            s"with $claimed (${o("outcome")}); through the kernel's own run, not asserted: " +
+            s"$ownRun; ${run.jit}")
       }
     }
   }
@@ -257,7 +299,9 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("only a warmed kernel's class name is one the directive matches") {
     val warmedName = VarkaShapeCacheImpl.classNameFor(VarkaShapeCacheImpl.shapeHash(shape))
-    val plain = new VarkaShapeKey(shape.outputs(), 1, 1)
+    val plain =
+      new VarkaShapeKey(shape.outputs(), shape.numInputs(), shape.numLiterals(), shape.options(),
+        false)
     val plainName = VarkaShapeCacheImpl.classNameFor(VarkaShapeCacheImpl.shapeHash(plain))
     val prefix = VarkaKernelCompileDirective.METHOD_PATTERN.stripSuffix("*.*").replace('/', '.')
     assert(warmedName.startsWith(prefix), warmedName)
