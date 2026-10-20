@@ -248,6 +248,16 @@ and `compare` reach the mark through the operator loops. Two corrections to sect
 The rest of the review's findings were the house rules (a history comment, `var` where the
 right-hand side does not name the type) and parsing a kernel's bytes once; all fixed.
 
+**After master's kernels of both lanes (20 October 2026).** Master at `0eda4cb66ce` added
+kernels that hold both lanes, widening and narrowing between them, and 9 coverage rows (128 in
+all). Merged, the corpus reaches the same 75 methods at 512 and at 256 bits: the new kernels'
+conversions and int-species loads and stores in long-driven kernels are calls the corpus already
+held, so the rounds needed no new call, and the check passes. The four-core end-to-end suite
+passed five of five once on the merged tree, at a load average of 22 from other agents' JVMs; its
+warm-up took 1,167 ms, 765 of them waiting for C2's queue, which peaked at 8 against the tier-2
+line of 10 (`results/VARKA-397-warmup-runs.txt`). The time is the machine's load: the arms of the
+table above ran at 5 to 9.
+
 ### 9.1 Predictions scored
 
 1. **The suite's time, 15 to 45 s: held.** 28 s for the three tests alone in a test JVM, nearly

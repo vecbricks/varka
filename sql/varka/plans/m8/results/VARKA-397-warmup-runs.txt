@@ -43,3 +43,10 @@ plantedOmission 0.118 s
 everyMethodWarmed 15.074 s
 markIsTheJvms 0.003 s
 plantedOmission 0.084 s
+
+# After merging master at 0eda4cb66ce (kernels holding both lanes, 128 coverage rows), 20 October
+# 2026: the same suite once, four cores, -XX:MaxVectorSize=32, at a load average of 22 from other
+# agents' JVMs.
+== merged (load before: 22.32 18.52 16.89)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 1167 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 8 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 765 ms for it, of a budget of 2000.
