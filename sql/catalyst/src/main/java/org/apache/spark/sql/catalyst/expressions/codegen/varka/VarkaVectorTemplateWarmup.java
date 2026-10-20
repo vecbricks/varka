@@ -615,7 +615,8 @@ final class VarkaVectorTemplateWarmup {
             + a.div(7).lane(0) + a.blend(b, m).lane(0) + a.blend(9, m).lane(0)
             + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0)
             + a.add(4, m).lane(0) + a.sub(4).lane(0) + a.min(4).lane(0) + a.max(4).lane(0)
-            + a.or(4).lane(0) + masks(s, m, tail, acc);
+            + a.or(4).lane(0) + a.lanewise(VectorOperators.BIT_COUNT).lane(0)
+            + masks(s, m, tail, acc);
         a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
         acc += IntVector.fromMemorySegment(s, seg, 0, ByteOrder.LITTLE_ENDIAN).lane(0)
@@ -651,7 +652,8 @@ final class VarkaVectorTemplateWarmup {
             + a.and(b).lane(0) + a.or(b).lane(0) + a.blend(b, m).lane(0) + a.blend(9L, m).lane(0)
             + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0)
             + a.and(1L).lane(0) + a.mul(4L).lane(0) + a.or(4L).lane(0)
-            + a.lanewise(VectorOperators.NEG, m).lane(0) + masks(s, m, tail, acc);
+            + a.lanewise(VectorOperators.NEG, m).lane(0)
+            + a.lanewise(VectorOperators.BIT_COUNT).lane(0) + masks(s, m, tail, acc);
         a.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
         acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
