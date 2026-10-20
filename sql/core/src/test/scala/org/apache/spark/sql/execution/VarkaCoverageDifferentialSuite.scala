@@ -645,10 +645,8 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
       "-i", "year(d) + i", "CAST(ymm AS INT)", "hour(t)", "minute(t2)", "second(t)",
       "hour(t) + 1", "CAST(time_to_millis(t) AS INT)", "i & 255", "i | 4096", "i ^ 21845", "~i",
-      "i << 3", "shiftright(i, i)", "i >>> 28", "bit_count(i)")
-    // bit_count(l) fuses at an output only: inside a tree it is VARKA-335's second part.
-    val outputOnly = "bit_count of a bigint fuses at an output only; inside a CASE, a COALESCE " +
-      "or a comparison it is VARKA-335's second part"
+      "i << 3", "shiftright(i, i)", "i >>> 28", "bit_count(i)", "bit_count(l)",
+      "bit_count(l) + 1")
     // `CAST(i AS INTERVAL DAY)` throws past `INTERVAL_DAY_LIMIT_DAYS`, so the compiler puts a
     // bound on `i` that the evaluator checks before the kernel runs; the bound belongs to the
     // column, not to the arm reading it, and the extremes row's `Int.MaxValue` declines the
@@ -667,7 +665,6 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       "ym - ymm", "i + 1", "year(d) + i")
     intValued.map(sql => (sql, CoalesceTail) -> intCoalesce).toMap ++
       Seq(CaseArm, CoalesceTail, FalseAnd).map(p => (dayCast, p) -> columnBound) ++
-      Seq(CaseArm, CoalesceTail, FalseAnd).map(p => ("bit_count(l)", p) -> outputOnly) ++
       checkedRight.map(sql => (sql, FalseAnd) -> unqualified)
   }
 

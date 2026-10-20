@@ -409,18 +409,17 @@ final class VarkaNodeCompiler {
       case BitwiseNot b when isLong(b) -> () -> longOperand(b.child(), inputs, literals, sink)
           .map(x -> new BitOp(BitOpKind.XOR, x, sink.longSlot(-1L)));
       case ShiftLeft s when onBitLane(s) ->
-          () -> shift(BitOpKind.SHL, s.left(), s.right(), s, inputs, literals, sink);
+          () -> shift(BitOpKind.SHL, s.left(), s.right(), inputs, literals, sink);
       case ShiftRight s when onBitLane(s) ->
-          () -> shift(BitOpKind.SHR, s.left(), s.right(), s, inputs, literals, sink);
+          () -> shift(BitOpKind.SHR, s.left(), s.right(), inputs, literals, sink);
       case ShiftRightUnsigned s when onBitLane(s) ->
-          () -> shift(BitOpKind.USHR, s.left(), s.right(), s, inputs, literals, sink);
+          () -> shift(BitOpKind.USHR, s.left(), s.right(), inputs, literals, sink);
       case BitwiseCount c when isInt(c.child()) ->
           () -> intOperand(c.child(), inputs, literals, sink).map(BitCount::new);
-      // The long lane's count is an int computed in the long lane: an output root takes it
-      // narrowed (`bitCountAtRoot`). Under another node it is VARKA-335's second part, a
-      // NarrowLane over the count as the TIME field extracts have since VARKA-28.
-      case BitwiseCount c when isLong(c.child()) -> () -> sink.decline("bit_count of a bigint "
-          + "fuses at an output only; inside a tree it is VARKA-335's second part", c);
+      // The long lane's count is an int computed in the long lane, at most 64: a NarrowLane over
+      // the popcount, at an output root and under another node alike.
+      case BitwiseCount c when isLong(c.child()) -> () -> longOperand(c.child(), inputs, literals,
+          sink).map(x -> new VarkaVectorIR.NarrowLane(new BitCount(x)));
       case StaticInvoke si when isBitmap(si) -> () -> bitmap(si, inputs, literals, sink);
       default -> null;
     };
@@ -473,36 +472,29 @@ final class VarkaNodeCompiler {
    * A shift: the value on its lane and the count, an {@code INT}, on the same one. At the int
    * lane the count is any int operand. At the long lane an int literal count is the same count
    * as a long literal, since the shift reads only its low six bits and Java widens the int count
-   * by its sign; any other int count, a widening of it to the long lane, is VARKA-335's second
-   * part.
+   * by its sign; any other int count is widened to the long lane by sign extension, which keeps
+   * the low six bits Java's {@code long << int} reads, so a count of -1 or 64 or
+   * {@code Integer.MIN_VALUE} is answered as the row engine answers it.
    */
   private static Optional<VarkaVectorIR> shift(
       BitOpKind op,
       Expression value,
       Expression count,
-      Expression whole,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
     if (isInt(value)) {
       return bitOp(op, value, count, inputs, literals, sink);
     }
-    if (!(count instanceof Literal l && l.value() instanceof Integer n)) {
-      return sink.decline("a bigint shifted by an int count that is not a literal is VARKA-335's "
-          + "second part", whole);
+    Optional<VarkaVectorIR> x = longOperand(value, inputs, literals, sink);
+    if (x.isEmpty()) {
+      return x;
     }
-    return longOperand(value, inputs, literals, sink)
-        .map(x -> new BitOp(op, x, sink.longSlot(n.longValue())));
-  }
-
-  /**
-   * {@code bit_count} of a {@code bigint} as an output root: the long lane's popcount, which is at
-   * most 64, delivered as the int column Spark types it by a narrowing root.
-   */
-  static Optional<VarkaVectorIR> bitCountAtRoot(
-      BitwiseCount c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    return longOperand(c.child(), inputs, literals, sink)
-        .map(x -> new VarkaVectorIR.NarrowLane(new BitCount(x)));
+    if (count instanceof Literal l && l.value() instanceof Integer n) {
+      return Optional.of(new BitOp(op, x.get(), sink.longSlot(n.longValue())));
+    }
+    return intOperand(count, inputs, literals, sink)
+        .map(c -> new BitOp(op, x.get(), new WidenLane(c)));
   }
 
   /** Whether {@code si} is the replacement of {@code bitmap_bucket_number} or its sibling. */

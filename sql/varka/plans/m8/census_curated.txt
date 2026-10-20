@@ -112,9 +112,9 @@ try_divide|double,dec!|same||semantics|342|zero divisor gives null; decimal divi
 try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
 try_subtract|NUM,IVL|same||semantics|330,104,103,342,349,360|overflow gives null
 try_multiply|NUM|same||semantics|330,104,342,349,361,362|overflow gives null
-shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column waits on row 28 (335b)
-shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column waits on row 28 (335b)
-shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column waits on row 28 (335b)
+shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
+shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
+shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
 &|INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
 ~|INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
 ||INTEGRAL|same|int,bigint|plumbing|335,329|item 32; byte and short with row 329 (335b)
@@ -122,7 +122,7 @@ shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by
 <<|int,bigint|same|int,bigint|done||alias of shiftleft
 >>|int,bigint|same|int,bigint|done||alias of shiftright
 >>>|int,bigint|same|int,bigint|done||alias of shiftrightunsigned
-bit_count|INTEGRAL,bool|int|int,bigint|plumbing|335,329,331|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, as an output only until row 28; byte, short and bool with rows 329 and 331 (335b)
+bit_count|INTEGRAL,bool|int|int,bigint|plumbing|335,329,331|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree since 335b (20 October 2026); byte, short and bool with rows 329 and 331 (335b)
 bit_get|INTEGRAL|byte||plumbing|335|item 32; the byte result was its blocker
 getbit|INTEGRAL|byte||plumbing|335|alias of bit_get
 add_months|date,int|date|date,int|done||
