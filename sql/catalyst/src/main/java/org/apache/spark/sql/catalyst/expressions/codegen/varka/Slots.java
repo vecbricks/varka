@@ -465,14 +465,17 @@ final class Slots {
         ? liveWords(outputs, outputIdx, analysis, group, s.visitedMaterializedDates)
         : null;
     Set<VarkaVectorIR> emitted = tree;
-    if (!analysis.materialized.isEmpty() && mode != BodyMode.DRIVER) {
+    if ((!analysis.materialized.isEmpty() || (dense && holdsNullTestOverCond(tree)))
+        && mode != BodyMode.DRIVER) {
+      // The body emits less than the tree where a group loads a materialized prefix, or where a
+      // dense body skips the condition under a null test (emittedNodes).
       // Without the liveness pass every own word is live, so a loaded date is visited exactly
       // when its word is its own: the rule liveWords states, with nothing dead. A dense body has
       // no words and visits none.
       java.util.function.Predicate<VarkaVectorIR> visits = dense ? date -> false
           : live == null ? date -> analysis.wordOwner.get(date) instanceof WordOwner.Own
           : s.visitedMaterializedDates::contains;
-      emitted = emittedNodes(outputs, outputIdx, analysis, group, visits);
+      emitted = emittedNodes(outputs, outputIdx, analysis, group, visits, dense);
       if (live == null && !dense) {
         for (VarkaVectorIR node : emitted) {
           VarkaVectorIR date = loadedPrefixDate(analysis, group, node);
@@ -1042,11 +1045,13 @@ final class Slots {
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
-   * words, for the value;</li> <li>every {@code Compare} and {@code IsNotNull} reached, whether
-   * under an {@code IfElse} or a {@code Cond} root: its operands' words, for the known-true/false
-   * pair.</li> </ul> Propagation: a demanded own word demands what its arm loads - both operands
-   * for the AND family and the picks, the two branches for {@code IfElse} (its condition's leaves
-   * are demanded by the walk already), the three inputs for {@code MakeDate}. Nothing is demanded
+   * words, for the value;</li> <li>every {@code Compare}, and every {@code IsNotNull} over a
+   * column, reached, whether under an {@code IfElse} or a {@code Cond} root: its operands' words,
+   * for the known-true/false pair (an {@code IsNotNull} over a condition reads the condition's
+   * pair, whose own arm demands its words).</li> </ul> Propagation: a demanded own word demands
+   * what its arm loads - both operands for the AND family and the picks, the two branches for
+   * {@code IfElse} (its condition's leaves are demanded by the walk already), the three inputs
+   * for {@code MakeDate}. Nothing is demanded
    * for a served root's own write, which is the point. A date whose materialized prefix the body
    * loads is walked only when the lowering visits it, which the method decides at its end and
    * records in {@link #visitedMaterializedDates}. {@code assertWordsLive} then checks the result
@@ -1126,7 +1131,8 @@ final class Slots {
    * output root the body serves, and once per edge from a node it emits: a node is emitted once,
    * into its slot when it has one, so each of its edges is followed once. Three kinds of edge
    * are not followed. An {@link IsNotNull} reads its column's validity word and never its vector
-   * ({@code VarkaVectorWalk}'s condition lowering). And by the rule
+   * ({@code VarkaVectorWalk}'s condition lowering), and over a condition in a dense body it is
+   * constant true and does not lower the condition at all. And by the rule
    * {@code VarkaChronoLowering.emitChronoPrefixOnce} emits by, only the first calendar node of a
    * prefix fragment visits the date, since the others find the prefix in the fragment's locals,
    * and none visits a date whose materialized prefix the body loads, unless
@@ -1141,7 +1147,10 @@ final class Slots {
     for (VarkaVectorIR node : body) {
       // The one edge of this node the emission does not follow, or null.
       VarkaVectorIR skipped = null;
-      if (node instanceof IsNotNull isNotNull) {
+      if (node instanceof IsNotNull isNotNull
+          && (!(isNotNull.child() instanceof Cond) || dense)) {
+        // Over a column, widened or not, it reads the word, and over a condition in a dense body
+        // it is constant true; only a masked body lowers a condition child, to read its masks.
         skipped = isNotNull.child();
       } else if (isChrono(node)) {
         VarkaVectorIR date = chronoChild(node);
@@ -1214,15 +1223,26 @@ final class Slots {
     return mat != null && mat.producer() != group ? date : null;
   }
 
+  /** Whether {@code nodes} hold an {@link IsNotNull} over a condition. */
+  private static boolean holdsNullTestOverCond(Set<VarkaVectorIR> nodes) {
+    for (VarkaVectorIR node : nodes) {
+      if (node instanceof IsNotNull n && n.child() instanceof Cond) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The nodes a body of {@code group} emits: its outputs' subtrees, except that the date of a
    * calendar node whose materialized prefix the group loads is entered only when {@code visits}
-   * says the lowering visits it. Only the date's own position is skipped, and another path into
-   * the same date still reaches it, as the emission does.
+   * says the lowering visits it, and that a dense body does not enter the condition under an
+   * {@link IsNotNull}, which it answers constant true. Only the skipped position is skipped, and
+   * another path into the same node still reaches it, as the emission does.
    */
   private static Set<VarkaVectorIR> emittedNodes(List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, Analysis analysis, int group,
-      java.util.function.Predicate<VarkaVectorIR> visits) {
+      java.util.function.Predicate<VarkaVectorIR> visits, boolean dense) {
     Set<VarkaVectorIR> nodes = new HashSet<>();
     java.util.ArrayDeque<VarkaVectorIR> walk = new java.util.ArrayDeque<>();
     for (int o : outputIdx) {
@@ -1231,6 +1251,9 @@ final class Slots {
     while (!walk.isEmpty()) {
       VarkaVectorIR n = walk.poll();
       if (!nodes.add(n)) {
+        continue;
+      }
+      if (dense && n instanceof IsNotNull isNotNull && isNotNull.child() instanceof Cond) {
         continue;
       }
       VarkaVectorIR loaded = loadedPrefixDate(analysis, group, n);
@@ -1315,7 +1338,13 @@ final class Slots {
           demand(analysis.wordOwner.get(c.left()));
           demand(analysis.wordOwner.get(c.right()));
         }
-        case IsNotNull c -> demand(analysis.wordOwner.get(c.child()));
+        // A condition child has no word: it computes its masks from its own operands' words,
+        // which its own arm demands.
+        case IsNotNull c -> {
+          if (!(c.child() instanceof Cond)) {
+            demand(analysis.wordOwner.get(c.child()));
+          }
+        }
         case InRanges c -> demand(analysis.wordOwner.get(c.child()));
         case Greatest g -> {
           demand(analysis.wordOwner.get(g.left()));
@@ -1497,7 +1526,8 @@ final class Slots {
   /**
    * Which of this lane group's prefix fragments a tail in it reads the March-based month out
    * of - and, under {@link VarkaEmitOptions#elideUnreadLocals}, which of the prefix's other
-   * vectors - over the union of the group's outputs' subtrees. The walk is the group's own
+   * vectors - over the union of the group's outputs' subtrees, less what the body does not emit.
+   * The walk is the group's own
    * because {@link Slots#fragmentReads} is the group's own - see its doc for why the
    * body's whole output list would be too wide - and it precedes every emission in the group,
    * so no sibling's order can change what it decides.
@@ -1522,9 +1552,13 @@ final class Slots {
             | (elide ? VarkaChronoLowering.prefixReads(node, analysis.options) : 0);
         s.fragmentReads.merge(fragmentKey(node, dense, s, analysis), reads, (a, b) -> a | b);
       }
-      // Under elideUnreadLocals the walk follows the emission, as emittedNodes does: a date
-      // whose materialized prefix the group loads and does not visit is never emitted, so a tail
-      // under it reads no month and no vector of any prefix here.
+      // The walk follows the emission, as emittedNodes does: a dense body does not enter the
+      // condition under an IsNotNull. And under elideUnreadLocals a date whose materialized
+      // prefix the group loads and does not visit is never emitted, so a tail under it reads no
+      // month and no vector of any prefix here.
+      if (dense && node instanceof IsNotNull isNotNull && isNotNull.child() instanceof Cond) {
+        continue;
+      }
       VarkaVectorIR skipped = elide ? loadedPrefixDate(analysis, s.group, node) : null;
       if (skipped != null && visitsLoadedDate(dense, s, skipped)) {
         skipped = null;

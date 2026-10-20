@@ -60,6 +60,36 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
       VarkaUnreadLocalsTrim.census(bytes).asScala.map(_.kind)
     }.groupBy(identity).view.mapValues(_.size).toMap
 
+  test("a date decomposed in two fragments of a group that stores its prefix computes the " +
+      "month for the loading group once") {
+    // The masked body decomposes col:1 twice, under the CASE arm and beside it, since the two
+    // fragments' words differ; only the first stores the prefix, so only it computes the month a
+    // later group loads. Shrunk from a wide corpus shape, and emitted under the weights'
+    // grouping, so that no change of the prices can move it off the case.
+    val c = (k: Int) => new ColumnRef(k)
+    val roots = Seq[VarkaVectorIR](
+      new IfElse(new Compare(CompareOp.LT, c(0), c(2)), new DayOfYear(c(1)),
+        new AddMonths(c(1), c(2))),
+      new ThursdayOf(c(1)),
+      new Quarter(c(1)))
+    val name = "org.apache.spark.sql.varka.execution.VarkaUnreadLocals"
+    val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 3, 0, null, null,
+      elided.withPredictGrouping(false))
+    // The case needs a prefix materialized across groups, which a grouping change could remove.
+    // Reading that needs the class loaded, which only a JVM whose preferred species is the
+    // corpus's width allows (VARKA-246), so a narrower runner checks the census alone.
+    if (VarkaSpeciesGuard.preferredIntLanes() == VarkaEmitCostCorpus.LANES) {
+      val (kernel, loader) = load((name, bytes))
+      try {
+        assert(kernel.scratchBytesPerRow() > 0, "no prefix is materialized")
+      } finally {
+        loader.release()
+      }
+    }
+    val unread = VarkaUnreadLocalsTrim.census(bytes).asScala
+    assert(unread.isEmpty, unread.mkString("; "))
+  }
+
   test("every shared slot of every loop and epilogue method in the cost corpus is read") {
     // Both bodies of each shape, with and without the switch: the switch moves the slots the
     // segments and the mask took, and must leave the shared ones alone.

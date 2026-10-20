@@ -276,7 +276,9 @@ public final class VarkaReference {
       }
       // The first total condition (VARKA-20): IS NOT NULL never returns unknown - a null operand
       // is a definite false, not a missing answer.
-      case IsNotNull n -> Truth.of(value(n.child(), row, isNull, lits).isPresent());
+      case IsNotNull n -> n.child() instanceof Cond c
+          ? Truth.of(cond(c, row, isNull, lits) != Truth.UNKNOWN)
+          : Truth.of(value(n.child(), row, isNull, lits).isPresent());
     };
   }
 
@@ -405,7 +407,9 @@ public final class VarkaReference {
       case Or(var left, var right) ->
           or(longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));
       case Not n -> not(longCond(n.child(), row, isNull, lits));
-      case IsNotNull n -> Truth.of(longValue(n.child(), row, isNull, lits).isPresent());
+      case IsNotNull n -> n.child() instanceof Cond c
+          ? Truth.of(longCond(c, row, isNull, lits) != Truth.UNKNOWN)
+          : Truth.of(longValue(n.child(), row, isNull, lits).isPresent());
       case InRanges n -> throw new IllegalArgumentException(
           "a range set is on the int lane only: " + n);
     };

@@ -137,6 +137,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val minMonths = VarkaChrono.MONTH_ARITH_MIN_MONTHS
   private val maxMonths = VarkaChrono.MONTH_ARITH_MAX_MONTHS
   /**
+   * The note of a null test over an ordered comparison, which Spark's default
+   * `NullDownPropagation` rewrites into null tests on the comparison's columns (VARKA-334).
+   */
+  private val pushedNote = "; a default session's NullDownPropagation pushes the test onto " +
+    "the columns, so this form reaches Varka as written only with that rule excluded"
+
+  /**
    * The column bound a calendar field's answer rests on (VARKA-379): the compiler guards the
    * column in the kernel, which declines a batch with a live day outside it (`VALUE_RANGE`).
    */
@@ -228,6 +235,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Choice and nulls", predicates = false, Seq(
       Row("if(d < d2, d, d2)"),
       Row("CASE WHEN d < d2 THEN d ELSE d2 END"),
+      Row("CASE WHEN (d < d2) IS NULL THEN d2 ELSE d END",
+        "a condition on whether a comparison is unknown (VARKA-334)" + pushedNote),
+      Row("CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2 THEN d2 ELSE d END",
+        "one comparison under its null test and as a condition of its own, lowered once"
+          + pushedNote),
+      Row("CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END",
+        "the optimizer leaves an equality under its null test, so a default session reaches "
+          + "this form"),
       Row("coalesce(d, d2)"),
       Row("greatest(d, d2)"),
       Row("least(d, d2)"))),
@@ -253,6 +268,23 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("i = 5"),
       Row("month(d) > i", "an int column against a fused int field", domain = Some(dayBound)),
       Row("year(d) = 2021 OR month(d) = 3", domain = Some(dayBound)),
+      Row("(d < d2) IS NULL",
+        "the unknown partition of a comparison, read off the masks it computes (VARKA-334)"
+          + pushedNote),
+      Row("(d < d2) IS NOT NULL", "the comparison known, true or false" + pushedNote),
+      Row("(d = d2) IS NOT NULL",
+        "the optimizer leaves an equality under its null test, so a default session reaches "
+          + "this form"),
+      Row("(year(d) = 2021 AND i > 0) IS NULL",
+        "whether a conjunction is known depends on its operands' values, so the calendar field "
+          + "under it keeps its guard", domain = Some(dayBound)),
+      Row("(d < d2 OR i = 5) IS NOT NULL",
+        "a disjunction is not null-intolerant, so a default session reaches this form"),
+      Row("(NOT (d = d2)) IS NULL", "a negation's masks are its child's, swapped; a default "
+        + "session drops the negation and keeps the equality under the test"),
+      Row("(d < d2) IS NULL OR d < d2",
+        "one comparison under its null test and beside it: the rows where it is not false"
+          + pushedNote),
       // Over `spark.sql.optimizer.inSetConversionThreshold` (10 by default) the optimizer
       // rewrites the list to an `InSet`, which fuses up to the compiler's own cap of 16.
       Row("d IN (11 to 16 date literals)",
@@ -306,7 +338,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("dt <= dt2"),
       Row("dt IS NULL"),
       Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
-        "the widening cast written out; a narrowing one floors the nanoseconds and declines"))),
+        "the widening cast written out; a narrowing one floors the nanoseconds and declines"),
+      Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
+      Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote))),
 
     // Both lanes in one kernel (VARKA-28): the casts between int and bigint, and the widening
     // Catalyst's type coercion puts under every operator that meets the two.
@@ -325,7 +359,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("l = i"),
       Row("CAST(time_to_millis(t) AS INT) > i", "the narrowed value compared in the int lane",
         domain = Some(s"time_to_millis(t) BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
-      Row("hour(t) = 12", "the TIME extract narrowed inside the predicate"))),
+      Row("hour(t) = 12", "the TIME extract narrowed inside the predicate"),
+      Row("(i = 5 AND l = l2) IS NOT NULL",
+        "the int conjunct widened to meet the bigint one, and the null test over both"),
+      Row("(i = 5) IS NULL OR l = l2",
+        "a null test over an int comparison lifted whole to the long lane beside a bigint one"))),
 
     Family("Long-lane choice", predicates = false, Seq(
       Row("greatest(l, l2)"),

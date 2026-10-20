@@ -901,12 +901,12 @@ public final class VarkaLoopEmitter {
     try {
       byte[] bytes = ClassFile.of().build(classDesc, (ClassBuilder b) -> {
         b.withFlags(AccessFlag.PUBLIC, AccessFlag.FINAL);
-        if (!analysis.nullsFromValidInputs) {
+        if (!analysis.maskedOnly()) {
           b.withMethodBody(VarkaMethodNames.driver(true), desc, AccessFlag.PRIVATE.mask(),
               (CodeBuilder cb) -> VarkaBodyEmitter.emitDriver(cb, true, classDesc, outputs,
                   analysis, numLiterals, groups));
         }
-        if (anyColumns || analysis.nullsFromValidInputs) {
+        if (anyColumns || analysis.maskedOnly()) {
           b.withMethodBody(VarkaMethodNames.driver(false), desc, AccessFlag.PRIVATE.mask(),
               (CodeBuilder cb) -> VarkaBodyEmitter.emitDriver(cb, false, classDesc, outputs,
                   analysis, numLiterals, groups));
@@ -1057,11 +1057,13 @@ public final class VarkaLoopEmitter {
       }
       // A kernel that nulls a valid input (non-ANSI make_date) has no dense methods: the dense body
       // writes no per-lane validity, so the dispatch takes the masked methods for every batch, and
-      // the masked body treats a null-free input as a constant word.
-      if (!analysis.nullsFromValidInputs) {
+      // the masked body treats a null-free input as a constant word. Nor has a kernel where a
+      // guard, or a materialized calendar prefix, sits under a null test over a condition
+      // (Analysis.maskedOnly).
+      if (!analysis.maskedOnly()) {
         emitBodies(b, true, classDesc, outputs, analysis, numLiterals, groups, epiloguePerGroup);
       }
-      if (anyColumns || analysis.nullsFromValidInputs) {
+      if (anyColumns || analysis.maskedOnly()) {
         emitBodies(b, false, classDesc, outputs, analysis, numLiterals, groups, epiloguePerGroup);
       }
     });
@@ -1906,7 +1908,7 @@ public final class VarkaLoopEmitter {
               + " bytes of scratch per row; the address passed is zero");
       cb.labelBinding(given);
     }
-    if (analysis.nullsFromValidInputs) {
+    if (analysis.maskedOnly()) {
       // No dense path for this kernel (see emit): every batch is served by the masked methods.
       invokeBody(cb, classDesc, VarkaMethodNames.driver(false), analysis);
       return;

@@ -493,12 +493,16 @@ final class VarkaChronoLowering {
     }
     emitValue(cb, date, dense, analysis, s, computed);
     line(cb, analysis, node);
-    boolean emitMonth = ownMonth || (mat != null && mat.needsMonth());
+    // Only the fragment that stores the prefix computes the month for the groups that load it: a
+    // masked body can decompose one date in two fragments, keyed by different words, and the
+    // second stores nothing, so a month it computed for them would be read by nothing.
+    boolean stores = mat != null && !s.storedPrefixes.contains(date);
+    boolean emitMonth = ownMonth || (stores && mat.needsMonth());
     emitChronoPrefix(cb, analysis, t, emitMonth);
     if (!emitMonth) {
       analysis.reach(VarkaEmitMechanism.MONTH_STEP_ELIDED);
     }
-    if (mat != null && s.storedPrefixes.add(date)) {
+    if (stores && s.storedPrefixes.add(date)) {
       emitPrefixTransfer(cb, s, t, mat, true,
           ALL_PREFIX_VECTORS | (mat.needsMonth() ? Slots.READS_MONTH : 0));
       analysis.reach(VarkaEmitMechanism.PREFIX_STORED);

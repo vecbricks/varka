@@ -99,8 +99,10 @@ becomes timestamp arithmetic) decline:
   joined by OR, capped at 16 deduplicated literals - a longer list declines
   with a recorded reason rather than risking the emitter's budgets.
 * `COALESCE` / `NVL` / `IFNULL` / `NVL2` and the `IS [NOT] NULL` predicates
-  (VARKA-20), lowered onto a validity-reading condition. Every guarded
-  operand must be a bare date column; a non-column operand declines.
+  (VARKA-20), lowered onto a validity-reading condition. A guarded operand
+  must be a bare column, or for `IS [NOT] NULL` a predicate, whose unknown
+  rows the test reads off the predicate's own masks (VARKA-334); any other
+  operand declines.
 * `GREATEST` / `LEAST` (null-skipping) and `DAYOFWEEK` / `WEEKDAY`.
 * `YEAR` / `MONTH` / `DAYOFMONTH` / `QUARTER`, and the `EXTRACT` spellings that
   desugar to them (VARKA-26). One civil-from-days decomposition per date,
@@ -254,7 +256,14 @@ projection is unaffected.
 Two things are worth stating before the list, because they decide several
 rows and are invisible in the spelling. Every comparison and null test fuses
 over each of the six types, a bare `IntegerType` column included (`i > 0`, as
-`year(d) = 2021` does), and `IN` over dates and year-month intervals. And a checked
+`year(d) = 2021` does), and `IN` over dates and year-month intervals. A null
+test fuses over a predicate as well as over a column, as a filter and as the
+condition of a CASE: `(d = d2) IS NULL` is the predicate's unknown rows, read
+off the masks it already computes. Spark's default optimizer
+(`NullDownPropagation`) first rewrites a null test over an ordered comparison
+or a negation into null tests on its operands, so `(d < d2) IS NULL` reaches
+Varka as `d IS NULL OR d2 IS NULL`; a test over an equality, a conjunction or
+a disjunction reaches it as written. And a checked
 multiply fuses only where a bound proves it cannot overflow, which is why the
 multiply rows below are written over a calendar field rather than over a plain
 column.
@@ -357,6 +366,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 |---|---|---|---|---|
 | `if(d < d2, d, d2)` | `predicate`, `condition` |  |  | vector |
 | `CASE WHEN d < d2 THEN d ELSE d2 END` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN (d < d2) IS NULL THEN d2 ELSE d END` | `predicate`, `condition` |  | a condition on whether a comparison is unknown (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
+| `CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2 THEN d2 ELSE d END` | `predicate`, `condition` |  | one comparison under its null test and as a condition of its own, lowered once; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
+| `CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END` | `predicate`, `condition` |  | the optimizer leaves an equality under its null test, so a default session reaches this form | vector |
 | `coalesce(d, d2)` | `condition` |  |  | vector |
 | `greatest(d, d2)` | `intArithmetic` |  |  | vector |
 | `least(d, d2)` | `intArithmetic` |  |  | vector |
@@ -381,6 +393,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i = 5` | `predicate` |  |  | vector |
 | `month(d) > i` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` | an int column against a fused int field | vector |
 | `year(d) = 2021 OR month(d) = 3` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
+| `(d < d2) IS NULL` | `predicate` |  | the unknown partition of a comparison, read off the masks it computes (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
+| `(d < d2) IS NOT NULL` | `predicate` |  | the comparison known, true or false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
+| `(d = d2) IS NOT NULL` | `predicate` |  | the optimizer leaves an equality under its null test, so a default session reaches this form | vector |
+| `(year(d) = 2021 AND i > 0) IS NULL` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` | whether a conjunction is known depends on its operands' values, so the calendar field under it keeps its guard | vector |
+| `(d < d2 OR i = 5) IS NOT NULL` | `predicate` |  | a disjunction is not null-intolerant, so a default session reaches this form | vector |
+| `(NOT (d = d2)) IS NULL` | `predicate` |  | a negation's masks are its child's, swapped; a default session drops the negation and keeps the equality under the test | vector |
+| `(d < d2) IS NULL OR d < d2` | `predicate` |  | one comparison under its null test and beside it: the rows where it is not false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
 | `d IN (11 to 16 date literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `i < 7` | `predicate` |  |  | vector |
 | `i <= 7` | `predicate` |  |  | vector |
@@ -422,6 +441,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
 | `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
+| `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
+| `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
 
 #### Width conversions
 
@@ -440,6 +461,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `l = i` | `predicate`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 | `CAST(time_to_millis(t) AS INT) > i` | `time`, `predicate`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | the narrowed value compared in the int lane | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `hour(t) = 12` | `time`, `predicate` |  | the TIME extract narrowed inside the predicate | per-lane: mask broadcast, load or store |
+| `(i = 5 AND l = l2) IS NOT NULL` | `predicate` |  | the int conjunct widened to meet the bigint one, and the null test over both | per-lane: mask cast, mask broadcast, compare to mask, load or store |
+| `(i = 5) IS NULL OR l = l2` | `predicate` |  | a null test over an int comparison lifted whole to the long lane beside a bigint one | per-lane: mask broadcast, mask logic, compare to mask, mask cast, load or store |
 
 #### Long-lane choice
 
@@ -1399,11 +1422,12 @@ exist.
   production's Arrow buffers are, and with ones, so a kernel that fails to
   set a bit fails as surely as one that fails to clear it.
   `VarkaCoverageDifferentialSuite` checks each predicate row's three
-  partitions: `WHERE p` and `WHERE NOT (p)` on Varka share no row, and the
-  rows in neither are Spark's `WHERE (p) IS NULL`, compared as rows, under
+  partitions: `WHERE p`, `WHERE NOT (p)` and `WHERE (p) IS NULL` on Varka are
+  each Spark's, compared as rows, share no row and leave none out, under
   the default optimizer and with `BooleanSimplification`,
   `NullDownPropagation` and `InferFiltersFromConstraints` excluded so
-  `NOT (p)` reaches Varka as written. And under ANSI, on a fixture of the
+  `NOT (p)` and `(p) IS NULL` reach Varka as written; the two null tests also
+  run as the condition of a CASE over every predicate row. And under ANSI, on a fixture of the
   types' extremes, each row runs alone and where Spark skips it - the
   untaken arm of a CASE, a later COALESCE argument, the right side of a false
   AND or a true OR: both engines raise the same error, compared by condition,

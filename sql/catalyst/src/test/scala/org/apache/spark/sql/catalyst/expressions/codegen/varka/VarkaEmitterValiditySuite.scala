@@ -439,6 +439,91 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  test("a null test over a condition answers as the reference under every null pattern, " +
+      "beside the same condition as well as alone") {
+    // The masks of the condition child are read by the null test and, in the shared shapes, by
+    // a second parent too; the child is lowered once and both read the same pair.
+    val (d, d2, d3) = (new ColumnRef(0), new ColumnRef(1), new ColumnRef(2))
+    val cmp = new Compare(CompareOp.LT, d, d2)
+    val conj = new And(cmp, new Compare(CompareOp.GT, d3, d))
+    for ((name, root) <- Seq[(String, VarkaVectorIR)](
+        ("(d < d2) IS NOT NULL", new IsNotNull(cmp)),
+        ("(d < d2) IS NULL", new Not(new IsNotNull(cmp))),
+        ("(d < d2 AND d3 > d) IS NULL", new Not(new IsNotNull(conj))),
+        ("(NOT (d < d2)) IS NOT NULL", new IsNotNull(new Not(cmp))),
+        ("(d < d2) IS NULL OR d < d2", new Or(new Not(new IsNotNull(cmp)), cmp)),
+        ("if((d < d2) IS NULL, d3, if(d < d2, d, d2))",
+          new IfElse(new Not(new IsNotNull(cmp)), d3, new IfElse(cmp, d, d2))))) {
+      checkMatrix(Seq(root), 3, Array.empty[Int], Seq(17, 64, 65, 1000),
+        combos(3), ctx = name)
+    }
+  }
+
+  test("a null test over a comparison adds no vector call to the masked body and lowers no " +
+      "comparison in the dense one", PinsDefaults) {
+    // Masked, the test is two long operations over the comparison's known-true and known-false
+    // words; dense, no lane is unknown, so it is the constant all-true mask and the comparison
+    // is never lowered. Beside the same comparison, the comparison is lowered once.
+    val (d, d2) = (new ColumnRef(0), new ColumnRef(1))
+    val cmp = new Compare(CompareOp.LT, d, d2)
+    def calls(roots: Seq[VarkaVectorIR], body: String): (Int, Int) = {
+      val bytes = emitMulti(roots, 2, 0)._2
+      (VarkaEmitterTestSupport.invocationCount(bytes, body, intVector),
+        VarkaEmitterTestSupport.invocationCount(bytes, body, vectorMask))
+    }
+    val bare = Seq[VarkaVectorIR](cmp)
+    val overCond = Seq[VarkaVectorIR](new IsNotNull(cmp))
+    val overColumn = Seq[VarkaVectorIR](new IsNotNull(d))
+    val beside = Seq[VarkaVectorIR](new Or(new Not(new IsNotNull(cmp)), cmp))
+    assert(calls(overCond, "loopMasked0") === calls(bare, "loopMasked0"))
+    assert(calls(beside, "loopMasked0") === calls(bare, "loopMasked0"))
+    assert(calls(overCond, "loopDense0") === calls(overColumn, "loopDense0"))
+    assert(calls(overCond, "loopDense0")._1 === 0)
+    assert(calls(beside, "loopDense0")._1 === calls(bare, "loopDense0")._1)
+  }
+
+  test("a guard under a null test over a condition leaves the kernel no dense body") {
+    // The dense body would answer the test constant true without lowering the condition, and so
+    // serve a batch the masked body's guard declines; with no dense body both see one verdict.
+    val d = new ColumnRef(0)
+    val guarded = new Year(new GuardedRange(d, VarkaChrono.CONTRACT_MIN_DAYS,
+      VarkaChrono.CONTRACT_MAX_DAYS))
+    val cond = new And(new Compare(CompareOp.EQ, guarded, new LiteralSlot(0)),
+      new Compare(CompareOp.GT, new ColumnRef(1), new LiteralSlot(0)))
+    val names = VarkaEmitterTestSupport.methodNames(emitMulti(Seq(new IsNotNull(cond)), 2, 1)._2)
+    assert(!names.contains("runDense") && names.contains("runMasked"), names)
+    val unguarded = new And(new Compare(CompareOp.EQ, new Year(d), new LiteralSlot(0)),
+      new Compare(CompareOp.GT, new ColumnRef(1), new LiteralSlot(0)))
+    assert(VarkaEmitterTestSupport.methodNames(
+      emitMulti(Seq(new IsNotNull(unguarded)), 2, 1)._2).contains("runDense"))
+  }
+
+  test("a calendar prefix materialized under a null test over a condition is stored before a " +
+      "later group loads it") {
+    // The first group reaches c1's prefix only under the null test, which a dense body answers
+    // without lowering the condition, so a dense body would never store the prefix the third
+    // group loads; such a kernel has no dense body. last_day(c0) keeps the three in groups of
+    // their own, as in the guarded-prefix shapes above.
+    val (c0, c1) = (new ColumnRef(0), new ColumnRef(1))
+    val roots = Seq[VarkaVectorIR](
+      new IsNotNull(new Compare(CompareOp.EQ, new Year(c1), new LiteralSlot(0))),
+      new LastDay(c0), new Month(c1))
+    val options = VarkaMatrix.base.withGroupBudgetUnderPrediction(true)
+      .withMaterializeChronoPrefix(true)
+    for (lanes <- Seq(4, 16)) {
+      val named = emitMulti(roots, 2, 1, options.withLanesOverride(lanes))
+      val (kernel, loader) = load(named)
+      try {
+        assert(kernel.scratchBytesPerRow() > 0, s"$lanes lanes: no prefix is materialized")
+      } finally {
+        loader.release()
+      }
+      checkMatrix(roots, 2, Array(2021), Seq(1, 17, 1031),
+        Seq(Seq.fill(2)((_: Int) => false), Seq.tabulate(2)(c => (i: Int) => (i + c) % 5 == 0)),
+        ctx = s"$lanes lanes", options = options.withLanesOverride(lanes))
+    }
+  }
+
   test("the masked path's bytes do not move, and the dense path's shrink") {
     // The guard that keeps this task off the masked path, asserted the way VARKA-32 asserted
     // its own: the masked bodies are byte for byte as they were, so no masked case can have
@@ -467,6 +552,8 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   private val support = "org.apache.spark.sql.varka.vector.VarkaVectorSupport"
 
   private val intVector = "jdk.incubator.vector.IntVector"
+
+  private val vectorMask = "jdk.incubator.vector.VectorMask"
 
   test("a whole lane group calls the helper named for the emitted width", PinsDefaults) {
     // The emitter knows the lane count when it writes the bytes, so the callee can carry it and

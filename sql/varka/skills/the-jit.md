@@ -1176,3 +1176,24 @@ rule: test-only instrumentation inlined into a kernel must see the same state wh
 warms as when it is measured. A warm-up and its measured calls both run in the sanitizer's window
 (`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
 with a `speculate_*` reason, points here before it points at the kernel.
+
+## A warmed kernel measured through another entry can run code the verdict never read
+
+Found by `VarkaKernelWarmupSuite` failing on runners and read in `m8/VARKA-398.md`: a warm-up
+reported `COMPILED`, and then the batches with some nulls allocated sixteen interpreted calls of
+one light loop. The warm-up's calls enter a kernel through `VarkaFusedKernel.run`'s scratch form,
+an interface default method; in a JVM with one kernel class C2 compiles it with the whole kernel
+inlined, so the verdict can be earned by that inlined copy while the kernel's own `run` and a
+light loop called only through it still have no standalone code (a separate compile, queued late
+or never requested once the inlined copy took its calls). The test called the kernel's own `run`
+and met those methods interpreted. The rule: a measurement that checks a JIT verdict enters the
+kernel through the method the verdict's calls enter (`PrintInlining` shows which call sites inline
+it; neither of the warm-up's does), since an inlined copy and a standalone compile are different
+code and only the allocation tells them apart.
+
+The bytes name the method and the runner's width. An interpreted lane-group loop boxes each
+vector it makes: `date_add(d, k)`'s load, broadcast and sum are three per lane group, 64 bytes
+each at 256 bits over 128 groups of a 1,024-row call and 96 bytes each at 512 bits over 64, so
+24,856 and 18,832 bytes a call with the driver's segments. A failure's byte count divided by the
+calls, set against that arithmetic, says which loop ran interpreted and on which class of runner
+before any log does.

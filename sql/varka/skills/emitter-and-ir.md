@@ -1009,3 +1009,19 @@ the per-row fallback evaluates the codegen order where Spark would compile the f
 Any new place that reorders or splits conjuncts - a pushdown, a storage filter, a cache predicate
 - has the same two orders to keep, and the differential needs a raising conjunct and a null
 column to see it fail.
+
+## An edge the emission skips must be skipped by every plan that walks the tree
+
+A dense body answers `IsNotNull` over a condition constant true and never lowers the condition
+(VARKA-334), so the edge to the condition is one the dense emission does not follow. Three plans
+walk the tree before the emission and each had to learn the same skip: the per-node visit counts
+behind the shared slots (`Slots.bodyUses`), the set of nodes a body emits, which decides its
+segments, broadcasts and the epilogue mask (`Slots.emittedNodes`), and the calendar prefix's read
+plan (`Slots.planFragmentsReadingMonth`). Missing one is not a wrong answer but a local stored and
+never read, which `VarkaUnreadLocalsSuite` counts: 16 shared slots and 78 other locals over the
+cost corpus before the last two learned it. A skip that loses a side effect is different: a guard
+under the condition, or a calendar prefix the skipped subtree would have stored for a later group,
+cannot be planned around, so the dispatch takes the masked body for every batch
+(`Analysis.maskedOnly`), as it already did for a kernel that nulls valid inputs. The second of
+those was a wrong answer (a later group read the scratch nobody wrote) that only an independent
+review found; a new skip is checked against both before it lands.
