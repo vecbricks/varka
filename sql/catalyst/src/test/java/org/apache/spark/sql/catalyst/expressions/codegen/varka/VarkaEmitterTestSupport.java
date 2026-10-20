@@ -443,4 +443,44 @@ public final class VarkaEmitterTestSupport {
       return e;
     }
   }
+
+  /**
+   * Waits for at most {@code maxMillis} until C2 has nothing queued and nothing compiling, and
+   * returns whether it has: true too where the JVM does not let the load be read (the benchmark
+   * then has nothing to wait for). It reads the {@code Compiler.queue} diagnostic command every
+   * 10 ms, each reading a safepoint, so it is for the gaps between timed runs.
+   */
+  public static boolean awaitC2Idle(long maxMillis) {
+    long deadline = System.nanoTime() + maxMillis * 1_000_000L;
+    while (true) {
+      int load = c2Load();
+      if (load <= 0) {
+        return true;
+      }
+      if (System.nanoTime() >= deadline) {
+        return false;
+      }
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+  }
+
+  /** Methods queued for C2 plus those its threads are compiling, or -1 if unreadable. */
+  private static int c2Load() {
+    try {
+      Object reply = java.lang.management.ManagementFactory.getPlatformMBeanServer().invoke(
+          new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand"),
+          "compilerQueue", new Object[] {null}, new String[] {String[].class.getName()});
+      String text = String.valueOf(reply);
+      long compiling = text.lines().map(String::strip)
+          .filter(l -> l.startsWith("C2 CompilerThread")).count();
+      return VarkaVectorTemplateWarmup.c2QueueLength(text) + (int) compiling;
+    } catch (Exception | LinkageError e) {
+      return -1;
+    }
+  }
 }

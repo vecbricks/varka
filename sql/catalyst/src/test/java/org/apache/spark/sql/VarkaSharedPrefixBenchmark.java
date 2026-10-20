@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import scala.collection.immutable.Seq;
 
@@ -78,6 +80,15 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
 
   private static final int NUM_ROWS = 1_000_000;
   private static final int CHUNK = 1024;
+
+  /** Drives an arm gets at least before it is timed; see {@link #driveToCompiledCode}. */
+  private static final int MIN_WARM_DRIVES = 8;
+  /** How far two drives' times may differ for the code to count as unchanged between them. */
+  private static final double STEADY_FRACTION = 0.3;
+  /** About the most one arm is driven, in ms (a drive and an idle wait may run past it). */
+  private static final long WARM_WAIT_MILLIS = 60_000;
+  /** The most C2 is waited for after one drive, in ms. */
+  private static final long IDLE_WAIT_MILLIS = 10_000;
 
   private static final Attribute D = VarkaSqlResolve.column("d", DataTypes.DateType);
   private static final Seq<Attribute> COLUMNS = seq(List.of(D));
@@ -150,6 +161,52 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
     return status;
   }
 
+  /**
+   * Drives {@code arm} over the whole column until its drive time is steady with C2 idle, so that
+   * the timed run measures C2's code and not the C1 code that stands in until C2's compile is
+   * requested and done. The tier is not read: 8 drives are 7,800 calls, past the 5,000
+   * invocations after which the JIT asks for C2 whatever its backedge counts.
+   *
+   * <p>One drive is 977 calls of each loop method, short of the 5,000 invocations after which the
+   * JIT asks for C2 whatever its backedge counts, and whether it asks at a call below that
+   * depends on the length of C2's queue at the moment: an arm that was driven once and left
+   * stood in C1 code for as long as 37 seconds, into its timed run, at 65 to 349 ns/row against
+   * 2.7. So the arm is driven at least {@link #MIN_WARM_DRIVES} times, with C2 left idle after
+   * each drive so that what the drive requested is compiled and installed, and then until a drive
+   * takes about as long as the one before it (the JIT's code, C1 or C2, does not change between
+   * two drives). The wait is bounded: an arm that does not settle within {@link
+   * #WARM_WAIT_MILLIS} says so on the console and is timed as it is. An arm whose C2 compile fails
+   * or is refused settles in the code it has, as the call-site budget off arm does.
+   */
+  private static void driveToCompiledCode(String title, Arm arm, MemorySegment data, long[] dst,
+      long[] dstValidity, int[] literals) {
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
+    long previous = 0;
+    int drives = 0;
+    while (true) {
+      long start = System.nanoTime();
+      require(drive(arm.kernel(), arm.scratch(), data, dst, dstValidity, literals) == 0,
+          title + " at " + arm.label() + ", materialized " + arm.materialized()
+              + ", declined a batch");
+      long took = System.nanoTime() - start;
+      drives++;
+      boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
+      boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
+      if (drives >= MIN_WARM_DRIVES && idle && steady) {
+        return;
+      }
+      if (System.nanoTime() > deadline) {
+        System.out.println("VarkaSharedPrefixBenchmark: " + title + " at " + arm.label()
+            + ", materialized " + arm.materialized() + " did not settle in " + WARM_WAIT_MILLIS
+            + " ms (" + drives + " drives, the last " + TimeUnit.NANOSECONDS.toMillis(took)
+            + " ms after " + TimeUnit.NANOSECONDS.toMillis(previous) + " ms, C2 "
+            + (idle ? "idle" : "busy") + "); its cell may be timed in C1 code");
+        return;
+      }
+      previous = took;
+    }
+  }
+
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
     var loader = new VarkaGeneratedClassLoader(getClass().getClassLoader());
@@ -203,8 +260,18 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
             String name = arm.label() + ": " + arm.groups() + " group"
                 + (arm.groups() == 1 ? "" : "s")
                 + (arm.materialized() ? ", prefix computed once" : ", prefix per group");
-            benchmark.addCase(name, iteration ->
-                drive(arm.kernel(), arm.scratch(), data, dst, dstValidity, literals));
+            // The arm is brought to C2's code when its own turn comes, not before the first
+            // arm is timed: an arm that was left for the minutes the others take was found in
+            // C1 code again.
+            var settled = new AtomicBoolean();
+            benchmark.addTimerCase(name, timer -> {
+              if (settled.compareAndSet(false, true)) {
+                driveToCompiledCode(title, arm, data, dst, dstValidity, literals);
+              }
+              timer.startTiming();
+              drive(arm.kernel(), arm.scratch(), data, dst, dstValidity, literals);
+              timer.stopTiming();
+            });
           }
           benchmark.run();
         }

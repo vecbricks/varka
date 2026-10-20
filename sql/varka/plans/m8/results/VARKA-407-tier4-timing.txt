@@ -1,0 +1,62 @@
+VARKA-407: timing the 64-tail ladder's arms in compiled code, and what a real session's first queries run.
+Run 20 October 2026 on the laptop (AMD Zen 5, JDK 25.0.4.1), JVM pinned `taskset -c 0,12,13,14,15,1,2,3`,
+both agent locks held, java launched directly with the Test javaOptions of `show catalyst/Test/javaOptions`.
+Cells are Per Row (ns) of VarkaSharedPrefixBenchmark's first shape, the four "prefix computed once" ceilings
+(400/200/100/50) and "every group split"; "call-site budget off" (always 240 to 490; 238.8 once) is left out. A cell over
+20 ns/row is slow. Fast mode 2.6 at 512 bits, 4.0 at 256 bits (-XX:MaxVectorSize=32).
+A "run" is one whole benchmark JVM; alternated means a 512-bit run and a 256-bit run in turn.
+
+== phase 1: the benchmark change alone, and the warm-up change alone ==
+Variants (runs with a slow cell / runs):
+  master c6193e3c39b, no change             512 bit  2 / 5 (one unalternated)   256 bit  3 / 4
+  harness: every arm driven until its drive time is steady with C2 idle, all arms before the
+  first is timed (an earlier version of the change)       512 bit  1 / 5 (+1 of 6 with a JIT log)   256 bit  1 / 5
+  warm-up change alone (a wait at the warm-up's end, up to 1 s, until C2 has nothing queued and
+  nothing compiling; the benchmark unchanged)             512 bit  4 / 5      256 bit  3 / 5
+  harness: each arm driven that way at its own turn, just before it is timed (the committed change)
+                                                          512 bit  0 / 5      256 bit  0 / 5
+The warm-up change does not remove the slow cells (7 of 10 runs slow, against 5 of 9 without it), and it adds
+up to a second to a session's start, so it is not part of this change. The waiting for C2 at the warm-up's end
+cannot reach the slow window either: the warm-up runs once, seconds into the JVM, and the one logged slow arm's request
+came at 54 s, 17 to 54 s into the JVM (VARKA-406-slow-mode.txt). The first version of the harness change left slow cells
+because an arm warmed minutes before its turn was found slow again: in the one JIT log of such a run (a
+LogCompilation log, cells "ceiling 200" 12.4 and "ceiling 100" 69.5), the arm "ceiling 100" had C2 code at 27
+to 29 s and was compiled again from tier 2 at 65 s, in its timed window, with no deoptimisation or make-not-entrant
+record for the C2 code in the log; why the C2 code went is not established. Driving each arm at its own turn
+is a design choice that leaves no idle gap between the drives and the timing; the data does not separate it from
+the earlier version (3 of 16 runs slow against 0 of 10), only both from master (5 of 9 against 0 of 10).
+
+== phase 2: the committed change, 5 alternated rounds, cells as ns/row ==
+512 bit (rounds 1..5)
+  2.5 2.6 2.6 2.6 | 2.6 2.6 2.6 2.6 | 2.9 2.9 2.8 2.7 | 2.6 2.6 2.7 2.6 | 2.6 2.7 2.7 2.7  (every group split: 2.6 2.6 2.8 2.6 2.7)
+256 bit (rounds 1..5)
+  3.9 4.0 4.0 3.9 | 3.9 3.9 3.9 3.9 | 4.0 4.0 4.1 4.0 | 4.1 4.1 4.1 4.1 | 3.9 4.0 3.9 3.9  (every group split: 3.9 4.0 4.1 4.2 3.9)
+No arm printed "did not settle". No slow cell in the ten runs.
+
+== phase 3: do a real session's first queries run in tier 3 after the warm-up? ==
+Method: a local[2] session (VarkaArrowSessions.createSession, Varka on, the kernel warm-up off), 100,000 cached
+dates with one null in 31 (so the kernels run their masked loops), the same query every time over 1, 4 and 16
+entries of the size ladder, 60 to 100 queries, -XX:+PrintCompilation, master's catalyst jar and the jar with the
+warm-up wait of phase 1 (16 and 4 entries on both jars, which agree; 1 entry on the change jar only). The
+template warm-up logged "took 232 to 366 ms ... C2's queue was 0 before the rounds and at most 6 to 10 while
+paced". Times are JVM uptime in ms.
+  1 entry:   query 0 at 14.4 s; loopMasked0 tier 3 (OSR at 15,029, standard at 15,064); tier 4 OSR at 15,434
+             (0.4 s later); tier 4 standard at 15,568. Tier-3 code for about 0.4 s, then C2.
+  4 entries: loopMasked0 (3,693 bytes) tier-3 OSR at 14,734 is refused by C1 ("out of virtual registers in LIR
+             generator"); tier 4 OSR at 15,163 (0.43 s later). Interpreted for 0.4 s, then C2.
+  16 entries: the four loopMasked methods (3.5 to 3.8 KB) are refused by C1 the same way at 15,602..15,763;
+             tier 4 OSR at 16,675..16,853 for three of them (1.0 s later) and for the fourth at 18,505 or
+             19,332 (2.7 to 3.6 s later). Interpreted for 1.0 to 3.6 s, then C2. (The kernel's first
+             queries before that run the row path while the kernel is built; query 0 is at 14.1 s.)
+  At 4 and 16 entries the OSR code is later made not entrant by an uncommon trap (16.7 s; 18.6 to 20.3 s) and
+  recompiled at tier 4; at 1 entry the tier-3 code is made not entrant by the tier-4 install.
+Answer: no late tier-4 request. A session's first queries run a kernel loop in C1 code (1 entry) for about
+0.4 s, or in the interpreter where C1 refuses the loop (4 and 16 entries) for 0.4 to 1.0 s, and then in C2
+code, with and without the wait at the warm-up's end. The 17 to 54 s tier-3 window is a property of the
+benchmark, which drives an arm for 977 calls and leaves it idle for minutes; it is not a production cost.
+One thing the logs show that is not this row's: C1 refused every masked loop of 3.5 KB and more that was seen (five
+methods), so those loops run interpreted until C2's OSR compile lands, 0.4 to 3.6 s after they get hot (proposed as a row).
+
+== not established ==
+Why the tier-4 request of a left-alone arm comes late (the benchmark change makes it moot), why the 4 s between
+the request and the compile start in row 406's log, and why the arm's C2 code was replaced at 65 s in phase 1.
