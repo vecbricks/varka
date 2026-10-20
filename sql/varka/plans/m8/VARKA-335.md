@@ -404,6 +404,19 @@ committed master file (12 October) shows neither, so it arrived after it, and it
 finding (9.2a, last paragraph), not this row's. The committed `VarkaSharedPrefixBenchmark` files
 are the refit's run; one of its wide rows (ceiling 50, prefix once) caught the slow mode.
 
+**Round three, 20 October 2026: the slow mode bisected, stopped part-way** (every number in
+`results/VARKA-335-slow-mode-bisect.txt`). Five alternated rounds of the whole benchmark per
+commit, slow meaning a computed-once cell past 20 ns/row: master's 12 October commit
+`a93cb83e706` 0 of 25 cells (0 of 5 rounds), the Java port `25a1bae6893` 0/25 (0/5), the commit
+before row 28 `05242b26d2e` 10/25 (5/5), row 28 `0eda4cb66ce` 10/25 (4/5), row 334 `54bb641d947`
+20/25 (5/5), this branch's `00d9f79ec79` 3/25 (2/5). The fast mode also moved, 2.3 to 2.4 ns/row
+before to 2.7 after. So the slow mode predates rows 28, 334 and this one. A bisect over the 37
+product and harness commits between `25a1bae6893` and `05242b26d2e` found `3f6f450bd71`
+(14 October) good in three runs and was stopped there by the coordinator: the cause is in the 19
+such commits from `3f6f450bd71` to `05242b26d2e`, which hold the Vector API template warm-up
+(`aa457c3797b`, `568582a9f77`, `089f7659b1b`, `e6aa78e3cd5`). Not yet known: the commit, and the
+JIT's account of a slow round (no PrintCompilation, deoptimization or allocation log was taken).
+
 **Finding: the materialized ladder's slow mode.** At 4 or 5 loop methods with the prefix computed
 once, the 64-tail kernel runs either at 2.6 to 2.9 ns/row or at 65 to 349 ns/row, run to run, at
 both widths, on the merged base and on the refit alike; master's committed run of 12 October

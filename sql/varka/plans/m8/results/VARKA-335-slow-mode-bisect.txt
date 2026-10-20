@@ -1,0 +1,130 @@
+VARKA-335 round 3: the slow mode of VarkaSharedPrefixBenchmark's 64-tail ladder, prefix computed
+once (the default arm), bisected on 20 October 2026.
+
+Method: the whole benchmark class (`build/sbt -batch "catalyst/Test/runMain
+org.apache.spark.sql.VarkaSharedPrefixBenchmark"`), preferred width (512-bit vectors, no
+MaxVectorSize flag, as the committed provenance), pinned `taskset -c 0,12,13,14,15,1,2,3` as
+dev/varka_bench_regen.sh pins, both agent locks held, 1-minute load under 1.0 and
+powerprofilesctl "performance" at each start (logged below). Each commit on a detached worktree;
+five rounds, the commit order rotated and reversed every other round. Cells are Per Row (ns) of
+the computed-once rows, "fused ceiling <c> (<loop methods>)"; a cell over 20 ns/row is slow. The
+"call-site budget off (1 group)" row is a different, always-slow shape (one 64-output method) and
+is not counted.
+
+== per-commit rounds ==
+a93cb83e706 5 rounds
+  r1 fused ceiling 400 (4)=2.3  fused ceiling 200 (4)=2.3  fused ceiling 100 (4)=2.3  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=235.3  fused ceiling 400, every group split (4)=2.3
+  r2 fused ceiling 400 (4)=2.4  fused ceiling 200 (4)=2.3  fused ceiling 100 (4)=2.4  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=239.1  fused ceiling 400, every group split (4)=2.4
+  r3 fused ceiling 400 (4)=2.3  fused ceiling 200 (4)=2.3  fused ceiling 100 (4)=2.4  fused ceiling 50 (4)=2.3  fused ceiling 400, call-site budget off (1)=235.7  fused ceiling 400, every group split (4)=2.3
+  r4 fused ceiling 400 (4)=2.4  fused ceiling 200 (4)=2.4  fused ceiling 100 (4)=2.4  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=243.4  fused ceiling 400, every group split (4)=2.4
+  r5 fused ceiling 400 (4)=2.4  fused ceiling 200 (4)=2.4  fused ceiling 100 (4)=2.3  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=235.9  fused ceiling 400, every group split (4)=2.4
+  slow cells 0/25; rounds with any slow cell 0/5
+25a1bae6893 5 rounds
+  r1 fused ceiling 400 (4)=2.4  fused ceiling 200 (4)=2.4  fused ceiling 100 (4)=2.4  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=238.2  fused ceiling 400, every group split (4)=2.4
+  r2 fused ceiling 400 (4)=2.4  fused ceiling 200 (4)=2.4  fused ceiling 100 (4)=2.5  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=236.0  fused ceiling 400, every group split (4)=2.4
+  r3 fused ceiling 400 (4)=2.3  fused ceiling 200 (4)=2.4  fused ceiling 100 (4)=2.3  fused ceiling 50 (4)=2.4  fused ceiling 400, call-site budget off (1)=242.7  fused ceiling 400, every group split (4)=2.4
+  r4 fused ceiling 400 (4)=2.3  fused ceiling 200 (4)=2.3  fused ceiling 100 (4)=2.3  fused ceiling 50 (4)=2.3  fused ceiling 400, call-site budget off (1)=234.4  fused ceiling 400, every group split (4)=2.3
+  r5 fused ceiling 400 (4)=2.3  fused ceiling 200 (4)=2.3  fused ceiling 100 (4)=2.3  fused ceiling 50 (4)=2.3  fused ceiling 400, call-site budget off (1)=235.3  fused ceiling 400, every group split (4)=2.3
+  slow cells 0/25; rounds with any slow cell 0/5
+05242b26d2e 5 rounds
+  r1 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=2.8  fused ceiling 100 (4)=2.8  fused ceiling 50 (4)=106.7  fused ceiling 400, call-site budget off (1)=244.9  fused ceiling 400, every group split (4)=83.4
+  r2 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=189.9  fused ceiling 100 (4)=2.7  fused ceiling 50 (4)=103.6  fused ceiling 400, call-site budget off (1)=246.3  fused ceiling 400, every group split (4)=2.7
+  r3 fused ceiling 400 (4)=2.8  fused ceiling 200 (4)=2.7  fused ceiling 100 (4)=209.2  fused ceiling 50 (4)=2.7  fused ceiling 400, call-site budget off (1)=244.5  fused ceiling 400, every group split (4)=167.5
+  r4 fused ceiling 400 (4)=101.3  fused ceiling 200 (4)=2.7  fused ceiling 100 (4)=2.7  fused ceiling 50 (4)=2.7  fused ceiling 400, call-site budget off (1)=245.3  fused ceiling 400, every group split (4)=205.3
+  r5 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=102.8  fused ceiling 100 (4)=2.8  fused ceiling 50 (4)=2.7  fused ceiling 400, call-site budget off (1)=241.9  fused ceiling 400, every group split (4)=297.2
+  slow cells 10/25; rounds with any slow cell 5/5
+0eda4cb66ce 5 rounds
+  r1 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=2.7  fused ceiling 100 (4)=2.7  fused ceiling 50 (4)=2.7  fused ceiling 400, call-site budget off (1)=245.8  fused ceiling 400, every group split (4)=316.3
+  r2 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=2.7  fused ceiling 100 (4)=2.7  fused ceiling 50 (4)=175.1  fused ceiling 400, call-site budget off (1)=243.4  fused ceiling 400, every group split (4)=187.6
+  r3 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=2.7  fused ceiling 100 (4)=2.7  fused ceiling 50 (4)=2.9  fused ceiling 400, call-site budget off (1)=244.4  fused ceiling 400, every group split (4)=2.7
+  r4 fused ceiling 400 (4)=2.7  fused ceiling 200 (4)=149.5  fused ceiling 100 (4)=71.3  fused ceiling 50 (4)=292.9  fused ceiling 400, call-site budget off (1)=244.5  fused ceiling 400, every group split (4)=2.7
+  r5 fused ceiling 400 (4)=2.8  fused ceiling 200 (4)=158.2  fused ceiling 100 (4)=275.2  fused ceiling 50 (4)=137.4  fused ceiling 400, call-site budget off (1)=240.9  fused ceiling 400, every group split (4)=222.8
+  slow cells 10/25; rounds with any slow cell 4/5
+54bb641d947 5 rounds
+  r1 fused ceiling 400 (4)=106.8  fused ceiling 200 (4)=247.3  fused ceiling 100 (4)=152.6  fused ceiling 50 (4)=196.8  fused ceiling 400, call-site budget off (1)=245.4  fused ceiling 400, every group split (4)=313.6
+  r2 fused ceiling 400 (4)=108.5  fused ceiling 200 (4)=220.4  fused ceiling 100 (4)=149.4  fused ceiling 50 (4)=148.1  fused ceiling 400, call-site budget off (1)=245.1  fused ceiling 400, every group split (4)=148.1
+  r3 fused ceiling 400 (4)=2.9  fused ceiling 200 (4)=119.4  fused ceiling 100 (4)=110.4  fused ceiling 50 (4)=2.9  fused ceiling 400, call-site budget off (1)=243.1  fused ceiling 400, every group split (4)=161.1
+  r4 fused ceiling 400 (4)=106.0  fused ceiling 200 (4)=2.9  fused ceiling 100 (4)=107.1  fused ceiling 50 (4)=154.2  fused ceiling 400, call-site budget off (1)=241.5  fused ceiling 400, every group split (4)=280.2
+  r5 fused ceiling 400 (4)=2.9  fused ceiling 200 (4)=107.0  fused ceiling 100 (4)=204.9  fused ceiling 50 (4)=2.9  fused ceiling 400, call-site budget off (1)=243.2  fused ceiling 400, every group split (4)=157.8
+  slow cells 20/25; rounds with any slow cell 5/5
+00d9f79ec79 5 rounds
+  r1 fused ceiling 400 (5)=2.7  fused ceiling 200 (5)=2.7  fused ceiling 100 (5)=2.7  fused ceiling 50 (5)=2.7  fused ceiling 400, call-site budget off (1)=241.3  fused ceiling 400, every group split (5)=2.7
+  r2 fused ceiling 400 (5)=2.7  fused ceiling 200 (5)=2.7  fused ceiling 100 (5)=2.7  fused ceiling 50 (5)=2.7  fused ceiling 400, call-site budget off (1)=245.5  fused ceiling 400, every group split (5)=2.7
+  r3 fused ceiling 400 (5)=2.7  fused ceiling 200 (5)=2.7  fused ceiling 100 (5)=2.7  fused ceiling 50 (5)=2.7  fused ceiling 400, call-site budget off (1)=241.7  fused ceiling 400, every group split (5)=2.7
+  r4 fused ceiling 400 (5)=2.7  fused ceiling 200 (5)=2.7  fused ceiling 100 (5)=66.1  fused ceiling 50 (5)=2.7  fused ceiling 400, call-site budget off (1)=244.2  fused ceiling 400, every group split (5)=52.8
+  r5 fused ceiling 400 (5)=2.6  fused ceiling 200 (5)=2.6  fused ceiling 100 (5)=2.6  fused ceiling 50 (5)=2.6  fused ceiling 400, call-site budget off (1)=242.8  fused ceiling 400, every group split (5)=231.9
+  slow cells 3/25; rounds with any slow cell 2/5
+
+== the bisect's one completed step (path-limited to sql/catalyst/src/main, the benchmark
+   harness and project/; -Dvarka.bench.only='groups, prefix computed once'; 3 runs) ==
+step 3f6f450bd71 run 1 load 0.86 1.94 2.02 profile performance 07:13:04
+  ns/row 2.3 2.4 2.3 2.4 2.4
+step 3f6f450bd71 run 2 load 0.95 1.65 1.90 profile performance 07:16:35
+  ns/row 2.4 2.4 2.4 2.4 2.4
+step 3f6f450bd71 run 3 load 0.88 1.51 1.79 profile performance 07:20:54
+  ns/row 2.3 2.4 2.3 2.4 2.4
+  verdict 3f6f450bd71 good
+step 1cf25b102e0 run 1 load 0.97 1.68 1.83 profile performance 07:25:42
+
+== run log (commit, round, load, power profile, time) ==
+round 1 commit a93cb83e706 load 0.86 1.35 2.40 profile performance 05:13:53
+  exit 0
+round 1 commit 25a1bae6893 load 0.97 1.46 2.26 profile performance 05:17:10
+  exit 0
+round 1 commit 05242b26d2e load 0.89 1.43 2.10 profile performance 05:20:47
+  exit 0
+round 1 commit 0eda4cb66ce load 0.91 1.48 1.99 profile performance 05:24:42
+  exit 0
+round 1 commit 54bb641d947 load 0.97 1.56 1.94 profile performance 05:28:30
+  exit 0
+round 1 commit 00d9f79ec79 load 0.92 1.56 1.88 profile performance 05:32:09
+  exit 0
+round 2 commit 54bb641d947 load 0.87 1.48 1.80 profile performance 05:35:54
+  exit 0
+round 2 commit 0eda4cb66ce load 0.89 1.55 1.78 profile performance 05:40:03
+  exit 0
+round 2 commit 05242b26d2e load 0.87 1.50 1.73 profile performance 05:43:39
+  exit 0
+round 2 commit 25a1bae6893 load 0.85 1.53 1.72 profile performance 05:47:35
+  exit 0
+round 2 commit a93cb83e706 load 0.92 1.46 1.67 profile performance 05:51:22
+  exit 0
+round 2 commit 00d9f79ec79 load 0.90 1.40 1.62 profile performance 05:54:49
+  exit 0
+round 3 commit 05242b26d2e load 0.86 1.59 1.68 profile performance 05:58:56
+  exit 0
+round 3 commit 0eda4cb66ce load 0.99 1.57 1.67 profile performance 06:02:52
+  exit 0
+round 3 commit 54bb641d947 load 0.97 1.50 1.65 profile performance 06:06:28
+  exit 0
+round 3 commit 00d9f79ec79 load 0.93 1.49 1.63 profile performance 06:10:05
+  exit 0
+round 3 commit a93cb83e706 load 0.87 1.56 1.66 profile performance 06:14:13
+  exit 0
+round 3 commit 25a1bae6893 load 0.88 1.48 1.63 profile performance 06:17:51
+  exit 0
+round 4 commit 05242b26d2e load 0.86 1.50 1.64 profile performance 06:21:49
+  exit 0
+round 4 commit 25a1bae6893 load 0.92 1.53 1.64 profile performance 06:25:35
+  exit 0
+round 4 commit a93cb83e706 load 0.87 1.50 1.64 profile performance 06:29:13
+  exit 0
+round 4 commit 00d9f79ec79 load 0.98 1.54 1.65 profile performance 06:32:30
+  exit 0
+round 4 commit 54bb641d947 load 0.98 1.63 1.69 profile performance 06:36:28
+  exit 0
+round 4 commit 0eda4cb66ce load 0.98 1.67 1.73 profile performance 06:40:27
+  exit 0
+round 5 commit 54bb641d947 load 0.96 1.72 1.77 profile performance 06:44:25
+  exit 0
+round 5 commit 00d9f79ec79 load 0.89 1.60 1.73 profile performance 06:48:11
+  exit 0
+round 5 commit a93cb83e706 load 0.98 1.78 1.83 profile performance 06:52:39
+  exit 0
+round 5 commit 25a1bae6893 load 0.91 1.62 1.78 profile performance 06:56:15
+  exit 0
+round 5 commit 05242b26d2e load 0.94 1.48 1.71 profile performance 06:59:44
+  exit 0
+round 5 commit 0eda4cb66ce load 0.85 1.67 1.78 profile performance 07:03:40
+  exit 0
+done
