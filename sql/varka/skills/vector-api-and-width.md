@@ -482,8 +482,9 @@ declined intrinsic, so the Java implementation runs; `-` is a cell not meaningfu
 columns are species widths, not datapaths: 512 is the laptop's AVX-512 on 256-bit units, 256 and 128
 are the same laptop under `-XX:MaxVectorSize=32` and `16`. The EPYC 7763 and Neoverse N2 columns
 come from `varka-width-audit.yml`, which runs the suite on both runner classes and uploads
-`operator_census.json`; they are not in this table yet. `sql/varka/operator_census.json` carries
-every cell, the `VectorSupport` methods it met and its bytes a row.
+`operator_census.json`; the cells where they differ from the laptop are listed after the table.
+`sql/varka/operator_census.json` carries every cell, the `VectorSupport` methods it met and its
+bytes a row for the laptop.
 
 | family | lane | operators | 512 | 256 | 128 | rows |
 |---|---|---|---|---|---|---|
@@ -526,7 +527,20 @@ every cell, the `VectorSupport` methods it met and its bytes a row.
 | two species | byte | `widen_then_full` | I | I | - | 329 |
 | two species | byte | `full_then_widen` | I | I | - | 329 |
 
-What it says on this host (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
+The runner columns (workflow run 39400866095, 20 October 2026, Zulu 25.0.4+7; every other cell in
+the table reads as on the laptop):
+
+| host and species | cells that read `F` |
+|---|---|
+| EPYC 7763 (AVX2), 256 bits | `L2D`, `D2L`, `L2F` (long to double and float needs AVX512DQ), `POW` |
+| EPYC 7763, 128 bits (`MaxVectorSize=16`) | those four, and the laptop's 128-bit cells: the double compares and `IS_NAN`, the four unsigned long compares, `rearrange2`, `selectFrom`, `compress`, and `fromLong` and `toLong` on longs |
+| Neoverse N2, 128 bits (native) | `TANH` alone; `POW` is intrinsic there |
+
+The full cells are in `plans/m8/results/VARKA-376-census-epyc-7763.json` and
+`VARKA-376-census-neoverse-n2.json`. Rows 30, 343 and 344 design their long-to-double conversions
+against the EPYC cells; row 358's `tanh` meets the Neoverse cell.
+
+What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
 
 * **Nothing allocates anywhere in a loop that is intrinsic**, and the five arrangements of the
   two-species case (a narrow and a full byte species in either order of first use, the widening

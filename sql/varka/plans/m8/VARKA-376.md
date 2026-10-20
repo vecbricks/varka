@@ -169,9 +169,11 @@ refusal it finds.
 ## 9. Outcome
 
 *20 October 2026, at `5e11eb91ba3` (after rows 28, 334, 335, 397 to 399; none of them touched what
-the plan rests on).* The census is built and taken on the laptop; the two runner columns are owed
-from the workflow's dispatch, which needs the branch pushed, so the row's done-when is met for the
-laptop and open for the runners.
+the plan rests on).* The census is built and taken on the laptop; the two runner columns came from the
+workflow's first dispatch (run 39400866095 on master after the merge, 20 October 2026, Zulu
+25.0.4+7: EPYC 7763 at 256 and 128 bits, Neoverse N2 at 128) and are committed under `results/` as
+`VARKA-376-census-epyc-7763.json` and `VARKA-376-census-neoverse-n2.json`, so the row's done-when is
+met on all three hosts. Section 9.2 reads them.
 
 **What was built.** `VarkaOperatorCensusCatalog` (87 entries: 85 cells and two planted cases, no
 vector type in it), `VarkaOperatorCensusProbe` (49 loops, one `op_*` method each, the operator a
@@ -212,23 +214,38 @@ intrinsic, and the five two-species arrangements read `I`.
 **Rows that name a form for a host.** Each row whose design meets an `F` cell has a "Census
 reading" sentence in its row text in `PLAN.md` (27, 329, 331, 341, 345, 347, 358, 359, 360, 375):
 at 128 bits on x86 the 64-bit lane's mask operators are the Java fallback, consistent with `m7` row
-374, and `POW` is the fallback below 512 bits. The runner columns may add cells (the AVX2 runner is
-expected to refuse `L2D` and `D2L`); the rows 30, 343 and 344 wait for that column.
+374, and `POW` is the fallback below 512 bits. The runner columns add cells (section 9.2): the AVX2 runner refuses `L2D`, `D2L` and `L2F`, which
+rows 30, 343 and 344 take into their designs.
 
 ### 9.1 The predictions
 
 | | prediction | measured | |
 | :-- | :-- | :-- | :-- |
-| 1 | `L2D` and `D2L` read `F` at 256 bits on the EPYC 7763 runner and `I` on the laptop | laptop `I` at all three widths; the runner is owed | half held, half owed |
-| 2 | `fromLong` reads `I` on all three hosts at their defaults | laptop `I` at its default 512 and at 256; on longs at 128 `F`, as `m7` row 374 has it; runners owed | held on the laptop |
+| 1 | `L2D` and `D2L` read `F` at 256 bits on the EPYC 7763 runner and `I` on the laptop | laptop `I` at all three widths; EPYC 7763 `F` at 256 and at 128 | held |
+| 2 | `fromLong` reads `I` on all three hosts at their defaults | laptop `I` at its default 512 and at 256; on longs at 128 `F`, as `m7` row 374 has it; EPYC 7763 `I` at 256 and `F` at 128 on longs; Neoverse N2 `I` at its 128 | held |
 | 3 | the two-species loop reads `I+A` in at least one order | `I` with no allocation in all five arrangements at 512 and 256 bits | missed |
-| 4 | the math operators read `I` where bound and `F` for `POW` at the AVX2 runner's 256 | laptop: every operator `I` at 512, `POW` `F` at 256 and 128 (no stub); the AVX2 runner is owed | held on the laptop |
+| 4 | the math operators read `I` where bound and `F` for `POW` at the AVX2 runner's 256 | laptop: every operator `I` at 512, `POW` `F` at 256 and 128 (no stub); EPYC 7763 `F` for `POW` at 256 and 128, every other math operator `I`; Neoverse N2 `POW` `I` but `TANH` `F`, a cell the prediction did not name | held, with one new cell |
 | 5 | the suite takes under 10 minutes per host | 25 s on the laptop (85 cells, three widths, 4 parallel forks by default on 24 cores) | held, at 4% of the bound |
 
 The miss in 3 is a finding: the box the record measured needs more than a second byte species in the
 JVM, and the arms of 329 read clean here in every arrangement tried, so 329 need not build around
 it on this host; the Arm and AVX2 runner columns decide whether that holds on the fleet.
 
-**Self-review and out-of-scope findings** are in the pull request description. A follow-up row would
-fill the table's two runner columns from the first dispatch's artifacts (documents only).
+### 9.2 The runner columns
+
+Run 39400866095 (workflow dispatch on master, 20 October 2026; the full cells are in
+`results/VARKA-376-census-epyc-7763.json` and `results/VARKA-376-census-neoverse-n2.json`).
+
+* **EPYC 7763 (AVX2), 256 bits:** 81 cells `I`, 4 `F`: `L2D`, `D2L`, `L2F` (the long-to-double family
+  needs AVX512DQ) and `POW` (no stub). **128 bits:** 62 `I`, 17 `F`, 6 not meaningful; beside the
+  four, the double compares and `IS_NAN`, the four unsigned long compares, `rearrange2`,
+  `selectFrom`, `compress`, `fromLong` and `toLong` on longs, the same 64-bit-lane-at-two-lanes
+  fallbacks the laptop has at 128 bits, plus the three conversions.
+* **Neoverse N2 (128 bits, native):** 78 `I`, 1 `F`, 6 not meaningful. The one `F` is `TANH`, a cell
+  neither the laptop nor the EPYC has; it is a double math function, so row 358's `tanh` design
+  meets it on Arm.
+* No intrinsic cell on either runner allocates beyond the laptop's bound; the census files carry the
+  bytes a row.
+
+**Self-review and out-of-scope findings** are in the pull request description.
 
