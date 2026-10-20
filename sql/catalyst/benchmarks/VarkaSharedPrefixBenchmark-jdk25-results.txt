@@ -2,34 +2,34 @@
 the civil-from-days prefix, recomputed per group or computed once
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 64 cheap tails over one date: year(d) + k over 1000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-fused ceiling 400: 6 groups, prefix per group                                       3              3           0        339.3           2.9       1.0X
-fused ceiling 400: 4 groups, prefix computed once                                   2              2           0        419.7           2.4       1.2X
-fused ceiling 200: 6 groups, prefix per group                                       3              3           0        340.8           2.9       1.0X
-fused ceiling 200: 4 groups, prefix computed once                                   2              2           0        428.4           2.3       1.3X
-fused ceiling 100: 6 groups, prefix per group                                       3              3           0        342.6           2.9       1.0X
-fused ceiling 100: 4 groups, prefix computed once                                   2              2           0        437.8           2.3       1.3X
-fused ceiling 50: 6 groups, prefix per group                                        3              3           0        339.7           2.9       1.0X
-fused ceiling 50: 4 groups, prefix computed once                                    2              2           0        417.6           2.4       1.2X
-fused ceiling 400, call-site budget off: 1 group, prefix computed once            236            238           2          4.2         235.7       0.0X
-fused ceiling 400, every group split: 4 groups, prefix computed once                2              2           0        428.1           2.3       1.3X
+fused ceiling 400: 8 groups, prefix per group                                       4              4           0        280.6           3.6       1.0X
+fused ceiling 400: 5 groups, prefix computed once                                   3              3           1        382.1           2.6       1.4X
+fused ceiling 200: 8 groups, prefix per group                                       4              4           0        279.4           3.6       1.0X
+fused ceiling 200: 5 groups, prefix computed once                                   3              9          31        380.1           2.6       1.4X
+fused ceiling 100: 8 groups, prefix per group                                       4              4           1        277.6           3.6       1.0X
+fused ceiling 100: 5 groups, prefix computed once                                   3             19          54        378.5           2.6       1.3X
+fused ceiling 50: 8 groups, prefix per group                                        4              4           0        278.3           3.6       1.0X
+fused ceiling 50: 5 groups, prefix computed once                                   65            108          50         15.4          65.1       0.1X
+fused ceiling 400, call-site budget off: 1 group, prefix computed once            246            248           1          4.1         246.2       0.0X
+fused ceiling 400, every group split: 5 groups, prefix computed once              172            227          43          5.8         171.8       0.0X
 
-OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-34-generic
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
 AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
 60 make_date(year(d), month(d), k) outputs over 1000000 rows:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-fused ceiling 400: 10 groups, prefix per group                                      23             23           0         43.2          23.1       1.0X
-fused ceiling 400: 10 groups, prefix computed once                                  16             16           0         63.2          15.8       1.5X
-fused ceiling 200: 20 groups, prefix per group                                      31             31           1         32.7          30.6       0.8X
-fused ceiling 200: 20 groups, prefix computed once                                  18             19           1         56.7          17.6       1.3X
-fused ceiling 100: 60 groups, prefix per group                                      73             76           4         13.7          73.1       0.3X
-fused ceiling 100: 60 groups, prefix computed once                                  39             40           0         25.7          38.9       0.6X
-fused ceiling 50: 60 groups, prefix per group                                       73             76           4         13.7          73.1       0.3X
-fused ceiling 50: 60 groups, prefix computed once                                   39             39           0         25.4          39.4       0.6X
-fused ceiling 400, call-site budget off: 9 groups, prefix computed once             15             15           0         66.8          15.0       1.5X
-fused ceiling 400, every group split: 60 groups, prefix computed once               39             40           0         25.5          39.3       0.6X
+fused ceiling 400: 10 groups, prefix per group                                      23             43          93         43.2          23.1       1.0X
+fused ceiling 400: 10 groups, prefix computed once                                  16             47         117         61.4          16.3       1.4X
+fused ceiling 200: 21 groups, prefix per group                                      32             50          83         31.4          31.8       0.7X
+fused ceiling 200: 20 groups, prefix computed once                                  21             32          81         48.4          20.7       1.1X
+fused ceiling 100: 60 groups, prefix per group                                      74             77           5         13.5          73.9       0.3X
+fused ceiling 100: 60 groups, prefix computed once                                  39             40           2         25.6          39.0       0.6X
+fused ceiling 50: 60 groups, prefix per group                                       74             77           4         13.5          74.2       0.3X
+fused ceiling 50: 60 groups, prefix computed once                                   39             40           2         25.8          38.8       0.6X
+fused ceiling 400, call-site budget off: 9 groups, prefix computed once             15             44         114         67.4          14.8       1.6X
+fused ceiling 400, every group split: 60 groups, prefix computed once               39             40           2         25.8          38.7       0.6X
 
 

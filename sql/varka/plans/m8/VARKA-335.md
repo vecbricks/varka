@@ -377,7 +377,39 @@ and 82; and `VarkaIrFuzzSuite`'s op-cap draws, redrawn by the arms and found aga
 (2026101307006, 32279) for the rebuilt arm and (2026101300002, 195413) for the stranger. No
 coverage row's emitted bytes moved.
 
-**The benchmark** of the moved ladder: pending a quiet machine.
+**The benchmark**, on the quiet laptop after the night fuzz job (20 October 2026, 03:37 to 04:45,
+load under 1 at each start, canary ok, `powerprofilesctl` performance, battery "Not charging").
+
+*Emission* (`VarkaEmissionBenchmark`, regenerated at both widths and committed): the 64 cheap
+tails take 875 us to emit predicted (863 before) at 256 bits and 866 us (884) at 128, inside the
+file's spread, which the weights arm, untouched by the prices, shows at 1 to 5%. No row moved past
+the file's noise.
+
+*Running the kernels* (`VarkaSharedPrefixBenchmark`, which runs the ladder over a million rows;
+256-bit lanes paired with `dev/varka_bench_pair.sh` against the merged base `ca586f1dce6`, five
+alternating rounds; 128-bit lanes one run each side in the same session):
+
+| 64 tails over one date | base | refit | change |
+| :-- | :-- | :-- | :-- |
+| prefix per group, 256-bit | 6 methods, 3.0 ns/row in 5 of 5 runs | 8 methods, 3.6 ns/row in 5 of 5 | **20% slower** |
+| prefix per group, 128-bit | 6 methods, 8.1 to 8.2 ns/row | 8 methods, 9.5 to 9.6 ns/row | **17% slower** |
+| prefix once (the default), 256-bit | 4 methods, best 2.9 ns/row; 106 to 268 ns/row in 4 of 5 runs at ceiling 400 | 5 methods, 2.6 ns/row in 5 of 5 | 10% faster by best, and stable |
+| prefix once (the default), 128-bit | 4 methods, best 8.0 to 9.7 ns/row at two ceilings, 346 to 349 at two | 5 methods, best 7.0 to 7.7 ns/row | no slower by best |
+
+So the two extra methods of the recomputed arm cost about a fifth of its throughput at both
+widths, past the file's noise: the refit is materially slower there. That arm is not the default
+(`materializeChronoPrefix` is on), and on the default arm the refit is no slower. Both sides of
+the default arm fall at times into a slow mode a hundred times slower, the base more often; the
+committed master file (12 October) shows neither, so it arrived after it, and it is recorded as a
+finding (9.2a, last paragraph), not this row's. The committed `VarkaSharedPrefixBenchmark` files
+are the refit's run; one of its wide rows (ceiling 50, prefix once) caught the slow mode.
+
+**Finding: the materialized ladder's slow mode.** At 4 or 5 loop methods with the prefix computed
+once, the 64-tail kernel runs either at 2.6 to 2.9 ns/row or at 65 to 349 ns/row, run to run, at
+both widths, on the merged base and on the refit alike; master's committed run of 12 October
+holds 2.4 and 5.0 throughout. It looks like a kernel that stopped scalar-replacing its vectors
+(the VARKA-295 family) and wants a row of its own: reproduce with `-XX:+PrintCompilation` and the
+tier witness on the base, and bisect over rows 28 and 334.
 
 ### 9.3 What row 28 opens for 335b
 
