@@ -376,7 +376,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `l \| 5000000000` | `intArithmetic` |  |  | vector |
 | `l ^ l2` | `intArithmetic` |  |  | vector |
 | `~l` | `intArithmetic` |  |  | vector |
-| `l << 3` | `intArithmetic` |  | a literal count only: a bigint shifted by an int column waits for the conversion between the lanes | vector |
+| `l << 3` | `intArithmetic` |  | a literal count only: a bigint shifted by an int column is not fused yet | vector |
 | `l >> 40` | `intArithmetic` |  |  | vector |
 | `shiftrightunsigned(l, 63)` | `intArithmetic` |  |  | vector |
 | `bit_count(l)` | `intArithmetic` |  | as an output only: a count computed in the long lane and stored as an int, so `bit_count(l) + 1` declines | vector |

@@ -604,7 +604,8 @@ final class VarkaVectorWalk {
     }
     // [left, right, op] -> [left, op, right], the receiver's argument order.
     cb.swap();
-    cb.invokevirtual(analysis.lane.vector, "lanewise", analysis.lane.lanewiseBinaryV);
+    Lane lane = analysis.laneOf(n);
+    cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseBinaryV);
     if (!dense && s.ownWord.contains(n)) {
       emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
     }
@@ -620,7 +621,8 @@ final class VarkaVectorWalk {
       Slots s, Set<VarkaVectorIR> computed) {
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
-    Lane lane = analysis.lane;
+    // The node's own lane, which in a kernel of both lanes need not be the kernel's.
+    Lane lane = analysis.laneOf(n);
     if (lane == Lane.LONG) {
       cb.getstatic(VECTOR_OPERATORS, "BIT_COUNT", VO_UNARY);
       cb.invokevirtual(lane.vector, "lanewise", lane.lanewiseUnary);

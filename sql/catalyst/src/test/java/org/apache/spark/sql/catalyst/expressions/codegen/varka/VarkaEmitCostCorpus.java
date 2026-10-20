@@ -139,13 +139,7 @@ final class VarkaEmitCostCorpus {
   record Shape(String family, int index, List<VarkaVectorIR> roots, int numInputs,
       int numLiterals) {}
 
-  /**
-   * How many of each fuzz sequence the corpus takes: the first shapes of the oracle's, drawn
-   * without the grammar's bitwise arms (VARKA-335). The prices and the margins are fitted on
-   * this corpus, so a grammar arm that reached it would refit every existing node's price and
-   * move the planned grouping of shapes it has nothing to do with; the arms a node added after
-   * them is priced on its own probe over columns instead ({@code VarkaEmitCostFit.synthetic}).
-   */
+  /** How many of each fuzz sequence the corpus takes: the first shapes of the oracle's. */
   static final int FUZZ_SHAPES = 2000;
   /** How many wide shapes of each lane the corpus takes. */
   static final int WIDE_SHAPES = 200;
@@ -206,12 +200,12 @@ final class VarkaEmitCostCorpus {
     List<Shape> shapes = new ArrayList<>();
     for (int k = 0; k < n; k++) {
       VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawShape(
-          VarkaIrGrammar.shapeRandom(VarkaIrGrammar.FUZZ_SEED, k), false);
+          VarkaIrGrammar.shapeRandom(VarkaIrGrammar.FUZZ_SEED, k));
       shapes.add(new Shape("fuzz int", k, d.roots(), d.numInputs(), d.numLiterals()));
     }
     for (int k = 0; k < n; k++) {
       VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawLongShape(
-          VarkaIrGrammar.shapeRandom(VarkaIrGrammar.LONG_FUZZ_SEED, k), false);
+          VarkaIrGrammar.shapeRandom(VarkaIrGrammar.LONG_FUZZ_SEED, k));
       shapes.add(new Shape("fuzz long", k, d.roots(), d.numInputs(), d.numLiterals()));
     }
     return shapes;
@@ -222,12 +216,12 @@ final class VarkaEmitCostCorpus {
     List<Shape> shapes = new ArrayList<>();
     for (int k = 0; k < WIDE_SHAPES; k++) {
       VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(
-          VarkaIrGrammar.shapeRandom(WIDE_SEED, k), false);
+          VarkaIrGrammar.shapeRandom(WIDE_SEED, k));
       shapes.add(new Shape("wide int", k, d.roots(), d.numInputs(), d.numLiterals()));
     }
     for (int k = 0; k < WIDE_SHAPES; k++) {
       VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(
-          VarkaIrGrammar.shapeRandom(WIDE_LONG_SEED, k), false);
+          VarkaIrGrammar.shapeRandom(WIDE_LONG_SEED, k));
       shapes.add(new Shape("wide long", k, d.roots(), d.numInputs(), d.numLiterals()));
     }
     return shapes;
@@ -257,14 +251,14 @@ final class VarkaEmitCostCorpus {
     for (int k = 0; k < COMPOSITIONS; k++) {
       shapes.add(composition("wide compositions, int", k,
           VarkaIrGrammar.shapeRandom(COMPOSITION_SEED, k), rnd -> {
-            VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(rnd, false);
+            VarkaIrGrammar.Drawn d = VarkaIrGrammar.drawWideShape(rnd);
             return new Shape("", 0, d.roots(), d.numInputs(), d.numLiterals());
           }));
     }
     for (int k = 0; k < COMPOSITIONS; k++) {
       shapes.add(composition("wide compositions, long", k,
           VarkaIrGrammar.shapeRandom(COMPOSITION_LONG_SEED, k), rnd -> {
-            VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(rnd, false);
+            VarkaIrGrammar.DrawnLong d = VarkaIrGrammar.drawWideLongShape(rnd);
             return new Shape("", 0, d.roots(), d.numInputs(), d.numLiterals());
           }));
     }

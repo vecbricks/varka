@@ -630,7 +630,7 @@
     "operands" : [ "ShiftLeft:bigint", "ShiftLeft:int" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
-    "note" : "a literal count only: a bigint shifted by an int column waits for the conversion between the lanes"
+    "note" : "a literal count only: a bigint shifted by an int column is not fused yet"
   }, {
     "sql" : "l >> 40",
     "executable" : "l >> 40",

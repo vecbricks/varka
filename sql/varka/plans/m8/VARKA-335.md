@@ -334,6 +334,51 @@ the minute. Calibration entries `VARKA-335-6.1-3.md` and `VARKA-335-6.1-4.md`.
    which the sanitizer's branches change, and it passes with the sanitizer off, as the gate runs
    it.
 
+### 9.2a Round two: stacked on row 334 and row 28, and the cost model refit (20 October 2026)
+
+*Departure, on the owner's word of 19 October 2026: the emit cost model is refit on the whole
+grammar, bitwise arms included, and the flag that kept the cost corpus on the earlier draws is
+gone.* What section 9 says above about the held corpus is the first round's record; this is what
+replaced it.
+
+**Stacked.** The branch merged `origin/master` at `0eda4cb66ce` (row 28: kernels of both lanes,
+`WidenLane` and `NarrowLane` anywhere) and then row 334's branch (`IS NULL` and `IS NOT NULL` over
+a predicate, its own grammar draw and the `IsNotNull/cond/<lane>` cost feature, and the month-step
+fix 9.2 item 1 proposed). Merge conflicts were in the exhaustive switches beside `WidenLane`, the
+compiler's root (row 28 removed the `TIME` root arm; the `bit_count(bigint)` root arm stays), the
+differential suite's declined list and the generated files, which were regenerated.
+
+**Found by the merge: the bitwise emitters took the kernel's lane, not the node's.** A kernel of
+both lanes holds int-lane nodes under a long-lane kernel and the reverse; `emitBitOp` and
+`emitBitCount` read `analysis.lane`, so a `BitCount` of an int under a long kernel called
+`LongVector.lanewise` on an `IntVector` and the class failed verification (`VarkaIrFuzzSuite`'s
+mixed-lane draw 719). Both now read `analysis.laneOf(node)`, as row 28's emitters do.
+
+**Row 28 and 335b.** With `WidenLane` and `NarrowLane` admitted anywhere, both 335b items that
+named row 28 are now a few lines each: a `BIGINT` shifted by an `INT` column is a `BitOp` over a
+widened count, and `bit_count(bigint)` under another node is a `NarrowLane` over the count. Neither
+is built here; their declines now name 335b instead of a pending row 28, and an operator between
+an `INT` and a `BIGINT` operand, which the analyzer widens with a cast, fuses through row 28's
+`WidenLane` with no change of this row's.
+
+**The refit.** On the merged corpus with the bitwise arms in it:
+
+| | master | merged base (334) | refit |
+| :-- | --: | --: | --: |
+| bytes margin | 0.209 | 0.205 | 0.155 |
+| sites margin | 0.182 | 0.176 | 0.206 |
+
+Every price moved; the bitwise nodes are priced from their occurrences in the draws. The pins that
+moved, each checked to be the refit's (the same assertions hold, only the counts or the draws
+changed): `VarkaEmitterBudgetSuite`'s 64-tail ladder, 6 to 8 loop methods with the prefix
+recomputed and 4 to 5 materialized, at every fused ceiling, one build each; the wide shapes that
+gain a loop method under `predictGrouping` with the greedy grouping, `wide long` 84 and 184 to 78
+and 82; and `VarkaIrFuzzSuite`'s op-cap draws, redrawn by the arms and found again by a scan,
+(2026101307006, 32279) for the rebuilt arm and (2026101300002, 195413) for the stranger. No
+coverage row's emitted bytes moved.
+
+**The benchmark** of the moved ladder: pending a quiet machine.
+
 ### 9.3 What row 28 opens for 335b
 
 A `BIGINT` shifted by an `INT` column (the count widened in the kernel), `bit_count(bigint)` under

@@ -211,8 +211,9 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // when VARKA-235 moved the long-lane corpus (VARKA-235.md 9): the weights build once, so the
     // measurement never splits a group, and the prediction still closes one a method early - a
     // prediction near the budget erring high, where the greedy close is one erring low. Long 78
-    // left the list with the same redraw, and long 84 and 184 joined it.
-    assert(gained.result() === Seq("wide long 84: 74 -> 75", "wide long 184: 53 -> 54"))
+    // left the list with the same redraw, and long 84 and 184 joined it; VARKA-335's bitwise
+    // arms redrew the wide shapes and refitted the prices again, and long 78 and 82 are its.
+    assert(gained.result() === Seq("wide long 78: 13 -> 14", "wide long 82: 71 -> 72"))
   }
 
   test("a decline no grouping can avoid is not built again under the weights") {
