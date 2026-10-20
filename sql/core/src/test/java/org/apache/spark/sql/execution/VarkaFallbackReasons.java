@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
@@ -62,22 +63,32 @@ public final class VarkaFallbackReasons {
   }
 
   /**
-   * Each reason as the SQL UI renders it for the session's latest finished execution, which the
-   * caller has just run: a count, or {@link VarkaReasonMetric#NOT_REPORTED}. Waits for the
-   * listener bus first, since the UI's store is filled from it.
+   * Each reason as the SQL UI renders it for the execution that ran {@code node}: a count, or
+   * {@link VarkaReasonMetric#NOT_REPORTED}. The execution is the one whose metrics hold the
+   * node's reason metrics, not the session's latest, because another execution can be numbered
+   * after the checked one. A reason that no task ever bumped has no entry, so any of the node's
+   * reasons identifies the execution. Waits for the listener bus first, since the UI's store is
+   * filled from it.
    */
   public static Map<String, String> rendered(SparkSession session, SparkPlan node)
       throws TimeoutException {
     session.sparkContext().listenerBus().waitUntilEmpty();
     SQLAppStatusStore store = session.sharedState().statusStore();
-    long latest = -1;
+    var ids = new HashSet<Long>();
+    for (String reason : VarkaFallbackAccounting.REASONS) {
+      ids.add(metric(node, reason).id());
+    }
+    long own = -1;
     for (SQLExecutionUIData execution : CollectionConverters.asJava(store.executionsList())) {
-      latest = Math.max(latest, execution.executionId());
+      var reported = store.executionMetrics(execution.executionId());
+      if (ids.stream().anyMatch(reported::contains)) {
+        own = Math.max(own, execution.executionId());
+      }
     }
-    if (latest < 0) {
-      throw new IllegalStateException("the session has run no SQL execution");
+    if (own < 0) {
+      throw new IllegalStateException("no SQL execution of the session reports the node's metrics");
     }
-    scala.collection.immutable.Map<Object, String> values = store.executionMetrics(latest);
+    scala.collection.immutable.Map<Object, String> values = store.executionMetrics(own);
     var out = new LinkedHashMap<String, String>();
     for (String reason : VarkaFallbackAccounting.REASONS) {
       scala.Option<String> value = values.get(metric(node, reason).id());
