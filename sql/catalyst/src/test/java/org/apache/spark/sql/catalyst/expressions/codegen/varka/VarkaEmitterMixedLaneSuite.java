@@ -19,12 +19,14 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.constantpool.FieldRefEntry;
 import java.lang.classfile.constantpool.PoolEntry;
+import java.lang.classfile.instruction.InvokeInstruction;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -177,6 +179,61 @@ public final class VarkaEmitterMixedLaneSuite {
     check("cast(l AS int) as a root read again by another node",
         List.of(narrow(L), new IntArith(IntOp.SUB, Overflow.WRAP, narrow(L), I)), 2, new int[0],
         new long[0], VarkaEmitterMixedLaneSuite::value, false);
+  }
+
+  /**
+   * The bounds masks the epilogue methods of {@code roots} build: their {@code indexInRange}
+   * calls less those of the int columns' and roots' own low-half masks, which sit beside every
+   * masked {@code IntVector} load and store (a kernel with a materialized prefix would also need
+   * its prefix transfers' masked calls left out). The count is per epilogue method, so a kernel
+   * that builds the mask has one in each of the dense and the masked body.
+   */
+  private static int epilogueBoundsMasks(List<VarkaVectorIR> roots, int numInputs, int literals,
+      int lanes) {
+    var options = VarkaEmitOptions.DEFAULTS.withElideUnreadLocals(true).withLanesOverride(lanes);
+    byte[] bytes = VarkaEmitterFixtures.emit(roots, numInputs, literals, options).bytes();
+    int built = 0;
+    for (var method : ClassFile.of().parse(bytes).methods()) {
+      if (!method.methodName().stringValue().startsWith("epilogue") || method.code().isEmpty()) {
+        continue;
+      }
+      for (var element : method.code().get()) {
+        if (element instanceof InvokeInstruction call) {
+          String owner = call.owner().asInternalName();
+          String name = call.name().stringValue();
+          if (name.equals("indexInRange")) {
+            built++;
+          } else if (owner.equals("jdk/incubator/vector/IntVector")
+              && (name.equals("fromMemorySegment") || name.equals("intoMemorySegment"))) {
+            built--;
+          }
+        }
+      }
+    }
+    return built;
+  }
+
+  @Test
+  @DisplayName("an epilogue builds the long bounds mask only where a long column, a long root, "
+      + "a guard or a prefix reads it")
+  void epilogueMaskOnlyWhereRead() {
+    // No long column, no long root: the widened value is computed on and narrowed again, and
+    // every load and store is an int one under its own low-half mask.
+    var widened = widen(new IntArith(IntOp.ADD, Overflow.WRAP, I, INT_LIT));
+    var intOnly = List.<VarkaVectorIR>of(new IntArith(IntOp.ADD, Overflow.WRAP,
+        narrow(new Least(widened, LONG_LIT)), I));
+    // A long column is loaded under the bounds mask.
+    var longColumn = List.<VarkaVectorIR>of(new IntArith(IntOp.ADD, Overflow.WRAP, narrow(L), I));
+    // A long root is stored under it.
+    var longRoot = List.<VarkaVectorIR>of(widen(I));
+    for (int lanes : WIDTHS) {
+      assertEquals(0, epilogueBoundsMasks(intOnly, 1, 2, lanes), "int only, " + lanes + " lanes");
+      assertTrue(epilogueBoundsMasks(longColumn, 2, 0, lanes) > 0, "long column, " + lanes);
+      assertTrue(epilogueBoundsMasks(longRoot, 1, 0, lanes) > 0, "long root, " + lanes);
+    }
+    // And the kernel without the mask still answers every row.
+    check("cast(least(cast(i + 3 AS bigint), 5000000000) AS int) + i", intOnly, 1,
+        new int[] {3}, new long[] {5000000000L}, (c, i) -> value(0, i), false);
   }
 
   @Test

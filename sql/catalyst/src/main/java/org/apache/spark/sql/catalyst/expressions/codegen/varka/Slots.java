@@ -730,7 +730,7 @@ final class Slots {
 
     if (mode == BodyMode.EPILOGUE) {
       s.epilogue = true;
-      if (!elide || epilogueReadsMask(outputs, outputIdx, valueColumns, s, analysis, group)) {
+      if (!elide || epilogueReadsMask(outputs, outputIdx, bodyUses, s, analysis, group)) {
         s.epilogueMask = slot++;
       }
     }
@@ -1181,20 +1181,31 @@ final class Slots {
   /**
    * Whether an epilogue reads its bounds mask: something in it loads or stores under the mask. Four
    * things do - a column's masked load, a value root's masked store, a guard's condemnation and a
-   * prefix transfer - so the epilogue reads it where it reads a column for its value
-   * ({@code valueColumns}), serves a root that is neither a condition (whose bitmap is written by
-   * the validity helpers) nor a narrowing (whose store builds its own mask), folds a guard into
-   * the accumulator, or stores or loads a materialized prefix. A reader this misses fails at the
-   * first emission in {@link #epilogueMask()}, rather than quietly taking the unmasked form.
+   * prefix transfer - so the epilogue reads it where it reads a column for its value, serves a
+   * root that is neither a condition (whose bitmap is written by the validity helpers) nor a
+   * narrowing (whose store builds its own mask), folds a guard into the accumulator, or stores or
+   * loads a materialized prefix.
+   *
+   * <p>The mask is the driving lane's, so in a kernel of both lanes only that lane's columns and
+   * roots read it: an int column is loaded, and an int root stored, under a mask of its own over
+   * the low half ({@code emitLowHalfLoad}, {@code emitLowHalfStore}). A reader this misses fails at
+   * the first emission in {@link #epilogueMask()}, rather than quietly taking the unmasked form.
    */
   private static boolean epilogueReadsMask(List<VarkaVectorIR> outputs, List<Integer> outputIdx,
-      long valueColumns, Slots s, Analysis analysis, int group) {
-    if (valueColumns != 0L || s.guardAcc != null) {
+      Map<VarkaVectorIR, Integer> bodyUses, Slots s, Analysis analysis, int group) {
+    if (s.guardAcc != null) {
       return true;
+    }
+    for (Map.Entry<VarkaVectorIR, Integer> e : bodyUses.entrySet()) {
+      if (e.getKey() instanceof ColumnRef c && e.getValue() > 0
+          && analysis.laneOf(c) == analysis.lane) {
+        return true;
+      }
     }
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
-      if (!(root instanceof Cond) && !(root instanceof NarrowLane)) {
+      if (!(root instanceof Cond) && !(root instanceof NarrowLane)
+          && analysis.laneOf(root) == analysis.lane) {
         return true;
       }
     }
