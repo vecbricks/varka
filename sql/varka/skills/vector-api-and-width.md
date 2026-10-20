@@ -469,6 +469,90 @@ above 4 KB plus one byte per row; one warning per task on two consecutive suspec
 allocates on purpose - the positive case is not a polluted Vector API loop, because making the shared
 test JVM box would degrade every vector suite after it.
 
+## The operator census: which operators are intrinsic at which species, and which allocate
+
+The table above was taken on one host with a probe nobody committed. `VarkaOperatorCensusSuite`
+(VARKA-376) is the committed version: one JVM per operator and width, a loop of the operator alone
+over arrays at the JVM's preferred species, `-Xbatch` and `PrintInlining` scoped to the loop. The
+verdict is read from the `VectorSupport` decisions of the loop's last C2 compile, an `(intrinsic)`
+applied or a `failed to inline (intrinsic)` or a plain inline of the Java fallback, and the
+allocation is `getThreadAllocatedBytes` over a thousand steady-state calls at most one byte a row
+(the section above). `I` is intrinsic with no allocation, `I+A` intrinsic and allocating, `F` a
+declined intrinsic, so the Java implementation runs; `-` is a cell not meaningful at that width. The
+columns are species widths, not datapaths: 512 is the laptop's AVX-512 on 256-bit units, 256 and 128
+are the same laptop under `-XX:MaxVectorSize=32` and `16`. The EPYC 7763 and Neoverse N2 columns
+come from `varka-width-audit.yml`, which runs the suite on both runner classes and uploads
+`operator_census.json`; they are not in this table yet. `sql/varka/operator_census.json` carries
+every cell, the `VectorSupport` methods it met and its bytes a row.
+
+| family | lane | operators | 512 | 256 | 128 | rows |
+|---|---|---|---|---|---|---|
+| byte and short lanewise | byte | `ADD`, `SUB`, `MUL`, `SADD`, `SSUB` | I | I | I | 329, 330 |
+| byte and short lanewise | byte | `EQ`, `LT`, `LE` | I | I | I | 329, 330 |
+| byte and short lanewise | byte | `LSHL`, `LSHR`, `ASHR` | I | I | I | 329, 330 |
+| byte and short lanewise | short | `ADD`, `SUB`, `MUL`, `SADD`, `SSUB` | I | I | I | 329, 330 |
+| byte and short lanewise | short | `EQ`, `LT`, `LE` | I | I | I | 329, 330 |
+| byte and short lanewise | short | `LSHL`, `LSHR`, `ASHR` | I | I | I | 329, 330 |
+| widening and narrowing | byte | `B2I` | I | I | I | 329, 330 |
+| widening and narrowing | short | `S2I` | I | I | I | 329, 330 |
+| widening and narrowing | int | `I2B`, `I2S` | I | I | I | 329, 330 |
+| conversions | long | `L2D` | I | I | I | 30, 343, 344 |
+| conversions | double | `D2L` | I | I | I | 30, 343, 344 |
+| conversions | float | `F2D` | I | I | I | 30, 343, 344 |
+| conversions | double | `D2F` | I | I | I | 30, 343, 344 |
+| conversions | int | `I2D` | I | I | I | 30, 343, 344 |
+| conversions | long | `L2F` | I | I | I | 30, 343, 344 |
+| lane width | int | `I2L` | I | I | I | 28 |
+| lane width | long | `L2I` | I | I | I | 28 |
+| conversions | int | `I2F` | I | I | I | 343, 344 |
+| conversions | float | `F2I` | I | I | I | 343, 344 |
+| conversions | double | `D2I` | I | I | I | 343, 344 |
+| widening and narrowing | int | `B2I_load` | I | I | - | 329, 330 |
+| floating compares | float | `EQ`, `LT`, `LE` | I | I | I | 341 |
+| floating compares | float | `IS_NAN` | I | I | I | 341 |
+| fused multiply-add | float | `FMA` | I | I | I | 30, 346, 366 |
+| floating compares | double | `EQ`, `LT`, `LE` | I | I | F | 341 |
+| floating compares | double | `IS_NAN` | I | I | F | 341 |
+| fused multiply-add | double | `FMA` | I | I | I | 30, 346, 366 |
+| math | double | `EXP`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`, `SINH`, `COSH`, `TANH`, `EXPM1`, `LOG1P`, `CBRT`, `SQRT` | I | I | I | 345, 356 to 358 |
+| math | double | `POW` | I | F | F | 345, 356 to 358 |
+| math | double | `ATAN2`, `HYPOT` | I | I | I | 345, 356 to 358 |
+| unsigned long compares | long | `ULT`, `UGT`, `ULE`, `UGE` | I | I | F | 359, 360 |
+| de-interleave | long | `rearrange2`, `selectFrom`, `compress` | I | I | F | 347, 359 |
+| masks | byte | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
+| masks | int | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
+| masks | long | `fromLong`, `toLong` | I | I | F | 331, 375, 27 |
+| two species | byte | `narrow_then_full`, `full_then_narrow`, `both_in_one_loop` | I | I | - | 329 |
+| two species | byte | `widen_then_full` | I | I | - | 329 |
+| two species | byte | `full_then_widen` | I | I | - | 329 |
+
+What it says on this host (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
+
+* **Nothing allocates anywhere in a loop that is intrinsic**, and the five arrangements of the
+  two-species case (a narrow and a full byte species in either order of first use, the widening
+  load beside a full compare in either order, both in one loop) read `I` at 512 and 256 bits. The
+  box of the section above needs more than a second species in the JVM; a planted escaping vector
+  reads `I+A` at 6 bytes a row in the suite's self-test, so the allocation reading can see a box.
+* **Thirteen of the 128-bit column's fourteen `F` cells are the 64-bit lane at two lanes** (the
+  fourteenth is `POW`): `m7` row 374's finding, that x86 C2 lowers no two-lane mask, now read per
+  operator. Every compare that makes a
+  mask, `compress`, `selectFrom`, the two-vector `rearrange`, `fromLong` and `toLong` on longs, and
+  the double compares and `IS_NAN`, are the Java fallback there and allocate 68 to 220 bytes a row;
+  the byte and int versions of the same operators are intrinsic.
+* **`POW` has no vector stub below 512 bits**: the loop never reaches `libraryBinaryOp`, so the
+  Java fallback runs at 256 and 128 (40 and 56 bytes a row). The other math operators, `ATAN2` and `HYPOT` among them, reach
+  their library calls at every width.
+* **The part-selecting conversions are not one operation**: `B2I`, `S2I`, `I2B`, `I2S`, `F2D`,
+  `D2F`, `I2D`, `L2F`, `I2L`, `L2I` and `D2I` also meet `rearrangeOp`, `compare`, `blend` and
+  `fromBitsCoerced` in the same tree, which is how C2 selects a part, while `L2D`, `D2L`, `I2F`
+  and `F2I` are the `convert` alone.
+* **`L2D` and `D2L` are intrinsic here, and this CPU has AVX-512DQ**; `x86.ad` is expected to
+  refuse the same cells on the AVX2 runner, and its column, when it is added, will say whether it
+  does.
+
+A loop of one operator is a floor, not a kernel: C2 may lower an operator alone and refuse it in
+context, so a row's own assembly check stays the verdict for its kernel.
+
 ## An overflow check is nearly free in wide lanes and expensive in narrow ones
 
 VARKA-63's ANSI check is a sign test: four lanewise ops and a compare for `+`

@@ -16,7 +16,8 @@
 #
 
 
-# Take the width audit's census (VarkaWidthAuditSuite, VARKA-153) on each runner
+# Take the width audit's census (VarkaWidthAuditSuite, VARKA-153) and the operator census
+# (VarkaOperatorCensusSuite, VARKA-376) on each runner
 # architecture the pool offers, and publish it as an artifact and a summary. The
 # census says, per vector width a host can run, which Vector API calls C2 refuses to
 # lower in Varka's kernels; the committed sql/varka/width_audit.json is one x86
@@ -38,6 +39,7 @@ on:
     paths:
       - '.github/workflows/varka-width-audit.yml'
       - 'sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaWidthAudit*.scala'
+      - 'sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaOperatorCensus*.java'
   workflow_dispatch:
 
 jobs:
@@ -122,3 +124,36 @@ jobs:
       with:
         name: width-audit-${{ matrix.arch }}
         path: sql/varka/width_audit.json
+    - name: Take the operator census
+      # The operator census (VarkaOperatorCensusSuite) asks per operator, not per kernel shape,
+      # whether C2 lowers a loop of it to a vector instruction at each species this host runs
+      # and whether the loop allocates. The regeneration writes this host's cells over the
+      # committed laptop file in the checkout, and a cell that reads F here is the finding, so the
+      # step continues and the summary reads the file either way. It forks about 250 short JVMs.
+      continue-on-error: true
+      timeout-minutes: 30
+      env:
+        VARKA_CENSUS_REGEN: "true"
+      run: |
+        # The committed file is the laptop's; a run that dies before writing leaves none to upload.
+        rm -f sql/varka/operator_census.json
+        ./build/sbt "catalyst/testOnly *VarkaOperatorCensusSuite" 2>&1 | tail -40
+    - name: Summarise the operator census
+      run: |
+        python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+        import json
+        d = json.load(open("sql/varka/operator_census.json"))
+        h = d["host"]
+        print(f"### Operator census: {h['cpu']} ({h['arch']})")
+        for bits, cells in d["widths"].items():
+            odd = {n: c for n, c in cells.items() if c["verdict"] not in ("I", "-")}
+            print(f"\n**{bits} bits**: {len(cells) - len(odd)} of {len(cells)} cells intrinsic and allocation-free")
+            for n, c in sorted(odd.items()):
+                print(f"- `{n}`: {c['verdict']}, {c.get('bytes_per_row', 0)} bytes a row"
+                      f" ({', '.join(c.get('failed', [])) or 'allocating'})")
+        PY
+    - name: Upload the operator census
+      uses: actions/upload-artifact@v4
+      with:
+        name: operator-census-${{ matrix.arch }}
+        path: sql/varka/operator_census.json
