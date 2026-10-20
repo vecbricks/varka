@@ -188,10 +188,13 @@ class VarkaEmitterFramesSuite extends VarkaEmitterTestBase {
     val long1 = new ColumnRef(1, LaneType.LONG)
     val division = new IfElse(new Compare(CompareOp.LT, long0, new LiteralSlot(0, LaneType.LONG)),
       new ConstDivide(long1, 60, ConstDivide.EXACT_DIVIDEND_BOUND), new Greatest(long0, long1))
-    // At the JVM's own width (lanes 0): this suite shares its JVM, which holds one species.
+    // At the width the matrix's configuration emits for (lanes 0, the JVM's own, in the defaults):
+    // this suite shares its JVM, which holds one species per lane type, so a fixed width would
+    // put a second one beside a configuration's, as lanesOverride=4 does on a 512-bit host.
     checkLongMatrix(Seq(division), 2, Array(1L << 40), Seq(1, 7, 64, 129), combos(2),
       (c, i) => (1L << 40) + i.toLong * (c + 1) * (1L << 20) - (i % 5),
-      "a magic-form division in the then arm, a pick in the else arm", 0,
+      "a magic-form division in the then arm, a pick in the else arm",
+      VarkaMatrix.base.lanesOverride(),
       VarkaMatrix.base.withUseAVX(2))
     // A range test's three temporaries in a dense body, beside the else arm's shared value.
     val shared = new AddDays(col1, lit)

@@ -743,6 +743,24 @@ fuzz workflow does for its JVMs (VARKA-392). Run a new width-dependent test at a
 (`-XX:MaxVectorSize=64`, `32`, `16`): a 16-lane override is the preferred width at 512 bits and a
 second species at the others.
 
+A test that must hold under every configuration emits with `VarkaMatrix.base`, lanes included. The
+guard registers the first size each vector class uses, and the matrix's `lanesOverride=4` makes
+that size 128 bits for ints, so a test that fixes its own width (`withLanesOverride(16)`) conflicts
+with it on any host, and one that asks for the JVM's own (a `lanes` argument of 0 to
+`checkLongMatrix`, a gate on the preferred width alone) conflicts on a host whose preferred width
+differs from the configuration's. Which suite is blamed depends on which ran first: a runner's
+order failed 27 tests of other suites in CI that a laptop's order, with the same cause, blamed on
+three (VARKA-410). To find the culprits, run the configuration with `-Dvarka.speciesGuard=off` and
+a temporary line in `VarkaSpeciesGuard.check` that appends suite, class and the sizes the bytes use
+(`secondSpecies`, or `sizesUsed` made visible) to a file, then read the suites outside
+`VarkaOwnJvm` whose sizes differ from the configuration's; a one-suite run passes, so only the
+shared JVM finds them. Pass the matrix's lane count where the
+test only needs a width (`VarkaMatrix.base.lanesOverride()`), and where it pins one on purpose,
+load the class only when the JVM's established width is that one (the override where a
+configuration sets one, else the preferred width) and check the emitted bytes alone otherwise.
+Run the lane configurations with `--split 1`, `2` and `3` and under `-XX:MaxVectorSize=32`: the
+split moves which suites share a JVM.
+
 ## The random differential against Spark: read the shrunk reproducer, check the pool, mind the fixture
 
 `VarkaSparkFuzzSuite` (VARKA-262) composes random outputs and filters from the rows of
