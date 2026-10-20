@@ -223,7 +223,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        suite drives 2, 4, 8 and 16 lanes, and a width with no specialised sibling, from a
  *        single run. A non-zero value must be a power of two; the emitted class carries the
  *        matching species, so it computes the right answers at that width wherever it runs,
- *        slowly if the hardware is narrower.
+ *        slowly if the hardware is narrower. A count other than the JVM's preferred one gets no
+ *        kernel warm-up verdict, because the template warm-up compiles the Vector API's shared
+ *        templates for the preferred species only: a warmed kernel at another count boxes every
+ *        vector it makes and is released at the warm-up's deadline, its batches on Spark's row
+ *        path until then. The override is for answer checks, so a test that asserts on compiled
+ *        behaviour cancels under it, as {@code VarkaKernelWarmupSuite} does.
  * @param truncDate which lowering {@code trunc(date, ...)} uses at the {@code YEAR} and
  *        {@code QUARTER} levels: {@link TruncDateForm#SUBTRACT} takes the day of year
  *        off the date ({@code d - dayofyear + start}), {@link TruncDateForm#RECOMPOSE} rebuilds

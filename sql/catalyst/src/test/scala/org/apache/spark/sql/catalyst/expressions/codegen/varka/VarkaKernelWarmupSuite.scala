@@ -81,12 +81,14 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
    * its JIT state line after those calls.
    */
   private case class Forked(support: Map[String, String], outcome: Map[String, String],
-      allocated: Map[String, Long], ownRun: Map[String, Long], jit: String)
+      allocated: Map[String, Long], ownRun: Map[String, Long], jit: String,
+      later: Map[String, (Long, Long)] = Map.empty, laterJit: String = "no later state printed")
 
   /** The probe's budget: its warm-up deadline (120 s), its wait for the verdict, and slack. */
   private val probeBudgetSeconds = 240L
 
-  private def warmUpInFork(claimed: Nulls, wide: Boolean = false): Forked = {
+  private def warmUpInFork(claimed: Nulls, wide: Boolean = false,
+      others: Boolean = false): Forked = {
     val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val vectorFlags = ManagementFactory.getRuntimeMXBean.getInputArguments.asScala.toSeq
       .filter(a => Seq("-XX:MaxVectorSize=", "-XX:UseAVX=", "-XX:UseSVE=").exists(a.startsWith))
@@ -95,7 +97,8 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
       "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120") ++
       vectorFlags ++ matrixConfig ++ Seq("-cp", testClasspath,
-      classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil)
+      classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil) ++
+      (if (others) Seq("others") else Nil)
     val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
@@ -128,7 +131,10 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
       .map(f => f("served") -> f("bytes").toLong).toMap,
       marked(lines.toSeq, OWN_RUN_PREFIX).map(fields).map(f => f("served") -> f("bytes").toLong)
         .toMap,
-      marked(lines.toSeq, JIT_PREFIX).headOption.getOrElse("no JIT state printed"))
+      marked(lines.toSeq, JIT_PREFIX).headOption.getOrElse("no JIT state printed"),
+      marked(lines.toSeq, LATER_PREFIX).map(fields)
+        .map(f => f("served") -> (f("bytes").toLong, f("own").toLong)).toMap,
+      marked(lines.toSeq, LATER_JIT_PREFIX).headOption.getOrElse("no later state printed"))
   }
 
   /**
@@ -232,6 +238,35 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
             s"with $claimed (${o("outcome")}); through the kernel's own run, not asserted: " +
             s"$ownRun; ${run.jit}")
       }
+    }
+  }
+
+  test("a kernel stays free of boxing through the evaluator's entry after other kernel " +
+      "classes have been warmed through the same default method") {
+    // The executor's situation: one JVM warms shape after shape through
+    // `VarkaFusedKernel.run`'s scratch default method. While only the first kernel's class has
+    // reached it, C2 compiles that method with the whole kernel inlined and the verdict reads that
+    // code; a second and third class fail the compile's class check and a task's calls of the
+    // first kernel can fall back on its own `run` chain. That chain has C2 code by then
+    // (VARKA-405.md 2), and this holds it there: the limits are the ones of the test above, read
+    // after three more shapes have warmed.
+    assumeOneSpecies()
+    val run = warmUpInFork(Nulls.SOME_NULLS, others = true)
+    assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
+    assume(run.support("canWarm") == "true", "this JVM cannot warm kernels")
+    val o = run.outcome
+    assert(o("queued") == "true" && o("idle") == "true", o)
+    assert(o("state") == State.COMPILED.toString, o("outcome"))
+    val limit = 16L * VarkaKernelWarmup.SEGMENT_BYTES_PER_COLUMN * (1 + NUM_OUTPUTS) +
+      VarkaAllocationSampler.FIXED_ALLOWANCE_BYTES
+    assert(run.later.keySet == Set("none", "some"), run.laterJit)
+    info(s"after three more shapes: ${run.later}; ${run.laterJit}")
+    Seq(Nulls.NO_NULLS, Nulls.SOME_NULLS).foreach { served =>
+      val (entry, own) = run.later(served.word)
+      assert(entry <= limit && own <= limit,
+        s"batches with $served allocated $entry bytes through the evaluator's entry and $own " +
+          s"through the kernel's own run, against $limit, after three more shapes warmed " +
+          s"(${o("outcome")}); ${run.laterJit}")
     }
   }
 

@@ -191,6 +191,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Reading C2's queue from Java stops the JVM, and below four processors HotSpot runs one C2 thread](sql/varka/skills/the-jit.md#reading-c2s-queue-from-java-stops-the-jvm-and-below-four-processors-hotspot-runs-one-c2-thread)
 * [A warm-up outside the sanitizer's window makes C2 trap at its first checked call](sql/varka/skills/the-jit.md#a-warm-up-outside-the-sanitizers-window-makes-c2-trap-at-its-first-checked-call)
 * [A warmed kernel measured through another entry can run code the verdict never read](sql/varka/skills/the-jit.md#a-warmed-kernel-measured-through-another-entry-can-run-code-the-verdict-never-read)
+* [A second kernel class through the default `run` did not leave the first kernel on code that boxes](sql/varka/skills/the-jit.md#a-second-kernel-class-through-the-default-run-did-not-leave-the-first-kernel-on-code-that-boxes)
 * [HotSpot counts calls per dispatched method, and stops counting a callee C2 has inlined](sql/varka/skills/the-jit.md#hotspot-counts-calls-per-dispatched-method-and-stops-counting-a-callee-c2-has-inlined)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)

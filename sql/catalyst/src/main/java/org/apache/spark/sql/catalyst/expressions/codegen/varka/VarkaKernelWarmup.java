@@ -101,6 +101,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth
  * warm-up was queued is released, waiting included, and its tasks then run the kernel, which the
  * warm-up's calls have already profiled.
  *
+ * <p><b>What it cannot reach.</b> A kernel emitted for a lane count other than the JVM's preferred
+ * one ({@code VarkaEmitOptions.lanesOverride}) is warmed like any other and never earns a verdict:
+ * the template warm-up compiles the shared Vector API templates for the preferred species only, so
+ * every call of such a kernel boxes, and the warm-up ends at its deadline with the shape released.
+ * Production leaves the override at zero; it is set by the suites and the option matrix.
+ *
  * <p><b>Who gets one.</b> Only a kernel emitted to be warmed ({@link VarkaShapeKey#warmed}), which
  * a session asks for when its warm-up is on and {@link #canWarm} says this JVM can: that name is
  * what the compiler directive keeping C1 off the warm-up's methods matches

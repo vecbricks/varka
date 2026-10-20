@@ -1198,6 +1198,36 @@ each at 256 bits over 128 groups of a 1,024-row call and 96 bytes each at 512 bi
 calls, set against that arithmetic, says which loop ran interpreted and on which class of runner
 before any log does.
 
+## A second kernel class through the default `run` did not leave the first kernel on code that boxes
+
+Measured in `m8/VARKA-405.md` to test row 398's worry that a warmed kernel's verdict, earned by
+`VarkaFusedKernel.run`'s default method with the kernel inlined, would not survive a second kernel
+class reaching that method (the compile's class check fails, the compile is thrown away, calls fall
+back on the kernel's own `run` chain). It did not reproduce: in 12 forked JVMs (10 read the state afterwards), on one to
+twenty-four cores beside up to six busy loops, a first kernel warmed to `COMPILED` and then three
+more shapes warmed through the same method had C2 code for its `run` and its four loop methods
+afterwards, and sixteen calls of 1,024 rows allocated 0 to 9,600 bytes through the scratch form and
+through its own `run`, against 397,696 for one interpreted loop. Right after the verdict the
+loops had C2 code and `run`, `runDense` and `runMasked` had none (two runs on one core): the
+chain's compiles are requested by the same calls that request the default method's, and the
+verdict waits for the loops, so the part still missing is the driver, whose interpreted code
+allocates memory segments and not vectors. So a verdict does not need the "wait for the kernel's
+own chain" step the worry proposed; what stays open is a queued loop compile that never lands
+before the verdict, seen once on runners and not on the laptop.
+
+`VarkaKernelWarmupProbe <claim> others` runs that sequence, and `-Dvarka.probe.busyThreads=<n>`
+with `taskset` and `-XX:ActiveProcessorCount` starves its compiler threads. Reading a kernel's
+state with `VarkaKernelWarmup.jitState(Class)` needs the kernel's class, not the interface's:
+`jitState(VarkaFusedKernel.class)` lists the default method's tiers, a different question.
+
+**A lane count other than the JVM's preferred one never earns a verdict.** The template warm-up
+compiles the shared Vector API templates for the preferred species, so a kernel emitted at another
+count (`lanesOverride`, set by the suites and the option matrix, never by a session) boxes every
+call and its warm-up is `RELEASED` at the deadline: at 4 lanes under `-XX:MaxVectorSize=32`
+(preferred 8) 253,952 bytes a call, and the shape's batches on Spark's row path until then. The
+option is documented and the warm-up suite cancels its compile tests there; refusing it would end
+the option matrix's lane-count configurations, which are its point.
+
 ## HotSpot counts calls per dispatched method, and stops counting a callee C2 has inlined
 
 Read in `m8/VARKA-397.md`, building the check that the template warm-up calls every Vector API

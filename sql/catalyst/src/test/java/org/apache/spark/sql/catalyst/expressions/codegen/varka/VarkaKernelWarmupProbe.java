@@ -56,6 +56,15 @@ import org.apache.spark.util.Utils;
  *       entry the measured calls take;</li>
  *   <li>{@code VARKA_WARMUP_DONE=status=0}.</li>
  * </ul>
+ *
+ * <p>{@code main(<none|some|all>, others)} adds a second phase for the executor's situation,
+ * where one JVM warms several shapes: after the readings above it warms {@link #LATER_SHAPES}
+ * other shapes, each a class of its own through the same default {@code run}, and then reads the
+ * first kernel again, printing {@code VARKA_WARMUP_LATER=served=<none|some> bytes=<bytes>
+ * own=<bytes>} for each batch and {@code VARKA_WARMUP_LATER_JIT=<state>} (see {@link #later}).
+ * The system property {@code varka.probe.busyThreads=<n>} starts that many spinning threads
+ * first, which with {@code taskset} and {@code -XX:ActiveProcessorCount} starves the compiler
+ * threads the way a loaded runner does.
  */
 public final class VarkaKernelWarmupProbe {
 
@@ -67,6 +76,8 @@ public final class VarkaKernelWarmupProbe {
   public static final String ALLOC_PREFIX = "VARKA_WARMUP_ALLOC=";
   public static final String OWN_RUN_PREFIX = "VARKA_WARMUP_OWN_RUN=";
   public static final String JIT_PREFIX = "VARKA_WARMUP_JIT=";
+  public static final String LATER_PREFIX = "VARKA_WARMUP_LATER=";
+  public static final String LATER_JIT_PREFIX = "VARKA_WARMUP_LATER_JIT=";
   public static final String DONE_PREFIX = "VARKA_WARMUP_DONE=";
 
   /**
@@ -111,6 +122,29 @@ public final class VarkaKernelWarmupProbe {
       literals[i] = i + 1;
     }
     return literals;
+  }
+
+  /** Shapes the second phase warms after the first kernel's verdict: more than two classes. */
+  public static final int LATER_SHAPES = 3;
+
+  /**
+   * Another shape, a class of its own: {@code i} picks among four small calendar shapes, each
+   * with one input and one literal slot and {@link #laterOutputs} outputs.
+   */
+  static VarkaShapeKey laterShape(int i) {
+    var d = new VarkaVectorIR.ColumnRef(0);
+    var k = new VarkaVectorIR.LiteralSlot(0);
+    List<VarkaVectorIR> roots = switch (i) {
+      case 0 -> List.of(new VarkaVectorIR.AddDays(d, k));
+      case 1 -> List.of(new VarkaVectorIR.AddMonths(d, k));
+      case 2 -> List.of(new VarkaVectorIR.LastDay(d), new VarkaVectorIR.AddDays(d, k));
+      default -> List.of(new VarkaVectorIR.AddMonths(d, k), new VarkaVectorIR.LastDay(d));
+    };
+    return new VarkaShapeKey(roots, 1, 1, VarkaMatrixRuns.BASE, true);
+  }
+
+  static int laterOutputs(int i) {
+    return i >= 2 ? 2 : 1;
   }
 
   /** Where a batch of {@link #dates} has its nulls; {@code word} is how {@link #main} is told. */
@@ -258,6 +292,28 @@ public final class VarkaKernelWarmupProbe {
   }
 
   /**
+   * The executor's situation: {@code first} has its verdict and has been read, and the JVM now
+   * warms {@link #LATER_SHAPES} other shapes, one after the other, each a class of its own
+   * through the same default {@code run}. Then {@code first} is read again, as a task of its
+   * shape would call it: what its calls allocate through the evaluator's scratch form and through
+   * its own {@code run}, and its JIT state.
+   */
+  static void later(VarkaFusedKernel first) throws InterruptedException {
+    for (int i = 0; i < LATER_SHAPES; i++) {
+      var warmed = warm(new VarkaShapeCacheImpl(8), 10000, Nulls.SOME_NULLS, laterShape(i),
+          laterOutputs(i), new int[] {2});
+      if (!warmed.queued() || !VarkaKernelWarmup.awaitIdle(200000)) {
+        throw new IllegalStateException("the later shape " + i + " did not warm");
+      }
+    }
+    for (var served : List.of(Nulls.NO_NULLS, Nulls.SOME_NULLS)) {
+      System.out.println(LATER_PREFIX + "served=" + served.word + " bytes="
+          + allocationOfCalls(first, served) + " own=" + allocationOfCalls(first, served, true));
+    }
+    System.out.println(LATER_JIT_PREFIX + VarkaKernelWarmup.jitState(first.getClass()));
+  }
+
+  /**
    * Runs {@code kernel} unwarmed over {@code calls} batches of 1,024 rows, dense and masked in
    * turn, as a session with the warm-up off runs a kernel: its interpreted calls take the shared
    * Vector API templates past C2's thresholds, so that they are compiled standalone from this one
@@ -286,12 +342,29 @@ public final class VarkaKernelWarmupProbe {
     Thread.sleep(2000);
   }
 
-  public static void main(String[] args) throws InterruptedException {
-    if (args.length < 1 || args.length > 2 || (args.length == 2 && !"wide".equals(args[1]))) {
-      throw new IllegalArgumentException(
-          "requirement failed: usage: VarkaKernelWarmupProbe <none|some|all> [wide]");
+  /** Threads that compete with the JIT's compiler threads for the processors they run on. */
+  private static void startBusyThreads(int count) {
+    for (int i = 0; i < count; i++) {
+      Thread.ofPlatform().daemon().name("probe-busy-" + i).start(() -> {
+        long x = 1;
+        while (true) {
+          x = x * 6364136223846793005L + 1442695040888963407L;
+          if (x == 0) {
+            System.out.print("");
+          }
+        }
+      });
     }
-    boolean wide = args.length == 2;
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    if (args.length < 1 || args.length > 2
+        || (args.length == 2 && !"wide".equals(args[1]) && !"others".equals(args[1]))) {
+      throw new IllegalArgumentException(
+          "requirement failed: usage: VarkaKernelWarmupProbe <none|some|all> [wide|others]");
+    }
+    boolean wide = args.length == 2 && "wide".equals(args[1]);
+    boolean others = args.length == 2 && "others".equals(args[1]);
     Nulls claimed = null;
     for (var n : Nulls.values()) {
       if (n.word.equals(args[0])) {
@@ -302,6 +375,7 @@ public final class VarkaKernelWarmupProbe {
       throw new IllegalArgumentException("the claiming batch has none, some or all nulls, not "
           + args[0]);
     }
+    startBusyThreads(Integer.getInteger("varka.probe.busyThreads", 0));
     boolean sampler = VarkaAllocationSampler.supported();
     boolean canWarm = VarkaKernelWarmup.canWarm();
     System.out.println(SUPPORT_PREFIX + "sampler=" + sampler + " canWarm=" + canWarm);
@@ -347,6 +421,9 @@ public final class VarkaKernelWarmupProbe {
         String jit = VarkaKernelWarmup.jitState(VarkaFusedKernel.class);
         System.out.println(JIT_PREFIX + VarkaKernelWarmup.jitState(kernel.getClass())
             + "; entry " + jit.substring(Math.max(0, jit.indexOf("kernel code"))));
+        if (others) {
+          later(kernel);
+        }
       }
     }
     System.out.println(DONE_PREFIX + "status=0");
