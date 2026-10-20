@@ -196,6 +196,7 @@ the pre-commit hook also checks. Groups below are in file order.
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)
 * [Every operator the plans rely on is one instruction; two species in one JVM is a box per iteration](sql/varka/skills/vector-api-and-width.md#every-operator-the-plans-rely-on-is-one-instruction-two-species-in-one-jvm-is-a-box-per-iteration)
+* [The operator census: which operators are intrinsic at which species, and which allocate](sql/varka/skills/vector-api-and-width.md#the-operator-census-which-operators-are-intrinsic-at-which-species-and-which-allocate)
 * [An overflow check is nearly free in wide lanes and expensive in narrow ones](sql/varka/skills/vector-api-and-width.md#an-overflow-check-is-nearly-free-in-wide-lanes-and-expensive-in-narrow-ones)
 * [A local nothing reads is not free, and its cost is width-dependent](sql/varka/skills/vector-api-and-width.md#a-local-nothing-reads-is-not-free-and-its-cost-is-width-dependent)
 * [This machine's AVX-512 is 256 bits wide, and every "512-bit" number in this repo is really a 256-bit one](sql/varka/skills/vector-api-and-width.md#this-machines-avx-512-is-256-bits-wide-and-every-512-bit-number-in-this-repo-is-really-a-256-bit-one)

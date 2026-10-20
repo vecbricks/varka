@@ -168,4 +168,67 @@ refusal it finds.
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+*20 October 2026, at `5e11eb91ba3` (after rows 28, 334, 335, 397 to 399; none of them touched what
+the plan rests on).* The census is built and taken on the laptop; the two runner columns are owed
+from the workflow's dispatch, which needs the branch pushed, so the row's done-when is met for the
+laptop and open for the runners.
+
+**What was built.** `VarkaOperatorCensusCatalog` (87 entries: 85 cells and two planted cases, no
+vector type in it), `VarkaOperatorCensusProbe` (49 loops, one `op_*` method each, the operator a
+`static final` read from a system property so that C2 folds it) and `VarkaOperatorCensusSuite`
+(JUnit 5, `@VarkaSuite`), which forks the probe once per cell at each width `MaxVectorSize` gives
+the host and writes `sql/varka/operator_census.json` under `VARKA_CENSUS_REGEN=true`. The table is
+in `skills/vector-api-and-width.md`, and `varka-width-audit.yml` runs the suite on both runner
+classes. On the laptop: 85 of 85 cells intrinsic and allocation-free at 512 bits, 84 of 85 at 256
+(`POW` has no vector stub), and at 128 sixty-five intrinsic, fourteen fallbacks (the 64-bit lane
+at two lanes and `POW`) and six cells not meaningful. No cell allocates in a loop that is
+intrinsic, and the five two-species arrangements read `I`.
+
+**Departures from section 3, each for a reason the work found.**
+
+1. *Not `ownJvm`.* The suite defines no species in its own JVM: every species lives in a fork, and
+   the catalog it reads holds no vector type, so a child JVM around the forks would only add a
+   process. Test 3 of section 5 (the species guard stays green) therefore has nothing to guard.
+2. *One JVM per cell, not per family.* A second species of a lane type in a JVM is what the record
+   says boxes, and the conversions and the narrow loads each use one; per family would have made
+   the census depend on its own order. About 250 short forks run in 25 s on the laptop.
+3. *The planted cases.* The fallback is `-XX:DisableIntrinsic=_VectorBinaryOp` on a long add, which
+   is a fallback on every host and has a control without the flag read `I`; the gather at 128 bits
+   and `fromLong` under `UseSVE=1` of section 5 are host-dependent, so they stay data. The planted
+   box is a vector stored to a static field (6 bytes a row, read `I+A`), because the two-species
+   loops did not box here.
+4. *The verdict rule needed two additions.* A declined intrinsic is not always a `failed to inline
+   (intrinsic)` line: with the intrinsic switched off, C2 inlines `VectorSupport::binaryOp` as the
+   Java method (`inline (hot)`), so any `VectorSupport` decision other than `maybeRebox` that is not
+   an `(intrinsic)` is a refusal. And the math operators look their vector stub up before the
+   intrinsic is called, so a species with none (`POW` at 256 and 128 bits) never reaches
+   `libraryBinaryOp`: for the `library*` anchors an absent decision beside other intrinsics reads `F`
+   with the method named "(no stub)"; for any other anchor an absence fails the suite as unread.
+   Trees of several compiles are told apart by their root call sites' bci, and a two-loop entry is
+   read loop by loop (`VARKA_CENSUS_LOOP` markers), or the second loop's tree hides the first's.
+5. *Three more two-species arrangements* than the plan's two orders: the widening load beside a full
+   compare in either order, and both species in one loop, since 329's kernel is the last.
+
+**Rows that name a form for a host.** Each row whose design meets an `F` cell has a "Census
+reading" sentence in its row text in `PLAN.md` (27, 329, 331, 341, 345, 347, 358, 359, 360, 375):
+at 128 bits on x86 the 64-bit lane's mask operators are the Java fallback, consistent with `m7` row
+374, and `POW` is the fallback below 512 bits. The runner columns may add cells (the AVX2 runner is
+expected to refuse `L2D` and `D2L`); the rows 30, 343 and 344 wait for that column.
+
+### 9.1 The predictions
+
+| | prediction | measured | |
+| :-- | :-- | :-- | :-- |
+| 1 | `L2D` and `D2L` read `F` at 256 bits on the EPYC 7763 runner and `I` on the laptop | laptop `I` at all three widths; the runner is owed | half held, half owed |
+| 2 | `fromLong` reads `I` on all three hosts at their defaults | laptop `I` at its default 512 and at 256; on longs at 128 `F`, as `m7` row 374 has it; runners owed | held on the laptop |
+| 3 | the two-species loop reads `I+A` in at least one order | `I` with no allocation in all five arrangements at 512 and 256 bits | missed |
+| 4 | the math operators read `I` where bound and `F` for `POW` at the AVX2 runner's 256 | laptop: every operator `I` at 512, `POW` `F` at 256 and 128 (no stub); the AVX2 runner is owed | held on the laptop |
+| 5 | the suite takes under 10 minutes per host | 25 s on the laptop (85 cells, three widths, 4 parallel forks by default on 24 cores) | held, at 4% of the bound |
+
+The miss in 3 is a finding: the box the record measured needs more than a second byte species in the
+JVM, and the arms of 329 read clean here in every arrangement tried, so 329 need not build around
+it on this host; the Arm and AVX2 runner columns decide whether that holds on the fleet.
+
+**Self-review and out-of-scope findings** are in the pull request description. A follow-up row would
+fill the table's two runner columns from the first dispatch's artifacts (documents only).
+
