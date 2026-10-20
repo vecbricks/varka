@@ -393,6 +393,19 @@ Two habits follow:
   demonstrably different vector classes - and it fails the day the premise
   breaks, which is exactly when a benchmark's noise would hide it.
 
+## A new guarded coverage row touches four generated or listed files
+
+A coverage row with a `domain` is also a row of the coverage differential, so adding one (VARKA-39,
+`d2 - d`) fails three checks nobody names in advance, each pointing at the next file. The row goes
+into `VarkaCoverageSuite`, which regenerates `coverage.json` and `docs/sql-varka.md`. Then
+`VarkaEmittedBytesSuite` fails, because `emitted_bytes.json` pins the bytes of every coverage row and
+the option arms' aggregate hashes; it names the regeneration command
+(`VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'`), and the plan says so.
+Then `VarkaCoverageDifferentialSuite` wants rows outside the domain: its fixture's dates are within the
+calendar, under three million days apart, so a guard that only the int range can reach (a day count
+times a constant) has none and the row goes into that suite's `totalDomains` with the reason; the
+guard's far side is then tested in a suite of its own. Run all three together before the first push.
+
 ## The coverage suite compiles the analyzed form; the end-to-end suites run the optimized one
 
 `VarkaCoverageSuite` decides whether a row counts as covered by resolving its SQL

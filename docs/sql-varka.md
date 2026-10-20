@@ -306,6 +306,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `date_sub(d, 5)` | `calendar` |  |  | vector |
 | `d + CAST(i AS INTERVAL DAY)` | `calendar` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
 | `datediff(d2, d)` | `calendar` |  |  | vector |
+| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the count's product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | not audited |
 | `unix_date(d)` | `calendar` |  |  | vector |
 | `date_from_unix_date(unix_date(d))` | `calendar` |  |  | vector |
 
