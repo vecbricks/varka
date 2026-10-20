@@ -1,0 +1,57 @@
+VARKA-406: the slow mode of VarkaSharedPrefixBenchmark's 64-tail ladder, prefix computed once.
+Run 20 October 2026 on the laptop (AMD Zen 5, JDK 25.0.4.1, 512-bit vectors), JVM pinned
+`taskset -c 0,12,13,14,15,1,2,3`, both agent locks held, `-Dvarka.bench.only='prefix computed once'`
+(the filter times only the computed-once arms; the first drive of every arm still runs).
+Cells are Per Row (ns) of the first shape's four ceilings (400/200/100/50) and "every group
+split"; "call-site budget off" is the always-slow single-method shape and is left out. A cell over
+20 ns/row is slow; the fast mode is 2.3 to 2.8.
+
+== phase 1: what the JIT shows (master 5e11eb91ba3, -XX:+LogCompilation, a log of every compile) ==
+Run b: one slow cell, "every group split" 410 ns/row, the other four 2.6 to 2.7.
+  The five loop methods of the slow arm (loopDense0..4):
+    17.3 s  tier-3 (C1, profiled) nmethods installed, 152 KB each for loopDense1..3
+    17.3 s  the arm's required first drive ends at call count 977; no tier-4 request
+    54.0 s  tier-4 requests queued, at call counts 1012..1351 (about one drive into the timed run)
+    58.1 s  the C2 compiles start (4 s after they were queued; every C2 thread idle in 49.9..58.1)
+    59.3 .. 60.7 s  the tier-4 nmethods (94 KB) are installed, the tier-3 ones made not entrant
+  So the arm's timed iterations ran in tier-3 code (410 ns/row) and only the last ones saw C2.
+  A fast arm of the same JVM (400_true): loopDense0 tier-4 at 13.5 s, 1..4 at 14.4 to 23.3 s, each
+  within about 1 s of its request.
+Run c (same flags): no slow cell. The same arm's tier-4 requests came at 17.7 s, 0.1 s after its
+  tier-3 install and at call counts 944..1102 - in the required first drive - and C2 compiled
+  them at once. The request counts are the same in both runs (about 1000); what differs is
+  WHEN the count is reached and whether C2 is free to start.
+  No C2 compile of these loops bailed out, none was a deoptimisation victim, and the tier-4 code
+  inlined the Vector API calls (1406 inlined calls, 4 "size > DesiredMethodLimit" refusals, in
+  every tier-4 nmethod of fast and slow arms alike). The hypothesis of virtual boxing calls in a
+  C2 kernel is not what a slow cell shows: the slow cell is tier-3 code, which is slow by design.
+  Also seen: the "call-site budget off" arm's OSR compile (compile 7328, loopDense0 of its
+  one-method kernel) runs 12 s and ends "success=0" in run b, and 12.2 s in run c; the arm
+  after it ("every group split") is the one that was slow in b, and every slow cell that the
+  pre-warm-up commits show (below) is that arm.
+
+== phase 2: which commit (slow shape-0 cells of 5, per run; one run per line) ==
+Method: git checkout, catalyst/Test/compile, the benchmark with the filter above, no JIT log.
+a5f171c3b9c (before any warm-up)          0 1 0               1 of 15, always "every group split"
+aa457c3797b (warm-up, first version)      1 0 1               2 of 15, always "every group split"
+568582a9f77 (warm before ANY kernel)      5 2                 7 of 10, every ceiling
+089f7659b1b                               2 2                 4 of 10
+e6aa78e3cd5                               5 3                 8 of 10
+05242b26d2e                               2 4 5               11 of 15
+05242b26d2e, -Dvarka.warmup.vectorTemplates=false   0 0 0     0 of 15 (fast mode 2.4 to 2.5)
+e6aa78e3cd5, -XX:Tier4LoadFeedback=100000           3 1       4 of 10 (not removed)
+The fast mode also moves from 2.3-2.4 (a5f171c3b9c, aa457c3797b) to 2.7-2.8 (568582a9f77 on).
+Named: 568582a9f77 ("Warm the Vector API templates before any kernel runs", #921), which
+makes the warm-up run before every kernel instead of before the first vector kernel of a JVM
+(aa457c3797b). Switching the warm-up off at 05242b26d2e removes the mode (0 of 15 against
+11 of 15), so the warm-up is the cause, not a neighbour in the range.
+The older, rarer "every group split" slow cell (1 of 15 at a5f171c3b9c) predates all warm-up
+commits; it follows the always-slow budget-off arm and is a second, smaller effect.
+
+== what is not settled ==
+Why the tier-4 request comes late on a slow arm (the loops sat at tier 3 from 17 s to 54 s: the
+arm is idle then, only its timed run calls them). The C2 queue was 4-5 long at the end of the
+arm's first drive in run b and 2 in run c, which fits the tiered policy scaling its tier-4
+thresholds by queue length, but -XX:Tier4LoadFeedback=100000 did not remove the slow cells (4 of
+10 against 8 of 10), so that is a candidate, not a finding. The 4 s between the request and the
+start of the compile (54.0 to 58.1 s) with idle C2 threads is also unexplained.
