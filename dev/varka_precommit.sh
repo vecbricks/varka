@@ -339,8 +339,9 @@ fi
 
 # The benchmark diff carries its own check of the one thing a reader cannot see
 # it get wrong: a row key that collides silently drops a row from the requote,
-# which is the closing step of every regeneration.
-for tool in varka_bench_diff varka_bench_gate; do
+# which is the closing step of every regeneration. The scheduled-failure reporter's
+# selftest holds its issue/comment decision, which no run exercises until a night goes red.
+for tool in varka_bench_diff varka_bench_gate varka_scheduled_failure; do
   if printf '%s\n' "${files[@]}" | grep -qx "dev/$tool.py"; then
     if ! out="$(python3 "dev/$tool.py" --selftest 2>&1)"; then
       echo "$out" | sed "s|^|$tool selftest: |"
