@@ -1,0 +1,52 @@
+# The template warm-up in VarkaWarmupEndToEndSuite, six JVMs, 19 October 2026, on the laptop (AMD
+# Zen 5, JDK 25.0.4.1) with -XX:MaxVectorSize=32, pinned with taskset to four cores (0-3,
+# CICompilerCount 3, two C2 threads), as VARKA-395.md 9 ran it.
+# master = d49b71a9daf's rounds; change = VARKA-397's rounds, which call every Vector API method
+# the kernels call at least 2,000 times. The arms alternated, one sbt invocation per JVM, beside
+# another agent's option-matrix run (load average 5 to 9 before each run).
+# Per run: the suite's result and the warm-up's own log line.
+
+== master-a (load before: 5.15 3.80 2.96)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 301 ms, before the JVM's first vector code; C2's queue was 3 before the rounds and at most 6 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 116 ms for it, of a budget of 2000.
+== change-a (load before: 7.17 5.58 3.83)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 484 ms, before the JVM's first vector code; C2's queue was 0 before the rounds and at most 9 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 210 ms for it, of a budget of 2000.
+== master-b (load before: 7.68 6.04 4.09)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 432 ms, before the JVM's first vector code; C2's queue was 0 before the rounds and at most 6 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 78 ms for it, of a budget of 2000.
+== change-b (load before: 7.49 6.26 4.27)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 336 ms, before the JVM's first vector code; C2's queue was 0 before the rounds and at most 8 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 141 ms for it, of a budget of 2000.
+== master-c (load before: 8.85 6.93 4.62)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 375 ms, before the JVM's first vector code; C2's queue was 4 before the rounds and at most 6 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 124 ms for it, of a budget of 2000.
+== change-c (load before: 9.22 7.41 4.92)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 326 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 7 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 133 ms for it, of a budget of 2000.
+
+# VarkaWarmupReachSuite's test times from sbt's JUnit report, the same day, in one fresh test JVM
+# at the laptop's own width (MaxVectorSize 64), on the change: the corpus test emits every kernel
+# of the corpus and runs one counted pass of the rounds.
+== VarkaWarmupReachSuite, change
+everyMethodWarmed 28.209 s
+markIsTheJvms 0.003 s
+plantedOmission 0.061 s
+== VarkaWarmupReachSuite, master's rounds (the corpus test failing on 38 of 75 methods)
+everyMethodWarmed 30.585 s
+== VarkaWarmupReachSuite, after the review (defaults added to the corpus, lane-count
+== configurations left out; 75 methods), alone in its test JVM
+everyMethodWarmed 27.333 s
+markIsTheJvms 0.003 s
+plantedOmission 0.118 s
+== the same, run after VarkaVectorTemplateWarmupSuite in one test JVM
+everyMethodWarmed 15.074 s
+markIsTheJvms 0.003 s
+plantedOmission 0.084 s
+
+# After merging master at 0eda4cb66ce (kernels holding both lanes, 128 coverage rows), 20 October
+# 2026: the same suite once, four cores, -XX:MaxVectorSize=32, at a load average of 22 from other
+# agents' JVMs.
+== merged (load before: 22.32 18.52 16.89)
+Tests: succeeded 5, failed 0, canceled 0, ignored 0, pending 0
+Vector API template warm-up took 1167 ms, before the JVM's first vector code; C2's queue was 1 before the rounds and at most 8 while paced, against the policy's limit of 10 and the pacing's target of 4; waited 765 ms for it, of a budget of 2000.

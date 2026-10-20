@@ -47,7 +47,13 @@ import org.apache.spark.util.Utils;
  *       matches=<bool> state=<state> entryState=<state> ready=<bool> first=<bytes> last=<bytes>
  *       outcome=<the outcome record>}, {@code matches} saying the outcome is this shape's;</li>
  *   <li>where the warm-up was queued, {@code VARKA_WARMUP_ALLOC=served=<none|some> bytes=<bytes>}
- *       for each of the two batches;</li>
+ *       for each of the two batches, then {@code VARKA_WARMUP_OWN_RUN=served=<none|some>
+ *       bytes=<bytes>}, the same calls through the kernel's own seven-argument {@code run}, an
+ *       informational reading of the chain a second kernel class would leave a caller on, then
+ *       {@code VARKA_WARMUP_JIT=<state>}, the kernel class's
+ *       methods with C2 code and those with none ({@link VarkaKernelWarmup#jitState(Class)}),
+ *       followed by the same for {@link VarkaFusedKernel}, whose default {@code run} is the
+ *       entry the measured calls take;</li>
  *   <li>{@code VARKA_WARMUP_DONE=status=0}.</li>
  * </ul>
  */
@@ -59,6 +65,8 @@ public final class VarkaKernelWarmupProbe {
   public static final String SUPPORT_PREFIX = "VARKA_WARMUP_SUPPORT=";
   public static final String OUTCOME_PREFIX = "VARKA_WARMUP_OUTCOME=";
   public static final String ALLOC_PREFIX = "VARKA_WARMUP_ALLOC=";
+  public static final String OWN_RUN_PREFIX = "VARKA_WARMUP_OWN_RUN=";
+  public static final String JIT_PREFIX = "VARKA_WARMUP_JIT=";
   public static final String DONE_PREFIX = "VARKA_WARMUP_DONE=";
 
   /**
@@ -71,7 +79,7 @@ public final class VarkaKernelWarmupProbe {
     var k = new VarkaVectorIR.LiteralSlot(0);
     List<VarkaVectorIR> roots = List.of(new VarkaVectorIR.AddMonths(d, k),
         new VarkaVectorIR.LastDay(d), new VarkaVectorIR.AddDays(d, k));
-    return new VarkaShapeKey(roots, 1, 1, VarkaEmitOptions.DEFAULTS, true);
+    return new VarkaShapeKey(roots, 1, 1, VarkaMatrixRuns.BASE, true);
   }
 
   public static final int NUM_OUTPUTS = 3;
@@ -91,8 +99,7 @@ public final class VarkaKernelWarmupProbe {
               new VarkaVectorIR.AddDays(d, k)),
           new VarkaVectorIR.LastDay(d)));
     }
-    return new VarkaShapeKey(List.copyOf(roots), 1, WIDE_OUTPUTS, VarkaEmitOptions.DEFAULTS,
-        true);
+    return new VarkaShapeKey(List.copyOf(roots), 1, WIDE_OUTPUTS, VarkaMatrixRuns.BASE, true);
   }
 
   public static final int WIDE_OUTPUTS = 16;
@@ -193,8 +200,25 @@ public final class VarkaKernelWarmupProbe {
   /**
    * What the kernel allocates over sixteen calls of 1024 rows with nulls as {@code nulls} says,
    * after fifty calls to settle: the evidence of which of its drivers runs compiled code.
+   *
+   * <p>The calls take the form with a scratch address, the entry the warm-up's calls and the
+   * evaluator's take. The warm-up's probe calls reach that form's default method from code that
+   * does not inline it, as these do, so both run the method's own code at whatever tier it has:
+   * at C2, in a JVM with one kernel class, a compile with the whole kernel inlined; before that,
+   * the kernel's own methods. The seven-argument form always enters the kernel's own {@code run},
+   * a compile of its own that, with the light loops it calls, may still be queued, or never
+   * requested, while the default method's C2 compile serves the verdict (VARKA-398.md 2). See
+   * VARKA-398.md 7 for what a second kernel class does to that compile.
    */
   public static long allocationOfCalls(VarkaFusedKernel kernel, Nulls nulls) {
+    return allocationOfCalls(kernel, nulls, false);
+  }
+
+  /**
+   * As above, through the kernel's own seven-argument {@code run} when {@code ownRun}: the chain
+   * the warm-up does not wait for, read for information only (VARKA-398.md 3).
+   */
+  static long allocationOfCalls(VarkaFusedKernel kernel, Nulls nulls, boolean ownRun) {
     int rows = 1024;
     try (var arena = Arena.ofConfined()) {
       var batch = dates(arena, rows, nulls);
@@ -210,14 +234,24 @@ public final class VarkaKernelWarmupProbe {
         dstValidity[o] = arena.allocate(rows / 8L + 8, 64).address();
       }
       int[] literals = {2};
+      int perRow = kernel.scratchBytesPerRow();
+      long scratch = perRow == 0 ? 0L : arena.allocate((long) perRow * rows, 64).address();
       for (int k = 0; k < 50; k++) {
-        kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows);
+        if (ownRun) {
+          kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows);
+        } else {
+          kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows, scratch);
+        }
       }
       // A plain loop: a lambda first created inside the window would count its own bootstrap,
       // tens of kilobytes, against the kernel.
       long before = VarkaAllocationSampler.allocatedBytes();
       for (int k = 0; k < 16; k++) {
-        kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows);
+        if (ownRun) {
+          kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows);
+        } else {
+          kernel.run(src, validity, nullCounts, dstData, dstValidity, literals, rows, scratch);
+        }
       }
       return VarkaAllocationSampler.allocatedBytes() - before;
     }
@@ -304,6 +338,15 @@ public final class VarkaKernelWarmupProbe {
           System.out.println(ALLOC_PREFIX + "served=" + served.word + " bytes="
               + allocationOfCalls(kernel, served));
         }
+        for (var served : List.of(Nulls.NO_NULLS, Nulls.SOME_NULLS)) {
+          System.out.println(OWN_RUN_PREFIX + "served=" + served.word + " bytes="
+              + allocationOfCalls(kernel, served, true));
+        }
+        // The interface's part of its state is only its code list: the queue and the code cache
+        // are the same JVM's, already in the kernel's.
+        String jit = VarkaKernelWarmup.jitState(VarkaFusedKernel.class);
+        System.out.println(JIT_PREFIX + VarkaKernelWarmup.jitState(kernel.getClass())
+            + "; entry " + jit.substring(Math.max(0, jit.indexOf("kernel code"))));
       }
     }
     System.out.println(DONE_PREFIX + "status=0");

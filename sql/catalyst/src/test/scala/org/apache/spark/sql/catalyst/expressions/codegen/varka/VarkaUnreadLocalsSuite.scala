@@ -76,11 +76,15 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 3, 0, null, null,
       elided.withPredictGrouping(false))
     // The case needs a prefix materialized across groups, which a grouping change could remove.
-    val (kernel, loader) = load((name, bytes))
-    try {
-      assert(kernel.scratchBytesPerRow() > 0, "no prefix is materialized")
-    } finally {
-      loader.release()
+    // Reading that needs the class loaded, which only a JVM whose preferred species is the
+    // corpus's width allows (VARKA-246), so a narrower runner checks the census alone.
+    if (VarkaSpeciesGuard.preferredIntLanes() == VarkaEmitCostCorpus.LANES) {
+      val (kernel, loader) = load((name, bytes))
+      try {
+        assert(kernel.scratchBytesPerRow() > 0, "no prefix is materialized")
+      } finally {
+        loader.release()
+      }
     }
     val unread = VarkaUnreadLocalsTrim.census(bytes).asScala
     assert(unread.isEmpty, unread.mkString("; "))

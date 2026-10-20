@@ -1176,3 +1176,53 @@ rule: test-only instrumentation inlined into a kernel must see the same state wh
 warms as when it is measured. A warm-up and its measured calls both run in the sanitizer's window
 (`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
 with a `speculate_*` reason, points here before it points at the kernel.
+
+## A warmed kernel measured through another entry can run code the verdict never read
+
+Found by `VarkaKernelWarmupSuite` failing on runners and read in `m8/VARKA-398.md`: a warm-up
+reported `COMPILED`, and then the batches with some nulls allocated sixteen interpreted calls of
+one light loop. The warm-up's calls enter a kernel through `VarkaFusedKernel.run`'s scratch form,
+an interface default method; in a JVM with one kernel class C2 compiles it with the whole kernel
+inlined, so the verdict can be earned by that inlined copy while the kernel's own `run` and a
+light loop called only through it still have no standalone code (a separate compile, queued late
+or never requested once the inlined copy took its calls). The test called the kernel's own `run`
+and met those methods interpreted. The rule: a measurement that checks a JIT verdict enters the
+kernel through the method the verdict's calls enter (`PrintInlining` shows which call sites inline
+it; neither of the warm-up's does), since an inlined copy and a standalone compile are different
+code and only the allocation tells them apart.
+
+The bytes name the method and the runner's width. An interpreted lane-group loop boxes each
+vector it makes: `date_add(d, k)`'s load, broadcast and sum are three per lane group, 64 bytes
+each at 256 bits over 128 groups of a 1,024-row call and 96 bytes each at 512 bits over 64, so
+24,856 and 18,832 bytes a call with the driver's segments. A failure's byte count divided by the
+calls, set against that arithmetic, says which loop ran interpreted and on which class of runner
+before any log does.
+
+## HotSpot counts calls per dispatched method, and stops counting a callee C2 has inlined
+
+Read in `m8/VARKA-397.md`, building the check that the template warm-up calls every Vector API
+method the kernels call past the tiered policy's "old" mark: 2,000 calls,
+`Tier3InvocationThreshold` times `TieredOldPercentage` / 100 in `CompilationPolicy::is_old`. Two
+facts decide what a count of calls means to the policy:
+
+- **The counter belongs to the method a call dispatches to, not to the call's symbolic reference.**
+  `Vector.convertShape` is implemented by each vector class, so a kernel's call is
+  `Int512Vector.convertShape` or `Long512Vector.convertShape` by its receiver, one counter each;
+  every `reinterpretAs*` call, whether written against `Vector` or `LongVector`, is the one
+  `AbstractVector` method; a call written against `VectorMask` counts on its lane's mask class
+  (`Int512Mask.and`). So calls are compared by their dispatch target, found by walking the
+  receiver class up to the first declaration with a body, and a warm-up's calls are counted with
+  their receivers, since a call site written against `VectorMask` serves every lane.
+- **A callee's count stops once a compiled caller has inlined it, unless the caller runs at tier
+  3.** Only C1's full-profiling tier counts inlined calls: `profile_inlined_calls()` is
+  `profile_calls() && C1ProfileInlinedCalls`, and `profile_calls()` requires
+  `CompLevel_full_profile` (`c1_Compilation.hpp`); tier 1, tier 2 and C2's code do not count
+  them. A count taken at the call sites equals HotSpot's while the callers run interpreted or at
+  tier 3. The policy sends a caller to tier 2 instead of tier 3 when C2's queue is over
+  `Tier3DelayOn` times C2's threads at its first threshold (`compilationPolicy.cpp`, `common()`),
+  so a warm-up that counts on its callees' counts depends on its pacing keeping that queue short;
+  and a caller past C2's threshold (`Tier4InvocationThreshold`, 5,000) stops counting what C2
+  inlines.
+
+`TieredOldPercentage` is a diagnostic flag: `HotSpotDiagnosticMXBean.getVMOption` reports it as
+absent unless the JVM runs with `-XX:+UnlockDiagnosticVMOptions`.

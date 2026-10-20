@@ -154,7 +154,11 @@ final class VarkaVectorTemplateWarmup {
    * fell in the kernel warm-up's traffic, where C2's queue decided the tier
    * ({@code VARKA-389.md} 9.5). Eight calls a round put the crossing inside the paced rounds
    * and take every wrapper past the policy's "old" mark of 2,000 calls before the rounds end,
-   * after which its later decisions ignore the queue and its queued task cannot go stale.
+   * after which its later decisions ignore the queue and its queued task cannot go stale. Every
+   * other Vector API method the kernels call is in these blocks or in the operator loops - the
+   * memory loads and stores, the masks' and species' calls, the conversions - and
+   * {@code VarkaWarmupReachSuite} fails when a kernel calls a method the rounds call fewer than
+   * 2,000 times.
    */
   static final int THIN_CALLS_PER_ROUND = 8;
 
@@ -538,6 +542,9 @@ final class VarkaVectorTemplateWarmup {
         VectorOperators.GE, VectorOperators.ULT, VectorOperators.ULE, VectorOperators.UGT,
         VectorOperators.UGE);
 
+    private static final List<Comparison> DOUBLE_COMPARISONS = List.of(VectorOperators.EQ,
+        VectorOperators.LT, VectorOperators.GE);
+
     private Rounds() {
     }
 
@@ -586,8 +593,7 @@ final class VarkaVectorTemplateWarmup {
       IntVector b = IntVector.fromArray(s, ib, 0);
       VectorMask<Integer> m = a.compare(VectorOperators.GT, b);
       VectorMask<Integer> tail = s.indexInRange(0, s.length() / 2 + 1);
-      long acc = m.toLong() + (m.anyTrue() ? 1 : 0) + m.and(tail).or(tail.not()).trueCount();
-      acc += VectorMask.fromLong(s, acc).toLong();
+      long acc = 0;
       for (Unary op : UNARY) {
         acc += a.lanewise(op).lane(0) + a.lanewise(op, m).lane(1);
       }
@@ -607,13 +613,15 @@ final class VarkaVectorTemplateWarmup {
             + a.sub(4, m).lane(0) + a.add(b, m).lane(0) + a.mul(4).lane(1) + a.min(b).lane(0)
             + a.max(b).lane(0) + a.and(b).lane(0) + a.or(b).lane(0) + a.and(1).lane(1)
             + a.div(7).lane(0) + a.blend(b, m).lane(0) + a.blend(9, m).lane(0)
-            + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0);
+            + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0)
+            + a.add(4, m).lane(0) + a.sub(4).lane(0) + a.min(4).lane(0) + a.max(4).lane(0)
+            + a.or(4).lane(0) + masks(s, m, tail, acc);
+        a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
+        a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
+        acc += IntVector.fromMemorySegment(s, seg, 0, ByteOrder.LITTLE_ENDIAN).lane(0)
+            + IntVector.fromMemorySegment(s, seg, 64, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
       }
       acc += a.compress(m).lane(0);
-      a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
-      a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
-      acc += IntVector.fromMemorySegment(s, seg, 0, ByteOrder.LITTLE_ENDIAN).lane(0)
-          + IntVector.fromMemorySegment(s, seg, 64, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
       return acc;
     }
 
@@ -622,8 +630,7 @@ final class VarkaVectorTemplateWarmup {
       LongVector b = LongVector.fromArray(s, lb, 0);
       VectorMask<Long> m = a.compare(VectorOperators.GT, b);
       VectorMask<Long> tail = s.indexInRange(0, s.length() / 2 + 1);
-      long acc = m.toLong() + (m.anyTrue() ? 1 : 0) + m.and(tail).or(tail.not()).trueCount();
-      acc += VectorMask.fromLong(s, acc).toLong();
+      long acc = 0;
       for (Unary op : UNARY) {
         acc += a.lanewise(op).lane(0) + a.lanewise(op, m).lane(1);
       }
@@ -642,12 +649,14 @@ final class VarkaVectorTemplateWarmup {
         acc += a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.add(4L).lane(0)
             + a.sub(4L, m).lane(0) + a.add(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0)
             + a.and(b).lane(0) + a.or(b).lane(0) + a.blend(b, m).lane(0) + a.blend(9L, m).lane(0)
-            + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0);
+            + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0)
+            + a.and(1L).lane(0) + a.mul(4L).lane(0) + a.or(4L).lane(0)
+            + a.lanewise(VectorOperators.NEG, m).lane(0) + masks(s, m, tail, acc);
+        a.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
+        a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
+        acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
+            + LongVector.fromMemorySegment(s, seg, 256, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
       }
-      a.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
-      a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
-      acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
-          + LongVector.fromMemorySegment(s, seg, 256, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
       return acc;
     }
 
@@ -655,7 +664,8 @@ final class VarkaVectorTemplateWarmup {
       DoubleVector a = DoubleVector.fromArray(s, da, 0);
       DoubleVector b = DoubleVector.fromArray(s, db, 0);
       VectorMask<Double> m = a.compare(VectorOperators.GT, b);
-      long acc = m.toLong();
+      VectorMask<Double> tail = s.indexInRange(0, s.length() / 2 + 1);
+      long acc = 0;
       for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
         // The scalar forms are the ones the emitter calls (the magic division's floor); each is
         // one call to lanewise(Binary, double), which the vector forms do not reach.
@@ -663,9 +673,10 @@ final class VarkaVectorTemplateWarmup {
             + a.add(2.0).lane(0) + a.sub(2.0).lane(0) + a.mul(2.0).lane(0) + a.div(2.0).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.MAX, b).lane(0)
             + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0));
-      }
-      for (Comparison op : List.of(VectorOperators.EQ, VectorOperators.LT, VectorOperators.GE)) {
-        acc += a.compare(op, b).toLong();
+        for (Comparison op : DOUBLE_COMPARISONS) {
+          acc += a.compare(op, b).toLong();
+        }
+        acc += masks(s, m, tail, acc);
       }
       return acc;
     }
@@ -675,16 +686,28 @@ final class VarkaVectorTemplateWarmup {
       IntVector i = IntVector.fromArray(is, ia, 0);
       LongVector l = LongVector.fromArray(ls, la, 0);
       DoubleVector d = DoubleVector.fromArray(ds, da, 0);
-      long acc = i.convertShape(VectorOperators.I2L, ls, 0).reinterpretAsLongs().lane(0)
-          + l.convertShape(VectorOperators.L2I, is, 0).reinterpretAsInts().lane(0)
-          + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
-          + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0);
-      // The two reinterpretations the emitter calls (the magic division's way in and out of
-      // doubles), as often as the wrappers.
+      long acc = 0;
+      // The conversions and the two reinterpretations the emitter calls (the magic division's
+      // way in and out of doubles), as often as the wrappers.
       for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
-        acc += l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
+        acc += i.convertShape(VectorOperators.I2L, ls, 0).reinterpretAsLongs().lane(0)
+            + l.convertShape(VectorOperators.L2I, is, 0).reinterpretAsInts().lane(0)
+            + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
+            + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
+            + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
       }
       return acc;
+    }
+
+    /**
+     * The mask and species calls of one lane: every method the kernels call on a mask, of each
+     * lane, and on a species, whose implementations are per mask class and shared by the species.
+     */
+    private static <E> long masks(VectorSpecies<E> s, VectorMask<E> m, VectorMask<E> tail,
+        long bits) {
+      return m.toLong() + (m.anyTrue() ? 1 : 0) + m.and(tail).or(tail.not()).trueCount()
+          + VectorMask.fromLong(s, bits).toLong() + s.indexInRange(0, s.length() / 2 + 1).toLong()
+          + s.loopBound(BYTES);
     }
   }
 }
