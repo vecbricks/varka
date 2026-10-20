@@ -469,6 +469,10 @@ public final class VarkaLoopEmitter {
     private boolean siteSplit;
     // Groups per stage under `splitDriver`, 0 until a build's drivers alone are over the budget.
     private int stageGroups;
+    // Whether `stageGroups` is the plan's reading of a driver built alone, not yet a build's
+    // measurement. The loop sizes stages off the driver of the grouping it finally builds, so a
+    // regroup that changes the group count makes the plan read again, to size them as it would.
+    private boolean stagesPlanned;
     // Whether the next grouping starts afresh - the first, and one a rollback or a fallback
     // makes - which is when the plan reads its driver. A regroup adds groups to a driver the plan
     // has read, so the reading is repeated only where those groups could take it over the
@@ -615,7 +619,9 @@ public final class VarkaLoopEmitter {
     private void plan(List<List<Integer>> groups) {
       boolean nearBudget = readGroups > 0 && groups.size() > readGroups
           && readWidest + (long) (groups.size() - readGroups) * readWidest / readGroups > budget;
-      if (planned && stageGroups == 0 && (afresh || nearBudget) && options.driverOutputTable()) {
+      boolean regrouped = stagesPlanned && groups.size() != readGroups;
+      if (planned && (regrouped || (stageGroups == 0 && (afresh || nearBudget)))
+          && options.driverOutputTable()) {
         // `misdescribeDriverBytes` takes bytes off the reading, for the test of a plan the build
         // corrects.
         analysis.stageGroups = 0;
@@ -626,7 +632,11 @@ public final class VarkaLoopEmitter {
         if (widest > budget) {
           if (options.splitDriver()) {
             stageGroups = fitGroups(groups.size(), widest, budget - STAGE_MARGIN);
-            trace.plannedStages++;
+            // A reading again is the same plan with the grouping's final count, one build saved.
+            if (!stagesPlanned) {
+              trace.plannedStages++;
+            }
+            stagesPlanned = true;
           } else {
             // One class serves the outputs of the first groups whose calls fit the budget; the
             // rest are the compiler's to set aside (VarkaEmitDeclined.plannedCut). No stages
@@ -638,6 +648,10 @@ public final class VarkaLoopEmitter {
                 + " of " + groups.size() + " groups fit the driver", List.of(),
                 plannedCut(groups, widest, budget));
           }
+        } else if (regrouped) {
+          // The regroup fits one driver after all, as the loop's build of it would find.
+          stageGroups = 0;
+          stagesPlanned = false;
         }
       }
       afresh = false;
@@ -743,6 +757,7 @@ public final class VarkaLoopEmitter {
         return false;
       }
       stageGroups = next;
+      stagesPlanned = false;
       trace.stageSplits++;
       if (correcting()) {
         trace.corrections.add("the stages: " + String.join("; ", findings) + "; resized to "
@@ -809,6 +824,7 @@ public final class VarkaLoopEmitter {
       siteSplit = false;
       forcedStarts.clear();
       stageGroups = 0;
+      stagesPlanned = false;
       afresh = true;
     }
   }
