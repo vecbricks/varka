@@ -83,13 +83,20 @@ class VarkaDateMinusDateSuite extends QueryTest with VarkaMaybeThrows with Varka
     cache(varkaSpark)
   }
 
-  /** The kernel serves the query and agrees with the row engine. */
+  /**
+   * The kernel serves the query and agrees with the row engine. Every table this is run over is
+   * inside the guard, so no batch may be declined either: a declined batch would be the row engine
+   * answering, which `checkAnswer` alone cannot tell from the kernel.
+   */
   private def checkFused(query: String): Unit = {
     val actual = varkaSpark.sql(query)
     val plan = actual.queryExecution.executedPlan
     assertFused(plan)
     checkAnswer(actual, spark.sql(query))
     assertKernelsRan(plan)
+    val node = collectFirst(plan) { case v if isVarkaNode(v) => v }.get
+    val declined = node.metrics("numFallbackBatchesDeclined").value
+    assert(declined === 0L, s"$query: $declined batch(es) declined inside the guard's range")
   }
 
   test("d1 - d2 agrees with the row engine over pairs with nulls, in either order") {

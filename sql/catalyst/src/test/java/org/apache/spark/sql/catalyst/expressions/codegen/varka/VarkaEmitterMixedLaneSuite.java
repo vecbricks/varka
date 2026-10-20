@@ -419,8 +419,9 @@ public final class VarkaEmitterMixedLaneSuite {
           -MAX_DAYS, MAX_DAYS), LONG_LIT);
 
   /**
-   * Spark's {@code SubtractDates.evalFunc} on the row, in {@code long} so that the oracle cannot
-   * share a wrap with the kernel: null if either date is, the error it raises otherwise.
+   * Spark's {@code SubtractDates.evalFunc} on the row, with its own {@code subtractExact} and
+   * {@code multiplyExact}, which throw where the kernel's widened subtraction and wrapping multiply
+   * cannot: null if either date is, the error it raises otherwise.
    */
   private static final VarkaKernelChecks.SparkAnswers SPARK_DATE_MINUS_DATE =
       new VarkaKernelChecks.SparkAnswers() {
@@ -442,7 +443,11 @@ public final class VarkaEmitterMixedLaneSuite {
         }
       };
 
-  /** Dates for the pairs this harness forms, (end, start) both inside the guard's range. */
+  /**
+   * Dates for the pairs this harness forms. The two columns step through the table five apart, so
+   * the pairs formed never put the two 100,000,000-day extremes together, and every difference they
+   * give is inside the guard's range.
+   */
   private static long inRangeDay(int c, int i) {
     long[] days = {0, 1, -1, 719162, -719162, 2932896, -141427, 100_000_000, -100_000_000,
         53_000_000, -53_000_000, 12345};
