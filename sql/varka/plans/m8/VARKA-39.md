@@ -3,7 +3,7 @@
 A recipe for a cheap agent, in the shape VARKA-33 established, with one
 difference that has to be said first.
 
-**This recipe was written before the machinery it depends on existed.** VARKA-28 (lane-width conversion) and 29 (int64 lanes) had not started when it was
+**This recipe was written before the machinery it depends on existed; section 0 (21 October 2026) checks it against what landed and overrides sections 2 and 4 where they differ.** VARKA-28 (lane-width conversion) and 29 (int64 lanes) had not started when it was
 written, so every name it gives for their machinery is provisional. The
 *semantics* below were checked against Spark and are not provisional; the
 plumbing may be. If what VARKA-28 and VARKA-29 actually built does not look like what
@@ -13,6 +13,102 @@ around.
 
 **Depends on VARKA-28 and VARKA-29.** It does *not* depend on VARKA-30, and section 3
 is why.
+
+## 0. Admission check against master (21 October 2026, `a350674efe4`)
+
+This recipe was written before rows 28, 29 and 26 existed. Read against the code that landed, the
+semantics below hold and the plumbing is smaller than section 4 assumes: **no new IR node, no emitter
+arm and no evaluator change are needed; `date - date` is one compiler arm that composes nodes that
+already exist.** What was checked, in the code:
+
+* **`SubtractDates` is not compiled.** Nothing in `sql/catalyst/src/main/java` names it, so today the
+  expression reaches the row engine; `DateDiff` (an `int` day count, a different expression) is
+  compiled by `VarkaChronoCompiler` and must stay as it is.
+* **The long lane carries the result type already.** `VarkaNodeCompiler.laneOf` maps
+  `DayTimeIntervalType` to the long lane beside `bigint` and `TIME`, and
+  `VarkaKernelEvaluator.allocateVector` allocates a long-lane vector for it, so the output side
+  (section 4's "eight bytes per row", the `DurationVector`) exists.
+* **The width conversion exists** (row 28): `WidenLane(child)` takes an `INT` child and is exact in
+  every mode; a kernel holding both lanes is driven at the long lane with its int values in the low
+  half of the int species, so `date` columns read under their low-half masks.
+* **`IntArith` works on either lane** (`requireSameLane`): `SUB` with `WRAP` over two widened
+  dates is a long subtraction that cannot overflow, since both operands are within the int range.
+* **A checked multiply has no vector overflow test at any lane yet** (`arithOver` declines it;
+  `VarkaVectorWalk` throws on one). So the recipe's second overflow test (section 3,
+  `multiplyExact`) cannot be a `FAIL` multiply. It is a **range guard first, then a `WRAP`
+  multiply**: `GuardedRange(child, lo, hi)` serves both lanes, declines the batch when a live lane
+  falls outside `[lo, hi]` and leaves the row engine to raise Spark's error on the row. `TIME +
+  INTERVAL` (`VarkaTimeCompiler`) is the precedent for a decline-by-guard of a value the row
+  engine would throw on. The guard's bounds are part of the IR, so two plans that differ in them
+  never share a kernel.
+* **The first overflow test is not needed.** In section 3's table the int subtraction `l - r` wraps
+  only in int lanes; computed in the long lane after the widening it is exact, and the only
+  remaining failure is `multiplyExact`, which the range guard on the difference covers exactly.
+  Both failures decline the batch and the row engine raises Spark's own error for each, so one
+  guard is enough; the differential test still compares the exception against the row engine's for
+  each of the two input pairs (section 5, test 2), so whichever error Spark raises for each is what
+  Varka's session raises.
+* **Long literals exist**: `sink.longSlot(long)` (used by the bitwise family), so
+  `MICROS_PER_DAY` enters as a long literal slot, from `DateTimeConstants`, never as a spelled
+  number.
+
+* **`SubtractDates` in this fork** is `SubtractDates(left, right, legacyInterval: Boolean)`,
+  `nullIntolerant`, with no `failOnError` flag (`datetimeExpressions.scala:4859`).
+* **The guard tests valid lanes only**, read in `VarkaVectorWalk` (`case GuardedRange`): the value
+  passes through and the guard runs under the child's validity word, except over a column's stored
+  values, where a null row's lane is checked on purpose (`Analysis.guardsStoredValues`; not this
+  use). A null date therefore does not decline a batch; the emitter test must still include a null
+  beside a value at each edge, as the proof.
+* **A long-lane `WRAP` multiply may be the first one emitted.** The SQL arithmetic arms are
+  `isInt` only, and the bitwise family builds long `ADD` and `SUB` but no `MUL`. `emitIntArith`
+  names the op generically (`"mul"`), and the census shows long `MUL` intrinsic at all three
+  widths, so the hardware side is fine, but confirm by a unit test that a long `MUL` emits and
+  answers right at both widths; if this row adds the first, say so in the pull request.
+
+**The lowering, revised.**
+
+```
+diff  = IntArith(SUB, WRAP, WidenLane(end), WidenLane(start))        // long lane, cannot overflow
+safe  = GuardedRange(diff, -106751991, 106751991)                     // declines the batch outside
+out   = IntArith(MUL, WRAP, safe, longSlot(MICROS_PER_DAY))           // long lane, in range by the guard
+```
+
+`106751991 = Long.MAX_VALUE / MICROS_PER_DAY`; the bounds are the exact edges of the section 3
+boundary test (106751991 succeeds, 106751992 declines), and `Math.abs` is still not used.
+Validity is the AND of both operands', exactly as `DateDiff`'s, since `IntArith` and `WidenLane`
+already carry it; `SubtractDates` is null-intolerant.
+
+**The edits, revised (replaces section 4's IR, emitter, buffer and evaluator bullets).**
+
+* **Compiler**, in `VarkaChronoCompiler` beside `DateDiff`: `case SubtractDates(l, r, false)`
+  building the three nodes above over the two date operands, each compiled as `DateDiff`'s are;
+  `case SubtractDates(_, _, true)` declines with `legacy CalendarInterval subtraction`.
+* **Coverage**: the coverage table and its machine-readable twin list every expression the compiler
+  admits (`VarkaCoverageSuite` checks "the table documents every expression the compiler admits"),
+  so `date - date` needs its row; both files are regenerated by their tools, never edited.
+* **Nothing else.** If a step below needs an IR node, an emitter arm or an evaluator change after
+  all, stop and say why in the pull request; the check above is the reason the plan has none.
+
+**Open checks the work must settle** (none changes the lowering; each is a place a surprise would
+show):
+
+1. Whether `Analysis` or the range analysis refuses a `WRAP` multiply under a guard on the long lane,
+   or declines the kernel for another reason; the first thing to run is `dev/varka_emit.sh` on
+   `d1 - d2` and read the shape.
+2. Whether the guard's decline reaches the row engine with the right exception on the long lane at
+   both widths (at 128 bits an int64 lane holds two rows, so the conversion's lane-count handling is
+   exercised differently; section 5 already runs both).
+3. Whether a kernel of this shape lands among the fuzz grammar's draws: do **not** add a grammar draw
+   here (it would reprice the emit cost model); the differential and emitter suites cover it, and a
+   grammar draw is a row of its own if the fuzzers should reach it.
+4. The expected speed relative to the row path is a benchmark of its own, in its own class and its own
+   pull request (the repository's rule for a feature family); this row proves correctness and fusion.
+
+**Done when**: `SELECT d1 - d2` over date columns fuses to a kernel on the long lane at both widths
+(`dev/varka_emit.sh` output committed in the pull request description), section 5's five tests pass,
+the overflow boundary behaves as section 3 says in both directions, `datediff` is unchanged, the legacy
+variant declines with its reason, the coverage table and its twin carry the row, and this plan's
+section 7 records what was found.
 
 ## 1. What you are building
 
