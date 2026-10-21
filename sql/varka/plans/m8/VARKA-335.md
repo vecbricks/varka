@@ -386,23 +386,62 @@ file's spread, which the weights arm, untouched by the prices, shows at 1 to 5%.
 the file's noise.
 
 *Running the kernels* (`VarkaSharedPrefixBenchmark`, which runs the ladder over a million rows;
-256-bit lanes paired with `dev/varka_bench_pair.sh` against the merged base `ca586f1dce6`, five
-alternating rounds; 128-bit lanes one run each side in the same session):
+paired against the merged base `ca586f1dce6`, five alternating rounds at 512 and at 256 bits and
+three at 128 bits; corrected on 21 October 2026, see the note below, from the first numbers of
+20 October, which were one pair at the wide width and one run each side at 128 bits). ns/row, the
+the median over the rounds of the mean of the four ceilings, with the spread of all the cells (20; 12 at 128 bits) after it;
+both trees carry the fixed benchmark of row 407:
 
-| 64 tails over one date | base | refit | change |
+| 64 tails over one date | base | refit | change (time per row) |
 | :-- | :-- | :-- | :-- |
-| prefix per group, 256-bit | 6 methods, 3.0 ns/row in 5 of 5 runs | 8 methods, 3.6 ns/row in 5 of 5 | **20% slower** |
-| prefix per group, 128-bit | 6 methods, 8.1 to 8.2 ns/row | 8 methods, 9.5 to 9.6 ns/row | **17% slower** |
-| prefix once (the default), 256-bit | 4 methods, best 2.9 ns/row; 106 to 268 ns/row in 4 of 5 runs at ceiling 400 | 5 methods, 2.6 ns/row in 5 of 5 | 10% faster by best, and stable |
-| prefix once (the default), 128-bit | 4 methods, best 8.0 to 9.7 ns/row at two ceilings, 346 to 349 at two | 5 methods, best 7.0 to 7.7 ns/row | no slower by best |
+| prefix per group, 512-bit | 6 methods, 2.99 (2.98 to 3.01) | 8 methods, 3.56 (3.54 to 3.57) | **19.0% slower** (rounds 18.8 to 19.3) |
+| prefix per group, 256-bit | 6 methods, 4.33 (4.32 to 4.36) | 8 methods, 5.03 (5.01 to 5.06) | **16.1% slower** (15.9 to 16.2) |
+| prefix per group, 128-bit | 6 methods, 8.12 (8.10 to 8.18) | 8 methods, 9.47 (9.45 to 9.50) | **16.6% slower** (16.6 in 3 of 3) |
+| prefix once (the default), 512-bit | 4 methods, 2.88 (2.81 to 2.94) | 5 methods, 2.60 (2.54 to 2.63) | **9.6% faster** (8.9 to 11.0) |
+| prefix once (the default), 256-bit | 4 methods, 4.51 (4.42 to 4.66) | 5 methods, 3.95 (3.90 to 4.03) | **11.9% faster** (11.0 to 14.8) |
+| prefix once (the default), 128-bit | 4 methods, 7.88 (7.78 to 8.01) | 5 methods, 6.86 (6.71 to 7.06) | **12.3% faster** (11.6 to 14.6) |
 
-So the two extra methods of the recomputed arm cost about a fifth of its throughput at both
-widths, past the file's noise: the refit is materially slower there. That arm is not the default
-(`materializeChronoPrefix` is on), and on the default arm the refit is no slower. Both sides of
-the default arm fall at times into a slow mode a hundred times slower, the base more often; the
-committed master file (12 October) shows neither, so it arrived after it, and it is recorded as a
-finding (9.2a, last paragraph), not this row's. The committed `VarkaSharedPrefixBenchmark` files
-are the refit's run; one of its wide rows (ceiling 50, prefix once) caught the slow mode.
+No cell was slow (the always-slow single-method "call-site budget off" arm aside) and no arm failed to settle in the 26 runs (`results/VARKA-409-ladder-repair.txt`).
+
+So the two extra methods of the recomputed arm cost about a sixth to a fifth of its time per row
+at every width, past the spread of the rounds: the refit is materially slower there. That arm is
+not the default (`materializeChronoPrefix` is on), and the default arm is a tenth to an eighth
+faster with the refit, at all three widths. The first version of this table said that both sides
+of the default arm fall at times into a slow mode a hundred times slower; those cells were arms
+timed in C1 code (rows 406 and 407), and with the fixed benchmark neither side shows it. The
+committed `VarkaSharedPrefixBenchmark` files were regenerated from master by row 409.
+
+**Corrected 21 October 2026 (row 409).** What moved against the first table: (1) the width
+labels: the first pair's runs are the laptop's wide width, MaxVectorSize 64, 512-bit lanes
+(`dev/varka_bench_pair.sh` runs the wide width only), and the table called them 256-bit; its 3.0,
+3.6 and 2.6 ns/row are the 512-bit rows above, and the 256-bit rows are new; (2) the default arm
+at 512 bits was "10% faster by best" and is 9.6% faster over the rounds: it did not move past the
+spread; (3) the default arm at 128 bits was "no slower by best", from one run each side whose
+cells fell into the slow mode in places, and is 12.3% faster over three rounds: it moved; (4) the
+recomputed arm's 20% and 17% slower are 19.0% and 16.6% (16.1% at 256 bits): within a point. The
+base ran as `ca586f1dce6` and the refit as `00d9f79ec79` (the branch's measuring commit), each
+with the benchmark change of row 407 carried onto it.
+
+**The first version of this table and its text (20 October 2026), superseded by the above and kept as the record:**
+
+> *Running the kernels* (`VarkaSharedPrefixBenchmark`, which runs the ladder over a million rows;
+> 256-bit lanes paired with `dev/varka_bench_pair.sh` against the merged base `ca586f1dce6`, five
+> alternating rounds; 128-bit lanes one run each side in the same session):
+>
+> | 64 tails over one date | base | refit | change |
+> | :-- | :-- | :-- | :-- |
+> | prefix per group, 256-bit | 6 methods, 3.0 ns/row in 5 of 5 runs | 8 methods, 3.6 ns/row in 5 of 5 | **20% slower** |
+> | prefix per group, 128-bit | 6 methods, 8.1 to 8.2 ns/row | 8 methods, 9.5 to 9.6 ns/row | **17% slower** |
+> | prefix once (the default), 256-bit | 4 methods, best 2.9 ns/row; 106 to 268 ns/row in 4 of 5 runs at ceiling 400 | 5 methods, 2.6 ns/row in 5 of 5 | 10% faster by best, and stable |
+> | prefix once (the default), 128-bit | 4 methods, best 8.0 to 9.7 ns/row at two ceilings, 346 to 349 at two | 5 methods, best 7.0 to 7.7 ns/row | no slower by best |
+>
+> So the two extra methods of the recomputed arm cost about a fifth of its throughput at both
+> widths, past the file's noise: the refit is materially slower there. That arm is not the default
+> (`materializeChronoPrefix` is on), and on the default arm the refit is no slower. Both sides of
+> the default arm fall at times into a slow mode a hundred times slower, the base more often; the
+> committed master file (12 October) shows neither, so it arrived after it, and it is recorded as a
+> finding (9.2a, last paragraph), not this row's. The committed `VarkaSharedPrefixBenchmark` files
+> are the refit's run; one of its wide rows (ceiling 50, prefix once) caught the slow mode.
 
 **Round three, 20 October 2026: the slow mode bisected, stopped part-way** (every number in
 `results/VARKA-335-slow-mode-bisect.txt`). Five alternated rounds of the whole benchmark per
