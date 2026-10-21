@@ -142,6 +142,7 @@ public final class VarkaCanonicalIr {
       case "narrow" -> new NarrowLane(node());
       case "dateDiff" -> new DateDiff(node(), node());
       case "cmp" -> new Compare(CompareOp.valueOf(parts[1]), node(), node());
+      case "nullSafeEq" -> new NullSafeEqual(node(), node());
       case "and" -> new And(cond(), cond());
       case "or" -> new Or(cond(), cond());
       case "not" -> new Not(cond());

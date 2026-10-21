@@ -329,6 +329,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new BitCount(c), 1, 0, VarkaMatrix.base),
       (new BitCount(lc), 1, 0, VarkaMatrix.base),
       (lt, 2, 0, VarkaMatrix.base),
+      (new NullSafeEqual(c, c1), 2, 0, VarkaMatrix.base),
       (new And(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),
       (new Or(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),
       (new Not(lt), 2, 0, VarkaMatrix.base),

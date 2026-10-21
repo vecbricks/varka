@@ -306,7 +306,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `date_sub(d, 5)` | `calendar` |  |  | vector |
 | `d + CAST(i AS INTERVAL DAY)` | `calendar` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
 | `datediff(d2, d)` | `calendar` |  |  | vector |
-| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the count's product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | not audited |
+| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the count's product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `unix_date(d)` | `calendar` |  |  | vector |
 | `date_from_unix_date(unix_date(d))` | `calendar` |  |  | vector |
 
@@ -396,6 +396,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CASE WHEN (d < d2) IS NULL THEN d2 ELSE d END` | `predicate`, `condition` |  | a condition on whether a comparison is unknown (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
 | `CASE WHEN (d < d2) IS NULL THEN d WHEN d < d2 THEN d2 ELSE d END` | `predicate`, `condition` |  | one comparison under its null test and as a condition of its own, lowered once; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
 | `CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END` | `predicate`, `condition` |  | the optimizer leaves an equality under its null test, so a default session reaches this form | vector |
+| `CASE WHEN (d < d2) IS TRUE THEN d ELSE d2 END` | `predicate`, `condition` |  | IS TRUE parses to a null-safe equality with true, which fuses as the predicate and its own validity (VARKA-336) | vector |
 | `coalesce(d, d2)` | `condition` |  |  | vector |
 | `greatest(d, d2)` | `intArithmetic` |  |  | vector |
 | `least(d, d2)` | `intArithmetic` |  |  | vector |
@@ -427,6 +428,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `(d < d2 OR i = 5) IS NOT NULL` | `predicate` |  | a disjunction is not null-intolerant, so a default session reaches this form | vector |
 | `(NOT (d = d2)) IS NULL` | `predicate` |  | a negation's masks are its child's, swapped; a default session drops the negation and keeps the equality under the test | vector |
 | `(d < d2) IS NULL OR d < d2` | `predicate` |  | one comparison under its null test and beside it: the rows where it is not false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | vector |
+| `d <=> d2` | `predicate` |  | two nulls are equal and a null is not equal to a value: a condition that is never unknown | vector |
+| `i <=> 5` | `predicate` |  | an int column against an int literal | vector |
+| `ym <=> INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `NOT (d <=> d2)` | `predicate` |  | a total condition under a negation | vector |
+| `d <=> d2 OR i = 5` | `predicate` |  | beside a three-valued condition, which it never makes unknown | vector |
+| `equal_null(d, d2)` | `predicate` |  | the function form, a replacement of the operator | vector |
+| `year(d) <=> month(d2)` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896 AND unix_date(d2) BETWEEN -719162 AND 2932896` | computed operands: a calendar field's validity is read after its value walk | vector |
+| `(d < d2) IS TRUE` | `predicate` |  | the predicate and its own validity: true where the comparison is true, false where it is false or unknown | vector |
+| `(d < d2) IS NOT FALSE` | `predicate` |  | the negation of IS FALSE, which is the predicate negated and then tested for validity | vector |
+| `(d < d2) IS NOT TRUE` | `predicate` |  | the negation of IS TRUE: false exactly where the comparison is true | vector |
+| `(d < d2) IS FALSE` | `predicate` |  | the same composition over the negated comparison | vector |
+| `d IS DISTINCT FROM d2` | `predicate` |  | parses to the negation of a null-safe equality | vector |
+| `(year(d) = 2021 AND i > 0) IS TRUE` | `calendar`, `predicate` | `unix_date(d) BETWEEN -719162 AND 2932896` | a calendar field under a conjunction tested for validity keeps its guard | vector |
 | `d IN (11 to 16 date literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `i < 7` | `predicate` |  |  | vector |
 | `i <= 7` | `predicate` |  |  | vector |
@@ -470,6 +484,10 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
 | `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
 | `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
+| `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | per-lane: compare to mask, mask cast |
+| `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 
 #### Width conversions
 
@@ -486,6 +504,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 |---|---|---|---|---|
 | `i < l` | `predicate`, `intArithmetic` |  | an int against a bigint compares in the long lane, the int widened | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 | `l = i` | `predicate`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `l <=> i` | `predicate`, `intArithmetic` |  | the int widened to meet the bigint, its validity the column's | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 | `CAST(time_to_millis(t) AS INT) > i` | `time`, `predicate`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | the narrowed value compared in the int lane | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `hour(t) = 12` | `time`, `predicate` |  | the TIME extract narrowed inside the predicate | per-lane: mask broadcast, load or store |
 | `(i = 5 AND l = l2) IS NOT NULL` | `predicate` |  | the int conjunct widened to meet the bigint one, and the null test over both | per-lane: mask cast, mask broadcast, compare to mask, load or store |

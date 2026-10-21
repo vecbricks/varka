@@ -278,6 +278,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CASE WHEN (d = d2) IS NULL THEN d2 ELSE d END",
         "the optimizer leaves an equality under its null test, so a default session reaches "
           + "this form"),
+      Row("CASE WHEN (d < d2) IS TRUE THEN d ELSE d2 END",
+        "IS TRUE parses to a null-safe equality with true, which fuses as the predicate and its "
+          + "own validity (VARKA-336)"),
       Row("coalesce(d, d2)"),
       Row("greatest(d, d2)"),
       Row("least(d, d2)"))),
@@ -320,6 +323,31 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("(d < d2) IS NULL OR d < d2",
         "one comparison under its null test and beside it: the rows where it is not false"
           + pushedNote),
+      // Null-safe equality (VARKA-336): never null, so a default session's NullPropagation folds
+      // a null test over it and the partition oracle excludes that rule for these rows.
+      Row("d <=> d2", "two nulls are equal and a null is not equal to a value: a condition that "
+        + "is never unknown"),
+      Row("i <=> 5", "an int column against an int literal"),
+      Row(s"ym <=> ${ymLiteral(14)}"),
+      Row("NOT (d <=> d2)", "a total condition under a negation"),
+      Row("d <=> d2 OR i = 5", "beside a three-valued condition, which it never makes unknown"),
+      Row("equal_null(d, d2)", "the function form, a replacement of the operator"),
+      Row("year(d) <=> month(d2)",
+        "computed operands: a calendar field's validity is read after its value walk",
+        domain = Some(s"$dayBound AND unix_date(d2) BETWEEN ${VarkaChrono.CONTRACT_MIN_DAYS} " +
+          s"AND ${VarkaChrono.CONTRACT_MAX_DAYS}")),
+      Row("(d < d2) IS TRUE",
+        "the predicate and its own validity: true where the comparison is true, false where it "
+          + "is false or unknown"),
+      Row("(d < d2) IS NOT FALSE", "the negation of IS FALSE, which is the predicate negated "
+        + "and then tested for validity"),
+      Row("(d < d2) IS NOT TRUE", "the negation of IS TRUE: false exactly where the comparison "
+        + "is true"),
+      Row("(d < d2) IS FALSE", "the same composition over the negated comparison"),
+      Row("d IS DISTINCT FROM d2", "parses to the negation of a null-safe equality"),
+      Row("(year(d) = 2021 AND i > 0) IS TRUE",
+        "a calendar field under a conjunction tested for validity keeps its guard",
+        domain = Some(dayBound)),
       // Over `spark.sql.optimizer.inSetConversionThreshold` (10 by default) the optimizer
       // rewrites the list to an `InSet`, which fuses up to the compiler's own cap of 16.
       Row("d IN (11 to 16 date literals)",
@@ -375,7 +403,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
         "the widening cast written out; a narrowing one floors the nanoseconds and declines"),
       Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
-      Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote))),
+      Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote),
+      Row("l <=> l2", "null-safe equality at the long lane (VARKA-336)"),
+      Row("equal_null(l, l2)"),
+      Row("t <=> t2"),
+      Row("dt <=> dt2"))),
 
     // Both lanes in one kernel (VARKA-28): the casts between int and bigint, and the widening
     // Catalyst's type coercion puts under every operator that meets the two.
@@ -392,6 +424,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Width conversion predicates", predicates = true, Seq(
       Row("i < l", "an int against a bigint compares in the long lane, the int widened"),
       Row("l = i"),
+      Row("l <=> i", "the int widened to meet the bigint, its validity the column's"),
       Row("CAST(time_to_millis(t) AS INT) > i", "the narrowed value compared in the int lane",
         domain = Some(s"time_to_millis(t) BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
       Row("hour(t) = 12", "the TIME extract narrowed inside the predicate"),

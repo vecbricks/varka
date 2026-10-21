@@ -786,6 +786,17 @@
     "domain" : "",
     "note" : "the optimizer leaves an equality under its null test, so a default session reaches this form"
   }, {
+    "sql" : "CASE WHEN (d < d2) IS TRUE THEN d ELSE d2 END",
+    "executable" : "CASE WHEN (d < d2) IS TRUE THEN d ELSE d2 END",
+    "family" : "Choice and nulls",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "EqualNullSafe", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:date", "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "IS TRUE parses to a null-safe equality with true, which fuses as the predicate and its own validity (VARKA-336)"
+  }, {
     "sql" : "coalesce(d, d2)",
     "executable" : "coalesce(d, d2)",
     "family" : "Choice and nulls",
@@ -1071,6 +1082,149 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "one comparison under its null test and beside it: the rows where it is not false; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
+  }, {
+    "sql" : "d <=> d2",
+    "executable" : "d <=> d2",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "two nulls are equal and a null is not equal to a value: a condition that is never unknown"
+  }, {
+    "sql" : "i <=> 5",
+    "executable" : "i <=> 5",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an int column against an int literal"
+  }, {
+    "sql" : "ym <=> INTERVAL '1-2' YEAR TO MONTH",
+    "executable" : "ym <=> INTERVAL '1-2' YEAR TO MONTH",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "NOT (d <=> d2)",
+    "executable" : "NOT (d <=> d2)",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a total condition under a negation"
+  }, {
+    "sql" : "d <=> d2 OR i = 5",
+    "executable" : "d <=> d2 OR i = 5",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "EqualTo", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:date", "EqualTo:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "beside a three-valued condition, which it never makes unknown"
+  }, {
+    "sql" : "equal_null(d, d2)",
+    "executable" : "equal_null(d, d2)",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNull", "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNull:date", "EqualNullSafe:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the function form, a replacement of the operator"
+  }, {
+    "sql" : "year(d) <=> month(d2)",
+    "executable" : "year(d) <=> month(d2)",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "Month", "Year" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:int", "Month:date", "Year:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "unix_date(d) BETWEEN -719162 AND 2932896 AND unix_date(d2) BETWEEN -719162 AND 2932896",
+    "note" : "computed operands: a calendar field's validity is read after its value walk"
+  }, {
+    "sql" : "(d < d2) IS TRUE",
+    "executable" : "(d < d2) IS TRUE",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the predicate and its own validity: true where the comparison is true, false where it is false or unknown"
+  }, {
+    "sql" : "(d < d2) IS NOT FALSE",
+    "executable" : "(d < d2) IS NOT FALSE",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "LessThan", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the negation of IS FALSE, which is the predicate negated and then tested for validity"
+  }, {
+    "sql" : "(d < d2) IS NOT TRUE",
+    "executable" : "(d < d2) IS NOT TRUE",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "LessThan", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the negation of IS TRUE: false exactly where the comparison is true"
+  }, {
+    "sql" : "(d < d2) IS FALSE",
+    "executable" : "(d < d2) IS FALSE",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the same composition over the negated comparison"
+  }, {
+    "sql" : "d IS DISTINCT FROM d2",
+    "executable" : "d IS DISTINCT FROM d2",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "parses to the negation of a null-safe equality"
+  }, {
+    "sql" : "(year(d) = 2021 AND i > 0) IS TRUE",
+    "executable" : "(year(d) = 2021 AND i > 0) IS TRUE",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "And", "EqualNullSafe", "EqualTo", "GreaterThan", "Year" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:int", "GreaterThan:int", "Year:date" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
+    "note" : "a calendar field under a conjunction tested for validity keeps its guard"
   }, {
     "sql" : "d IN (11 to 16 date literals)",
     "executable" : "d IN (DATE '2021-01-01', DATE '2021-02-01', DATE '2021-03-01', DATE '2021-04-01', DATE '2021-05-01', DATE '2021-06-01', DATE '2021-07-01', DATE '2021-08-01', DATE '2021-09-01', DATE '2021-10-01', DATE '2021-11-01')",
@@ -1490,6 +1644,50 @@
     "domain" : "",
     "note" : "the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded"
   }, {
+    "sql" : "l <=> l2",
+    "executable" : "l <=> l2",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "null-safe equality at the long lane (VARKA-336)"
+  }, {
+    "sql" : "equal_null(l, l2)",
+    "executable" : "equal_null(l, l2)",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNull", "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNull:bigint", "EqualNullSafe:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "t <=> t2",
+    "executable" : "t <=> t2",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
+    "sql" : "dt <=> dt2",
+    "executable" : "dt <=> dt2",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "EqualNullSafe" ],
+    "casts" : [ ],
+    "operands" : [ "EqualNullSafe:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : ""
+  }, {
     "sql" : "CAST(i AS BIGINT)",
     "executable" : "CAST(i AS BIGINT)",
     "family" : "Width conversions",
@@ -1555,6 +1753,17 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
     "note" : ""
+  }, {
+    "sql" : "l <=> i",
+    "executable" : "l <=> i",
+    "family" : "Width conversion predicates",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "EqualNullSafe" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "EqualNullSafe:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the int widened to meet the bigint, its validity the column's"
   }, {
     "sql" : "CAST(time_to_millis(t) AS INT) > i",
     "executable" : "CAST(time_to_millis(t) AS INT) > i",
@@ -1820,5 +2029,5 @@
     "domain" : "time_to_micros(t) + 0 BETWEEN 0 AND 86399999999",
     "note" : "a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's"
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Subtract", "SubtractDates", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Subtract", "SubtractDates", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

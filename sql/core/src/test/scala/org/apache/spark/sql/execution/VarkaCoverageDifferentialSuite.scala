@@ -31,7 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjectio
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaFallbackEvent, VarkaGuardSpec, VarkaJfrTestSupport, VarkaMatrix, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaGuardSpec.Verdict
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
-import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, InferFiltersFromConstraints, NullDownPropagation}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, InferFiltersFromConstraints, NullDownPropagation, NullPropagation}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{difference => outcomeDifference, Answered, Raised}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
@@ -352,6 +352,21 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   private val partitionRewrites = Seq(BooleanSimplification, NullDownPropagation,
     InferFiltersFromConstraints).map(_.ruleName).mkString(",")
 
+  /**
+   * `partitionRewrites` and `NullPropagation`, for the null-safe rows (VARKA-336). A null-safe
+   * equality is never null, so by default `NullPropagation` folds `(p) IS NULL` to false before
+   * any plan holds a filter, and the "unknown partition is empty" would be Spark folding a
+   * constant. With the rule excluded `(p) IS NULL` reaches Varka as a null test over the
+   * node, and the kernel's answer is what the partition check compares.
+   */
+  private val nullSafeRewrites = s"$partitionRewrites,${NullPropagation.ruleName}"
+
+  /** Whether `sql` is a null-safe equality or an `IS [NOT] TRUE|FALSE`, which parses to one. */
+  private def isNullSafe(sql: String): Boolean =
+    Seq("<=>", "equal_null", " IS TRUE", " IS FALSE", " IS NOT TRUE", " IS NOT FALSE",
+      " IS DISTINCT FROM")
+      .exists(sql.contains)
+
   private def isVarkaFilter(plan: SparkPlan): Boolean = plan match {
     case _: VarkaFilterExec | _: VarkaFilterColumnarToRowExec => true
     case _ => false
@@ -424,7 +439,8 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   }
 
   /** The partition oracle for one predicate row on one fixture, under the session's optimizer. */
-  private def partitionCheck(row: CoverageRow, fixture: String): Seq[String] = {
+  private def partitionCheck(
+      row: CoverageRow, fixture: String, mustFuse: Boolean = false): Seq[String] = {
     val p = row.executable
     def query(where: String): String = s"SELECT $allColumns FROM $fixture WHERE $where"
     def onSpark(where: String): Seq[Row] = spark.sql(query(where)).collect().toSeq
@@ -447,7 +463,10 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
     }
     val unknown = s"($p) IS NULL"
     val known = s"($p) IS NOT NULL"
-    def fuses(where: String): Boolean = nullable(p, fixture) && !nullTestOverValue(query(where))
+    // A null-safe row with `NullPropagation` excluded must fuse its null tests whatever
+    // `nullable` says: the kernel, not Spark's folding, is what answers them.
+    def fuses(where: String): Boolean =
+      mustFuse || (nullable(p, fixture) && !nullTestOverValue(query(where)))
     (onVarka(p), onVarka(s"NOT ($p)"), onVarka(unknown, fuses(unknown))) match {
       case (Right(t), Right(f), Right(u)) =>
         partitionFindings(t, f, u, onSpark(p), onSpark(s"NOT ($p)"), onSpark(unknown),
@@ -468,7 +487,10 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   rows.filter(_.form == "predicate").foreach { row =>
     test(s"${row.family}: ${row.sql} splits every fixture into true, false and unknown rows") {
       val settings =
-        Seq("default optimizer" -> None, "rewrites excluded" -> Some(partitionRewrites))
+        Seq[(String, Option[String])]("default optimizer" -> None,
+          "rewrites excluded" -> Some(partitionRewrites)) ++
+          Option.when(isNullSafe(row.executable))(
+            "NullPropagation excluded too" -> Some(nullSafeRewrites))
       // The in-memory scan prunes a batch its statistics rule out - an all-null batch under a
       // predicate that rejects nulls - and a pruned batch meets no kernel, so pruning is off.
       val findings = withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, "false") {
@@ -477,7 +499,7 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
           (fixture, _) <- fixtures
           finding <- excluded match {
             case Some(rules) => withBothConf(SQLConf.OPTIMIZER_EXCLUDED_RULES.key, rules) {
-              partitionCheck(row, fixture)
+              partitionCheck(row, fixture, mustFuse = rules == nullSafeRewrites)
             }
             case None => partitionCheck(row, fixture)
           }

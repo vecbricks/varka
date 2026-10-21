@@ -1042,3 +1042,39 @@ cannot be planned around, so the dispatch takes the masked body for every batch
 (`Analysis.maskedOnly`), as it already did for a kernel that nulls valid inputs. The second of
 those was a wrong answer (a later group read the scratch nobody wrote) that only an independent
 review found; a new skip is checked against both before it lands.
+
+## The one comparison that is not null-intolerant is total, and needs three things a comparison does not
+
+`a <=> b` (VARKA-336) is true where both operands are null, so it is the first comparison whose
+answer depends on a null lane, and `Compare`'s contract (known exactly where both operands are
+valid) does not hold for it. It is its own node, `NullSafeEqual`, not a `CompareOp`: `kT = (E & vA
+& vB) | ~(vA | vB)`, `kF = ~kT`, never unknown, which `Not`, `And`, `Or`, `IfElse` and a filter
+root read through the masks unchanged. Three things follow that a new comparison would not need.
+
+* **The fixture must be able to make a formula that reads a null lane's value fail.** The harness
+  poisons a null lane with `Int.MinValue` and `Int.MaxValue`, so a test whose valid values include
+  both extremes has lanes where a valid operand equals the other column's poison. Dropping the
+  `~(vA | vB)` term from the emission failed four of the suite's six tests; with values in a small
+  range the same mutation survives wherever the poison differs from every valid value.
+* **A partition test of a total predicate proves nothing unless Spark's folding is switched off.**
+  `EqualNullSafe.nullable` is false, so by default `NullPropagation` folds `(a <=> b) IS NULL` to
+  false before Varka sees a filter, and "the unknown partition is empty" is Spark folding a
+  constant. The differential runs these rows once more with that rule excluded and requires the
+  null tests to fuse; `p IS TRUE` and its kin parse to the same node, so they are covered by it.
+* **`p IS TRUE` needs no node.** `p <=> true` is `And(p, IsNotNull(p))`, and `p <=> false` the same
+  over `Not(p)`: row 334's `IsNotNull` over a condition is the validity. Only value operands need
+  the node, because `IsNotNull` over a computed value cannot be read before the value walk.
+
+A new IR node also meets the suites that demand every node be reached: the IR fuzz grammar's two
+reach tests, `VarkaWithChildrenSuite`, the cost model's "every feature has a price" and the
+weight register. A node that is deliberately in no grammar and no price table is named in each,
+with the reason, so the exemption is visible and a later pricing fails the list until it is
+taken off (`awaitingRefit` in `VarkaEmitCostSuite`).
+
+Adding coverage rows regenerates four generated files, and in an order: `VARKA_COVERAGE_REGEN`
+(`coverage.json` and the docs table), then `VARKA_BYTES_REGEN` and `VARKA_AUDIT_REGEN`
+(`emitted_bytes.json`, `width_audit.json`), then `VARKA_COVERAGE_REGEN` again, because the docs
+table prints each row's width-audit verdict ("not audited" until the audit has the row). One pass
+leaves the docs table stale, which only the matrix's run of `VarkaCoverageSuite` reports. The
+golden corpus (`VARKA_GOLDEN_REGEN`) moves only if it holds a statement of the new form; this
+row's did not.

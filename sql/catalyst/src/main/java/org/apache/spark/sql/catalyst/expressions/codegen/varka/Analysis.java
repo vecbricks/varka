@@ -64,6 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mon
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullSafeEqual;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
@@ -685,6 +686,7 @@ final class Analysis {
         case BitOp n -> { }
         case BitCount n -> { }
         case Compare n -> { }
+        case NullSafeEqual n -> { }
         case And n -> { }
         case Or n -> { }
         case Not n -> { }
@@ -1239,6 +1241,9 @@ final class Analysis {
       case Least n -> analyzeOp(node, true, n.left(), n.right());
       case IfElse n -> analyzeOp(node, true, n.cond(), n.thenNode(), n.elseNode());
       case Compare n -> analyzeOp(node, false, n.left(), n.right());
+      // A known answer from a null input (two nulls are equal), the flag IfElse and the picks
+      // set; shortcutApplies excludes a condition root, so no shortcut changes.
+      case NullSafeEqual n -> analyzeOp(node, true, n.left(), n.right());
       case And n -> analyzeOp(node, false, n.left(), n.right());
       case Or n -> analyzeOp(node, false, n.left(), n.right());
       case Not n -> analyzeOp(node, false, n.child());

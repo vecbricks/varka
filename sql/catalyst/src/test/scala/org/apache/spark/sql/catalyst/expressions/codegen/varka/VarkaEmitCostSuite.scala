@@ -77,7 +77,14 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // and every record
     // type of the IR must be named in it, so a node type added later fails here until priced.
     val expected = VarkaEmitCostFit.expectedFeatures().asScala.toSet
-    val unnamed = irTypes().filterNot(t => expected.exists(f => f == t || f.startsWith(t + "/")))
+    // Nodes whose price waits for the next refit of the model (VARKA-352). A group holding one is
+    // unpredictable, so the budget answers it by the weights (VarkaEmitBudget); the entry leaves
+    // this list the day the node is priced, and fails here if it is priced while still listed.
+    val awaitingRefit = Set("NullSafeEqual")
+    assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
+      s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")
+    val unnamed = irTypes().filterNot(awaitingRefit.contains)
+      .filterNot(t => expected.exists(f => f == t || f.startsWith(t + "/")))
     assert(unnamed.isEmpty, s"IR types with no expected feature: ${unnamed.toSeq.sorted}")
     for ((name, prices) <- Seq("VarkaEmitCostTable" -> VarkaEmitCostTable.PRICES,
         "VarkaEmitCostRegister" -> VarkaEmitCostRegister.PRICES)) {

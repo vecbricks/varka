@@ -1052,7 +1052,8 @@ final class VarkaBodyEmitter {
     // (or in a shared node's local), one unmasked store, and this lane group's validity bits -
     // the root's word (all-true when dense), which orValidityBitsAt truncates itself.
     // A Cond root writes no data at all: its output is the selection bitmap - the
-    // known-true word, which is unknown-as-false by construction (kT is a subset of valid) -
+    // known-true word, which is unknown-as-false by construction (kT is a subset of valid, except
+    // for a total condition such as `<=>`, whose known-true lanes are its answer, null ones too) -
     // OR-ed into dstValidity exactly where a value root ORs its validity word; the dstData
     // slot stays untouched, per the interface contract.
     Set<VarkaVectorIR> computed = new HashSet<>();

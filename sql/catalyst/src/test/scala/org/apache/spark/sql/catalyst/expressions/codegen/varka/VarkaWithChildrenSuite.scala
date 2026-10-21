@@ -50,8 +50,18 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val permitted = classOf[VarkaVectorIR].getPermittedSubclasses.toSeq.flatMap { c =>
       Option(c.getPermittedSubclasses).map(_.toSeq).getOrElse(Seq(c))
     }.filter(_.isRecord).map(_.getSimpleName).toSet
-    assert((permitted -- seen).isEmpty,
-      s"the grammars never drew: ${(permitted -- seen).toSeq.sorted.mkString(", ")}")
+    // The null-safe equality is in no grammar yet (VARKA-336 6): it is rebuilt directly below.
+    val undrawn = permitted -- seen - "NullSafeEqual"
+    assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
+  }
+
+  test("a null-safe equality is rebuilt over its own children, and refuses a mixed pair") {
+    val col = new ColumnRef(0)
+    val other = new ColumnRef(1)
+    val node = new NullSafeEqual(col, other)
+    assert(VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*) == node)
+    assert(VarkaVectorIR.withChildren(node, other, col) == new NullSafeEqual(other, col))
+    intercept[Exception](VarkaVectorIR.withChildren(node, col, new ColumnRef(1, LaneType.LONG)))
   }
 
   test("a replacement is rebuilt in place, the node's other fields kept") {

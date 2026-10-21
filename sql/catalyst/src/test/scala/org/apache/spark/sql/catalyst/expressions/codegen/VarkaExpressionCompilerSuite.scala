@@ -30,13 +30,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmu
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
@@ -1600,13 +1600,57 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.declines.asScala(0).reason === "unsupported expression")
   }
 
-  test("declines null-safe equality, bare boolean outputs") {
-    // <=> on two nulls is true, which breaks the null-intolerant comparison rule.
-    assert(VarkaExpressionCompiler.compile(
-      Seq(out(If(EqualNullSafe(d, d2), d2, DateAdd(d, Literal(1))))), childOutput).isEmpty)
+  test("fuses null-safe equality over value operands, composes it over a predicate and a " +
+      "boolean literal, declines the rest and a bare boolean output") {
+    def ifThen(cond: Expression): Option[CompiledVarkaProjection] =
+      VarkaExpressionCompiler.compile(
+        Seq(out(If(cond, d2, DateAdd(d, Literal(1))))), childOutput).toScala
+    val c0 = new ColumnRef(0)
+    val c1 = new ColumnRef(1)
+    // Over values it is its own node, total in the emitter.
+    val values = ifThen(EqualNullSafe(d, d2)).get
+    assert(values.outputs.asScala.head.asInstanceOf[IfElse].cond() ===
+      new IRNullSafeEqual(c0, c1))
+    // `p IS TRUE` is `p <=> true`: p AND p IS NOT NULL. `p IS FALSE` is the same over NOT p.
+    val lt = new Compare(CompareOp.LT, c0, c1)
+    val isTrue = ifThen(EqualNullSafe(LessThan(d, d2), Literal(true))).get
+    assert(isTrue.outputs.asScala.head.asInstanceOf[IfElse].cond() ===
+      new IRAnd(lt, new IRIsNotNull(lt)))
+    val notLt = new IRNot(lt)
+    val isFalse = ifThen(EqualNullSafe(Literal(false), LessThan(d, d2))).get
+    assert(isFalse.outputs.asScala.head.asInstanceOf[IfElse].cond() ===
+      new IRAnd(notLt, new IRIsNotNull(notLt)))
+    // A null literal operand (Spark's NullPropagation rewrites it to IS NULL before Varka) and
+    // two predicates compared with each other wait for their own forms.
+    assert(ifThen(EqualNullSafe(d, Literal(null, DateType))).isEmpty)
+    assert(ifThen(EqualNullSafe(LessThan(d, d2), GreaterThan(d, d2))).isEmpty)
+    // Each decline names its reason, the first note a declined entry carries.
+    def reason(cond: Expression): String = {
+      // A second output that fuses, so that the declined one is reported beside a plan.
+      val partial = VarkaExpressionCompiler.compilePartial(
+        Seq(out(If(cond, d2, DateAdd(d, Literal(1)))), out(DateAdd(d, Literal(1)))),
+        childOutput).get
+      partial.declines.asScala(0).reason
+    }
+    assert(reason(EqualNullSafe(d, Literal(null, DateType))) ===
+      "null-safe equality with a null literal")
+    assert(reason(EqualNullSafe(LessThan(d, d2), GreaterThan(d, d2))) ===
+      "null-safe equality of two boolean operands that are not a predicate and a literal")
+    // Types outside the lane set wait on their own rows (strings, floating point, narrow ints).
+    val s = AttributeReference("s", StringType)()
+    val x = AttributeReference("x", DoubleType)()
+    for (operand <- Seq[Expression](s, x, sh)) {
+      val partial = VarkaExpressionCompiler.compilePartial(
+        Seq(out(If(EqualNullSafe(operand, operand), d2, DateAdd(d, Literal(1)))),
+          out(DateAdd(d, Literal(1)))),
+        childOutput ++ Seq(s, x)).get
+      assert(partial.declines.asScala.contains(0), operand.dataType.toString)
+    }
     // A comparison as a projection output is a boolean column - out of scope, interior only.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(LessThan(d, d2))), childOutput).isEmpty)
+    assert(VarkaExpressionCompiler.compile(
+      Seq(out(EqualNullSafe(d, d2))), childOutput).isEmpty)
   }
 
   test("IN dedups and sorts date literals into a balanced OR of EQ") {

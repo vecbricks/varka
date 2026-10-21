@@ -276,6 +276,15 @@ public final class VarkaReference {
         }
         yield Truth.of(compare(op, l.getAsInt(), r.getAsInt()));
       }
+      // Written from the meaning of `<=>`, not from the emitted formula: two nulls are equal, a
+      // null and a value are not, two values are equal when they are. Never unknown.
+      case NullSafeEqual(var left, var right) -> {
+        var l = value(left, row, isNull, lits);
+        var r = value(right, row, isNull, lits);
+        yield Truth.of(l.isEmpty() || r.isEmpty()
+            ? l.isEmpty() && r.isEmpty()
+            : l.getAsInt() == r.getAsInt());
+      }
       case And(var left, var right) ->
           and(cond(left, row, isNull, lits), cond(right, row, isNull, lits));
       case Or(var left, var right) ->
@@ -438,6 +447,13 @@ public final class VarkaReference {
           yield Truth.UNKNOWN;
         }
         yield Truth.of(compare(op, l.getAsLong(), r.getAsLong()));
+      }
+      case NullSafeEqual(var left, var right) -> {
+        var l = longValue(left, row, isNull, lits);
+        var r = longValue(right, row, isNull, lits);
+        yield Truth.of(l.isEmpty() || r.isEmpty()
+            ? l.isEmpty() && r.isEmpty()
+            : l.getAsLong() == r.getAsLong());
       }
       case And(var left, var right) ->
           and(longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));

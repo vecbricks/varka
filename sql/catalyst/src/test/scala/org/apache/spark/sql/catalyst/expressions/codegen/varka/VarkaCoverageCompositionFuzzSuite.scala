@@ -689,8 +689,13 @@ class VarkaCoverageCompositionFuzzSuite
       // A kernel that reads both literal tables (VARKA-28) has no form in the compiled check's
       // case, which holds one; `VarkaEmitterMixedLaneSuite` and the IR fuzzer's mixed corpus run
       // such kernels instead.
-      val oneTable =
-        rowKernels.filter { case (_, p) => p.literals.isEmpty || p.longLiterals.isEmpty }
+      // A long-lane kernel is driven by its long table alone, so one that also reads an int slot
+      // (`shiftright(l, i ^ 5)`: the count's `5` is an int-lane literal under a widening) is the
+      // same mixed case, whichever table is empty; the sample of rows reached it once the table
+      // grew.
+      val oneTable = rowKernels.filter { case (_, p) =>
+        p.literals.isEmpty || (p.longLiterals.isEmpty && p.lane == LaneType.INT)
+      }
       val kernels = coverageRow match {
         case Some(sql) =>
           oneTable.filter(_._1 == sql).ensuring(_.nonEmpty, s"no coverage row is $sql")

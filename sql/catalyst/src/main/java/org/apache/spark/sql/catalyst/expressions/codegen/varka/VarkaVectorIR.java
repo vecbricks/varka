@@ -96,6 +96,7 @@ public sealed interface VarkaVectorIR
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
       case Compare n -> n.left().laneType();
+      case NullSafeEqual n -> n.left().laneType();
       case And n -> n.left().laneType();
       case Or n -> n.left().laneType();
       case Not n -> n.child().laneType();
@@ -252,7 +253,7 @@ public sealed interface VarkaVectorIR
    * unknown and the degenerate single-mask form gives the same answer.
    */
   sealed interface Cond extends VarkaVectorIR
-      permits Compare, And, Or, Not, IsNotNull, InRanges {}
+      permits Compare, NullSafeEqual, And, Or, Not, IsNotNull, InRanges {}
 
   /**
    * The input column at {@code ordinal}, loaded once per lane group however often it is used,
@@ -758,6 +759,27 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * Null-safe equality, {@code left <=> right}, over two operands on one lane (the constructor
+   * requires the lanes to agree, as {@link Compare}'s does). Unlike every other comparison it is
+   * not null-intolerant: two null operands are equal and one null operand is not equal to a valid
+   * one. So it is <i>total</i>, as {@link IsNotNull} is: with {@code vA}, {@code vB} the operands'
+   * validity words and {@code E} the lane's equality mask,
+   * {@code kT = (E & vA & vB) | ~(vA | vB)} (both valid and equal, or both null) and
+   * {@code kF = ~kT}, so no lane is ever unknown and {@link Not}, {@link And}, {@link Or} and a
+   * filter root read it through the known-true and known-false masks unchanged. A null lane's
+   * stored value is undefined and never reaches the answer: {@code E} is ANDed with both
+   * validity words. A dense body has no null lane, so there it is {@link Compare}'s EQ mask.
+   * The operands are value nodes, so a computed operand's validity is read after its value walk,
+   * which {@link IsNotNull} over a value cannot do; a predicate operand is not one, and
+   * {@code p <=> true} is composed from {@link And} and {@link IsNotNull} by the compiler.
+   */
+  record NullSafeEqual(VarkaVectorIR left, VarkaVectorIR right) implements Cond {
+    public NullSafeEqual {
+      requireSameLane("a null-safe equality", left, right);
+    }
+  }
+
+  /**
    * Three-valued AND: known-true where both sides are known true, known-false where either
    * side is known false.
    */
@@ -1135,6 +1157,8 @@ public sealed interface VarkaVectorIR
       case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
       case Compare n ->
           "(cmp:" + n.op().name() + " " + canonical(n.left()) + " " + canonical(n.right()) + ")";
+      case NullSafeEqual n ->
+          "(nullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case And n -> "(and " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Or n -> "(or " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Not n -> "(not " + canonical(n.child()) + ")";
@@ -1213,6 +1237,8 @@ public sealed interface VarkaVectorIR
       case DateDiff n -> "(dateDiff " + lineOf.applyAsInt(n.end()) + " "
           + lineOf.applyAsInt(n.start()) + ")";
       case Compare n -> "(cmp:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "
+          + lineOf.applyAsInt(n.right()) + ")";
+      case NullSafeEqual n -> "(nullSafeEq " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
       case And n -> "(and " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
@@ -1308,6 +1334,7 @@ public sealed interface VarkaVectorIR
       case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
       case Compare n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case NullSafeEqual n -> new VarkaVectorIR[] {n.left(), n.right()};
       case And n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Not n -> new VarkaVectorIR[] {n.child()};
@@ -1371,6 +1398,7 @@ public sealed interface VarkaVectorIR
       case Least n -> new Least(children[0], children[1]);
       case IfElse n -> new IfElse(asCond(children[0]), children[1], children[2]);
       case Compare n -> new Compare(n.op(), children[0], children[1]);
+      case NullSafeEqual n -> new NullSafeEqual(children[0], children[1]);
       case And n -> new And(asCond(children[0]), asCond(children[1]));
       case Or n -> new Or(asCond(children[0]), asCond(children[1]));
       case Not n -> new Not(asCond(children[0]));

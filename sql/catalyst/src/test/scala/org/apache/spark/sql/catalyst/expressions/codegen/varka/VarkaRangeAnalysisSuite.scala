@@ -419,6 +419,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     def cond(c: Cond): Unit = c match {
       case x: Compare => value(x.left(), Kind.DAY); value(x.right(), Kind.DAY)
+      case x: NullSafeEqual => value(x.left(), Kind.DAY); value(x.right(), Kind.DAY)
       case x: And => cond(x.left()); cond(x.right())
       case x: Or => cond(x.left()); cond(x.right())
       case x: Not => cond(x.child())
@@ -510,6 +511,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     def goCond(c: Cond, armed: Boolean): Boolean = c match {
       case x: Compare => go(x.left(), armed) && go(x.right(), armed)
+      case x: NullSafeEqual => go(x.left(), armed) && go(x.right(), armed)
       case x: And => goCond(x.left(), armed) && goCond(x.right(), armed)
       case x: Or => goCond(x.left(), armed) && goCond(x.right(), armed)
       case x: Not => goCond(x.child(), armed)

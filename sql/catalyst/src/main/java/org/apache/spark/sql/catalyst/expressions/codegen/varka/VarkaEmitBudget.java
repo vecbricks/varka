@@ -604,7 +604,7 @@ final class VarkaEmitBudget {
       // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
       // node of its own), the narrowing conversion, the compare.
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, IfElse _, WidenLane _,
-          NarrowLane _, Compare _ -> 1;
+          NarrowLane _, Compare _, NullSafeEqual _ -> 1;
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that a
       // connective is never free to join any group.
       case And _, Or _, Not _, IsNotNull _ -> 1;
