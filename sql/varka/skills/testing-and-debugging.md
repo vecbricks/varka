@@ -774,6 +774,24 @@ configuration sets one, else the preferred width) and check the emitted bytes al
 Run the lane configurations with `--split 1`, `2` and `3` and under `-XX:MaxVectorSize=32`: the
 split moves which suites share a JVM.
 
+A test that pins an emitted shape (a prefix stored by one loop method and loaded by another, a
+census of unread locals) must pin the options the shape depends on, not take them from
+`VarkaMatrix.base`: a configuration that stops sharing the calendar prefix, raises the group
+budget past the shape or drops the method byte budget leaves no group to load a prefix, and a
+test that asserts the prefix is materialized fails there while the emitter is right (VARKA-411).
+Set those options from `VarkaEmitOptions.DEFAULTS` in the test, with the reason beside them, and
+keep every other option from the matrix, so the lane and cost configurations still run it. Tag the
+whole test `PinsDefaults` only when nothing else of it is worth running under a configuration.
+The scheduled option matrix runs every configuration and a pull request's scoped run only the one
+its diff names, so a test added with a feature is first run under the others a day later: run the
+new suites under all of `--list` before merging a test that emits.
+A suite that emits a whole corpus under a configuration may see the emitter decline a shape
+(`VarkaEmitDeclined`, which `shareChronoPrefix=false` does for the widest shapes: each node
+decomposes its own date and the method outgrows the byte budget); catch it for that option only,
+so every other option keeps failing loudly, and match the byte-budget decline alone and bound
+how many shapes it may drop, so that a regression that declines the corpus cannot pass an empty
+census.
+
 ## The random differential against Spark: read the shrunk reproducer, check the pool, mind the fixture
 
 `VarkaSparkFuzzSuite` (VARKA-262) composes random outputs and filters from the rows of
