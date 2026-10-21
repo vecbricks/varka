@@ -914,7 +914,10 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
       "a day's milliseconds, under 86400000, always fit an int",
     "CAST(time_to_millis(t) AS INT) > i" ->
       "a day's milliseconds, under 86400000, always fit an int",
-    "hour(t) + 1" -> "an hour is at most 23, so the checked add cannot overflow")
+    "hour(t) + 1" -> "an hour is at most 23, so the checked add cannot overflow",
+    "d2 - d" -> ("the fixture's dates are inside the calendar, under three million days apart, " +
+      "far inside the 106751991 days the multiply allows; VarkaDateMinusDateSuite takes the " +
+      "dates past it"))
 
   /** The statuses as the fallback accounting names them. */
   private def describe(statuses: Seq[Int]): String =
