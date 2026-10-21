@@ -580,3 +580,70 @@ within 9.7's range, measured on a runner with `VarkaColdStartBenchmark`.
 ## 9. Outcome
 
 Filled in as the runs land.
+
+### 9.1 Outcome of the laptop reading (21 October 2026)
+
+Step 2 of section 0, read on master `70dab76c410` (plan text from `c53d6f39f82`), the idle laptop
+(1-minute load 2.82 at the start and 0.36 at the end, 15-minute load 0.52 at the end, no other
+JVM at the start or the end, power profile `performance`
+before and after, memory sanitizer off), 12 forks: `dev/varka_kernel_history.sh --after 64
+--forks 6 --widths 64,32 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30`, cores 12 to
+17 as 257 had, 54 minutes, 0 wrong answers in 780 kernels, the kernel under test fast in 12 of 12.
+Raw readings, commands and the machine record: `results/VARKA-383-long-lane-history.txt`.
+
+| prewarm on, long lane | 1 to 3 | 4 to 15 | 16 to 63 | 16 to 63 with every loop method at tier 4 |
+|---|---|---|---|---|
+| 512 bits | 0 of 12 | 5 of 36 | **42 of 144** | 41 |
+| 256 bits (`MaxVectorSize=32`) | 1 of 12 | 6 of 36 | **38 of 144** | 38 |
+| 257, 16 October, 512 bits, loaded | 0 of 24 | 7 of 72 | 43 of 144 | all |
+
+Position 0 (an int kernel, as the lanes alternate) released 0 of 6 at each width. The int lane past
+position 15: 17 of 144 at 512 bits (11 with every loop at tier 4) and 43 of 144 at 256 bits (all 43),
+against 257's 15 at 512.
+
+**Verdict by 3.2: half (a) is admitted.** Past position 15 with the prewarm on, at both widths,
+41 and 38 of 144 long kernels released with every loop method at tier 4 (the threshold is 8 at
+either width), and position 0 stayed at 0 of 6. It does not close as the laptop's load: the idle
+machine reads what the loaded one did (42 against 43 at 512 bits), so there is no sign of a load
+effect; the rows 389, 391, 395 and 397 sit between the two readings and, with load, are confounded,
+so this reading does not say which of them, if any, moved the number. The 256-bit arm is the
+512-bit host with `MaxVectorSize=32`, not a 256-bit machine; the verdict stands on the 512-bit arm
+alone. The thresholds admit from this reading, whereas 6.1 and section 8 expected wave 1 on
+runners first. The "in between" arm (six more forks per
+width) is not needed.
+
+Predictions of 6.1 that this reading speaks to:
+
+1. **Position 0 releases nothing: holds** (0 of 6 at each width; the long lane's own position 0
+   was not a case, the history starts with an int kernel).
+2. **The long lane reproduces with the prewarm on: holds on the laptop** at both widths: 42 of 144 at 512 bits
+   (predicted 20 to 60) and 38 of 144 at 256 bits (20 to 70); positions 4 to 15 at 5 and 6 of 36,
+   against a registered 3 to 20 of 72 (1.5 to 10 per 36), at the edge of the bound for 6 and inside for 5. The reading is the laptop's, not a runner's: the
+   prediction said "idle runners", and the 256-bit case here is the 512-bit host with
+   `MaxVectorSize=32`, the way `--widths` makes it, not an AVX2 machine.
+3. **The prewarm does not move the long lane (on within 15 of off): not scored.** The prewarm-off
+   arm was not run (about 55 minutes more, outside the budget; half (a)'s thresholds read the
+   prewarm-on arm). 42 and 38 against 257's off arm of 46 on a loaded machine is not the same
+   test.
+4. **The int lane past 15 under 25 of 144 with the prewarm on, at each width: holds at 512 bits
+   (17), fails at 256 bits (43).** The "over 30 with it off" half is not scored (no off arm). The 43
+   is an int-lane kernel at 256 bits, the case 2.2 reads in the end-to-end failure, and it is
+   the number half (b)'s history reading would want; row 389 to 397's answer to that half stands
+   until a CI count says otherwise.
+5. to 8. **Not scored**: they need the runners or the arms not run (8 is the runner cost).
+
+What the reading does not say: which mechanism releases the draws: 6.1's item 5
+(raised trap limits) and wave 2's `-XX:+LogCompilation` replay are what separate 9.6's trap sums
+from the other routes, and row 405 showed it is not the second-kernel-class fallback. The 256-bit
+case here is not the 7763 or 9V74 route (`UseAVX=2`, the magic-divide form): a runner at 256 bits
+still reads a different set of forms. The 156 released draws, with their tiers, are in the results file; draw `p` of fork `f` uses seed
+20260903 + `f`, so wave 2 can replay one with `--after <p+1> --forks 1 --seed <20260903+f>`.
+
+**What the row asks next** (section 0 step 3 and 3.2): half (a) is admitted, so R1 and R2 on
+runners follow from section 0 step 3, which needs the `benchmark.yml` history mode of 3.1 (owner's go-ahead for runner
+hours). The launcher takes `--jvm`, so R3 (the raised trap limits, `--prewarm on --after 64 --forks
+6 --jvm -XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000`) and wave 2's
+replay can run on the laptop (R3 about half an hour at one width, `--widths 32` for 256 bits) and decide which fix arm A
+needs before any runner hour is spent; that is proposed here, not done. Arm A (the conversions
+`L2D`, `D2L` and the operator-keyed test) stays unbuilt until R3 says the mechanism. Step 1 (the
+CI count of the end-to-end suite) is untouched by this reading. The row is not Done.
