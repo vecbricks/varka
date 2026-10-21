@@ -40,12 +40,12 @@ between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no cover
 isnan|FLOAT|bool||plumbing|341|
 isnull|ALL|bool|int,bigint,date,time,ym,dt|plumbing|333,334,359|a validity read; item 93 over a predicate
 isnotnull|ALL|bool|int,bigint,date,time,ym,dt|plumbing|333,334,359|a validity read; item 93 over a predicate
-equal_null|ALL|bool||semantics|336,359|null-tolerant: item 34
+equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 and|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
 in|ALL|bool|date,ym|plumbing|333,341,348,359|NaN equals NaN in Spark's IN
 not|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
 or|bool|bool||plumbing|331,27|fused today as a condition, not over a BOOLEAN column or as an output
-<=>|ALL|bool||semantics|336,359|null-tolerant: item 34
+<=>|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 =|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN and -0.0 rules on floats
 ==|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|alias of =
 >|ALL|bool|int,bigint,date,time,ym,dt|semantics|341,348,359|Spark's NaN ordering on floats

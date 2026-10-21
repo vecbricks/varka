@@ -129,12 +129,13 @@ Dense body: no lane is null, so the node is `Compare` EQ's mask, bytes identical
   `Literal(true)` or `Literal(false)`: `p <=> true` is `And(p, IsNotNull(p))` over `compileCond(p)`,
   `p <=> false` is the same over `Not(p)`, either side. The shared `p` is lowered once (the
   masked body reads `kT` and `kF` of one node, records are structurally equal; row 334's shared
-  predicate test is the precedent). A boolean operand that is not a predicate (a boolean column)
-  declines until row 331; when 331's column-as-condition leaf exists the composition applies to it
-  with no change here. Two boolean operands that are both predicates (`p <=> q`) compose too:
-  `Or(And(IsTrue p, IsTrue q), Or(And(IsFalse p, IsFalse q), And(Not IsNotNull p, Not IsNotNull q)))`,
-  admitted only if the tree stays under `MAX_CHAIN_DEPTH` and the budget; otherwise it declines
-  with a reason. It is optional in this row (open question 2).
+  predicate test is the precedent). When row 331's column-as-condition leaf exists, a boolean
+  column is a predicate and this composition applies to it with no change here. **Two boolean
+  operands that are neither literal (`p <=> q`, `b1 <=> b2`) are 331's** (decided in the plan,
+  object if wrong; review of 21 October 2026, M3): 331 owns the boolean leaves and builds
+  `BoolNullSafeEq(Cond, Cond)` with the kT/kF formulas of `VARKA-331.md` 2.8, so this row neither
+  waits on 331 nor builds that form; before 331 lands it declines with its reason, and the later
+  of the two rows to merge extends the shared `EqualNullSafe` arm of `VarkaConditionCompiler`.
 * `onLongLane`: an arm for `NullSafeEqual` widening both operands, as for `Compare`: a mixed
   `i <=> l` reaches Varka as `cast(i as bigint) <=> l`, a `WidenLane` over the column, whose
   validity is the column's.
@@ -185,10 +186,14 @@ Oracles: the **row engine** (Spark's own `EqualNullSafe.eval`) for answers; `Var
 new arm for the IR suites, itself checked against the row engine by test 1.
 
 1. **The truth table, exhaustively.** Every validity pair (both valid, one null either way, both
-   null) times equal and different values, at both lanes and both widths (`lanesOverride` 4 and
-   8 and the default), in a masked and a dense body, with the null lanes' stored values poisoned
+   null) times equal and different values, at both lanes and, in the width sweep, at `lanesOverride` 4 and 8 and
+   the default, in a masked and a dense body, with the null lanes' stored values poisoned
    (equal to the other operand's, and different) so a formula that reads a null lane's value
    fails. The node's answer is Spark's `eval` per row; the reference arm agrees with both.
+   **JVM rule (row 410's lesson, `skills/testing-and-debugging.md`; review of 21 October 2026,
+   M6):** `VarkaEmitterNullSafeSuite` mixes in `VarkaOwnJvm`, last, because the `lanesOverride`
+   sweep puts a second species of one lane type in the JVM, which `VarkaSpeciesGuard` fails in a
+   shared one; any other suite of this row runs in process at `VarkaMatrix.base` lanes only.
 2. **Computed operands.** `year(d) <=> month(d2)`, `l <=> i + 1`, `date_add(d, i) <=> d2`, an
    operand with `Overflow.NULL` (a null from valid inputs: the kernel is masked-only and `<=>`
    sees that word), a long-lane `i <=> l` through `WidenLane`. This is the case a composition
@@ -213,10 +218,10 @@ new arm for the IR suites, itself checked against the row engine by test 1.
    emit-budget and cost-audit suites must pass with the node unpriced (section 6).
 7. **The null-tolerant readers.** `VarkaConjunctOrder` over `i <=> 5 AND d = d2`: no `isnotnull`
    moves past the `<=>` conjunct, and the order is Spark's.
-8. **Declines, named.** A null literal operand; a boolean non-predicate operand before row 331;
-   two operands on different lanes with no widening (as `Compare`); `<=>` over every type not yet
+8. **Declines, named.** A null literal operand; two boolean operands that are not
+   `p <=> literal` (before 331 lands; afterwards they are 331's `BoolNullSafeEq`); two operands on different lanes with no widening (as `Compare`); `<=>` over every type not yet
    in the lane set (string, decimal above 18 digits, float, double, boolean, narrow integers),
-   each with its reason, and they wait on 329, 331, 341, 359 and the string rows.
+   each with its reason, and they wait on 329, 331 (boolean), 341, 338, 359 and the string rows.
 
 ## 6. The fuzz grammar, the coverage differential and the cost model
 
@@ -236,7 +241,9 @@ new arm for the IR suites, itself checked against the row engine by test 1.
   need `NullSafeEqual/<lane>` features and the fit new data, which row 335a's refit needed the
   owner's word for. Instead the node is covered by test 1 and 2's deterministic series, the
   reference arm, and the composition fuzzer's coverage rows. A grammar production, its refit and
-  the bytes regeneration are a follow-up row (open question 3), taken with the next refit.
+  the bytes regeneration are a follow-up row (open question 3), taken with the next refit
+  (352's: the node is **unpriced until 352's refit**, the wording all three plans of 21 October
+  2026 now share).
 * **The cost model with the node unpriced.** `VarkaEmitCost.Tally.count` marks a feature with no
   price `unpriced` and `predicted()` returns null, which the budget reads as "unknown" and
   answers by the weight budget (`VarkaEmitBudget`: weight 1 for the node, as `Compare`).
@@ -273,7 +280,7 @@ new arm for the IR suites, itself checked against the row engine by test 1.
 
 ## 9. Out of this row
 
-* Boolean columns as `<=>` operands (331); boolean outputs, a `<=>` as a projection result (27).
+* Boolean-boolean `<=>` (`b1 <=> b2`, `p <=> q`): 331's `BoolNullSafeEq` (2.3); boolean outputs, a `<=>` as a projection result (27).
 * Float and double `<=>`, NaN and `-0.0` (341, section 2.4), decimals (359), strings, narrow
   integers (329), `TIMESTAMP_NTZ` (338): each follows its lane's `=`.
 * A grammar or series production for the node, the cost model's refit and its fit data (section 6).
@@ -290,8 +297,14 @@ new arm for the IR suites, itself checked against the row engine by test 1.
 3. Test 3's partition oracle passes on every new row, including the run with `NullPropagation`
    excluded, in which `(a <=> b) IS NULL` is answered empty by a fused kernel.
 4. Tests 1, 2, 4, 7 and 8 pass at both widths in both bodies; the flipped decline test passes.
-5. No existing row's emitted bytes move, `dev/varka_census.py --check` and the generated files
-   are current, and the cost model and grammar are untouched.
+5. No existing row's emitted bytes move, the cost model and grammar are untouched, and the common
+   last step holds (review of 21 October 2026, M5): on a clean tree regenerate `coverage.json`,
+   `docs/sql-varka.md`, `emitted_bytes.json` (new rows only, `git diff`) and
+   `sql/varka/golden_corpus.json` (`VARKA_GOLDEN_REGEN=true`; `<=>` occurs in Spark's golden SQL, so
+   verdicts move), update `totalDomains` (`VarkaCoverageDifferentialSuite`) for the guarded rows
+   added, run `dev/varka_census.py --check`, and run `VarkaCoverageSuite`,
+   `VarkaCoverageDifferentialSuite`, `VarkaGoldenCorpusSuite` and `VarkaEmittedBytesSuite` before
+   the first push.
 6. This file's section 11 records the outcome and scores section 7.
 
 ## 11. Open questions for the owner
@@ -299,7 +312,20 @@ new arm for the IR suites, itself checked against the row engine by test 1.
 1. **Compose `p IS TRUE`, or add `IsTrue(Cond)`?** Recommendation: compose (no new node, priced
    parts); build `IsTrue` only if a benchmark of a guarded `p IS TRUE` on null-free batches shows
    the missing dense body costing something worth the node.
-2. **Is `p <=> q` over two predicates in this row?** Recommendation: no, decline with a reason; it
-   is rare and waits for 331's boolean columns, where it arrives with the column form.
+2. **Is `p <=> q` over two predicates in this row?** Decided in the plan, object if wrong: no,
+   331 builds it (`BoolNullSafeEq`, 331 2.8) because it owns the boolean leaves, so this row has no
+   hand-off waiting on 331 and keeps only `p <=> literal` and value operands.
 3. **Grammar production and refit.** Recommendation: a follow-up row taken with the next refit,
    not this one, so this row's bytes fixtures and the model stay still.
+4. **Also decided in the plan, object if wrong** (the owner delegated these to the plan's
+   recommendation, 21 October 2026): the node stays unpriced until 352's refit (section 6, as in
+   the other two plans); `VarkaEmitterNullSafeSuite` is a `VarkaOwnJvm` suite (test 1); and the
+   331/336 dependency is one statement: 336 follows only 334, 331 builds the boolean `<=>`.
+
+### 11.1 Review of 21 October 2026
+
+An independent read-only review of this plan, applied the same day. Corrected: the boolean `<=>`
+was handed from this plan to 331 and back (2.3, test 8, section 9, question 2: now 331's); the
+`lanesOverride` sweep had no JVM rule (test 1); the common regeneration step was missing (10.5);
+the unpriced stance is now worded identically in all three plans (section 6). The reviewer found
+this plan's cost-model section the consistent one and its optimizer facts correct.

@@ -118,6 +118,43 @@ requires its table entry and the IR fuzzer draws it, and the weekly option matri
 for the other and the differential suites need no per-arm expectation. The default is chosen in
 3.5; the IR does not depend on it.
 
+**Overflow proofs are lane-width aware (review of 21 October 2026, 9.1).** `IntArith(ADD, mode, a,
+b)` over two byte children means overflow at BYTE width, so `FAIL` there is a byte-range check.
+`VarkaNodeCompiler.arithOver` rewrites `FAIL`/`NULL` to `WRAP` when `cannotOverflow` holds, and
+`cannotOverflow` is `boundedByIntMax`, a proof against the INT range (`VarkaNodeCompiler.java`
+around lines 753 to 780, read). For two byte operands that proof is always true, so `127Y + 1Y`
+under ANSI would compile to a silent wrap. Rule: `cannotOverflow` and `boundedByIntMax` take the
+node's lane width, and for a BYTE or SHORT node `FAIL`/`NULL` is never rewritten to `WRAP` by an int
+bound. A narrow checked node keeps its mode in the IR; the widened arm lowers it to an int
+operation followed by the range form of 4.2, and the multiply's "cannot overflow the int" proof
+lives in that lowering (the int product of two narrow values never overflows), not in `arithOver`.
+Test: `127Y + 1Y` (through columns, 4.4) raises under ANSI on both arms.
+
+**The mixed-width node (decided in the plan, object if wrong).** `WidenLane` and `NarrowLane` are
+hard-wired: `WidenLane` throws unless its child is INT and always yields LONG, `NarrowLane` needs a
+LONG child and yields INT (`VarkaVectorIR.java` around lines 376 to 415, read), and the walk emits
+`I2L` and `L2I` only. The mixed kernel `b < i` needs a BYTE-to-INT widening, which neither node
+can express. Choice: **extend the two records with a target lane, no new node**:
+`WidenLane(child, target)` and `NarrowLane(child, target)`, with the one-argument forms kept as the
+existing int-to-long and long-to-int. The constructor check becomes "the child's lane is strictly
+narrower than the target for `WidenLane`, strictly wider for `NarrowLane`" over the order
+BYTE < SHORT < INT < LONG, so the protection survives (a same-lane or wrong-direction conversion,
+which would hide a missing conversion elsewhere, still throws; a BYTE child under a LONG target is
+legal because Spark's `CAST(byte AS BIGINT)` is one conversion). Reason: it adds zero IR nodes and
+zero sealed-switch sites (the existing `case WidenLane n` arms, about 30 sites in 9 files, get a
+conversion chosen by the pair (child lane, target)), where a new node would add a site to each
+of those switches. Under WIDENED, `Analysis.laneOf` already answers INT for a narrow node, so a
+`WidenLane(byte, INT)` lowers to nothing; under NATIVE it is `B2I` (or `S2I`), part 0, from the
+narrow species of the int species' width (2.3). The mixed-kernel test is **IR-level** (hand-built
+trees, `VarkaReference` as the oracle); the SQL-level `b < i` waits for 332's casts, which is
+where `VarkaConditionCompiler.onLongLane`'s `WidenLane(c.left())` (an INT-to-LONG builder that
+would throw for a BYTE child) gets its narrow case.
+
+**A boolean column beside a narrow sibling.** A `BoolColumn` (`VARKA-331.md` 2.1) takes the lane of
+its sibling, BYTE and SHORT included, as an IR lane; under WIDENED `Analysis.laneOf` still answers
+INT. The bit read is independent of the stored width (`validityBitsAt` handles 1 to 64 lanes), so
+`And(BoolColumn, Compare(BYTE, ...))` passes `requireSameLane`.
+
 ### 2.2 What each arm costs in code
 
 * **Widened.** `Lane` gets no new instruction family. Two narrow `Lane` entries still exist (a
@@ -137,8 +174,10 @@ for the other and the differential suites need no per-arm expectation. The defau
   narrowed with `i2b` or `i2s` before the broadcast). Every emitter site that asks `Lane` for a
   descriptor works for free; every site that assumes a scalar of `int` or `long` (the array a
   scalar argument comes from, `localWidth`) takes a narrow case; the `Lane` constructor's
-  `scalar.equals(CD_int)` branch and `preferredLanes` need a narrow answer (the preferred lane
-  count of a byte or short species, read once). The checked arithmetic (4.3) needs the saturating
+  `localWidth` branch (`scalar.equals(ConstantDescs.CD_long) ? 2 : 1`, `Lane.java` around line 165,
+read) needs no change for a byte or short scalar (one local slot), but `preferredLanes` (around
+lines 166 to 168) knows only the `IntVector` and `LongVector` species and needs a byte and a short
+arm (the preferred lane count of a byte or short species, read once). The checked arithmetic (4.3) needs the saturating
   operators and, for `*`, a widening round trip. Medium; the emitter's forty sites are the
   measure, and `VarkaLaneTypeSuite` pins each new descriptor against a hand-written expectation.
 
@@ -147,6 +186,18 @@ branches (`TinyIntVector`, `SmallIntVector`, built from the Arrow field Spark's 
 build, as the long-lane destinations already are), `VarkaNodeCompiler.laneOf` answering the new
 lane types for `ByteType` and `ShortType`, the column and literal leaves, the comparison leaf
 (`VarkaConditionCompiler`'s `intLeaf` takes a narrow column), and the casts of 332 (not here).
+
+The two new `LaneType` members are a compile error at every exhaustive switch (`PLAN.md` 2.3:
+the main sources name `LaneType.INT`/`LONG` 55 times and `Lane.INT`/`LONG` 26 times across 16
+files, a count taken on 14 October 2026 and to be re-taken at implementation). The switch sites to
+expect are the ones `VARKA-336.md` 0.7 lists for a new IR case: `VarkaVectorIR` (`permits`,
+`laneType`, `canonical`, the render, `childrenOf`, `withChildren`), `Analysis`, `Slots`,
+`VarkaVectorWalk`, `VarkaOperandPosition`, `VarkaEmitBudget`, `VarkaEmitCost.kindOf`,
+`VarkaRangeAnalysis`, `VarkaChronoCompiler`'s rearm switch, `VarkaConditionCompiler.onLongLane`,
+and in tests `VarkaReference` (two switches), the shrinker and `VarkaCanonicalIr`. Also
+`VarkaEvaluatorBase.inputWidths` (around lines 873 to 880: casts to `BaseFixedWidthVector`, calls
+`getTypeWidth`, feeds `VarkaWarmupGate`), the sanitizer, `VarkaReproduction.bytesOf` and
+`VarkaKernelRunner.fill`, which must take the byte and short column widths.
 
 ### 2.3 The loop, the driving lane and 128 bits
 
@@ -223,22 +274,49 @@ only in arithmetic (4.2). Hence the predictions in 3.4 bound the NATIVE gain by 
    projection, with a `SMALLINT` twin of each; the coverage table and its machine-readable twin are
    regenerated by their tools, never edited. The census marks the type's pairs fused and the
    bytes oracle gains the rows with both option arms in its option-arm digest (no existing row's
-   bytes move; the option defaults to the arm that leaves every int and long kernel as it is).
-5. The fuzzers: the IR fuzzer draws `BYTE` and `SHORT` through its own corpus (the pattern of 28's
-   `drawMixedShape`: trees of the narrow and int grammars with the conversions) so a narrow value
-   can sit under an int node; the cost model is **not** repriced by a grammar draw here (39's rule
-   0 item 3), a grammar change is row 352's.
+   bytes move; the option defaults to the arm that leaves every int and long kernel as it is), by
+   its `VARKA_BYTES_REGEN` step (the variable named in `VarkaEmittedBytesSuite`), new rows only,
+   checked by `git diff`. The differential fixtures have no `TINYINT` or `SMALLINT` column (the
+   table's twelve columns, `VarkaCoverageDifferentialSuite`), so this row adds one of each and
+   states, from the run, what the added columns do to the other rows' partitions.
+5. No fuzzer draw (corrected in the review of 21 October 2026, 9.1). The IR fuzzer does **not**
+   draw `BYTE` or `SHORT` here: the draw is row 352's, so that no grammar change moves the cost
+   model's data (39's rule 0 item 3). The narrow types are covered by the deterministic series of
+   3.2. The new nodes and lanes are **unpriced until 352's refit**: `VarkaEmitCost.Tally.count`
+   marks a feature without a price unpriced and `predicted()` returns null, which is the intended
+   state (copied from `VARKA-336.md` section 6), including `ColumnRef`/BYTE, `ColumnRef`/SHORT and,
+   in 330, `IntArith` over a narrow lane. `drawMixedShape` is outside the cost corpus:
+   `VarkaEmitCostCorpus` draws `drawShape` and `drawLongShape` only (grep, 21 October 2026), so an
+   eventual narrow draw in `drawMixedShape` does not by itself reprice anything.
 
 ### 3.2 Tests, and what each is for
 
 | test | oracle | proves |
 | :-- | :-- | :-- |
-| every byte value at every lane position and tail length, written then read back | the input `ColumnarBatch`'s own values | the load and store, both arms, strides 1 and 2, lengths 1 to 129 at 2, 4, 8, 16, 32, 64 lanes |
+| every byte value at every lane position and tail length, written then read back | the input `ColumnarBatch`'s own values | the load and store, both arms, strides 1 and 2, lengths 1 to 129; the lane-count sweep only in a forked JVM, over valid species (see below) |
 | every `(a, b)` byte pair through `<`, `<=`, `=`, `>`, `>=`, `IN`, `greatest`, `least` (2^16 rows, one batch) | Spark's own expressions | the compares and choice exhaustively, both arms |
 | the same over `SMALLINT`, as 2^16 batches of 2^16 | Spark's own expressions; budgeted with 330's (4.4) | exhaustive 16-bit compares |
 | null patterns (`VARKA-138.md`), arbitrary data bits under null slots | row engine | validity at 32- and 64-row groups |
-| `b < i` (mixed) and the widening cast composed | row engine | the part-width species beside the full int species in one JVM, both orders of first use, with `-XX:+PrintIntrinsics` allocation reading as 376's suite takes it |
-| both arms equal on every draw | each other, per tree | the option changes no answer (the fuzzer's job) |
+| `b < i` (mixed), IR-level: hand-built `Compare(WidenLane(ColumnRef BYTE -> INT), ColumnRef INT)` (2.1) | `VarkaReference` over the same IR | the part-width species beside the full int species, both orders of first use, in a forked JVM (below), with `-XX:+PrintIntrinsics` allocation reading as 376's suite takes it; the SQL-level form waits for 332 |
+| both arms equal on a deterministic series of narrow trees (the shapes of 3.4 and the tests above, every null pattern) | each other, per tree | the option changes no answer; no fuzzer draw (3.1 item 5, 9.1) |
+
+**JVM and lane-count rules for every suite of this row (row 410's lesson,
+`skills/testing-and-debugging.md`, the `VarkaOwnJvm` paragraphs).** `VarkaSpeciesGuard` fails an
+in-process test that puts a second species of one lane type in the shared JVM, and the two arms put
+different `ByteVector` species there (a part-width one for the WIDENED load, a full-width one for
+NATIVE). So each new suite either mixes in `VarkaOwnJvm` (Scala) or is a forked-JVM JUnit suite
+like `VarkaEmitterMixedLaneSuite`; the width and both-arm sweeps and the two-species tests run
+only there; an in-process suite emits at `VarkaMatrix.base` lanes. **What `lanesOverride` counts
+for a narrow lane:** `Lane.emitLanes` takes `lanesOverride` (or the lane's `preferredLanes`) as a
+count of the driving lane's own lanes, and returns 0 (the general `SPECIES_PREFERRED` form) unless
+`hasSpecies(lanes)` (width `lanes * bits` is 64, 128, 256 or 512) and the validity helpers exist
+(2, 4, 8 or 16 lanes), read in `Lane.java` around lines 268 and 315 to 334. For a BYTE-driven
+kernel the valid counts are therefore 8 and 16 (2 and 4 give 16- and 32-bit species, which do not
+exist); 32 and 64 name a species but have no helper pair and fall back to the general form. For a
+SHORT-driven kernel 4, 8 and 16 are valid. Under WIDENED the kernel is driven at the INT lane, so
+`lanesOverride` counts int lanes (4, 8, 16) and the byte species is derived from it (2.3). The
+byte-lane width sweep runs only over the valid species and reports 32 and 64 as the fallback
+form, never as a sweep point of its own.
 | `VarkaEmitOptionSuite`, `VarkaLaneTypeSuite` | hand-written descriptor tables | the new option entry and descriptors |
 | the width audit at 512, 256 and 128 | `width_audit.json` | no new refusal at a width the host supports; the 128-bit byte form as in 2.3 |
 
@@ -309,7 +387,14 @@ benchmark of 3.4 is committed with its verdict per width and operator and the pr
 against it in section 9; the losing arm stays in the option matrix (the fuzzer's own draws of the narrow types are row
 352's, not this row's, so that no grammar change reprices the cost model here); the census's
 fused pairs count rises by the narrow comparison and choice pairs and `dev/varka_census.py --check`
-passes.
+passes. **Last step, common to 329 and 330 (review of 21 October 2026, M5):** on a clean tree,
+regenerate `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json` (new rows only, checked by
+`git diff`) and `sql/varka/golden_corpus.json` (`VARKA_GOLDEN_REGEN=true`, since `TINYINT` columns
+occur in Spark's golden SQL and verdicts will move; `VarkaGoldenCorpusSuite` byte-compares it),
+update `totalDomains` (`VarkaCoverageDifferentialSuite`) for the guarded rows added, add the
+fixture columns of 3.1 item 4, run `dev/varka_census.py --check`, and run `VarkaCoverageSuite`,
+`VarkaCoverageDifferentialSuite`, `VarkaGoldenCorpusSuite` and `VarkaEmittedBytesSuite` before the
+first push.
 
 ## 4. Row 330: the arithmetic, in three modes
 
@@ -321,7 +406,7 @@ Spark's rule at the type's width `w` (8 or 16), per node (0, item 8): the exact 
 
 | | LEGACY (wrap) | ANSI (raise) | TRY (null) |
 | :-- | :-- | :-- | :-- |
-| WIDENED, `+ - *` | int op (exact, no int overflow: operands are in range), wrap by `I2B`/`I2S` at the store, or by a shift pair at an interior node whose consumer is not wrap-compatible (4.2) | int op then `GuardedRange(r, lo, hi)`: the batch declines and the row engine raises | int op, a range compare, the mask clears the output's validity |
+| WIDENED, `+ - *` | int op (int wraparound mod 2^32 is harmless to the result mod 2^w, so an unreduced operand under the deferral rule of 4.2 is fine), wrap by `I2B`/`I2S` at the store, or by a shift pair at an interior node whose consumer is not wrap-compatible (4.2) | int op then `GuardedRange(r, lo, hi)`: the batch declines and the row engine raises | int op, a range compare, the mask clears the output's validity |
 | NATIVE `+`, `-` | the byte op wraps natively | `ADD` and `SADD` compared `!=` (`SUB` with `SSUB`); a lane that differs is an overflow: declines the batch | the same mask clears validity |
 | NATIVE `*` | the byte (short) `MUL` wraps natively | widen (byte to short, short to int), multiply exactly, range compare, narrow | the same compare to validity |
 | `-x` | `(byte)(-x)`: the lane wraps | declines the batch where `x == MIN` (`GuardedRange(x, MIN+1, MAX)` before the negate) | none: Spark has no `try_negative` |
@@ -345,11 +430,17 @@ own wraparound does not break this (mod 2^32 reduces mod 2^8). This is a lowerin
 emitter, proved for the shift-pair form by SMT over every 16-bit pair (4.4), not a property
 assumed. ANSI and TRY need the exact narrow value at every node (Spark checks per node: `(b1 + b2)
 - b3` raises on `b1 + b2` alone), so each checked node is followed by its range form and no deferral
-applies. The range proof for the multiply (0, item 6) is by the operand's type, so `arithOver`'s
-decline is not reached: the compiler builds the node through `arithOver` only after the
-narrow-operand bound is registered with `VarkaRangeAnalysis` (the transfer function already
-answers `INT`-range questions; a narrow column's range is `[-128, 127]` or `[-32768, 32767]` by
-type, to be added as the column bound a `ColumnRef` of the new lane carries).
+applies. The range proof for the multiply (0, item 6) is by the operand's type and
+lives in the lowering, not in `arithOver` (corrected in the review of 21 October 2026, 9.1: the
+earlier text had the compiler reach `arithOver` after the narrow bound was registered, which with
+an int-width `cannotOverflow` would also turn a narrow ANSI/TRY add into a wrap; see 2.1). The
+lowering is an int operation followed by the range form: for `+ - *` the int result of two narrow
+operands cannot overflow 32 bits, so the int op is exact and the node's own check is the range
+compare (ANSI: `GuardedRange`; TRY: the range compare into validity). A narrow column's range is
+`[-128, 127]` or `[-32768, 32767]` by type, added to `VarkaRangeAnalysis` as the column bound a
+`ColumnRef` of the new lane carries. That bound holds on **live lanes only**: under a TRY node, a
+null lane holds out-of-range junk, so no consumer may read the bound off a lane whose validity bit
+is clear (it is registered with that qualification, and the lowering masks before it compares).
 
 ### 4.3 The native arm
 
@@ -371,7 +462,10 @@ that per operator and the default is allowed to differ per operator (question 2)
   10.3 item 5 at its upper end. Negation and `abs` are unary and exhaustive in 2^16 rows for both
   types. The named cases: `-(-128Y)`, `abs(-128Y)`, `-(-32768S)`, `abs(-32768S)` in each mode, and
   `127Y + 1Y`, `-128Y - 1Y`, `-128Y * -1Y` (which is 128, out of range, in ANSI and TRY), `127Y * 127Y`,
-  and the short analogues, each with a null beside it at the edge.
+  and the short analogues, each with a null beside it at the edge. **They go through columns or a
+  literal-free fixture**: written as literals, `ConstantFolding` evaluates them at plan time and
+  the kernel never sees them. The ANSI `127Y + 1Y` case must raise on both arms through columns
+  (the guard against 2.1's `arithOver` hazard).
 * **Oracle cost.** The only committed timing of a 2^32 sweep is 28's: 2^32 int widenings and
   narrowings each way, no decline, about 25 seconds with the kernel on both sides
   (`VARKA-28.md` 9). A sweep against Spark's own expression evaluation costs more, by an amount not
@@ -409,8 +503,14 @@ that per operator and the default is allowed to differ per operator (question 2)
   WIDENED in cache for `+ - ` and below that for `*`; ANSI and TRY ratios reported per operator
   without a registered bound, because the check forms differ (a guard against a saturating compare)
   and the first number is what the model needs.
-* The cost model (`VarkaEmitCost`, `VarkaEmitCostTable`) is repriced by the new nodes in 330's pull
-  request, as 335a's was, with the refit benchmarked.
+* The cost model is **not** repriced here (corrected in the review of 21 October 2026, 9.1): the
+  new narrow arithmetic is unpriced until 352's refit (`VARKA-336.md` section 6; `Tally.count`
+  marks it unpriced). 335a's refit was fitted on grammar draws and needed the owner's word; with no
+  narrow draw before 352 there is no data to fit. Narrow-type differential checks here are
+  deterministic series, not fuzzer draws.
+* Suites follow 3.2's JVM rules: `VarkaEmitterNarrowArithSuite` is its own JVM, the arithmetic
+  width and both-arm sweeps run only there, and any in-process suite emits at `VarkaMatrix.base`
+  lanes.
 
 ### 4.6 Done when (row 330)
 
@@ -430,10 +530,11 @@ to an existing row.
   accept `INT` and `BIGINT` only, so a narrow operand arrives under a widening and is an int shift
   with no narrow case at all. `bit_count` of a byte or short is `Long.bitCount` of the
   sign-extended value (the interpreted form reads `java.lang.Long.bitCount(input.asInstanceOf[Byte])`),
-  a 64-bit popcount whose int result is at most 64: under WIDENED it is the int `BitCount` over a
-  sign-extended lane plus a correction (the high 32 bits of the sign-extended value are 32 copies
-  of the sign, so the count is `popcount32(x) + 32 * signBit`), which 335b's SMT covers for the
-  narrow types; under NATIVE it widens. `bit_get` and `getbit` return `TINYINT`
+  a 64-bit popcount whose int result is at most 64: the landed int `BitCount` already is
+  `bitCount(x) + ((x >> 31) & 32)` (`VarkaVectorIR.java` around lines 737 to 745, read), which is
+  exactly `Long.bitCount` of the sign-extended value, so under WIDENED it needs a sign-extended
+  input and nothing else (the correction this text once named is already inside the node;
+  corrected in 9.1); under NATIVE it widens. `bit_get` and `getbit` return `TINYINT`
   (`BitwiseGet.dataType` is `ByteType`): their output is a byte root, which 329's store admits, so
   **335b's byte-output items are unblocked by 329's store and the comparisons, and need nothing
   from 330.**
@@ -464,7 +565,8 @@ to an existing row.
   composes it (332).
 * Collation, `TINYINT` as a hash or sort key, `ARRAY<TINYINT>` and every nested use: not columnar.
 * A high-multiply or a 128-bit-lane form: no census cell exists and none is assumed.
-* Repricing the emit cost model by a fuzzer grammar change (352's).
+* Repricing the emit cost model and any fuzzer draw of a narrow type (352's); the narrow nodes
+  stay unpriced until then.
 * The tiny-lane cache serializer: the Arrow cache holds `TinyIntVector` and `SmallIntVector`
   already, so no change; confirmed by the read test of 3.2.
 * A `BIGINT` or `INT` checked multiply (104's and `arithOver`'s refusal remain as they are).
@@ -509,6 +611,15 @@ Questions for the owner, each with this plan's recommendation:
    per operator and mode swept"?** Recommendation: yes, because the arms share the IR and the
    SMT proves the lowering for both, while the one swept arm proves the plumbing; decide after the
    timing, not before.
+4. **Decided in the plan, object if wrong** (the owner delegated these to the plan's
+   recommendation, 21 October 2026): (a) the mixed-width node is `WidenLane`/`NarrowLane` extended
+   with a target lane, not a new node, because it adds no node and no sealed-switch site and the
+   strictly-narrower check keeps the hidden-conversion protection (2.1); the mixed-kernel test is
+   IR-level, the SQL-level one waits for 332; (b) overflow proofs are lane-width aware and a
+   narrow checked node is never made a wrap by an int bound (2.1); (c) the narrow nodes are
+   unpriced until 352's refit, there is no fuzzer draw and no repricing here (3.1 item 5, 4.5);
+   (d) every new suite is `VarkaOwnJvm` or a forked-JVM JUnit suite, sweeps run only there, and
+   byte-lane sweeps are restricted to the valid species of 3.2.
 (What was a fourth question, whether the WIDENED arm declines at 128 bits where no whole-group
 form is intrinsic, is not the owner's: the census extension of step 1 answers it, by the rule in
 2.3 and row 28's measurement, that a masked load is never carried; the arm declines by name only if
@@ -519,3 +630,16 @@ parts, reads `I` on the host.)
 
 *To be written as the work happens, with the predictions of 3.3 and 4.5 scored beside the measured
 numbers and the corrections to this plan added, not retro-edited.*
+
+### 9.1 Review of 21 October 2026
+
+An independent read-only review of this plan, applied the same day. Corrected above, in place and
+noted where it stands: the overflow proof was int-width and would have made a narrow ANSI/TRY add a
+wrap (2.1, 4.2); `WidenLane`/`NarrowLane` could not build the mixed kernel (2.1, decision in 8);
+3.1 item 5 and 4.5 contradicted 3.6 and 6 on the fuzzer and the cost model (now: unpriced, no
+draw); the common regeneration set (3.6) was missing; the species-guard rule and what
+`lanesOverride` counts for a narrow lane were missing (3.2); the `Lane` constructor wording (2.2),
+the `LEGACY` WIDENED cell and the live-lane qualification (4.1, 4.2), the folded-literal named
+cases (4.4) and the `bit_count` correction (5) were wrong or imprecise. Nothing is left as an
+unconfirmed claim except that the `Lane`/`preferredLanes` and walk edits are the implementer's to
+read at the time.

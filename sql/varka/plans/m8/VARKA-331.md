@@ -20,11 +20,14 @@
   **[V]**. `VarkaNodeCompiler.laneOf` has no `BooleanType`, `VarkaEvaluatorBase.isArrowBacked` has
   no `BitVector` case and ends in `default -> false`, `compare` takes only int and date operands
   through `operand`, and the only literal readers take `Integer` (`literalDays`, `bound`) **[V]**.
-* **`IS NULL` over a predicate exists (334).** `compileValidity` sends a `BooleanType` child to
-  `compileCond(child).map(IsNotNull::new)`; `Analysis` records each `IsNotNull` whose child is a
-  `Cond` in `nullTestsOverCond`, and `Analysis.maskedOnly()` is `nullsFromValidInputs ||
-  guardUnderNullTest || prefixUnderNullTest()` - such a kernel has **no dense body** because the
-  dense lowering answers `IsNotNull` constant true **[V]**.
+* **`IS NULL` over a predicate exists (334).** `compileValidity` sends every `BooleanType` child
+  to `compileCond(child).map(IsNotNull::new)` **[V]** (so it yields `IsNotNull(BoolColumn)` once
+  the leaf exists); `Analysis` records each `IsNotNull` whose child is a `Cond` in
+  `nullTestsOverCond`, and `Analysis.maskedOnly()` is `nullsFromValidInputs || guardUnderNullTest
+  || prefixUnderNullTest()` **[V]**: `nullTestsOverCond` forces masked-only only together with a
+  guard or a materialized prefix under the test, and the dense lowering answers an `IsNotNull`
+  over a `Cond` constant true (`VarkaVectorWalk`), which is why a kernel holding one with a guard
+  or prefix cannot use its dense body.
 * **Choice.** `ifElse` compiles `If`, `caseWhen` folds `CASE WHEN ... ELSE`, and `CaseWhen`
   without an ELSE declines ("would break the dense body's all-valid invariant") **[V]**. All
   three compile their *branches* as values, so a `BooleanType` branch declines.
@@ -49,8 +52,13 @@
    for that without any extra step because both words are ANDed with validity; the dense body
    cannot see a null slot at all. The test that proves it (3.2) is where the arbitrary bits are
    drawn.
-3. `b IS NULL` over a *bare column* must not take 334's `IsNotNull(Cond)` route (which forces
-   `maskedOnly`): it is the column's validity word, as an int column's is (4.3).
+3. `b IS NULL` over a *bare column* must not take 334's `IsNotNull(Cond)` route: it is the
+   column's validity word, as an int column's is (2.7). (Corrected in the review of 21 October
+   2026, 9.1: this text said that route "forces `maskedOnly`". `maskedOnly()` is `nullsFromValidInputs
+   || guardUnderNullTest || prefixUnderNullTest()` [V, `Analysis.java` around lines 377 to 379]; a
+   non-empty `nullTestsOverCond` forces it only together with a guard or a materialized prefix
+   under the test. The reason to avoid the route is the special case it touches at three
+   sites, listed in 2.7, not an unconditional loss of the dense body.)
 4. A boolean *null literal* is not a harmless leaf. The dense body's invariant is that nothing
    makes a null of valid inputs; a `NULL` constant leaf breaks it exactly as a no-ELSE `CASE
    WHEN` does, so it sets `nullsFromValidInputs` (4.4).
@@ -72,8 +80,12 @@ decision they share is 4.5.
 
 New IR leaf `BoolColumn(int ordinal, LaneType lane) implements Cond` (the one-argument form is
 the int lane, as `ColumnRef`'s is; the lane renders in `canonical` through `laneTag`, so the int
-shape hashes are unchanged). The compiler chooses the lane: that of the sibling it meets, the int
-lane when it meets none (a lone `WHERE b` then runs at the widest group, 16 rows at 512 bits).
+shape hashes are unchanged). The compiler chooses the lane: that of the sibling it meets, **including BYTE and
+SHORT** (a `BoolColumn` beside a narrow `Compare` takes that IR lane, so `requireSameLane` holds
+for `And(BoolColumn, Compare(BYTE, ...))`; under `VARKA-329.md`'s WIDENED arm `Analysis.laneOf`
+still answers INT for it, and the bit read is independent of the stored width, `validityBitsAt`
+handling 1 to 64 lanes; `onLongLane` is INT-to-LONG only, so a narrow sibling needs no case
+there), the int lane when it meets none (a lone `WHERE b` then runs at the widest group, 16 rows at 512 bits).
 `onLongLane` (the existing int-to-long condition conversion) gains `case BoolColumn c -> new
 BoolColumn(c.ordinal(), LONG)`; the long form reads `lanes` of the long species, the same bitmap.
 
@@ -95,7 +107,10 @@ well as its validity segment, as `ColumnRef` does for its vector; whether the pl
 Evaluator side: `isArrowBacked` gains `case BitVector v -> !derivedInput[i] && v.getValueCount()
 == rows`; `VarkaNodeCompiler.laneOf` stays value-lane only (a boolean has no value lane; the leaf
 has its own constructor in `VarkaConditionCompiler`). Every place that sizes an input by
-`getTypeWidth()` (the sanitizer's guards, `VarkaReproduction.KernelCall.bytesOf`) is wrong for a
+`getTypeWidth()` (the sanitizer's guards, `VarkaReproduction.KernelCall.bytesOf`,
+`VarkaEvaluatorBase.inputWidths`, which casts to `BaseFixedWidthVector`, calls `getTypeWidth` and
+feeds `VarkaWarmupGate` [V, around lines 873 to 880 of `VarkaEvaluatorBase.java`];
+`VarkaKernelRunner.fill` is correct as described in section 0) is wrong for a
 bit vector [I: `BitVector`'s type width is 0]: step 1 greps each and gives the bit layout its own
 size, `(len + 7) / 8`, with the sanitizer's canary test failing before the fix.
 
@@ -165,18 +180,32 @@ analysis already reads the cond's own flags; no new rule).
 
 Over a *bare boolean column* these are the column's validity word, by the existing `IsNotNull`
 column form: `compileValidity` takes `BoundReference` of `BooleanType` to `IsNotNull(BoolColumn)`
-and `Analysis` treats a `BoolColumn` child as a column child (word read, **not** added to
-`nullTestsOverCond`), so the dense body keeps its constant-true answer and no kernel loses its
-dense body for `b IS NOT NULL`. Over a larger boolean expression it is 334's rule unchanged.
+(it already sends every `BooleanType` child through `compileCond`) and the walk reads it as a
+**column-form** `IsNotNull` (word read). The special case touches three places, each needing an
+exception for a `BoolColumn` child: `Analysis` (around lines 1250 to 1266: the check of the child,
+and the add to `nullTestsOverCond`, which a `BoolColumn` skips); `VarkaVectorWalk` (around line
+1182: `IsNotNull n when !dense && n.child() instanceof Cond` would match a `BoolColumn` before the
+column arm at around line 1197, so the guard excludes it); and `Slots` (the `IsNotNull` cases
+around lines 1244, 1271, 1358, 1499 and 1579). The aim is to avoid the guard/prefix masked-only
+case of section 0 for `b IS NOT NULL`, which is consistent with `VARKA-336.md`'s
+`And(p, IsNotNull(p))` composition over a boolean column. Over a larger boolean expression it is 334's rule unchanged.
 Spark infers `isnotnull(b)` beside `b` in a filter just as for int columns (`compileValidity`'s own
 comment, VARKA-122), so without this a fused `WHERE b` would keep a residual row filter.
 
 ### 2.8 Null-safe equality (336), `bit_count` (335b), casts
 
-* **336** `a <=> b` over booleans is a `Cond` over validity words: `kt = (t1 & t2) | (f1 & f2) |
-  (~k1 & ~k2)`, `kf = (t1 & f2) | (f1 & t2) | (k1 ^ k2)` (k the known words). It takes `Cond`
-  children, which is what 331 supplies and what `p IS TRUE` (`EqualNullSafe(p, true)`) needs;
-  331 does not build it.
+* **Boolean `<=>` (decided in the plan, object if wrong; review of 21 October 2026, M3).** 331
+  owns the boolean leaves, so **331 builds the boolean null-safe equality**:
+  `BoolNullSafeEq(Cond left, Cond right)`, a `Cond` over validity words, never null:
+  `kt = (t1 & t2) | (f1 & f2) | (~k1 & ~k2)`, `kf = (t1 & f2) | (f1 & t2) | (k1 ^ k2)` (k the
+  known words, `k = t | f`; the truth tables were checked by the review). It takes `Cond`
+  children, so `b1 <=> b2`, `p <=> q` and `b <=> true` all compile. The compiler arm is the
+  `EqualNullSafe`/`EqualNull` arm that 336 adds to `VarkaConditionCompiler`; 331 adds its boolean
+  case to it, and whichever of the two rows merges second extends the arm the first created (no
+  hard ordering between 331 and 336). 336 keeps `p <=> true|false` over a predicate (composed as
+  `And(p, IsNotNull(p))`) and value operands, and no longer hands boolean operands to 331.
+  Cross-reference: `VARKA-336.md` 2.3, `census.tsv`'s `<=>`/`equal_null` rows (owners
+  336, 331, 329, 341, 338, 359) and `PLAN.md` rows 331 and 336.
 * **335b** `bit_count(bool)` = `CondValue` (2.6) feeding the existing `BitCount`; the arm is 335b's.
 * **332, 343, 350** boolean casts reuse `CondValue` and `BoolColumn`; not here.
 
@@ -196,7 +225,12 @@ A tree over `k` boolean leaves has `4^k` rows; one row per combination in one ba
 is 4,096 rows (one default batch), `k = 7` 16,384 and `k = 8` 65,536 (sixteen batches), all of
 which the existing batch machinery takes. The row for combination `i` is its base-4 digits; the
 batch is run at every start offset `0..lanes` (rotated, so each combination lands on every lane
-position and the epilogue's partial group) and at both widths of `VarkaMatrix`.
+position and the epilogue's partial group). **JVM rule (row 410's lesson,
+`skills/testing-and-debugging.md`):** `VarkaSpeciesGuard` fails an in-process test that puts a
+second species of one lane type in the shared JVM, so each new suite either mixes in `VarkaOwnJvm`
+(Scala) or is a forked-JVM JUnit suite like `VarkaEmitterMixedLaneSuite`; the width sweeps (both
+widths of `VarkaMatrix`, every lane width of 3.3) run only there, and an in-process suite emits at
+`VarkaMatrix.base` lanes.
 
 * **Exhaustive formula set:** every `And`/`Or`/`Not` tree over three leaves up to five operators,
   deduplicated by canonical form (a few thousand), each at `k <= 3` (64 rows) - small, so the
@@ -218,8 +252,7 @@ position and the epilogue's partial group) and at both widths of `VarkaMatrix`.
 
 ### 3.3 Bit-vector edges
 
-Batch lengths 1, 7, 8, 9, 63, 64, 65 and one with a partial last byte at every lane width (the
-bound argument of 2.1: the data read never passes `(len + 7) / 8`), under the memory sanitizer
+Batch lengths 1, 7, 8, 9, 63, 64, 65 and one with a partial last byte at every lane width (in the `VarkaOwnJvm` suite of 3.2 only; the bound argument of 2.1: the data read never passes `(len + 7) / 8`), under the memory sanitizer
 (`VarkaMemorySanitizer`) with the bit layout's size fixed; a `BitVector` with `valueCount` longer
 than the batch declines through `isArrowBacked`, as the existing vectors do; an all-null column
 (`validity` address 0) reads as `kt = kf = 0`.
@@ -227,20 +260,24 @@ than the batch declines through `isArrowBacked`, as the existing vectors do; an 
 ### 3.4 Coverage and census
 
 One coverage row (`coverage.json` through its tool, never by hand) for each of: a boolean column
-filter, `NOT b`, `b AND p`, `b OR p`, `b = b2` (and one ordering), `b IS NULL`, `b IS NOT NULL`,
+filter, `NOT b`, `b AND p`, `b OR p`, `b = b2` (and one ordering), `b1 <=> b2` (`BoolNullSafeEq`), `b IS NULL`, `b IS NOT NULL`,
 `IF(b, d, d2)`, `CASE WHEN b ...`, `coalesce(b, b2)` as a filter, a boolean `CondConst(NULL)`
 leaf, and `CondValue` through a hand-built plan until 335b/332 add the arm. `And`, `Or` and `Not`
 (census lines 22, 24 and 25: "fused today as a condition, not over a BOOLEAN column") gain the
-`bool` pair; `dev/varka_census.py --check` holds the count. The fuzzers draw it (352): the IR
-grammar gains the leaf as a row of 352, not here (a grammar draw reprices the emit cost model, as
-VARKA-39's plan already said).
+`bool` pair; `dev/varka_census.py --check` holds the count; the `<=>` and `equal_null` census rows name 331
+as the `bool` owner. The fuzzers draw it (352): the IR grammar gains the leaf as a row of 352, not
+here (a grammar draw reprices the emit cost model, as VARKA-39's plan already said).
 
 ## 4. Predictions and costs
 
 No speed is predicted by this row. Two cost facts are checked, not assumed:
 
-* The emit cost model (`VarkaEmitCostTable`) has no entry for the new nodes; each gets one from
-  the model's own fitting (`VarkaEmitCostSuite`), and the emitted-bytes oracle
+* The emit cost model (`VarkaEmitCostTable`) has no entry for the new nodes (`BoolColumn`,
+  `CondConst`, `BoolCompare`, `CondIf`, `CondValue`, `BoolNullSafeEq`): they are **unpriced until
+  352's refit** (corrected in the review of 21 October 2026, 9.1: this text said each gets a
+  price "from the model's own fitting", which contradicted leaving the grammar draw to 352; copied
+  from `VARKA-336.md` section 6: `VarkaEmitCost.Tally.count` marks a feature without a price
+  unpriced and `predicted()` returns null, the intended state). The emitted-bytes oracle
   (`VarkaEmittedBytesSuite`) is regenerated with `VARKA_BYTES_REGEN=true` **only** for the new
   shapes: every existing shape's bytes are unchanged, which is the milestone's invariant
   (1.1 item 1) and the check that a leaf added to `Cond` did not move an existing emission.
@@ -259,15 +296,27 @@ No speed is predicted by this row. Two cost facts are checked, not assumed:
 4. `CondValue`; its hand-built tests. Then the coverage rows and census.
 
 After 375 (the Arm `fromLong` row; the leaf's dense form is its consumer) and in foundations
-wave F1; 27, 332, 335b and 336 wait on it. Files: `VarkaVectorIR`, `VarkaConditionCompiler`,
+wave F1; 27, 332 and 335b wait on it. **336 does not wait on 331** (decided in the plan, 2.8):
+331 builds the boolean `<=>`, 336 follows only 334 and needs nothing from 331 for its own forms
+(corrected in the review: this line once said 336 waits). Order inside 331: `BoolNullSafeEq` goes
+with `BoolCompare` in step 3. Files: `VarkaVectorIR`, `VarkaConditionCompiler`,
 `VarkaNodeCompiler`, `Analysis`, `Slots`, `VarkaVectorWalk`, `VarkaEvaluatorBase`,
-`VarkaEmitCostTable`, tests and the coverage table.
+tests and the coverage table. The sealed-switch sites a new `Cond` case is a compile error at
+(copied from `VARKA-336.md` 0.7 and 4; five new nodes here, six with `BoolNullSafeEq`):
+`VarkaVectorIR` (`permits`, `laneType`, `canonical`, the render, `childrenOf`, `withChildren`),
+`Analysis.analyze` and the `collectRefusals` switch, `Slots` (the consumers, `bodyUses` and
+liveness switches), `VarkaVectorWalk`, `VarkaOperandPosition`, `VarkaEmitBudget`'s weight,
+`VarkaEmitCost.kindOf`, `VarkaChronoCompiler`'s rearm switch, `VarkaRangeAnalysis`,
+`VarkaConditionCompiler.onLongLane`, `VarkaEvaluatorBase.inputWidths`, and in tests
+`VarkaReference` (two switches), `VarkaShrinker` and `VarkaCanonicalIr`. `VarkaEmitCostTable` gets
+no entry.
 
 ## 6. Out of this row
 
 * Boolean output columns (row 27), including the per-word `countSet` (`VarkaSelectionBitmap`
   reads a byte at a time) and the allocation of a `BitVector` by `allocateVector`.
-* Null-safe equality (336), `bit_count(bool)` and `bit_get` (335b), boolean casts (332, 343, 350),
+* Null-safe equality over value operands and `p <=> literal` (336; the boolean-boolean form is
+  331's, 2.8), `bit_count(bool)` and `bit_get` (335b), boolean casts (332, 343, 350),
   the IR grammar draw (352).
 * `IsTrue`/`IsFalse`/`IsUnknown` as Spark expressions (the optimizer rewrites them; if one
   survives it declines with its name and gets a row if the census says it is in scope).
@@ -294,6 +343,14 @@ declines through `isArrowBacked`; `lanesOverride` forms the host cannot hold dec
 3. **Does the lone `WHERE b` run at the int lane's width?** (The driving-lane rule is the same one `VARKA-329.md` 2.3 states for the narrow lanes: a kernel is driven at its widest value's lane and narrower values fill the low part of their species; a boolean leaf carries a lane exactly as a narrow column does, so the two plans must agree on it.) Recommendation: yes, the widest
    group; a mixed kernel takes its sibling's lane. A measured preference would be a later row.
 
+4. **Decided in the plan, object if wrong** (the owner delegated these to the plan's
+   recommendation, 21 October 2026): (a) 331 builds the boolean `<=>` as `BoolNullSafeEq` over two
+   `Cond` children, since it owns the boolean leaves, and 336 does not wait on 331 (2.8, 5);
+   (b) the new nodes are unpriced until 352's refit and no grammar draw is added here (4);
+   (c) every new suite is `VarkaOwnJvm` or a forked-JVM JUnit suite, in-process suites emit at
+   `VarkaMatrix.base` lanes (3.2); (d) a `BoolColumn` takes its sibling's lane, narrow ones
+   included (2.1).
+
 ## 9. Done when
 
 * A boolean column filters, chooses, compares and tests `IS [NOT] NULL` in kernels, the shapes
@@ -305,3 +362,23 @@ declines through `isArrowBacked`; `lanesOverride` forms the host cannot hold dec
   every existing shape's emitted bytes are unchanged (the bytes oracle regenerated for new shapes
   only).
 * This plan's section 5 records what the admission run (step 1) found.
+* **Last step (review of 21 October 2026, M5):** on a clean tree regenerate `coverage.json`,
+  `docs/sql-varka.md`, `emitted_bytes.json` (new rows only, checked by `git diff`) and
+  `sql/varka/golden_corpus.json` (`VARKA_GOLDEN_REGEN=true`; `VarkaGoldenCorpusSuite` byte-compares
+  it against a run over Spark's golden SQL, where boolean columns and `<=>` occur, so verdicts
+  will move); update `totalDomains` (`VarkaCoverageDifferentialSuite`) for the guarded rows added;
+  add a boolean column to the differential fixtures (the table's twelve columns have none) and
+  state what that does to the other rows' partitions; run `dev/varka_census.py --check` and
+  `VarkaCoverageSuite`, `VarkaCoverageDifferentialSuite`, `VarkaGoldenCorpusSuite` and
+  `VarkaEmittedBytesSuite` before the first push.
+
+### 9.1 Review of 21 October 2026
+
+An independent read-only review of this plan, applied the same day. Corrected in place and noted
+where each stands: the boolean `<=>` had no owner and the 331/336 dependency was stated two ways
+(2.8, 5, 8); the price statement contradicted the grammar stance (4); the `IsNotNull`/`maskedOnly`
+claim was too strong and its sites are now listed (section 0, 2.7); `inputWidths` was missing from
+the byte-width sites (2.1); a boolean column's lane beside a narrow sibling is now stated (2.1);
+the sealed-switch sites were incomplete (5); the species-guard rule was missing (3.2); the common
+regeneration step was missing (9). Nothing is left unconfirmed except the line numbers, which are
+approximate and to be re-read at implementation.
