@@ -291,7 +291,7 @@ declines through `isArrowBacked`; `lanesOverride` forms the host cannot hold dec
 2. **All five boolean comparison operators, or `EQ` alone?** Recommendation: all five - one node,
    one formula table, an exhaustive test over 16 states; orderings over booleans are rare, so
    the only cost is test time, which is small.
-3. **Does the lone `WHERE b` run at the int lane's width?** Recommendation: yes, the widest
+3. **Does the lone `WHERE b` run at the int lane's width?** (The driving-lane rule is the same one `VARKA-329.md` 2.3 states for the narrow lanes: a kernel is driven at its widest value's lane and narrower values fill the low part of their species; a boolean leaf carries a lane exactly as a narrow column does, so the two plans must agree on it.) Recommendation: yes, the widest
    group; a mixed kernel takes its sibling's lane. A measured preference would be a later row.
 
 ## 9. Done when

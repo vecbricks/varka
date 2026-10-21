@@ -152,7 +152,8 @@ lane types for `ByteType` and `ShortType`, the column and literal leaves, the co
 
 A kernel is driven at its widest lane and narrower values fill the low part of their species
 (0, item 4). The two arms meet that rule as follows, and the difference is the heart of the
-measurement:
+measurement (row 331's boolean leaf carries a lane under the same rule, `VARKA-331.md` section 2, so the
+two plans' reading of "the widest value's lane" must stay the same):
 
 * **A kernel whose every value is narrow** (a comparison of two byte columns, a byte arithmetic
   chain written to a byte column): driven at the narrow lane under NATIVE, 64 rows per iteration
@@ -278,6 +279,13 @@ int the engine has), and a scalar loop:
    the emitted form waits on row 27, and the verdict for this shape is recorded as provisional
    until then.
 
+Harness rule, from row 407: every arm is driven at its own turn, just before it is timed, until its
+loops hold compiled code (at least eight drives, then two consecutive drives within 30 percent,
+with a wait for C2 to be idle after each, bounded, naming the arm if it does not settle), so that
+no arm is timed in C1 code, as the shared-prefix ladder's was and as prediction 7's 16384-row
+swing was; the new benchmark copies that helper (`VarkaEmitterTestSupport.awaitC2Idle`), not the
+older harness.
+
 Reported: the verdict per operator and width, the ratios against the predictions above, and the
 census cell each arm rests on; results files committed under `sql/catalyst/benchmarks/` by
 `dev/varka_bench_regen.sh` on an idle machine at both widths, never ad hoc numbers; the runner
@@ -298,7 +306,8 @@ choice is the owner's if the arms split by host (question 1, section 8).
 Both arms load, compare, choose and store `TINYINT` and `SMALLINT` with the coverage rows of 3.1;
 every census cell they rest on reads `I` on each host or the host's arm declines by name; the
 benchmark of 3.4 is committed with its verdict per width and operator and the predictions scored
-against it in section 9; the losing arm stays in the option matrix and the fuzzer; the census's
+against it in section 9; the losing arm stays in the option matrix (the fuzzer's own draws of the narrow types are row
+352's, not this row's, so that no grammar change reprices the cost model here); the census's
 fused pairs count rises by the narrow comparison and choice pairs and `dev/varka_census.py --check`
 passes.
 
@@ -322,8 +331,12 @@ The column states the same thing once for both arms: the meaning does not depend
 
 ### 4.2 The widened arm
 
-Add, subtract, multiply, negate and the bitwise operators commute with reduction modulo 2^w, so
-under LEGACY the wrap need only happen at the first consumer that is not a ring operation: a
+Add, subtract, multiply, negate, `AND`, `OR`, `XOR`, `NOT` and a left shift commute with reduction
+modulo 2^w, and that closed set is the only one the deferral applies to: **every node outside it
+forces the wrap before it reads its operand** (a division, a remainder or `pmod`, a right shift, a
+compare, `abs`, `greatest` and `least`, a widening, an `IfElse` condition), so row 30's integral
+divisions over narrow operands, which Spark keeps narrow, inherit no deferral by omission. Under
+LEGACY the wrap therefore need only happen at the first consumer that is not a ring operation: a
 compare, an `abs`, a `GuardedRange`, a `Greatest`, a widening to a wider type, an `IfElse`
 condition, and the store. A chain `(a + b) * c - d` over bytes is then int adds and multiplies and
 one `I2B` at the store, with an interior sign-extension (a shift left by 24 and an arithmetic
@@ -496,9 +509,11 @@ Questions for the owner, each with this plan's recommendation:
    per operator and mode swept"?** Recommendation: yes, because the arms share the IR and the
    SMT proves the lowering for both, while the one swept arm proves the plumbing; decide after the
    timing, not before.
-4. **Does the WIDENED arm decline at 128 bits on a host with no intrinsic form** rather than carry
-   a masked form? Recommendation: decline by name and record it, as 28's A/B showed a masked load
-   costs two to five whole ones.
+(What was a fourth question, whether the WIDENED arm declines at 128 bits where no whole-group
+form is intrinsic, is not the owner's: the census extension of step 1 answers it, by the rule in
+2.3 and row 28's measurement, that a masked load is never carried; the arm declines by name only if
+no 128-bit form of the byte load, a 64-bit species converted with `convertShape(B2I, ...)` in
+parts, reads `I` on the host.)
 
 ## 9. Outcome
 
