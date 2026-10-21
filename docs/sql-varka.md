@@ -377,10 +377,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `l \| 5000000000` | `intArithmetic` |  |  | vector |
 | `l ^ l2` | `intArithmetic` |  |  | vector |
 | `~l` | `intArithmetic` |  |  | vector |
-| `l << 3` | `intArithmetic` |  | a literal count only: a bigint shifted by an int column is not fused yet | vector |
+| `l << 3` | `intArithmetic` |  |  | vector |
+| `shiftleft(l, i)` | `intArithmetic` |  | a column count is widened to the long lane and masked to its low six bits as Java's `<<` does, so a count of 64 or -1 is as in the row engine | per-lane: mask broadcast, load or store, mask test |
+| `shiftright(l, i ^ 5)` | `intArithmetic` |  | the count may be any int expression | per-lane: mask broadcast, load or store, mask test |
 | `l >> 40` | `intArithmetic` |  |  | vector |
 | `shiftrightunsigned(l, 63)` | `intArithmetic` |  |  | vector |
-| `bit_count(l)` | `intArithmetic` |  | as an output only: a count computed in the long lane and stored as an int, so `bit_count(l) + 1` declines | vector |
+| `bit_count(l)` | `intArithmetic` |  | a count computed in the long lane and narrowed to the int Spark types it as | vector |
+| `bit_count(l) + 1` | `intArithmetic` |  | the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64 | per-lane: mask broadcast, load or store |
 | `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 

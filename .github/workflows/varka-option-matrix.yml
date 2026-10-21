@@ -106,3 +106,28 @@ jobs:
           target/varka-matrix/runs/*/*/fused.tsv
         if-no-files-found: ignore
         retention-days: 30
+
+  report-failure:
+    name: Report a failed run
+    # Only a scheduled run, since a person who dispatches one sees its result; only on the
+    # project's own repository, where issues are on; and for a failed or cancelled job, a
+    # job past its timeout-minutes ending as cancelled.
+    needs: [matrix]
+    if: >-
+      always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
+      && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        sparse-checkout: |
+          .github/actions
+          dev
+    - name: Report the failure
+      uses: ./.github/actions/report-scheduled-failure

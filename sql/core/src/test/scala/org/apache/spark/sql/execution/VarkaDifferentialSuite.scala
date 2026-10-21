@@ -2398,4 +2398,36 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
       assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
     }
   }
+
+  test("a bigint shifted by an int column and bit_count of a bigint under another node match " +
+      "the row engine for every edge count and value, nulls in either operand") {
+    // Every value against every count: the counts straddle both masks (-1, 31, 32, 63, 64, 65,
+    // the int extremes) and the values hold the sign bit, so the count's widening and the
+    // lane's own mask are both read. A null in each operand, and a row of nulls in both.
+    val values = Seq("0L", "1L", "-1L", "9223372036854775807L", "-9223372036854775808L",
+      "4294967296L", "-4294967297L", "6148914691236517205L", "CAST(NULL AS BIGINT)")
+    val counts = (Seq(-1, 0, 1, 31, 32, 33, 63, 64, 65, 127, 128, Int.MinValue, Int.MaxValue)
+      .map(_.toString) :+ "CAST(NULL AS INT)")
+    Seq(spark, varkaSpark).foreach { session =>
+      session.sql(
+        s"""SELECT l, c FROM VALUES ${values.map(v => s"($v)").mkString(", ")} AS v(l)
+           |CROSS JOIN VALUES ${counts.map(c => s"($c)").mkString(", ")} AS w(c)"""
+          .stripMargin).coalesce(1).createOrReplaceTempView("varka_shift_counts")
+      session.catalog.cacheTable("varka_shift_counts")
+    }
+    try {
+      Seq(
+        "shiftleft(l, c)", "shiftright(l, c)", "shiftrightunsigned(l, c)",
+        // The count an int expression, and the value one computed under the shift.
+        "shiftleft(l, c ^ 1)", "shiftrightunsigned(l ^ 255L, c)",
+        // bit_count narrows inside the tree, and a narrowed count is itself a shift count.
+        "bit_count(l) + 1", "bit_count(l) & c", "shiftleft(l, bit_count(l))",
+        "shiftright(l, bit_count(l >> 7))", "bit_count(shiftleft(l, c))").foreach { e =>
+        checkDifferential(spark, varkaSpark, s"SELECT l, c, $e AS r FROM varka_shift_counts",
+          expectFused = true)
+      }
+    } finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_shift_counts"))
+    }
+  }
 }

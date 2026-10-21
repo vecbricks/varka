@@ -43,7 +43,6 @@ import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.BindReferences;
-import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
@@ -1071,19 +1070,12 @@ public final class VarkaExpressionCompiler {
 
   /**
    * An output root: {@code VarkaNodeCompiler.compileNode} over the expression, or over its
-   * replacement where it is a {@code RuntimeReplaceable}, plus {@code bit_count} of a
-   * {@code bigint}, a popcount of at most 64 in the long lane narrowed to the int Spark types it
-   * as. That one is admitted at an output alone for now: inside a tree it is VARKA-335's second
-   * part, which row 28's narrowing makes a node's arm rather than a root's.
+   * replacement where it is a {@code RuntimeReplaceable}.
    */
   private static Optional<VarkaVectorIR> compileRoot(
       Expression expr, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
     return switch (expr) {
       case RuntimeReplaceable r -> compileRoot(r.replacement(), inputs, literals, sink);
-      // bit_count of a bigint: a count of at most 64 computed in the long lane and narrowed.
-      case BitwiseCount c when DataTypes.LongType.equals(c.child().dataType()) ->
-          VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
-              () -> VarkaNodeCompiler.bitCountAtRoot(c, inputs, literals, sink), c, sink);
       default -> VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
     };
   }

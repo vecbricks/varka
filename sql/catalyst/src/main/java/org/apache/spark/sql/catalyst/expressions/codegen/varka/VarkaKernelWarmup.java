@@ -24,6 +24,7 @@ import java.lang.invoke.MethodType;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -515,6 +516,11 @@ public final class VarkaKernelWarmup {
     private final VarkaFusedKernel kernel;
     private final boolean longLane;
     private final Arena arena;
+    /**
+     * The memory the calls map, kept only under the memory sanitizer, whose window {@link #run}
+     * registers it in; empty, and never touched again, when the sanitizer is off.
+     */
+    private final List<MemorySegment> owned = new ArrayList<>();
     /** The scratch a kernel with a materialized prefix takes (VARKA-198), or 0 for one without. */
     private final long scratch;
     private final long queuedAt = System.nanoTime();
@@ -556,8 +562,8 @@ public final class VarkaKernelWarmup {
         long[] validityBase = new long[numInputs];
         for (int i = 0; i < numInputs; i++) {
           MemorySegment data =
-              arena.allocate((long) (SNAPSHOT_ROWS + SLICE_STRIDE) * widths[i], SLICE_STRIDE);
-          MemorySegment validity = arena.allocate(validityBytes(SNAPSHOT_ROWS), SLICE_STRIDE);
+              alloc((long) (SNAPSHOT_ROWS + SLICE_STRIDE) * widths[i], SLICE_STRIDE);
+          MemorySegment validity = alloc(validityBytes(SNAPSHOT_ROWS), SLICE_STRIDE);
           if (batchNullCount[i] == 0) {
             tileData(batchData[i], widths[i], length, data);
             validity.fill((byte) -1);
@@ -594,9 +600,9 @@ public final class VarkaKernelWarmup {
         this.dstData = new long[numOutputs];
         this.dstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          dstData[o] = arena.allocate((long) (MAX_CALL_ROWS + SLICE_STRIDE) * 8, SLICE_STRIDE)
+          dstData[o] = alloc((long) (MAX_CALL_ROWS + SLICE_STRIDE) * 8, SLICE_STRIDE)
               .address();
-          dstValidity[o] = arena.allocate(validityBytes(MAX_CALL_ROWS), SLICE_STRIDE).address();
+          dstValidity[o] = alloc(validityBytes(MAX_CALL_ROWS), SLICE_STRIDE).address();
         }
         // The probe's argument sets: the dense driver's with every count at zero, the masked
         // driver's with each input's validity when the shape is nullable. A masked count is one
@@ -618,22 +624,54 @@ public final class VarkaKernelWarmup {
         this.probeDstData = new long[numOutputs];
         this.probeDstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          probeDstData[o] = arena.allocate((long) (PROBE_ROWS + SLICE_STRIDE) * 8, SLICE_STRIDE)
+          probeDstData[o] = alloc((long) (PROBE_ROWS + SLICE_STRIDE) * 8, SLICE_STRIDE)
               .address();
-          probeDstValidity[o] = arena.allocate(validityBytes(PROBE_ROWS), SLICE_STRIDE).address();
+          probeDstValidity[o] = alloc(validityBytes(PROBE_ROWS), SLICE_STRIDE).address();
         }
         // Sized for the longest call, the probe's; a warm-up call passes the same region.
         int perRow = kernel.scratchBytesPerRow();
         this.scratch = perRow == 0 ? 0L
-            : arena.allocate((long) perRow * (PROBE_ROWS + SLICE_STRIDE), SLICE_STRIDE).address();
+            : alloc((long) perRow * (PROBE_ROWS + SLICE_STRIDE), SLICE_STRIDE).address();
       } catch (Throwable t) {
         arena.close();
         throw t;
       }
     }
 
-    /** Runs the warm-up to its verdict; see the class doc. */
+    /** Allocates from the job's arena, and records the segment when the sanitizer is on. */
+    private MemorySegment alloc(long bytes, long alignment) {
+      MemorySegment segment = arena.allocate(bytes, alignment);
+      if (VarkaMemorySanitizer.ENABLED) {
+        owned.add(segment);
+      }
+      return segment;
+    }
+
+    /**
+     * Runs the warm-up to its verdict; see the class doc. Under the memory sanitizer the calls
+     * run in its window with the job's memory registered, as a batch's calls do: the check at
+     * every mapping reads the window, and a warm-up whose thread had none would hand C2 a profile
+     * in which it is always null, code that deoptimizes at the first batch served in a window.
+     * The window is opened once for the whole warm-up, so with the sanitizer off the cost is two
+     * returns on a {@code static final}, and no per-call work either way.
+     */
     void run() {
+      VarkaMemorySanitizer.begin();
+      try {
+        if (VarkaMemorySanitizer.ENABLED) {
+          for (int i = 0; i < owned.size(); i++) {
+            MemorySegment segment = owned.get(i);
+            VarkaMemorySanitizer.register("warm-up memory", i, segment.address(),
+                segment.byteSize());
+          }
+        }
+        spin();
+      } finally {
+        VarkaMemorySanitizer.end();
+      }
+    }
+
+    private void spin() {
       long started = System.nanoTime();
       int deadlineSeconds = deadlineSeconds();
       long deadline = queuedAt + TimeUnit.SECONDS.toNanos(deadlineSeconds);

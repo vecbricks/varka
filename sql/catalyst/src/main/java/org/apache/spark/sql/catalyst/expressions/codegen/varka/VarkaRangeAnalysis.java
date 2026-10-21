@@ -270,8 +270,10 @@ public final class VarkaRangeAnalysis {
       // dividend.
       case WidenLane n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
           : range(n.child(), Kind.INT, policy, literals, columns);
-      // A 32-bit value computed in the long lane, whose ranges this lattice does not track.
-      case NarrowLane n -> VarkaValueRange.UNKNOWN;
+      // A 32-bit value computed in the long lane, whose ranges this lattice does not track, bar
+      // one: the popcount of a bigint, at most 64, which truncation leaves as it is.
+      case NarrowLane n -> kind == Kind.INT && n.child() instanceof BitCount
+          ? VarkaValueRange.of(0, Long.SIZE) : VarkaValueRange.UNKNOWN;
       case Greatest n -> hull(n.left(), n.right(), kind, policy, literals, columns);
       case Least n -> hull(n.left(), n.right(), kind, policy, literals, columns);
       case IfElse n -> hull(n.thenNode(), n.elseNode(), kind, policy, literals, columns);
@@ -305,7 +307,8 @@ public final class VarkaRangeAnalysis {
       // lane, so a node over one keeps whatever overflow check it has.
       case BitOp n -> VarkaValueRange.UNKNOWN;
       // A count of the 64 bits of the widened value, whatever the operand; answered at the int
-      // lane only, as the long lane's nodes are unknown throughout.
+      // lane only, as the long lane's nodes are unknown throughout. The long lane's count is
+      // answered where it is narrowed, by the NarrowLane arm above.
       case BitCount n -> kind != Kind.INT || n.laneType() != VarkaVectorIR.LaneType.INT
           ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, Long.SIZE);
       // A condition has no value of its own.
