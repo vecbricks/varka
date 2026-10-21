@@ -737,8 +737,9 @@ final class VarkaChronoLowering {
    * is written (the map needs it) but no tail reads it; {@code yearOfEra} is the slot the other
    * form leaves the year of century in - which is why {@link #emitChronoYear} takes the form as an
    * argument rather than deciding what the slot holds; {@code mask} and {@code scratch} are the
-   * carries' scratch, the same two the other form uses ({@code scratch} is written only under a
-   * divider that carries the century; an exact divider leaves both masks unwritten too).
+   * carries' scratch, the same two the other form uses ({@code scratch} holds the century's
+   * remainder and is written only where the divider carries the century, so an exact quotient
+   * leaves it unwritten).
    */
   private static void emitJulianYearOfEra(CodeBuilder cb, int rem, int century, int yearOfEra,
       int mask, int scratch, Divider divider) {
@@ -1703,9 +1704,10 @@ final class VarkaChronoLowering {
    * The remainder {@code dividend - quotient * divisor} into {@code remSlot}, then the carry that
    * corrects {@code quotient} by it - together, and only where {@code divider} carries
    * {@code div}. Only the carry reads that remainder, so a divider whose quotient is exact (the
-   * double forms) emits nothing, not a remainder nobody reads. For a division whose remainder
-   * is read afterwards too (a day of year, a month), compute the remainder at the call site and
-   * use {@link #emitCarry}.
+   * double forms, where the quotient is exact at that division) emits nothing, not a remainder
+   * nobody reads. For a division whose remainder is read afterwards too (a day of era, a day of
+   * century, a year of era, a day of year), compute the remainder at the call site and use
+   * {@link #emitCarry}.
    */
   private static void emitRemainderCarry(CodeBuilder cb, int dividend, int quotient, int divisor,
       int remSlot, int mask, Divider divider, ChronoDivide div) {
