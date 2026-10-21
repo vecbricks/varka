@@ -1,5 +1,134 @@
 # VARKA-383: Long-lane kernels released after a kernel history
 
+**Section 0 (21 October 2026) checks this plan against master `a429af749f4` and overrides sections
+2.3, 3.2 (half b), 3.3 B, 4, 5 and 8 where they differ: half (b) is answered by rows 389, 391, 395
+and 397, and the row shrinks to half (a) and a count.**
+
+## 0. Admission check against master (21 October 2026, `a429af749f4`)
+
+This plan was written on 16 October at `0fb726692e3`, before the template warm-up was moved,
+paced and made to reach every method (rows 389, 391, 395, 397), and before rows 398, 400, 405 and
+407 changed how the warm-up's verdict is measured. Read against the code now, **half (b) is
+answered, half (a) is unmeasured since, and the reproduction tooling of section 3.1 is still the
+only way to answer it on a runner.** What was checked, in the code and the plans:
+
+* **When the prewarm runs (2.3, arm B) is no longer true, and arm B is shipped.**
+  `VarkaVectorTemplateWarmup.beforeVectorCode()` is called by `VarkaShapeCacheImpl.build`, by
+  `VarkaShapeEntry.newKernel`, by the class initialisers of `IntRangeOps` and `SelectionVectorOps`
+  and by the warm-up worker, whatever the session's warm-up setting; `ensure()` claims the run for
+  the first caller, runs it on that thread, and makes every other thread wait on a latch.
+  `PROPERTY` (`varka.warmup.vectorTemplates=false`) is the only switch. So a JVM whose sessions pin
+  the warm-up off, as the sql module's shared sessions do, still runs the prewarm before its first
+  emitted class: row 389 (`568582a9f77`, 18 October) did what 3.3 B proposed, unflagged, for every
+  JVM. The cold prefix of R4, the eager flag, `VarkaShapeCacheImpl`'s new call and
+  `templateAfter` are answered; none is built.
+* **The end-to-end failure's cause was found elsewhere, and fixed.** `m7/VARKA-389.md` 9.5 hit the
+  same two tests of `VarkaWarmupEndToEndSuite` RELEASED on a 4-core runner (`Int256Vector`, an AVX2
+  host, as section 2.2 reads), reproduced them on the laptop pinned to four cores with
+  `-XX:MaxVectorSize=32`, and traced them with `-XX:+PrintTieredEvents`: a one-line wrapper
+  (`IntVector.min`, `max`) crosses its first threshold with C2's queue over ten entries, is
+  compiled at tier 2 with no profile, and the kernel that inlines it keeps a virtual call and
+  boxes. That is a different mechanism from this plan's two (a prewarm that came late, 9.6's trap
+  sums), though it ends in the same place, a loop that is compiled and still allocating at
+  `IntVector.lanewiseTemplate`; the 16 October job's evidence does not separate them, since it
+  predates the fix. Row 391 (`089f7659b1b`) compiles the wrappers at tier 3 inside the rounds;
+  row 395 (`e6aa78e3cd5`) bounds the pacing's wait and counts C2's threads as HotSpot does; row 397
+  (`d6d7c5550e4`) makes `VarkaWarmupReachSuite` fail when a Vector API method an emitted kernel
+  calls gets fewer than 2,000 calls from the rounds. The four-core suite passed 5 of 5 in every
+  run of 395 and 397 on the laptop (`results/VARKA-395-warmup-runs.txt`,
+  `VARKA-397-warmup-runs.txt`). No runner count exists yet: `dev/varka_scoped_suites.sh` still
+  carries a retry entry for the suite naming the tier-2 mechanism, and `m9/SCOPE.md` item 103
+  keeps the small-runner question open until a pair after the fix.
+* **Section 2.6's coverage table is mostly answered, by call count rather than by operator.**
+  `VarkaVectorTemplateWarmup`'s int, long and double groups now call the scalar forms the table
+  lists as unfed: `LongVector.add(long)`, `mul(long)`, `and(long)`, `or(long)`, `DoubleVector.add`,
+  `sub`, `mul`, `div` with a scalar, and `compare(VectorOperators.GT, ...)` for all three lanes
+  (row 397 raised eight never-called scalar forms to 2,400 calls or more). **Still unfed:**
+  `convertShape` with `L2D` and `D2L`; the conversion block calls `I2L`, `L2I`, `I2D` and `D2I`
+  only (checked in the file). `VarkaWarmupReachSuite` does not see this: it counts calls of the
+  method HotSpot keeps the profile for (`Int512Vector.convertShape`), not of the operator
+  constant, and an operator class missing at a template site is the route to a class-check trap
+  that 3.3 A names. So 3.3 A's operator-keyed test is not what 397 built, and the gap it would
+  catch exists today for the long-to-double lane.
+* **Half (a), the long lane after a history, has not been read since the changes above.**
+  `sql/catalyst/benchmarks/VarkaKernelHistory-jdk25-probe.txt` is dated 16 October (257's
+  `c6952cee0e4`), before 389, 391, 395 and 397; and nothing since has read long-lane releases
+  after a history: `dev/varka_nightly.sh`'s `history` step runs `--after 16 --forks 6 --guard`,
+  and `dev/varka_kernel_history.py`'s guard fails on a wrong answer, an unfinished fork or a slow
+  fork, not on a release. So 257's 43 of 144 is a reading of the engine before the wrappers were
+  compiled in the rounds, the pacing existed or the scalar forms were called, and the prediction
+  of 6.1 item 2 (20 to 60 of 144 on a runner) may now be wrong in either direction.
+* **Row 405's finding closes one of this plan's routes.** The second-kernel-class fallback does
+  not reproduce (the first kernel's `run` and four loop methods had C2 code and allocated 0 to
+  9,600 bytes over sixteen calls after a second to fourth class, 10 of 10 forked runs that read
+  it), so a history position past the first is not released by the scratch method's inlining going
+  stale. The history's releases, if they remain, are a template or loop-compile matter, which is
+  what 3.2's R3 and wave 2 were built to separate.
+* **Row 407's finding changes what a timing taken in a history means, not a release.** The ladder's
+  slow cells were arms timed in C1 code because the loops' tier-4 request came late (17 to 54 s
+  into the JVM, `results/VARKA-407-tier4-timing.txt`); the committed fix is in the benchmark, and
+  the warm-up change the row tried (wait for C2 to be idle at its end) removed none of the slow
+  cells and was dropped. The history probe's verdict is allocation, not time, so 257's release
+  counts do not depend on it; the cheap tails the probe times for 12 s after the history do, and
+  any rate this row quotes from the history probe is read as "tier 4 not shown", as 257 read it.
+  A real session's first queries run in C1 code for about 0.4 s, or interpreted where C1 refuses a
+  loop, for 0.4 to 3.6 s, then C2: so a release the warm-up reports is not the first-query
+  state, and this row does not use it as one.
+* **Row 401 is pending, not merged.** PR #953 (branch `varka-401`) runs the warm-up's calls in the
+  memory sanitizer's window when the sanitizer is on, because C2 speculates that the window stays
+  null (`VarkaMemorySanitizer.check`, `null_assert_or_unreached0`) and throws the warmed code away
+  at the first sanitized batch (row 400). Production and the runner nightly run unsanitized, so it
+  does not touch half (a)'s runner readings; it matters if a history is read in a sanitized
+  matrix configuration, where a release could be this and not the template cause. Treat as pending:
+  this plan must name the sanitizer's state in every reading, as it names the load.
+* **Row 398 and 405's verdict reading are in place and compatible with the plan.** The verdict
+  reads the kernel through `VarkaFusedKernel.run`'s scratch form, the form the evaluator calls;
+  nothing in 2.4's allowance arithmetic (`FIXED_ALLOWANCE_BYTES`, `COMPILED_DROP`, two clean
+  probes) was touched, so 3.4's "the verdict is unchanged" stands. 405 adds a lanes cliff the
+  plan's histories can hit: under `lanesOverride` other than the preferred species every warm-up
+  releases at its deadline; the history launcher's `--widths` uses `-XX:MaxVectorSize`, not the
+  override, and must keep doing so.
+* **Item 77's remainder is unchanged**: the progress deadline and the extra probes at the
+  deadline still do not keep a kernel that never stops allocating (2.5), and their return to
+  `m9/SCOPE.md` at the close stands.
+
+**What is answered, what stands, and the decision.**
+
+| piece of the plan | state on master | what it becomes |
+|---|---|---|
+| half (b): prewarm before the first kernel (3.3 B, R4, `templateAfter`, the failure message's timestamps, `VarkaShapeCacheImpl` call) | answered by 389; the e2e release mechanism fixed by 391, 395, 397 | dropped; its evidence is a CI count (below) |
+| benchmark.yml history mode, launcher and probe options (3.1, section 4) | not built, still needed for any runner reading | stands, but gated: built only if the laptop's reading (below) is not enough |
+| half (a) reading (R1, R2, R3) | unread since 16 October; engine changed under it | stands, as a laptop reading first |
+| arm A: operator-keyed coverage and `L2D`, `D2L` in the prewarm | partly answered by 397 (method counts, scalar forms); the conversions remain | shrunk to the conversions and an operator-keyed test, admitted only by the reading |
+| the end-to-end suite passing in full CI runs (done-when, last clause) | never counted since 389 | stands: a count of the `sql - other tests` jobs from `568582a9f77` |
+| item 77's remainder to `m9/SCOPE.md` | stands | stands |
+
+**Decision: shrunk, not answered.** The row cannot close on what exists, because its first
+reading (the long lane after a history, at 256 and 512 bits) was taken before the engine changed
+and nothing reads it now, and its last clause (a count of the suite's CI passes) has no number. It
+is not needed as written: half (b) is built or fixed by other rows, and the runner machinery
+(`benchmark.yml` history mode, R1 to R4, the cold prefix) is more than a first reading needs, since
+the launcher already runs both widths on the laptop (`--widths 64,32`). New steps, in order:
+
+1. **Count the end-to-end suite's CI results** since `568582a9f77`: every `sql - other tests`
+   job on the fork and on `vecbricks/varka` master, passes and failures, from the check runs'
+   annotations (CLAUDE.md's CI procedure). Zero failures in the count is half the done-when's
+   last clause and closes half (b) for good; one failure reopens it with the diagnostics of
+   section 8 step 2, which then are built.
+2. **Read the long lane after a history on current master** with `dev/varka_kernel_history.sh
+   --after 16,64 --forks 6 --widths 64,32 --prewarm on,off` on an idle-machine window, with the
+   load, the sanitizer state and the commit in the provenance, and commit it beside 257's file as
+   a second section. Admission as 3.2 states it (8 of 144 at either width admits arm A; at most 2
+   of 144 at both closes half (a) as the load, recording the numbers).
+3. **Only if step 2 admits or is ambiguous**, build the history mode of `benchmark.yml` and read R1
+   and R2 on runners; R3 and wave 2 as in 3.2 and 3.1. Arm A is then the conversions and the
+   operator-keyed test, behind the `full` value.
+4. The docs, the skills lesson, item 77's remainder and the nightly: the guard for long-lane
+   releases (`--max-long-released`) only after step 2 or 3 gives it a number.
+
+Everything in sections 1 to 9 below is the 16 October text; where it names arm B, R4, the
+cold prefix or the failure-message timestamps, read it as answered by this section.
+
 ## 1. Where this came from
 
 Row 383 of `m8/PLAN.md` (added 16 October 2026, wave 0), which folds in `m9/SCOPE.md` item 77 on
