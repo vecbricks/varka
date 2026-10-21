@@ -159,10 +159,12 @@ if [ "$golden" -eq 1 ]; then
   run_step golden dev/varka_golden_suite.sh --attribute --deadline 4800 --out "$logdir/golden"
 fi
 # A JUnit suite matches no ScalaTest `-z` filter and runs nothing under it, so the JUnit suite with
-# an opt-in sweep (VARKA-28's conversions) runs whole, its sweep switched on by the property.
+# an opt-in sweep (VARKA-28's conversions) runs whole, its sweep switched on by the property. The
+# cap is an hour because the year-month division sweep (VARKA-89, 409 divisors over every int)
+# takes about twelve minutes on the laptop, more than an own-JVM suite's default nine.
 if [ "$sweep" -eq 1 ]; then
   run_step sweep build/sbt -batch "project catalyst" \
-    'set Test/javaOptions += "-Dvarka.sweep=true"' \
+    'set Test/javaOptions ++= Seq("-Dvarka.sweep=true", "-Dspark.test.timeout=60", "-Dvarka.test.watchdog.minutes=60")' \
     'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in' \
     'testOnly *VarkaEmitterMixedLaneSuite'
 fi

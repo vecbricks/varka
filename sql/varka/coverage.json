@@ -410,7 +410,7 @@
     "operands" : [ "Cast:int" ],
     "switches" : [ ],
     "domain" : "",
-    "note" : "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve and declines"
+    "note" : "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and declines over a bare int column"
   }, {
     "sql" : "CAST(ymm AS INT)",
     "executable" : "CAST(ymm AS INT)",
@@ -421,7 +421,51 @@
     "operands" : [ "Cast:ym" ],
     "switches" : [ ],
     "domain" : "",
-    "note" : "a relabel of a MONTH-ended interval; a YEAR-ended one divides and declines"
+    "note" : "a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve"
+  }, {
+    "sql" : "CAST(ymy AS INT)",
+    "executable" : "CAST(ymy AS INT)",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "ym>int:ansi" ],
+    "operands" : [ "Cast:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "the whole years: `v / 12` over a count nothing bounds, the division `extract(YEAR FROM ym)` builds"
+  }, {
+    "sql" : "CAST(ym AS INTERVAL YEAR)",
+    "executable" : "CAST(ym AS INTERVAL YEAR)",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "ym>ym:ansi" ],
+    "operands" : [ "Cast:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "narrowing to a YEAR-ended unit drops the months: `(v / 12) * 12`, a wrapping multiply that cannot overflow since the product is no larger than the count"
+  }, {
+    "sql" : "ym / 12",
+    "executable" : "ym / 12",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "DivideYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "DivideYMInterval:int", "DivideYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "a literal integral divisor rounds half away from zero (`IntMath.divide` HALF_UP): the truncated quotient, moved one step away from zero when the remainder reaches half the divisor, all on the int lane with no widening or guard"
+  }, {
+    "sql" : "ym / -7",
+    "executable" : "ym / -7",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "DivideYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "DivideYMInterval:int", "DivideYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "a negative divisor flips the direction the rounding moves, which a sign slip would show only here"
   }, {
     "sql" : "extract(YEAR FROM ym)",
     "executable" : "extract(YEAR FROM ym)",
@@ -1820,5 +1864,5 @@
     "domain" : "time_to_micros(t) + 0 BETWEEN 0 AND 86399999999",
     "note" : "a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's"
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Subtract", "SubtractDates", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "DivideYMInterval", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Subtract", "SubtractDates", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

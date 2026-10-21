@@ -23,7 +23,7 @@ import scala.jdk.OptionConverters._
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
@@ -1117,7 +1117,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "the fused output keeps the interval type, which is what allocateVector reads")
   }
 
-  test("the MONTH-unit casts are relabels, and the YEAR-unit ones decline") {
+  test("the MONTH-unit casts are relabels, and the YEAR-unit ones divide and multiply by 12") {
     // `intToYearMonthInterval` returns its operand unchanged for a MONTH end field and
     // `yearMonthIntervalToInt` does the same for a MONTH-ended interval, so both directions
     // are the identity on the lane and neither emits a node - the `unix_date` pattern.
@@ -1131,9 +1131,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(toInt.outputTypes.asScala.toSeq === Seq(IntegerType))
 
     // The YEAR unit is neither direction's identity: 12x one way, /12 the other. VARKA-68
-    // widened the emitter's month-count position and takes the 12x; the reverse direction is a
-    // division, which nothing lowers and which VARKA-89 owns.
-    assert(declineReason(Cast(ymy, IntegerType), withIntervals).nonEmpty)
+    // widened the emitter's month-count position and takes the 12x (checked, so it fuses only
+    // over a bound); the reverse direction is the division by twelve (VARKA-89).
+    val years = VarkaExpressionCompiler.compile(
+      Seq(out(Cast(ymy, IntegerType))), withIntervals).get
+    assert(years.outputs.asScala.toSeq === Seq(new ConstDivide(new ColumnRef(0), 12)))
   }
 
   test("SPARK-VARKA-84: year's bound covers the whole admitted day range, not the guard's") {
@@ -1256,22 +1258,84 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(bare.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
     assert(bare.outputTypes.asScala.toSeq === Seq(hull))
 
-    // The other direction truncates - a YEAR end field keeps only the whole years, which is a
-    // division by twelve - and is named rather than left to the generic decline. Coercion never
-    // produces it, since it widens the end field; only a cast the user wrote reaches here.
+    // The other direction truncates - a YEAR end field keeps only the whole years, which is
+    // `(v / 12) * 12` - and fuses as a division by twelve and a wrapping multiply by twelve,
+    // which cannot overflow since the product is no larger than `v`. Coercion never produces it,
+    // since it widens the end field; only a cast the user wrote reaches here.
     val years = YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.YEAR)
     for (narrowing <- Seq(Cast(ym, years), Cast(ymm, years))) {
-      assert(declineReason(narrowing, withIntervals) ===
-        "year-month interval narrowed to a YEAR-ended unit, which divides by twelve")
+      val compiled = VarkaExpressionCompiler.compile(Seq(out(narrowing)), withIntervals).get
+      assert(compiled.outputs.asScala.toSeq === Seq(new IntArith(IntOp.MUL, Overflow.WRAP,
+        new ConstDivide(new ColumnRef(0), 12), new LiteralSlot(0))))
+      assert(compiled.outputTypes.asScala.toSeq === Seq(years))
     }
+    // A cast to the operand's own type is the identity in Spark, whatever the stored count.
+    val same = VarkaExpressionCompiler.compile(Seq(out(Cast(ymy, years))), withIntervals).get
+    assert(same.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+  }
+
+  test("`CAST(ymy AS INT)` is the division by twelve `extract(YEAR FROM ym)` builds") {
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(Cast(ymy, IntegerType))), withIntervals).get
+    assert(compiled.outputs.asScala.toSeq === Seq(new ConstDivide(new ColumnRef(0), 12)))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(IntegerType))
+  }
+
+  test("`ym / num` for a literal int, short or byte fuses as the int-lane HALF_UP form") {
+    // q = m / d; r = m - q * d (wrapping); q moves one step away from zero, in the direction
+    // sign(m) * sign(d), iff |r| >= ceil(|d| / 2). The slots are the compiler's to number, so
+    // the assertion is on the shape's pieces.
+    for (num <- Seq[Literal](Literal(2), Literal(-7), Literal(12.toShort), Literal(-100.toByte),
+        Literal(Int.MinValue), Literal(Int.MaxValue))) {
+      val compiled = VarkaExpressionCompiler.compile(
+        Seq(out(DivideYMInterval(ymm, num))), withIntervals).get
+      assert(compiled.outputTypes.asScala.toSeq === Seq(YearMonthIntervalType()))
+      val d = num.value.asInstanceOf[Number].intValue()
+      val slots = compiled.literals.asScala.map(_.intValue).toSet
+      assert(slots.contains(d) && slots.contains(((math.abs(d.toLong) + 1) / 2).toInt), num)
+      compiled.outputs.asScala.toSeq match {
+        case Seq(add: IntArith) =>
+          assert(add.op() === IntOp.ADD && add.mode() === Overflow.WRAP, s"/ $d")
+          add.left() match {
+            case div: ConstDivide =>
+              assert(div.divisor() === d.toLong && div.child().isInstanceOf[ColumnRef], s"/ $d")
+            case other => fail(s"expected the quotient on the left of / $d, got $other")
+          }
+          assert(add.right().isInstanceOf[IfElse], s"/ $d")
+        case other => fail(s"unexpected shape for / $d: $other")
+      }
+    }
+    // One is the operand.
+    val one = VarkaExpressionCompiler.compile(
+      Seq(out(DivideYMInterval(ymm, Literal(1)))), withIntervals).get
+    assert(one.outputs.asScala.toSeq === Seq(new ColumnRef(0)))
+  }
+
+  test("`ym / num` declines zero, minus one, long, fractional, decimal, NULL and column " +
+      "divisors") {
+    assert(declineReason(DivideYMInterval(ymm, Literal(0)), withIntervals) ===
+      "interval divided by a literal zero raises")
+    assert(declineReason(DivideYMInterval(ymm, Literal(-1)), withIntervals) ===
+      "interval divided by -1 overflows at Int.MinValue, which the row engine raises on")
+    assert(declineReason(DivideYMInterval(ymm, Literal(2L)), withIntervals) ===
+      "interval divisor of type bigint takes LongMath.divide, which the int lane does not " +
+        "lower")
+    assert(declineReason(DivideYMInterval(ymm, Literal(2.5d)), withIntervals) ===
+      "interval divisor of type double is not an integral literal")
+    assert(declineReason(DivideYMInterval(ymm, Literal(BigDecimal("2.5"))), withIntervals) ===
+      "interval divisor of type decimal(2,1) is not an integral literal")
+    assert(declineReason(DivideYMInterval(ymm, i), withIntervals) ===
+      "interval divisor is not a literal")
+    assert(declineReason(DivideYMInterval(ymm, Literal(null, IntegerType)), withIntervals) ===
+      "interval divisor is a NULL literal")
   }
 
   test("`extract(YEAR FROM ym)` fuses over a stored column, which no magic could serve") {
     // The point of the row: the operand is a stored month count with no bound at all, so the
     // calendar's range-narrowed magic is exact over about one forty-thousandth of it and cannot
-    // be used. The double-lane division is exact over the whole type, so this fuses where every
-    // earlier Varka would have declined - and its baseline is therefore the row engine rather
-    // than another lowering.
+    // be used. A division through 64-bit lanes is exact over the whole type, so this fuses where
+    // every earlier Varka would have declined - and its baseline is therefore the row engine
+    // rather than another lowering.
     for (col <- Seq(ymm, ymy, ym)) {
       val compiled = VarkaExpressionCompiler.compile(
         Seq(out(ExtractANSIIntervalYears(col))), withIntervals).get

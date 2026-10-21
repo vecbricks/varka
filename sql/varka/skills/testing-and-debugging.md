@@ -1523,3 +1523,26 @@ From VARKA-272 (14 October 2026), which forks the IR fuzzer's compiled test unde
   `released` history was not reached in two runs of three at one compiled draw a lane on two
   shared cores, from a body with no loop method or a starved C1 queue. Smoke only the arm whose
   proof is a negative (`-Xint`: nothing compiles) and ask the others for a draw count.
+
+## A compiler arm is held to Spark by the oracle, not by the reference evaluator
+
+From VARKA-89 (21 October 2026), which fused `ym / num` and the two YEAR-unit casts.
+
+- The reference evaluator evaluates the IR the compiler built, so it agrees with any arm that
+  lowers the wrong thing. The first narrowing arm computed `(v / 12) * 12` for every cast to a
+  YEAR-ended interval, `CAST(ymy AS INTERVAL YEAR)` included; Spark's `Cast` between equal types
+  is the identity, and only `VarkaSparkOracle` (reference `-36`, Spark `-43`) said so. A suite
+  that drives the real compiler's kernel through `VarkaKernelCheck.runAndCompare` with
+  `spark = Some(new VarkaSparkOracle(..))` over the arm's whole input family catches this in the
+  first run; a suite that builds the IR by hand cannot.
+- A literal-divisor rule is proved in two layers that fail differently: the node under it
+  (`ConstDivide`, exact for any int divisor) is already proved, so the new rule's own steps are
+  swept against Spark's own call (`IntMath.divide` HALF_UP) at every int32 dividend, per divisor
+  class. 409 divisors (every `Byte` divisor, `2^k` and its neighbours in both signs, the extremes)
+  took 11 min 46 s on 24 cores with a plain-int model of the rule. An own-JVM suite's child is
+  ended after nine minutes by default, so a sweep that long needs `-Dvarka.test.watchdog.minutes`
+  and `-Dspark.test.timeout` raised (the nightly's sweep step sets both) or `-Dvarka.ownJvm=true`.
+- A fusion that declines a batch for the row engine to raise is only as good as the error the
+  row engine then raises: `ym / -1` as a checked negation declined correctly on `Int.MinValue`,
+  but the error that reached the user lacked the SQL context block Spark's own carries, so
+  `VarkaMaybeThrows` failed it. Compare the raised outcomes before calling an overflow arm done.

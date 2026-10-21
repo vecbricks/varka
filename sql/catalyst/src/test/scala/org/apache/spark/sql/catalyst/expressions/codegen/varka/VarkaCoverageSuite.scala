@@ -218,9 +218,22 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           + s"${Int.MinValue} AND ${Int.MaxValue}")),
       Row("CAST(ymy AS INTERVAL MONTH)"),
       Row("CAST(i AS INTERVAL MONTH)",
-        "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve and declines"),
+        "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and "
+          + "declines over a bare int column"),
       Row("CAST(ymm AS INT)",
-        "a relabel of a MONTH-ended interval; a YEAR-ended one divides and declines"),
+        "a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve"),
+      Row("CAST(ymy AS INT)",
+        "the whole years: `v / 12` over a count nothing bounds, the division `extract(YEAR FROM "
+          + "ym)` builds"),
+      Row("CAST(ym AS INTERVAL YEAR)",
+        "narrowing to a YEAR-ended unit drops the months: `(v / 12) * 12`, a wrapping multiply "
+          + "that cannot overflow since the product is no larger than the count"),
+      Row("ym / 12",
+        "a literal integral divisor rounds half away from zero (`IntMath.divide` HALF_UP): the "
+          + "truncated quotient, moved one step away from zero when the remainder reaches half "
+          + "the divisor, all on the int lane with no widening or guard"),
+      Row("ym / -7", "a negative divisor flips the direction the rounding moves, which a sign "
+        + "slip would show only here"),
       Row("extract(YEAR FROM ym)",
         "a division by twelve over a month count nothing bounds, so the calendar's "
           + "range-narrowed magic cannot serve it; a multiply-high through 64-bit lanes does"),

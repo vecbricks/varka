@@ -310,3 +310,76 @@ fuses that no magic multiply could have served, which makes its benchmark
 baseline a decline rather than another lowering - the row `VARKA-88.md`
 section 6 registered as "one row only the double route can serve at all". The
 throughput pair section 2.20 asks for lands with that benchmark.
+
+## 9. Outcome of section 0.5's list (21 October 2026)
+
+Done in part. Items 2, 3 and 4 are done, and item 1 is done except for the divisor `-1`; no
+prediction was registered for this row (0.7), so none is scored. No new IR node, emitter arm or
+evaluator change was needed, as 0.5 expected.
+
+**What was built.** `VarkaIntervalCompiler` gained three arms, all composing existing nodes:
+
+* `ym / num` for a literal `Integer`, `Short` or `Byte` `num` with `|num| >= 2`: the int-lane
+  HALF_UP form of 0.4, exactly as written there. `q = ConstDivide(m, d)`;
+  `r = m - q * d` with a wrapping multiply; the quotient moves one step away from zero iff
+  `|r| >= ceil(|d| / 2)`, in the direction `sign(m) * sign(d)`. For `d = 2` the tree is
+  `(int:ADD:WRAP (divc:2 col:0) (if (cmp:GE (if (cmp:LT col:0 lit:0) (neg:WRAP r) r) lit:3) (if
+  (cmp:LT col:0 lit:0) lit:2 lit:3) lit:0))` with `r = (int:SUB:WRAP col:0 (int:MUL:WRAP
+  (divc:2 col:0) lit:1))`. `ym / 1` is the operand.
+* `CAST(ymy AS INT)` is `ConstDivide(v, 12)`, the node `extract(YEAR FROM ym)` builds.
+* `CAST(ym AS INTERVAL YEAR)` is `ConstDivide(v, 12)` times a twelve slot, wrapping. A cast
+  to the operand's own type (`CAST(ymy AS INTERVAL YEAR)`) is the operand alone.
+
+**What differed from the plan.**
+
+* **`-1` declines, as the owner's first cut said.** The upgrade to a negation was built and
+  reverted. It fused (`IntNeg` FAIL declines the batch on `Int.MinValue`), but the error the row
+  engine then raised for that batch showed no `== SQL ==` context block where Spark's own `ym / -1`
+  shows one, so the two engines' errors differed (`VarkaMaybeThrows` and
+  `VarkaCoverageDifferentialSuite` both caught it). The cause was not chased. A zero divisor
+  declines with its reason and both engines raise the same error.
+* **The cast to the operand's own type is not a narrowing.** The first narrowing arm computed
+  `(v / 12) * 12` for `CAST(ymy AS INTERVAL YEAR)` too; the Spark oracle disagreed (reference
+  evaluator `-36`, Spark `-43`), because `Cast` between equal types is the identity whatever the
+  stored count. The reference evaluator cannot see this, since it evaluates the IR the compiler
+  built; only the oracle holds the compiler to Spark.
+* **No HALF_UP overflow worry, and no `abs`.** `r` has the sign of `m`, so `|r|` is `r` or `-r`
+  chosen by `m < 0`, and `-r` cannot overflow since `|r| < 2^31`. The `IntNeg` is `WRAP`.
+
+**The proof.** The corrected rule holds; no counterexample exists at any divisor class.
+
+* `VarkaEmitterYmDivideSuite`, opt-in (`-Dvarka.sweep=true`): the rule in plain wrapping int
+  arithmetic against `IntMath.divide(m, d, HALF_UP)`, the call `DivideYMInterval` makes, at every
+  one of the 2^32 dividends for 409 divisors: every `Byte` divisor (all 253 but 0 and +-1), the
+  small ones to 20 and a few of 60, 100, 360, 1000, 3600, 12345, 32767, 65537 and 12345679, every
+  `2^k - 1`, `2^k`, `2^k + 1` up to `2^30` in both signs, `Int.MaxValue`, `Int.MaxValue - 1`,
+  `Int.MinValue` and `Int.MinValue + 1`. Result: no difference; 11 minutes 46 seconds on the
+  laptop's 24 cores (`-Dvarka.ownJvm=true`). Per build the same test runs a slice: a 4099 stride,
+  80001-dividend windows at zero and at each end, and the points `k * d + t` around every
+  divisor's half points and multiples, in about a second. `dev/varka_nightly.sh`'s sweep step
+  now carries a one-hour cap, since the sweep exceeds an own-JVM suite's nine-minute default.
+* `verify_ym_division.py` gained five rows for the int-lane form (`d = 12, -12, 2, -7` over all
+  int32, and windows for 28 divisors); all exact, with the script's earlier rows unchanged; 18
+  minutes 51 seconds (it was about six).
+* No SMT file: the plan did not ask for one, and the rule's one non-obvious step (the wrapping
+  `q * d` is exact because the true remainder fits an int) is what the sweeps check. The
+  quotient `q` is `ConstDivide`'s, proven by `int_mulhi_divide.smt2` and the existing sweeps.
+
+**Tests.** `VarkaEmitterYmDivideSuite` also runs the real compiler's kernel against Spark's
+`eval` (`VarkaSparkOracle`) for 213 int divisors, 253 `Byte`, 7 `Short`, `d = 1`, the two casts
+at the default width and at `lanesOverride=4`, three null patterns each, over dividends around
+every half point and multiple. `VarkaYmDivideSuite` (sql) runs both engines on queries over
+about 6,000 month counts with nulls, with a null in each interval column on some rows, and on the
+two raised errors (zero and `Int.MinValue / -1`, both unfused). The coverage table gained `ym / 12`,
+`ym / -7`, `CAST(ymy AS INT)` and `CAST(ym AS INTERVAL YEAR)` (no domain: none of them declines);
+`CAST(ymy AS INT)` joined the int-valued list the ANSI form of the differential reads.
+
+**Regeneration.** `coverage.json` and `docs/sql-varka.md` gained the four rows;
+`emitted_bytes.json` gained the four rows at both widths and moved only the 18 aggregate
+`option_arms` hashes (the rows' own hashes for the 57-odd earlier rows did not move);
+`width_audit.json` gained the four rows and the `d2 - d` row VARKA-39 had not added (the audit suite fails on master without it); `golden_corpus.json` did not change: no golden query changed verdict. The option matrix at `lanesOverride=4` (`dev/varka_matrix.sh --config lanesOverride=4 --module catalyst -j 2`, 17 minutes) had one failure per configuration, that missing audit rows, and no other.
+
+**Still open.** `extract(MONTH FROM ym)` is row 329's; `ym / col`, `ym / fractional` and
+`ym / decimal` are rows 30, 342 and 349; `ym / -1` could fuse once the context difference above
+is understood; a NULL literal divisor declines; a long literal divisor (`LongMath.divide`) declines. The benchmark pair is its own
+pull request.

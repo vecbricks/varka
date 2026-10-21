@@ -1,0 +1,134 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+package org.apache.spark.sql.execution
+
+import java.time.Period
+
+import org.apache.spark.sql.{QueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.types.{IntegerType, StructField, StructType, YearMonthIntervalType}
+
+/**
+ * `ym / num` for a literal integral `num`, and the two YEAR-unit casts, against the row engine.
+ * Spark rounds the quotient half away from zero (`IntMath.divide(.., HALF_UP)`) and raises on a
+ * zero divisor and on `Int.MinValue / -1`; the kernel keeps the rounding on the int lane and
+ * leaves both errors to the row engine, so the error tests run both engines and compare what each
+ * did rather than naming an exception class.
+ */
+class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestWatchdog {
+
+  private val yearOnly = YearMonthIntervalType(YearMonthIntervalType.YEAR,
+    YearMonthIntervalType.YEAR)
+  private val monthOnly = YearMonthIntervalType(YearMonthIntervalType.MONTH,
+    YearMonthIntervalType.MONTH)
+
+  private val schema = StructType(Seq(
+    StructField("ym", YearMonthIntervalType()), StructField("ymy", yearOnly),
+    StructField("ymm", monthOnly), StructField("i", IntegerType)))
+
+  private def months(n: Int): Period = Period.ofMonths(n)
+
+  /**
+   * Month counts that put the quotient on both sides of every half point for the small divisors
+   * (a dense run around zero), spread across the range, at its edges, with a null on some rows.
+   */
+  private def rows: Seq[Row] = {
+    val edges = Seq(Int.MinValue, Int.MinValue + 1, Int.MaxValue, Int.MaxValue - 1, 0, 1, -1)
+    val values = (-1500 until 1500) ++ (0 until 3000).map(i => (i * 1431655765L).toInt) ++ edges
+    values.zipWithIndex.map { case (v, i) =>
+      Row(if (i % 13 == 3) null else months(v), if (i % 17 == 5) null else months(v),
+        if (i % 19 == 7) null else months(v), i)
+    }
+  }
+
+  private val errorTables: Map[String, Seq[Row]] = {
+    def table(v: Int) = Seq(Row(months(v), months(v), months(v), 0), Row(months(12), months(12),
+      months(12), 1))
+    Map("varka_ymd_min" -> table(Int.MinValue), "varka_ymd_ok" -> table(Int.MinValue + 1))
+  }
+
+  private def cache(session: SparkSession): Unit = {
+    val tables = Map("varka_ymd_rows" -> rows) ++ errorTables
+    for ((name, data) <- tables) {
+      session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
+        .createOrReplaceTempView(name)
+      session.catalog.cacheTable(name)
+    }
+  }
+
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    cache(spark)
+    cache(varkaSpark)
+  }
+
+  /** The kernel serves the query and agrees with the row engine, with no batch declined. */
+  private def checkFused(query: String, declinesAllowed: Boolean = false): Unit = {
+    val actual = varkaSpark.sql(query)
+    val plan = actual.queryExecution.executedPlan
+    assertFused(plan)
+    checkAnswer(actual, spark.sql(query))
+    assertKernelsRan(plan)
+    if (!declinesAllowed) {
+      val node = collectFirst(plan) { case v if isVarkaNode(v) => v }.get
+      val declined = node.metrics("numFallbackBatchesDeclined").value
+      assert(declined === 0L, s"$query: $declined batch(es) declined")
+    }
+  }
+
+  test("ym / num rounds half away from zero like the row engine, for every divisor class") {
+    checkFused("SELECT ym / 2 AS a, ym / -2 AS b, ym / 3 AS c, ym / -3 AS d, ym / 7 AS e, " +
+      "ym / 12 AS f, ym / -12 AS g, ym / 100 AS h, ym / 1000 AS i FROM varka_ymd_rows")
+    checkFused("SELECT ym / 1 AS a, ym / 4 AS b, ym / 1024 AS c, ym / 65536 AS d, " +
+      "ym / 1073741824 AS e, ym / 2147483647 AS f, ym / -1073741824 AS g, " +
+      "ym / -2147483647 AS h FROM varka_ymd_rows")
+    checkFused("SELECT ymy / 12 AS a, ymm / -5 AS b, ymm / 2 AS c, ym / 5 + ym / 6 AS d " +
+      "FROM varka_ymd_rows")
+  }
+
+  test("ym / num takes Int, Short and Byte literals, and Int.MinValue") {
+    checkFused("SELECT ym / CAST(7 AS SMALLINT) AS a, ym / CAST(-100 AS TINYINT) AS b, " +
+      "ym / CAST(-128 AS TINYINT) AS c, ym / CAST(32767 AS SMALLINT) AS d " +
+      "FROM varka_ymd_rows")
+    checkFused("SELECT ym / CAST(-2147483648 AS INT) AS a FROM varka_ymd_rows")
+  }
+
+  test("a zero or minus-one divisor, a long, fractional or column divisor stays unfused, and " +
+      "the two that raise raise the same error in both engines") {
+    for (query <- Seq("SELECT ym / 0 AS a FROM varka_ymd_ok",
+        "SELECT ym / -1 AS a FROM varka_ymd_min")) {
+      assertNotFused(varkaSpark.sql(query).queryExecution.executedPlan)
+      assert(checkSparkAnswerMaybeThrows(query).isInstanceOf[VarkaMaybeThrows.Raised],
+        s"$query: the row engine answered where Spark raises")
+    }
+    for (query <- Seq("SELECT ym / 2L AS a FROM varka_ymd_rows",
+        "SELECT ym / 2.5 AS a FROM varka_ymd_rows", "SELECT ym / 2.5D AS a FROM varka_ymd_rows",
+        "SELECT ym / (i % 7 + 1) AS a FROM varka_ymd_rows")) {
+      val actual = varkaSpark.sql(query)
+      assertNotFused(actual.queryExecution.executedPlan)
+      checkAnswer(actual, spark.sql(query))
+    }
+  }
+
+  test("CAST(ymy AS INT) and the YEAR narrowing agree with the row engine") {
+    checkFused("SELECT CAST(ymy AS INT) AS a, CAST(ymm AS INTERVAL YEAR) AS b, " +
+      "CAST(ym AS INTERVAL YEAR) AS c FROM varka_ymd_rows")
+    checkFused("SELECT CAST(ymy AS INT) + 1 AS a FROM varka_ymd_rows")
+  }
+}

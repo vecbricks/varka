@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.DivideYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalMonths;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalYears;
@@ -36,11 +37,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
@@ -107,8 +110,8 @@ final class VarkaIntervalCompiler {
       // interval, so both directions of the MONTH unit are the identity on the lane; only the
       // Spark type on the outside differs, and that rides on `outputTypes`. The YEAR unit is
       // neither direction's identity - it multiplies or divides by twelve. Its outbound half is
-      // the arm below; its inbound half, `CAST(ym AS INT)` over a YEAR-ended interval, is a
-      // division by twelve, which is not supported yet - it belongs with the year-month extracts.
+      // the arm below; its inbound half, `CAST(ym AS INT)` over a YEAR-ended interval, is the
+      // division by twelve two arms further down.
       case Cast c when endsIn(c, YearMonthIntervalType.MONTH())
           && c.child().dataType().equals(DataTypes.IntegerType) ->
           () -> VarkaNodeCompiler.compileIntOperand(
@@ -120,7 +123,7 @@ final class VarkaIntervalCompiler {
       // and a remainder and puts it back together: exactly `v` again for a MONTH end field, at
       // every int including `Int.MinValue`, since the reassembly's `multiplyExact` is over
       // `v / 12`. So this direction emits nothing and only `outputTypes` moves. The YEAR-ended
-      // direction drops the remainder, which is a division by twelve, and declines below.
+      // direction drops the remainder, which is a division by twelve, and has its own arm below.
       case Cast c when endsIn(c, YearMonthIntervalType.MONTH())
           && c.child().dataType() instanceof YearMonthIntervalType ->
           () -> VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
@@ -132,15 +135,30 @@ final class VarkaIntervalCompiler {
       case Cast c when c.dataType().equals(YEAR_INTERVAL)
           && c.child().dataType().equals(DataTypes.IntegerType) ->
           () -> yearsToMonths(c, inputs, literals, sink);
-      // The truncating half of the pair above, named rather than left to the generic decline:
-      // narrowing a year-month interval to a YEAR-ended unit keeps only the whole years, which is
-      // `v - v % 12` and so a division. Type coercion never produces this - it widens the end
-      // field - so it reaches here only from a cast the user wrote, and it is not supported yet,
-      // belonging with `extract(YEAR FROM ym)` and `ym / k`.
+      // The truncating half of the pair above: narrowing a year-month interval to a YEAR-ended
+      // unit keeps only the whole years. `Cast.castToYearMonthInterval` computes
+      // `periodToMonths(monthsToPeriod(v), YEAR)`, which is `months - months % 12`, i.e.
+      // `(v / 12) * 12` over Java's truncating `/`. The product cannot overflow, since
+      // `|(v / 12) * 12| <= |v|`, so the multiply wraps and nothing bounds the operand. Type
+      // coercion never produces this cast (it widens the end field); it comes from a cast the
+      // user wrote. A cast to the operand's own type is the identity in Spark, whatever the
+      // stored count, so it is the child alone and must not truncate.
       case Cast c when endsIn(c, YearMonthIntervalType.YEAR())
           && c.child().dataType() instanceof YearMonthIntervalType ->
-          () -> sink.decline(
-              "year-month interval narrowed to a YEAR-ended unit, which divides by twelve", c);
+          () -> intervalOperand(c.child(), "the narrowed interval", inputs, literals, sink)
+              .map(x -> c.child().dataType().equals(c.dataType())
+                  ? x
+                  : (VarkaVectorIR) new IntArith(IntOp.MUL, Overflow.WRAP,
+                      new ConstDivide(x, 12), twelve(literals)));
+      // `CAST(ymy AS INT)`, the inbound half of the YEAR unit: `yearMonthIntervalToInt` is
+      // `v / 12` for a YEAR end field, the same node `extract(YEAR FROM ym)` builds. Only a
+      // single-field interval casts to an integral type, so a YEAR end field is a YEAR-only
+      // interval.
+      case Cast c when c.dataType().equals(DataTypes.IntegerType)
+          && c.child().dataType() instanceof YearMonthIntervalType ym
+          && ym.endField() == YearMonthIntervalType.YEAR() ->
+          () -> intervalOperand(c.child(), "the cast interval", inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new ConstDivide(x, 12));
       case Cast c when c.dataType().equals(DataTypes.IntegerType)
           && c.child().dataType().equals(MONTH_INTERVAL) ->
           () -> VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
@@ -177,6 +195,7 @@ final class VarkaIntervalCompiler {
       case ExtractANSIIntervalMonths x ->
           () -> sink.decline("extract(MONTH FROM ym) returns a byte, which has no lane", x);
       case MultiplyYMInterval m -> () -> multiply(m, inputs, literals, sink);
+      case DivideYMInterval m -> () -> divide(m, inputs, literals, sink);
       default -> null;
     };
   }
@@ -333,6 +352,78 @@ final class VarkaIntervalCompiler {
     }
     return rolledBack(VarkaNodeCompiler.arithOver(
         IntOp.MUL, Overflow.FAIL, x.get(), k.get(), m, literals, mark, sink), literals, mark);
+  }
+
+  /**
+   * {@code IntMath.divide(months, num, RoundingMode.HALF_UP)} for a literal {@code num} of the
+   * int family. Spark raises before dividing, in every mode, on {@code num == 0} and on
+   * {@code months == Int.MinValue && num == -1}; the compiler refuses both literals (the row
+   * engine raises), because a negation that declined the batch on {@code Int.MinValue} raised
+   * an error without the SQL context Spark's carries. A column, a fractional or a decimal
+   * divisor, and a {@code Long} literal (which takes {@code LongMath.divide}), decline.
+   *
+   * <p>HALF_UP stays on the int lane for {@code |d| >= 2}, with no widening and no guard. With
+   * {@code q = m / d} truncated and {@code r = m - q * d} (so {@code |r| < |d|}, and {@code r}
+   * has the sign of {@code m} or is zero), the quotient moves one step away from zero iff
+   * {@code 2 * |r| >= |d|}, i.e. iff {@code |r| >= ceil(|d| / 2)}, in the direction
+   * {@code sign(m) * sign(d)}. The multiply wraps and is still exact, since the true remainder
+   * fits an int; negating {@code r} cannot overflow, since {@code |r| < 2^31}; and
+   * {@code q + 1} cannot overflow, since {@code |q| <= 2^30}. The rule is swept over every int
+   * dividend in {@code VarkaEmitterYmDivideSuite} and {@code verify_ym_division.py}.
+   */
+  private static Optional<VarkaVectorIR> divide(
+      DivideYMInterval m,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    DataType type = m.num().dataType();
+    if (type.equals(DataTypes.LongType)) {
+      return sink.decline("interval divisor of type bigint takes LongMath.divide, which the "
+          + "int lane does not lower", m);
+    }
+    if (!type.equals(DataTypes.IntegerType) && !type.equals(DataTypes.ShortType)
+        && !type.equals(DataTypes.ByteType)) {
+      return sink.decline("interval divisor of type " + type.simpleString()
+          + " is not an integral literal", m);
+    }
+    if (!(m.num() instanceof Literal l)) {
+      return sink.decline("interval divisor is not a literal", m);
+    }
+    if (!(l.value() instanceof Number n)) {
+      return sink.decline("interval divisor is a NULL literal", m);
+    }
+    int d = n.intValue();
+    if (d == 0) {
+      return sink.decline("interval divided by a literal zero raises", m);
+    }
+    if (d == -1) {
+      return sink.decline("interval divided by -1 overflows at Int.MinValue, which the row "
+          + "engine raises on", m);
+    }
+    int mark = literals.size();
+    Optional<VarkaVectorIR> x =
+        intervalOperand(m.interval(), "the divided interval", inputs, literals, sink);
+    if (x.isEmpty()) {
+      return rolledBack(x, literals, mark);
+    }
+    VarkaVectorIR months = x.get();
+    if (d == 1) {
+      return x;
+    }
+    int away = d > 0 ? 1 : -1;
+    int half = (int) ((Math.abs((long) d) + 1) / 2);
+    LiteralSlot zero = VarkaNodeCompiler.intSlot(0, literals);
+    VarkaVectorIR q = new ConstDivide(months, d);
+    VarkaVectorIR r = new IntArith(IntOp.SUB, Overflow.WRAP, months,
+        new IntArith(IntOp.MUL, Overflow.WRAP, q, VarkaNodeCompiler.intSlot(d, literals)));
+    Compare negative = new Compare(CompareOp.LT, months, zero);
+    VarkaVectorIR magnitude = new IfElse(negative, new IntNeg(Overflow.WRAP, r), r);
+    VarkaVectorIR step = new IfElse(negative, VarkaNodeCompiler.intSlot(-away, literals),
+        VarkaNodeCompiler.intSlot(away, literals));
+    VarkaVectorIR bump = new IfElse(
+        new Compare(CompareOp.GE, magnitude, VarkaNodeCompiler.intSlot(half, literals)),
+        step, zero);
+    return Optional.of(new IntArith(IntOp.ADD, Overflow.WRAP, q, bump));
   }
 
   /**

@@ -60,9 +60,11 @@ coercion inserts when two units meet, so `ymm + ymy` fuses like `ymm + ymm2`.
 Since VARKA-68 the `INT`-to-`YEAR` cast, which multiplies by twelve, fuses
 wherever the compile-time bound rules that multiply's overflow out - over a
 calendar field it does, over a bare int column it does not. The direction that
-divides by twelve, which is `EXTRACT(YEAR FROM ym)`, `ym / k` and a cast that
-narrows a year-month interval to a `YEAR`-ended unit, stays residual and is VARKA-89's: the emitter's exact magic division covers about a
-forty-thousandth of a full int32 month count.
+divides by twelve fuses too: `EXTRACT(YEAR FROM ym)`, `CAST(ymy AS INT)`, `ym / k` for a literal integral
+`k` (rounded half away from zero, as Spark does) and a cast that narrows a year-month interval to a
+`YEAR`-ended unit. The emitter's range-narrowed magic division covers about a forty-thousandth of a full
+int32 month count, so these divide through 64-bit lanes, which is exact over all of it. `ym / -1`, a
+zero, `BIGINT`, fractional or column divisor stays residual.
 
 VARKA-68 also admits the algebra whose operands and result are both intervals:
 `ym + ym`, `ym - ym`, `-ym`, `abs(ym)`, `ym * k` and `make_ym_interval(y, m)`,
@@ -306,7 +308,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `date_sub(d, 5)` | `calendar` |  |  | vector |
 | `d + CAST(i AS INTERVAL DAY)` | `calendar` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
 | `datediff(d2, d)` | `calendar` |  |  | vector |
-| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the count's product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | not audited |
+| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the count's product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `unix_date(d)` | `calendar` |  |  | vector |
 | `date_from_unix_date(unix_date(d))` | `calendar` |  |  | vector |
 
@@ -346,8 +348,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `abs(ym)` | `interval` | `ym > INTERVAL '-178956970-8' YEAR TO MONTH` | interval arithmetic is exact in every mode: the one count whose negation overflows declines | vector |
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
 | `CAST(ymy AS INTERVAL MONTH)` | none |  |  | vector |
-| `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve and declines | vector |
-| `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides and declines | vector |
+| `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and declines over a bare int column | vector |
+| `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve | vector |
+| `CAST(ymy AS INT)` | `interval` |  | the whole years: `v / 12` over a count nothing bounds, the division `extract(YEAR FROM ym)` builds | vector |
+| `CAST(ym AS INTERVAL YEAR)` | `interval` |  | narrowing to a YEAR-ended unit drops the months: `(v / 12) * 12`, a wrapping multiply that cannot overflow since the product is no larger than the count | vector |
+| `ym / 12` | `interval` |  | a literal integral divisor rounds half away from zero (`IntMath.divide` HALF_UP): the truncated quotient, moved one step away from zero when the remainder reaches half the divisor, all on the int lane with no widening or guard | vector |
+| `ym / -7` | `interval` |  | a negative divisor flips the direction the rounding moves, which a sign slip would show only here | vector |
 | `extract(YEAR FROM ym)` | `interval` |  | a division by twelve over a month count nothing bounds, so the calendar's range-narrowed magic cannot serve it; a multiply-high through 64-bit lanes does | vector |
 | `extract(YEAR FROM ym) - 1` | `interval`, `intArithmetic` | `extract(YEAR FROM ym) > -2147483648` | the quotient feeding further int arithmetic, checked under ANSI; the check cannot fire, since the quotient is within +/-178956970 | vector |
 

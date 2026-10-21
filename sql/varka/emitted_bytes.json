@@ -412,6 +412,50 @@
           "loopMasked0([J[J[I[J[J[II)I" : "c786bf93848b082c",
           "epilogueMasked0([J[J[I[J[J[II)I" : "92067b95572f433b"
         },
+        "CAST(ymy AS INT)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "9a8ee8dfbcaa550f",
+          "epilogueDense0([J[J[I[J[J[II)I" : "e580a79c6b29f09c",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "9a8ee8dfbcaa550f",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "e580a79c6b29f09c"
+        },
+        "CAST(ym AS INTERVAL YEAR)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "2fa1707dedc5c62e",
+          "epilogueDense0([J[J[I[J[J[II)I" : "df3a388344bc0306",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "2fa1707dedc5c62e",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "df3a388344bc0306"
+        },
+        "ym / 12" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "cc506ccbfafc0054",
+          "epilogueDense0([J[J[I[J[J[II)I" : "eb405d7e9b7671e3",
+          "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
+          "loopMasked0([J[J[I[J[J[II)I" : "41676004e3721fd1",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "e8f145efae01f692"
+        },
+        "ym / -7" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "77f2cd14caae31dc",
+          "epilogueDense0([J[J[I[J[J[II)I" : "b698318ec8c0387b",
+          "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
+          "loopMasked0([J[J[I[J[J[II)I" : "5142fab85545eb7f",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "546d58c59d649335"
+        },
         "extract(YEAR FROM ym)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
@@ -2235,6 +2279,50 @@
           "loopMasked0([J[J[I[J[J[II)I" : "cf79b93c3bd7a9e2",
           "epilogueMasked0([J[J[I[J[J[II)I" : "9066d2eeb420bc9c"
         },
+        "CAST(ymy AS INT)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "5cf468770037f1d0",
+          "epilogueDense0([J[J[I[J[J[II)I" : "a2f2c42ad87bc19a",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "5cf468770037f1d0",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "a2f2c42ad87bc19a"
+        },
+        "CAST(ym AS INTERVAL YEAR)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "0e6d272b8aace416",
+          "epilogueDense0([J[J[I[J[J[II)I" : "dc30fedefaa0524f",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "0e6d272b8aace416",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "dc30fedefaa0524f"
+        },
+        "ym / 12" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "e0727766a68b805f",
+          "epilogueDense0([J[J[I[J[J[II)I" : "fa6d87aa0a931c11",
+          "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
+          "loopMasked0([J[J[I[J[J[II)I" : "152321ea65b2b8cb",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "6a9e1da60b15f177"
+        },
+        "ym / -7" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "81e3c3f280214f47",
+          "epilogueDense0([J[J[I[J[J[II)I" : "ed2230dada68a2f0",
+          "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
+          "loopMasked0([J[J[I[J[J[II)I" : "f0970452ac84785b",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "2cab437502183084"
+        },
         "extract(YEAR FROM ym)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
@@ -3652,40 +3740,40 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "262d7b211fe3b97d",
-      "16" : "be63fe0ed8e97bcd"
+      "4" : "97e10b5424d419ac",
+      "16" : "9c86140cf5a46fb0"
     },
     "useAVX=0" : {
-      "4" : "135ab594a909ab16",
-      "16" : "75ccd052cb73c925"
+      "4" : "afa1c65e354d5d08",
+      "16" : "a738afeb91296edd"
     },
     "useAVX=1" : {
-      "4" : "135ab594a909ab16",
-      "16" : "75ccd052cb73c925"
+      "4" : "afa1c65e354d5d08",
+      "16" : "a738afeb91296edd"
     },
     "useAVX=2" : {
-      "4" : "135ab594a909ab16",
-      "16" : "75ccd052cb73c925"
+      "4" : "afa1c65e354d5d08",
+      "16" : "a738afeb91296edd"
     },
     "useAVX=3" : {
-      "4" : "262d7b211fe3b97d",
-      "16" : "be63fe0ed8e97bcd"
+      "4" : "97e10b5424d419ac",
+      "16" : "9c86140cf5a46fb0"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "aeb6a9818d4619bf",
-      "16" : "49bb686459f0c5fb"
+      "4" : "dcf5508a146dc88b",
+      "16" : "331b496d6858eb16"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "bdce0bcf8d098361",
-      "16" : "60b033f57a0d5d40"
+      "4" : "f98f4c3ad4647cb6",
+      "16" : "ceb3a97d9fdb96fd"
     },
     "groupLocalSlots=false" : {
-      "4" : "f8ba5f3a4e551002",
-      "16" : "64943067ac6d6562"
+      "4" : "32a6fc84d6c55e04",
+      "16" : "ebe12aa4a1852224"
     },
     "methodByteBudget=0" : {
-      "4" : "5d53580121b55881",
-      "16" : "e5084860fa4eda46"
+      "4" : "396ab6406f31f8c4",
+      "16" : "616aae5e9ff35cf5"
     }
   }
 }

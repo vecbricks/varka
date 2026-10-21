@@ -68,7 +68,7 @@ it declines, and section 2.20 already says the byte output is its own question.
 `ym / col` is absent for a different reason: the divisor is then not a constant,
 there is no lanewise integer divide, and the shape declines.
 
-Run: python3 sql/varka/plans/verify_ym_division.py     (about six minutes)
+Run: python3 sql/varka/plans/verify_ym_division.py     (about ten minutes)
 Needs numpy: float64 there is IEEE binary64 with one rounding per operation, the
 same arithmetic the JVM's DoubleVector does.
 
@@ -101,6 +101,28 @@ WINDOW = 1 << 22
 # on both sides and a sign slip would show up nowhere else.
 DIVISORS = [1, -1, 2, -2, 4, 7, -7, 12, -12, 49, 1024, 100000, INT32_MAX, INT32_MIN]
 
+# The divisors the compiler's int-lane form is swept over in windows: every one of DIVISORS the
+# form applies to (|d| >= 2), plus the half-way edges: 2^30 and its neighbours, where
+# ceil(|d| / 2) is largest, and the short and byte extremes.
+INTLANE_DIVISORS = [d for d in DIVISORS if abs(d) >= 2] + [
+    3,
+    -3,
+    5,
+    6,
+    255,
+    -256,
+    32767,
+    -32768,
+    127,
+    -128,
+    (1 << 30) - 1,
+    1 << 30,
+    -(1 << 30),
+    (1 << 30) + 1,
+    INT32_MAX - 1,
+    INT32_MIN + 1,
+]
+
 EXPECTED = {
     "getYears, all int32, DIV": True,
     "getYears, all int32, RECIP": True,
@@ -110,6 +132,11 @@ EXPECTED = {
     "halfup d=-12, all int32, RECIP": True,
     "halfup, windows, DIV": True,
     "halfup, windows, RECIP": True,
+    "int-lane halfup d=12, all int32": True,
+    "int-lane halfup d=-12, all int32": True,
+    "int-lane halfup d=2, all int32": True,
+    "int-lane halfup d=-7, all int32": True,
+    "int-lane halfup, windows": True,
 }
 
 # The reciprocal form's verdict per divisor, which is what the emitter's deny-list
@@ -155,6 +182,39 @@ def halfup_from_trunc(m, d, q):
     absd = abs(int(d))
     signum = np.where(m < 0, -1, 1) * (-1 if d < 0 else 1)
     return np.where(absr - (absd - absr) >= 0, q + signum, q)
+
+
+def halfup_intlane(m, d):
+    """The form the compiler lowers for a literal `d` with `|d| >= 2` (VARKA-89), in int32.
+
+    q is the truncating quotient (`ConstDivide`, exact for any int divisor); `r = m - q*d`
+    is computed with the wrapping int32 multiply and subtract the lane has; and q moves one
+    step away from zero iff `|r| >= ceil(|d| / 2)`, in the direction sign(m) * sign(d).
+    No widening and no guard: the wrap is harmless because the true remainder fits an int,
+    and q + 1 cannot overflow since |q| <= 2^30. The Java sweep in
+    `VarkaEmitterYmDivideSuite` runs the same rule over every int32 for a hundred divisors.
+    """
+    q = java_trunc_div(m, d).astype(np.int32)
+    with np.errstate(over="ignore"):
+        r = m.astype(np.int32) - q * np.int32(d)
+    half = (abs(int(d)) + 1) // 2
+    magnitude = np.where(m < 0, -r.astype(np.int64), r.astype(np.int64))
+    away = 1 if d > 0 else -1
+    step = np.where(m < 0, -away, away)
+    return (q.astype(np.int64) + np.where(magnitude >= half, step, 0)).astype(np.int64)
+
+
+def sweep_intlane(blocks, d):
+    """Compare the int-lane form to `IntMath.divide` HALF_UP over `blocks`."""
+    wrong, first = 0, None
+    for m in blocks:
+        live = m[m != INT32_MIN] if d == -1 else m
+        bad = halfup_intlane(live, d) != java_halfup(live, d)
+        n = int(bad.sum())
+        if n and first is None:
+            first = int(live[np.argmax(bad)])
+        wrong += n
+    return wrong, first
 
 
 def recip_admits(d):
@@ -286,6 +346,23 @@ def main():
         wrong, first = sweep(blocks(), d, recip, halfup)
         results[label] = wrong == 0
         print(f"  {label:<32} {'exact' if wrong == 0 else f'{wrong} wrong, first at {first}'}")
+
+    for d in (12, -12, 2, -7):
+        label = f"int-lane halfup d={d}, all int32"
+        wrong, first = sweep_intlane(all_int32(), d)
+        results[label] = wrong == 0
+        print(f"  {label:<32} {'exact' if wrong == 0 else f'{wrong} wrong, first at {first}'}")
+    wrong, first = 0, None
+    for d in INTLANE_DIVISORS:
+        w, f = sweep_intlane(windows(), d)
+        if w and first is None:
+            first = (d, f)
+        wrong += w
+    results["int-lane halfup, windows"] = wrong == 0
+    print(
+        f"  {'int-lane halfup, windows':<32} "
+        f"{'exact' if wrong == 0 else f'{wrong} wrong, first at {first}'}"
+    )
 
     for recip in (False, True):
         label = f"halfup, windows, {'RECIP' if recip else 'DIV'}"
