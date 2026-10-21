@@ -737,7 +737,8 @@ final class VarkaChronoLowering {
    * is written (the map needs it) but no tail reads it; {@code yearOfEra} is the slot the other
    * form leaves the year of century in - which is why {@link #emitChronoYear} takes the form as an
    * argument rather than deciding what the slot holds; {@code mask} and {@code scratch} are the
-   * carries' scratch, the same two the other form uses.
+   * carries' scratch, the same two the other form uses ({@code scratch} is written only under a
+   * divider that carries the century; an exact divider leaves both masks unwritten too).
    */
   private static void emitJulianYearOfEra(CodeBuilder cb, int rem, int century, int yearOfEra,
       int mask, int scratch, Divider divider) {
@@ -747,20 +748,13 @@ final class VarkaChronoLowering {
     cb.loadConstant(VarkaChrono.QUAD_DAY_ADD);
     cb.invokevirtual(INT_VECTOR, "add", LANEWISE_VI);
     cb.astore(rem);
-    // century = quad / 146097, round-down plus one carry; the remainder is only scratch.
+    // century = quad / 146097, round-down plus one carry; the remainder is only scratch, and
+    // only the carry reads it.
     cb.aload(rem);
     emitDivide(cb, divider, ChronoDivide.JULIAN_CENTURY);
     cb.astore(century);
-    // Only the carry reads the remainder, so an exact (double) quotient leaves it out.
-    if (divider.carries(ChronoDivide.JULIAN_CENTURY)) {
-      cb.aload(rem);
-      cb.aload(century);
-      cb.loadConstant(VarkaChrono.ERA_DAYS);
-      cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
-      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-      cb.astore(scratch);
-      emitCarry(cb, century, scratch, VarkaChrono.ERA_DAYS, mask);
-    }
+    emitRemainderCarry(cb, rem, century, VarkaChrono.ERA_DAYS, scratch, mask, divider,
+        ChronoDivide.JULIAN_CENTURY);
     // jul = quad + 4 * century: the Julian map itself.
     cb.aload(rem);
     cb.aload(century);
@@ -1050,7 +1044,7 @@ final class VarkaChronoLowering {
    *
    * <p>{@code yy}, {@code b}, {@code era}, {@code yoe}, {@code mp}, {@code doy}, {@code doe},
    * {@code century} and {@code mask} are locals the caller owns and this method is free to
-   * overwrite.
+   * overwrite; {@code centuryRem} is written only under a divider that carries the century.
    */
   private static void emitDaysFromCivil(CodeBuilder cb, int year, int month, int day, int yy,
       int b, int era, int yoe, int mp, int doy, int doe, int century, int centuryRem,
@@ -1106,17 +1100,8 @@ final class VarkaChronoLowering {
     cb.aload(yoe);
     emitDivide(cb, divider, ChronoDivide.YEAR_OF_ERA_100);
     cb.astore(century);
-    // Nothing below reads the century's remainder but its own carry, so a divider whose
-    // quotient is exact (the double forms) leaves it out rather than store a dead value.
-    if (divider.carries(ChronoDivide.YEAR_OF_ERA_100)) {
-      cb.aload(yoe);
-      cb.aload(century);
-      cb.loadConstant(100);
-      cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
-      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-      cb.astore(centuryRem);
-      emitCarry(cb, century, centuryRem, 100, carryMask);
-    }
+    emitRemainderCarry(cb, yoe, century, 100, centuryRem, carryMask, divider,
+        ChronoDivide.YEAR_OF_ERA_100);
 
     // doe = yoe * 365 + yoe / 4 - century + doy.
     cb.aload(yoe);
@@ -1712,6 +1697,28 @@ final class VarkaChronoLowering {
     cb.loadConstant(m);
     cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
     emitShift(cb, "LSHR", k);
+  }
+
+  /**
+   * The remainder {@code dividend - quotient * divisor} into {@code remSlot}, then the carry that
+   * corrects {@code quotient} by it - together, and only where {@code divider} carries
+   * {@code div}. Only the carry reads that remainder, so a divider whose quotient is exact (the
+   * double forms) emits nothing, not a remainder nobody reads. For a division whose remainder
+   * is read afterwards too (a day of year, a month), compute the remainder at the call site and
+   * use {@link #emitCarry}.
+   */
+  private static void emitRemainderCarry(CodeBuilder cb, int dividend, int quotient, int divisor,
+      int remSlot, int mask, Divider divider, ChronoDivide div) {
+    if (!divider.carries(div)) {
+      return;
+    }
+    cb.aload(dividend);
+    cb.aload(quotient);
+    cb.loadConstant(divisor);
+    cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
+    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+    cb.astore(remSlot);
+    emitCarry(cb, quotient, remSlot, divisor, mask);
   }
 
   /**

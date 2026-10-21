@@ -785,11 +785,6 @@ whole test `PinsDefaults` only when nothing else of it is worth running under a 
 The scheduled option matrix runs every configuration and a pull request's scoped run only the one
 its diff names, so a test added with a feature is first run under the others a day later: run the
 new suites under all of `--list` before merging a test that emits.
-A pin that hides a census finding is a diagnosis owed, not a fix: the unread `IntVector.sub` that
-VARKA-411 pinned away under the double dividers was the century's remainder, which only the
-magic form's carry reads, computed unconditionally (VARKA-412). Find the store with `javap -c -p`
-on the emitted bytes (the census prints method, op and offsets; the store is the `astore` of a
-slot with no later `aload`), then give the emitter the same condition the reader has.
 A suite that emits a whole corpus under a configuration may see the emitter decline a shape
 (`VarkaEmitDeclined`, which `shareChronoPrefix=false` does for the widest shapes: each node
 decomposes its own date and the method outgrows the byte budget); catch it for that option only,

@@ -126,17 +126,33 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
 
   test("no divider stores the century's remainder for a carry it does not emit") {
     // The double dividers' quotients are exact, so the round-down carry is not emitted and the
-    // remainder only the carry reads must not be computed either (VARKA-412). The shape reaches
-    // both sites: the prefix's Julian map and the recomposition of the shifted date.
+    // remainder only the carry reads must not be computed either (VARKA-412). Two sites compute
+    // such a remainder, and each is reached by its own shape and option, so that a fix at one
+    // cannot hide the other: the Julian map of the calendar prefix (a Quarter reads the prefix
+    // and nothing recomposes) and the recomposition of a shifted date (an AddMonths under the
+    // century-then-year prefix, whose own century remainder is read afterwards). An AddMonths
+    // under the Julian map reaches both.
     val c = (k: Int) => new ColumnRef(k)
-    val roots = Seq[VarkaVectorIR](new AddMonths(c(0), c(1)))
-    for (division <- VarkaEmitOptions.Division.values()) {
-      val options = elided.withDivision(division)
+    val shapes = Seq[(String, Seq[VarkaVectorIR], Boolean)](
+      ("Julian map only", Seq(new Quarter(c(0))), true),
+      ("recomposition only", Seq(new AddMonths(c(0), c(1))), false),
+      ("both", Seq(new AddMonths(c(0), c(1))), true))
+    // The census counts what the options in play build, which a matrix configuration may change
+    // out from under the case: the month step kept (elideChronoMonth off), no shared prefix, or
+    // a group budget or method byte budget that splits the shape differently. The case pins them
+    // to the emit defaults and sets the Julian map and the division itself.
+    val defaults = VarkaEmitOptions.DEFAULTS
+    val pinned = elided.withShareChronoPrefix(defaults.shareChronoPrefix())
+      .withGroupBudget(defaults.groupBudget())
+      .withMethodByteBudget(defaults.methodByteBudget())
+      .withElideChronoMonth(defaults.elideChronoMonth())
+    for ((site, roots, julianMap) <- shapes; division <- VarkaEmitOptions.Division.values()) {
+      val options = pinned.withJulianMap(julianMap).withDivision(division)
       val bytes = VarkaLoopEmitter.emit(
         "org.apache.spark.sql.varka.execution.VarkaUnreadLocals", roots.asJava, 2, 0, null, null,
         options)
       val unread = VarkaUnreadLocalsTrim.census(bytes).asScala
-      assert(unread.isEmpty, s"$division: " + unread.mkString("; "))
+      assert(unread.isEmpty, s"$site, $division: " + unread.mkString("; "))
     }
   }
 
