@@ -1559,7 +1559,9 @@ From VARKA-89 (21 October 2026), which fused `ym / num` and the two YEAR-unit ca
   class. 409 divisors (every `Byte` divisor, `2^k` and its neighbours in both signs, the extremes)
   took 11 min 46 s on 24 cores with a plain-int model of the rule. An own-JVM suite's child is
   ended after nine minutes by default, so a sweep that long needs `-Dvarka.test.watchdog.minutes`
-  and `-Dspark.test.timeout` raised (the nightly's sweep step sets both) or `-Dvarka.ownJvm=true`.
+  and `-Dspark.test.timeout` raised. So the sweep is a "long sweep", on its own property
+  (`-Dvarka.sweep.long=true`) and with no "opt-in" in its name: the gate's sweep step filters on
+  "opt-in" and skips it, and the nightly's sweep step runs it last with both raised. `ym_divide.smt2` proves the same rule per divisor for the dividend symbolic; Z3 5.1.0 gave no answer in 50 s with the divisor symbolic too, in the whole or in any of its four sign cases.
 - A fusion that declines a batch for the row engine to raise is only as good as the error the
   row engine then raises: `ym / -1` as a checked negation declined correctly on `Int.MinValue`,
   but the error that reached the user lacked the SQL context block Spark's own carries, so

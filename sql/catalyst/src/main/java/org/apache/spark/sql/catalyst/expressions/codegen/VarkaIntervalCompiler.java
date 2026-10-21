@@ -145,11 +145,16 @@ final class VarkaIntervalCompiler {
       // stored count, so it is the child alone and must not truncate.
       case Cast c when endsIn(c, YearMonthIntervalType.YEAR())
           && c.child().dataType() instanceof YearMonthIntervalType ->
-          () -> intervalOperand(c.child(), "the narrowed interval", inputs, literals, sink)
-              .map(x -> c.child().dataType().equals(c.dataType())
-                  ? x
-                  : (VarkaVectorIR) new IntArith(IntOp.MUL, Overflow.WRAP,
-                      new ConstDivide(x, 12), twelve(literals)));
+          () -> {
+            int mark = literals.size();
+            return rolledBack(
+                intervalOperand(c.child(), "the narrowed interval", inputs, literals, sink)
+                    .map(x -> c.child().dataType().equals(c.dataType())
+                        ? x
+                        : (VarkaVectorIR) new IntArith(IntOp.MUL, Overflow.WRAP,
+                            new ConstDivide(x, 12), twelve(literals))),
+                literals, mark);
+          };
       // `CAST(ymy AS INT)`, the inbound half of the YEAR unit: `yearMonthIntervalToInt` is
       // `v / 12` for a YEAR end field, the same node `extract(YEAR FROM ym)` builds. Only a
       // single-field interval casts to an integral type, so a YEAR end field is a YEAR-only
@@ -157,8 +162,13 @@ final class VarkaIntervalCompiler {
       case Cast c when c.dataType().equals(DataTypes.IntegerType)
           && c.child().dataType() instanceof YearMonthIntervalType ym
           && ym.endField() == YearMonthIntervalType.YEAR() ->
-          () -> intervalOperand(c.child(), "the cast interval", inputs, literals, sink)
-              .map(x -> (VarkaVectorIR) new ConstDivide(x, 12));
+          () -> {
+            int mark = literals.size();
+            return rolledBack(
+                intervalOperand(c.child(), "the cast interval", inputs, literals, sink)
+                    .map(x -> (VarkaVectorIR) new ConstDivide(x, 12)),
+                literals, mark);
+          };
       case Cast c when c.dataType().equals(DataTypes.IntegerType)
           && c.child().dataType().equals(MONTH_INTERVAL) ->
           () -> VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
@@ -180,11 +190,12 @@ final class VarkaIntervalCompiler {
           () -> absolute(n.child(), inputs, literals, sink);
       case MakeYMInterval m -> () -> makeInterval(m, inputs, literals, sink);
       // `IntervalUtils.getYears(months)` is `months / 12` - Java's `/`, truncating toward zero -
-      // over a stored month count that nothing bounds. The int-lane magic multiply the calendar
-      // uses is exact over 0..49,151, about one forty-thousandth of the type, so this division
-      // goes through the double lane instead: exact for every int32, and truncating already, so
-      // it needs neither a range guard nor a correction step.
-      // `sql/varka/plans/verify_ym_division.py` checks both claims over all 2^32 month counts.
+      // over a stored month count that nothing bounds. The calendar's magic multiply is exact
+      // over 0..49,151 only, about one forty-thousandth of the type, so this is a plain
+      // `ConstDivide`, whose multiply-high form (widen, multiply, shift) is exact for every int32
+      // at 12 (`int_mulhi_divide.smt2`) and truncates already, so it needs neither a range
+      // guard nor a correction step. `sql/varka/plans/verify_ym_division.py` sweeps it over all
+      // 2^32 month counts.
       case ExtractANSIIntervalYears x ->
           () -> intervalOperand(x.child(), "the interval", inputs, literals, sink)
               .map(child -> (VarkaVectorIR) new ConstDivide(child, 12));

@@ -92,7 +92,8 @@ class VarkaEmitterYmDivideSuite extends SparkFunSuite with VarkaOwnJvm {
   /**
    * Compiles `expr` over the two interval columns, emits it at `lanes` and runs it over `values`
    * in the first column (and the second, the same), against the Spark oracle, with every null
-   * pattern. Returns whether any batch was compared rather than declined.
+   * pattern. Unless `mustCompare` is false, fails when every batch was declined instead of
+   * compared.
    */
   private def check(expr: Expression, values: Array[Int], lanes: Int,
       mustCompare: Boolean = true): Unit = {
@@ -164,11 +165,15 @@ class VarkaEmitterYmDivideSuite extends SparkFunSuite with VarkaOwnJvm {
   // The rule over every int32 dividend (VARKA-89).
   // -------------------------------------------------------------------------------------------
 
-  /** Counts the dividends in `[from, to]` (stepping by `step`) where `model` differs from Guava. */
+  /**
+   * Counts the dividends in `[from, to]` (stepping by `step`, `to` clamped to `Int.MaxValue`)
+   * where `model` differs from Guava.
+   */
   private def sweepRange(d: Int, from: Long, to: Long, step: Long, bad: AtomicLong,
       first: AtomicLong): Unit = {
+    val last = math.min(to, Int.MaxValue.toLong)
     var m = from
-    while (m <= to) {
+    while (m <= last) {
       val v = m.toInt
       if (model(v, d) != IntMath.divide(v, d, RoundingMode.HALF_UP)) {
         if (bad.getAndIncrement() == 0) first.set(m)
@@ -202,19 +207,24 @@ class VarkaEmitterYmDivideSuite extends SparkFunSuite with VarkaOwnJvm {
       assert(model(m, d) == IntMath.divide(m, d, RoundingMode.HALF_UP), s"m=$m d=$d")
     }
     // Every dividend near zero and at both ends, for every divisor.
-    for (d <- all; w <- Seq(-40000L, Int.MinValue.toLong, Int.MaxValue - 40000L)) {
+    for (d <- all; w <- Seq(-40000L, Int.MinValue.toLong, Int.MaxValue - 80000L)) {
       val bad = new AtomicLong
       sweepRange(d, w, w + 80000, 1, bad, new AtomicLong)
       assert(bad.get == 0, s"d=$d window at $w")
     }
   }
 
-  test("the rule equals IntMath.divide HALF_UP at every int32 dividend, for every Byte divisor " +
-      "and every divisor class (opt-in: -Dvarka.sweep=true; VARKA-89)") {
-    assume(System.getProperty("varka.sweep") == "true",
-      "set -Dvarka.sweep=true to sweep all 2^32 dividends per divisor")
+  test("the rule equals IntMath.divide HALF_UP at every int32 dividend, for every divisor " +
+      "class (long-sweep: -Dvarka.sweep.long=true, about twelve minutes; VARKA-89)") {
+    assume(System.getProperty("varka.sweep.long") == "true",
+      "set -Dvarka.sweep.long=true to sweep all 2^32 dividends per divisor")
     val started = System.nanoTime()
     sweep((divisors ++ byteDivisors).distinct, 1)
     logInfo(s"ym / d sweep: ${(System.nanoTime() - started) / 1000000000L} s")
+  }
+
+  test("the sweeps' divisors are the divisors ym_divide.smt2 proves") {
+    val proven = VarkaProofFiles.YM_DIVISORS.asScala.map(_.toInt).toSet
+    assert((divisors ++ byteDivisors).toSet == proven)
   }
 }

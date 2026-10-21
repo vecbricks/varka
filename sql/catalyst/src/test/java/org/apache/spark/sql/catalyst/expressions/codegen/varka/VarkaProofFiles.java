@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,6 +29,8 @@ import java.util.Map;
 import java.util.function.IntBinaryOperator;
 import java.util.function.IntUnaryOperator;
 import java.util.function.LongBinaryOperator;
+
+import com.google.common.math.IntMath;
 
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
@@ -75,6 +78,7 @@ final class VarkaProofFiles {
     files.put("range_calendar.smt2", rangeCalendar());
     files.put("time_bounds.smt2", timeBounds());
     files.put("bitmap.smt2", bitmap());
+    files.put("ym_divide.smt2", ymDivide());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -1853,6 +1857,144 @@ final class VarkaProofFiles {
   private static String bitmapBucket(String op, int k) {
     return "(ite (> v 0) (jlong.add (" + op + " w " + k + ") 1) (jlong.neg (" + op + " w " + k
         + ")))";
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The year-month interval division, HALF_UP on the int lane (VARKA-89).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * Every literal divisor {@code VarkaEmitterYmDivideSuite} sweeps over all 2^32 dividends:
+   * small ones, powers of two and their neighbours up to 2^30, the extremes, and every
+   * {@code Byte} divisor, in both signs, none of them 0, 1 or -1. The suite asserts its own list
+   * is this one.
+   */
+  static final List<Integer> YM_DIVISORS = ymDivisors();
+
+  private static List<Integer> ymDivisors() {
+    var positive = new LinkedHashSet<Integer>();
+    for (int d = 2; d <= 20; d++) {
+      positive.add(d);
+    }
+    for (int d : new int[] {60, 100, 360, 1000, 3600, 12345, 32767, 65537, 12345679}) {
+      positive.add(d);
+    }
+    for (int k = 1; k <= 30; k++) {
+      positive.add((1 << k) - 1);
+      positive.add(1 << k);
+      positive.add((1 << k) + 1);
+    }
+    positive.add(Integer.MAX_VALUE);
+    positive.add(Integer.MAX_VALUE - 1);
+    positive.removeIf(d -> d < 2);
+    var all = new LinkedHashSet<Integer>(positive);
+    for (int d : positive) {
+      all.add(-d);
+    }
+    all.add(Integer.MIN_VALUE);
+    all.add(Integer.MIN_VALUE + 1);
+    for (int d = -128; d <= 127; d++) {
+      if (d != 0 && d != 1 && d != -1) {
+        all.add(d);
+      }
+    }
+    return List.copyOf(all);
+  }
+
+  /**
+   * {@code ym_divide.smt2}: the quotient {@code VarkaIntervalCompiler.divide} emits for
+   * {@code ym / d}, {@code d} an int-family literal with {@code |d| >= 2}, is
+   * {@code IntMath.divide(months, d, RoundingMode.HALF_UP)} for every int dividend, with every
+   * wrap of the lane's int arithmetic in place. The specification is stated in unbounded
+   * integers, as Guava states HALF_UP: the magnitude of the quotient rounded up when twice the
+   * remainder reaches the divisor's magnitude, with the sign of the product of the signs. It is
+   * pinned to {@code IntMath} at sample pairs while rendering.
+   */
+  static String ymDivide() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The year-month interval division (VARKA-89), ym / d for an int-family literal d with
+        ; |d| >= 2, is IntMath.divide(months, d, HALF_UP) for every int dividend. What
+        ; VarkaIntervalCompiler.divide emits, per lane, with the int lane's wrapping arithmetic:
+        ;
+        ;   q = m / d                      truncating, ConstDivide
+        ;   r = m - q * d                  wrapping multiply and subtract
+        ;   magnitude = m < 0 ? -r : r     wrapping negate
+        ;   bump = magnitude >= (|d| + 1) / 2 ? (m < 0 ? -away : away) : 0, away = d > 0 ? 1 : -1
+        ;   result = q + bump              wrapping add
+        ;
+        ; The specification is Guava's HALF_UP in unbounded integers: with a = |m| and b = |d|,
+        ; the quotient a / b is raised by one when 2 * (a mod b) >= b, and takes the sign of
+        ; m * d. The form's one non-obvious step, that the wrapping q * d is exact because the
+        ; true remainder fits an int, is not assumed: every wrap is the prelude's own, so the
+        ; claim is over what the lane computes.
+        ;
+        ; The solver proves it for each divisor in VarkaProofFiles.YM_DIVISORS, the list
+        ; VarkaEmitterYmDivideSuite sweeps over all 2^32 dividends, with the dividend symbolic.
+        ; The divisor symbolic as well, with |d| >= 2, is out of reach: Z3 5.1.0 answers neither
+        ; the whole claim nor any of the four sign cases in 50 seconds. Beside them, for a few
+        ; divisors, that three neighbouring forms are wrong (a threshold one lower, the bump's
+        ; direction not reversed for a negative dividend, and not reversed for a negative
+        ; divisor), and that the specification equals IntMath at sample pairs.
+        """);
+    out.append(rendered("QF_NIA"));
+    out.append("""
+
+        (define-fun ym.half.up ((m Int) (d Int)) Int
+          (let ((mag (+ (div (abs m) (abs d)) (ite (>= (* 2 (mod (abs m) (abs d))) (abs d)) 1 0))))
+            (ite (= (>= m 0) (> d 0)) mag (- mag))))
+
+        ; The emitted form. lo is the bump's threshold, up the bump for a positive dividend, dn
+        ; the bump for a negative one.
+        (define-fun ym.lowered ((m Int) (d Int) (lo Int) (up Int) (dn Int)) Int
+          (let ((q (jint.div m d)))
+            (let ((r (jint.sub m (jint.mul q d))))
+              (let ((neg (< m 0)))
+                (let ((mag (ite neg (jint.neg r) r)))
+                  (jint.add q (ite (>= mag lo) (ite neg dn up) 0)))))))
+
+        (declare-const m Int)
+        (assert (jint.in m))
+        """);
+    for (int d : YM_DIVISORS) {
+      int half = (int) ((Math.abs((long) d) + 1) / 2);
+      int away = d > 0 ? 1 : -1;
+      check(out, "d = " + d + ": the emitted form is HALF_UP for every int dividend", "unsat",
+          List.of("(assert (not (= " + ymLowered(d, half, away, -away) + " (ym.half.up m "
+              + lit(d) + "))))"));
+    }
+    for (int d : new int[] {2, 7, -7, 12, Integer.MIN_VALUE}) {
+      int half = (int) ((Math.abs((long) d) + 1) / 2);
+      int away = d > 0 ? 1 : -1;
+      check(out, "d = " + d + ": with the threshold one lower it is not", "sat",
+          List.of("(assert (not (= " + ymLowered(d, half - 1, away, -away) + " (ym.half.up m "
+              + lit(d) + "))))"));
+      check(out, "d = " + d + ": with the bump's direction not reversed for a negative "
+          + "dividend it is not", "sat",
+          List.of("(assert (not (= " + ymLowered(d, half, away, away) + " (ym.half.up m "
+              + lit(d) + "))))"));
+      if (d < 0) {
+        check(out, "d = " + d + ": with the bump's direction ignoring the divisor's sign it is "
+            + "not", "sat",
+            List.of("(assert (not (= " + ymLowered(d, half, 1, -1) + " (ym.half.up m " + lit(d)
+                + "))))"));
+      }
+    }
+    int[][] pairs = {{7, 2}, {-7, 2}, {5, -2}, {-5, -2}, {Integer.MIN_VALUE, 2},
+        {Integer.MAX_VALUE, 2}, {Integer.MIN_VALUE, Integer.MIN_VALUE}, {Integer.MAX_VALUE, -3},
+        {Integer.MIN_VALUE, 7}, {17, 12}, {-18, 12}, {6, 12}, {-6, 12}, {0, 5}};
+    for (int[] p : pairs) {
+      int expected = IntMath.divide(p[0], p[1], RoundingMode.HALF_UP);
+      check(out, "the specification at m = " + p[0] + ", d = " + p[1] + " is IntMath's "
+          + expected, "unsat",
+          List.of("(assert (not (= (ym.half.up " + lit(p[0]) + " " + lit(p[1]) + ") "
+              + lit(expected) + ")))"));
+    }
+    return out.toString();
+  }
+
+  private static String ymLowered(int d, int lo, int up, int dn) {
+    return "(ym.lowered m " + lit(d) + " " + lit(lo) + " " + lit(up) + " " + lit(dn) + ")";
   }
 
   // -----------------------------------------------------------------------------------------

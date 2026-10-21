@@ -160,13 +160,17 @@ if [ "$golden" -eq 1 ]; then
 fi
 # A JUnit suite matches no ScalaTest `-z` filter and runs nothing under it, so the JUnit suite with
 # an opt-in sweep (VARKA-28's conversions) runs whole, its sweep switched on by the property. The
-# cap is an hour because the year-month division sweep (VARKA-89, 409 divisors over every int)
-# takes about twelve minutes on the laptop, more than an own-JVM suite's default nine.
+# year-month division sweep (VARKA-89, 409 divisors over every int) is a long sweep: its name
+# carries no "opt-in", so the first filter and the gate's sweep step skip it, and it runs last, in
+# its own property and under a cap of an hour, since it takes about twelve minutes on the laptop,
+# more than an own-JVM suite's default nine.
 if [ "$sweep" -eq 1 ]; then
   run_step sweep build/sbt -batch "project catalyst" \
-    'set Test/javaOptions ++= Seq("-Dvarka.sweep=true", "-Dspark.test.timeout=60", "-Dvarka.test.watchdog.minutes=60")' \
+    'set Test/javaOptions += "-Dvarka.sweep=true"' \
     'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in' \
-    'testOnly *VarkaEmitterMixedLaneSuite'
+    'testOnly *VarkaEmitterMixedLaneSuite' \
+    'set Test/javaOptions ++= Seq("-Dvarka.sweep.long=true", "-Dspark.test.timeout=60", "-Dvarka.test.watchdog.minutes=60")' \
+    'testOnly *VarkaEmitterYmDivideSuite -- -z long-sweep'
 fi
 # The proofs under Z3 and cvc5, each held to every expectation, so the two agree (VARKA-240); the
 # lint job runs Z3 alone. Beside the sweep step, whose multiply-high sweep checks the statement of

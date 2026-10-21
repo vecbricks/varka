@@ -356,14 +356,30 @@ evaluator change was needed, as 0.5 expected.
   `Int.MinValue` and `Int.MinValue + 1`. Result: no difference; 11 minutes 46 seconds on the
   laptop's 24 cores (`-Dvarka.ownJvm=true`). Per build the same test runs a slice: a 4099 stride,
   80001-dividend windows at zero and at each end, and the points `k * d + t` around every
-  divisor's half points and multiples, in about a second. `dev/varka_nightly.sh`'s sweep step
-  now carries a one-hour cap, since the sweep exceeds an own-JVM suite's nine-minute default.
+  divisor's half points and multiples, in about a second. The sweep is a long sweep: its name
+  carries "long-sweep" rather than "opt-in" and it reads `-Dvarka.sweep.long=true`, so the gate's
+  sweep step (`-Dvarka.sweep=true ... -z opt-in`, 268 s median in `ci/step-budget.tsv`) does not
+  run it: with the gate's property and filter the suite runs no test (measured 21 October: 0 tests,
+  5 s of sbt). `dev/varka_nightly.sh`'s sweep step runs it last, in its own sbt command with a
+  one-hour cap, since it takes 11 min 46 s on 24 cores, more than an own-JVM suite's nine-minute
+  default. The gate step's time is therefore unchanged by this task; the nightly's sweep step gains
+  about twelve minutes (the nightly has no row in the budget file yet, so the next collected run
+  records it).
 * `verify_ym_division.py` gained five rows for the int-lane form (`d = 12, -12, 2, -7` over all
   int32, and windows for 28 divisors); all exact, with the script's earlier rows unchanged; 18
   minutes 51 seconds (it was about six).
-* No SMT file: the plan did not ask for one, and the rule's one non-obvious step (the wrapping
-  `q * d` is exact because the true remainder fits an int) is what the sweeps check. The
-  quotient `q` is `ConstDivide`'s, proven by `int_mulhi_divide.smt2` and the existing sweeps.
+* `sql/varka/proofs/ym_divide.smt2` (added after the review of the pull request): the same rule,
+  with every wrap of the lane in place, equal to the Guava specification stated in unbounded
+  integers, for the dividend symbolic and each of the 409 divisors (the sweep's list, which
+  `VarkaProofFiles.YM_DIVISORS` holds and the suite asserts it equals). 435 checks, Z3 3.7 s and
+  cvc5 106 s, with three wrong neighbouring forms shown `sat` for five divisors and the
+  specification pinned to `IntMath` at fourteen pairs. The divisor symbolic as well was tried and
+  is not solved: Z3 5.1.0 gave no answer in 100 s for the whole claim, nor in 50 s for any of the
+  four sign cases (with `jint` wraps, or with the quotient and remainder as variables under their
+  defining equations). What remains unproved symbolically is the step from the 409 divisors to
+  every `|d| >= 2`; the divisor classes are the sweep's, which also covers each divisor of 8 bits,
+  the powers of two and their neighbours, and the extremes. The quotient `q` is `ConstDivide`'s,
+  proven by `int_mulhi_divide.smt2` and the existing sweeps.
 
 **Tests.** `VarkaEmitterYmDivideSuite` also runs the real compiler's kernel against Spark's
 `eval` (`VarkaSparkOracle`) for 213 int divisors, 253 `Byte`, 7 `Short`, `d = 1`, the two casts
@@ -383,3 +399,21 @@ two raised errors (zero and `Int.MinValue / -1`, both unfused). The coverage tab
 `ym / decimal` are rows 30, 342 and 349; `ym / -1` could fuse once the context difference above
 is understood; a NULL literal divisor declines; a long literal divisor (`LongMath.divide`) declines. The benchmark pair is its own
 pull request.
+
+### 9.1 Review of the pull request (21 October 2026)
+
+Fixed: the sweep kept out of the gate (above); the SMT proof (above); the sweep's windows at both
+ends (the top window wrapped past `Int.MaxValue`; the loop now clamps in long arithmetic and the
+windows are 80001 dividends each); `check`'s scaladoc; `mark`/`rolledBack` around the two new
+`Cast` arms; the stale comment on the `ExtractANSIIntervalYears` arm (it is a plain `ConstDivide`,
+exact for every int32 by `int_mulhi_divide.smt2`) and the script docstring (about nineteen minutes,
+409 divisors). New tests, in `VarkaYmDivideSuite`: `(ym + ym2) / 7`, `(ym + ym2) / -12`,
+`(ym + INTERVAL '1' MONTH) / 7`, `CAST(ym + ym2 AS INTERVAL YEAR) / 7` and the others, over tables
+that fit and tables with one overflowing row (a sum, a double, a literal interval), each against
+Spark's own evaluation including the raised error. No wrong answer: all agree, the errors
+included. `ym * 2` over a stored column declines at compile time (its product is unbounded), so
+the product cases are compared but not fused.
+
+Registered as row 414: `ym / -1`'s error context. The same suite shows a declined batch whose
+row-engine error is identical to Spark's (message, parameters, SQL context) for a checked
+`ym + ym2` and for `ym + INTERVAL '2147483647' MONTH`, so the loss is not every fusion's.

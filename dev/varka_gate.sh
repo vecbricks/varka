@@ -37,7 +37,8 @@
 #   quiet     the suites that measure the JIT rather than answers, VarkaAssemblySuite,
 #             VarkaWarmupEndToEndSuite and VarkaTierWitnessSuite, at both widths, after the rest
 #   sweep     the opt-in exhaustive calendar sweeps (-Dvarka.sweep=true), both
-#             the scalar model's and the emitted kernel's, at the wide width
+#             the scalar model's and the emitted kernel's, at the wide width; the year-month
+#             division's long sweep (VARKA-89, twelve minutes) is the nightly's alone
 #   doc       build/sbt catalyst/doc, the javadoc gate CI runs
 #   engine    ./build/mvn -f sql/varka/engine/pom.xml test (off by default)
 #   bench     ./build/mvn -f sql/varka/bench/pom.xml test - the benchmark drivers'

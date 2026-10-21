@@ -68,7 +68,7 @@ it declines, and section 2.20 already says the byte output is its own question.
 `ym / col` is absent for a different reason: the divisor is then not a constant,
 there is no lanewise integer divide, and the shape declines.
 
-Run: python3 sql/varka/plans/verify_ym_division.py     (about ten minutes)
+Run: python3 sql/varka/plans/verify_ym_division.py     (about nineteen minutes)
 Needs numpy: float64 there is IEEE binary64 with one rounding per operation, the
 same arithmetic the JVM's DoubleVector does.
 
@@ -192,7 +192,7 @@ def halfup_intlane(m, d):
     step away from zero iff `|r| >= ceil(|d| / 2)`, in the direction sign(m) * sign(d).
     No widening and no guard: the wrap is harmless because the true remainder fits an int,
     and q + 1 cannot overflow since |q| <= 2^30. The Java sweep in
-    `VarkaEmitterYmDivideSuite` runs the same rule over every int32 for a hundred divisors.
+    `VarkaEmitterYmDivideSuite` runs the same rule over every int32 for 409 divisors.
     """
     q = java_trunc_div(m, d).astype(np.int32)
     with np.errstate(over="ignore"):

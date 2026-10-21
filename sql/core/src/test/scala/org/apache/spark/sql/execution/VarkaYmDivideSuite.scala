@@ -63,13 +63,34 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
     Map("varka_ymd_min" -> table(Int.MinValue), "varka_ymd_ok" -> table(Int.MinValue + 1))
   }
 
+  private val pairSchema = StructType(Seq(
+    StructField("ym", YearMonthIntervalType()), StructField("ym2", YearMonthIntervalType())))
+
+  /**
+   * Two interval columns for the dividends that are themselves checked arithmetic: one table
+   * whose sums, doubles and shifts by a literal interval all fit, one with a row of each that
+   * overflows, among rows that do not. The month counts include rows near half points of 7.
+   */
+  private val pairTables: Map[String, Seq[Row]] = {
+    val fits = (-300 until 300).map(i => Row(months(i * 37), months(i * 11 - 5))) :+
+      Row(months(Int.MaxValue / 4), months(Int.MaxValue / 4)) :+ Row(null, months(3)) :+
+      Row(months(3), null)
+    Map("varka_ymd_fits" -> fits,
+      "varka_ymd_sum_overflows" -> (fits :+ Row(months(Int.MaxValue), months(1))),
+      "varka_ymd_double_overflows" -> (fits :+ Row(months(Int.MaxValue / 2 + 1), months(0))),
+      "varka_ymd_literal_overflows" -> (fits :+ Row(months(Int.MaxValue - 1), months(0))))
+  }
+
   private def cache(session: SparkSession): Unit = {
-    val tables = Map("varka_ymd_rows" -> rows) ++ errorTables
-    for ((name, data) <- tables) {
-      session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
+    def register(name: String, data: Seq[Row], rowSchema: StructType): Unit = {
+      session.createDataFrame(session.sparkContext.parallelize(data, 1), rowSchema)
         .createOrReplaceTempView(name)
       session.catalog.cacheTable(name)
     }
+    for ((name, data) <- Map("varka_ymd_rows" -> rows) ++ errorTables) {
+      register(name, data, schema)
+    }
+    for ((name, data) <- pairTables) register(name, data, pairSchema)
   }
 
   override protected def beforeAll(): Unit = {
@@ -130,5 +151,47 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
     checkFused("SELECT CAST(ymy AS INT) AS a, CAST(ymm AS INTERVAL YEAR) AS b, " +
       "CAST(ym AS INTERVAL YEAR) AS c FROM varka_ymd_rows")
     checkFused("SELECT CAST(ymy AS INT) + 1 AS a FROM varka_ymd_rows")
+  }
+
+  /**
+   * Both engines on `query` over `table`: they answer the same rows or raise the same error. When
+   * the answer is rows the kernel serves the query; the raise is the row engine's, after the
+   * kernel declined the batch the checked arithmetic could not finish.
+   */
+  private def checkComposed(query: String, table: String, raises: Boolean,
+      fuses: Boolean = true): Unit = {
+    val sql = query.replace("TABLE", table)
+    val (onSpark, _) = runOutcome(spark, sql)
+    val (onVarka, plan) = runOutcome(varkaSpark, sql)
+    VarkaMaybeThrows.difference(onSpark, onVarka).foreach(d => fail(s"$sql\n$d"))
+    assert(onSpark.isInstanceOf[VarkaMaybeThrows.Raised] === raises, s"$sql: $onSpark")
+    if (!raises && fuses) {
+      assertFused(plan.get)
+      assertKernelsRan(plan.get)
+    } else if (!fuses) {
+      assertNotFused(plan.get)
+    }
+  }
+
+  test("a division over a checked sum, product, literal interval or narrowing answers or " +
+      "raises as the row engine does") {
+    val queries = Seq(
+      "SELECT (ym + ym2) / 7 AS a, (ym + ym2) / -12 AS b FROM TABLE",
+      // The checked product of a stored column is unbounded, so it declines at compile time.
+      "SELECT (ym * 2) / 7 AS a, (ym * 2) / 100 AS b FROM TABLE",
+      "SELECT (ym + INTERVAL '1' MONTH) / 7 AS a FROM TABLE",
+      "SELECT CAST(ym + ym2 AS INTERVAL YEAR) / 7 AS a FROM TABLE",
+      "SELECT CAST(CAST(ym * 2 AS INTERVAL YEAR) / 12 AS INT) AS a FROM TABLE")
+    for (query <- queries) {
+      checkComposed(query, "varka_ymd_fits", raises = false, fuses = !query.contains("ym * 2"))
+    }
+    for (query <- queries.take(1) ++ queries.slice(3, 4)) {
+      checkComposed(query, "varka_ymd_sum_overflows", raises = true)
+    }
+    for (query <- queries.slice(1, 2) ++ queries.slice(4, 5)) {
+      checkComposed(query, "varka_ymd_double_overflows", raises = true, fuses = false)
+    }
+    checkComposed("SELECT (ym + INTERVAL '2147483647' MONTH) / 7 AS a FROM TABLE",
+      "varka_ymd_literal_overflows", raises = true)
   }
 }
