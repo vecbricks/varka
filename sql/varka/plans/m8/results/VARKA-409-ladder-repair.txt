@@ -1,0 +1,175 @@
+VARKA-409: the 64-tail ladder's refit against its base on the fixed benchmark, and the benchmark's committed files.
+Run 21 October 2026, 00:00 to 03:23 UTC (02:00 to 05:23 local, CEST), on the laptop alone (AMD Ryzen AI 9 HX PRO 370, Zen 5,
+JDK 25.0.4.1), the owner not using it, both agent locks held for each measured JVM. Power profile (powerprofilesctl get):
+performance before the pairs, after the pairs, before and after the regeneration, before and after the band runs.
+
+== what was paired ==
+base   ca586f1dce6  (the merged base of VARKA-335.md 9), worktree /home/max/proj/varka-409-base
+refit  00d9f79ec79  (the 335a branch's measuring commit: the refit, stacked on rows 28 and 334), worktree /home/max/proj/varka-409-refit
+Each tree carries ONLY the benchmark change of row 407 (commit 37e45659612: VarkaSharedPrefixBenchmark.java's drive-each-arm-
+to-steady-compiled-code harness, and the VarkaEmitterTestSupport.awaitC2Idle helper it calls, which is a 40-line test helper
+and the one thing besides the benchmark file that the harness needs), applied with `git apply` to the clean tree and not committed.
+No product file differs from the two commits. The base's old harness was not used. The refit commit is the branch's, not
+master's merge (5e11eb91ba3), which also holds the warm-up probe changes of rows 397 and 398.
+Build: `build/sbt catalyst/Test/compile`, then the JVM launched directly:
+  taskset -c 0,12,13,14,15,1,2,3 java <the Test javaOptions of `show catalyst/Test/javaOptions`> [-XX:MaxVectorSize=32 | =16]
+    -cp <`export catalyst/Test/fullClasspath`> org.apache.spark.sql.VarkaSharedPrefixBenchmark
+(512 bits is the laptop's default MaxVectorSize=64, no flag). The whole benchmark runs; only the first table (64 cheap tails
+over one date) is read here. A run takes 3 minutes at 512 bits, 4 at 256, 5 at 128.
+Order: 256 bits first (base, refit) x 5, then 512 (base, refit) x 5, then 128 bits (base, refit) x 3 (the 128-bit pair is
+beyond the row's done-when; it is there because table 9's 128-bit default-arm line rested on one run each side). A 20 s gap
+between runs; the 1-minute load average at a run's start was 1.1 to 1.3 (the previous JVM's), which the gap does not clear.
+Nothing else ran. No JVM printed "did not settle". Raw outputs: the run files are not committed (the cells below are
+the record); the committed benchmark files are in sql/catalyst/benchmarks/.
+
+== per-round cells, ns/row (the four ceilings 400, 200, 100, 50, each cell one benchmark JVM's best) ==
+Format: first table, one line per ceiling and arm, five (three at 128 bits) rounds.
+-- 128 bit base (3 runs): ns/row per run
+  fused ceiling 400, prefix per group  8.1  8.1  8.2
+  fused ceiling 400, prefix computed once  7.9  7.8  7.9
+  fused ceiling 200, prefix per group  8.1  8.1  8.1
+  fused ceiling 200, prefix computed once  7.9  7.9  7.8
+  fused ceiling 100, prefix per group  8.1  8.1  8.1
+  fused ceiling 100, prefix computed once  8.0  7.8  7.9
+  fused ceiling 50, prefix per group  8.1  8.1  8.1
+  fused ceiling 50, prefix computed once  8.0  7.8  7.9
+  fused ceiling 400, call-site budget off, prefix computed once  928.5  923.9  926.9
+  fused ceiling 400, every group split, prefix computed once  8.0  7.8  7.9
+-- 128 bit refit (3 runs): ns/row per run
+  fused ceiling 400, prefix per group  9.5  9.5  9.4
+  fused ceiling 400, prefix computed once  6.8  6.9  6.9
+  fused ceiling 200, prefix per group  9.5  9.5  9.5
+  fused ceiling 200, prefix computed once  6.7  6.9  7.1
+  fused ceiling 100, prefix per group  9.5  9.5  9.5
+  fused ceiling 100, prefix computed once  6.8  6.8  7.0
+  fused ceiling 50, prefix per group  9.5  9.5  9.5
+  fused ceiling 50, prefix computed once  6.8  6.7  6.9
+  fused ceiling 400, call-site budget off, prefix computed once  919.5  923.2  922.2
+  fused ceiling 400, every group split, prefix computed once  6.9  6.8  7.0
+-- 256 bit base (5 runs): ns/row per run
+  fused ceiling 400, prefix per group  4.3  4.3  4.3  4.3  4.3
+  fused ceiling 400, prefix computed once  4.6  4.4  4.6  4.5  4.5
+  fused ceiling 200, prefix per group  4.3  4.3  4.3  4.3  4.3
+  fused ceiling 200, prefix computed once  4.6  4.5  4.6  4.5  4.4
+  fused ceiling 100, prefix per group  4.4  4.3  4.3  4.4  4.3
+  fused ceiling 100, prefix computed once  4.6  4.5  4.7  4.5  4.4
+  fused ceiling 50, prefix per group  4.3  4.4  4.3  4.3  4.3
+  fused ceiling 50, prefix computed once  4.6  4.5  4.6  4.6  4.5
+  fused ceiling 400, call-site budget off, prefix computed once  472.6  472.4  471.8  469.5  471.7
+  fused ceiling 400, every group split, prefix computed once  4.6  4.5  4.6  4.5  4.5
+-- 256 bit refit (5 runs): ns/row per run
+  fused ceiling 400, prefix per group  5.0  5.0  5.0  5.0  5.0
+  fused ceiling 400, prefix computed once  3.9  3.9  3.9  4.0  3.9
+  fused ceiling 200, prefix per group  5.1  5.0  5.0  5.0  5.0
+  fused ceiling 200, prefix computed once  3.9  4.0  4.0  4.0  4.0
+  fused ceiling 100, prefix per group  5.0  5.0  5.1  5.0  5.0
+  fused ceiling 100, prefix computed once  4.0  3.9  4.0  4.0  4.0
+  fused ceiling 50, prefix per group  5.0  5.0  5.0  5.0  5.0
+  fused ceiling 50, prefix computed once  4.0  3.9  3.9  4.0  3.9
+  fused ceiling 400, call-site budget off, prefix computed once  479.3  474.0  476.9  475.3  489.8
+  fused ceiling 400, every group split, prefix computed once  3.9  3.9  4.0  4.0  4.0
+-- 512 bit base (5 runs): ns/row per run
+  fused ceiling 400, prefix per group  3.0  3.0  3.0  3.0  3.0
+  fused ceiling 400, prefix computed once  2.8  2.8  2.9  2.9  2.9
+  fused ceiling 200, prefix per group  3.0  3.0  3.0  3.0  3.0
+  fused ceiling 200, prefix computed once  2.9  2.9  2.9  2.9  2.9
+  fused ceiling 100, prefix per group  3.0  3.0  3.0  3.0  3.0
+  fused ceiling 100, prefix computed once  2.9  2.9  2.9  2.9  2.9
+  fused ceiling 50, prefix per group  3.0  3.0  3.0  3.0  3.0
+  fused ceiling 50, prefix computed once  2.9  2.9  2.9  2.9  2.9
+  fused ceiling 400, call-site budget off, prefix computed once  241.9  238.4  241.5  242.3  240.2
+  fused ceiling 400, every group split, prefix computed once  2.9  2.9  2.9  2.9  2.9
+-- 512 bit refit (5 runs): ns/row per run
+  fused ceiling 400, prefix per group  3.6  3.6  3.5  3.5  3.6
+  fused ceiling 400, prefix computed once  2.5  2.6  2.6  2.6  2.6
+  fused ceiling 200, prefix per group  3.6  3.6  3.6  3.6  3.6
+  fused ceiling 200, prefix computed once  2.6  2.6  2.6  2.6  2.6
+  fused ceiling 100, prefix per group  3.6  3.6  3.6  3.6  3.6
+  fused ceiling 100, prefix computed once  2.6  2.6  2.6  2.6  2.6
+  fused ceiling 50, prefix per group  3.6  3.6  3.6  3.6  3.6
+  fused ceiling 50, prefix computed once  2.6  2.6  2.6  2.6  2.6
+  fused ceiling 400, call-site budget off, prefix computed once  239.4  235.0  241.6  241.0  244.9
+  fused ceiling 400, every group split, prefix computed once  2.6  2.6  2.5  2.6  2.6
+
+== the pair, by round (mean of the four ceilings, time per row; change = refit / base - 1) ==
+== 512-bit, 5 rounds
+  per group      base  per-round mean over ceilings: 2.99 2.99 2.98 2.99 2.99 | median 2.99 | all the cells (20; 12 at 128 bits) 2.98-3.01
+  per group      refit per-round mean over ceilings: 3.56 3.56 3.56 3.55 3.56 | median 3.56 | all the cells (20; 12 at 128 bits) 3.54-3.57
+  per group      change (refit/base-1, time) per round: +18.8% +19.1% +19.3% +19.0% +19.0% | median +19.0%
+  computed once  base  per-round mean over ceilings: 2.86 2.88 2.91 2.88 2.87 | median 2.88 | all the cells (20; 12 at 128 bits) 2.81-2.94
+  computed once  refit per-round mean over ceilings: 2.58 2.60 2.59 2.60 2.61 | median 2.60 | all the cells (20; 12 at 128 bits) 2.54-2.63
+  computed once  change (refit/base-1, time) per round: -9.8% -9.6% -11.0% -9.4% -8.9% | median -9.6%
+  every-group-split cell base/refit: [2.86, 2.87, 2.87, 2.88, 2.91] [2.55, 2.61, 2.54, 2.64, 2.61]
+== 256-bit, 5 rounds
+  per group      base  per-round mean over ceilings: 4.34 4.33 4.33 4.34 4.33 | median 4.33 | all the cells (20; 12 at 128 bits) 4.32-4.36
+  per group      refit per-round mean over ceilings: 5.03 5.02 5.03 5.03 5.03 | median 5.03 | all the cells (20; 12 at 128 bits) 5.01-5.06
+  per group      change (refit/base-1, time) per round: +16.1% +15.9% +16.2% +15.9% +16.2% | median +16.1%
+  computed once  base  per-round mean over ceilings: 4.62 4.46 4.61 4.51 4.44 | median 4.51 | all the cells (20; 12 at 128 bits) 4.42-4.66
+  computed once  refit per-round mean over ceilings: 3.94 3.93 3.95 4.01 3.95 | median 3.95 | all the cells (20; 12 at 128 bits) 3.90-4.03
+  computed once  change (refit/base-1, time) per round: -14.8% -11.9% -14.4% -11.1% -11.0% | median -11.9%
+  every-group-split cell base/refit: [4.6, 4.46, 4.61, 4.46, 4.46] [3.92, 3.94, 3.97, 3.98, 3.95]
+== 128-bit, 3 rounds
+  per group      base  per-round mean over ceilings: 8.11 8.12 8.13 | median 8.12 | all the cells (20; 12 at 128 bits) 8.10-8.18
+  per group      refit per-round mean over ceilings: 9.46 9.47 9.47 | median 9.47 | all the cells (20; 12 at 128 bits) 9.45-9.50
+  per group      change (refit/base-1, time) per round: +16.6% +16.6% +16.6% | median +16.6%
+  computed once  base  per-round mean over ceilings: 7.97 7.82 7.88 | median 7.88 | all the cells (20; 12 at 128 bits) 7.78-8.01
+  computed once  refit per-round mean over ceilings: 6.80 6.86 6.97 | median 6.86 | all the cells (20; 12 at 128 bits) 6.71-7.06
+  computed once  change (refit/base-1, time) per round: -14.6% -12.3% -11.6% | median -12.3%
+  every-group-split cell base/refit: [8.05, 7.77, 7.91] [6.85, 6.83, 6.96]
+
+A cell over 20 ns/row is slow; the fast mode is 2.6 to 2.9 (512 bits), 4.0 to 4.6 (256), 6.8 to 8.1 (128). No arm of either
+tree had a slow cell in 26 runs (the always-slow "call-site budget off" single-method arm is 235 to 245 ns/row at 512 bits,
+470 to 490 at 256, 920 to 930 at 128, in every run of both trees, and is left out of the pair). Read by rate (the
+benchmark's own column), the same numbers are 10.8% higher (512), 14.2% (256) and 14.9% (128) for the default arm.
+
+== answers ==
+Default arm (prefix computed once, the default), refit against base, time per row, median of the rounds and their range:
+  512 bits  9.6% faster (8.9 to 11.0), 5 of 5 rounds faster
+  256 bits  11.9% faster (11.0 to 14.8), 5 of 5
+  128 bits  12.3% faster (11.6 to 14.6), 3 of 3
+  The spread of the cells (max / min - 1) is 4.6%, 5.4%, 3.0% for the base at 512, 256, 128 bits and 3.5%, 3.3%, 5.2% for the refit;
+  the smallest round's change is 8.9%, past it. (The rate figures below are ratios of the medians, the changes above are medians
+  of the rounds' own ratios.)
+Recomputed arm (prefix per group), refit against base:
+  512 bits  19.0% slower (18.8 to 19.3)   (VARKA-335.md 9 said 20%, "256-bit"; these are its runs, at the right label)
+  256 bits  16.1% slower (15.9 to 16.2)
+  128 bits  16.6% slower (16.6 in 3 of 3)  (9 said 17%)
+Width labels: VARKA-335.md 9's first pair ran dev/varka_bench_pair.sh, which runs the wide width only (MaxVectorSize=64); its
+"256-bit" rows (3.0, 3.6, 2.9 to 2.6 ns/row) are the 512-bit rows here (2.99, 3.56, 2.88 to 2.60). The 256-bit rows are new.
+The default arm's old lines: "10% faster by best, and stable" (512) stands, 9.6%; "no slower by best" (128) moves to 12.3% faster.
+
+== the committed files, regenerated from master a350674efe4 ==
+Procedure: dev/varka_bench_regen.sh catalyst VarkaSharedPrefixBenchmark (wide, then -XX:MaxVectorSize=16), run under both
+locks, started at 01:49 UTC with load 0.70 and the canary ok (compute +0.2%, cache +2.7%, memory -0.7%), pinned
+taskset -c 0,12,13,14,15,1,2,3, power profile performance; then the bands: ten runs per width, the commands of
+dev/varka_bench_repeat.sh catalyst VarkaSharedPrefixBenchmark 10 --band (and --narrow --band) run one JVM per held command,
+20 s apart, and handed to dev/varka_bench_band.py --write. Provenance file rewritten by the regeneration.
+What moved, judged with dev/varka_bench_diff.py (rates; + faster) against the old files and the new bands:
+  wide file, first table: the two cells that were slow in the old file are gone: "fused ceiling 50, prefix once" 15.4 to 379.1
+    M/s (65.1 to 2.6 ns/row) and "every group split" 5.8 to 380.4 (171.8 to 2.6). Every other cell of the table within 2%
+    (+0.5, -0.3, +2.0, +0.5; recomputed arm +0.5, +0.4, +1.1, +1.1); "call-site budget off" 4.1 to 4.1.
+    Cause: the old file came from the old harness, which timed those arms in C1 code (rows 406 and 407).
+  wide file, second table (60 make_date outputs): the cells within 2% (and 2.5% for "call-site budget off", +3.5% for "ceiling 50, 60 groups, prefix once"), except "ceiling 200, 20 groups, prefix once"
+    48.4 to 56.7 (+17.1%; the old row's stdev was 81 ms against a best of 21: a slow iteration; the band for this cell
+    is 12.3%) and "ceiling 400, every group split" 25.8 to 28.4 (+10%, band tier 1). The old average and stdev columns,
+    which showed 2 to 117 ms of stdev on cells of 3 to 16 ms, now read 0 to 1.
+  128-bit file, first table: "ceiling 400, prefix once" 129.7 to 146.5 (+13.0%), "ceiling 50" 138.6 to 147.1 (+6.1%),
+    "every group split" 3.9 to 146.8 (256.1 to 6.8 ns/row), "ceiling 200" 142.4 to 146.3 (+2.7%) and "ceiling 100" 140.0 to 145.7
+    (+4.1%); old averages of 15 to 552 ms (stdev 68 to 491) for 7 ms best times are the old harness's C1 iterations.
+    The recomputed arm 104.4 to 105.8 (+1.3%).
+  128-bit file, second table: "ceiling 200, 20 groups, prefix once" 19.2 to 18.1 (-5.7%) and "ceiling 100, 60 groups, prefix once"
+    9.3 to 10.5 (+12.9%), the latter in the band's top (16.0% spread, moderate); the rest within 3%.
+  Bands (new, 10 runs per width; the old ones were measured on the pre-407 harness and named cases that no longer exist with
+  the same group counts): wide median spread 2.63%, p90 10.8%, max 12.3% (the second table's 20-group arm); tiers [11, 7, 2, 0];
+  narrow median 2.58%, p90 13.1%, max 16.0% (the 60-group make_date arm); tiers [12, 5, 3, 0].
+  Against the new bands the regeneration's diff shows only the old slow cells (wide), and in the 128-bit file the same plus
+  ceiling 400 prefix once (+13.0%, moderate tier) and ceiling 50 (+6.1%, quiet tier).
+
+== not controlled ==
+The 1-minute load at a run's start was 1.1 to 1.3 in the pair runs (the previous JVM's decay), 0.70 for the regeneration. No
+A/A pair (base against itself) was run; the rounds' own spread (above) is the noise estimate, and the pair's runs
+alternate. The pair's two trees are different worktrees and class paths (the same JDK, flags and pin); the build trees
+differ in the product's emitted code by design, which is what is measured. 256 and 128 bits are emulated by MaxVectorSize on the
+AVX-512 machine (the execution units are 256-bit wide, so the 512 and 256 rows differ by about 1.5x, not 2x). Rounds are
+back to back, no thermal or frequency trace was kept beyond the profile (performance, governor and energy preference
+performance at the regeneration). Table 9's old numbers were not re-measured, the table was re-paired.
