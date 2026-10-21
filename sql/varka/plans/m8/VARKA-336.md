@@ -329,3 +329,87 @@ was handed from this plan to 331 and back (2.3, test 8, section 9, question 2: n
 `lanesOverride` sweep had no JVM rule (test 1); the common regeneration step was missing (10.5);
 the unpriced stance is now worded identically in all three plans (section 6). The reviewer found
 this plan's cost-model section the consistent one and its optimizer facts correct.
+
+## 12. Outcome
+
+*21 October 2026.* `a <=> b` and `equal_null(a, b)` fuse over the six types of the coverage table's
+`EqualTo` rows, with computed and widened operands, as filters, `CASE` conditions, under `NOT` and
+under `AND`/`OR`; `p IS [NOT] TRUE|FALSE` and `IS [NOT] DISTINCT FROM` fuse over any predicate.
+The design is the plan's: one IR node, `NullSafeEqual`, for value operands, and the predicate forms
+composed as `And(p, IsNotNull(p))` (over `Not(p)` for the false forms). The questions of section
+11 took the plan's recommendations (compose; boolean-boolean `<=>` is 331's; no grammar production;
+the node unpriced until 352's refit; the emitter suite in its own JVM) and the owner was not asked.
+`dev/varka_emit.sh` on `CASE WHEN d <=> d2 THEN year(d) ELSE month(d) END` answered `unsupported
+predicate: (d <=> d2)` before and fuses now, as do `(d < d2) IS TRUE`, `(d < d2) IS NOT FALSE`,
+`year(d) <=> month(d2)` and `i <=> 5`; the kernels are masked-only because the calendar fields are
+guarded, as section 2.3 said.
+
+**What differed from the plan.**
+
+1. **Five suites demand that every node be drawn, priced or listed, and the plan named one.**
+   Section 6 expected the cost audit to be the only place the unpriced node could be forced to
+   touch the model. The IR fuzz grammar's two reach tests, `VarkaWithChildrenSuite`, the cost
+   suite's "every feature has a price", the lane-type suite's two node lists and the weight
+   register (seven tests in all) each failed on the new record. Each is answered in words, not by a
+   production or a price: a list of nodes deliberately out of the grammars (`VarkaIrFuzzSuite`,
+   `VarkaWithChildrenSuite`, with a direct rebuild test for the node), `awaitingRefit` in
+   `VarkaEmitCostSuite` (which fails if the node is priced while still listed), the node in the
+   lane-type lists, and a weight-register row (weight 1, one lane call, measured). No price is
+   invented and the grammar, the cost corpus and the seeded shapes are untouched. The cost is that
+   the fuzzers never draw the node until the follow-up row of open question 3; it is covered by
+   its own suite, the coverage rows' composition fuzzer (the sampled compiled check included, in
+   the nightly's `all` mode) and the Spark-held answers of the coverage rows.
+2. **The golden corpus has no `<=>` statement.** Section 10.5 expected verdicts to move because `<=>`
+   occurs in Spark's golden SQL; the corpus is the date, time and interval files, and
+   `VARKA_GOLDEN_REGEN=true` left `golden_corpus.json` byte-identical (zero statements contain
+   `<=>`, `equal_null`, `IS TRUE` or `IS FALSE`).
+3. **The width audit and the docs table are regenerated in an order.** The docs table prints the
+   audit's verdict per row, so `coverage.json` and the docs regenerate first, then the bytes and
+   the audit, then the docs again; one pass leaves `docs/sql-varka.md` stale against the audit,
+   which the first matrix run reported. The regenerated audit also adds the row `d2 - d` (row 39),
+   which master's audit lacked.
+4. **A harness gap, not this row's, surfaced.** The composition fuzzer's compiled check samples
+   rows by a seeded shuffle of the table; the new rows moved the sample onto `shiftright(l, i ^ 5)`,
+   a long-lane kernel that also reads an int-lane literal, and the check fails on it with an index
+   out of bounds because the case carries the long table only. The sample's filter ("a kernel that
+   reads both literal tables has no form in the case") now excludes any long-lane kernel with an
+   int literal. Every such row failed whenever sampled; the nightly's `all` mode would have failed
+   on it since `shiftright(l, i ^ 5)` landed.
+5. **Tests the plan listed and this row did not build.** Test 5's sweep of `IS TRUE`, `IS FALSE`,
+   `IS NOT TRUE` and `IS NOT FALSE` over every one of the 46 nullable predicate rows is five rows
+   (the four forms over `d < d2`, and the guarded conjunction under `IS TRUE`) through the
+   differential's per-row, partition and `CASE` tests, not 46 times four; the `IF(c, true, false)` and `CASE` shapes whose
+   rewrite produces the form are not written out, since the optimizer's rewrite reaches the same
+   node as `IS TRUE`; and test 7's `i <=> 5 AND d = d2` is replaced by the sharper
+   `isnotnull(l <=> l2)` implies no column check, against `l = l2`'s positive control. Test 2's
+   `date_add(d, i) <=> d2` and `l <=> i + 1` are IR cases (`Overflow.NULL` sum, a literal sum) and
+   the SQL row `year(d) <=> month(d2)`.
+6. **The partition oracle's third setting** is `partitionRewrites` plus `NullPropagation`, applied
+   to every row whose SQL is a null-safe equality or one of the `IS [NOT] TRUE|FALSE` or `DISTINCT
+   FROM` spellings, with `mustFuse` set: the null tests must reach a Varka filter that a kernel
+   served, which they do on every fixture.
+
+**Tests.** `VarkaEmitterNullSafeSuite` (own JVM, 7 tests, 12 s): the reference evaluator against
+Spark's `EqualNullSafe.eval` over every validity pair, the node in both bodies at four, eight and the
+default lanes over `combos(2)` (the 16 pairs of null patterns) at 15 lengths, three-input computed
+operands, the long lane at 2, 4 and 8 lanes, the widening, the dense body's bytes equal to
+`Compare` EQ's and the masked loop's Vector API calls unchanged, and a batch whose last rows are null
+in both columns at every tail length. Dropping the `~(vA | vB)` term from the emission fails four of
+the first six. `catalyst/testOnly *Varka*`: see the pull request. `VarkaCoverageDifferentialSuite`
+and `VarkaGoldenCorpusSuite`: 595 tests, none failed, the 76 differential tests of the 19 new rows
+taking 17.8 s of the suite's 127 s on a quiet machine (the first run of the 16 rows, beside another
+agent's JVMs, took 37.4 s for 64). `dev/varka_matrix.sh --config lanesOverride=4 --module catalyst
+-j 2`: every suite passed at the defaults and at four lanes but the docs-table test, which was the
+stale table of item 3 above.
+
+### 12.1 The predictions
+
+| | prediction | measured | |
+| :-- | :-- | :-- | :-- |
+| 1 | every new row fuses on every fixture, under the default optimizer and with the rewrites excluded | all 19 rows (the 16 listed and `IS NOT TRUE`, `IS FALSE`, `IS DISTINCT FROM`) pass the per-row, partition (three settings) and `CASE` tests, each with a kernel serving every batch | held |
+| 2 | no existing row's emitted bytes move | 183 rows, 19 added, 0 changed, at both widths, the fuzz arms identical; only the aggregate option-arm hashes moved, since they hash the coverage rows | held |
+| 3 | dense bodies of `a <=> b` equal `a = b`'s; the masked body adds scalar operations only | the dense `loopDense0` has the same `IntVector` and `VectorMask` calls and code size; the masked loop has the same Vector API calls and a larger code size | held |
+| 4 | the added test time is under 40 s | the differential's 76 new tests 17.8 s and the new suite 12 s on a quiet machine, about 30 s; the first run under load, 37.4 s and 12 s, about 50 s; the coverage-reading suites' rows unmeasured | held quiet, missed under load (1.25 at most) |
+
+The estimate priced the differential's rows and left out the new suite's own JVM; the same rows cost
+twice as much beside another agent's JVMs.

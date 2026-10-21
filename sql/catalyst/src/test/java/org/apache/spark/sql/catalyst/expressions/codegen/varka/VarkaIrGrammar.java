@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mon
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullSafeEqual;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
@@ -243,6 +244,7 @@ public final class VarkaIrGrammar {
       }
       // Conditions carry no day value of their own, but their operands hold producers.
       case Compare n -> new Bounds(0L, guard(n.left(), n.right()));
+      case NullSafeEqual n -> new Bounds(0L, guard(n.left(), n.right()));
       case And n -> new Bounds(0L, guard(n.left(), n.right()));
       case Or n -> new Bounds(0L, guard(n.left(), n.right()));
       case Not n -> new Bounds(0L, guard(n.child()));

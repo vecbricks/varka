@@ -1,0 +1,334 @@
+VARKA-383 step 2: the long lane after a kernel history, read on current master, idle laptop
+
+Question: does a long-lane kernel still get RELEASED by the warm-up (still allocating at its 30 s
+deadline) after a history of earlier kernels in the same JVM, on today's engine? VARKA-257 read
+43 of 144 on 16 October at a machine load of 14 to 30, before rows 389, 391, 395 and 397.
+Thresholds (VARKA-383.md 3.2, registered before the run, not changed): half (a) is admitted if,
+at either width, past position 15 with the prewarm on, at least 8 of 144 long kernels release with
+every loop method at tier 4 while position 0 stays 0; it closes as the laptop's load if both
+widths read at most 2 of 144; in between, six more forks per width.
+
+Machine record
+  date          21 October 2026, run started 08:46:52 CEST, finished 09:40 CEST (54 min)
+  commit        c53d6f39f82 (branch varka-383-read on plans-m8; code is master 70dab76c410,
+                this branch adds plan text only), working tree clean
+  cpu           AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M (Zen 5, avx512f/bw/dq/vl/vbmi2/
+                vpopcntdq/bf16, 256-bit execution units), 24 logical cpus
+  jdk           openjdk 25.0.4.1 2026-08-18
+  before run    uptime 08:46:52: load average 2.82 2.28 1.21 (the catalyst test build had ended
+                at 08:45; the 1-minute load was above 3 at 08:46:27 and the launch waited until
+                it fell below 3); powerprofilesctl get: performance; pgrep -xa java: none
+  sanitizer     OFF: no -Dvarka.sanitizeMemory in target/varka-matrix/jvm.opts or in the
+                launcher's arguments
+  after run     uptime 09:40:55: load average 0.36 0.40 0.52; powerprofilesctl get: performance;
+                pgrep -xa java: none
+  during run    the two shared heavy slots were held by this run (the other agents share them)
+                (load only read at the start and the end: 0.36 1-minute, 0.52 15-minute at the end)
+  forks         12 forks, 0 wrong answers in 780 kernels compared, exit status 0 for all 12,
+                2 draws skipped (declined or repeated), kernel under test slow in 0 of 12
+
+Command (the build, then the one measured run; both under both slots)
+  flock heavy.lock flock heavy2.lock dev/varka_matrix.sh --module catalyst --list
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 64 --forks 6 \
+    --widths 64,32 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30 \
+    --out target/varka-kernel-history/383-A-on
+  Shape of VARKA-257 9.2: cores 12-17 in two JVMs of three cores, deadline 30 s, prewarm on,
+  seed 20260903 (forks 0 to 5 are the same histories as 257's), 12 s timed tail. A fork warms
+  64 kernels (positions 0 to 63, int at even positions, long at odd) through production's
+  warm-up worker, so six forks give 144 long kernels at positions 16 to 63 per width (the
+  count 257 had). --after 16 was not run: it adds positions 0 to 15 only, and those come from
+  the N = 64 forks too (257's 72 at positions 4 to 15 were two forks of each N). --prewarm off
+  was not run: it takes about 55 minutes more and half (a)'s thresholds read the prewarm-on arm.
+  -XX:MaxVectorSize=64 is the host (512 bits), 32 is 256 bits (the long lane then has four lanes).
+
+Releases of the history's kernels at the 30 s deadline, prewarm on, by lane and position bucket
+(released / warmed; "C2" = every loop method had C2 code in use when it was released)
+
+                    position 0    1 to 3        4 to 15        16 to 63
+  512 bits  long    - (int only)  0 / 12        5 / 36 (5 C2)  42 / 144 (41 C2)
+  512 bits  int     0 / 6         0 / 6         0 / 36         17 / 144 (11 C2)
+  256 bits  long    - (int only)  1 / 12        6 / 36 (6 C2)  38 / 144 (38 C2)
+  256 bits  int     0 / 6         1 / 6         3 / 36 (3 C2)  43 / 144 (43 C2)
+
+Position 0 is always an int kernel (the lanes alternate); it released 0 of 6 at each width, as in
+257 (0 of 12 at 512 bits). The kernel under test (the cheap tails after the history) was fast in
+12 of 12 forks: 1.1 to 1.2 ns a row at 512 bits, 2.4 to 2.5 at 256 bits.
+
+The reader's output follows, then the tiers of each released draw.
+
+case (bits, prewarm, N)      verdict       ns/row bytes/call  warm-up | loop tiers
+256 bits, on, N=64 #0        fast             2.5       240  COMPILED 2509ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+256 bits, on, N=64 #1        fast             2.4       240  COMPILED 4571ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+256 bits, on, N=64 #2        fast             2.5       240  COMPILED 2737ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+256 bits, on, N=64 #3        fast             2.5       240  COMPILED 4018ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+256 bits, on, N=64 #4        fast             2.4       240  COMPILED 1120ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+256 bits, on, N=64 #5        fast             2.5       240  COMPILED 4042ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #0        fast             1.1       240  COMPILED 1180ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #1        fast             1.1       240  COMPILED 1163ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #2        fast             1.2       240  COMPILED 1138ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #3        fast             1.1       240  COMPILED 975ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #4        fast             1.2      1200  COMPILED 998ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+512 bits, on, N=64 #5        fast             1.1       240  COMPILED 2963ms | loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+
+the kernel under test: slow by rate / slow by allocation / fast / unfinished or declined
+  256 bits  prewarm on , N=64    0 /   0 /   6 /   0   slow 0 of 6; fast 2.4 to 2.5 ns/row
+  512 bits  prewarm on , N=64    0 /   0 /   6 /   0   slow 0 of 6; fast 1.1 to 1.2 ns/row
+
+the history's kernels: released by the warm-up / warmed, by lane and position
+  256 bits  prewarm on , int  positions 0         0 /    6 (0.0%), 0 with every loop C2
+  256 bits  prewarm on , int  positions 1-3       1 /    6 (16.7%), 1 with every loop C2
+  256 bits  prewarm on , int  positions 4-15      3 /   36 (8.3%), 3 with every loop C2
+  256 bits  prewarm on , int  positions 16-63    43 /  144 (29.9%), 43 with every loop C2
+  256 bits  prewarm on , long positions 1-3       1 /   12 (8.3%), 1 with every loop C2
+  256 bits  prewarm on , long positions 4-15      6 /   36 (16.7%), 6 with every loop C2
+  256 bits  prewarm on , long positions 16-63    38 /  144 (26.4%), 38 with every loop C2
+  512 bits  prewarm on , int  positions 0         0 /    6 (0.0%), 0 with every loop C2
+  512 bits  prewarm on , int  positions 1-3       0 /    6 (0.0%), 0 with every loop C2
+  512 bits  prewarm on , int  positions 4-15      0 /   36 (0.0%), 0 with every loop C2
+  512 bits  prewarm on , int  positions 16-63    17 /  144 (11.8%), 11 with every loop C2
+  512 bits  prewarm on , long positions 1-3       0 /   12 (0.0%), 0 with every loop C2
+  512 bits  prewarm on , long positions 4-15      5 /   36 (13.9%), 5 with every loop C2
+  512 bits  prewarm on , long positions 16-63    42 /  144 (29.2%), 41 with every loop C2
+
+verdict: 0 of 12 forks slow; 0 wrong answers in 780 kernels compared; 2 draws skipped (declined or repeated)
+
+Every released draw (fork f uses seed 20260903 + f): width (bytes), fork, position, lane, bytes allocated by the last probe,
+tier of each loop method (L4 = C2 code in use, none = no code in use)
+width 32 fork 0 position 15 long last=1631968  loopMasked0:L4
+width 32 fork 0 position 19 long last=317360   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 22 int  last=2171920  loopMasked0:L4,loopMasked1:L4
+width 32 fork 0 position 24 int  last=512720   loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 0 position 28 int  last=705152   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 31 long last=1544432  loopMasked0:L4
+width 32 fork 0 position 35 long last=426384   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 39 long last=336512   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 43 long last=611264   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 46 int  last=49552    loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 48 int  last=120880   loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 0 position 49 long last=2156960  loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 50 int  last=2761504  loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 0 position 51 long last=649696   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 56 int  last=602592   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 61 long last=611264   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 62 int  last=734064   loopDense0:L4,loopMasked0:L4
+width 32 fork 0 position 63 long last=399792   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position  1 long last=1500352  loopMasked0:L4
+width 32 fork 1 position 11 long last=867456   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 16 int  last=1573744  loopMasked0:L4
+width 32 fork 1 position 17 long last=1861952  loopMasked0:L4
+width 32 fork 1 position 23 long last=756000   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 28 int  last=1137680  loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 1 position 39 long last=1279664  loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 44 int  last=3540304  loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 1 position 46 int  last=692944   loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 1 position 51 long last=593920   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 55 long last=421424   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 56 int  last=184800   loopDense0:L4,loopMasked0:L4
+width 32 fork 1 position 61 long last=1846944  loopMasked0:L4
+width 32 fork 2 position  9 long last=1074800  loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 15 long last=949440   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 17 long last=2291840  loopMasked0:L4
+width 32 fork 2 position 19 long last=562592   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 20 int  last=207968   loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 2 position 24 int  last=1238992  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 2 position 25 long last=587632   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 26 int  last=781168   loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 2 position 32 int  last=135888   loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 2 position 35 long last=724176   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 37 long last=507168   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 43 long last=98704    loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 47 long last=489344   loopDense0:L4,loopMasked0:L4
+width 32 fork 2 position 52 int  last=3093520  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 2 position 58 int  last=1623376  loopMasked0:L4
+width 32 fork 2 position 62 int  last=4969328  loopMasked0:L4,loopMasked1:L4
+width 32 fork 3 position 18 int  last=1274416  loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 20 int  last=2401296  loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 3 position 25 long last=131472   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 26 int  last=725792   loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 3 position 31 long last=423488   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 32 int  last=1074672  loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 3 position 36 int  last=3887792  loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 39 long last=310480   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 42 int  last=3482720  loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 3 position 43 long last=242144   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 48 int  last=741936   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 49 long last=548464   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 52 int  last=2308448  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 3 position 59 long last=512480   loopDense0:L4,loopMasked0:L4
+width 32 fork 3 position 60 int  last=1104992  loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position  4 int  last=1992096  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 4 position 13 long last=1514976  loopMasked0:L4
+width 32 fork 4 position 16 int  last=1410224  loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 30 int  last=3822688  loopMasked0:L4,loopMasked1:L4
+width 32 fork 4 position 32 int  last=480032   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 39 long last=336592   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 42 int  last=135808   loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 4 position 43 long last=310224   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 44 int  last=774944   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 48 int  last=650256   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 53 long last=1615504  loopMasked0:L4
+width 32 fork 4 position 55 long last=302480   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 57 long last=369360   loopDense0:L4,loopMasked0:L4
+width 32 fork 4 position 60 int  last=1274736  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 4 position 62 int  last=65936    loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position  2 int  last=66064    loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position  4 int  last=381968   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position  5 long last=599136   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position  6 int  last=656400   loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 32 fork 5 position 20 int  last=152032   loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 5 position 25 long last=402208   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 34 long last=846720   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 35 int  last=404096   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 38 long last=1586112  loopMasked0:L4
+width 32 fork 5 position 41 int  last=2045344  loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 5 position 45 int  last=88560    loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 52 long last=663472   loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 55 int  last=513280   loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 32 fork 5 position 57 int  last=66096    loopDense0:L4,loopMasked0:L4
+width 32 fork 5 position 62 long last=380848   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 15 long last=1062784  loopMasked0:L4
+width 64 fork 0 position 19 long last=193104   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 21 long last=1594288  loopMasked0:L4
+width 64 fork 0 position 28 int  last=518784   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 31 long last=1021200  loopMasked0:L4
+width 64 fork 0 position 35 long last=311696   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 39 long last=209696   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 43 long last=437344   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 46 int  last=35216    loopDense0:L4,loopMasked0:none
+width 64 fork 0 position 48 int  last=86896    loopDense0:L4,loopDense1:L4,loopMasked0:L4,loopMasked1:L4
+width 64 fork 0 position 49 long last=1434560  loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 50 int  last=2016032  loopMasked0:L4,loopMasked1:none,loopMasked2:L4
+width 64 fork 0 position 51 long last=426544   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 56 int  last=438912   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 61 long last=437504   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 62 int  last=539504   loopDense0:L4,loopMasked0:L4
+width 64 fork 0 position 63 long last=284112   loopDense0:L4,loopMasked0:L4
+width 64 fork 1 position 39 long last=846896   loopDense0:L4,loopMasked0:L4
+width 64 fork 1 position 51 long last=389920   loopDense0:L4,loopMasked0:L4
+width 64 fork 1 position 55 long last=286768   loopDense0:L4,loopMasked0:L4
+width 64 fork 1 position 59 long last=624192   loopMasked0:L4
+width 64 fork 1 position 61 long last=1221152  loopMasked0:L4
+width 64 fork 2 position  9 long last=703504   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 15 long last=627520   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 17 long last=1582336  loopMasked0:L4
+width 64 fork 2 position 19 long last=392096   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 25 long last=352720   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 32 int  last=90848    loopDense0:L4,loopDense1:L4,loopDense2:L4,loopMasked0:L4,loopMasked1:L4,loopMasked2:L4
+width 64 fork 2 position 35 long last=465776   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 37 long last=373696   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 41 long last=1222096  loopMasked0:L4
+width 64 fork 2 position 43 long last=65936    loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 47 long last=336992   loopDense0:L4,loopMasked0:L4
+width 64 fork 2 position 51 long last=1749552  loopMasked0:L4
+width 64 fork 2 position 52 int  last=2266144  loopDense0:L4,loopDense1:L4,loopMasked0:none,loopMasked1:none
+width 64 fork 2 position 58 int  last=1234256  loopMasked0:L4
+width 64 fork 2 position 62 int  last=3650448  loopMasked0:L4,loopMasked1:L4
+width 64 fork 2 position 63 long last=787312   loopMasked0:L4
+width 64 fork 3 position 25 long last=82320    loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 31 long last=287520   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 39 long last=217968   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 43 long last=161640   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 48 int  last=537152   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 49 long last=353456   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 52 int  last=1682432  loopDense0:L4,loopDense1:L4,loopMasked0:none,loopMasked1:L4
+width 64 fork 3 position 59 long last=322016   loopDense0:L4,loopMasked0:L4
+width 64 fork 3 position 60 int  last=806000   loopDense0:L4,loopMasked0:L4
+width 64 fork 4 position 35 long last=1201168  loopMasked0:none
+width 64 fork 4 position 39 long last=209696   loopDense0:L4,loopMasked0:L4
+width 64 fork 4 position 43 long last=218048   loopDense0:L4,loopMasked0:L4
+width 64 fork 4 position 53 long last=1136272  loopMasked0:L4
+width 64 fork 4 position 55 long last=194736   loopDense0:L4,loopMasked0:L4
+width 64 fork 4 position 57 long last=234272   loopDense0:L4,loopMasked0:L4
+width 64 fork 4 position 62 int  last=45456    loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position  5 long last=390080   loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position 11 long last=1639280  loopMasked0:L4
+width 64 fork 5 position 25 long last=258608   loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position 34 long last=567856   loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position 38 long last=1090816  loopMasked0:L4
+width 64 fork 5 position 45 int  last=62112    loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position 52 long last=457568   loopDense0:L4,loopMasked0:L4
+width 64 fork 5 position 55 int  last=369856   loopDense0:L4,loopDense1:L4,loopMasked0:none,loopMasked1:L4
+width 64 fork 5 position 57 int  last=45456    loopDense0:L4,loopMasked0:none
+width 64 fork 5 position 62 long last=266880   loopDense0:L4,loopMasked0:L4
+
+R3 (21 October 2026, 10:08 CEST): the same 144 long draws at 512 bits with the raised trap limits
+
+Question (VARKA-383.md 3.1 table R3, 3.2): do the raised limits take the long lane's releases past
+position 15 to under 3 of 144? Registered reading: under 3 means 9.6's trap sums are the mechanism
+and the prewarm's coverage is the fix (3.3 A); otherwise it is another route and wave 2's
+classification comes before any build. Nothing else changed from the first reading's 512-bit arm.
+
+Machine record
+  commit        4d8f4635d3f (branch varka-383-read; code is master 70dab76c410), working tree clean
+  before run    09:45:28 CEST: load average 0.21 0.26 0.42; powerprofilesctl get: performance;
+                pgrep -x java: none; sanitizer OFF (no -Dvarka.sanitizeMemory in
+                target/varka-matrix/jvm.opts or the launcher's arguments)
+  after run     10:08:33 CEST: load average 0.25 0.34 0.43; powerprofilesctl get: performance;
+                pgrep -x java: none
+  during run    both shared heavy slots held by this command (23 minutes, 09:45 to 10:08)
+  forks         6 forks, 0 wrong answers in 390 kernels compared, 1 draw skipped, kernel under
+                test fast in 6 of 6 (1.1 to 1.8 ns a row)
+
+Command (the build of the first reading was reused; one measured run under both slots)
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 64 --forks 6 \
+    --widths 64 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30 \
+    --jvm -XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000 \
+    --out target/varka-kernel-history/383-R3-on
+  The flags are the ones VARKA-383.md 3.1 (R3 row and its dispatch command) and 9.1 name. The
+  forks are the first reading's: seed 20260903 + fork, 2 JVMs of cores 12 to 17, deadline 30 s.
+  The draws are the same: all 47 long draws the first reading released at 512 bits (42 past
+  position 15, 5 before) released again here, plus 6 more (53 long releases in all).
+
+Releases of the history's kernels at the 30 s deadline, prewarm on, raised limits, 512 bits
+(released / warmed; "C2" = every loop method had C2 code in use when released)
+
+                    position 0    1 to 3        4 to 15        16 to 63
+  long  R3          - (int only)  1 / 12        7 / 36 (7 C2)  45 / 144 (45 C2)
+  long  first       - (int only)  0 / 12        5 / 36 (5 C2)  42 / 144 (41 C2)
+  int   R3          0 / 6         0 / 6         0 / 36         14 / 144 (4 C2)
+  int   first       0 / 6         0 / 6         0 / 36         17 / 144 (11 C2)
+
+Verdict by the registered reading: 45 of 144 is not under 3 (the first reading's 42): the raised
+limits do not clear the long lane, so 9.6's trap sums are not the mechanism of this release.
+
+Wave 2 classification (one released draw replayed; fork 0, draws 15 and 19 released again with
+the same first and last allocation bytes, so the replay is deterministic here)
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 20 --forks 1 \
+    --seed 20260903 --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30 \
+    --jvm -XX:+UnlockDiagnosticVMOptions --jvm -XX:+LogCompilation --jvm -XX:LogFile=<log>
+  and the same with the two raised limits added. Log read with dev/varka_trap_census.py.
+  default limits:  398 runtime deoptimisations, 167 profile_predicate; 8161 compiles
+  raised limits:   403 runtime deoptimisations, 180 profile_predicate; 7752 compiles
+  The two outlier classes are identical in both runs: VarkaFusedProjection_w0802ae9d91dcf79d
+  loopMasked0 (59 profile_predicate deoptimisations, 56 compiles; traps from stamp 5.3 s to
+  34.7 s, i.e. the first release window) and VarkaFusedProjection_w9b2f7a8bfaaa4059 loopMasked0
+  (37 deoptimisations, 35 compiles; 35.9 s to 65.6 s, the second window). Every other
+  loopMasked0 class had 6 or fewer. All traps: reason profile_predicate, action maybe_recompile,
+  C2 (level 4), at bytecode 566 (and 241 twice) of the first class and bytecode 517 of the second.
+
+Class dump and profiled-predicate flag (VARKA-383.md 9.3), 21 October 2026, master 54ea14c3709
+Machine: AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1, power profile performance before and after,
+  1-minute load 0.13 (15:02) and 0.24 (15:05) at the starts, 0.54 at the end, no java process before or
+  after, sanitizer off, taskset cores 12 to 14. The build is the main checkout's compiled catalyst
+  classes of the same commit (classpath file copied with the path prefix replaced).
+Dump agent: a 20-line -javaagent (ClassFileTransformer writing VarkaFusedProjection_w* classes).
+Baseline (agent only, 91 s):
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 20 --forks 1 --seed 20260903 \
+    --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30 --jvm -javaagent:<agent>=<dir>
+  draw 15 RELEASED 30022 ms first=1064224 last=1062784 tiers=loopMasked0:L4
+  draw 19 RELEASED 30018 ms first=341824 last=193104 tiers=loopDense0:L4,loopMasked0:L4
+  long 4-15: 1 / 6 released; long 16-63: 1 / 2; the kernel under test fast 1.1 ns a row.
+  javap -c -p of w0802ae9d91dcf79d loopMasked0: 566: goto 241 (backedge; head 241 iload 39,
+  243 iload 38, 245 if_icmpge 569; bound = SPECIES_512.loopBound(n), step = length());
+  w9b2f7a8bfaaa4059 loopMasked0: 517: goto 220 (head 224 if_icmpge 520).
+  9.2's log: <uncommon_trap reason='profile_predicate' action='maybe_recompile' compile_id='5479'
+  level='4'> <jvms bci='566' method='...w0802ae9d91dcf79d loopMasked0 ...'>, 56 task_queued compiles.
+With the flag (30 s):
+  ... same command plus --jvm -XX:+UnlockDiagnosticVMOptions --jvm -XX:-UseProfiledLoopPredicate \
+    --jvm -XX:+LogCompilation --jvm -XX:LogFile=<log> --jvm -javaagent:<agent>=<dir>
+  draw 15 COMPILED 113 ms first=1064064 last=1760; draw 19 COMPILED 96 ms first=341824 last=640
+  long 4-15: 0 / 6 released; long 16-63: 0 / 2; 0 wrong answers in 21 kernels; kernel under test
+  fast 1.1 ns a row, loopDense0..1 and loopMasked0..1 all L4.
+  log: 0 profile_predicate records, 240 runtime deoptimisations (unstable_if 87, class_check 71,
+  bimorphic_or_optimized_type_check 28, array_check 27), 7497 nmethod compiles
+  (9.2's default run: 398, 167 profile_predicate, 8161).

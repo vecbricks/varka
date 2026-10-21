@@ -63,6 +63,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     new BitOp(BitOpKind.SHL, intCol, intLit),
     new BitCount(intCol),
     new Compare(CompareOp.LT, intCol, intLit),
+    new NullSafeEqual(intCol, intLit),
     new And(new IsNotNull(intCol), new IsNotNull(intCol)),
     new Or(new IsNotNull(intCol), new IsNotNull(intCol)),
     new Not(new IsNotNull(intCol)),
@@ -90,7 +91,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The node types whose lane is their operands' rather than INT by construction. */
   private val derivesItsLane: Set[Class[_]] = Set(
     classOf[IntArith], classOf[IntNeg], classOf[Greatest], classOf[Least], classOf[IfElse],
-    classOf[Compare], classOf[And], classOf[Or], classOf[Not], classOf[IsNotNull],
+    classOf[Compare], classOf[NullSafeEqual], classOf[And], classOf[Or], classOf[Not],
+    classOf[IsNotNull],
     classOf[ConstDivide], classOf[GuardedRange], classOf[BitOp], classOf[BitCount])
 
   /** Every concrete node type the sealed hierarchy permits, nested interfaces expanded. */
@@ -133,6 +135,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       new Least(longCol, longLit),
       new IfElse(new Compare(CompareOp.GT, longCol, longLit), longCol, longLit),
       new Compare(CompareOp.EQ, longCol, longLit),
+      new NullSafeEqual(longCol, longLit),
       new IsNotNull(longCol),
       new Not(new IsNotNull(longCol)),
       new And(new IsNotNull(longCol), new Compare(CompareOp.LT, longCol, longLit)),
@@ -213,6 +216,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "int arithmetic" -> (() => new IntArith(IntOp.ADD, Overflow.WRAP, intCol, longLit)),
       "int arithmetic" -> (() => new IntArith(IntOp.MUL, Overflow.NULL, longCol, intLit)),
       "a comparison" -> (() => new Compare(CompareOp.LT, longCol, intLit)),
+      "a null-safe equality" -> (() => new NullSafeEqual(longCol, intLit)),
       "greatest" -> (() => new Greatest(longCol, intCol)),
       "least" -> (() => new Least(intCol, longLit)),
       "and" -> (() => new And(new IsNotNull(intCol), new IsNotNull(longCol))),
@@ -319,6 +323,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "Greatest" => new Greatest(c, c1)
         case "Least" => new Least(c, c1)
         case "Compare" => new Compare(CompareOp.LT, c, c1)
+        case "NullSafeEqual" => new NullSafeEqual(c, c1)
         case "And" => new And(new IsNotNull(c), new IsNotNull(c1))
         case "Or" => new Or(new IsNotNull(c), new IsNotNull(c1))
         case "Not" => new Not(new IsNotNull(c))
@@ -378,11 +383,11 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
-      "Compare", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide", "GuardedRange",
-      "NarrowLane", "WidenLane", "BitOp", "BitCount"),
+      "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
+      "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, and " +
-        "VARKA-335's bitwise operations")
+        "VARKA-335's bitwise operations, and VARKA-336's null-safe equality")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

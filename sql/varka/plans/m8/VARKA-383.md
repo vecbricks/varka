@@ -580,3 +580,180 @@ within 9.7's range, measured on a runner with `VarkaColdStartBenchmark`.
 ## 9. Outcome
 
 Filled in as the runs land.
+
+### 9.1 Outcome of the laptop reading (21 October 2026)
+
+Step 2 of section 0, read on master `70dab76c410` (plan text from `c53d6f39f82`), the idle laptop
+(1-minute load 2.82 at the start and 0.36 at the end, 15-minute load 0.52 at the end, no other
+JVM at the start or the end, power profile `performance`
+before and after, memory sanitizer off), 12 forks: `dev/varka_kernel_history.sh --after 64
+--forks 6 --widths 64,32 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30`, cores 12 to
+17 as 257 had, 54 minutes, 0 wrong answers in 780 kernels, the kernel under test fast in 12 of 12.
+Raw readings, commands and the machine record: `results/VARKA-383-long-lane-history.txt`.
+
+| prewarm on, long lane | 1 to 3 | 4 to 15 | 16 to 63 | 16 to 63 with every loop method at tier 4 |
+|---|---|---|---|---|
+| 512 bits | 0 of 12 | 5 of 36 | **42 of 144** | 41 |
+| 256 bits (`MaxVectorSize=32`) | 1 of 12 | 6 of 36 | **38 of 144** | 38 |
+| 257, 16 October, 512 bits, loaded | 0 of 24 | 7 of 72 | 43 of 144 | all |
+
+Position 0 (an int kernel, as the lanes alternate) released 0 of 6 at each width. The int lane past
+position 15: 17 of 144 at 512 bits (11 with every loop at tier 4) and 43 of 144 at 256 bits (all 43),
+against 257's 15 at 512.
+
+**Verdict by 3.2: half (a) is admitted.** Past position 15 with the prewarm on, at both widths,
+41 and 38 of 144 long kernels released with every loop method at tier 4 (the threshold is 8 at
+either width), and position 0 stayed at 0 of 6. It does not close as the laptop's load: the idle
+machine reads what the loaded one did (42 against 43 at 512 bits), so there is no sign of a load
+effect; the rows 389, 391, 395 and 397 sit between the two readings and, with load, are confounded,
+so this reading does not say which of them, if any, moved the number. The 256-bit arm is the
+512-bit host with `MaxVectorSize=32`, not a 256-bit machine; the verdict stands on the 512-bit arm
+alone. The thresholds admit from this reading, whereas 6.1 and section 8 expected wave 1 on
+runners first. The "in between" arm (six more forks per
+width) is not needed.
+
+Predictions of 6.1 that this reading speaks to:
+
+1. **Position 0 releases nothing: holds** (0 of 6 at each width; the long lane's own position 0
+   was not a case, the history starts with an int kernel).
+2. **The long lane reproduces with the prewarm on: holds on the laptop** at both widths: 42 of 144 at 512 bits
+   (predicted 20 to 60) and 38 of 144 at 256 bits (20 to 70); positions 4 to 15 at 5 and 6 of 36,
+   against a registered 3 to 20 of 72 (1.5 to 10 per 36), at the edge of the bound for 6 and inside for 5. The reading is the laptop's, not a runner's: the
+   prediction said "idle runners", and the 256-bit case here is the 512-bit host with
+   `MaxVectorSize=32`, the way `--widths` makes it, not an AVX2 machine.
+3. **The prewarm does not move the long lane (on within 15 of off): not scored.** The prewarm-off
+   arm was not run (about 55 minutes more, outside the budget; half (a)'s thresholds read the
+   prewarm-on arm). 42 and 38 against 257's off arm of 46 on a loaded machine is not the same
+   test.
+4. **The int lane past 15 under 25 of 144 with the prewarm on, at each width: holds at 512 bits
+   (17), fails at 256 bits (43).** The "over 30 with it off" half is not scored (no off arm). The 43
+   is an int-lane kernel at 256 bits, the case 2.2 reads in the end-to-end failure, and it is
+   the number half (b)'s history reading would want; row 389 to 397's answer to that half stands
+   until a CI count says otherwise.
+5. to 8. **Not scored**: they need the runners or the arms not run (8 is the runner cost).
+
+What the reading does not say: which mechanism releases the draws: 6.1's item 5
+(raised trap limits) and wave 2's `-XX:+LogCompilation` replay are what separate 9.6's trap sums
+from the other routes, and row 405 showed it is not the second-kernel-class fallback. The 256-bit
+case here is not the 7763 or 9V74 route (`UseAVX=2`, the magic-divide form): a runner at 256 bits
+still reads a different set of forms. The 156 released draws, with their tiers, are in the results file; draw `p` of fork `f` uses seed
+20260903 + `f`, so wave 2 can replay one with `--after <p+1> --forks 1 --seed <20260903+f>`.
+
+**What the row asks next** (section 0 step 3 and 3.2): half (a) is admitted, so R1 and R2 on
+runners follow from section 0 step 3, which needs the `benchmark.yml` history mode of 3.1 (owner's go-ahead for runner
+hours). The launcher takes `--jvm`, so R3 (the raised trap limits, `--prewarm on --after 64 --forks
+6 --jvm -XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000`) and wave 2's
+replay can run on the laptop (R3 about half an hour at one width, `--widths 32` for 256 bits) and decide which fix arm A
+needs before any runner hour is spent; that is proposed here, not done. Arm A (the conversions
+`L2D`, `D2L` and the operator-keyed test) stays unbuilt until R3 says the mechanism. Step 1 (the
+CI count of the end-to-end suite) is untouched by this reading. The row is not Done.
+
+### 9.2 Outcome of R3 on the laptop (21 October 2026)
+
+R3 of 3.1, at one width: the first reading's 512-bit long-lane arm with the two raised limits and
+nothing else changed, on master `70dab76c410` (branch commit `4d8f4635d3f`), the idle laptop (1-minute
+load 0.21 at the start and 0.25 at the end, no other JVM at either end, power profile `performance`
+before and after, sanitizer off), 6 forks, 23 minutes: `dev/varka_kernel_history.sh --after 64
+--forks 6 --widths 64 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30 --jvm
+-XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000`. The flags are those of
+3.1's R3 row and dispatch command; the launcher's `--jvm` passes them to every fork. 0 wrong answers
+in 390 kernels, the kernel under test fast in 6 of 6. Raw readings, commands and machine record:
+`results/VARKA-383-long-lane-history.txt`.
+
+| 512 bits, prewarm on, long lane | 1 to 3 | 4 to 15 | 16 to 63 | 16 to 63 with every loop method at tier 4 |
+|---|---|---|---|---|
+| first reading (default limits) | 0 of 12 | 5 of 36 | **42 of 144** | 41 |
+| R3 (raised limits) | 1 of 12 | 7 of 36 | **45 of 144** | 45 |
+
+Position 0 released 0 of 6. The int lane past 15: 14 of 144 (17 in the first reading). All 47 long
+draws the first reading released released again, plus 6 more, so the set of draws is the same one.
+
+**Verdict by the registered reading (3.2): the raised limits do not take the long lane under 3 of
+144; 45 of 144 is where it was. The mechanism is not 9.6's trap sums, and the prewarm's coverage
+(3.3 A) is not the fix.** It is another route, so the wave-2 classification comes before any build.
+
+**Wave-2 classification, done on the laptop** (3.1's replay, one released draw, run twice): fork 0
+with `--after 20 --forks 1 --seed 20260903 --widths 64 --prewarm on` and `-XX:+UnlockDiagnosticVMOptions
+-XX:+LogCompilation`, once with default limits and once with the raised ones. Draws 15 and 19 released
+again with the same allocation bytes, so a released draw replays. `dev/varka_trap_census.py` on the
+logs: the same two classes dominate both runs, `VarkaFusedProjection_w0802ae9d91dcf79d` `loopMasked0`
+(59 runtime deoptimisations, 56 compiles) and `VarkaFusedProjection_w9b2f7a8bfaaa4059` `loopMasked0`
+(37, 35), against 6 or fewer for every other loop method of the kernels. By stamp the first class's
+traps fall in 5 to 35 s and the second's in 36 to 66 s, the two 30 s release windows of draws 15 and
+19 (the class-to-draw match is read from those windows, not logged by name). Every one is a C2 (level 4)
+trap with reason `profile_predicate` and action `maybe_recompile`, at one bytecode of the method
+(566 for the first class, 517 for the second), and the cycle compile, trap, recompile repeats 35 to
+56 times until the deadline. The raised limits left the two counts unchanged (59, 37, 56, 35 in both
+runs), so the cycle is not gated by the method trap limit or the recompilation cutoff. What is
+not known: which loop construct sits at bytecode 566 and why its predicate never stops failing after the
+compile that follows each trap; the generated classes were not dumped. 374's refused intrinsic
+(a 2-lane long mask) is not this route at 512 bits, where the long lane has eight lanes, and 373's
+per-bytecode trap limit is a different reason (`bimorphic_or_optimized_type_check`), though
+`PerBytecodeTrapLimit` was not raised here.
+
+**What the row asks next**: arm A (conversions `L2D`, `D2L`) stays unbuilt; its premise, that a
+wider prewarm clears the sums, is refuted for this route. The next step is one more classification
+reading, not a build: dump the generated class of a released draw (draw 15 of fork 0), read its
+`loopMasked0` at bytecode 566, and ask whether the profile-predicate loop-predication trap can be
+avoided at the source (a loop shape, or `-XX:-UseProfiledLoopPredicate` as 257's item 61 tried) or in
+the prewarm; and whether `-XX:-UseProfiledLoopPredicate` clears the long lane (the launcher takes it
+as `--jvm`, 25 minutes at one width). R1 and R2 on runners remain gated on the owner's go-ahead; the
+256-bit R3 was not run (the 512-bit result is not in the in-between zone). The row is not Done.
+
+### 9.3 Outcome of the class dump and the predicate flag (21 October 2026)
+
+Two questions left by 9.2, answered on the idle laptop on master `54ea14c3709` with one 512-bit fork
+each (about 90 s and 30 s; 1-minute load 0.13 and 0.24 at the starts, `performance` power profile at
+both ends, no other JVM before or after, sanitizer off), the same replay as 9.2: `--after 20 --forks 1
+--seed 20260903 --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30`. The build
+was the main checkout's compiled catalyst classes of the same commit, used through a copied
+classpath (no rebuild in this worktree).
+
+**What sits at the bytecode.** The harness has no class dump, so a 20-line `-javaagent` (a
+`ClassFileTransformer` that writes every `VarkaFusedProjection_w*` class it sees) dumped the classes
+of the replay, and `javap -c -p` read them. The trap's `<jvms bci='566'>` in 9.2's log, for the
+`loopMasked0` of `VarkaFusedProjection_w0802ae9d91dcf79d` (draw 15), is this instruction:
+
+```
+ 559: iload  39            // i
+ 561: iload  37            // step = SPECIES_512.length()
+ 563: iadd
+ 564: istore 39
+ 566: goto   241           // back to the loop head
+ 241: iload 39 ; 243: iload 38 ; 245: if_icmpge 569   // i < bound, bound = species.loopBound(n)
+```
+
+It is the backedge of the emitted main vector loop, `for (i = 0; i < species.loopBound(n); i +=
+species.length())`, whose body is the per-iteration `fromMemorySegment`, `lanewise`, `compare`,
+`intoMemorySegment` and the validity-bit merge. The second class, `w9b2f7a8bfaaa4059` (draw 19), has the
+same shape: bytecode 517 is `goto 220`, its main loop's backedge, with `if_icmpge 520` at the head. So
+both outliers are the one loop construct every emitted `loopMasked0` has; what differs between the
+released draws and the other 150 loops is not the construct but the profile C2 saw when it
+predicated that loop.
+
+**The flag.** With `-XX:+UnlockDiagnosticVMOptions -XX:-UseProfiledLoopPredicate` (the flag exists
+in this JDK; `UseLoopPredicate` stays on) the same replay released 0 of 6 long draws at 4 to 15 and
+0 of 2 at 16 to 63 (the baseline replay with the agent released 1 and 1: draws 15 and 19, 30 s each,
+first/last allocation bytes 1064224/1062784 and 341824/193104). Draws 15 and 19 read COMPILED after
+113 ms and 96 ms with last allocation 1760 and 640 bytes a call, and the log shows 0
+`profile_predicate` records (167 in 9.2's default run), all four loop methods of the kernel under test at
+tier 4, 0 wrong answers in 21 kernels, kernel under test fast at 1.1 ns a row. The run was 30 s
+against 91 s for the baseline, the two release windows gone. Raw lines are in the results file.
+
+**What it answers and what it does not.** Profile-based loop predication is the cause of the
+release of these two draws at this width: turning it off removes both; the census
+shows 240 runtime deoptimisations in all (398 in 9.2's default run), none of reason
+`profile_predicate`. One fork of eight long kernels is a replay of a known case, not a rate: whether
+the flag takes the 144-draw long lane under 3, and what it costs the other kernels' steady-state
+speed (item 61 of 257 measured a cost), are not read. A product cannot depend on a diagnostic flag
+being set by the user, so the flag is a diagnosis, not the fix.
+
+**What the row asks next.** (1) The 144-draw reading at 512 bits with the flag (the launcher's
+`--jvm`, 25 minutes), with the pairs' speed cost read beside it; (2) a source-level shape that
+keeps C2 from predicating this loop on a profile, found by comparing the profile of the
+released draws' loops with the clean draws' (the trap count at one bytecode says the profile changes
+after each recompile: its `count` field climbs 1, 2, ... 7 across the cycle, so each recompile is
+predicated on a profile the next iterations violate); the candidates are a loop shape whose
+bound is not read again (a counted `for` over a constant lane count) or a `loopBound` taken once into a
+final. Arm A (conversions `L2D`, `D2L`) stays unbuilt. R1 and R2 on runners remain gated on the
+owner's go-ahead. The row is not Done.

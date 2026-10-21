@@ -791,8 +791,8 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
           VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _,
           VarkaVectorIR.DayOfYear _, VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _,
-          VarkaVectorIR.MakeDate _, VarkaVectorIR.Compare _, VarkaVectorIR.And _,
-          VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
+          VarkaVectorIR.MakeDate _, VarkaVectorIR.Compare _, VarkaVectorIR.NullSafeEqual _,
+          VarkaVectorIR.And _, VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _ ->
           new Rebuilt(node, false, false);

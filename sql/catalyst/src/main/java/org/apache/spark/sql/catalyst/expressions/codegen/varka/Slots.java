@@ -70,6 +70,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mon
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullSafeEqual;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
@@ -1049,8 +1050,9 @@ final class Slots {
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
-   * words, for the value;</li> <li>every {@code Compare}, and every {@code IsNotNull} over a
-   * column, reached, whether under an {@code IfElse} or a {@code Cond} root: its operands' words,
+   * words, for the value;</li> <li>every {@code Compare} and {@code NullSafeEqual}, and every
+   * {@code IsNotNull} over a column, reached, whether under an {@code IfElse} or a {@code Cond}
+   * root: its operands' words,
    * for the known-true/false pair (an {@code IsNotNull} over a condition reads the condition's
    * pair, whose own arm demands its words).</li> </ul> Propagation: a demanded own word demands
    * what its arm loads - both operands for the AND family and the picks, the two branches for
@@ -1353,6 +1355,10 @@ final class Slots {
           demand(analysis.wordOwner.get(c.left()));
           demand(analysis.wordOwner.get(c.right()));
         }
+        case NullSafeEqual c -> {
+          demand(analysis.wordOwner.get(c.left()));
+          demand(analysis.wordOwner.get(c.right()));
+        }
         // A condition child has no word: it computes its masks from its own operands' words,
         // which its own arm demands.
         case IsNotNull c -> {
@@ -1493,6 +1499,7 @@ final class Slots {
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
         case Compare x -> { }
+        case NullSafeEqual x -> { }
         case And x -> { }
         case Or x -> { }
         case Not x -> { }

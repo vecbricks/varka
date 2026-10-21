@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.Divide;
+import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode$;
 import org.apache.spark.sql.catalyst.expressions.Expression;
@@ -211,6 +212,21 @@ public final class VarkaConjunctOrderSuite {
     assertTrue(order.get(0) instanceof VarkaConjunctOrder.NullCheck(var column)
         && column.semanticEquals(l), order.toString());
     assertEquals(steps(1, 0), order.subList(1, 3));
+  }
+
+  @Test
+  @DisplayName("a null-safe equality implies no column is not null, as an equality does")
+  void nullSafeEqualityIsNotNullIntolerant() {
+    // isnotnull(l = l2) implies l is not null, so codegen checks l before coalesce(l, 0) >= 0.
+    var implied = VarkaConjunctOrder.codegenOrder(
+        List.of(new IsNotNull(new EqualTo(l, l2)), coalesceL()));
+    assertEquals(3, implied.size(), implied.toString());
+    assertTrue(implied.get(0) instanceof VarkaConjunctOrder.NullCheck, implied.toString());
+    // isnotnull(l <=> l2) is true whatever the columns are, so no column is checked ahead of
+    // the conjunct that reads it, and the order is the written one.
+    var none = VarkaConjunctOrder.codegenOrder(
+        List.of(new IsNotNull(new EqualNullSafe(l, l2)), coalesceL()));
+    assertEquals(steps(0, 1), none);
   }
 
   /** {@code coalesce(l, 0) >= 0}: reads l, and is not null when l is. */

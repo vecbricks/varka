@@ -960,7 +960,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // lane, while this grammar builds int trees only. The long-lane generator draws a narrowing
     // at a root, and the mixed-lane generator both conversions anywhere; the tests below assert
     // that.
-    val missing = permitted -- seen - "NarrowLane" - "WidenLane"
+    //
+    // And the null-safe equality (VARKA-336): a draw of it moves every seeded shape after it,
+    // the cost corpus the model is fitted on, the warm-up reach and `emitted_bytes.json`, and
+    // the model's refit needs the owner's word. The node is covered by its own suite
+    // (`VarkaEmitterNullSafeSuite`, both lanes, both bodies, three widths) and by the coverage
+    // rows' composition fuzzer until a grammar production is taken with the next refit
+    // (`VARKA-336.md` 6 and 11).
+    val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -985,7 +992,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
-    val missing = laneGeneric.map(_.getSimpleName) -- seen
+    // The null-safe equality is out of this corpus for the reason the int one gives above.
+    val missing = laneGeneric.map(_.getSimpleName) -- seen - "NullSafeEqual"
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")

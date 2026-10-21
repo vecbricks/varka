@@ -508,8 +508,15 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     val roots = Seq[VarkaVectorIR](
       new IsNotNull(new Compare(CompareOp.EQ, new Year(c1), new LiteralSlot(0))),
       new LastDay(c0), new Month(c1))
+    // The three groups, and a prefix shared between them, are the emit defaults' grouping of
+    // these roots: a matrix configuration that stops sharing, raises the group budget past the
+    // shape or drops the method byte budget leaves no group to load a prefix (VARKA-411).
+    val defaults = VarkaEmitOptions.DEFAULTS
     val options = VarkaMatrix.base.withGroupBudgetUnderPrediction(true)
       .withMaterializeChronoPrefix(true)
+      .withShareChronoPrefix(defaults.shareChronoPrefix())
+      .withGroupBudget(defaults.groupBudget())
+      .withMethodByteBudget(defaults.methodByteBudget())
     for (lanes <- Seq(4, 16)) {
       val named = emitMulti(roots, 2, 1, options.withLanesOverride(lanes))
       val (kernel, loader) = load(named)

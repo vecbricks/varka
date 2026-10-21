@@ -58,6 +58,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mon
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullSafeEqual;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Quarter;
@@ -1088,6 +1089,22 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * The comparison both {@link Compare} and {@link NullSafeEqual} are built on: emits the two
+   * operands and leaves on the stack the lane's {@code VectorMask} of {@code left op right}. The
+   * one place a lane's equality mask is made, so that a change to it reaches every equality.
+   */
+  private static void emitLaneCompare(CodeBuilder cb, String op, VarkaVectorIR left,
+      VarkaVectorIR right, Cond node, boolean dense, Analysis analysis, Slots s,
+      Set<VarkaVectorIR> computed) {
+    emitValue(cb, left, dense, analysis, s, computed);
+    cb.getstatic(VECTOR_OPERATORS, op, VO_COMPARISON);
+    emitValue(cb, right, dense, analysis, s, computed);
+    line(cb, analysis, node);
+    Lane lane = analysis.laneOf(node);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+  }
+
+  /**
    * Emits a condition node: in the dense body a single {@code VectorMask} local (every input
    * lane is valid, so known-true is the comparison itself and known-false its complement); in
    * the masked body the known-true / known-false word pair of plan 2.6.
@@ -1100,12 +1117,8 @@ final class VarkaVectorWalk {
     computed.add(node);
     switch (node) {
       case Compare n -> {
-        emitValue(cb, n.left(), dense, analysis, s, computed);
-        cb.getstatic(VECTOR_OPERATORS, n.op().name(), VO_COMPARISON);
-        emitValue(cb, n.right(), dense, analysis, s, computed);
-        line(cb, analysis, node);
-        Lane lane = analysis.laneOf(node);
-        cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+        emitLaneCompare(cb, n.op().name(), n.left(), n.right(), node, dense, analysis, s,
+            computed);
         if (dense) {
           cb.astore(s.condMask.get(node));
         } else {
@@ -1125,6 +1138,36 @@ final class VarkaVectorWalk {
           cb.land();
           loadWord(cb, s, s.wordRef.get(n.right()));
           cb.land();
+          cb.lstore(s.kf.get(node));
+        }
+      }
+      case NullSafeEqual n -> {
+        // The lane's equality mask, as Compare's EQ; the dense body (no null lane) is that mask.
+        emitLaneCompare(cb, "EQ", n.left(), n.right(), node, dense, analysis, s, computed);
+        if (dense) {
+          cb.astore(s.condMask.get(node));
+        } else {
+          cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);
+          cb.lstore(s.cmpTmp);
+          // kT = (E & vA & vB) | ~(vA | vB): both valid and equal, or both null. E on a null lane
+          // is a comparison of undefined values and is masked off by the validity words.
+          cb.lload(s.cmpTmp);
+          loadWord(cb, s, s.wordRef.get(n.left()));
+          cb.land();
+          loadWord(cb, s, s.wordRef.get(n.right()));
+          cb.land();
+          loadWord(cb, s, s.wordRef.get(n.left()));
+          loadWord(cb, s, s.wordRef.get(n.right()));
+          cb.lor();
+          cb.loadConstant(-1L);
+          cb.lxor();
+          cb.lor();
+          cb.lstore(s.kt.get(node));
+          // kF = ~kT: a lane is never unknown. The ~ sets the bits above the lane count, which
+          // every consumer truncates, as for IsNotNull's.
+          cb.lload(s.kt.get(node));
+          cb.loadConstant(-1L);
+          cb.lxor();
           cb.lstore(s.kf.get(node));
         }
       }

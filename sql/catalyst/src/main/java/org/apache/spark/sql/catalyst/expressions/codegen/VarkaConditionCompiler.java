@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan;
@@ -257,6 +258,8 @@ final class VarkaConditionCompiler {
     return switch (cond) {
       case Compare c -> Optional.of(new Compare(c.op(), new VarkaVectorIR.WidenLane(c.left()),
           new VarkaVectorIR.WidenLane(c.right())));
+      case VarkaVectorIR.NullSafeEqual c -> Optional.of(new VarkaVectorIR.NullSafeEqual(
+          new VarkaVectorIR.WidenLane(c.left()), new VarkaVectorIR.WidenLane(c.right())));
       // Over a condition the test lifts with it; over a column it reads the column widened.
       case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
           ? onLongLane(c).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
@@ -354,9 +357,9 @@ final class VarkaConditionCompiler {
 
   /**
    * The condition compiler: interior comparisons and the connectives, three-valued at run time
-   * via the emitter's known-true/known-false pairs. {@code EqualNullSafe} deliberately declines -
-   * its both-null-is-true case breaks the null-intolerant comparison rule and earns its own
-   * algebra entry or nothing (plan section 4).
+   * via the emitter's known-true/known-false pairs. {@code EqualNullSafe}, the one comparison that
+   * is not null-intolerant, is its own total node over value operands, and a predicate compared
+   * with a boolean literal ({@code p IS TRUE}) is composed from the validity node (VARKA-336).
    *
    * <p>Every node {@link #condArm} claims is the predicate family's and lowers under its switch
    * (VARKA-318), wherever it is reached: a filter's conjunct, the condition of an {@code IF} or a
@@ -407,6 +410,7 @@ final class VarkaConditionCompiler {
       case GreaterThanOrEqual n ->
           () -> compare(CompareOp.GE, n.left(), n.right(), inputs, literals, sink);
       case EqualTo n -> () -> compare(CompareOp.EQ, n.left(), n.right(), inputs, literals, sink);
+      case EqualNullSafe n -> () -> nullSafeEqual(n, inputs, literals, sink);
       // IN over date literals: an EQ chain joined by OR, which the mask algebra
       // makes exactly SQL's IN inside a condition - a null value leaves every comparison
       // unknown, the OR of unknowns is unknown, and an unknown condition falls to ELSE.
@@ -803,6 +807,62 @@ final class VarkaConditionCompiler {
       return Optional.empty();
     }
     return Optional.of(new Compare(op, left.get(), right.get()));
+  }
+
+  /**
+   * {@code left <=> right}: never null, true where both operands are null or both are equal.
+   * Over value operands it is {@link VarkaVectorIR.NullSafeEqual}. A predicate against a boolean
+   * literal, which is how {@code p IS [NOT] TRUE|FALSE} parses and what the optimizer makes of
+   * {@code IF(p, true, false)}, is composed from the nodes that exist: {@code p <=> true} is known
+   * true exactly where {@code p} is, and known false everywhere else, which is {@code p AND p IS
+   * NOT NULL}; {@code p <=> false} is the same over {@code NOT p}. Two predicates compared with
+   * each other are not claimed: they wait on the boolean operand forms. A null literal operand
+   * declines; the optimizer has made it {@code IS NULL} by default.
+   */
+  private static Optional<Cond> nullSafeEqual(
+      EqualNullSafe n,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (isNullLiteral(n.left()) || isNullLiteral(n.right())) {
+      return sink.decline("null-safe equality with a null literal", n);
+    }
+    if (n.left().dataType().equals(DataTypes.BooleanType)) {
+      Optional<Boolean> right = booleanLiteral(n.right());
+      Optional<Boolean> left = booleanLiteral(n.left());
+      if (right.isPresent() == left.isPresent()) {
+        return sink.decline(
+            "null-safe equality of two boolean operands that are not a predicate and a literal",
+            n);
+      }
+      Expression predicate = right.isPresent() ? n.left() : n.right();
+      boolean expected = right.isPresent() ? right.get() : left.get();
+      Optional<Cond> p = compileCond(predicate, inputs, literals, sink);
+      if (p.isEmpty()) {
+        return p;
+      }
+      Cond known = expected ? p.get() : new VarkaVectorIR.Not(p.get());
+      return Optional.of(new VarkaVectorIR.And(known, new VarkaVectorIR.IsNotNull(known)));
+    }
+    Optional<VarkaVectorIR> left = operand(n.left(), inputs, literals, sink);
+    if (left.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<VarkaVectorIR> right = operand(n.right(), inputs, literals, sink);
+    if (right.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(new VarkaVectorIR.NullSafeEqual(left.get(), right.get()));
+  }
+
+  private static boolean isNullLiteral(Expression e) {
+    return e instanceof Literal l && l.value() == null;
+  }
+
+  /** The value of a non-null boolean literal, or empty for anything else. */
+  private static Optional<Boolean> booleanLiteral(Expression e) {
+    return e instanceof Literal l && l.value() instanceof Boolean b ? Optional.of(b)
+        : Optional.empty();
   }
 
   /**
