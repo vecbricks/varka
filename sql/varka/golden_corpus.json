@@ -5,9 +5,9 @@
       "statements" : 102,
       "selects" : 101,
       "rewritten" : 50,
-      "projection_fused" : 14,
+      "projection_fused" : 17,
       "projection_partial" : 0,
-      "projection_plain" : 54,
+      "projection_plain" : 51,
       "filter_fused" : 1,
       "filter_partial" : 31,
       "errors" : 20,
@@ -584,7 +584,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT (c0 - c1)",
         "columns" : [ "date", "date" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PARTIAL",
         "filter_outcome" : "agree"
@@ -593,7 +593,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT (c0 - '2001-09-28')",
         "columns" : [ "date" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PARTIAL",
         "filter_outcome" : "agree"
@@ -602,7 +602,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT ('2001-10-01' - c0)",
         "columns" : [ "date" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PARTIAL",
         "filter_outcome" : "agree"

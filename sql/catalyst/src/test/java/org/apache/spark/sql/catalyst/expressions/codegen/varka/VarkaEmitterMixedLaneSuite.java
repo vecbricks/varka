@@ -58,6 +58,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
+import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 
 /**
  * Kernels that hold both lanes (VARKA-28): a widening of an int value into the long lane, a
@@ -128,6 +129,13 @@ public final class VarkaEmitterMixedLaneSuite {
    */
   private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
       int[] intLits, long[] longLits, Data data, boolean declines) {
+    check(name, roots, numInputs, intLits, longLits, data, declines, null);
+  }
+
+  /** {@link #check} with Spark's formula as a second oracle for the reference evaluator. */
+  private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
+      int[] intLits, long[] longLits, Data data, boolean declines,
+      VarkaKernelChecks.SparkAnswers spark) {
     for (int lanes : WIDTHS) {
       var options = VarkaMatrixRuns.BASE.withLanesOverride(lanes);
       var emitted = VarkaEmitterFixtures.emit(roots, numInputs,
@@ -139,7 +147,7 @@ public final class VarkaEmitterMixedLaneSuite {
           VarkaKernelChecks.runAndCompareMixed(context, emitted.className(), emitted.bytes(),
               roots, numInputs, intLits, longLits,
               batch(numInputs, length, pattern, length > 1 && pattern == 0, data), declines,
-              null);
+              spark);
         }
       }
     }
@@ -394,6 +402,167 @@ public final class VarkaEmitterMixedLaneSuite {
       String bits = Integer.toString(lanes * 64);
       assertEquals(Set.of("IntVector.SPECIES_" + bits, "LongVector.SPECIES_" + bits), named);
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // date - date: two int columns widened, subtracted and scaled to microseconds on the long lane.
+  // ---------------------------------------------------------------------------------------------
+
+  private static final ColumnRef END = new ColumnRef(0);
+  private static final ColumnRef START = new ColumnRef(1);
+  private static final long MICROS_PER_DAY = DateTimeConstants.MICROS_PER_DAY;
+  private static final long MAX_DAYS = Long.MAX_VALUE / MICROS_PER_DAY;
+
+  /** The lowering of {@code end - start} over dates, as the compiler builds it. */
+  private static final VarkaVectorIR DATE_MINUS_DATE = new IntArith(IntOp.MUL, Overflow.WRAP,
+      new GuardedRange(new IntArith(IntOp.SUB, Overflow.WRAP, widen(END), widen(START)),
+          -MAX_DAYS, MAX_DAYS), LONG_LIT);
+
+  /**
+   * Spark's {@code SubtractDates.evalFunc} on the row, with its own {@code subtractExact} and
+   * {@code multiplyExact}, which throw where the kernel's widened subtraction and wrapping multiply
+   * cannot: null if either date is, the error it raises otherwise.
+   */
+  private static final VarkaKernelChecks.SparkAnswers SPARK_DATE_MINUS_DATE =
+      new VarkaKernelChecks.SparkAnswers() {
+        @Override public VarkaKernelChecks.Answer answer(int output, long[] values,
+            boolean[] isNull) {
+          if (isNull[0] || isNull[1]) {
+            return new VarkaKernelChecks.Answer.Null();
+          }
+          try {
+            return new VarkaKernelChecks.Answer.Value(Math.multiplyExact(
+                Math.subtractExact((int) values[0], (int) values[1]), MICROS_PER_DAY));
+          } catch (ArithmeticException e) {
+            return new VarkaKernelChecks.Answer.Raised(e);
+          }
+        }
+
+        @Override public String sql(int output) {
+          return "end - start";
+        }
+      };
+
+  /**
+   * Dates for the pairs this harness forms. The two columns step through the table five apart, so
+   * the pairs formed never put the two 100,000,000-day extremes together, and every difference they
+   * give is inside the guard's range.
+   */
+  private static long inRangeDay(int c, int i) {
+    long[] days = {0, 1, -1, 719162, -719162, 2932896, -141427, 100_000_000, -100_000_000,
+        53_000_000, -53_000_000, 12345};
+    return days[(i + c * 5) % days.length];
+  }
+
+  @Test
+  @DisplayName("date - date is (end - start) * 86400000000 over every null pattern, at both widths")
+  void dateMinusDate() {
+    check("end - start", List.of(DATE_MINUS_DATE), 2, new int[0], new long[] {MICROS_PER_DAY},
+        VarkaEmitterMixedLaneSuite::inRangeDay, false, SPARK_DATE_MINUS_DATE);
+  }
+
+  /**
+   * A batch of {@code length} rows of the same in-range pair but for the one at {@code at}, which
+   * is {@code (end, start)}, with the null flags {@code endNull} and {@code startNull} there.
+   */
+  private static VarkaKernelChecks.LongBatch oneRow(int length, int at, long end, long start,
+      boolean endNull, boolean startNull) {
+    var nulls = new boolean[2][length];
+    var values = new long[2][length];
+    for (int i = 0; i < length; i++) {
+      values[0][i] = 10 + i;
+      values[1][i] = 3;
+    }
+    values[0][at] = end;
+    values[1][at] = start;
+    nulls[0][at] = endNull;
+    nulls[1][at] = startNull;
+    return new VarkaKernelChecks.LongBatch(length, nulls, values, endNull || startNull);
+  }
+
+  /**
+   * The status of a batch with one chosen pair, at every row position, length and width. A batch
+   * with a null is run through both bodies: the masked one, which must give {@code expected},
+   * and the dense one over the same stored values with the null dropped, which sees the pair as
+   * valid and gives what the pair gives (the harness stores the pair under the null).
+   */
+  private static void expectStatus(String what, long end, long start, boolean endNull,
+      boolean startNull, int expected) {
+    var roots = List.of(DATE_MINUS_DATE);
+    long days = end - start;
+    int ifValid = days > MAX_DAYS || days < -MAX_DAYS ? VarkaFusedKernel.STATUS_VALUE_RANGE : 0;
+    for (int lanes : WIDTHS) {
+      var emitted = VarkaEmitterFixtures.emit(roots, 2, 1,
+          VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+      for (int length : LENGTHS) {
+        for (int at = 0; at < length; at += Math.max(1, length / 4)) {
+          String where = what + " at row " + at + " of " + length + ", " + lanes + " lanes";
+          var batch = oneRow(length, at, end, start, endNull, startNull);
+          if (endNull || startNull) {
+            var statuses = VarkaKernelChecks.runEachBodyMixedStatus(where, emitted.className(),
+                emitted.bytes(), roots, 2, new int[0], new long[] {MICROS_PER_DAY}, batch);
+            assertEquals(List.of(expected, ifValid), statuses, where);
+          } else {
+            assertEquals(expected, VarkaKernelChecks.runAndCompareMixedStatus(where,
+                emitted.className(), emitted.bytes(), roots, 2, new int[0],
+                new long[] {MICROS_PER_DAY}, batch, true), where);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("date - date declines a day count past 106751991 in either direction and answers "
+      + "106751991, exactly")
+  void dateMinusDateMultiplyBoundary() {
+    expectStatus("106751991 days", MAX_DAYS, 0, false, false, 0);
+    expectStatus("-106751991 days", 0, MAX_DAYS, false, false, 0);
+    expectStatus("106751992 days", MAX_DAYS + 1, 0, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+    expectStatus("-106751992 days", 0, MAX_DAYS + 1, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+    // Both dates are int values, so an int day count past the guard is the same decline, and
+    // Integer.MIN_VALUE needs no absolute value to be caught.
+    expectStatus("Integer.MIN_VALUE days", Integer.MIN_VALUE, 0, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+    expectStatus("Integer.MAX_VALUE days", Integer.MAX_VALUE, 0, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+  }
+
+  @Test
+  @DisplayName("date - date declines a difference that overflows an int, which the widening "
+      + "computes exactly and the guard then refuses")
+  void dateMinusDateSubtractOverflow() {
+    expectStatus("MAX - MIN", Integer.MAX_VALUE, Integer.MIN_VALUE, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+    expectStatus("MIN - MAX", Integer.MIN_VALUE, Integer.MAX_VALUE, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+    expectStatus("MIN - 1", Integer.MIN_VALUE, 1, false, false,
+        VarkaFusedKernel.STATUS_VALUE_RANGE);
+  }
+
+  @Test
+  @DisplayName("date - date does not decline over a null beside a value at each edge")
+  void dateMinusDateNullBesideEdge() {
+    int declined = VarkaFusedKernel.STATUS_VALUE_RANGE;
+    // The null date's stored lane is poisoned by the harness; only its row is invalid.
+    expectStatus("null end, start MIN", 0, Integer.MIN_VALUE, true, false, 0);
+    expectStatus("end MAX, null start", Integer.MAX_VALUE, 0, false, true, 0);
+    expectStatus("null end, start at the boundary", 0, (int) MAX_DAYS, true, false, 0);
+    expectStatus("null end, start past it", 0, (int) MAX_DAYS + 1, true, false, 0);
+    expectStatus("both null, extremes", Integer.MAX_VALUE, Integer.MIN_VALUE, true, true, 0);
+    // The row beside the null is judged on its own: a valid overflow still declines.
+    expectStatus("valid overflow", Integer.MAX_VALUE, Integer.MIN_VALUE, false, false, declined);
+  }
+
+  @Test
+  @DisplayName("a multiply on the long lane emits and answers, wrapping, at both widths")
+  void longMultiply() {
+    check("l * lit", List.of(new IntArith(IntOp.MUL, Overflow.WRAP, L, LONG_LIT)), 2, new int[0],
+        new long[] {MICROS_PER_DAY}, VarkaEmitterMixedLaneSuite::value, false);
+    check("l * l", List.of(new IntArith(IntOp.MUL, Overflow.WRAP, L, L)), 2, new int[0],
+        new long[0], VarkaEmitterMixedLaneSuite::value, false);
   }
 
   /**

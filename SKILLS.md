@@ -120,6 +120,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Arrow promises no padding: an IPC read slices a buffer to its exact length](sql/varka/skills/testing-and-debugging.md#arrow-promises-no-padding-an-ipc-read-slices-a-buffer-to-its-exact-length)
 * [A checklist for the next node type or mode, from what three reviews found in this one](sql/varka/skills/testing-and-debugging.md#a-checklist-for-the-next-node-type-or-mode-from-what-three-reviews-found-in-this-one)
 * [Check that the place a prediction blames actually exists](sql/varka/skills/testing-and-debugging.md#check-that-the-place-a-prediction-blames-actually-exists)
+* [A new guarded coverage row touches four generated or listed files](sql/varka/skills/testing-and-debugging.md#a-new-guarded-coverage-row-touches-four-generated-or-listed-files)
 * [The coverage suite compiles the analyzed form; the end-to-end suites run the optimized one](sql/varka/skills/testing-and-debugging.md#the-coverage-suite-compiles-the-analyzed-form-the-end-to-end-suites-run-the-optimized-one)
 * [A fuzz campaign is sixteen JVMs, not one sbt, and it re-finds what is already on the books](sql/varka/skills/testing-and-debugging.md#a-fuzz-campaign-is-sixteen-jvms-not-one-sbt-and-it-re-finds-what-is-already-on-the-books)
 * [`VarkaIrFuzzSuite` caps each test at twenty minutes, so a big `-Dvarka.fuzz.iterations` makes every JVM report failure](sql/varka/skills/testing-and-debugging.md#varkairfuzzsuite-caps-each-test-at-twenty-minutes-so-a-big--dvarkafuzziterations-makes-every-jvm-report-failure)
