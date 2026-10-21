@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.DateTimeConstants.{NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
+import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
@@ -151,6 +151,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     s"unix_date(d) BETWEEN ${VarkaChrono.CONTRACT_MIN_DAYS} AND ${VarkaChrono.CONTRACT_MAX_DAYS}"
   /** The largest count of a unit inside the day: the time conversions' range guard. */
   private def dayOf(nanosPerUnit: Long): Long = (NANOS_PER_DAY - 1) / nanosPerUnit
+  /** The largest day count whose microseconds are a long: `date - date`'s range guard. */
+  private val maxDateDiffDays = Long.MaxValue / MICROS_PER_DAY
 
   private val families: Seq[Family] = Seq(
     Family("Day arithmetic", predicates = false, Seq(
@@ -162,6 +164,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "bound the cast itself throws in every mode, so the batch declines and the row engine "
         + "raises", domain = Some(s"i BETWEEN -$dayLimit AND $dayLimit")),
       Row("datediff(d2, d)"),
+      Row("d2 - d", "a day-time interval in microseconds, not datediff's day count; Spark raises " +
+        "where the count's product overflows a long, in every mode, so the batch declines and " +
+        "the row engine raises. The legacy CalendarInterval result is not fused",
+        domain = Some("CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN " +
+          s"-$maxDateDiffDays AND $maxDateDiffDays")),
       Row("unix_date(d)"),
       Row("date_from_unix_date(unix_date(d))"))),
 

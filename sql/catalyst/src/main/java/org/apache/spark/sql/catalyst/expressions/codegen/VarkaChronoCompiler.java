@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.NextDay;
 import org.apache.spark.sql.catalyst.expressions.Quarter;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
+import org.apache.spark.sql.catalyst.expressions.SubtractDates;
 import org.apache.spark.sql.catalyst.expressions.TruncDate;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.UnixDate;
@@ -66,11 +67,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.SubDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ThursdayOf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
+import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
 import org.apache.spark.sql.types.DataTypes;
@@ -138,6 +142,19 @@ final class VarkaChronoCompiler {
         var start = VarkaNodeCompiler.compileNode(n.startDate(), inputs, literals, sink);
         return start.isEmpty()
             ? start : Optional.of(new VarkaVectorIR.DateDiff(end.get(), start.get()));
+      };
+      // date - date is a day-time interval in microseconds, Spark's
+      // multiplyExact(subtractExact(end, start), MICROS_PER_DAY) with no ANSI switch. Both dates
+      // are widened first, so the day count is a long subtraction that cannot wrap; the only
+      // failure left is the multiply, and the guard on the count is that multiply's exact range, so
+      // inside it the wrapping multiply is exact. A batch with a count outside it is declined and
+      // the row engine raises Spark's own error on the row. The legacy CalendarInterval result is
+      // a different type, which no kernel carries.
+      case SubtractDates n when !n.legacyInterval() ->
+          () -> subtractDates(n, inputs, literals, sink);
+      case SubtractDates n -> () -> {
+        sink.note("legacy CalendarInterval subtraction", n);
+        return Optional.empty();
       };
       case DayOfWeek n ->
           () -> over(n.child(), VarkaVectorIR.DayOfWeek::new, inputs, literals, sink);
@@ -311,6 +328,34 @@ final class VarkaChronoCompiler {
     }
     Optional<VarkaVectorIR> count = compileMonths(months, inputs, literals, sink);
     return count.map(v -> new VarkaVectorIR.AddMonths(node.get(), v));
+  }
+
+  /**
+   * {@code end - start} over dates as microseconds: {@code (end - start) * MICROS_PER_DAY} on the
+   * long lane. The two dates are widened before they are subtracted, so the difference, which can
+   * need 33 bits, is exact; it is then guarded to {@code [-MAX_DAYS, MAX_DAYS]}, where {@code
+   * MAX_DAYS = Long.MAX_VALUE / MICROS_PER_DAY} is the largest count whose product is a long, and
+   * {@code Math.abs} is not used because the guard's two bounds are the edges themselves.
+   */
+  private static Optional<VarkaVectorIR> subtractDates(
+      SubtractDates n,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    var end = VarkaNodeCompiler.compileNode(n.left(), inputs, literals, sink);
+    if (end.isEmpty()) {
+      return end;
+    }
+    var start = VarkaNodeCompiler.compileNode(n.right(), inputs, literals, sink);
+    if (start.isEmpty()) {
+      return start;
+    }
+    var days = new VarkaVectorIR.IntArith(IntOp.SUB, Overflow.WRAP,
+        new VarkaVectorIR.WidenLane(end.get()), new VarkaVectorIR.WidenLane(start.get()));
+    long maxDays = Long.MAX_VALUE / DateTimeConstants.MICROS_PER_DAY;
+    var guarded = new VarkaVectorIR.GuardedRange(days, -maxDays, maxDays);
+    return Optional.of(new VarkaVectorIR.IntArith(IntOp.MUL, Overflow.WRAP, guarded,
+        sink.longSlot(DateTimeConstants.MICROS_PER_DAY)));
   }
 
   private static Optional<VarkaVectorIR> dateAdd(
