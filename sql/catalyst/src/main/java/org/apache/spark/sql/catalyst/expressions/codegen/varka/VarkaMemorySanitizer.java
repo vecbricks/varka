@@ -36,9 +36,12 @@ import org.apache.arrow.memory.ArrowBuf;
  * VarkaMemoryViolation} that names the nearest.
  *
  * <p>Off, which is the default and the only mode of a benchmark, every method returns at once on
- * a {@code static final} and the JIT removes it. A thread with no window, the warm-up's thread and
- * a unit test that calls a kernel directly, is not checked. A window is per thread and per batch,
- * so a buffer's address reused by a later batch cannot hide a stale one.
+ * a {@code static final} and the JIT removes it. A thread with no window, such as a unit test that
+ * calls a kernel directly, is not checked. The kernel warm-up runs in a window of its own over the
+ * memory it allocated: a warm-up whose thread had none would hand C2 a profile of {@link #check}
+ * in which the window is always null, and the warmed code would deoptimize at the first batch
+ * served in a window. A window is per thread and per batch, so a buffer's address reused by a
+ * later batch cannot hide a stale one.
  *
  * <p>{@code -Dvarka.sanitizeMemory.origins=true} also records where each buffer was registered, at
  * the cost of a stack trace each, and attaches it to a violation.

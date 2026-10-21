@@ -1,0 +1,51 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+name: 'Report a failed scheduled run'
+description: >-
+  Open an issue for a scheduled workflow run that has a failed job, or comment on the
+  workflow's open issue if it has one (dev/varka_scheduled_failure.py holds the rule).
+  Run it as the last job of a scheduled workflow, after a checkout that includes dev/,
+  with GH_TOKEN set to the job's token; the job needs the issues: write and actions: read
+  permissions. It closes nothing.
+runs:
+  using: composite
+  steps:
+    - name: List the run's jobs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        # One JSON object per job, every page; the weekly matrix has well over 100 jobs.
+        gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+          --jq '.jobs[] | {name, conclusion, html_url}' > "${RUNNER_TEMP}/run-jobs.ndjson"
+    - name: Open or update the issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        WORKFLOW: ${{ github.workflow }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        SHA: ${{ github.sha }}
+      run: |
+        python3 dev/varka_scheduled_failure.py --apply --repo "$REPO" \
+          --workflow "$WORKFLOW" --run-url "$RUN_URL" --sha "$SHA" \
+          --date "$(date -u +%F)" --jobs-file "${RUNNER_TEMP}/run-jobs.ndjson"

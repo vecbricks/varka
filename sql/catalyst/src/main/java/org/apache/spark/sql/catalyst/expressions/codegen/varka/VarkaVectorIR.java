@@ -399,7 +399,8 @@ public sealed interface VarkaVectorIR
    * {@code TIME} extracts build it only over values they have proven to fit - a field of a time is
    * at most 86399 - and the ANSI cast, which must raise where the value does not fit, builds it
    * over a {@link GuardedRange} of the int range, which declines the batch so that the row engine
-   * raises Spark's own error on the row.
+   * raises Spark's own error on the row. So does {@code bit_count} of a {@code BIGINT}, over a
+   * {@link BitCount}, which is at most 64.
    *
    * <p>The child must be on the long lane: a narrowing of an int lane is the identity and would
    * only hide a missing widening somewhere below it.
@@ -717,7 +718,7 @@ public sealed interface VarkaVectorIR
    * {@code ShiftRight} and {@code ShiftRightUnsigned} with {@code right} the shift count. Both
    * operands are on the node's lane, which the constructor requires to agree: a {@code BIGINT}
    * shifted by an {@code INT} literal carries the count as a long literal, and one shifted by an
-   * {@code INT} column is a width conversion, which this node does not do.
+   * {@code INT} column or expression carries it under a {@link WidenLane}.
    *
    * <p>The shifts mask their count as Java does, to its low five bits at the int lane and six at
    * the long lane, because the Vector API's {@code LSHL}, {@code ASHR} and {@code LSHR} are
@@ -740,7 +741,7 @@ public sealed interface VarkaVectorIR
    * every integral type. At the long lane that is the popcount itself. At the int lane the 32
    * high bits the widening adds are all ones exactly when the value is negative, so the count is
    * {@code bitCount(x) + ((x >> 31) & 32)}. The result is at most 64 on both lanes, so a long-lane
-   * count can be delivered as an int column by a {@link NarrowLane} root.
+   * count is delivered as an int by a {@link NarrowLane} over it, at a root or under another node.
    */
   record BitCount(VarkaVectorIR child) implements VarkaVectorIR {}
 

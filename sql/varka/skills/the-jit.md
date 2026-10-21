@@ -1177,6 +1177,17 @@ warms as when it is measured. A warm-up and its measured calls both run in the s
 (`VarkaCompiledCheck`'s `Args.call`), or both outside it. A trap's `at=` naming a test helper,
 with a `speculate_*` reason, points here before it points at the kernel.
 
+The engine's own warm-up, `VarkaKernelWarmup`, had the same fault and `m8/VARKA-401.md` proved it
+with the JIT: in a sanitized JVM, a kernel warmed to `COMPILED` and then called 200 times in a
+window lost ten level-4 compiles to `make_not_entrant` at `VarkaMemorySanitizer.check` bci 12, the
+`ifnull`; with the warm-up's calls in a window the count is zero. `-Xlog:deoptimization=debug`
+prints those traps one per line with the method, the bci and the reason, which it names
+`null_assert_or_unreached0` for this site, so grep it for the instrumented method rather than for
+the `speculate_null_assert` spelling the tier witness's reader uses. The warm-up opens one window
+for its whole run and registers its arena's segments; with the sanitizer off that is two returns
+on a `static final`. `VarkaSanitizedWarmupSuite` holds it, in a JVM of its own with the sanitizer
+forced on, so it does not depend on how the gate runs the suites.
+
 ## A warmed kernel measured through another entry can run code the verdict never read
 
 Found by `VarkaKernelWarmupSuite` failing on runners and read in `m8/VARKA-398.md`: a warm-up

@@ -641,7 +641,29 @@
     "operands" : [ "ShiftLeft:bigint", "ShiftLeft:int" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
-    "note" : "a literal count only: a bigint shifted by an int column is not fused yet"
+    "note" : ""
+  }, {
+    "sql" : "shiftleft(l, i)",
+    "executable" : "shiftleft(l, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "ShiftLeft" ],
+    "casts" : [ ],
+    "operands" : [ "ShiftLeft:bigint", "ShiftLeft:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a column count is widened to the long lane and masked to its low six bits as Java's `<<` does, so a count of 64 or -1 is as in the row engine"
+  }, {
+    "sql" : "shiftright(l, i ^ 5)",
+    "executable" : "shiftright(l, i ^ 5)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseXor", "ShiftRight" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseXor:int", "ShiftRight:bigint", "ShiftRight:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the count may be any int expression"
   }, {
     "sql" : "l >> 40",
     "executable" : "l >> 40",
@@ -674,7 +696,18 @@
     "operands" : [ "BitwiseCount:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
-    "note" : "as an output only: a count computed in the long lane and stored as an int, so `bit_count(l) + 1` declines"
+    "note" : "a count computed in the long lane and narrowed to the int Spark types it as"
+  }, {
+    "sql" : "bit_count(l) + 1",
+    "executable" : "bit_count(l) + 1",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "Add", "BitwiseCount" ],
+    "casts" : [ ],
+    "operands" : [ "Add:int", "BitwiseCount:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64"
   }, {
     "sql" : "bitmap_bucket_number(l)",
     "executable" : "bitmap_bucket_number(l)",

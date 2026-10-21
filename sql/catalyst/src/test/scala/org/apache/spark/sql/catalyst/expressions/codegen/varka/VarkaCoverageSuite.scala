@@ -254,11 +254,16 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("l | 5000000000"),
       Row("l ^ l2"),
       Row("~l"),
-      Row("l << 3", "a literal count only: a bigint shifted by an int column is not fused yet"),
+      Row("l << 3"),
+      Row("shiftleft(l, i)", "a column count is widened to the long lane and masked to its low "
+        + "six bits as Java's `<<` does, so a count of 64 or -1 is as in the row engine"),
+      Row("shiftright(l, i ^ 5)", "the count may be any int expression"),
       Row("l >> 40"),
       Row("shiftrightunsigned(l, 63)"),
-      Row("bit_count(l)", "as an output only: a count computed in the long lane and stored as an "
-        + "int, so `bit_count(l) + 1` declines"),
+      Row("bit_count(l)", "a count computed in the long lane and narrowed to the int Spark "
+        + "types it as"),
+      Row("bit_count(l) + 1", "the narrowed count feeding int arithmetic; the sum cannot "
+        + "overflow, the count being at most 64"),
       Row("bitmap_bucket_number(l)"),
       Row("bitmap_bit_position(l)"))),
 

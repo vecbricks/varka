@@ -2798,16 +2798,27 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(longs.lane === LaneType.LONG)
   }
 
-  test("a bigint shifted by an int column declines as the second part of the row") {
-    import org.apache.spark.sql.catalyst.expressions.ShiftLeft
-    val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(ShiftLeft(l, i)), out(Greatest(Seq(l, l2)))), withLong).get
-    val reason = partial.declines.asScala(0).reason
-    assert(reason.contains("VARKA-335"), reason)
-    assert(reason.contains("not a literal"), reason)
+  test("a bigint shifted by an int column or expression carries the count under a widening") {
+    import org.apache.spark.sql.catalyst.expressions.{ShiftLeft, ShiftRight,
+      ShiftRightUnsigned}
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{BitOp,
+      BitOpKind, WidenLane}
+    val result = VarkaExpressionCompiler.compile(Seq(
+      out(ShiftLeft(l, i)), out(ShiftRight(l, Add(i, Literal(1)))),
+      out(ShiftRightUnsigned(l, i))), withLong).get
+    val count = new WidenLane(new ColumnRef(1))
+    // Inputs take ordinals in order of first use: the bigint column, then the int column.
+    // The sum under the widening is a checked add over an unbounded column, as anywhere.
+    assert(result.outputs.asScala.toSeq === Seq(
+      new BitOp(BitOpKind.SHL, longCol, count),
+      new BitOp(BitOpKind.SHR, longCol, new WidenLane(
+        new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(1), new LiteralSlot(0)))),
+      new BitOp(BitOpKind.USHR, longCol, count)))
+    assert(result.outputTypes.asScala.toSeq === Seq.fill(3)(LongType))
+    assert(result.lane === LaneType.LONG)
   }
 
-  test("bit_count compiles to a popcount: over an int anywhere, over a bigint as an output") {
+  test("bit_count compiles to a popcount: over an int, and over a bigint narrowed anywhere") {
     import org.apache.spark.sql.catalyst.expressions.BitwiseCount
     import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount
     val int = VarkaExpressionCompiler.compile(
@@ -2818,11 +2829,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val long = VarkaExpressionCompiler.compile(Seq(out(BitwiseCount(l))), withLong).get
     assert(long.outputs.asScala.toSeq === Seq(new NarrowLane(new BitCount(longCol))))
     assert(long.outputTypes.asScala.toSeq === Seq(IntegerType))
-    val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(Add(BitwiseCount(l), Literal(1))), out(Greatest(Seq(l, l2)))), withLong).get
-    val reason = partial.declines.asScala(0).reason
-    assert(reason.startsWith("bit_count of a bigint"), reason)
-    assert(reason.contains("second part"), reason)
+    // Under another node the narrowing is a node of the tree, and the sum over it needs no check
+    // either: the range of a narrowed popcount is the popcount's.
+    val under = VarkaExpressionCompiler.compile(
+      Seq(out(Add(BitwiseCount(l), Literal(1)))), withLong).get
+    assert(under.outputs.asScala.toSeq === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
+      new NarrowLane(new BitCount(longCol)), new LiteralSlot(0))))
+    assert(under.outputTypes.asScala.toSeq === Seq(IntegerType))
     // A narrow operand waits for its lane.
     assert(!fuses(BitwiseCount(sh)))
     assert(!fuses(BitwiseCount(by)))

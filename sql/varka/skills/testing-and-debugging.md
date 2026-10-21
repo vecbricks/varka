@@ -1334,6 +1334,17 @@ signs each passed a check that compared Spark with itself:
 entry, no row `FilterExec` in the plan. And `EXPLAIN`'s first line above the Varka node says at a
 glance whether Spark kept part of the query.
 
+A shape that starts to fuse is a test change in three places, found in this order by running the
+suites. *Added on 20 October 2026 from VARKA-335b.* The coverage table regenerates, but the
+differential suite's `ansiDeclined` map does not: an entry for a position that a kernel now serves
+fails as "remove the stale entry" (`bit_count(l)` had one for every tree position), and a row
+whose int result cannot be a bare COALESCE value needs the `intValued` list, which is how a new
+int-valued row gets its `CoalesceTail` entry. The domain check is the third: `shiftright(l, i + 1)`
+as a row failed it with "carries INT_OVERFLOW and names no domain" because the checked add under
+the widening kept its test; a row about the shift should use an expression that cannot overflow
+(`i ^ 5`) and leave the add's own guard to the add's rows. Run `VarkaCoverageDifferentialSuite`
+with `-z "<expression>"` for the new rows before the whole suite: it is four minutes.
+
 ## A sql/core suite that collects dates makes its session active first
 
 *Added on 16 October 2026 from VARKA-244 (`m7/VARKA-244.md` 9).* A DataFrame chooses its row

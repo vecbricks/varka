@@ -121,6 +121,80 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  test("a bigint shifted by an int column, and bit_count of a bigint under another node, " +
+      "compute Spark's formula in a kernel of both lanes, at both widths") {
+    // Spark's ShiftLeft, ShiftRight and ShiftRightUnsigned are Java's `long << int`, `>>` and
+    // `>>>`, which read the low six bits of the int count; BitwiseCount is Long.bitCount.
+    val count = new WidenLane(c1)
+    val roots: Seq[VarkaVectorIR] = Seq(
+      new BitOp(BitOpKind.SHL, lc0, count), new BitOp(BitOpKind.SHR, lc0, count),
+      new BitOp(BitOpKind.USHR, lc0, count),
+      // The count is itself a narrowed popcount of the value: both conversions in one kernel.
+      new BitOp(BitOpKind.SHL, lc0, new WidenLane(new NarrowLane(new BitCount(lc0)))),
+      // A long-lane value computed from an int-lane one that came from the long lane.
+      new BitOp(BitOpKind.XOR, lc0, new WidenLane(
+        new BitOp(BitOpKind.AND, new NarrowLane(new BitCount(lc0)), c1))),
+      new NarrowLane(new BitCount(lc0)))
+    val longRoots = 5
+    val intCounts = Array(-1, 0, 1, 31, 32, 33, 63, 64, 65, 127, 128, Int.MinValue,
+      Int.MaxValue)
+    val edges = Array(0L, 1L, -1L, Long.MaxValue, Long.MinValue, 1L << 32, -(1L << 32) - 1,
+      0x5555555555555555L, 0xAAAAAAAAAAAAAAAAL, Long.MinValue + 1)
+    def value(i: Int): Long = edges(i % edges.length) + (i / edges.length)
+    // Every value meets every count over the batch: the value cycles faster than the count.
+    def intCount(i: Int): Int = intCounts((i / edges.length) % intCounts.length)
+    val expected: Seq[(Long, Int) => Long] = Seq(
+      (v, c) => v << c, (v, c) => v >> c, (v, c) => v >>> c,
+      (v, _) => v << java.lang.Long.bitCount(v),
+      (v, c) => v ^ (java.lang.Long.bitCount(v) & c).toLong,
+      (v, _) => java.lang.Long.bitCount(v).toLong)
+    for (lanes <- Seq(2, 8)) {
+      val (kernel, loader) = load(emitMulti(roots, 2, 0,
+        VarkaMatrix.base.withLanesOverride(lanes)))
+      try {
+        val length = edges.length * intCounts.length * 2 + 3
+        for ((leftName, leftNull) <- nullPatterns; (rightName, rightNull) <- nullPatterns) {
+          val arena = Arena.ofConfined()
+          try {
+            val longIn = makeLongInput(arena, length, leftNull, value)
+            val intIn = makeInputData(arena, length, rightNull, intCount)
+            val longOuts = (0 until longRoots).map(_ => makeLongOutput(arena, length))
+            val intOut = makeOutput(arena, length)
+            val outs = longOuts.map(o => (o._1, o._2)) :+ intOut
+            val status = kernel.run(
+              Array(longIn.data.address(), intIn.data.address()),
+              Array(longIn.validityAddress(length), intIn.validityAddress(length)),
+              Array(longIn.nullCount, intIn.nullCount),
+              outs.map(_._1.address()).toArray, outs.map(_._2.address()).toArray,
+              Array.empty[Int], Array.empty[Long], length)
+            val where = s"lanes=$lanes left=$leftName right=$rightName"
+            assert(status === 0, s"$where: status $status")
+            for (i <- 0 until length; (want, o) <- expected.zipWithIndex) {
+              // Roots 3 and 5 read the long column alone; the others read the int column too.
+              val validWanted = !leftNull(i) && (o == 3 || o == 5 || !rightNull(i))
+              val bit = (outs(o)._2.get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0
+              assert(bit === validWanted, s"$where root $o row $i: validity")
+              if (validWanted) {
+                val w = want(value(i), intCount(i))
+                if (o < longRoots) {
+                  assert(outs(o)._1.get(ValueLayout.JAVA_LONG, i * 8L) === w,
+                    s"$where root $o row $i: v=${value(i)} c=${intCount(i)}")
+                } else {
+                  assert(outs(o)._1.get(ValueLayout.JAVA_INT, i * 4L) === w.toInt,
+                    s"$where root $o row $i: v=${value(i)}")
+                }
+              }
+            }
+          } finally {
+            arena.close()
+          }
+        }
+      } finally {
+        loader.release()
+      }
+    }
+  }
+
   /**
    * The bitmap functions as `VarkaNodeCompiler.bitmap` builds them, with its literal table: 0, 1,
    * then the mask or the shift.
