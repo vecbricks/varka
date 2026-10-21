@@ -305,3 +305,30 @@ the same first and last allocation bytes, so the replay is deterministic here)
   (37 deoptimisations, 35 compiles; 35.9 s to 65.6 s, the second window). Every other
   loopMasked0 class had 6 or fewer. All traps: reason profile_predicate, action maybe_recompile,
   C2 (level 4), at bytecode 566 (and 241 twice) of the first class and bytecode 517 of the second.
+
+Class dump and profiled-predicate flag (VARKA-383.md 9.3), 21 October 2026, master 54ea14c3709
+Machine: AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1, power profile performance before and after,
+  1-minute load 0.13 (15:02) and 0.24 (15:05) at the starts, 0.54 at the end, no java process before or
+  after, sanitizer off, taskset cores 12 to 14. The build is the main checkout's compiled catalyst
+  classes of the same commit (classpath file copied with the path prefix replaced).
+Dump agent: a 20-line -javaagent (ClassFileTransformer writing VarkaFusedProjection_w* classes).
+Baseline (agent only, 91 s):
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 20 --forks 1 --seed 20260903 \
+    --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30 --jvm -javaagent:<agent>=<dir>
+  draw 15 RELEASED 30022 ms first=1064224 last=1062784 tiers=loopMasked0:L4
+  draw 19 RELEASED 30018 ms first=341824 last=193104 tiers=loopDense0:L4,loopMasked0:L4
+  long 4-15: 1 / 6 released; long 16-63: 1 / 2; the kernel under test fast 1.1 ns a row.
+  javap -c -p of w0802ae9d91dcf79d loopMasked0: 566: goto 241 (backedge; head 241 iload 39,
+  243 iload 38, 245 if_icmpge 569; bound = SPECIES_512.loopBound(n), step = length());
+  w9b2f7a8bfaaa4059 loopMasked0: 517: goto 220 (head 224 if_icmpge 520).
+  9.2's log: <uncommon_trap reason='profile_predicate' action='maybe_recompile' compile_id='5479'
+  level='4'> <jvms bci='566' method='...w0802ae9d91dcf79d loopMasked0 ...'>, 56 task_queued compiles.
+With the flag (30 s):
+  ... same command plus --jvm -XX:+UnlockDiagnosticVMOptions --jvm -XX:-UseProfiledLoopPredicate \
+    --jvm -XX:+LogCompilation --jvm -XX:LogFile=<log> --jvm -javaagent:<agent>=<dir>
+  draw 15 COMPILED 113 ms first=1064064 last=1760; draw 19 COMPILED 96 ms first=341824 last=640
+  long 4-15: 0 / 6 released; long 16-63: 0 / 2; 0 wrong answers in 21 kernels; kernel under test
+  fast 1.1 ns a row, loopDense0..1 and loopMasked0..1 all L4.
+  log: 0 profile_predicate records, 240 runtime deoptimisations (unstable_if 87, class_check 71,
+  bimorphic_or_optimized_type_check 28, array_check 27), 7497 nmethod compiles
+  (9.2's default run: 398, 167 profile_predicate, 8161).

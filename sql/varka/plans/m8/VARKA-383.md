@@ -699,3 +699,61 @@ avoided at the source (a loop shape, or `-XX:-UseProfiledLoopPredicate` as 257's
 the prewarm; and whether `-XX:-UseProfiledLoopPredicate` clears the long lane (the launcher takes it
 as `--jvm`, 25 minutes at one width). R1 and R2 on runners remain gated on the owner's go-ahead; the
 256-bit R3 was not run (the 512-bit result is not in the in-between zone). The row is not Done.
+
+### 9.3 Outcome of the class dump and the predicate flag (21 October 2026)
+
+Two questions left by 9.2, answered on the idle laptop on master `54ea14c3709` with one 512-bit fork
+each (about 90 s and 30 s; 1-minute load 0.13 and 0.24 at the starts, `performance` power profile at
+both ends, no other JVM before or after, sanitizer off), the same replay as 9.2: `--after 20 --forks 1
+--seed 20260903 --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30`. The build
+was the main checkout's compiled catalyst classes of the same commit, used through a copied
+classpath (no rebuild in this worktree).
+
+**What sits at the bytecode.** The harness has no class dump, so a 20-line `-javaagent` (a
+`ClassFileTransformer` that writes every `VarkaFusedProjection_w*` class it sees) dumped the classes
+of the replay, and `javap -c -p` read them. The trap's `<jvms bci='566'>` in 9.2's log, for the
+`loopMasked0` of `VarkaFusedProjection_w0802ae9d91dcf79d` (draw 15), is this instruction:
+
+```
+ 559: iload  39            // i
+ 561: iload  37            // step = SPECIES_512.length()
+ 563: iadd
+ 564: istore 39
+ 566: goto   241           // back to the loop head
+ 241: iload 39 ; 243: iload 38 ; 245: if_icmpge 569   // i < bound, bound = species.loopBound(n)
+```
+
+It is the backedge of the emitted main vector loop, `for (i = 0; i < species.loopBound(n); i +=
+species.length())`, whose body is the per-iteration `fromMemorySegment`, `lanewise`, `compare`,
+`intoMemorySegment` and the validity-bit merge. The second class, `w9b2f7a8bfaaa4059` (draw 19), has the
+same shape: bytecode 517 is `goto 220`, its main loop's backedge, with `if_icmpge 520` at the head. So
+both outliers are the one loop construct every emitted `loopMasked0` has; what differs between the
+released draws and the other 150 loops is not the construct but the profile C2 saw when it
+predicated that loop.
+
+**The flag.** With `-XX:+UnlockDiagnosticVMOptions -XX:-UseProfiledLoopPredicate` (the flag exists
+in this JDK; `UseLoopPredicate` stays on) the same replay released 0 of 6 long draws at 4 to 15 and
+0 of 2 at 16 to 63 (the baseline replay with the agent released 1 and 1: draws 15 and 19, 30 s each,
+first/last allocation bytes 1064224/1062784 and 341824/193104). Draws 15 and 19 read COMPILED after
+113 ms and 96 ms with last allocation 1760 and 640 bytes a call, and the log shows 0
+`profile_predicate` records (167 in 9.2's default run), all four loop methods of the kernel under test at
+tier 4, 0 wrong answers in 21 kernels, kernel under test fast at 1.1 ns a row. The run was 30 s
+against 91 s for the baseline, the two release windows gone. Raw lines are in the results file.
+
+**What it answers and what it does not.** Profile-based loop predication is the cause of the
+release of these two draws at this width: turning it off removes both; the census
+shows 240 runtime deoptimisations in all (398 in 9.2's default run), none of reason
+`profile_predicate`. One fork of eight long kernels is a replay of a known case, not a rate: whether
+the flag takes the 144-draw long lane under 3, and what it costs the other kernels' steady-state
+speed (item 61 of 257 measured a cost), are not read. A product cannot depend on a diagnostic flag
+being set by the user, so the flag is a diagnosis, not the fix.
+
+**What the row asks next.** (1) The 144-draw reading at 512 bits with the flag (the launcher's
+`--jvm`, 25 minutes), with the pairs' speed cost read beside it; (2) a source-level shape that
+keeps C2 from predicating this loop on a profile, found by comparing the profile of the
+released draws' loops with the clean draws' (the trap count at one bytecode says the profile changes
+after each recompile: its `count` field climbs 1, 2, ... 7 across the cycle, so each recompile is
+predicated on a profile the next iterations violate); the candidates are a loop shape whose
+bound is not read again (a counted `for` over a constant lane count) or a `loopBound` taken once into a
+final. Arm A (conversions `L2D`, `D2L`) stays unbuilt. R1 and R2 on runners remain gated on the
+owner's go-ahead. The row is not Done.
