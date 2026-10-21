@@ -173,8 +173,9 @@ class VarkaEmitterDivisionSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     val div = bytes(VarkaEmitOptions.Division.DOUBLE_DIV)
     assert(doubleDivisions(div) === 3)
     // Each division loses its magic multiply and shift and gains one `or` (-1 each), and each of
-    // the three carries the exact quotient makes dead goes away (-3 each).
-    assert(opsOn(div, "IntVector") === 34 - 3 * 1 - 3 * 3)
+    // the three carries the exact quotient makes dead goes away (-3 each), and so does the
+    // Julian century's remainder, a multiply and a subtract only its carry read (-2).
+    assert(opsOn(div, "IntVector") === 34 - 3 * 1 - 3 * 3 - 2)
   }
 
   test("the era step's /146097 falls back to the magic form under the reciprocal, and the " +

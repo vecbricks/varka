@@ -94,15 +94,13 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     // may change out from under it: without sharing, or with a group budget past the shape's
     // size or no method byte budget, no group splits off to load a prefix; with the month step
     // kept (elideChronoMonth off) every fragment computes a month by the option's design, which
-    // the census counts as unread; and the double-precision dividers emit vector ops the census
-    // finds unread, which is not yet explained (VARKA-412), so this case checks neither.
+    // the census counts as unread, so this case does not check that option.
     val defaults = VarkaEmitOptions.DEFAULTS
     val options = elided.withPredictGrouping(false)
       .withShareChronoPrefix(defaults.shareChronoPrefix())
       .withGroupBudget(defaults.groupBudget())
       .withMethodByteBudget(defaults.methodByteBudget())
       .withElideChronoMonth(defaults.elideChronoMonth())
-      .withDivision(defaults.division())
     val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 3, 0, null, null, options)
     // The case needs a prefix materialized across groups, which a grouping change could remove.
     // Reading that needs the class loaded, which only a JVM whose established species is the
@@ -124,6 +122,22 @@ class VarkaUnreadLocalsSuite extends VarkaEmitterTestBase {
     }
     val unread = VarkaUnreadLocalsTrim.census(bytes).asScala
     assert(unread.isEmpty, unread.mkString("; "))
+  }
+
+  test("no divider stores the century's remainder for a carry it does not emit") {
+    // The double dividers' quotients are exact, so the round-down carry is not emitted and the
+    // remainder only the carry reads must not be computed either (VARKA-412). The shape reaches
+    // both sites: the prefix's Julian map and the recomposition of the shifted date.
+    val c = (k: Int) => new ColumnRef(k)
+    val roots = Seq[VarkaVectorIR](new AddMonths(c(0), c(1)))
+    for (division <- VarkaEmitOptions.Division.values()) {
+      val options = elided.withDivision(division)
+      val bytes = VarkaLoopEmitter.emit(
+        "org.apache.spark.sql.varka.execution.VarkaUnreadLocals", roots.asJava, 2, 0, null, null,
+        options)
+      val unread = VarkaUnreadLocalsTrim.census(bytes).asScala
+      assert(unread.isEmpty, s"$division: " + unread.mkString("; "))
+    }
   }
 
   test("every shared slot of every loop and epilogue method in the cost corpus is read") {

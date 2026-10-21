@@ -751,13 +751,14 @@ final class VarkaChronoLowering {
     cb.aload(rem);
     emitDivide(cb, divider, ChronoDivide.JULIAN_CENTURY);
     cb.astore(century);
-    cb.aload(rem);
-    cb.aload(century);
-    cb.loadConstant(VarkaChrono.ERA_DAYS);
-    cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
-    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-    cb.astore(scratch);
+    // Only the carry reads the remainder, so an exact (double) quotient leaves it out.
     if (divider.carries(ChronoDivide.JULIAN_CENTURY)) {
+      cb.aload(rem);
+      cb.aload(century);
+      cb.loadConstant(VarkaChrono.ERA_DAYS);
+      cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
+      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+      cb.astore(scratch);
       emitCarry(cb, century, scratch, VarkaChrono.ERA_DAYS, mask);
     }
     // jul = quad + 4 * century: the Julian map itself.
@@ -1105,13 +1106,15 @@ final class VarkaChronoLowering {
     cb.aload(yoe);
     emitDivide(cb, divider, ChronoDivide.YEAR_OF_ERA_100);
     cb.astore(century);
-    cb.aload(yoe);
-    cb.aload(century);
-    cb.loadConstant(100);
-    cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
-    cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
-    cb.astore(centuryRem);
+    // Nothing below reads the century's remainder but its own carry, so a divider whose
+    // quotient is exact (the double forms) leaves it out rather than store a dead value.
     if (divider.carries(ChronoDivide.YEAR_OF_ERA_100)) {
+      cb.aload(yoe);
+      cb.aload(century);
+      cb.loadConstant(100);
+      cb.invokevirtual(INT_VECTOR, "mul", LANEWISE_VI);
+      cb.invokevirtual(INT_VECTOR, "sub", LANEWISE_VV);
+      cb.astore(centuryRem);
       emitCarry(cb, century, centuryRem, 100, carryMask);
     }
 
