@@ -250,3 +250,58 @@ width 64 fork 5 position 52 long last=457568   loopDense0:L4,loopMasked0:L4
 width 64 fork 5 position 55 int  last=369856   loopDense0:L4,loopDense1:L4,loopMasked0:none,loopMasked1:L4
 width 64 fork 5 position 57 int  last=45456    loopDense0:L4,loopMasked0:none
 width 64 fork 5 position 62 long last=266880   loopDense0:L4,loopMasked0:L4
+
+R3 (21 October 2026, 10:08 CEST): the same 144 long draws at 512 bits with the raised trap limits
+
+Question (VARKA-383.md 3.1 table R3, 3.2): do the raised limits take the long lane's releases past
+position 15 to under 3 of 144? Registered reading: under 3 means 9.6's trap sums are the mechanism
+and the prewarm's coverage is the fix (3.3 A); otherwise it is another route and wave 2's
+classification comes before any build. Nothing else changed from the first reading's 512-bit arm.
+
+Machine record
+  commit        4d8f4635d3f (branch varka-383-read; code is master 70dab76c410), working tree clean
+  before run    09:45:28 CEST: load average 0.21 0.26 0.42; powerprofilesctl get: performance;
+                pgrep -x java: none; sanitizer OFF (no -Dvarka.sanitizeMemory in
+                target/varka-matrix/jvm.opts or the launcher's arguments)
+  after run     10:08:33 CEST: load average 0.25 0.34 0.43; powerprofilesctl get: performance;
+                pgrep -x java: none
+  during run    both shared heavy slots held by this command (23 minutes, 09:45 to 10:08)
+  forks         6 forks, 0 wrong answers in 390 kernels compared, 1 draw skipped, kernel under
+                test fast in 6 of 6 (1.1 to 1.8 ns a row)
+
+Command (the build of the first reading was reused; one measured run under both slots)
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 64 --forks 6 \
+    --widths 64 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30 \
+    --jvm -XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000 \
+    --out target/varka-kernel-history/383-R3-on
+  The flags are the ones VARKA-383.md 3.1 (R3 row and its dispatch command) and 9.1 name. The
+  forks are the first reading's: seed 20260903 + fork, 2 JVMs of cores 12 to 17, deadline 30 s.
+  The draws are the same: all 47 long draws the first reading released at 512 bits (42 past
+  position 15, 5 before) released again here, plus 6 more (53 long releases in all).
+
+Releases of the history's kernels at the 30 s deadline, prewarm on, raised limits, 512 bits
+(released / warmed; "C2" = every loop method had C2 code in use when released)
+
+                    position 0    1 to 3        4 to 15        16 to 63
+  long  R3          - (int only)  1 / 12        7 / 36 (7 C2)  45 / 144 (45 C2)
+  long  first       - (int only)  0 / 12        5 / 36 (5 C2)  42 / 144 (41 C2)
+  int   R3          0 / 6         0 / 6         0 / 36         14 / 144 (4 C2)
+  int   first       0 / 6         0 / 6         0 / 36         17 / 144 (11 C2)
+
+Verdict by the registered reading: 45 of 144 is not under 3 (the first reading's 42): the raised
+limits do not clear the long lane, so 9.6's trap sums are not the mechanism of this release.
+
+Wave 2 classification (one released draw replayed; fork 0, draws 15 and 19 released again with
+the same first and last allocation bytes, so the replay is deterministic here)
+  flock heavy.lock flock heavy2.lock dev/varka_kernel_history.sh --after 20 --forks 1 \
+    --seed 20260903 --widths 64 --prewarm on --jvms 1 --cpus 3 --cpu-base 12 --deadline 30 \
+    --jvm -XX:+UnlockDiagnosticVMOptions --jvm -XX:+LogCompilation --jvm -XX:LogFile=<log>
+  and the same with the two raised limits added. Log read with dev/varka_trap_census.py.
+  default limits:  398 runtime deoptimisations, 167 profile_predicate; 8161 compiles
+  raised limits:   403 runtime deoptimisations, 180 profile_predicate; 7752 compiles
+  The two outlier classes are identical in both runs: VarkaFusedProjection_w0802ae9d91dcf79d
+  loopMasked0 (59 profile_predicate deoptimisations, 56 compiles; traps from stamp 5.3 s to
+  34.7 s, i.e. the first release window) and VarkaFusedProjection_w9b2f7a8bfaaa4059 loopMasked0
+  (37 deoptimisations, 35 compiles; 35.9 s to 65.6 s, the second window). Every other
+  loopMasked0 class had 6 or fewer. All traps: reason profile_predicate, action maybe_recompile,
+  C2 (level 4), at bytecode 566 (and 241 twice) of the first class and bytecode 517 of the second.

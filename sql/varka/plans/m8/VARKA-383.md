@@ -647,3 +647,55 @@ replay can run on the laptop (R3 about half an hour at one width, `--widths 32` 
 needs before any runner hour is spent; that is proposed here, not done. Arm A (the conversions
 `L2D`, `D2L` and the operator-keyed test) stays unbuilt until R3 says the mechanism. Step 1 (the
 CI count of the end-to-end suite) is untouched by this reading. The row is not Done.
+
+### 9.2 Outcome of R3 on the laptop (21 October 2026)
+
+R3 of 3.1, at one width: the first reading's 512-bit long-lane arm with the two raised limits and
+nothing else changed, on master `70dab76c410` (branch commit `4d8f4635d3f`), the idle laptop (1-minute
+load 0.21 at the start and 0.25 at the end, no other JVM at either end, power profile `performance`
+before and after, sanitizer off), 6 forks, 23 minutes: `dev/varka_kernel_history.sh --after 64
+--forks 6 --widths 64 --prewarm on --jvms 2 --cpus 3 --cpu-base 12 --deadline 30 --jvm
+-XX:PerMethodTrapLimit=100000 --jvm -XX:PerMethodRecompilationCutoff=100000`. The flags are those of
+3.1's R3 row and dispatch command; the launcher's `--jvm` passes them to every fork. 0 wrong answers
+in 390 kernels, the kernel under test fast in 6 of 6. Raw readings, commands and machine record:
+`results/VARKA-383-long-lane-history.txt`.
+
+| 512 bits, prewarm on, long lane | 1 to 3 | 4 to 15 | 16 to 63 | 16 to 63 with every loop method at tier 4 |
+|---|---|---|---|---|
+| first reading (default limits) | 0 of 12 | 5 of 36 | **42 of 144** | 41 |
+| R3 (raised limits) | 1 of 12 | 7 of 36 | **45 of 144** | 45 |
+
+Position 0 released 0 of 6. The int lane past 15: 14 of 144 (17 in the first reading). All 47 long
+draws the first reading released released again, plus 6 more, so the set of draws is the same one.
+
+**Verdict by the registered reading (3.2): the raised limits do not take the long lane under 3 of
+144; 45 of 144 is where it was. The mechanism is not 9.6's trap sums, and the prewarm's coverage
+(3.3 A) is not the fix.** It is another route, so the wave-2 classification comes before any build.
+
+**Wave-2 classification, done on the laptop** (3.1's replay, one released draw, run twice): fork 0
+with `--after 20 --forks 1 --seed 20260903 --widths 64 --prewarm on` and `-XX:+UnlockDiagnosticVMOptions
+-XX:+LogCompilation`, once with default limits and once with the raised ones. Draws 15 and 19 released
+again with the same allocation bytes, so a released draw replays. `dev/varka_trap_census.py` on the
+logs: the same two classes dominate both runs, `VarkaFusedProjection_w0802ae9d91dcf79d` `loopMasked0`
+(59 runtime deoptimisations, 56 compiles) and `VarkaFusedProjection_w9b2f7a8bfaaa4059` `loopMasked0`
+(37, 35), against 6 or fewer for every other loop method of the kernels. By stamp the first class's
+traps fall in 5 to 35 s and the second's in 36 to 66 s, the two 30 s release windows of draws 15 and
+19 (the class-to-draw match is read from those windows, not logged by name). Every one is a C2 (level 4)
+trap with reason `profile_predicate` and action `maybe_recompile`, at one bytecode of the method
+(566 for the first class, 517 for the second), and the cycle compile, trap, recompile repeats 35 to
+56 times until the deadline. The raised limits left the two counts unchanged (59, 37, 56, 35 in both
+runs), so the cycle is not gated by the method trap limit or the recompilation cutoff. What is
+not known: which loop construct sits at bytecode 566 and why its predicate never stops failing after the
+compile that follows each trap; the generated classes were not dumped. 374's refused intrinsic
+(a 2-lane long mask) is not this route at 512 bits, where the long lane has eight lanes, and 373's
+per-bytecode trap limit is a different reason (`bimorphic_or_optimized_type_check`), though
+`PerBytecodeTrapLimit` was not raised here.
+
+**What the row asks next**: arm A (conversions `L2D`, `D2L`) stays unbuilt; its premise, that a
+wider prewarm clears the sums, is refuted for this route. The next step is one more classification
+reading, not a build: dump the generated class of a released draw (draw 15 of fork 0), read its
+`loopMasked0` at bytecode 566, and ask whether the profile-predicate loop-predication trap can be
+avoided at the source (a loop shape, or `-XX:-UseProfiledLoopPredicate` as 257's item 61 tried) or in
+the prewarm; and whether `-XX:-UseProfiledLoopPredicate` clears the long lane (the launcher takes it
+as `--jvm`, 25 minutes at one width). R1 and R2 on runners remain gated on the owner's go-ahead; the
+256-bit R3 was not run (the 512-bit result is not in the in-between zone). The row is not Done.
