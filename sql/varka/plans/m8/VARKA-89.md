@@ -371,8 +371,8 @@ evaluator change was needed, as 0.5 expected.
 * `sql/varka/proofs/ym_divide.smt2` (added after the review of the pull request): the same rule,
   with every wrap of the lane in place, equal to the Guava specification stated in unbounded
   integers, for the dividend symbolic and each of the 409 divisors (the sweep's list, which
-  `VarkaProofFiles.YM_DIVISORS` holds and the suite asserts it equals). 435 checks, Z3 3.7 s and
-  cvc5 106 s, with three wrong neighbouring forms shown `sat` for five divisors and the
+  `VarkaProofFiles.YM_DIVISORS` holds and the suite asserts it equals). 435 checks, Z3 about 4 s and
+  cvc5 about two minutes, with three wrong neighbouring forms shown `sat` for five divisors and the
   specification pinned to `IntMath` at fourteen pairs. The divisor symbolic as well was tried and
   is not solved: Z3 5.1.0 gave no answer in 100 s for the whole claim, nor in 50 s for any of the
   four sign cases (with `jint` wraps, or with the quotient and remainder as variables under their

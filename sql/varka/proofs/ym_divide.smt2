@@ -32,10 +32,10 @@
 ; The solver proves it for each divisor in VarkaProofFiles.YM_DIVISORS, the list
 ; VarkaEmitterYmDivideSuite sweeps over all 2^32 dividends, with the dividend symbolic.
 ; The divisor symbolic as well, with |d| >= 2, is out of reach: Z3 5.1.0 answers neither
-; the whole claim nor any of the four sign cases in 50 seconds. Beside them, for a few
-; divisors, that three neighbouring forms are wrong (a threshold one lower, the bump's
-; direction not reversed for a negative dividend, and not reversed for a negative
-; divisor), and that the specification equals IntMath at sample pairs.
+; the whole claim in 100 seconds nor any of the four sign cases in 50. Beside them, for
+; a few divisors, that neighbouring forms are wrong (a threshold one lower or one higher,
+; the bump's direction not reversed for a negative dividend, and not reversed for a
+; negative divisor), and that the specification equals IntMath at sample pairs.
 ;
 ; Rendered by VarkaProofFiles. VarkaProofFilesSuite fails when this file differs from its
 ; rendering, and VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'
@@ -2519,6 +2519,12 @@
 (check-sat)
 (pop 1)
 
+(echo "d = 2: with the threshold one higher it is not: expect sat")
+(push 1)
+(assert (not (= (ym.lowered m 2 2 1 (- 1)) (ym.half.up m 2))))
+(check-sat)
+(pop 1)
+
 (echo "d = 2: with the bump's direction not reversed for a negative dividend it is not: expect sat")
 (push 1)
 (assert (not (= (ym.lowered m 2 1 1 1) (ym.half.up m 2))))
@@ -2531,6 +2537,12 @@
 (check-sat)
 (pop 1)
 
+(echo "d = 7: with the threshold one higher it is not: expect sat")
+(push 1)
+(assert (not (= (ym.lowered m 7 5 1 (- 1)) (ym.half.up m 7))))
+(check-sat)
+(pop 1)
+
 (echo "d = 7: with the bump's direction not reversed for a negative dividend it is not: expect sat")
 (push 1)
 (assert (not (= (ym.lowered m 7 4 1 1) (ym.half.up m 7))))
@@ -2540,6 +2552,12 @@
 (echo "d = -7: with the threshold one lower it is not: expect sat")
 (push 1)
 (assert (not (= (ym.lowered m (- 7) 3 (- 1) 1) (ym.half.up m (- 7)))))
+(check-sat)
+(pop 1)
+
+(echo "d = -7: with the threshold one higher it is not: expect sat")
+(push 1)
+(assert (not (= (ym.lowered m (- 7) 5 (- 1) 1) (ym.half.up m (- 7)))))
 (check-sat)
 (pop 1)
 
@@ -2561,6 +2579,12 @@
 (check-sat)
 (pop 1)
 
+(echo "d = 12: with the threshold one higher it is not: expect sat")
+(push 1)
+(assert (not (= (ym.lowered m 12 7 1 (- 1)) (ym.half.up m 12))))
+(check-sat)
+(pop 1)
+
 (echo "d = 12: with the bump's direction not reversed for a negative dividend it is not: expect sat")
 (push 1)
 (assert (not (= (ym.lowered m 12 6 1 1) (ym.half.up m 12))))
@@ -2570,6 +2594,12 @@
 (echo "d = -2147483648: with the threshold one lower it is not: expect sat")
 (push 1)
 (assert (not (= (ym.lowered m (- 2147483648) 1073741823 (- 1) 1) (ym.half.up m (- 2147483648)))))
+(check-sat)
+(pop 1)
+
+(echo "d = -2147483648: with the threshold one higher it is not: expect sat")
+(push 1)
+(assert (not (= (ym.lowered m (- 2147483648) 1073741825 (- 1) 1) (ym.half.up m (- 2147483648)))))
 (check-sat)
 (pop 1)
 

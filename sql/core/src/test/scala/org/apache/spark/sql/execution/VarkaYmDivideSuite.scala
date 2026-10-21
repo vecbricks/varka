@@ -165,10 +165,12 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
     val (onVarka, plan) = runOutcome(varkaSpark, sql)
     VarkaMaybeThrows.difference(onSpark, onVarka).foreach(d => fail(s"$sql\n$d"))
     assert(onSpark.isInstanceOf[VarkaMaybeThrows.Raised] === raises, s"$sql: $onSpark")
-    if (!raises && fuses) {
+    if (fuses) {
+      // The plan is the executed one even when the query raised: the kernel is in it, and the
+      // raise came out of the row engine after the kernel declined the batch.
       assertFused(plan.get)
-      assertKernelsRan(plan.get)
-    } else if (!fuses) {
+      if (!raises) assertKernelsRan(plan.get)
+    } else {
       assertNotFused(plan.get)
     }
   }

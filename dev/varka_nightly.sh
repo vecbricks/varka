@@ -163,7 +163,8 @@ fi
 # year-month division sweep (VARKA-89, 409 divisors over every int) is a long sweep: its name
 # carries no "opt-in", so the first filter and the gate's sweep step skip it, and it runs last, in
 # its own property and under a cap of an hour, since it takes about twelve minutes on the laptop,
-# more than an own-JVM suite's default nine.
+# more than an own-JVM suite's default nine. A failure in an earlier command of the batch ends the
+# batch (the step is red) before the long sweep starts.
 if [ "$sweep" -eq 1 ]; then
   run_step sweep build/sbt -batch "project catalyst" \
     'set Test/javaOptions += "-Dvarka.sweep=true"' \

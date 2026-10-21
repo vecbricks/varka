@@ -1932,10 +1932,10 @@ final class VarkaProofFiles {
         ; The solver proves it for each divisor in VarkaProofFiles.YM_DIVISORS, the list
         ; VarkaEmitterYmDivideSuite sweeps over all 2^32 dividends, with the dividend symbolic.
         ; The divisor symbolic as well, with |d| >= 2, is out of reach: Z3 5.1.0 answers neither
-        ; the whole claim nor any of the four sign cases in 50 seconds. Beside them, for a few
-        ; divisors, that three neighbouring forms are wrong (a threshold one lower, the bump's
-        ; direction not reversed for a negative dividend, and not reversed for a negative
-        ; divisor), and that the specification equals IntMath at sample pairs.
+        ; the whole claim in 100 seconds nor any of the four sign cases in 50. Beside them, for
+        ; a few divisors, that neighbouring forms are wrong (a threshold one lower or one higher,
+        ; the bump's direction not reversed for a negative dividend, and not reversed for a
+        ; negative divisor), and that the specification equals IntMath at sample pairs.
         """);
     out.append(rendered("QF_NIA"));
     out.append("""
@@ -1968,6 +1968,9 @@ final class VarkaProofFiles {
       int away = d > 0 ? 1 : -1;
       check(out, "d = " + d + ": with the threshold one lower it is not", "sat",
           List.of("(assert (not (= " + ymLowered(d, half - 1, away, -away) + " (ym.half.up m "
+              + lit(d) + "))))"));
+      check(out, "d = " + d + ": with the threshold one higher it is not", "sat",
+          List.of("(assert (not (= " + ymLowered(d, half + 1, away, -away) + " (ym.half.up m "
               + lit(d) + "))))"));
       check(out, "d = " + d + ": with the bump's direction not reversed for a negative "
           + "dividend it is not", "sat",
