@@ -1,0 +1,305 @@
+# VARKA-336: null-safe equality, `<=>` and `equal_null`
+
+*Row 336 of `m8/PLAN.md`, wave 1 (after 334). Planned on 21 October 2026 at `a429af749f4`, from
+`m9/SCOPE.md` item 34 and the code on master. Section 0 is the admission check; it overrides the
+row's text and item 34's sketch where they differ.*
+
+## 0. Admission check against master (21 October 2026, `a429af749f4`)
+
+What the row and item 34 assumed, and what the code says:
+
+1. **`EqualNullSafe` declines today, on purpose.** `VarkaConditionCompiler.condArm` has no arm for
+   it and `compileCond`'s doc says so; `VarkaExpressionCompilerSuite` ("declines null-safe
+   equality, bare boolean outputs") asserts `If(EqualNullSafe(d, d2), ...)` does not compile and
+   must be flipped. `equal_null` is `EqualNull`, a `RuntimeReplaceable` whose replacement is
+   `EqualNullSafe(left, right)` (`predicates.scala`), and `compileCond` already compiles a
+   `RuntimeReplaceable`'s replacement, so the two functions are one arm.
+2. **The row's one node is two cases, and only one needs a node.** Item 34 and the row say `<=>`
+   is "a condition node over the validity words" taking a predicate child. Read against the IR:
+   * `p <=> true`, `p <=> false` and the forms that parse to them (`p IS [NOT] TRUE|FALSE`,
+     `AstBuilder.visitPredicate`: `EqualNullSafe(e, Literal(true))`, negated by `Not`) **compose
+     from nodes that exist**: `And(p, IsNotNull(p))` has `kT = kT(p) & (kT(p) | kF(p)) = kT(p)` and
+     `kF = kF(p) | ~(kT(p) | kF(p)) = ~kT(p)` (the known-true and known-false masks are disjoint),
+     which is `p IS TRUE` and is total. `p IS FALSE` is the same over `Not(p)`. Both nodes are
+     priced and fused since row 334 (`IsNotNull/cond/<lane>`, `And`).
+   * `a <=> b` over **value** operands cannot compose: `IsNotNull` takes a `ColumnRef` or a `Cond`
+     only (`Analysis`, its `IsNotNull` arm, and `VarkaVectorIR.IsNotNull`'s doc), because a
+     computed value's validity word exists only during its value walk, after condition emission.
+     `Compare` is the one condition that reads operand words after `emitValue`
+     (`VarkaVectorWalk.emitCond`, `Compare` arm). A composition would fuse `i <=> i2` over bare
+     columns and decline `year(d) <=> month(d2)` and `l <=> i + 1`. So the row adds **one IR
+     node, for value operands**.
+3. **It is not null-intolerant to Spark either, which two readers rely on.** `EqualNullSafe` does
+   not set `nullIntolerant` (`EqualTo` does), so `VarkaConjunctOrder.nullWhenNull` is false for
+   it: a `<=>` conjunct is never treated as dropping the rows where a column is null and an
+   `isnotnull` is never hoisted past it. `errorFreeNode` lists `BinaryComparison`, which includes
+   it, correctly. Both are read, not changed; test 7 pins the first.
+4. **Spark's own rewrites decide what reaches Varka** (`optimizer/expressions.scala`):
+   `NullPropagation` turns `x <=> NULL` into `IsNull(x)`, so a null literal operand never arrives
+   by default and stays declined (as `Compare` declines one); `SimplifyBinaryComparison` turns
+   `p <=> true` into `p` when `p` is not nullable and `p <=> false` into `Not(p)`;
+   `SimplifyConditionals` turns `IF(c, true, false)` and `CASE WHEN c THEN true ELSE false END`
+   into `EqualNullSafe(c, true)` for a nullable `c` and the negated form for the inverse. That
+   last pair is how most `p <=> true` shapes reach a query that never wrote `IS TRUE`.
+   `IS [NOT] DISTINCT FROM` parses to `Not(EqualNullSafe)` and `EqualNullSafe` as well.
+   `IS [NOT] UNKNOWN` is `IsNull`/`IsNotNull` over a boolean and is row 334's.
+5. **`EqualNullSafe.nullable` is false.** The partition oracle's `nullable(p, fixture)`
+   (`VarkaCoverageDifferentialSuite`) is false for every `<=>` row, so under the default optimizer
+   `NullPropagation` folds `(a <=> b) IS NULL` to false before Varka sees it: the "`IS NULL`
+   partition is empty" of the row is true by construction and proves nothing about the kernel
+   unless that rule is excluded (section 5, test 3). `partitionRewrites` today excludes
+   `BooleanSimplification`, `NullDownPropagation` and `InferFiltersFromConstraints`, not
+   `NullPropagation`.
+6. **No floating lane exists.** `LaneType` is `INT, LONG`. The types a comparison fuses over are
+   the coverage table's `EqualTo` operands: `date`, `int`, `bigint`, `time`, `ym`, `dt` (six of
+   the census's thirteen), all exact integer equality. NaN and `-0.0` have nothing to act on
+   here; see 2.4.
+7. **`Cond` is a sealed interface and the switches over it are exhaustive**, so the node's
+   sites are compile errors, not a search: `VarkaVectorIR` (`permits`, `laneType`, `canonical`,
+   the render, `childrenOf`, `withChildren`), `Analysis.analyze`, the `collectRefusals` switch,
+   `Slots` (the consumers switch, `bodyUses`' neighbours, the liveness switch),
+   `VarkaOperandPosition`, `VarkaEmitBudget`'s weight, `VarkaEmitCost.kindOf`,
+   `VarkaChronoCompiler`'s rearm switch, `VarkaRangeAnalysis`, `VarkaConditionCompiler.onLongLane`,
+   and in tests `VarkaReference` (two switches), the shrinker and the canonical-IR checks.
+8. **The IR fuzz grammar feeds three things besides the fuzz.** `VarkaEmitCostCorpus` draws its
+   shapes from `VarkaIrGrammar` (`drawShape`, `drawLongShape`, `drawWideShape`), so the cost
+   model is fitted on the grammar's draws; `VarkaWarmupReach` and the emitted-bytes fixtures read
+   the same corpus. A production added to the grammar redraws every seeded shape after it and
+   reprices the model (row 334's grammar production did the first and surfaced a latent
+   emitter bug; row 335a refit the model on the owner's word of 19 October 2026). Section 6.
+
+## 1. Where this came from
+
+Item 34 (18 September 2026) asked whether null-safe equality is "a second kind of node - a
+null-tolerant binary, with its own rule everywhere the null-intolerant one is assumed - or
+whether the existing machinery can express it". Row 334 answered half: a condition over a
+condition's masks needs no new rule. The answer the code gives is: **over a condition, composed;
+over values, one node whose validity rule is its own and is read in one place.**
+
+## 2. The design
+
+### 2.1 The node
+
+`NullSafeEqual(left, right)` in `VarkaVectorIR`, `implements Cond`, operands value nodes on one
+lane (the constructor's `requireSameLane`, as `Compare`). Its own record, not a `CompareOp`
+constant: `Compare`'s contract (null-intolerant, one validity formula, `Compare/<op>/<lane>` cost
+kinds, `onLongLane`, the reference) holds for every existing op, and a constant that breaks it
+would make each reader of `Compare` learn an exception. Item 34's second kind of node is this
+record, and its rule is stated once, in its doc and its walk arm.
+
+**Validity rule: never null.** The node is total, like `IsNotNull`: with `vA`, `vB` the operands'
+validity words and `E` the lane's equality mask,
+
+    kT = (E & vA & vB) | ~(vA | vB)        both valid and equal, or both null
+    kF = ~kT                               one null, or both valid and different
+
+A lane is never unknown, so `Not`, `And`, `Or`, `IfElse` and a filter root read it through the
+pairs unchanged ("totality composes", `IsNotNull`'s doc). The `~` sets the word's bits above the
+lane count; every consumer truncates (the invariant `IsNotNull` and `IfElse`'s `~kT` already rely
+on, and `i IS NULL` as a filter root is the existing exposure), pinned for this node by test 4.
+Dense body: no lane is null, so the node is `Compare` EQ's mask, bytes identical to
+`Compare(EQ, a, b)` in a dense body.
+
+### 2.2 The walk, analysis and slots
+
+* `VarkaVectorWalk.emitCond`: the `Compare` arm's body (`emitValue` both operands, `compare` with
+  the lane's EQ, `toLong` into `cmpTmp`) then `kT`/`kF` by the formula above; the dense arm is the
+  `Compare` arm's. No Vector API method is called that `Compare` does not call (`compare`,
+  `VectorMask.toLong`), so row 397's warm-up reach and row 376's census (`operator_census.json`,
+  `results/VARKA-376-census-*.json`) have nothing new to say: the only new work is scalar `long`
+  `or`, `and` and `xor` on words already in registers. This is a design statement, checked by
+  `VarkaWarmupReach` over the new rows, not a measurement.
+* `Analysis.analyze`: `analyzeOp(node, true, left, right)` (`skips = true`: a known answer from a
+  null input). The skip flag is read only by `VarkaBodyEmitter.shortcutApplies`, which already
+  excludes a `Cond` root, so no shortcut changes; the flag is set because it states the
+  semantics. Operand guards behave as under `Compare`: a refusal is checked on valid lanes, so a
+  null operand never declines a batch, and the node adds no `guardUnderNullTest` case because
+  it lowers its operands in the dense body too (that flag is for `IsNotNull` over a condition,
+  whose dense arm does not lower it).
+* `Slots`: the consumers switch demands both operands' words, like `Compare`. Liveness: the node
+  reads two words in a masked body only.
+
+### 2.3 The compiler
+
+* `condArm`: `EqualNullSafe` compiles by the shared operand path of `compare`
+  (`operand`: int leaf or `compileNode`), then the node. A null literal operand declines
+  (`NullPropagation` has already turned it into `IsNull` by default; the decline is for a session
+  that excludes the rule).
+* **Predicate operand, composed.** When an operand is boolean-typed and the other is a
+  `Literal(true)` or `Literal(false)`: `p <=> true` is `And(p, IsNotNull(p))` over `compileCond(p)`,
+  `p <=> false` is the same over `Not(p)`, either side. The shared `p` is lowered once (the
+  masked body reads `kT` and `kF` of one node, records are structurally equal; row 334's shared
+  predicate test is the precedent). A boolean operand that is not a predicate (a boolean column)
+  declines until row 331; when 331's column-as-condition leaf exists the composition applies to it
+  with no change here. Two boolean operands that are both predicates (`p <=> q`) compose too:
+  `Or(And(IsTrue p, IsTrue q), Or(And(IsFalse p, IsFalse q), And(Not IsNotNull p, Not IsNotNull q)))`,
+  admitted only if the tree stays under `MAX_CHAIN_DEPTH` and the budget; otherwise it declines
+  with a reason. It is optional in this row (open question 2).
+* `onLongLane`: an arm for `NullSafeEqual` widening both operands, as for `Compare`: a mixed
+  `i <=> l` reaches Varka as `cast(i as bigint) <=> l`, a `WidenLane` over the column, whose
+  validity is the column's.
+* A guard under a composed `p IS TRUE` is the row-334 case: `And(p, IsNotNull(p))` contains an
+  `IsNotNull` over a condition, so a guarded `p` (a calendar field over a date) makes the kernel
+  masked-only (`Analysis.guardUnderNullTest`). Through SQL a calendar predicate over a column
+  already carries its column guard, which makes the kernel masked-only today (row 334's 9, item
+  3). This is the cost of composing; the alternative is a dedicated `IsTrue(Cond)` node whose
+  dense arm aliases the child's mask. Not built here; open question 1.
+
+### 2.4 Floating point, now and in row 341
+
+Nothing applies now (section 0 item 6). Spark's `<=>` on a float or double is `ordering.equiv`,
+which is `SQLOrderingUtil.compareDoubles`/`compareFloats`: `NaN <=> NaN` is true and
+`-0.0 <=> 0.0` is true, the same equality `=` has. So `<=>` adds nothing to the floating
+question: the walk calls the lane's equality mask (`compare` with EQ today), and row 341 changes
+that one mask to `(a == b) | (isNaN(a) & isNaN(b))` for `=`, `IN` and `<=>` together (IEEE `EQ`
+already equates `-0.0` and `0.0`). To keep it one place, the walk arm obtains `E` from a helper
+shared with `Compare` rather than calling `compare` itself; 341 edits the helper. Row 341's
+done-when gains "`<=>` over `DOUBLE`/`FLOAT` with NaN and `-0.0` pairs" and a NaN-versus-null
+pair (`NaN <=> NULL` false, `NULL <=> NULL` true). Decimals (359) and `BOOLEAN` (331) likewise
+follow their lanes' `=`.
+
+## 3. What a default session reaches
+
+By section 0 item 4: `a <=> b` and `equal_null(a, b)` over the six types as written;
+`p IS [NOT] TRUE|FALSE` for a nullable `p`, and `IF(c, true, false)` / `CASE WHEN c THEN true
+ELSE false END` for a nullable `c`, as a filter, a `CASE` condition and under `NOT`;
+`IS [NOT] DISTINCT FROM`. A non-nullable `p` reaches Varka as `p`, and `x <=> NULL` as `IsNull`.
+A `<=>` as a projection *output* is a boolean output: row 27's.
+
+## 4. Files
+
+* main: `codegen/varka/VarkaVectorIR.java`, `Analysis.java`, `Slots.java`, `VarkaVectorWalk.java`,
+  `VarkaOperandPosition.java`, `VarkaEmitBudget.java`, `VarkaEmitCost.java`,
+  `VarkaRangeAnalysis.java`; `codegen/VarkaConditionCompiler.java`, `VarkaChronoCompiler.java`
+  (a classification arm). `VarkaEmitCostTable` gets no entry (section 6).
+* test: `VarkaReference.java`, `VarkaShrinker.java`, `VarkaCanonicalIr.java` (the exhaustive
+  arms), `VarkaExpressionCompilerSuite.scala` (the flipped decline), a new
+  `VarkaEmitterNullSafeSuite.scala` beside `VarkaEmitterValiditySuite`,
+  `VarkaCoverageDifferentialSuite.scala` (the exclusion in test 3).
+* generated: `sql/varka/coverage.json`, `docs/sql-varka.md`, `sql/varka/emitted_bytes.json` (new
+  rows only), the census files.
+
+## 5. Tests, and what each is for
+
+Oracles: the **row engine** (Spark's own `EqualNullSafe.eval`) for answers; `VarkaReference`'s
+new arm for the IR suites, itself checked against the row engine by test 1.
+
+1. **The truth table, exhaustively.** Every validity pair (both valid, one null either way, both
+   null) times equal and different values, at both lanes and both widths (`lanesOverride` 4 and
+   8 and the default), in a masked and a dense body, with the null lanes' stored values poisoned
+   (equal to the other operand's, and different) so a formula that reads a null lane's value
+   fails. The node's answer is Spark's `eval` per row; the reference arm agrees with both.
+2. **Computed operands.** `year(d) <=> month(d2)`, `l <=> i + 1`, `date_add(d, i) <=> d2`, an
+   operand with `Overflow.NULL` (a null from valid inputs: the kernel is masked-only and `<=>`
+   sees that word), a long-lane `i <=> l` through `WidenLane`. This is the case a composition
+   could not serve.
+3. **The partition oracle, on the new rows.** `WHERE p`, `WHERE NOT (p)` and `WHERE (p) IS NULL`
+   run by the existing differential over every new predicate row; the `unknown` partition must be
+   empty and the first two exactly complementary. Add one setting that also excludes
+   `NullPropagation`, for the `<=>` rows only, so `(a <=> b) IS NULL` reaches Varka as an
+   `IsNotNull` over the new node and the kernel, not Spark's folding, answers "empty"; assert it
+   fuses. Without the exclusion the third partition is Spark folding a constant (section 0
+   item 5). The row's "partition empty" done-when means this test.
+4. **Tails and the `~`.** Row counts that are not a multiple of the lane count, `<=>` as a filter
+   root and under `NOT`, with the batch's last lanes null in both operands: the selection must
+   not set a bit past the row count.
+5. **Composed predicate forms.** `p IS TRUE`, `IS FALSE`, `IS NOT TRUE`, `IS NOT FALSE` over every
+   predicate row of the coverage table that can be null (the 46 rows of row 334's sweep, by the
+   same `nullable` test), as filters and `CASE` conditions, against Spark; the `IF(c, true,
+   false)` and `CASE` shapes whose rewrite produces the form; `IS [NOT] DISTINCT FROM` over the
+   six types. A shared `p` under `p IS TRUE OR p` (one lowering, row 334's test 4).
+6. **Composition and the budget.** The composition fuzzer (`VarkaCoverageCompositionFuzzSuite`)
+   composes coverage rows, so it composes the new ones; it must pass with no change. The
+   emit-budget and cost-audit suites must pass with the node unpriced (section 6).
+7. **The null-tolerant readers.** `VarkaConjunctOrder` over `i <=> 5 AND d = d2`: no `isnotnull`
+   moves past the `<=>` conjunct, and the order is Spark's.
+8. **Declines, named.** A null literal operand; a boolean non-predicate operand before row 331;
+   two operands on different lanes with no widening (as `Compare`); `<=>` over every type not yet
+   in the lane set (string, decimal above 18 digits, float, double, boolean, narrow integers),
+   each with its reason, and they wait on 329, 331, 341, 359 and the string rows.
+
+## 6. The fuzz grammar, the coverage differential and the cost model
+
+* **Coverage rows** (generated, new rows only): `d <=> d2`, `i <=> 5`, `l <=> l2`,
+  `ym <=> INTERVAL '1-2' YEAR TO MONTH`, `t <=> t2`, `dt <=> dt2`,
+  `equal_null(d, d2)` and `equal_null(l, l2)`, `d <=> d2 OR i = 5` (a connective), `NOT (d <=>
+  d2)`, `year(d) <=> month(d2)` with its domain, `l <=> i` (the widening), `(d < d2) IS TRUE`,
+  `(d < d2) IS NOT FALSE`, `(year(d) = 2021 AND i > 0) IS TRUE` with its domain (the guarded
+  case of 2.3), and one `CASE WHEN (d < d2) IS TRUE THEN ... END`. Each is a predicate row, so
+  the differential suite's per-row test, partition oracle, domain test and ANSI form run over it
+  unchanged. Census: the equal_null and `<=>` entries move from no fused type to the six types
+  (`dev/varka_census.py --check` regenerates it; the pair count it prints is the figure, not this
+  plan's).
+* **The IR grammar and series get no production in this row.** Adding one redraws the seeded
+  shapes of `VarkaIrGrammar` and so changes `VarkaEmitCostCorpus`, `VarkaWarmupReach` and
+  `emitted_bytes.json`, and reprices the model: `enumeratedFeatures` in `VarkaEmitCostFit` would
+  need `NullSafeEqual/<lane>` features and the fit new data, which row 335a's refit needed the
+  owner's word for. Instead the node is covered by test 1 and 2's deterministic series, the
+  reference arm, and the composition fuzzer's coverage rows. A grammar production, its refit and
+  the bytes regeneration are a follow-up row (open question 3), taken with the next refit.
+* **The cost model with the node unpriced.** `VarkaEmitCost.Tally.count` marks a feature with no
+  price `unpriced` and `predicted()` returns null, which the budget reads as "unknown" and
+  answers by the weight budget (`VarkaEmitBudget`: weight 1 for the node, as `Compare`).
+  The first implementation step runs the emit-budget and cost-audit suites with that and records
+  whether any asserts that every enumerated feature is priced; if one does, the node is added to
+  `kindOf` and `enumeratedFeatures` only as the audit demands, and the price waits on the refit.
+  No price is invented here.
+
+## 7. Predictions, with bounds
+
+1. **Every new row fuses on every fixture** under the default optimizer and with the rewrites
+   excluded, 100 percent of the rows listed; any decline is a finding.
+2. **No existing row's bytes move** in `emitted_bytes.json` (the node adds no grammar draw, so
+   the cost corpus and the seeded shapes are unchanged).
+3. **Dense bodies of `a <=> b` are byte-identical to `a = b`'s** and the masked body adds only
+   scalar word operations: three to four `long` operations over `Compare`'s formula, no Vector
+   API call. Checked on the emitted bytes with an op-count test, not a throughput run: none is
+   claimed (the shapes fused here went to the row path before).
+4. **The added test time is under 40 s**: about 18 rows through the differential suite and the
+   new suite, estimated from row 334's 20 s for about sixty rows and doubled at the calibration
+   table's commonest miss (`dev/varka_calibration.py` prints the ratio; restated at it when the
+   row starts).
+
+## 8. Risks
+
+1. **A composed `p IS TRUE` makes a guarded kernel masked-only** (2.3). A cost on null-free
+   batches, correctness unaffected. Named, not measured; the dedicated node is the answer if a
+   benchmark shows it.
+2. **A bit past the row count in a selection** from `~(vA | vB)` (test 4).
+3. **The unpriced node meets a suite that wants every feature priced** (section 6): the only
+   place the row could be forced to touch the cost model.
+4. **The sealed switches in the test sources** (`VarkaReference`, the shrinker) are the larger
+   part of the diff, not the walk arm.
+
+## 9. Out of this row
+
+* Boolean columns as `<=>` operands (331); boolean outputs, a `<=>` as a projection result (27).
+* Float and double `<=>`, NaN and `-0.0` (341, section 2.4), decimals (359), strings, narrow
+  integers (329), `TIMESTAMP_NTZ` (338): each follows its lane's `=`.
+* A grammar or series production for the node, the cost model's refit and its fit data (section 6).
+* A dedicated `IsTrue(Cond)` node (open question 1).
+* Struct, array and map `<=>`.
+
+## 10. Done when
+
+1. `a <=> b` and `equal_null(a, b)` fuse over the six types of the coverage table's `EqualTo`
+   rows, as filters, `CASE` conditions, under `NOT` and under `AND`/`OR`, with computed and
+   widened operands, each answer Spark's.
+2. `p IS [NOT] TRUE|FALSE` over every predicate row that can be null, `IF(c, true, false)` and
+   `IS [NOT] DISTINCT FROM` fuse, with test 5 passing.
+3. Test 3's partition oracle passes on every new row, including the run with `NullPropagation`
+   excluded, in which `(a <=> b) IS NULL` is answered empty by a fused kernel.
+4. Tests 1, 2, 4, 7 and 8 pass at both widths in both bodies; the flipped decline test passes.
+5. No existing row's emitted bytes move, `dev/varka_census.py --check` and the generated files
+   are current, and the cost model and grammar are untouched.
+6. This file's section 11 records the outcome and scores section 7.
+
+## 11. Open questions for the owner
+
+1. **Compose `p IS TRUE`, or add `IsTrue(Cond)`?** Recommendation: compose (no new node, priced
+   parts); build `IsTrue` only if a benchmark of a guarded `p IS TRUE` on null-free batches shows
+   the missing dense body costing something worth the node.
+2. **Is `p <=> q` over two predicates in this row?** Recommendation: no, decline with a reason; it
+   is rare and waits for 331's boolean columns, where it arrives with the column form.
+3. **Grammar production and refit.** Recommendation: a follow-up row taken with the next refit,
+   not this one, so this row's bytes fixtures and the model stay still.
