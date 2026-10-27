@@ -443,10 +443,6 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     assert(lines(true) === Seq("(d < d2): fused",
       s"(l < l2): residual (${VarkaKernelPlan.TWO_LANE_CONDITION_REASON}: (l < l2))"))
     assert(lines(false) === Seq("(d < d2): fused", "(l < l2): fused"))
-    // A session that does not set it gets the host's answer, which is what EXPLAIN renders.
-    info(s"two-lane x86 host: ${VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK}")
-    assert(VarkaSessionEmit.of(new SQLConf).declineTwoLaneConditions ===
-      VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
   }
 
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {

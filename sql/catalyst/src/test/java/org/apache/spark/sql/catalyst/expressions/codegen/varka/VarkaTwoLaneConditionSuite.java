@@ -40,8 +40,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
 /**
  * The compiler's refusal of a long-lane condition on an x86 host whose long species has two
  * lanes (VARKA-503). The host is one fact, passed in here, so both answers are checked on any
- * machine; {@code VarkaFilterExecSuite} checks what EXPLAIN says on the machine it runs on, which
- * under the gate's narrow step is the two-lane host.
+ * machine. What this JVM's fact is, under flags that make it the two-lane host and a four-lane
+ * one, is checked in JVMs of their own by sql/core's {@code VarkaTwoLaneHost128Suite} and
+ * {@code VarkaTwoLaneHost256Suite}, with the session's default beside it.
  */
 @VarkaSuite
 public final class VarkaTwoLaneConditionSuite {
@@ -65,8 +66,6 @@ public final class VarkaTwoLaneConditionSuite {
     }
     // aarch64 and any JVM without the flag: two-lane masks are lowered there.
     assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(VarkaEmitOptions.USE_AVX_UNKNOWN, 2));
-    assertEquals(VarkaKernelPlan.twoLaneMasksFallBack(VarkaEmitOptions.HOST_USE_AVX,
-        Lane.LONG.preferredLanes), VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK);
   }
 
   @Test

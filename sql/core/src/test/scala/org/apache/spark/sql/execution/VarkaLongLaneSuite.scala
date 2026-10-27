@@ -18,8 +18,10 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.{Expression, LessThan}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The long lane, end to end (milestone 5 VARKA-29): a `bigint`, a `TIME(p)` or a day-time
@@ -280,6 +282,62 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
             checkAnswer(besideActual, spark.sql(beside))
           }
         }
+      }
+    }
+  }
+
+  test("where long conditions decline, the long conjunct is a row filter above the fused date " +
+      "one, and the answers hold (VARKA-503)") {
+    // The shared sessions set the refusal off, so the kernels' answers are checked at 128 bits
+    // too; this test turns it on, as an x86 host whose long species has two lanes gets it by
+    // default, and checks the plan it gives and its answers against the refusal off and against
+    // Varka off, over the three null patterns.
+    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
+    // The column names each `<` of a condition compares.
+    def comparisons(condition: Expression): Seq[Set[String]] =
+      condition.collect { case lt: LessThan => lt.references.map(_.name).toSet }
+    val dates = Set("d", "d2")
+    val longs = Set("l", "l2")
+    def varkaConditions(plan: SparkPlan): Seq[Expression] = collect(plan) {
+      case f: VarkaFilterExec => f.condition
+      case f: VarkaFilterColumnarToRowExec => f.condition
+    }
+    fixtures.foreach { case (fixture, _) =>
+      val query = s"SELECT d, l, l2 FROM $fixture WHERE d < d2 AND l < l2"
+      val expected = spark.sql(query)
+      val before = varkaSpark.conf.getOption(key)
+      varkaSpark.conf.set(key, "true")
+      try {
+        val declined = varkaSpark.sql(query)
+        val plan = declined.queryExecution.executedPlan
+        withClue(s"declined, $fixture: $query\n${plan.treeString}") {
+          val fused = varkaConditions(plan)
+          assert(fused.size === 1)
+          assert(comparisons(fused.head) === Seq(dates))
+          // The long conjunct is a row FilterExec, and the Varka filter is below it.
+          val residual = collect(plan) {
+            case f: FilterExec if comparisons(f.condition).contains(longs) => f
+          }
+          assert(residual.size === 1)
+          assert(varkaConditions(residual.head.child).size === 1)
+          checkAnswer(declined, expected)
+          if (!expected.isEmpty) {
+            assertKernelsRan(plan)
+          }
+        }
+      } finally {
+        before match {
+          case Some(v) => varkaSpark.conf.set(key, v)
+          case None => varkaSpark.conf.unset(key)
+        }
+      }
+      val kept = varkaSpark.sql(query)
+      val plan = kept.queryExecution.executedPlan
+      withClue(s"not declined, $fixture: $query\n${plan.treeString}") {
+        // With the refusal off both comparisons are one kernel's, and no row filter is left.
+        assert(varkaConditions(plan).flatMap(comparisons).toSet === Set(dates, longs))
+        assert(collect(plan) { case f: FilterExec => f }.isEmpty)
+        checkAnswer(kept, expected)
       }
     }
   }

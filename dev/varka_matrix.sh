@@ -277,12 +277,16 @@ echo "== ${#configs[@]} configuration(s) and the defaults, $total suites," \
 
 # The JVM flags a JUnit suite that runs alone asks its child for (@VarkaSuite(jvmFlags = {...}),
 # VARKA-491), one a line: its JVM here takes them in the child's place, after the run's own
-# options, so a flag given twice is the suite's. A Scala suite has none.
+# options, so a flag given twice is the suite's. A Scala suite has none. The annotation is read
+# whole, from its first line to the one that closes it, joined into one line, since one with
+# several flags wraps to stay within 100 columns.
 own_jvm_flags() {
   local module=$1 suite=$2 file
   file="${module_root[$module]}/java/${suite//.//}.java"
   [ -f "$file" ] || return 0
-  grep -E "$JAVA_OWN" "$file" | grep -oE 'jvmFlags *= *\{[^}]*\}' | grep -oE '"[^"]*"' | tr -d '"'
+  awk '/^@VarkaSuite\(/ { on = 1 } on { print } on && /\)[[:space:]]*$/ { exit }' "$file" \
+    | tr '\n' ' ' | grep -E "$JAVA_OWN" | grep -oE 'jvmFlags *= *\{[^}]*\}' \
+    | grep -oE '"[^"]*"' | tr -d '"'
 }
 
 # One JVM's suites under one configuration, in runs/<configuration>/<module>[-<k>]/. The runner

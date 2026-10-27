@@ -21,6 +21,8 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
+import org.apache.spark.sql.execution.FilterExec;
 import org.apache.spark.sql.execution.SparkPlan;
 import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
@@ -51,12 +53,19 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  * <p>Each section has two arms, named so the labels survive the kernels landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today the two arms of an output section are both the row path, so they should
- * tie, while a control's {@code varka on} arm is Varka's fused filter.
+ * tie, while a control's {@code varka on} arm is what Varka runs for that filter.
  *
  * <p>A baseline is only one while nothing fuses: before timing, the run fails if the Varka
  * session's plan for any output section holds a Varka node. The filter controls are held to the
- * opposite, since they are the comparison, not the baseline: the run fails if a control's plan
- * holds no Varka node, so a control that declined cannot pass as Varka's filter.
+ * plan the product gives them, since they are the comparison, not the baseline, and the run fails
+ * on any other: each control's plan holds a Varka node, so a control that declined cannot pass as
+ * Varka's filter, except on an x86 host whose long species has two lanes (the 128-bit
+ * companion's), where the compiler refuses a filter's long-lane condition (VARKA-503,
+ * {@link VarkaKernelPlan#HOST_TWO_LANE_MASKS_FALL_BACK}). There the {@code l < l2} controls hold
+ * no Varka node, their {@code varka on} arm timing the row path, and the
+ * {@code (d < d2) AND (l < l2)} controls hold the date conjunct's kernel under a row filter that
+ * holds the long one. The sessions keep the refusal at its default, since the benchmark measures
+ * what ships.
  *
  * <p>The later diff partners, by the steps of row 27's plan ({@code VARKA-27.md} 5):
  * <ul>
@@ -88,13 +97,26 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
    * A section: its title, its query, and whether it is a filter control, which the baseline
    * check exempts.
    */
-  record Section(String title, String query, boolean control) {}
+  record Section(String title, String query, boolean control, Expect expect) {}
+
+  /** What the Varka session's plan for a section is required to be before it is timed. */
+  enum Expect {
+    /** No Varka node: an output section, and a declined control. */
+    ROW_PATH,
+    /** A Varka node: a control whose condition fuses. */
+    FUSED,
+    /** A Varka node under a row filter: a control whose long conjunct alone was declined. */
+    FUSED_UNDER_ROW_FILTER
+  }
 
   /**
    * A condition the class measures: its name in the titles, the SQL of the condition over the
-   * columns with no null and over the columns with nulls, and the column a filter control selects.
+   * columns with no null and over the columns with nulls, the column a filter control selects,
+   * and its control's plan on an x86 host whose long species has two lanes, which refuses a
+   * filter's long-lane condition.
    */
-  record Condition(String name, String dense, String masked, String selected) {}
+  record Condition(String name, String dense, String masked, String selected,
+      Expect twoLaneControl) {}
 
   /**
    * A column pair of the table: the two names, their SQL type, and the expression of a value from
@@ -121,13 +143,13 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
    * masked form of a condition is the dense one over those columns.
    */
   static final List<Condition> CONDITIONS = List.of(
-      new Condition("d < d2", "d < d2", "dn < d2n", "d"),
-      new Condition("l < l2", "l < l2", "ln < l2n", "l"),
-      new Condition("y1 < y2", "y1 < y2", "y1n < y2n", "y1"),
-      new Condition("NOT b", "NOT b", "NOT bn", "b"),
-      new Condition("b AND b2", "b AND b2", "bn AND b2n", "b"),
+      new Condition("d < d2", "d < d2", "dn < d2n", "d", Expect.FUSED),
+      new Condition("l < l2", "l < l2", "ln < l2n", "l", Expect.ROW_PATH),
+      new Condition("y1 < y2", "y1 < y2", "y1n < y2n", "y1", Expect.FUSED),
+      new Condition("NOT b", "NOT b", "NOT bn", "b", Expect.FUSED),
+      new Condition("b AND b2", "b AND b2", "bn AND b2n", "b", Expect.FUSED),
       new Condition("(d < d2) AND (l < l2)", "(d < d2) AND (l < l2)", "(dn < d2n) AND (ln < l2n)",
-          "d"));
+          "d", Expect.FUSED_UNDER_ROW_FILTER));
 
   /**
    * The table, {@code varka_boolean}: each column of {@link #PAIRS} with no null, then each again
@@ -157,9 +179,10 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
 
   /**
    * Every section, in the order they run: each condition, then each null density, then the output
-   * and its filter control.
+   * and its filter control; each control expects the plan of a host that refuses a filter's
+   * long-lane condition where {@code declinesLongConditions}.
    */
-  static List<Section> sections() {
+  static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
     for (Condition c : CONDITIONS) {
       for (boolean nulls : new boolean[] {false, true}) {
@@ -167,20 +190,32 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
         String selected = c.selected() + (nulls ? "n" : "");
         String density = nulls ? "one row in ten null" : "no nulls";
         out.add(new Section(c.name() + " output, " + density,
-            "SELECT " + cond + " AS c FROM varka_boolean", false));
+            "SELECT " + cond + " AS c FROM varka_boolean", false, Expect.ROW_PATH));
         out.add(new Section(c.name() + " filter control, " + density,
-            "SELECT " + selected + " FROM varka_boolean WHERE " + cond, true));
+            "SELECT " + selected + " FROM varka_boolean WHERE " + cond, true,
+            declinesLongConditions ? c.twoLaneControl() : Expect.FUSED));
       }
     }
     return out;
   }
 
-  /** Whether the session's plan for {@code query} holds a Varka node. */
-  static boolean fuses(SparkSession session, String query) {
-    return session.sql(query).queryExecution().executedPlan().find(
+  /** The sections on this JVM's host, whose answer a session that sets nothing takes. */
+  static List<Section> sections() {
+    return sections(VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK);
+  }
+
+  /** Whether {@code plan} is the plan {@code expect} names. */
+  static boolean matches(SparkPlan plan, Expect expect) {
+    boolean varka = plan.find(
         p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
             || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
         .isDefined();
+    boolean rowFilter = plan.find(p -> p instanceof FilterExec).isDefined();
+    return switch (expect) {
+      case ROW_PATH -> !varka;
+      case FUSED -> varka;
+      case FUSED_UNDER_ROW_FILTER -> varka && rowFilter;
+    };
   }
 
   @Override
@@ -197,16 +232,17 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_boolean");
         VarkaArrowSessions.cache(session, "varka_boolean");
       }
-      for (Section s : sections()) {
-        boolean fused = fuses(varka, s.query());
-        if (fused != s.control()) {
-          SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
-          String why = s.control() ? " is a filter control that does not fuse, so its varka on "
-              + "arm is not Varka's filter: " : " fuses, so it is no longer a baseline: ";
+      List<Section> sections = sections();
+      for (Section s : sections) {
+        SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
+        if (!matches(plan, s.expect())) {
+          String why = s.control() ? " is a filter control whose plan is not " + s.expect()
+              + ", so its varka on arm is not what Varka runs for it: "
+              : " fuses, so it is no longer a baseline: ";
           throw new IllegalStateException(s.title() + why + s.query() + "\n" + plan.treeString());
         }
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> {
           VarkaBenchmark benchmark = benchmark(
               s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();
