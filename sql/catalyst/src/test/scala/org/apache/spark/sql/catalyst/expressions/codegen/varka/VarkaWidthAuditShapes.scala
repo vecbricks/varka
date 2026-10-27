@@ -125,7 +125,10 @@ object VarkaWidthAuditShapes {
         VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), columns), catalyst)
       val compiled =
         if (form == "predicate") {
-          VarkaExpressionCompiler.compilePredicate(resolved, columns).toScala.map(_.fused)
+          // On the host's own terms: an x86 host at two long lanes refuses a long filter
+          // condition (VARKA-503), which is this width's answer as a narrow load's is.
+          VarkaExpressionCompiler.compilePredicate(resolved, columns, VarkaEmitOptions.DEFAULTS,
+            java.util.Set.of(), VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK).toScala.map(_.fused)
         } else {
           VarkaExpressionCompiler.compile(Seq(Alias(resolved, "c")()), columns).toScala
         }
@@ -139,7 +142,9 @@ object VarkaWidthAuditShapes {
   /** Why the compiler declined a row at this width, from the compile that explains one. */
   private def declineReason(form: String, resolved: Expression): String =
     if (form == "predicate") {
-      VarkaExpressionCompiler.explainPredicate(resolved, columns).asScala
+      VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
+        VarkaEmitOptions.DEFAULTS, java.util.Set.of(),
+        VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK).specs.asScala
         .flatMap(_.decline.toScala).map(_.reason).mkString("; ")
     } else {
       VarkaExpressionCompiler.declines(Seq(Alias(resolved, "c")()), columns).asScala

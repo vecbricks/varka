@@ -24,6 +24,7 @@ import scala.runtime.BoxedUnit;
 import org.apache.spark.internal.config.UI;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.execution.SparkPlan;
 import org.apache.spark.sql.execution.VarkaColumnarRule$;
 import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
@@ -56,7 +57,9 @@ import org.apache.spark.sql.internal.StaticSQLConf;
  *
  * <p>Each Varka case asserts that its query actually fused before it is timed: a benchmark whose
  * subject silently fell back to the row engine would report the row engine twice and call the
- * ratio 1.0.
+ * ratio 1.0. The exception is a filter whose condition is on the long lane, on an x86 host whose
+ * long species has two lanes (the 128-bit companion's): the compiler refuses that condition
+ * there (VARKA-503), so the case is checked to have declined, and its Varka arm is the row path.
  *
  * <p>To run this benchmark:
  * <pre>
@@ -186,6 +189,21 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
     }
   }
 
+  /**
+   * {@link #requireFused}, except for a filter whose condition is on the long lane on a host where
+   * the compiler refuses one (x86 at two long lanes, VARKA-503): there the case must have
+   * declined, and its Varka arm times the row path, which is what such a host runs.
+   */
+  private static void requireRuns(SparkSession session, String name, String query,
+      boolean longCondition) {
+    if (!longCondition || !VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK) {
+      requireFused(session, name, query);
+    } else if (isVarkaNode(session, query)) {
+      throw new IllegalStateException(name + " fused on a two-lane x86 host, where the compiler "
+          + "refuses a long-lane condition: " + query);
+    }
+  }
+
   /** {@link #runPair} over the {@link #NUM_ROWS} table. */
   private void runPair(SparkSession baseline, SparkSession varka, String name, String intQuery,
       String longQuery) {
@@ -200,7 +218,7 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
   private void runPair(SparkSession baseline, SparkSession varka, String name, String intQuery,
       String longQuery, int rows) {
     requireFused(varka, name + " (int lane)", intQuery);
-    requireFused(varka, name + " (long lane)", longQuery);
+    requireRuns(varka, name + " (long lane)", longQuery, name.startsWith("filter"));
     section(name, () -> {
       VarkaBenchmark benchmark = benchmark(
           name + " over " + rows + " Arrow-cached rows", rows).timed().build();
@@ -214,7 +232,7 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
 
   /** A long-lane shape with no int twin - the {@code TIME} and interval columns. */
   private void runSingle(SparkSession baseline, SparkSession varka, String name, String query) {
-    requireFused(varka, name, query);
+    requireRuns(varka, name, query, name.startsWith("filter"));
     section(name, () -> {
       VarkaBenchmark benchmark = benchmark(
           name + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();
@@ -304,7 +322,7 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
             new Case("compare int32, output none (count)",
                 "SELECT count(*) FROM varka_long_pairs_big WHERE i > 50000"));
         for (Case c : cases) {
-          requireFused(varka, c.name(), c.query());
+          requireRuns(varka, c.name(), c.query(), c.name().startsWith("compare int64"));
           benchmark.addCase(c.name() + ", varka (SIMD)", i -> noop(varka.sql(c.query())));
         }
         runCases(benchmark);

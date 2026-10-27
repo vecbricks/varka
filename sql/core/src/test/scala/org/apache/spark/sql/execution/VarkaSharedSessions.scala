@@ -59,6 +59,10 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
       .set(StaticSQLConf.SPARK_CACHE_SERIALIZER.key,
         classOf[ArrowCachedBatchSerializer].getName)
       .set(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
+      // The suites check the kernels' answers, at 128 bits too: on an x86 host whose long
+      // species has two lanes the compiler would leave every long filter condition to the row
+      // engine (VARKA-503), and the narrow step would then test the row engine against itself.
+      .set(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
     // The batch-size axis (VARKA-301): this JVM's rows per Arrow cached batch, in every session.
     VarkaMatrix.arrowBatchSize.foreach(rows =>
       conf.set(SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key, rows.toString))

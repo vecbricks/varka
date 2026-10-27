@@ -5237,6 +5237,20 @@ filter controls, EPYC 7763 at `-XX:MaxVectorSize=16`) has the fused filter
 is slower than the row engine on this host, and rows 27 and 347 decided to fuse long kernels at two
 lanes only where they lose nothing the filters do not: this item's verdict decides those too.
 
+*27 October 2026: option 1 is built, narrower than written, by `m8` row 503.* The compiler refuses
+a filter's condition on the long lane where an x86 host's long species has two lanes, with the
+reason in `EXPLAIN`; the other conjuncts still fuse. It does not decline every kernel with a
+long-lane mask, because the measurement did not show every such kernel losing: under
+`-XX:UseAVX=2 -XX:MaxVectorSize=16` the long filters ran at 0.5X to 0.7X of Spark's row path on
+batches without nulls and 1.1X to 1.7X with them, while the blends (`CASE WHEN l < l2`,
+`greatest`, `if(l IS NULL, ...)`) ran at 1.3X to 5.6X and still fuse
+(`m8/results/VARKA-503/`). So the projections' warm-up releases at 128 bits are not removed by
+row 503, and this item's done-when is not met. Option 2, the mask-free lowering, stays here, and
+the filter numbers add a third, cheaper candidate to it: the loss is the dense body's alone (the
+masked body, which carries the condition as words, wins), so a long filter at two lanes could take
+the masked body for every batch, as `Analysis.maskedOnly` already does for other kernels, and fuse
+again without the mask-free lowering.
+
 ### Item 102. A date column's bound per shape, not the calendar's 0001 to 9999
 
 *Added 16 October 2026 from `m7/VARKA-379.md` 3.1.* VARKA-379 made the date column bound a check:
@@ -5611,6 +5625,48 @@ day, so it rests on row 339's `ntzDay` and the month forms' whole-range sweep.
 
 **Done when** `time_bucket(INTERVAL 'n' MONTH, ntz[, origin])` fuses with Spark's answer at every
 origin, proven over the sweep row 339 builds, or the record says why it stays declined.
+
+### Item 118. Drive mixed int and long kernels at the int lane's count
+
+*Added 27 October 2026 on the owner's word.* A kernel that holds both lanes is driven at the long
+lane, one long lane per row, with its int values in the low half of the int species of the same
+width (`m8/VARKA-28.md` 9). At 128 bits that is two rows a step, so the kernel's int work runs at
+half the int species and its long work at the two lanes x86 lowers no mask for. Driven at the int
+lane's count instead, each step would load each long column as two long vectors and its int
+columns as one, convert between them in two parts, and compute the int values at the full int
+species: four rows a step at 128 bits. The long half's masks are still two-lane masks, so on x86
+this helps only together with item 101's mask-free form; on its own it is a change of the
+mixed-lane loop's shape and of every mixed kernel's bytes, measured against the long-driven one on
+the mixed rows of the coverage table at all three widths.
+
+**Done when** the int-driven form is built behind an option, measured against the long-driven one
+at each width with item 101's mask-free form and without it, and the default is set by the
+measurement.
+
+### Item 119. Choose between a kernel and Spark's row path by measurement at run time
+
+*Added 27 October 2026 on the owner's word.* The compiler decides at planning which shapes fuse,
+from rules written down after measurements on a few machines; row 503's refusal of a long filter
+at two lanes on x86 is one, and it gives up the masked body's wins to avoid the dense body's
+losses. A parity check at run time could decide per shape and per host instead: time the shape's
+kernel against Spark's row path on its first batches, keep the faster, and cache the verdict by
+the shape's hash and the host, extending the kernel warm-up (`VarkaKernelWarmup`), which already
+watches a shape's first batches and hands them to the row path while its kernel compiles. The
+risks to design for: timings over a few batches are noisy, and a JIT still compiling either side
+reads slower than it will be, so a verdict needs a settled kernel and a margin; which batches to
+sample, since a batch with nulls and one without take different bodies and can disagree, as row
+503's filters do; what the cache keys on and how long a verdict lives, since a host's load and a
+table's null density change; and keeping the row path's side cheap to time without running every
+batch twice.
+
+**Done when** a design says how a verdict is taken, keyed and expired, a spike measures its cost
+on the warm-up's own shapes, and the record says whether it replaces any planning rule such as row
+503's.
+
+A case it would catch, from row 503's measurement (`m8/results/VARKA-503/`, one run): with
+`i < l` declined at two long lanes, the filter's only fused conjunct is the `isnotnull(i)` the
+optimizer adds, and that kernel of null tests alone ran at 0.8X of the row path on batches
+without nulls. No planning rule declines a filter kernel of null tests alone today.
 
 ### Item 120. Never slower than Spark: a gate per width
 

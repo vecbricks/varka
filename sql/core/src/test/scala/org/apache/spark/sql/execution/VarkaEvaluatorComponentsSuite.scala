@@ -26,7 +26,8 @@ import scala.jdk.CollectionConverters._
 import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
+  VarkaKernelPlan}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
@@ -216,19 +217,26 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // the options - which would move every shape key and emitted class - and an explicit false
     // that cannot override a base with the setting on.
     val conf = new SQLConf
-    assert(VarkaSessionEmit.of(conf) === VarkaSessionEmit.DEFAULTS)
+    // Unset, the two-lane refusal is the host's answer (VARKA-503); everything else is unset.
+    val host = VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK
+    assert(VarkaSessionEmit.of(conf) === new VarkaSessionEmit(
+      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), host))
     val base = VarkaEmitOptions.DEFAULTS
     assert(VarkaSessionEmit.DEFAULTS.apply(base) eq base)
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, 2)
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "true")
     val session = VarkaSessionEmit.of(conf)
-    assert(session === new VarkaSessionEmit(2, java.lang.Boolean.TRUE))
+    assert(session === new VarkaSessionEmit(2, java.lang.Boolean.TRUE, java.util.Set.of(), host))
     assert(session.apply(base) === base.withUseAVX(2).withExactRefusalStatus(true))
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "false")
     val exactBase = base.withExactRefusalStatus(true)
     assert(VarkaSessionEmit.of(conf).apply(exactBase) === exactBase.withExactRefusalStatus(false)
       .withUseAVX(2))
     intercept[IllegalArgumentException](new VarkaSessionEmit(-2, null))
+    for (set <- Seq(true, false)) {
+      conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, set.toString)
+      assert(VarkaSessionEmit.of(conf).declineTwoLaneConditions === set)
+    }
   }
 
   test("the class dump writes a shape once, and a failed write is neither thrown nor remembered") {

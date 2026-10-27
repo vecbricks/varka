@@ -212,7 +212,19 @@ public final class VarkaExpressionCompiler {
   public static Optional<CompiledVarkaPredicate> compilePredicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
-    return explainAndCompilePredicate(condition, childOutput, options, familiesOff).compiled();
+    return compilePredicate(condition, childOutput, options, familiesOff, false);
+  }
+
+  /**
+   * {@link #compilePredicate(Expression, Seq, VarkaEmitOptions, Set)} on a host that refuses a
+   * long-lane condition; see {@link #explainAndCompilePredicate(Expression, Seq,
+   * VarkaEmitOptions, Set, boolean)}.
+   */
+  public static Optional<CompiledVarkaPredicate> compilePredicate(
+      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      Set<VarkaFamily> familiesOff, boolean twoLaneHost) {
+    return explainAndCompilePredicate(condition, childOutput, options, familiesOff, twoLaneHost)
+        .compiled();
   }
 
   /** {@link #explainPredicate(Expression, Seq, VarkaEmitOptions)} under the default options. */
@@ -729,14 +741,30 @@ public final class VarkaExpressionCompiler {
   public static Explained explainAndCompilePredicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
-    return planning(() -> predicate(condition, childOutput, options, familiesOff),
+    return explainAndCompilePredicate(condition, childOutput, options, familiesOff, false);
+  }
+
+  /**
+   * {@link #explainAndCompilePredicate(Expression, Seq, VarkaEmitOptions, Set)} on a host that
+   * refuses a long-lane condition when {@code twoLaneHost} is set: an x86 host whose long species
+   * has two lanes ({@link VarkaKernelPlan#admit(List, VarkaEmitOptions, boolean)}, VARKA-503).
+   * Like the families off it is a session setting and not an emit option: it changes which
+   * conjuncts the compiler admits, never a kernel's bytes, and the compile at planning and the
+   * filter evaluator's compile in a task must decline alike, so both take it from the plan. The
+   * overloads without it answer as a host that refuses nothing, which keeps the committed
+   * oracles built over them the same on every machine.
+   */
+  public static Explained explainAndCompilePredicate(
+      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      Set<VarkaFamily> familiesOff, boolean twoLaneHost) {
+    return planning(() -> predicate(condition, childOutput, options, familiesOff, twoLaneHost),
         () -> "condition " + condition + " over " + childOutput.mkString("[", ", ", "]"),
         options);
   }
 
   private static Explained predicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
+      Set<VarkaFamily> off, boolean twoLaneHost) {
     // The split hoists fused conjuncts below the residual ones, which reorders evaluation. That
     // is sound only when every conjunct is deterministic - Spark's own predicate pushdown stops
     // at the first nondeterministic conjunct (span(_.deterministic)) for the same reason: a
@@ -766,7 +794,8 @@ public final class VarkaExpressionCompiler {
     List<Expression> written = conjuncts(condition);
     Map<Integer, String> demoted = new HashMap<>();
     while (true) {
-      PredicatePass once = predicateOnce(condition, childOutput, demoted, options, off);
+      PredicatePass once =
+          predicateOnce(condition, childOutput, demoted, options, off, twoLaneHost);
       Map<Integer, String> late = VarkaConjunctOrder.behindRaising(written,
           once.specs().stream().map(VarkaConjunctSpec::fused).toList());
       if (!late.isEmpty()) {
@@ -857,7 +886,8 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
+      Set<VarkaFamily> off,
+      boolean twoLaneHost) {
     VarkaSlotTable inputs = new VarkaSlotTable();
     VarkaSlotTable literals = new VarkaSlotTable();
     DeclineSink sink = new DeclineSink(childOutput, options.rangeSets(), off);
@@ -881,7 +911,7 @@ public final class VarkaExpressionCompiler {
           .map(c -> (Cond) sink.guardDayColumns(c, marks.bounds()));
       if (compiled.isPresent()) {
         Cond cond = compiled.get();
-        Optional<String> narrow = VarkaKernelPlan.of(List.of(cond), options).refusal()
+        Optional<String> narrow = VarkaKernelPlan.admit(List.of(cond), options, twoLaneHost)
             .map(VarkaKernelPlan.Refusal::reason);
         if (narrow.isPresent()) {
           marks.restore(inputs, literals, sink);
@@ -942,7 +972,7 @@ public final class VarkaExpressionCompiler {
         }
         // fitsBudgets also fails through the plan's refusal, whose reason is the one to record;
         // the budget message is only for the budgets proper.
-        budgetReason = VarkaKernelPlan.of(List.of(candidate), options).refusal()
+        budgetReason = VarkaKernelPlan.admit(List.of(candidate), options, twoLaneHost)
             .map(VarkaKernelPlan.Refusal::reason).orElse(budgetReason);
       }
       marks.restore(inputs, literals, sink);

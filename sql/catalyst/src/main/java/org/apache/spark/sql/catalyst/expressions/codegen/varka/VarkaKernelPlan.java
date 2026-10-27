@@ -56,7 +56,13 @@ public final class VarkaKernelPlan {
     /** Two roots no one lane serves: a long root beside a narrow or int one. */
     LANE_MISMATCH,
     /** A condition root on a floating lane, which no filter kernel joins yet. */
-    FLOATING_CONDITION
+    FLOATING_CONDITION,
+    /**
+     * A condition root of a kernel driven at the long lane, on an x86 host whose long species has
+     * two lanes and whose masks C2 does not lower: a refusal of the host, not of the roots, so
+     * the compiler asks for it at admission ({@link #admit}) and {@link #of} never makes it.
+     */
+    TWO_LANE_CONDITION
   }
 
   private final Optional<Refusal> refusal;
@@ -143,6 +149,91 @@ public final class VarkaKernelPlan {
   private static VarkaKernelPlan refused(Refusal refusal) {
     return new VarkaKernelPlan(Optional.of(refusal), LaneType.INT, 0, false, Set.of(), Map.of(),
         0);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The host's refusal
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Whether this JVM is a host where a long-lane condition root is refused: x86, where the long
+   * species has two lanes. Read once; see {@link #twoLaneMasksFallBack}. It is the default of the
+   * session setting {@code spark.sql.codegen.varka.declineTwoLaneConditions}, which is what the
+   * compiler is handed; the compiler never reads this field itself, so a compile with no session
+   * answers alike on every host.
+   */
+  public static final boolean HOST_TWO_LANE_MASKS_FALL_BACK =
+      twoLaneMasksFallBack(VarkaEmitOptions.HOST_USE_AVX, Lane.LONG.preferredLanes);
+
+  /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
+  public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
+      + "at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no "
+      + "two-lane mask there, and the selection would run the Vector API's Java fallback";
+
+  /**
+   * Whether a host with this {@code UseAVX} level and this many lanes in its preferred long
+   * species runs every mask of the long species as the Vector API's Java fallback.
+   *
+   * <p>C2 on x86 refuses {@code VectorLoadMask}, {@code VectorStoreMask} and
+   * {@code VectorMaskCast} at {@code vlen == 2} whatever the instruction set
+   * ({@code match_rule_supported_vector} in {@code x86.ad}), so at two long lanes every compare
+   * to a mask, mask logic, blend and mask-to-word call is a per-lane Java loop that allocates
+   * ({@code m7/VARKA-374.md} 2: the same 18-fold loss under {@code UseAVX=1}, {@code 2} and
+   * {@code 3} capped to 16 bytes). So the test is not the AVX level, as
+   * {@link VarkaEmitOptions#convertsFallBack} is for the conversions, but "x86 at two long
+   * lanes". A JVM with no {@code UseAVX} flag is not x86: aarch64's back end lowers two-lane
+   * masks, and nothing is refused there. The count is the host's preferred species and never an
+   * emit option's {@code lanesOverride}, so a suite that emits two long lanes on a wider host
+   * still runs them, as answer checks.
+   */
+  static boolean twoLaneMasksFallBack(int useAVX, int preferredLongLanes) {
+    return useAVX != VarkaEmitOptions.USE_AVX_UNKNOWN && preferredLongLanes == 2;
+  }
+
+  /**
+   * Why no kernel of {@code roots} is admitted, or empty when one is: the plan's refusal, then,
+   * where {@code twoLaneMasksFallBack} says the host's long masks fall back, the host's
+   * ({@link #hostRefusal}). The predicate compiler's admission asks this, with the flag the
+   * session resolved; the emitter and a compiled projection ask {@link #of}, which never refuses
+   * for the host.
+   */
+  public static Optional<Refusal> admit(List<VarkaVectorIR> roots, VarkaEmitOptions options,
+      boolean twoLaneMasksFallBack) {
+    VarkaKernelPlan plan = of(roots, options);
+    if (plan.refusal.isPresent()) {
+      return plan.refusal;
+    }
+    return twoLaneMasksFallBack ? hostRefusal(roots, plan) : Optional.empty();
+  }
+
+  /**
+   * The refusal of a filter's long-lane condition on a host whose long masks fall back
+   * (VARKA-503): a condition root - a filter's conjunct or a selection output - of a kernel
+   * driven at the long lane, whether the compare itself is on the long lane ({@code l < l2},
+   * {@code i < l}) or on the int half of a kernel that reads a long column ({@code hour(t) = 12}).
+   *
+   * <p>Only the condition roots, and not every kernel that makes a long mask, because that is
+   * where the measurement put the loss. At two long lanes under {@code -XX:UseAVX=2} the long
+   * filters - {@code l < l2}, {@code l > 500000000000}, {@code i < l} and
+   * {@code (d < d2) AND (l < l2)} - ran at 0.5X to 0.7X of Spark's row path on batches without
+   * nulls, while every projection that blends on a long compare ({@code CASE WHEN l < l2},
+   * {@code greatest(l, l2)}, {@code if(l IS NULL, l2, l)}) ran at 1.3X to 5.6X, its fallback
+   * masks cheaper than the row path's per-row work ({@code m8/results/VARKA-503/}). With nulls the
+   * filters won, because the masked body carries a condition as words rather than masks; the
+   * refusal gives that up for the dense body's loss. A refused conjunct leaves the rest of the
+   * filter to fuse: {@code d < d2} beside it stays an int kernel, and the long conjunct is the
+   * row filter's.
+   */
+  private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
+    if (plan.drive != LaneType.LONG) {
+      return Optional.empty();
+    }
+    for (VarkaVectorIR root : roots) {
+      if (root instanceof VarkaVectorIR.Cond) {
+        return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_CONDITION_REASON));
+      }
+    }
+    return Optional.empty();
   }
 
   // -------------------------------------------------------------------------------------------

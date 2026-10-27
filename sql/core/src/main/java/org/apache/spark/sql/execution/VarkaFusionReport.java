@@ -125,9 +125,19 @@ public final class VarkaFusionReport {
   /** {@link #predicateLines(Expression, Seq, VarkaEmitOptions)} with the families switched off. */
   public static Seq<String> predicateLines(Expression condition, Seq<Attribute> childOutput,
       VarkaEmitOptions options, Set<VarkaFamily> familiesOff) {
+    return predicateLines(condition, childOutput, options, familiesOff, false);
+  }
+
+  /**
+   * {@link #predicateLines(Expression, Seq, VarkaEmitOptions, Set)} with the session's two-lane
+   * refusal ({@link VarkaSessionEmit#declineTwoLaneConditions}), as the plan compiled it.
+   */
+  public static Seq<String> predicateLines(Expression condition, Seq<Attribute> childOutput,
+      VarkaEmitOptions options, Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
     var out = new ArrayList<String>();
     VarkaExpressionCompiler.Explained explained = VarkaExpressionCompiler
-        .explainAndCompilePredicate(condition, childOutput, options, familiesOff);
+        .explainAndCompilePredicate(condition, childOutput, options, familiesOff,
+            declineTwoLaneConditions);
     for (VarkaConjunctSpec spec : explained.specs()) {
       if (spec.fused()) {
         out.add(render(spec.conjunct()) + ": fused");

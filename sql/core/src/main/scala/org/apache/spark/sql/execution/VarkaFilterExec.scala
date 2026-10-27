@@ -120,7 +120,8 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   // plan (VARKA-313).
   @transient private lazy val fusionLines =
     VarkaFusionReport.predicateLines(wholeCondition.getOrElse(condition), child.output,
-      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
+      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff,
+      sessionEmit.declineTwoLaneConditions)
 
   // The question for a filter is "why didn't my predicate fuse?", answered per conjunct.
   // The condition renders as FilterExec renders its own - a plain line, because

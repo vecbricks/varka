@@ -21,12 +21,13 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, GreaterThan, IsNotNull, LessThan, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFallbackEvent,
+  VarkaJfrTestSupport, VarkaKernelPlan}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType}
+import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType, LongType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -427,6 +428,25 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     assert(nullTest === Seq("(f IS NOT NULL): residual (a condition on the DOUBLE lane in a " +
       "filter: its kernel meets on an integral lane, and a mask crossing from a floating lane " +
       "is not built: (f IS NOT NULL))", "(d < DATE '1970-01-11'): fused"), nullTest)
+  }
+
+  test("a long conjunct stays with the row filter where x86 has two long lanes (VARKA-503)") {
+    val l = AttributeReference("l", LongType)()
+    val l2 = AttributeReference("l2", LongType)()
+    val d2 = AttributeReference("d2", DateType)()
+    val columns = Seq(attrD, d2, l, l2)
+    def lines(twoLaneHost: Boolean): Seq[String] = VarkaFusionReport.predicateLines(
+      And(LessThan(attrD, d2), LessThan(l, l2)), columns, VarkaEmitOptions.DEFAULTS,
+      java.util.Set.of(), twoLaneHost)
+    // On the two-lane host the date conjunct is an int kernel of its own, and the long one is
+    // the row filter's with the reason; elsewhere both fuse, on the long lane.
+    assert(lines(true) === Seq("(d < d2): fused",
+      s"(l < l2): residual (${VarkaKernelPlan.TWO_LANE_CONDITION_REASON}: (l < l2))"))
+    assert(lines(false) === Seq("(d < d2): fused", "(l < l2): fused"))
+    // A session that does not set it gets the host's answer, which is what EXPLAIN renders.
+    info(s"two-lane x86 host: ${VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK}")
+    assert(VarkaSessionEmit.of(new SQLConf).declineTwoLaneConditions ===
+      VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
   }
 
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {
