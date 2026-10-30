@@ -155,6 +155,11 @@ the NTZ operand, `D` 86,400,000,000.
   `IntArith(SUB, FAIL, t, GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE))`. The guard is
   `negateExact`'s domain and, inside it, `t - dt` overflows exactly when `t + (-dt)` does. A
   literal `Long.MIN_VALUE` interval declines at compile time.
+  *30 October 2026 (step 2's review):* no literal arm is built. `ConstantFolding` folds
+  `UnaryMinus` over a literal before Varka sees a plan, so `ntz - INTERVAL '1' HOUR` arrives as
+  `ntz + INTERVAL '-1' HOUR`, the plain checked sum; the least literal raises at planning, and
+  inside a conditional branch, which the folding leaves alone, it takes the guarded subtraction,
+  whose guard sends each batch to the row engine.
 
 ### 2.2 `timestampadd` up to a week (time family)
 
@@ -269,6 +274,11 @@ suites, as for every landed form.
    fixtures' NTZ values stop about four hours below the long's top (`d` inside the cast's days, a
    time of day added), so an hour overflows on no row and a day does. Each domain is Spark's own
    `try_` form of the row, unknown where an operand is null.
+   *30 October 2026 (step 2's review):* that is wrong for the two rows whose kernel guards one
+   operand alone, which declines a batch whose other operand is null. `ntz - dt` is
+   `dt <> <least interval> AND` the form above and `ntz2 - d` the cast's day bound `AND` it, and
+   the edges fixture gains a row for each: a null `ntz` beside the least interval and a null
+   `ntz2` beside a day past the cast's.
 4. **The edges**, in `VarkaTimestampNtzSuite`, each overflowing row in one batch of three so the
    others stay fused, LEGACY and ANSI: `Long.MAX_VALUE` plus a microsecond; the long range's ends
    subtracted; `dt = Long.MIN_VALUE` and `Integer.MIN_VALUE` months negated; `timestampadd` DAY at
@@ -352,7 +362,8 @@ as an operand (332); `timestampadd` over a `DATE`, which Spark casts to the zone
 ## 7. Declines that stay
 
 The legacy `CalendarInterval` forms; a windowed `time_bucket` width past `2^51`, a non-literal or
-null width or origin; NANOSECOND and unknown units; a literal `Long.MIN_VALUE` interval negated;
+null width or origin; NANOSECOND and unknown units; a literal `Long.MIN_VALUE` interval negated
+(at run time, by the guard: 2.1's note of 30 October 2026);
 every batch with a lane past a guard, which the row engine answers.
 
 ## 8. Questions for the owner

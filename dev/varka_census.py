@@ -798,6 +798,15 @@ CONTEXT_CASTS = {
     ("int", "dt"): "only as date_add's offset: d + CAST(i AS INTERVAL DAY)",
 }
 
+# The pairs that fuse only from a form the coverage table has no column of, so that no row over
+# its columns can cast them as a plan does: the probe holds every form, and a row writing the cast
+# over a literal shows nothing, since the optimizer folds it. Each must still fuse in the probe;
+# one that a coverage row comes to cast leaves this list.
+UNSHOWN_CASTS = {
+    ("time", "time"): "only a widening from TIME(0) or TIME(3), and the table's TIME columns "
+    "are TIME(6)",
+}
+
 
 def casts_fused(root=ROOT):
     """Per (from, to) and per mode: how many of its form pairs are legal, and how many fuse.
@@ -867,8 +876,11 @@ def cast_errors(cov, probe):
         elif (src, dst) not in CONTEXT_CASTS and not probe.get((src, dst), ({}, {}))[1].get(mode):
             errors.append(f"a coverage row casts {src} to {dst} under {mode}, which never fuses")
     for (src, dst), (_, fused) in sorted(probe.items()):
-        if any(fused.values()) and not any((src, dst) == (s, d) for s, d, _ in cast):
+        shown = any((src, dst) == (s, d) for s, d, _ in cast)
+        if any(fused.values()) and not shown and (src, dst) not in UNSHOWN_CASTS:
             errors.append(f"the compiler fuses cast {src} to {dst} and no coverage row casts it")
+        if (src, dst) in UNSHOWN_CASTS and (shown or not any(fused.values())):
+            errors.append(f"cast {src} to {dst}: take it off UNSHOWN_CASTS")
         if (src, dst) in CONTEXT_CASTS and any(fused.values()):
             errors.append(f"cast {src} to {dst} fuses bare: take it off CONTEXT_CASTS")
     for src, dst in CONTEXT_CASTS:

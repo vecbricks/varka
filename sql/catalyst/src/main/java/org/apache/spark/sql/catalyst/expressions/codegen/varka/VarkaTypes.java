@@ -252,6 +252,14 @@ public final class VarkaTypes {
     return null;
   }
 
+  /**
+   * Whether {@code dataType} is {@code TIMESTAMP_NTZ}, the zone-free timestamp of microseconds
+   * the long lane reads: the test the compiler's NTZ arms share.
+   */
+  public static boolean isNtz(DataType dataType) {
+    return DataTypes.TimestampNTZType.equals(dataType);
+  }
+
   /** The facts about {@code id}. */
   public static Info info(VarkaTypeId id) {
     return Objects.requireNonNull(TABLE.get(id), "every id has an entry");

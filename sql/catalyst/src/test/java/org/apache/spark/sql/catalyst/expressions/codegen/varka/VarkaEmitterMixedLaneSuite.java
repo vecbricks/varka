@@ -401,8 +401,8 @@ public final class VarkaEmitterMixedLaneSuite {
       VarkaChrono.MONTH_ARITH_MAX_MONTHS, VarkaChrono.MONTH_ARITH_MIN_MONTHS};
 
   /**
-   * The lowest day the TIMESTAMP_NTZ month forms admit: a year above the calendar's floor, the
-   * guard of the NTZ day ({@code VARKA-339.md} 2.4).
+   * The lowest long day the {@code add_months} kernel below reads: a year above the calendar's
+   * floor, the bound of its guarded day ({@code VARKA-339.md} 2.4 gives an NTZ day this bound).
    */
   private static final int NTZ_MIN_DAY = VarkaChrono.NARROW_MIN_DAYS + 365;
 
@@ -448,9 +448,9 @@ public final class VarkaEmitterMixedLaneSuite {
       + "widened result and a narrowed day, at both widths")
   void addMonthsInBothLanes() {
     // The kernel holds both lanes, so it is driven at the long lane and computes its calendar at
-    // the int species of the long species' width, as the TIMESTAMP_NTZ month forms will: a
-    // column-count add_months over a guarded int day, widened to a long root, and a
-    // literal-count one over a long day narrowed and guarded to the NTZ day's range.
+    // the int species of the long species' width: a column-count add_months over a guarded int
+    // day, widened to a long root, and a literal-count one over a long day narrowed and guarded
+    // to [NTZ_MIN_DAY, NARROW_MAX_DAYS].
     var monthsOfIntDay = widen(new AddMonths(new GuardedDay(I), I2));
     var monthsOfLongDay = new AddMonths(
         new GuardedRange(narrow(L), NTZ_MIN_DAY, VarkaChrono.NARROW_MAX_DAYS), INT_LIT);

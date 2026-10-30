@@ -519,7 +519,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt >= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
-| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
+| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; a widening from TIME(0) or TIME(3) fuses and a narrowing declines | per-lane: compare to mask, mask cast |
 | `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
 | `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
 | `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | per-lane: compare to mask, mask cast |
@@ -697,10 +697,10 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz2 - d` | `time`, `intArithmetic` | `if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `ntz + dt` | `time`, `intArithmetic` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz - dt` | `time`, `intArithmetic` | `if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz + INTERVAL '1' DAY` | `time`, `intArithmetic` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
 #### DOUBLE columns
 

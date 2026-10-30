@@ -605,8 +605,8 @@ ntz_minus_ntz	SubtractTimestamps	implicit: datetime	in		ntz	dt	ntz	ntz	done	339	
 time_minus_time	SubtractTimes	implicit: datetime	in		time	dt	time		done		
 time_plus_dt	TimeAddInterval	implicit: datetime	in		time,dt	time	time,dt		done		fused in `t + INTERVAL '0 00:00:00' DAY TO SECOND`
 date_plus_ym	DateAddYMInterval	implicit: datetime	in		date,ym	date	date,ym		done		
-datetime_sub	DatetimeSub	implicit: datetime	in		date,ntz,ym,dt	date,ntz	date,ntz,ym	ntz	plumbing	339	the wrapper over the subtraction forms
-ntz_plus_dt	TimestampAddInterval	implicit: datetime	in		ntz,dt	ntz	ntz	ntz	semantics	339	UTC, so plain arithmetic; exact or raise
+datetime_sub	DatetimeSub	implicit: datetime	in		date,ntz,ym,dt	date,ntz	date,ntz,ym	ntz	plumbing	339	the wrapper over the subtraction forms; coverage fuses `ntz - dt` (DatetimeSub over dt), and dt stays out of the fused types until `ntz - ym`, which still declines, fuses in row 339's step 3
+ntz_plus_dt	TimestampAddInterval	implicit: datetime	in		ntz,dt	ntz	ntz,dt	ntz	done	339	UTC, so plain arithmetic; exact or raise
 ntz_plus_ym	TimestampAddYMInterval	implicit: datetime	in		ntz,ym	ntz		ntz	semantics	339	calendar months on the date part
 timestampadd	TimestampAdd	implicit: datetime	in		bigint,ntz	ntz		ntz	semantics	339	units up to a week are arithmetic, months and years calendar
 ym_times_num	MultiplyYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym	int,ym	byte,short,float,double,dec	semantics	103,329,342,349	fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions

@@ -207,21 +207,17 @@ final class VarkaTimeCompiler {
       // compute them, and a batch with a lane that overflows goes to the row engine, which
       // raises Spark's error on the row. The legacy CalendarInterval difference is a type no
       // kernel carries. A zoned TIMESTAMP is no lane's, so these arms ask for NTZ operands.
-      case SubtractTimestamps s when isNtz(s.left()) && isNtz(s.right())
-          && !s.legacyInterval() ->
+      case SubtractTimestamps s when VarkaTypes.isNtz(s.left().dataType())
+          && VarkaTypes.isNtz(s.right().dataType()) && !s.legacyInterval() ->
           () -> ntzDifference(s, inputs, literals, sink);
-      case SubtractTimestamps s when isNtz(s.left()) && isNtz(s.right()) ->
+      case SubtractTimestamps s when VarkaTypes.isNtz(s.left().dataType())
+          && VarkaTypes.isNtz(s.right().dataType()) ->
           () -> sink.decline("legacy CalendarInterval subtraction of two timestamps", s);
-      case TimestampAddInterval a when isNtz(a.start())
+      case TimestampAddInterval a when VarkaTypes.isNtz(a.start().dataType())
           && a.interval().dataType() instanceof DayTimeIntervalType ->
           () -> ntzPlusInterval(a, inputs, literals, sink);
       default -> null;
     };
-  }
-
-  /** Whether {@code e} is a {@code TIMESTAMP_NTZ} of microseconds, the long lane's NTZ. */
-  private static boolean isNtz(Expression e) {
-    return DataTypes.TimestampNTZType.equals(e.dataType());
   }
 
   /**
@@ -252,7 +248,10 @@ final class VarkaTimeCompiler {
    * negates an ANSI interval with {@code negateExact} in every mode, so the one interval it
    * cannot negate, {@code Long.MIN_VALUE}, raises: the guard keeps the interval inside
    * {@code negateExact}'s domain, and inside it {@code t - dt} overflows exactly where
-   * {@code t + (-dt)} does. A literal interval needs no guard, and the least one declines here.
+   * {@code t + (-dt)} does. A literal interval arrives already negated, a literal the plain sum
+   * takes: the optimizer's {@code ConstantFolding} folds {@code UnaryMinus} over a literal. It
+   * raises at planning on the one literal it cannot negate, except in a conditional branch, where
+   * it leaves the negation for this guard to send each batch the branch reads to the row engine.
    */
   private static Optional<VarkaVectorIR> ntzPlusInterval(
       TimestampAddInterval a,
@@ -263,16 +262,7 @@ final class VarkaTimeCompiler {
     if (t.isEmpty()) {
       return t;
     }
-    if (a.interval() instanceof UnaryMinus n
-        && n.child().dataType() instanceof DayTimeIntervalType) {
-      if (n.child() instanceof Literal l && l.value() instanceof Long micros) {
-        if (micros == Long.MIN_VALUE) {
-          return sink.decline("the least day-time interval negated, which overflows and which "
-              + "the row engine raises on every row", a);
-        }
-        return Optional.of(new IntArith(IntOp.SUB, Overflow.FAIL, t.get(),
-            sink.longSlot(micros)));
-      }
+    if (a.interval() instanceof UnaryMinus n) {
       return longOperand(n.child(), inputs, literals, sink).map(dt -> new IntArith(IntOp.SUB,
           Overflow.FAIL, t.get(), new GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE)));
     }

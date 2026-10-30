@@ -154,7 +154,8 @@ public final class VarkaDomains {
    * overflow and one past each; the TIMESTAMP_NTZ values a day inside those days, {@code ntz}
    * near the long's top beside {@code ntz2} near its bottom, whose difference and whose sum with
    * a day overflow, {@code ntz} near the bottom beside the greatest interval, whose difference
-   * overflows, and the least interval, whose negation does; {@code ym} at the month range on both
+   * overflows, and the least interval, whose negation does, also beside a null {@code ntz}, and
+   * a {@code d} past those days beside a null {@code ntz2}; {@code ym} at the month range on both
    * signs, at the one count whose negation overflows and one in from it, and at the counts whose
    * difference with {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each
    * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
@@ -183,6 +184,10 @@ public final class VarkaDomains {
     rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
         "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    // Each guard on one operand alone beside a null in the other: the guard declines the batch
+    // though the row's value is null.
+    rows.add(row("d", "NULL", "dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    rows.add(row("d2", "NULL", "d", day(lastNtzDay + 1)));
     var months = new ArrayList<>(around(minMonths, maxMonths));
     months.addAll(around(-maxMonths, -minMonths));
     months.forEach(n -> rows.add(ymRow(n, "0")));

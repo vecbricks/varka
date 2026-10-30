@@ -1314,9 +1314,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   test("the mixed-lane generator reaches both conversions, the calendar under a widening, " +
       "add_months and a narrowing below another node") {
     // The node types the third corpus exists for, asserted rather than assumed, as the two
-    // single-lane generators' reach is above. `AddMonths` is among them because the
-    // TIMESTAMP_NTZ month forms run it in a kernel of both lanes, at the int species of the long
-    // species' width (`VARKA-339.md` 3.1).
+    // single-lane generators' reach is above. `AddMonths` is among them: the int branch draws it
+    // over int columns, and in this corpus's kernels of both lanes it runs at the int species of
+    // the long species' width.
     val seen = scala.collection.mutable.Set.empty[String]
     var narrowBelow = false
     def walk(n: VarkaVectorIR, underWiden: Boolean): Unit = {

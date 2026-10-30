@@ -21,7 +21,7 @@ import java.time.{Duration, LocalDate, LocalDateTime, ZoneOffset}
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.util.DateTimeConstants
+import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, StructField,
@@ -74,8 +74,7 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
     values.zipWithIndex.map { case (v, i) => Row(i, micros(v)) } :+ Row(values.size, null)
   }
 
-  private def interval(v: Long): Duration =
-    Duration.ofSeconds(Math.floorDiv(v, 1000000L), Math.floorMod(v, 1000000L) * 1000)
+  private def interval(v: Long): Duration = IntervalUtils.microsToDuration(v)
 
   private val arithSchema = StructType(Seq(StructField("i", IntegerType),
     StructField("t", TimestampNTZType), StructField("t2", TimestampNTZType),

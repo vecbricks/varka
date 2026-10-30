@@ -182,9 +182,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
    * Spark's `try_` form of the row has a value, which it has exactly where the row does not
    * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
+   * A row whose kernel also guards one operand alone puts that guard first, `guard AND domain`:
+   * the guard is false on that operand's value whatever the other operand holds, null included,
+   * and three-valued AND keeps it false there.
    */
   private def ntzDomain(tried: String, operands: String*): String =
     s"if(${operands.map(_ + " IS NULL").mkString(" OR ")}, NULL, $tried IS NOT NULL)"
+
+  /** The least day-time interval, the one `negateExact` refuses. */
+  private val leastInterval = "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"
 
   /**
    * NTZ literals the differential fixtures hold (a date column at a time column's value): under
@@ -546,7 +552,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("dt <= dt2"),
       Row("dt IS NULL"),
       Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
-        "the widening cast written out; a narrowing one floors the nanoseconds and declines"),
+        "a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; " +
+          "a widening from TIME(0) or TIME(3) fuses and a narrowing declines"),
       Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
       Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote),
       Row("l <=> l2", "null-safe equality at the long lane (VARKA-336)"),
@@ -737,13 +744,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ntz - ntz2", "a day-time interval in microseconds; a difference past the long " +
         "raises in every mode", domain = Some(ntzDomain("try_subtract(ntz, ntz2)", "ntz", "ntz2"))),
       Row("ntz2 - d", "type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the " +
-        "cast's day guard, then subtracts it", domain = Some(ntzDomain("try_subtract(ntz2, d)",
-          "ntz2", "d"))),
+        "cast's day guard, then subtracts it", domain = Some(s"$ntzDayBound AND " +
+          ntzDomain("try_subtract(ntz2, d)", "ntz2", "d"))),
       Row("ntz + dt", "a value past the long raises in every mode",
         domain = Some(ntzDomain("try_add(ntz, dt)", "ntz", "dt"))),
       Row("ntz - dt", "the interval's negation is folded into a checked subtraction; Spark " +
         "negates with negateExact in every mode, so the least interval, which it raises on, is " +
-        "guarded", domain = Some(ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
+        "guarded", domain = Some(s"dt <> $leastInterval AND " +
+          ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
         domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
 
@@ -1626,14 +1634,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The casts a row performs, as `from>to:mode` in the census's type names: what the census holds
    * each pair `m8/casts.tsv` marks fused to (VARKA-328), since a cast's pair and mode are visible
    * only in the resolved expression, not in the class list. The mode is ANSI's for every row this
-   * suite resolves, Spark's default. The TIMESTAMP_NTZ cast to itself is left out: the
-   * analyzer's datetime arithmetic writes one over `ntz + dt` (`Cast(TimestampAddInterval(...),
-   * TIMESTAMP_NTZ)`), and the optimizer's `SimplifyCasts` removes it before Varka sees a plan, so
-   * it is no pair the census holds.
+   * suite resolves, Spark's default.
    */
   private def castsOf(row: Row): Seq[String] = expressionOf(row).collect {
-    case c: Cast if !(c.dataType == TimestampNTZType && c.child.dataType == TimestampNTZType) =>
-      (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
+    case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
   }.collect { case (Some(from), Some(to), mode) =>
     s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
   }.distinct.sorted

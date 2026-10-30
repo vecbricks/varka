@@ -37,7 +37,6 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimestamps;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
-import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
@@ -143,23 +142,22 @@ public final class VarkaTimestampNtzArithmeticSuite {
     assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, SECOND), root("ntz + dt"));
     assertEquals(new IntArith(IntOp.SUB, Overflow.FAIL, FIRST,
         new GuardedRange(SECOND, Long.MIN_VALUE + 1, Long.MAX_VALUE)), root("ntz - dt"));
-    // The interval a nested difference, and a literal interval, which needs no guard negated.
+    // The interval a nested difference.
     assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST,
         new IntArith(IntOp.SUB, Overflow.FAIL, SECOND, FIRST)), root("ntz + (ntz2 - ntz)"));
-    assertEquals(new IntArith(IntOp.SUB, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
-        root("ntz - INTERVAL '1' HOUR"));
+    // `ntz - INTERVAL '1' HOUR` as an optimized plan holds it: ConstantFolding has folded the
+    // negation into the literal, which the plain checked sum takes in a slot.
+    Expression minusHour = new TimestampAddInterval(ntz,
+        Literal.create(-3_600_000_000L, DayTimeIntervalType.apply()), Option.apply("UTC"));
+    Optional<CompiledVarkaProjection> p = compile(minusHour);
+    assertTrue(p.isPresent(), "ntz - INTERVAL '1' HOUR declined: " + declineOf(minusHour));
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
+        p.get().outputs().get(0));
   }
 
   @Test
-  @DisplayName("the least interval negated as a literal, the legacy CalendarInterval difference "
-      + "and a zoned TIMESTAMP decline")
+  @DisplayName("the legacy CalendarInterval difference and a zoned TIMESTAMP decline")
   void declines() {
-    Literal least = Literal.create(Long.MIN_VALUE, DayTimeIntervalType.apply());
-    Expression negatedLeast = new TimestampAddInterval(ntz, new UnaryMinus(least, false),
-        Option.apply("UTC"));
-    assertTrue(compile(negatedLeast).isEmpty(), "ntz - least interval fused");
-    assertTrue(declineOf(negatedLeast).contains("least day-time interval negated"),
-        declineOf(negatedLeast));
     Expression legacy = new SubtractTimestamps(ntz, ntz2, true, Option.apply("UTC"));
     assertTrue(compile(legacy).isEmpty(), "the legacy difference fused");
     assertTrue(declineOf(legacy).contains("legacy CalendarInterval"), declineOf(legacy));
