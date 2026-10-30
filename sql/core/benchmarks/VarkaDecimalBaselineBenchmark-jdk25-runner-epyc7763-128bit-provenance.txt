@@ -9,3 +9,18 @@ kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 64-Core Processor
 datapath:    44.9 / 90.1 / 90.1 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
+
+The four TIME sections (time_to_seconds and extract(SECOND) over TIME(6), no nulls and one row
+in ten null) were spliced in from a later run of the same class, whose provenance is:
+
+benchmark:   *.VarkaDecimalBaselineBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/MaxGekk/spark/actions/runs/41066481446
+commit:      37e11c86d6d (varka-157-baseline of MaxGekk/spark)
+date:        2026-10-30T14:13:52Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
+jdk:         OpenJDK Runtime Environment Zulu25.38+109-CA (build 25.0.5.0.3+1-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.0 / 90.0 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)

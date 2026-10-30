@@ -26,8 +26,11 @@
 # absolute path, which is the same on every GitHub runner, and
 # the build directory's classpath and jvm.opts under the names `varka-classpath` and
 # `varka-jvm.opts` at the archive's root, and its reach.tsv as `varka-reach.tsv` where it has one:
-# the tests each configuration moves, which a configuration's bin reads (VarkaTestReach). Unpacking restores the entries where they were and
-# writes those two files into the build directory a bin reads with --skip-build --build-dir, so
+# the tests each configuration moves, which a configuration's bin reads (VarkaTestReach); and its
+# harness-store/ as `varka-harness-store/` where that holds a file: the plans and Spark's answers
+# the defaults' run wrote, which a configuration's bin reads (VarkaHarnessStore). Unpacking
+# restores the entries where they were and
+# writes those files into the build directory a bin reads with --skip-build --build-dir, so
 # the pull request's Build, which builds into target/varka-scoped, and the matrix's own build,
 # into target/varka-matrix, give the bins the same thing.
 set -euo pipefail
@@ -44,6 +47,11 @@ case "${1:-}" in
     if [ -s "$build/reach.tsv" ]; then
       cp "$build/reach.tsv" "$work/varka-reach.tsv"
       named+=(varka-reach.tsv)
+    fi
+    if compgen -G "$build/harness-store/harness-*.bin" > /dev/null; then
+      mkdir "$work/varka-harness-store"
+      cp "$build"/harness-store/harness-*.bin "$work/varka-harness-store/"
+      named+=(varka-harness-store)
     fi
     # The jars no Varka suite loads, left out of the archive and of its classpath: sql's test
     # classpath carries them for Spark's own cloud, JDBC, UI and state-store tests, and they were
@@ -71,7 +79,8 @@ case "${1:-}" in
     tar=${2:?usage: unpack TAR BUILD_DIR} build=${3:?usage: unpack TAR BUILD_DIR}
     mkdir -p "$build"
     tar -xPf "$tar" -C "$build" --transform 's#^varka-classpath$#classpath#' \
-      --transform 's#^varka-jvm\.opts$#jvm.opts#' --transform 's#^varka-reach\.tsv$#reach.tsv#'
+      --transform 's#^varka-jvm\.opts$#jvm.opts#' --transform 's#^varka-reach\.tsv$#reach.tsv#' \
+      --transform 's#^varka-harness-store#harness-store#'
     [ -s "$build/classpath" ] && [ -s "$build/jvm.opts" ] || {
       echo "$tar holds no classpath or jvm.opts" >&2; exit 1; }
     ;;

@@ -1,0 +1,86 @@
+================================================================================================
+emitted narrow kernels at 128 bits, arms [widened, native]
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - byte pair of 32 KB:                                  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+a: y1 < y2, selection, WIDENED                                               56             56           0       2418.2           0.4       1.0X
+a: y1 < y2, selection, NATIVE                                                 8              8           0      16754.9           0.1       6.9X
+b: (y1 + y2) < y1, selection, WIDENED                                       133            133           0       1011.2           1.0       0.4X
+b: (y1 + y2) < y1, selection, NATIVE                                          8              8           1      16572.8           0.1       6.9X
+c: b < i, selection (int-driven), WIDENED                                    55             55           0       2457.3           0.4       1.0X
+c: b < i, selection (int-driven), NATIVE                                     55             55           0       2452.1           0.4       1.0X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, WIDENED            892            892           0        150.5           6.6       0.1X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, NATIVE               5              5           0      27888.5           0.0      11.5X
+f: -y1, TINYINT store, WIDENED                                              865            874          12        155.2           6.4       0.1X
+f: -y1, TINYINT store, NATIVE                                                 3              3           0      40066.0           0.0      16.6X
+g: abs(y1), TINYINT store, WIDENED                                          870            872           3        154.2           6.5       0.1X
+g: abs(y1), TINYINT store, NATIVE                                             3              3           0      40243.4           0.0      16.6X
+h: y1 * y2, ANSI, TINYINT store, WIDENED                                    975            987          10        137.7           7.3       0.1X
+h: y1 * y2, ANSI, TINYINT store, NATIVE                                     969            969           0        138.5           7.2       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, WIDENED                       1020           1023           3        131.5           7.6       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, NATIVE                        1020           1021           1        131.6           7.6       0.1X
+j: s1 * s2, ANSI, SMALLINT store, WIDENED                                    30             30           0       4528.5           0.2       1.9X
+j: s1 * s2, ANSI, SMALLINT store, NATIVE                                     30             30           0       4476.4           0.2       1.9X
+k: try_multiply(s1, s2), TRY, SMALLINT store, WIDENED                        68             68           0       1968.4           0.5       0.8X
+k: try_multiply(s1, s2), TRY, SMALLINT store, NATIVE                         68             68           0       1971.2           0.5       0.8X
+l: y1 * y2 < y3, ANSI, selection, WIDENED                                   164            164           0        820.2           1.2       0.3X
+l: y1 * y2 < y3, ANSI, selection, NATIVE                                    163            164           0        821.5           1.2       0.3X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - byte pair of 512 KB:                                Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+a: y1 < y2, selection, WIDENED                                               55             55           0       2434.7           0.4       1.0X
+a: y1 < y2, selection, NATIVE                                                 8              8           0      16905.3           0.1       6.9X
+b: (y1 + y2) < y1, selection, WIDENED                                       133            133           0       1009.6           1.0       0.4X
+b: (y1 + y2) < y1, selection, NATIVE                                          8              8           0      17288.2           0.1       7.1X
+c: b < i, selection (int-driven), WIDENED                                    55             55           0       2450.6           0.4       1.0X
+c: b < i, selection (int-driven), NATIVE                                     55             55           0       2454.9           0.4       1.0X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, WIDENED            891            892           1        150.7           6.6       0.1X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, NATIVE               6              7           0      22407.3           0.0       9.2X
+f: -y1, TINYINT store, WIDENED                                              864            864           1        155.4           6.4       0.1X
+f: -y1, TINYINT store, NATIVE                                                 4              4           0      36713.0           0.0      15.1X
+g: abs(y1), TINYINT store, WIDENED                                          870            870           1        154.3           6.5       0.1X
+g: abs(y1), TINYINT store, NATIVE                                             3              4           0      38370.3           0.0      15.8X
+h: y1 * y2, ANSI, TINYINT store, WIDENED                                    973            974           1        138.0           7.2       0.1X
+h: y1 * y2, ANSI, TINYINT store, NATIVE                                     966            966           1        139.0           7.2       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, WIDENED                       1023           1024           1        131.2           7.6       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, NATIVE                        1021           1021           1        131.5           7.6       0.1X
+j: s1 * s2, ANSI, SMALLINT store, WIDENED                                    30             30           0       4521.8           0.2       1.9X
+j: s1 * s2, ANSI, SMALLINT store, NATIVE                                     30             30           0       4449.8           0.2       1.8X
+k: try_multiply(s1, s2), TRY, SMALLINT store, WIDENED                        68             69           0       1960.4           0.5       0.8X
+k: try_multiply(s1, s2), TRY, SMALLINT store, NATIVE                         68             69           0       1961.5           0.5       0.8X
+l: y1 * y2 < y3, ANSI, selection, WIDENED                                   164            165           1        817.4           1.2       0.3X
+l: y1 * y2 < y3, ANSI, selection, NATIVE                                    164            165           0        817.1           1.2       0.3X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+1000000 rows - byte pair of 2 MB:                                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+a: y1 < y2, selection, WIDENED                                               55             55           0       2445.5           0.4       1.0X
+a: y1 < y2, selection, NATIVE                                                 8              8           0      17029.8           0.1       7.0X
+b: (y1 + y2) < y1, selection, WIDENED                                       133            133           0       1010.9           1.0       0.4X
+b: (y1 + y2) < y1, selection, NATIVE                                          8              8           0      16974.4           0.1       6.9X
+c: b < i, selection (int-driven), WIDENED                                    55             55           0       2454.9           0.4       1.0X
+c: b < i, selection (int-driven), NATIVE                                     55             55           0       2453.1           0.4       1.0X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, WIDENED            892            893           1        150.3           6.7       0.1X
+e: CASE WHEN y1 < y2 THEN y1 ELSE y2 END, TINYINT store, NATIVE               7              7           0      19454.0           0.1       8.0X
+f: -y1, TINYINT store, WIDENED                                              858            860           1        156.1           6.4       0.1X
+f: -y1, TINYINT store, NATIVE                                                 4              5           0      36074.4           0.0      14.8X
+g: abs(y1), TINYINT store, WIDENED                                          870            871           0        154.0           6.5       0.1X
+g: abs(y1), TINYINT store, NATIVE                                             4              5           0      33634.5           0.0      13.8X
+h: y1 * y2, ANSI, TINYINT store, WIDENED                                    971            972           1        138.0           7.2       0.1X
+h: y1 * y2, ANSI, TINYINT store, NATIVE                                     962            963           2        139.3           7.2       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, WIDENED                       1018           1020           3        131.6           7.6       0.1X
+i: try_multiply(y1, y2), TRY, TINYINT store, NATIVE                        1015           1016           1        132.0           7.6       0.1X
+j: s1 * s2, ANSI, SMALLINT store, WIDENED                                    30             30           2       4536.7           0.2       1.9X
+j: s1 * s2, ANSI, SMALLINT store, NATIVE                                     30             30           0       4467.1           0.2       1.8X
+k: try_multiply(s1, s2), TRY, SMALLINT store, WIDENED                        68             68           0       1960.8           0.5       0.8X
+k: try_multiply(s1, s2), TRY, SMALLINT store, NATIVE                         68             69           1       1959.6           0.5       0.8X
+l: y1 * y2 < y3, ANSI, selection, WIDENED                                   164            164           0        816.6           1.2       0.3X
+l: y1 * y2 < y3, ANSI, selection, NATIVE                                    164            165           1        816.0           1.2       0.3X
+
+

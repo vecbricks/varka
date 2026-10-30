@@ -21,7 +21,9 @@
 # A need is the hardest work left once the lanes the row names exist: done; plumbing (an arm
 # and IR on the lanes); semantics (Spark's overflow, NaN, rounding or scale rules); ulp (the math
 # family: fused within a bound stated per function and host library, under row 345's contract and
-# its configuration, the owner's decision of 14 October 2026); hard (no exact construction known:
+# its configuration, the owner's decision of 14 October 2026; since 30 October 2026, by the owner's
+# word, exact by default and the bound only in that opt-in mode, VARKA-345.md 2.1); hard (no exact
+# construction known:
 # declined unless one is found - empty since 14 October 2026, when the reading of the papers gave
 # every former hard entry its construction, m8/PLAN.md 2.7). Rows are milestone 8's task numbers (m8/PLAN.md 3).
 
@@ -107,10 +109,10 @@ width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over double
 /|double,dec!|same|double|done|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,104,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-try_add|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,103,342,349,360|overflow gives null
+try_add|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_divide|double,dec!|same|double|done|342|zero divisor gives null; decimal division is out of milestone 8
 try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
-try_subtract|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,103,342,349,360|overflow gives null
+try_subtract|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_multiply|NUM|same|byte,short,float,double|semantics|330,104,342,349,361,362|overflow gives null
 shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
 shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
@@ -194,13 +196,13 @@ datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym|plumbing|339|the
 ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz||semantics|339|UTC, so plain arithmetic; exact or raise
 ntz_plus_ym|TimestampAddYMInterval|datetime|ntz,ym|ntz||semantics|339|calendar months on the date part
 timestampadd|TimestampAdd|datetime|bigint,ntz|ntz||semantics|339|units up to a week are arithmetic, months and years calendar
-ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342,349|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions
-dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,349|checked multiply; HALF_UP from fractions
+ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342,349|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a)
+dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,349|HALF_UP division
-dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,349|HALF_UP division
+dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
-extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused today only inside date + CAST(i AS INTERVAL DAY)
+extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result
@@ -208,6 +210,6 @@ check_overflow|CheckOverflow|decimal internals|dec|dec||semantics|349,359,363|nu
 make_decimal|MakeDecimal|decimal internals|bigint|dec||plumbing|349|a relabel of an unscaled long
 unscaled_value|UnscaledValue|decimal internals|dec|bigint||plumbing|349|a relabel to the unscaled long
 known_not_null|KnownNotNull|internals|ALL|same||plumbing|333|a relabel the optimizer adds
-known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|337|a relabel around NaN and -0.0 normalization
-normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7)
+known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|337|a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
+normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 try_eval|TryEval|internals|ALL|same||semantics|330,342,349|the try_ functions' wrapper: every error raised anywhere in its subtree becomes null

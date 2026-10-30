@@ -1611,11 +1611,16 @@ jobs:
     # test (VarkaTestReach), so that the option matrix dispatched on this commit runs a
     # configuration only over the tests it moves (VARKA-507). The catalyst suites do not: their
     # tree suites emit hundreds of thousands of kernels, which a record would emit again under
-    # every configuration, and they filter their own trees instead (VarkaReach).
+    # every configuration, and they filter their own trees instead (VarkaReach). The sql suites
+    # also write the expression harness's plans and Spark's answers (VarkaHarnessStore), which
+    # that matrix's configurations read instead of planning and computing them again; the
+    # directory is outside target/varka-scoped, which the cache restores, so no Build reads an
+    # earlier one's.
     - name: Run the Varka suites of ${{ matrix.module }}, ${{ matrix.part }}
       run: |
         if [ "${{ matrix.module }}" = sql ]; then
           export VARKA_REACH_RECORD=$PWD/target/varka-reach.tsv
+          export VARKA_HARNESS_STORE=$PWD/target/varka-harness-store
         fi
         ./dev/varka_scoped_suites.sh ${{ matrix.module }} --shard ${{ matrix.shard }}
     # One job of each module saves its Coursier cache and one job the SBT and Maven cache, which
@@ -1668,6 +1673,16 @@ jobs:
       with:
         name: varka-matrix-reach-${{ matrix.module }}-${{ matrix.slug }}
         path: target/varka-reach.tsv
+        retention-days: 1
+    # A share none of whose JVMs ran the harness writes no file, and uploads nothing.
+    - name: Upload the expression harness's plans and answers
+      if: matrix.module == 'sql'
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-harness-store-${{ matrix.module }}-${{ matrix.slug }}
+        path: target/varka-harness-store/harness-*.bin
+        if-no-files-found: ignore
         retention-days: 1
     # The share's JUnit reports, from which the committed weights are refreshed
     # (dev/varka_suite_shards.py --update-weights) when the jobs' times drift apart.

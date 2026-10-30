@@ -257,6 +257,12 @@ mapfile -t OPTS < "$BUILD/jvm.opts"
 [ "$sanitize" = 1 ] && jvm_args+=("-Dvarka.sanitizeMemory=true")
 # Each batch a kernel serves also runs through its other body, and the two must agree (VARKA-303).
 jvm_args+=("-Dvarka.checkBothBodies=true")
+# The commit the harness store's files are stamped with (VarkaHarnessStore): a configuration's
+# JVM ignores a file the defaults' JVM wrote on another commit. First, so a --jvm-arg naming
+# another commit is the one the JVM reads.
+if commit=$(git rev-parse HEAD 2> /dev/null); then
+  jvm_args=("-Dvarka.harness.commit=$commit" "${jvm_args[@]}")
+fi
 OPTS+=("${jvm_args[@]}")
 
 # The configurations, from VarkaMatrix itself so that the table stays their one source, listed

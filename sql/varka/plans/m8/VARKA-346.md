@@ -388,6 +388,12 @@ discrete consumers in its sense, as `floor` and `ceil` are in 344's 2.9. No cont
 until 345, so this row is independent of the answer, and the check sits where 345 builds the
 contract, keyed on the consumer's kind.
 
+*30 October 2026, by the owner's word:* that configuration is an opt-in mode, off by default, since
+every math function is now bit-exact to Spark by default (`VARKA-345.md` 2.1, 2.6); it does not gate
+these functions in either state. Question 2 is answered (a) for that mode only: a discrete consumer
+over a library node takes the function's exact form (`VARKA-345.md` 2.7), so this row stays
+independent of it.
+
 ## 3. Tests and proofs
 
 The oracle is Spark's own `Round`, `BRound`, `Truncate`, `Remainder`, `Pmod`, `TryMod` and `Cast`,

@@ -115,6 +115,20 @@ jobs:
         path: target/varka-reach
         run-id: ${{ steps.reuse.outputs.run }}
         github-token: ${{ github.token }}
+    # The same Build's expression harness plans and Spark's answers (VarkaHarnessStore), every
+    # sql job's files in one directory: a configuration's harness takes them instead of planning
+    # and computing them again. Whatever is missing - no file, a job that wrote none, a file of
+    # another commit, which the harness ignores - it plans and computes itself, as without them.
+    - name: Download the Build's harness store
+      if: steps.reuse.outputs.run != ''
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        pattern: varka-harness-store-*
+        path: target/varka-harness-store
+        merge-multiple: true
+        run-id: ${{ steps.reuse.outputs.run }}
+        github-token: ${{ github.token }}
     - name: Build the test classes
       run: |
         reused=0
@@ -137,6 +151,17 @@ jobs:
           cat target/varka-reach/*/varka-reach.tsv > target/varka-matrix/reach.tsv
           echo "== the reach of Build run ${{ steps.reuse.outputs.run }}:" \
             "$(grep -vc '^#' target/varka-matrix/reach.tsv) tests"
+        fi
+        # The harness store rides in the classpath's archive to the bins, as the reach does, and
+        # only with the Build's classes, which it was written by.
+        if [ "$reused" = 1 ] && compgen -G "target/varka-harness-store/harness-*.bin" > /dev/null
+        then
+          mkdir -p target/varka-matrix/harness-store
+          cp target/varka-harness-store/harness-*.bin target/varka-matrix/harness-store/
+          files=(target/varka-matrix/harness-store/harness-*.bin)
+          echo "== the harness store of Build run ${{ steps.reuse.outputs.run }}:" \
+            "${#files[@]} files," \
+            "$(du -sh target/varka-matrix/harness-store | cut -f1)"
         fi
     # The bins, from the configurations the build listed and each module's suites; one line of
     # the summary says how many and how long.
@@ -280,6 +305,11 @@ jobs:
           # A configuration runs only the tests the Build's record says it moves.
           if [ "$config" != defaults ] && [ -s target/varka-matrix/reach.tsv ]; then
             mode+=(--jvm-arg "-Dvarka.matrix.reachFile=$PWD/target/varka-matrix/reach.tsv")
+          fi
+          # A configuration's harness takes the plans and answers the Build's defaults wrote.
+          if [ "$config" != defaults ] && \
+              compgen -G "target/varka-matrix/harness-store/harness-*.bin" > /dev/null; then
+            mode+=(--jvm-arg "-Dvarka.harness.store=$PWD/target/varka-matrix/harness-store")
           fi
           ./dev/varka_matrix.sh --skip-build --build-dir target/varka-matrix --runs-only \
             --out "$out/$BIN-u$k" --leaf-suffix "$BIN-$k" --module "$module" --suites "$suites" \

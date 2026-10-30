@@ -56,6 +56,17 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  * the timed run or fail the queries suite's check that no section over the null-free columns
  * answers a null.
  *
+ * <p>Four more sections time the two {@code TIME} producers whose result is a decimal of
+ * precision 18 or less, the first output a kernel would write into Arrow's sixteen-byte slots
+ * (VARKA-157): {@code time_to_seconds(t)}, a {@code DECIMAL(14, 6)}, and {@code extract(SECOND
+ * FROM t)}, a {@code DECIMAL(8, 6)} at {@code TIME(6)}, each as a projection over a
+ * {@code TIME(6)} column with no nulls and with one row in ten null. Spark computes the first
+ * through a {@code Decimal} division and the second through a {@code Double} turned into a
+ * {@code BigDecimal}, per row. The times spread over the whole day and fill all six digits of the
+ * fraction, so the second's fraction is never zero by construction. {@code TIME} is behind a flag
+ * whose default is whether the JVM is a test's, which a benchmark's is not, so both sessions turn
+ * it on.
+ *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today both are the row path, so they should tie.
@@ -105,6 +116,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       new Precision(18, 4, "18", 5_000_000_000_000L, "DECIMAL(38, 10)"),
       new Precision(38, 10, "38", 5_000_000_000_000L, "DECIMAL(18, 4)"));
 
+  /** The precision of the {@code TIME} column the two time sections read. */
+  static final int TIME_PRECISION = 6;
+
+  /** The microseconds in a day, the range the {@code TIME} column's values spread over. */
+  static final long MICROS_PER_DAY = 86_400_000_000L;
+
   /** The three operands of every section, in the order a shape uses them. */
   static final List<String> ROLES = List.of("x", "y", "z");
 
@@ -126,9 +143,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   }
 
   /**
+   * The {@code TIME(6)} column's value: microseconds of the day from a hash of the row id, so the
+   * values cover the whole day and every digit of the fraction.
+   */
+  static String timeSql(int seed) {
+    return "time_from_micros(pmod(xxhash64(id, " + seed + "), " + MICROS_PER_DAY + "))";
+  }
+
+  /**
    * The table: for each precision, {@code x}, {@code y} and {@code z} with the precision as their
    * suffix ({@code x9}, {@code y18}, ...) and no null, and the same values with one row in ten
-   * null ({@code x9n}, ...), at a different row in each column.
+   * null ({@code x9n}, ...), at a different row in each column; then {@code t}, a
+   * {@code TIME(6)}, and {@code tn}, the same values with one row in ten null.
    */
   static String tableSql(int rows) {
     List<String> values = new ArrayList<>();
@@ -145,13 +171,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         nullRow += 3;
       }
     }
+    values.add(timeSql(seed) + " as t");
+    columns.add("t");
+    columns.add("case when id % 10 = 2 then null else t end as tn");
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + rows + "))";
   }
 
   /**
    * Every section, in the order they run: each precision, then each null density, then each
-   * shape.
+   * shape; then the two time producers at each null density.
    */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
@@ -172,6 +201,15 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
                 + " END AS a FROM varka_decimal"));
       }
+    }
+    for (String nulls : new String[] {"", "n"}) {
+      String t = "t" + nulls;
+      String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
+      String time = "TIME(" + TIME_PRECISION + ")";
+      out.add(new Section("time_to_seconds over " + time + ", " + density,
+          "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal"));
+      out.add(new Section("extract(SECOND) over " + time + ", " + density,
+          "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal"));
     }
     return out;
   }
@@ -195,6 +233,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     clearSessions();
     try {
       for (SparkSession session : List.of(baseline, varka)) {
+        session.conf().set("spark.sql.timeType.enabled", "true");
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_decimal");
         VarkaArrowSessions.cache(session, "varka_decimal");
       }

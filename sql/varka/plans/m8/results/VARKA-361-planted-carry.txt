@@ -1,0 +1,63 @@
+VARKA-361: the planted middle-column carry, replayed in Python (30 October 2026, laptop).
+Command: python3 -I planted.py (the script below). Output:
+
+1000000 draws with |x|, |y| <= 10^18 - 1, seed 361
+carry-free order: every draw equals x * y
+planted order wrong, both >= 0: 0
+planted order wrong, one negative: 1525, first (818970913745787777, -37375742756067484)
+planted order wrong, both negative: 117604, first (-122646352919130545, -34701017952321210)
+planted order at (-999999999999999999, -999999999999999999): right
+planted order at (999999999999999999, 999999999999999999): right
+planted order at (-999999999999999999, 999999999999999999): right
+planted order at (-1, 999999999999999999): right
+
+Script:
+
+# Replays the 64 by 64 to 128-bit limb product of VARKA-361 2.3 in Python with Java's 64-bit
+# wrapping, in its carry-free order and in the planted order that sums the middle column's two
+# limb products in one word (QuestDB's a0 * m1 + a1 * m0), over operands of at most 18 digits.
+import random
+
+M = (1 << 32) - 1
+W = 1 << 64
+B = 10**18 - 1
+
+
+def product(x, y, planted):
+    xu, yu = x % W, y % W
+    xl, xh, yl, yh = xu & M, xu >> 32, yu & M, yu >> 32
+    p0, p1, p2, p3 = xl * yl, xh * yl, xl * yh, xh * yh
+    if planted:
+        t = (p1 + p2 + (p0 >> 32)) % W
+        hi = (p3 + (t >> 32)) % W
+        lo = ((t << 32) | (p0 & M)) % W
+    else:
+        t = p1 + (p0 >> 32)
+        u = p2 + (t & M)
+        assert t < W and u < W
+        hi = p3 + (t >> 32) + (u >> 32)
+        assert hi < W
+        lo = ((u << 32) | (p0 & M)) % W
+    hi = (hi - ((yu if x < 0 else 0) + (xu if y < 0 else 0))) % W
+    v = hi * W + lo
+    return v - (1 << 128) if v >= 1 << 127 else v
+
+
+random.seed(361)
+draws = 1_000_000
+wrong = {"both >= 0": 0, "one negative": 0, "both negative": 0}
+first = {}
+for _ in range(draws):
+    x, y = random.randint(-B, B), random.randint(-B, B)
+    assert product(x, y, False) == x * y
+    if product(x, y, True) != x * y:
+        k = "both negative" if x < 0 and y < 0 else ("both >= 0" if x >= 0 and y >= 0
+                                                     else "one negative")
+        wrong[k] += 1
+        first.setdefault(k, (x, y))
+print(f"{draws} draws with |x|, |y| <= 10^18 - 1, seed 361")
+print("carry-free order: every draw equals x * y")
+for k, n in wrong.items():
+    print(f"planted order wrong, {k}: {n}" + (f", first {first[k]}" if k in first else ""))
+for x, y in [(-B, -B), (B, B), (-B, B), (-1, B)]:
+    print(f"planted order at ({x}, {y}): {'right' if product(x, y, True) == x * y else 'wrong'}")

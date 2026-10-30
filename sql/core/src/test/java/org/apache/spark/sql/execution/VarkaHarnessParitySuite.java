@@ -261,6 +261,104 @@ public final class VarkaHarnessParitySuite {
   }
 
   @Test
+  @DisplayName("every plan the harness stores comes back from its bytes as the plan planned "
+      + "afresh")
+  void storedPlansComeBackAsPlanned() {
+    // The plans of every coverage row on every fixture the coverage harness reads, each kind of
+    // check's, as a writing store (the defaults' run's) hears them. Each is read back from the
+    // bytes it was written as over a second making of its fixture, whose columns have other
+    // expression ids, as a configuration's JVM reads it, and must print, ids included, as that
+    // fixture's plan planned afresh: the same tree, types, literals to the bit and origins.
+    var twins = new java.util.IdentityHashMap<Seq<Attribute>, Seq<Attribute>>();
+    var differences = new ArrayList<String>();
+    int[] n = {0};
+    VarkaHarnessStore store = VarkaHarnessStore.writing().watched(
+        (what, columns, value, written, plan) -> {
+          Seq<Attribute> twin = twins.get(columns);
+          if (twin == null) {
+            return;
+          }
+          n[0]++;
+          if (written.bytes() == null) {
+            differences.add(what + ": not written, " + written.reason());
+            return;
+          }
+          Object back = VarkaHarnessStore.fromOrdinals(
+              VarkaHarnessStore.deserialize(written.bytes()), twin);
+          Object afresh = VarkaHarnessStore.with(null, () -> plan.apply(twin));
+          if (!VarkaHarnessStore.describe(back, true).equals(
+              VarkaHarnessStore.describe(afresh, true))) {
+            differences.add(what + ": read back " + back + ", planned afresh " + afresh);
+          }
+        });
+    VarkaHarnessStore.with(store, () -> {
+      for (Tuple2<String, String> f :
+          CollectionConverters.asJava(VarkaCoverageDifferentialSuite$.MODULE$.fixtures())) {
+        VarkaHarnessPlans.Fixture fixture = twin(f._2(), twins);
+        for (boolean ansi : new boolean[] {false, true}) {
+          SQLConf base = VarkaCoverageHarnessSuite.conf(ansi);
+          VarkaCoverageHarnessSuite.withConf(base, () -> {
+            for (VarkaCoverageHarnessSuite.Row row : VarkaCoverageHarnessSuite.rows()) {
+              planAsTheChecksDo(row, fixture);
+            }
+            return null;
+          });
+          for (SQLConf conf : List.of(base,
+              VarkaCoverageHarnessSuite.excluding(base, VarkaPartitionOracle.REWRITES),
+              VarkaCoverageHarnessSuite.excluding(base, VarkaPartitionOracle.NULL_SAFE_REWRITES))) {
+            VarkaCoverageHarnessSuite.withConf(conf, () -> {
+              for (VarkaCoverageHarnessSuite.Row row : VarkaCoverageHarnessSuite.predicates()) {
+                VarkaPartitionOracle.plan(row.executable(), fixture);
+                VarkaPartitionOracle.nullable(row.executable(), fixture);
+                VarkaHarnessPlans.projections(
+                    VarkaCoverageHarnessSuite.nullTestSqls(row.executable()), fixture.columns());
+              }
+              return null;
+            });
+          }
+        }
+      }
+      SQLConf ansi = VarkaCoverageHarnessSuite.conf(true);
+      VarkaHarnessPlans.Fixture extremes =
+          twin(VarkaCoverageDifferentialSuite$.MODULE$.extremes()._2(), twins);
+      VarkaHarnessPlans.Fixture edges = twin(VarkaDomains.edgesSql(), twins);
+      VarkaCoverageHarnessSuite.withConf(ansi, () -> {
+        for (VarkaCoverageHarnessSuite.Row row : VarkaCoverageHarnessSuite.rows()) {
+          VarkaAnsiForm.plans(VarkaAnsiForm.queries(row, extremes), extremes);
+          if (row.domain().isPresent()) {
+            planAsTheChecksDo(row, edges);
+          }
+        }
+        VarkaAnsiForm.sparkConditions(VarkaCoverageHarnessSuite.rows().stream()
+            .map(VarkaCoverageHarnessSuite.Row::executable).toList(), extremes);
+        return null;
+      });
+      return null;
+    });
+    assertTrue(n[0] > 0, "no plan heard");
+    assertTrue(differences.isEmpty(), differences.size() + " of " + n[0] + " plans differ:\n"
+        + String.join("\n", differences));
+  }
+
+  /** {@code sql}'s fixture, made twice: the first returned, the second its twin's columns. */
+  private static VarkaHarnessPlans.Fixture twin(String sql,
+      java.util.Map<Seq<Attribute>, Seq<Attribute>> twins) {
+    VarkaHarnessPlans.Fixture fixture = VarkaHarnessPlans.fixture(sql);
+    twins.put(fixture.columns(), VarkaHarnessPlans.fixture(sql).columns());
+    return fixture;
+  }
+
+  /** What the coverage harness's answer check plans for {@code row}: its condition or list. */
+  private static void planAsTheChecksDo(VarkaCoverageHarnessSuite.Row row,
+      VarkaHarnessPlans.Fixture fixture) {
+    if (row.form().equals("predicate")) {
+      VarkaHarnessPlans.condition(row.executable(), fixture.columns());
+    } else {
+      VarkaHarnessPlans.projection(row.executable(), fixture.columns());
+    }
+  }
+
+  @Test
   @DisplayName("every coverage row's harness expression is the one a session's optimizer plans")
   void harnessExpressionIsTheSessions() {
     var differences = new ArrayList<String>();
