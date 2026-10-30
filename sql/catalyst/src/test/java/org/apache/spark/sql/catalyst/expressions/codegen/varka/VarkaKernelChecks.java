@@ -233,7 +233,7 @@ public final class VarkaKernelChecks {
    * the kernel answered. The expression and the row are on the message's second line.
    */
   private static void agreeWithSpark(String context, SparkAnswers spark, int o, int i,
-      long[] values, boolean[] isNull, OptionalLong reference) {
+      long[] values, boolean[] isNull, OptionalLong reference, VarkaVectorIR root) {
     SPARK_COMPARISONS.incrementAndGet();
     Answer answer = spark.answer(o, values, isNull);
     String where = "\n  " + spark.sql(o) + ", inputs " + row(values, isNull);
@@ -241,7 +241,8 @@ public final class VarkaKernelChecks {
       case Answer.Raised raised -> throw new IllegalStateException(context + ": Spark raises on "
           + "output " + o + " at row " + i + ", and the kernel answered the batch instead of "
           + "declining it" + where + ": " + raised.e().getMessage());
-      case Answer.Value v -> reference.isPresent() && reference.getAsLong() == v.v();
+      case Answer.Value v ->
+          reference.isPresent() && sameAnswer(root, reference.getAsLong(), v.v());
       case Answer.Null n -> reference.isEmpty();
     };
     if (!agree) {
@@ -249,6 +250,41 @@ public final class VarkaKernelChecks {
           + "output " + o + " at row " + i + ": reference " + shown(reference) + ", Spark "
           + shown(answer) + where);
     }
+  }
+
+  /**
+   * Whether two answers of output {@code root} agree: the same bits, or under the NaN rule
+   * (`VARKA-342.md` 3) both NaN where {@code root}'s tree holds a floating {@code IntArith}. An
+   * operation over two NaN operands of different payloads returns one of the two, and which one
+   * the row engine and the reference evaluator return depends on how C2 ordered their operands,
+   * so a NaN such a tree computes is compared by being NaN. A tree that only moves bits - a
+   * pick, a negation, a choice - is compared bit for bit, payloads included.
+   */
+  static boolean sameAnswer(VarkaVectorIR root, long want, long got) {
+    if (want == got) {
+      return true;
+    }
+    VarkaVectorIR.LaneType lane = root.laneType();
+    if (!lane.isFloating() || !computesFloating(root)) {
+      return false;
+    }
+    return lane == VarkaVectorIR.LaneType.DOUBLE
+        ? Double.isNaN(Double.longBitsToDouble(want)) && Double.isNaN(Double.longBitsToDouble(got))
+        : Float.isNaN(Float.intBitsToFloat((int) want))
+            && Float.isNaN(Float.intBitsToFloat((int) got));
+  }
+
+  /** Whether {@code node}'s tree holds an arithmetic node at a floating lane. */
+  private static boolean computesFloating(VarkaVectorIR node) {
+    if (node instanceof VarkaVectorIR.IntArith a && a.laneType().isFloating()) {
+      return true;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      if (computesFloating(child)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1499,7 +1535,7 @@ public final class VarkaKernelChecks {
             if (spark != null) {
               agreeWithSpark(context, spark, o, i, values, isNull,
                   truth == VarkaReference.Truth.UNKNOWN ? OptionalLong.empty()
-                      : OptionalLong.of(truth.isTrue() ? 1L : 0L));
+                      : OptionalLong.of(truth.isTrue() ? 1L : 0L), c);
             }
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
@@ -1512,7 +1548,7 @@ public final class VarkaKernelChecks {
           } else {
             OptionalLong want = planted(lane.reference(root, values, isNull), o, i);
             if (spark != null) {
-              agreeWithSpark(context, spark, o, i, values, isNull, want);
+              agreeWithSpark(context, spark, o, i, values, isNull, want, root);
             }
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
@@ -1525,7 +1561,7 @@ public final class VarkaKernelChecks {
                     + (bit ? "Some(" + got + ")" : "None") + ")"
                     + evidence(values, isNull, nullCounts));
               }
-              if (want.isPresent() && got != want.getAsLong()) {
+              if (want.isPresent() && !sameAnswer(root, want.getAsLong(), got)) {
                 String at = context + fills.get(f).suffix();
                 throw new IllegalStateException(at + ": output " + o + " row " + i
                     + " differs (want " + want.getAsLong() + ", got " + got + ")"

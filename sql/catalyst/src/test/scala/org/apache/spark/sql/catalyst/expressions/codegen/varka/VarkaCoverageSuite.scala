@@ -744,6 +744,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("try_add(x, x2)", "the same sum: a floating sum has no overflow"),
       Row("try_multiply(x, x2)", "the same product"),
       Row("try_subtract(f, f2)", "the same difference"),
+      Row("try_subtract(x, x2)"),
+      Row("try_add(f, f2)"),
+      Row("try_multiply(f, f2)"),
       Row("(x + x2) * x2 - x", "the floating baseline's chain"),
       Row("-x", "the sign bit flipped, a NaN's payload kept"),
       Row("abs(x)", "the sign bit cleared, a NaN's payload kept"),
@@ -908,12 +911,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(findings.isEmpty,
       "the domain column disagrees with the guards the kernels carry:\n  " +
         findings.mkString("\n  "))
-    // Counted, not assumed: rows on both sides, and the five reasons the table's rows carry all
+    // Counted, not assumed: rows on both sides, and the six reasons the table's rows carry all
     // represented somewhere, or the check would hold a table that carries no guard to nothing.
     val guarded = all.filter(_._2.domain.isDefined)
     assert(guarded.nonEmpty && guarded.size < all.size, s"${guarded.size} of ${all.size} guarded")
     val reasons = guarded.flatMap { case (f, r) => guardsOf(f, r) }.toSet
-    assert(reasons == Set("INPUT_BOUND", "INT_OVERFLOW", "MAKE_DATE", "MONTH_COUNT", "VALUE_RANGE"),
+    assert(reasons == Set("DIVIDE_BY_ZERO", "INPUT_BOUND", "INT_OVERFLOW", "MAKE_DATE",
+        "MONTH_COUNT", "VALUE_RANGE"),
       s"the guards the table's rows carry: $reasons")
     logInfo(s"${guarded.size} of ${all.size} rows carry a guard: " + guarded.map {
       case (f, r) => s"${r.sql} (${guardsOf(f, r).mkString(", ")})"

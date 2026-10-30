@@ -28,7 +28,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Abs, Attribute, BoundReference, Expression, GenericInternalRow, UnaryMinus}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Attribute, BoundReference, Expression, GenericInternalRow, RuntimeReplaceable, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, VarkaExpressionCompiler, VarkaGeneratedClassLoader}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.internal.SQLConf
@@ -256,7 +256,10 @@ class VarkaEmitterFloatingArithSuite extends VarkaEmitterTestBase with VarkaOwnJ
     val e = resolve(sql, cols, mode)
     val plan = compile(e, cols)
     val float = e.dataType == FloatType
-    val bound = VarkaSqlResolve.bind(e, cols)
+    // Spark evaluates a RuntimeReplaceable (try_add, try_divide) as its replacement, which the
+    // optimizer puts in its place.
+    val bound = VarkaSqlResolve.bind(e.transformUp { case r: RuntimeReplaceable => r.replacement },
+      cols)
     val spark = rows.map { r =>
       try Right(sparkBits(bound.eval(new GenericInternalRow(r.toArray[Any]))))
       catch { case t: Throwable => Left(t) }

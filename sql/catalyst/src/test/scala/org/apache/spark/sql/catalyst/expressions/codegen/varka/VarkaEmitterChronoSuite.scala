@@ -1998,7 +1998,8 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
     assert(refusals(neg, guardDays = false, checkInts = true) === Map(neg -> INT_OVERFLOW))
     assert(refusals(neg, guardDays = true, checkInts = false) === Map.empty)
     // The slot planner's one fact per reason: the guards that park their value in a scratch
-    // local, and the two that read it from locals they already own.
-    assert(Analysis.Refusal.values().filterNot(_.parksValue).toSet === Set(MAKE_DATE, INT_OVERFLOW))
+    // local, and the three that read it from locals they already own or off the operand stack.
+    assert(Analysis.Refusal.values().filterNot(_.parksValue).toSet ===
+      Set(MAKE_DATE, INT_OVERFLOW, DIVIDE_BY_ZERO))
   }
 }

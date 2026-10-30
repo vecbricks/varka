@@ -304,9 +304,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   // answers, cell by cell and bit by bit, are the harness's and VarkaEmitterFloatingArithSuite's.
   private val arithmetic = Seq("x1 + x2", "x1 - x2", "x1 * x2", "x2 / 3.0D", "sqrt(x1)",
     "degrees(x2)", "radians(x1)", "try_divide(x1, x2)", "try_add(x1, x2)",
-    "(x1 + x2) * x2 - x1", "f1 + f2", "f1 * f2", "f2 - f1", "IF(x2 = 0.0D, 0.0D, x1 / x2)",
-    "CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END", "-x1", "abs(x2)", "signum(x1)", "-f1",
-    "abs(f2)").zipWithIndex.map { case (e, k) => s"$e AS v$k" }.mkString(", ")
+    "(x1 + x2) * x2 - x1", "f1 + f2", "f1 * f2", "f2 - f1", "-x1", "abs(x2)", "signum(x1)",
+    "-f1", "abs(f2)").zipWithIndex.map { case (e, k) => s"$e AS v$k" }.mkString(", ")
 
   test("the floating arithmetic fuses and matches the row engine in both modes, x1 / x2 null " +
       "on a zero divisor in the legacy one") {
@@ -314,6 +313,15 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       checkFusedArith(s"SELECT $arithmetic FROM $$t", ansi)
     }
     checkFusedArith("SELECT x1 / x2 AS v FROM $t", ansi = false)
+  }
+
+  test("a division whose divisor a choice guards fuses under ANSI over batches holding zeros") {
+    // Each in a query of its own: the two in one projection share the one `x1 / x2`, under arms
+    // of different conditions, and every batch declined there (VARKA-342.md 5.1).
+    for (q <- Seq("SELECT IF(x2 = 0.0D, 0.0D, x1 / x2) AS v FROM $t",
+        "SELECT CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END AS v FROM $t")) {
+      checkFusedArith(q, ansi = true)
+    }
   }
 
   test("x1 / x2 under ANSI raises DIVIDE_BY_ZERO through the row engine on a zero divisor") {
@@ -355,7 +363,11 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     assert(lines(4).endsWith(": fused"), lines)
   }
 
-  Seq("CAST(f1 AS DOUBLE)", "x1 % x2", "pmod(f1, f2)", "x1 / CAST(f1 AS DOUBLE)").foreach { expr =>
+  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
+  private val declined = Seq("CAST(f1 AS DOUBLE)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "CAST(f1 AS DOUBLE) / 2.0D")
+
+  declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {
       checkDeclined(s"SELECT $expr AS v FROM $$t")
     }

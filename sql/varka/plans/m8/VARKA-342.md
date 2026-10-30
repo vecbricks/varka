@@ -357,7 +357,16 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   pattern, and the binary `FLOAT` sweeps of 3.4 behind `-Dvarka.sweep=true`.
   `VarkaFloatingLaneSuite` runs the forms end to end over its fixtures in both modes, and ANSI's
   `DIVIDE_BY_ZERO` through the declined batch. The coverage table gains a family, "Floating
-  arithmetic", of 23 rows.
+  arithmetic", of 26 rows.
+- **The NaN rule reaches the shared harness.** `VarkaKernelChecks` compares a floating output
+  whose tree holds a floating `IntArith` by NaN-ness where both answers are NaN, and every other
+  output bit for bit: in `VarkaDoubleConformanceSuite`, `NaN + (-NaN)` gave the first operand's
+  payload in the kernel and Spark and the second's in the reference evaluator, the C2 ordering of
+  0.6 seen in practice.
+- **Observed, cause not read:** under ANSI, `IF(x2 = 0.0D, 0.0D, x1 / x2)` and `CASE WHEN x2 <>
+  0.0D THEN x1 / x2 ELSE x1 END` each fuse and run over batches holding zero divisors, but the
+  two in one projection, sharing one `x1 / x2` under arms of different conditions, declined every
+  batch of `VarkaFloatingLaneSuite`'s pairs fixture. The suite runs them as separate queries.
 - **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
   lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
   `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2). The plan

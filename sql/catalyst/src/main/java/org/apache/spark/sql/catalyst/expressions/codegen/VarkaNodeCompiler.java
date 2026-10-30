@@ -366,9 +366,11 @@ final class VarkaNodeCompiler {
       case Cast _ -> "a cast to or from a floating type (row 343)";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
       // The interval products and quotients by a floating factor, and signum over an interval.
+      // The interval products and quotients by a floating factor, and signum over an interval,
+      // are row 342's step after row 343's conversions.
       case Signum _, MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _,
-          DivideDTInterval _ -> "floating interval arithmetic (row 342, after row 343)";
-      case BinaryArithmetic _, UnaryPositive _ -> "floating arithmetic (row 342)";
+          DivideDTInterval _, BinaryArithmetic _, UnaryPositive _ ->
+          "floating arithmetic (row 342)";
       default -> "an operation over floating values that no floating lowering serves";
     };
     return Optional.of(what);
