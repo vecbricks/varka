@@ -155,6 +155,23 @@ public abstract class VarkaTypeConformance {
   protected abstract ConformanceType type();
 
   /**
+   * A form of the type's own arithmetic that the census's arithmetic operators do not name: its
+   * SQL over {@code x} and {@code y}, and the census entry that says whether it fuses.
+   */
+  protected record OverflowForm(String sql, String register) {}
+
+  /**
+   * The type's arithmetic beyond {@code +}, {@code -}, {@code *}, {@code negative}, {@code abs}
+   * and the {@code try_} forms, whose census rows list the numeric and interval types: a
+   * {@code TIMESTAMP_NTZ} subtracts to a day-time interval and adds one, which the census keeps
+   * as forms of their own. The overflow check runs each in LEGACY and ANSI over the type's values.
+   * None by default.
+   */
+  protected List<OverflowForm> overflowForms() {
+    return List.of();
+  }
+
+  /**
    * An integral type between {@code min} and {@code max}, its literals spelled with
    * {@code suffix}: the integral values, 1 and -1 as the picks, and {@code x + y} as the pair.
    */
@@ -272,12 +289,12 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
-   * The type's own arithmetic at its extremes, each operator the census admits for the type. An
-   * interval's arithmetic raises on overflow in every mode, which Spark's answer shows and the
-   * kernel is held to. A type the census admits for none of them ({@code BOOLEAN}, {@code DATE},
-   * {@code TIME}, and {@code TIMESTAMP_NTZ}, which has no arithmetic of its own type until row 339
-   * adds its interval arithmetic) has no overflow to check, and that is stated rather than
-   * skipped: a census row that admits one gives the check its first form here.
+   * The type's own arithmetic at its extremes, each operator the census admits for the type and
+   * each of the type's {@link #overflowForms}. An interval's arithmetic raises on overflow in every
+   * mode, which Spark's answer shows and the kernel is held to, and so does a
+   * {@code TIMESTAMP_NTZ}'s. A type the census admits for none of them and that names no form of
+   * its own ({@code BOOLEAN}, {@code DATE}, {@code TIME}) has no overflow to check, and that is
+   * stated rather than skipped: a census row that admits one gives the check its first form here.
    */
   @Test
   @DisplayName("overflow: LEGACY wraps, ANSI declines what Spark raises on, TRY nulls it")
@@ -292,6 +309,11 @@ public abstract class VarkaTypeConformance {
     }
     for (String fn : List.of("try_add", "try_subtract", "try_multiply")) {
       forms.add(value(fn + "(x, y)", fn).in(Mode.TRY).reachingOverflow());
+    }
+    for (OverflowForm f : overflowForms()) {
+      for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
+        forms.add(value(f.sql(), f.register()).in(mode).reachingOverflow());
+      }
     }
     forms.removeIf(f -> !Registers.census(f.register()).types().contains(type().census()));
     if (forms.isEmpty()) {

@@ -96,12 +96,14 @@ public final class VarkaDomains {
   private static Map<String, String> defaults() {
     var out = new LinkedHashMap<String, String>();
     out.put("d", "DATE'2024-01-31'");
+    out.put("d2", "DATE'2024-02-29'");
     out.put("i", "3");
     out.put("m", "0");
     out.put("y", "0");
     out.put("mm", "0");
     out.put("t", "TIME'12:34:56.789'");
     out.put("t2", "TIME'00:00:00'");
+    out.put("dt", "INTERVAL '1 02:03:04.5' DAY TO SECOND");
     out.put("y1", "3");
     out.put("y2", "4");
     out.put("s1", "300");
@@ -117,10 +119,10 @@ public final class VarkaDomains {
         throw new IllegalArgumentException("no column " + overrides[k]);
       }
     }
-    return "(" + v.get("d") + ", DATE'2024-02-29', " + v.get("i") + ", " + v.get("m") + ", "
+    return "(" + v.get("d") + ", " + v.get("d2") + ", " + v.get("i") + ", " + v.get("m") + ", "
         + v.get("y") + ", " + v.get("mm") + ", CAST('5000000000' AS BIGINT), "
         + "CAST('1' AS BIGINT), " + v.get("t") + ", " + v.get("t2") + ", "
-        + "INTERVAL '1 02:03:04.5' DAY TO SECOND, INTERVAL '0 00:00:00' DAY TO SECOND, "
+        + v.get("dt") + ", INTERVAL '0 00:00:00' DAY TO SECOND, "
         + "CAST(" + v.get("y1") + " AS TINYINT), CAST(" + v.get("y2") + " AS TINYINT), "
         + "CAST(" + v.get("s1") + " AS SMALLINT), CAST(" + v.get("s2") + " AS SMALLINT))";
   }
@@ -149,12 +151,15 @@ public final class VarkaDomains {
    * the months of {@code make_date}; {@code d} of year 9999 beside the {@code i} that takes
    * {@code year(d) + i} to the int's top and one past, and {@code d} at the column bound's ends
    * and one past each (VARKA-379), and at the days a DATE converts to TIMESTAMP_NTZ without
-   * overflow and one past each; {@code ym} at the month range on both signs, at the one count
-   * whose negation overflows and one in from it, and at the counts whose difference with
-   * {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each end of the day;
-   * the narrow lanes' bounds. Then rows null in those columns, one column group at a time and all
-   * at once, which the {@code IS NULL} partitions select. The other columns hold the mixed
-   * fixture's first row.
+   * overflow and one past each; the TIMESTAMP_NTZ values a day inside those days, {@code ntz}
+   * near the long's top beside {@code ntz2} near its bottom, whose difference and whose sum with
+   * a day overflow, {@code ntz} near the bottom beside the greatest interval, whose difference
+   * overflows, and the least interval, whose negation does; {@code ym} at the month range on both
+   * signs, at the one count whose negation overflows and one in from it, and at the counts whose
+   * difference with {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each
+   * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
+   * a time and all at once, which the {@code IS NULL} partitions select. The other columns hold
+   * the mixed fixture's first row.
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -174,6 +179,10 @@ public final class VarkaDomains {
     around(VarkaChrono.CONTRACT_MIN_DAYS, VarkaChrono.CONTRACT_MAX_DAYS)
         .forEach(v -> rows.add(row("d", day(v))));
     around(-lastNtzDay, lastNtzDay).forEach(v -> rows.add(row("d", day(v))));
+    rows.add(row("d", day(lastNtzDay - 1), "d2", day(-(lastNtzDay - 1))));
+    rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
+        "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
+    rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
     var months = new ArrayList<>(around(minMonths, maxMonths));
     months.addAll(around(-maxMonths, -minMonths));
     months.forEach(n -> rows.add(ymRow(n, "0")));

@@ -263,6 +263,12 @@ suites, as for every landed form.
    `timestampadd` at MICROSECOND, HOUR, DAY, WEEK, MONTH, QUARTER and YEAR over an int and a
    bigint quantity, `time_bucket` at 15 minutes, one day with an origin, 30 days and 7 hours;
    each through the differential suite at every position, domains where a guard declines.
+   *30 October 2026 (step 2):* two of step 2's rows are written differently. `ntz - d` is
+   `ntz2 - d`: the fixtures derive `ntz` from `d`, so `ntz - d` is a time of day and its domain
+   would have no row outside it. `ntz + INTERVAL '1' HOUR` is `ntz + INTERVAL '1' DAY`: the
+   fixtures' NTZ values stop about four hours below the long's top (`d` inside the cast's days, a
+   time of day added), so an hour overflows on no row and a day does. Each domain is Spark's own
+   `try_` form of the row, unknown where an operand is null.
 4. **The edges**, in `VarkaTimestampNtzSuite`, each overflowing row in one batch of three so the
    others stay fused, LEGACY and ANSI: `Long.MAX_VALUE` plus a microsecond; the long range's ends
    subtracted; `dt = Long.MIN_VALUE` and `Integer.MIN_VALUE` months negated; `timestampadd` DAY at
@@ -286,6 +292,9 @@ suites, as for every landed form.
    neighbours: `subtractTimestamps` against `subtractExact`, `timestampAddDayTime` against
    `addExact`, the `timestampadd` guards against `multiplyExact` at the bound and one past.
 8. **The fuzzers**: the Spark fuzzer's grammar gains the forms over its NTZ column.
+   *30 October 2026 (step 2):* the grammar (`VarkaCatalystGrammar`) had no NTZ type, so step 2
+   adds one, its columns `ntz` and `ntz2` and two literals, with `ntz - ntz`, `ntz - d`,
+   `ntz + dt`, `ntz - dt` and the choices; later steps add their forms to it.
 9. **Generated files** in `ADDING_AN_EXPRESSION.md`'s order: `coverage.json`, the docs tables
    (the two families' `covers` text), `width_audit.json`, `emitted_bytes.json` (new shapes only),
    `census.tsv`'s fused column.

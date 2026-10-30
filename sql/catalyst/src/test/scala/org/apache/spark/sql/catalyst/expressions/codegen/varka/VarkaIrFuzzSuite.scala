@@ -1311,10 +1311,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reportSkipped()
   }
 
-  test("the mixed-lane generator reaches both conversions, the calendar under a widening and a " +
-      "narrowing below another node") {
+  test("the mixed-lane generator reaches both conversions, the calendar under a widening, " +
+      "add_months and a narrowing below another node") {
     // The node types the third corpus exists for, asserted rather than assumed, as the two
-    // single-lane generators' reach is above.
+    // single-lane generators' reach is above. `AddMonths` is among them because the
+    // TIMESTAMP_NTZ month forms run it in a kernel of both lanes, at the int species of the long
+    // species' width (`VARKA-339.md` 3.1).
     val seen = scala.collection.mutable.Set.empty[String]
     var narrowBelow = false
     def walk(n: VarkaVectorIR, underWiden: Boolean): Unit = {
@@ -1330,7 +1332,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         .foreach(walk(_, underWiden = false))
     }
     val wanted = Set("WidenLane", "NarrowLane", "GuardedRange", "calendar under a widening",
-      "IfElse", "Compare", "ConstDivide", "IntArith", "Greatest", "Least")
+      "IfElse", "Compare", "ConstDivide", "IntArith", "Greatest", "Least", "AddMonths")
     assert((wanted -- seen).isEmpty, s"never drawn: ${(wanted -- seen).toSeq.sorted}")
     assert(narrowBelow, "no narrowing below another node was drawn")
   }

@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTime;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTimeWithFraction;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimes;
+import org.apache.spark.sql.catalyst.expressions.SubtractTimestamps;
 import org.apache.spark.sql.catalyst.expressions.TimeAddInterval;
 import org.apache.spark.sql.catalyst.expressions.TimeDiff;
 import org.apache.spark.sql.catalyst.expressions.TimeFromMicros;
@@ -47,6 +48,8 @@ import org.apache.spark.sql.catalyst.expressions.TimeToMicros;
 import org.apache.spark.sql.catalyst.expressions.TimeToMillis;
 import org.apache.spark.sql.catalyst.expressions.TimeToSeconds;
 import org.apache.spark.sql.catalyst.expressions.TimeTrunc;
+import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
+import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
@@ -72,7 +75,8 @@ import org.apache.spark.unsafe.types.UTF8String;
  * day-time interval leaves, the precision and unit casts that are the identity on the lane, and
  * the TIME functions, which reach the compiler as the {@code StaticInvoke} their
  * {@code RuntimeReplaceable} rewrote into and are matched by the method they invoke through
- * {@link #TIME_TARGETS}.
+ * {@link #TIME_TARGETS}; and the {@code TIMESTAMP_NTZ} arithmetic that is long arithmetic, the
+ * difference of two NTZ values and an NTZ value plus or minus a day-time interval.
  *
  * <p>{@link #arm} is the family's one entry from the chain {@code VarkaExpressionCompiler}
  * dispatches through, in the form {@code VarkaIntervalCompiler} set: a {@code switch} that tests
@@ -197,8 +201,83 @@ final class VarkaTimeCompiler {
       // invoke; the rest decline by name through the same table.
       case StaticInvoke si when isTimeTarget(si) ->
           () -> compileTime(si, inputs, literals, sink);
+      // TIMESTAMP_NTZ arithmetic (VARKA-339). Spark reads an NTZ value at UTC, where a day is
+      // always 86,400 seconds, so `ntz - ntz` is `subtractExact` of the two counts and
+      // `ntz + dt` is `addExact`, in every evaluation mode: the checked long add and subtract
+      // compute them, and a batch with a lane that overflows goes to the row engine, which
+      // raises Spark's error on the row. The legacy CalendarInterval difference is a type no
+      // kernel carries. A zoned TIMESTAMP is no lane's, so these arms ask for NTZ operands.
+      case SubtractTimestamps s when isNtz(s.left()) && isNtz(s.right())
+          && !s.legacyInterval() ->
+          () -> ntzDifference(s, inputs, literals, sink);
+      case SubtractTimestamps s when isNtz(s.left()) && isNtz(s.right()) ->
+          () -> sink.decline("legacy CalendarInterval subtraction of two timestamps", s);
+      case TimestampAddInterval a when isNtz(a.start())
+          && a.interval().dataType() instanceof DayTimeIntervalType ->
+          () -> ntzPlusInterval(a, inputs, literals, sink);
       default -> null;
     };
+  }
+
+  /** Whether {@code e} is a {@code TIMESTAMP_NTZ} of microseconds, the long lane's NTZ. */
+  private static boolean isNtz(Expression e) {
+    return DataTypes.TimestampNTZType.equals(e.dataType());
+  }
+
+  /**
+   * {@code end - start} over two NTZ values: Spark's {@code subtractTimestamps} at UTC, which is
+   * {@code ChronoUnit.MICROS.between} of the two wall clocks and equals
+   * {@code Math.subtractExact(end, start)}, raising exactly where it does
+   * ({@code VARKA-339.md} 0, item 1). The result is a day-time interval in microseconds.
+   */
+  private static Optional<VarkaVectorIR> ntzDifference(
+      SubtractTimestamps s,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> end = longOperand(s.left(), inputs, literals, sink);
+    if (end.isEmpty()) {
+      return end;
+    }
+    return longOperand(s.right(), inputs, literals, sink)
+        .map(start -> new IntArith(IntOp.SUB, Overflow.FAIL, end.get(), start));
+  }
+
+  /**
+   * {@code t + dt} over an NTZ value and a day-time interval: Spark's {@code timestampAddDayTime}
+   * at UTC, which is {@code Math.addExact(t, dt)} ({@code VARKA-339.md} 0, item 1).
+   *
+   * <p>{@code t - dt} reaches here as {@code t + UnaryMinus(dt)}, and the negation is absorbed
+   * into a checked subtraction, as {@code date_sub} absorbs its own into {@code SubDays}. Spark
+   * negates an ANSI interval with {@code negateExact} in every mode, so the one interval it
+   * cannot negate, {@code Long.MIN_VALUE}, raises: the guard keeps the interval inside
+   * {@code negateExact}'s domain, and inside it {@code t - dt} overflows exactly where
+   * {@code t + (-dt)} does. A literal interval needs no guard, and the least one declines here.
+   */
+  private static Optional<VarkaVectorIR> ntzPlusInterval(
+      TimestampAddInterval a,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> t = longOperand(a.start(), inputs, literals, sink);
+    if (t.isEmpty()) {
+      return t;
+    }
+    if (a.interval() instanceof UnaryMinus n
+        && n.child().dataType() instanceof DayTimeIntervalType) {
+      if (n.child() instanceof Literal l && l.value() instanceof Long micros) {
+        if (micros == Long.MIN_VALUE) {
+          return sink.decline("the least day-time interval negated, which overflows and which "
+              + "the row engine raises on every row", a);
+        }
+        return Optional.of(new IntArith(IntOp.SUB, Overflow.FAIL, t.get(),
+            sink.longSlot(micros)));
+      }
+      return longOperand(n.child(), inputs, literals, sink).map(dt -> new IntArith(IntOp.SUB,
+          Overflow.FAIL, t.get(), new GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE)));
+    }
+    return longOperand(a.interval(), inputs, literals, sink)
+        .map(dt -> new IntArith(IntOp.ADD, Overflow.FAIL, t.get(), dt));
   }
 
   /** Whether {@code si} is the replacement of one of Spark's TIME expressions. */

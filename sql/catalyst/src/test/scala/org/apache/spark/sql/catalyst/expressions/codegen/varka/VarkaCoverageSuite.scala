@@ -179,6 +179,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The days `CAST(d AS TIMESTAMP_NTZ)` converts without overflow: the cast's range guard. */
   private val ntzDayBound = s"unix_date(d) BETWEEN -$maxDateDiffDays AND $maxDateDiffDays"
   /**
+   * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
+   * Spark's `try_` form of the row has a value, which it has exactly where the row does not
+   * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
+   */
+  private def ntzDomain(tried: String, operands: String*): String =
+    s"if(${operands.map(_ + " IS NULL").mkString(" OR ")}, NULL, $tried IS NOT NULL)"
+
+  /**
    * NTZ literals the differential fixtures hold (a date column at a time column's value): under
    * one-row batches the cache's statistics drop every batch a literal cannot match, and a literal
    * no row holds would leave no batch for a kernel.
@@ -685,7 +693,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("coalesce(dt, dt2)"))),
 
     // TIMESTAMP_NTZ on the long lane (VARKA-338): microseconds since the epoch with no zone,
-    // compared and chosen by the long lane's nodes as a bigint is; its arithmetic is row 339's.
+    // compared and chosen by the long lane's nodes as a bigint is; its arithmetic is the family
+    // after the two.
     Family("TIMESTAMP_NTZ columns", predicates = true, Seq(
       Row("ntz < ntz2"),
       Row("ntz <= ntz2"),
@@ -718,6 +727,25 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row " +
         "engine the guard sends its batch to", domain = Some(ntzDayBound)),
       Row("CAST(ntz AS DATE)", "cannot fail: every quotient is a day an int holds"))),
+
+    // TIMESTAMP_NTZ arithmetic (VARKA-339): Spark reads an NTZ value at UTC, so the difference
+    // and the day-time interval sums are `subtractExact` and `addExact` of the counts in every
+    // evaluation mode, and a value past the long raises under LEGACY and ANSI alike. The kernel
+    // computes them with the checked long subtract and add, and a batch with an overflowing row
+    // goes to the row engine, which raises.
+    Family("TIMESTAMP_NTZ arithmetic", predicates = false, Seq(
+      Row("ntz - ntz2", "a day-time interval in microseconds; a difference past the long " +
+        "raises in every mode", domain = Some(ntzDomain("try_subtract(ntz, ntz2)", "ntz", "ntz2"))),
+      Row("ntz2 - d", "type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the " +
+        "cast's day guard, then subtracts it", domain = Some(ntzDomain("try_subtract(ntz2, d)",
+          "ntz2", "d"))),
+      Row("ntz + dt", "a value past the long raises in every mode",
+        domain = Some(ntzDomain("try_add(ntz, dt)", "ntz", "dt"))),
+      Row("ntz - dt", "the interval's negation is folded into a checked subtraction; Spark " +
+        "negates with negateExact in every mode, so the least interval, which it raises on, is " +
+        "guarded", domain = Some(ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
+      Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
+        domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected
@@ -1598,10 +1626,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The casts a row performs, as `from>to:mode` in the census's type names: what the census holds
    * each pair `m8/casts.tsv` marks fused to (VARKA-328), since a cast's pair and mode are visible
    * only in the resolved expression, not in the class list. The mode is ANSI's for every row this
-   * suite resolves, Spark's default.
+   * suite resolves, Spark's default. The TIMESTAMP_NTZ cast to itself is left out: the
+   * analyzer's datetime arithmetic writes one over `ntz + dt` (`Cast(TimestampAddInterval(...),
+   * TIMESTAMP_NTZ)`), and the optimizer's `SimplifyCasts` removes it before Varka sees a plan, so
+   * it is no pair the census holds.
    */
   private def castsOf(row: Row): Seq[String] = expressionOf(row).collect {
-    case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
+    case c: Cast if !(c.dataType == TimestampNTZType && c.child.dataType == TimestampNTZType) =>
+      (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
   }.collect { case (Some(from), Some(to), mode) =>
     s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
   }.distinct.sorted

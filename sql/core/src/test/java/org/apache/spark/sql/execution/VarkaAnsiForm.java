@@ -262,7 +262,7 @@ public final class VarkaAnsiForm {
         + "the left side rejected (m9/SCOPE.md item 96)";
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "y1 + y2", "y1 - y2", "y1 * y2", "-y1",
-        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)")) {
+        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "ntz + dt")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     return Map.copyOf(out);
@@ -279,7 +279,8 @@ public final class VarkaAnsiForm {
       Map.entry("BINARY_ARITHMETIC_OVERFLOW", "y1 + y2"),
       Map.entry("CAST_OVERFLOW", "d + CAST(i AS INTERVAL DAY)"),
       Map.entry("DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "make_date(2021, i, 1)"),
-      Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"));
+      Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
+      Map.entry("java.lang.ArithmeticException", "ntz + dt"));
 
   /**
    * The condition Spark's interpreter raises evaluating {@code expression} over the fixture's
@@ -304,6 +305,12 @@ public final class VarkaAnsiForm {
     return out;
   }
 
+  /**
+   * The condition {@code values} raises, or empty. An overflow Spark raises with no condition -
+   * the TIMESTAMP_NTZ arithmetic's {@code Math.addExact}, a bare {@code ArithmeticException} - is
+   * named by its class, as {@code VarkaMaybeThrows.raised} names an error with no condition for
+   * the end-to-end suite; any other error is the harness's own and is thrown.
+   */
   private static Optional<String> condition(Supplier<List<InternalRow>> values) {
     try {
       values.get();
@@ -311,6 +318,9 @@ public final class VarkaAnsiForm {
     } catch (RuntimeException e) {
       if (e instanceof SparkThrowable t && t.getCondition() != null) {
         return Optional.of(t.getCondition());
+      }
+      if (e instanceof ArithmeticException) {
+        return Optional.of(e.getClass().getName());
       }
       throw e;
     }
