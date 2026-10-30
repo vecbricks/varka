@@ -71,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -806,8 +807,9 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
+          // A floating division's zero test reads its divisor off the stack and parks nothing.
           if (analysis.options.checkIntOverflow() && node instanceof IntArith n
-              && n.mode() != Overflow.WRAP) {
+              && n.mode() != Overflow.WRAP && !n.laneType().isFloating()) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
           // The magic-number division builds its floor by hand, which needs the quotient, its
@@ -960,6 +962,7 @@ final class Slots {
       case BoundedDivide n -> s.wordRef.get(n.child());
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case BitCount n -> s.wordRef.get(n.child());
+      case MathUnary n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1461,6 +1464,7 @@ final class Slots {
         case BoundedDivide x -> { }
         case BitOp x -> { }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1535,6 +1539,7 @@ final class Slots {
         case BitOp x -> { demand(analysis.wordOwner.get(x.left()));
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

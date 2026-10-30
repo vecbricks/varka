@@ -728,6 +728,35 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("DOUBLE columns choosing values", predicates = false, floatingChoices("x", "x2")),
     Family("FLOAT columns", predicates = true, floatingPredicates("f", "f2", "F", FloatType)),
     Family("FLOAT columns choosing values", predicates = false, floatingChoices("f", "f2")),
+    // The floating arithmetic (VARKA-342): the IEEE operation in every mode, the operands in
+    // Spark's order and no rewrite, so each is exact by construction; only the division has a
+    // mode, its zero divisor's disposal.
+    Family("Floating arithmetic", predicates = false, Seq(
+      Row("x + x2", "the IEEE sum in every mode: an infinity or a NaN is an answer"),
+      Row("x - x2"),
+      Row("x * x2", "no multiply and add is contracted into an FMA"),
+      Row("x / x2", "a zero divisor of either sign raises under ANSI, so the batch declines and "
+        + "the row engine raises; the legacy mode and try_divide answer null",
+        domain = Some("x IS NULL OR x2 IS NULL OR x2 <> 0.0D")),
+      Row("x / 3.0D", "a non-zero literal divisor has no zero test"),
+      Row("1.5D - x", "a literal on the left"),
+      Row("try_divide(x, x2)", "the legacy division: null on a zero divisor in every mode"),
+      Row("try_add(x, x2)", "the same sum: a floating sum has no overflow"),
+      Row("try_multiply(x, x2)", "the same product"),
+      Row("try_subtract(f, f2)", "the same difference"),
+      Row("(x + x2) * x2 - x", "the floating baseline's chain"),
+      Row("-x", "the sign bit flipped, a NaN's payload kept"),
+      Row("abs(x)", "the sign bit cleared, a NaN's payload kept"),
+      Row("sqrt(x)", "IEEE's correctly rounded square root, Math.sqrt's bits"),
+      Row("signum(x)", "both zeros and NaN answer themselves, as Math.signum does"),
+      Row("degrees(x)", "one multiply by Math.toDegrees(1.0), which is the JDK's own formula"),
+      Row("radians(x)", "one multiply by Math.toRadians(1.0)"),
+      Row("f + f2", "the float sum, rounded once"),
+      Row("f - f2"),
+      Row("f * f2"),
+      Row("f * 2.5F"),
+      Row("-f"),
+      Row("abs(f)"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),

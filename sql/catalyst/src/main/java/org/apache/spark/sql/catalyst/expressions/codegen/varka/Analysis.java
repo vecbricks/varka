@@ -64,6 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -329,6 +330,13 @@ final class Analysis {
      * instead of refusing the batch, so it has no reason.
      */
     INT_OVERFLOW(Family.CHECKED, false, VarkaFusedKernel.STATUS_INT_OVERFLOW),
+    /**
+     * A FAIL-mode floating {@link IntArith} {@code DIV}: a live lane whose divisor is
+     * {@code 0.0} or {@code -0.0}, which Spark's ANSI division raises on. The node's own
+     * correctness, so never behind an option. The divisor is tested off the operand stack, so it
+     * parks nothing.
+     */
+    DIVIDE_BY_ZERO(Family.SELF, false, VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO),
     /**
      * {@link GuardedDay}: the day range, re-armed by the compiler. Unconditional, because the
      * compiler admits the expression on the strength of this check ({@code VARKA-93.md} 3.4).
@@ -673,6 +681,13 @@ final class Analysis {
         // this condition reads the lane: its product of two narrow operands is exact in the int
         // lane, so the widened arm checks it with the lane's own range compare, and the native
         // arm would widen it - either way it needs its refusal like any other checked node.
+        // A floating division's zero test under FAIL is its own correctness, so it is never
+        // behind checkIntOverflow; no other floating node has a check.
+        case IntArith n when n.laneType().isFloating() -> {
+          if (n.op() == IntOp.DIV && n.mode() == Overflow.FAIL) {
+            refuse(node, Refusal.DIVIDE_BY_ZERO);
+          }
+        }
         case IntArith n -> {
           if (options.checkIntOverflow() && n.mode() == Overflow.FAIL
               && (n.op() != IntOp.MUL || n.laneType().isNarrow())) {
@@ -714,6 +729,7 @@ final class Analysis {
         case BoundedDivide n -> { }
         case BitOp n -> { }
         case BitCount n -> { }
+        case MathUnary n -> { }
         case Compare n -> { }
         case NullSafeEqual n -> { }
         case BoolColumn n -> { }
@@ -807,7 +823,8 @@ final class Analysis {
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, Compare _, NullSafeEqual _, BoolColumn _, BoolCompare _,
+          BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolColumn _,
+          BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
           InRanges _, CondValue _ -> false;
     };
@@ -1078,6 +1095,7 @@ final class Analysis {
       case BoundedDivide n -> wordOwner.get(n.child());
       case BitOp n -> andOwner(node, n.left(), n.right());
       case BitCount n -> wordOwner.get(n.child());
+      case MathUnary n -> wordOwner.get(n.child());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -1135,6 +1153,7 @@ final class Analysis {
       case BoundedDivide n -> pureWord.get(n.child());
       case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case BitCount n -> pureWord.get(n.child());
+      case MathUnary n -> pureWord.get(n.child());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1355,6 +1374,8 @@ final class Analysis {
       // operand nulls the result and nothing else does.
       case BitOp n -> analyzeOp(node, false, n.left(), n.right());
       case BitCount n -> analyzeOp(node, false, n.child());
+      // A floating math function computes every lane and nulls none.
+      case MathUnary n -> analyzeOp(node, false, n.child());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way

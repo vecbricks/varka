@@ -328,6 +328,41 @@ two for the cast and interval forms after 343.
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv` |
 
+### 5.1 Step 3 as built (30 October 2026)
+
+Where the code departs from 2.1 to 2.5, and what is still owed:
+
+- **`signum` is ordered so that a null answers null.** 2.3's form, `IfElse(x = 0.0 OR isnan(x),
+  x, IfElse(x < 0.0, -1.0, 1.0))`, answers `1.0` for a null `x`: an unknown condition takes the
+  else arm, and the inner else is a valid literal. The built form is `IfElse(x < 0.0, -1.0,
+  IfElse(x > 0.0 AND NOT (x = NaN), 1.0, x))`: its last arm is `x`, so a null, both zeros and
+  every NaN answer themselves, bits kept, and `x > 0.0` is excluded at NaN, which Spark's order
+  puts above every number.
+- **The zero test parks nothing.** 2.5 has a `FAIL` division park its divisor; the emitter keeps
+  it under the quotient instead (`dup_x1`, the divide, `swap`), and the compare consumes the
+  copy. A `FAIL` division declines with a refusal of its own, `DIVIDE_BY_ZERO`, and the kernel
+  status bit `STATUS_DIVIDE_BY_ZERO`, never behind `checkIntOverflow`.
+- **`DIV WRAP` takes any divisor**, a column or a computed value as well as a non-zero literal,
+  with the IEEE quotient on a zero divisor (an infinity or a NaN): the form rows 356 to 358's
+  compositions need (`1 / sin(x)`, `log(b) / log(x)`), which divide by a computed value with no
+  test. Only Spark's `Divide` over a computed divisor takes `NULL` or `FAIL`.
+- **Cost**: `VarkaEmitBudget` weighs a floating division and `MathUnary` as a checked node (5);
+  `VarkaEmitCostTable` has no price for the new features, so a group holding one falls back to
+  the budget and the byte budget's measurement of the built class, as an unpriced feature does.
+- **Tests**: `VarkaEmitterFloatingArithSuite` holds the IR at both lanes and widths to the
+  reference, the zero divisor in each mode, the compiled forms against Spark's `eval` in LEGACY,
+  ANSI and TRY over 3.1's cells and the special values' cross product (a NaN computed from two
+  NaN operands by NaN-ness), the guarded divisions under ANSI, the literal zero's decline, the
+  contraction case of 3.2, the two constants of 3.3, the negation and `abs` of every `FLOAT`
+  pattern, and the binary `FLOAT` sweeps of 3.4 behind `-Dvarka.sweep=true`.
+  `VarkaFloatingLaneSuite` runs the forms end to end over its fixtures in both modes, and ANSI's
+  `DIVIDE_BY_ZERO` through the declined batch. The coverage table gains a family, "Floating
+  arithmetic", of 23 rows.
+- **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
+  lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
+  `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2). The plan
+  names no planted fault for this row.
+
 ## 6. Out of this row
 
 `%`, `pmod` and `try_mod` (346); `try_divide` and `try_multiply` over an interval, which are

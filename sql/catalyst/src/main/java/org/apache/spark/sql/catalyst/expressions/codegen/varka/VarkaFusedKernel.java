@@ -86,6 +86,9 @@ public interface VarkaFusedKernel {
    */
   int STATUS_VALUE_RANGE = 1 << 5;
 
+  /** A floating division's live lane with a zero divisor under ANSI, which Spark raises on. */
+  int STATUS_DIVIDE_BY_ZERO = 1 << 6;
+
   /**
    * Runs the fused loop over one batch.
    *

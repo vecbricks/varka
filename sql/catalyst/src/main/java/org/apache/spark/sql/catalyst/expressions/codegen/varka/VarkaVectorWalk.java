@@ -60,6 +60,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -241,6 +242,7 @@ final class VarkaVectorWalk {
       }
       case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
       case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
+      case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
@@ -643,7 +645,12 @@ final class VarkaVectorWalk {
       case ADD -> "add";
       case SUB -> "sub";
       case MUL -> "mul";
+      case DIV -> "div";
     };
+    if (n.laneType().isFloating()) {
+      emitFloatingArith(cb, n, op, dense, analysis, s, computed);
+      return;
+    }
     boolean narrow = n.laneType().isNarrow();
     // Before the scratch-slot test, because the refusal is about the node and not about how
     // this body was configured: with `checkIntOverflow` off there is no scratch, and a checked
@@ -709,6 +716,65 @@ final class VarkaVectorWalk {
     cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     cb.aload(r);
+  }
+
+  /**
+   * {@code IntArith} at a floating lane: the lanewise IEEE operation, the operands in Spark's
+   * order and no rewrite, so the answer is Java's operator's bits on every lane. Only a division
+   * in {@code FAIL} or {@code NULL} tests anything: its divisor's {@code y == 0.0}, the IEEE
+   * compare that holds at both zeros and never at NaN, which is Spark's {@code DivModLike}
+   * test. The divisor is kept under the quotient by a {@code dup_x1} rather than parked in a
+   * local: {@code [x, y] -> [y, x, y] -> [y, q] -> [q, y]}, and the compare consumes the copy.
+   * The mask then goes to the mode's disposal as an overflow's does, {@code FAIL} into the
+   * batch's condemning accumulator ANDed with the node's word, so a null dividend over a zero
+   * divisor does not condemn, and {@code NULL} out of the node's own word. The test is
+   * unconditional: {@code checkIntOverflow} is about integer overflow and reaches no floating
+   * node.
+   */
+  private static void emitFloatingArith(CodeBuilder cb, IntArith n, String op, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(n);
+    if (n.mode() == Overflow.WRAP) {
+      emitAndValidatedOp(cb, n, n.left(), n.right(), op, lane.lanewiseVV, dense, analysis, s,
+          computed);
+      return;
+    }
+    if (n.op() != IntOp.DIV) {
+      throw VarkaErrors.illegalArgument("a floating " + n.op() + " has no checked form: " + n);
+    }
+    emitValue(cb, n.left(), dense, analysis, s, computed);
+    emitValue(cb, n.right(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    cb.dup_x1();
+    cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
+    cb.swap();
+    if (!dense && s.ownWord.contains(n)) {
+      emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
+    }
+    cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
+    if (lane == Lane.DOUBLE) {
+      cb.loadConstant(0.0d);
+    } else {
+      cb.loadConstant(0.0f);
+    }
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+    emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
+  }
+
+  /**
+   * {@code MathUnary}: the function's lanewise operator, whose bits are {@code Math}'s on every
+   * input. The word is the operand's, since nothing here nulls a lane.
+   */
+  private static void emitMathUnary(CodeBuilder cb, MathUnary n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    String operator = switch (n.fn()) {
+      case SQRT -> "SQRT";
+    };
+    cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
+    cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
   }
 
   /**
@@ -810,11 +876,13 @@ final class VarkaVectorWalk {
       cb.invokevirtual(lane.vector, "compare", lane.compareVI);
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
-    if (n.abs() && !n.laneType().isNarrow()) {
-      throw VarkaErrors.illegalArgument("abs is a narrow lane's node only: " + n);
+    if (n.abs() && !n.laneType().isNarrow() && !n.laneType().isFloating()) {
+      throw VarkaErrors.illegalArgument("abs is a narrow or floating lane's node only: " + n);
     }
     cb.getstatic(VECTOR_OPERATORS, n.abs() ? "ABS" : "NEG", VO_UNARY);
-    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());
+    // A floating lane's NEG and ABS flip and clear the sign bit, NaN included.
+    cb.invokevirtual(lane.vector, "lanewise", n.laneType().isFloating()
+        ? MethodTypeDesc.of(lane.vector, VO_UNARY) : lane.integral().lanewiseUnary());
     if (n.laneType().isNarrow() && analysis.wrapAt.contains(n)) {
       emitWrapToNarrow(cb, lane, n.laneType());
     }
@@ -901,7 +969,9 @@ final class VarkaVectorWalk {
     if (mode == Overflow.FAIL) {
       // A collect the refusal map does not declare would find no accumulator planned for it;
       // refused here by name rather than met as a null slot.
-      if (analysis.refusals.get(node) != Analysis.Refusal.INT_OVERFLOW) {
+      Analysis.Refusal refusal = analysis.refusals.get(node);
+      if (refusal != Analysis.Refusal.INT_OVERFLOW
+          && refusal != Analysis.Refusal.DIVIDE_BY_ZERO) {
         throw VarkaErrors.illegalState("an overflow collect with no refusal declared: " + node);
       }
       emitGuardCollect(cb, node, dense ? null : s.wordRef.get(node), dense, analysis, s);

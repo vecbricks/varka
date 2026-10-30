@@ -112,10 +112,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The list above is the specification of what "derived" means per node, so it has to name
     // every type: a node type added without a lane rule would otherwise go unchecked here even
     // though the emitter walks it.
-    // The widening is the one node type absent: its value is on the long lane by definition,
-    // over an int child (VARKA-28).
-    assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] ===
+    // The widening is absent: its value is on the long lane by definition, over an int child
+    // (VARKA-28). So is the math function, which exists at a floating lane only (VARKA-342).
+    assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] ===
       concreteNodeTypes(classOf[VarkaVectorIR]))
+    val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
+    assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>
       assert(node.laneType() === LaneType.INT, s"${VarkaVectorIR.canonical(node)}")
     }
@@ -448,6 +450,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "TruncDate" => new TruncDate(c, TruncLevel.YEAR)
         case "TruncDateDynamic" => new TruncDateDynamic(c, c1)
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
+        // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
+        case "MathUnary" => new MathUnary(MathFn.SQRT, c)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
@@ -471,7 +475,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
-    assert(atInt === types.map(_.getSimpleName).toSet, "every node type is emittable at INT")
+    assert(atInt + "MathUnary" === types.map(_.getSimpleName).toSet,
+      "every integral node type is emittable at INT")
+    val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
+    val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
+      java.util.List.of[VarkaVectorIR](sqrt), 1, 0, null, null, VarkaMatrix.base)
+    assert(VarkaEmitterTestSupport.verify(sqrtBytes).isEmpty, "MathUnary at DOUBLE verifies")
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",

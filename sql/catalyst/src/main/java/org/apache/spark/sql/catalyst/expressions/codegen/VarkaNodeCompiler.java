@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.Divide;
 import org.apache.spark.sql.catalyst.expressions.DivideDTInterval;
 import org.apache.spark.sql.catalyst.expressions.DivideYMInterval;
 import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
@@ -61,11 +62,17 @@ import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
+import org.apache.spark.sql.catalyst.expressions.Pmod;
+import org.apache.spark.sql.catalyst.expressions.Remainder;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.ShiftLeft;
 import org.apache.spark.sql.catalyst.expressions.ShiftRight;
 import org.apache.spark.sql.catalyst.expressions.ShiftRightUnsigned;
+import org.apache.spark.sql.catalyst.expressions.Signum;
+import org.apache.spark.sql.catalyst.expressions.Sqrt;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
+import org.apache.spark.sql.catalyst.expressions.ToDegrees;
+import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.UnaryPositive;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
@@ -201,8 +208,9 @@ final class VarkaNodeCompiler {
 
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
-   * picks. The int arithmetic comes after the calendar family so that the {@code Add(WeekDay, 1)}
-   * shape keeps its dedicated node, and its guard says so as well.
+   * picks, then the floating arithmetic, which claims only floating-valued nodes. The int
+   * arithmetic comes after the calendar family so that the {@code Add(WeekDay, 1)} shape keeps
+   * its dedicated node, and its guard says so as well.
    */
   private static final List<Family> FAMILIES = List.of(
       new Family("date leaves", VarkaNodeCompiler::leafArm),
@@ -210,7 +218,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.INTERVAL, VarkaIntervalCompiler::arm),
       new Family(VarkaFamily.TIME, VarkaTimeCompiler::arm),
       new Family(VarkaFamily.CONDITION, VarkaConditionCompiler::arm),
-      new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm));
+      new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
+      new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -344,15 +353,22 @@ final class VarkaNodeCompiler {
         || e instanceof EqualTo || e instanceof EqualNullSafe || e instanceof LessThan
         || e instanceof LessThanOrEqual || e instanceof GreaterThan
         || e instanceof GreaterThanOrEqual || e instanceof Greatest || e instanceof Least
-        || e instanceof In || e instanceof InSet || e instanceof IsNaN || e instanceof NaNvl) {
+        || e instanceof In || e instanceof InSet || e instanceof IsNaN || e instanceof NaNvl
+        // The floating arithmetic family's forms (VARKA-342), by name for the same reason.
+        // Signum over an interval answers a double too, and stays out until its own step.
+        || e instanceof Add || e instanceof Subtract || e instanceof Multiply
+        || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
+        || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
+        || e instanceof Signum s && isFloating(s.child().dataType())) {
       return Optional.empty();
     }
     String what = switch (e) {
       case Cast _ -> "a cast to or from a floating type (row 343)";
-      // The interval products and quotients by a floating factor are arithmetic too.
-      case BinaryArithmetic _, UnaryMinus _, UnaryPositive _, Abs _, MultiplyYMInterval _,
-          DivideYMInterval _, MultiplyDTInterval _, DivideDTInterval _ ->
-          "floating arithmetic (row 342)";
+      case Remainder _, Pmod _ -> "a floating remainder (row 346)";
+      // The interval products and quotients by a floating factor, and signum over an interval.
+      case Signum _, MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _,
+          DivideDTInterval _ -> "floating interval arithmetic (row 342, after row 343)";
+      case BinaryArithmetic _, UnaryPositive _ -> "floating arithmetic (row 342)";
       default -> "an operation over floating values that no floating lowering serves";
     };
     return Optional.of(what);

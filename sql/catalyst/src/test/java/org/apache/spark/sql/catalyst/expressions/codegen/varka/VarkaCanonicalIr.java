@@ -189,6 +189,7 @@ public final class VarkaCanonicalIr {
       }
       case "bit" -> new BitOp(BitOpKind.valueOf(parts[1]), node(), node());
       case "bitCount" -> new BitCount(node());
+      case "math" -> new MathUnary(MathFn.valueOf(parts[1]), node());
       default -> throw new IllegalArgumentException("no IR node is rendered as '" + head + "'");
     };
     expect(")");

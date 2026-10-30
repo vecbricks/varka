@@ -308,6 +308,7 @@ public final class VarkaGuardSpecs {
         case ADD -> l.add(r);
         case SUB -> l.subtract(r);
         case MUL -> l.multiply(r);
+        case DIV -> throw new IllegalArgumentException("no integral division: " + n);
       }, lane);
     }
     if (node instanceof IntNeg n && n.mode() == Overflow.FAIL) {
@@ -354,6 +355,9 @@ public final class VarkaGuardSpecs {
           pair(VarkaChrono.MONTH_ARITH_MIN_MONTHS, VarkaChrono.MONTH_ARITH_MAX_MONTHS);
       case MAKE_DATE -> pair(VarkaChrono.MAKE_DATE_MIN_YEAR, VarkaChrono.MAKE_DATE_MAX_YEAR);
       case INT_OVERFLOW -> laneBounds(node.laneType());
+      // A floating divisor's zero test has no integer bound; these specs are the integral lanes'.
+      case DIVIDE_BY_ZERO -> throw new IllegalArgumentException(
+          "no integer guard spec for a floating division: " + node);
       case VALUE_RANGE -> {
         if (!(node instanceof GuardedRange g)) {
           throw new IllegalArgumentException("a value range on " + node);
@@ -410,6 +414,7 @@ public final class VarkaGuardSpecs {
           case ADD -> l.add(r);
           case SUB -> l.subtract(r);
           case MUL -> l.multiply(r);
+          case DIV -> throw new IllegalArgumentException("no integral division: " + n);
         }, b);
       }
       case IntNeg n -> {
@@ -422,7 +427,8 @@ public final class VarkaGuardSpecs {
       // class does not know, which is the case to add.
       case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, BitOp _, BitCount _, Cond _, CondValue _, WidenLane _, NarrowLane _ ->
+          BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _, WidenLane _,
+          NarrowLane _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

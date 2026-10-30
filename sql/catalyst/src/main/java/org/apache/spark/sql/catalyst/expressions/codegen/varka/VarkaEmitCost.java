@@ -117,6 +117,7 @@ final class VarkaEmitCost {
       case ConstDivide n -> name + '/' + n.laneType() + (n.divisor() < 0 ? "/neg" : "/pos");
       case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
       case BitCount n -> name + '/' + n.laneType();
+      case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
       case GuardedRange n -> name + '/' + n.laneType();
       case Compare n -> name + '/' + n.op() + '/' + n.laneType();
       case VarkaVectorIR.BoolColumn n -> name + '/' + n.lane();
