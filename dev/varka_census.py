@@ -866,10 +866,12 @@ MODE_LEGAL = {"legacy": 0, "ansi": 1, "try": 1}
 
 
 def cast_errors(cov, probe):
-    """Comet's four-way rule over the probe and the coverage table, per mode: a pair the compiler
-    fuses has a coverage row casting it; a row's cast is legal in its mode and not an identity,
-    which the analyzer removes before a cast exists; and a pair a row casts fuses in that mode, or
-    fuses only inside another operator (CONTEXT_CASTS), where the probe must find it declined."""
+    """Comet's rule over the probe and the coverage table, per mode: a pair the compiler fuses has
+    a coverage row casting it, unless it is on UNSHOWN_CASTS, a pair no fixture column can show,
+    which stays on that list only while that holds; a row's cast is legal in its mode and not an
+    identity, which the analyzer removes before a cast exists; and a pair a row casts fuses in
+    that mode, or fuses only inside another operator (CONTEXT_CASTS), where the probe must find it
+    declined."""
     errors = []
     cast = cov["#casts"]
     for src, dst, mode in sorted(cast):
