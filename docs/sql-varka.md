@@ -766,9 +766,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `try_add(x, x2)` | `floatingArithmetic` |  | the same sum: a floating sum has no overflow | vector |
 | `try_multiply(x, x2)` | `floatingArithmetic` |  | the same product | vector |
 | `try_subtract(f, f2)` | `floatingArithmetic` |  | the same difference | vector |
-| `try_subtract(x, x2)` | `floatingArithmetic` |  |  | not audited |
-| `try_add(f, f2)` | `floatingArithmetic` |  |  | not audited |
-| `try_multiply(f, f2)` | `floatingArithmetic` |  |  | not audited |
+| `try_subtract(x, x2)` | `floatingArithmetic` |  |  | vector |
+| `try_add(f, f2)` | `floatingArithmetic` |  |  | vector |
+| `try_multiply(f, f2)` | `floatingArithmetic` |  |  | vector |
 | `(x + x2) * x2 - x` | `floatingArithmetic` |  | the floating baseline's chain | vector |
 | `-x` | `floatingArithmetic` |  | the sign bit flipped, a NaN's payload kept | vector |
 | `abs(x)` | `floatingArithmetic` |  | the sign bit cleared, a NaN's payload kept | vector |

@@ -18,6 +18,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.Optional;
 
+import javax.annotation.Nullable;
+
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.Divide;
@@ -69,7 +71,7 @@ final class VarkaFloatingCompiler {
   }
 
   /** The family's claim: a node whose own value is floating and whose form it lowers, or null. */
-  static VarkaFamilyArm arm(
+  static @Nullable VarkaFamilyArm arm(
       Expression e,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,

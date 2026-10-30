@@ -128,6 +128,11 @@ public abstract class VarkaTypeConformance {
       return spark.equals(DataTypes.BooleanType);
     }
 
+    /** Whether the type is FLOAT or DOUBLE, whose arithmetic has no overflow to raise on. */
+    boolean isFloating() {
+      return spark.equals(DataTypes.FloatType) || spark.equals(DataTypes.DoubleType);
+    }
+
     /**
      * The lane a column of the type is read at, the registry's; a {@code BOOLEAN}, read as a
      * condition and on no lane, is counted with the int lane, as its bitmaps' words are.
@@ -277,7 +282,10 @@ public abstract class VarkaTypeConformance {
    * kernel is held to. A type the census admits for none of them ({@code BOOLEAN}, {@code DATE},
    * {@code TIME}, and {@code TIMESTAMP_NTZ}, which has no arithmetic of its own type until row 339
    * adds its interval arithmetic) has no overflow to check, and that is stated rather than
-   * skipped: a census row that admits one gives the check its first form here.
+   * skipped: a census row that admits one gives the check its first form here. A floating type's
+   * arithmetic reaches an infinity at its extremes, which Spark answers in every mode
+   * (`VARKA-342.md` 3.8), so its forms are held to Spark over the extremes with nothing raised
+   * or nulled, and the kernel declines no batch.
    */
   @Test
   @DisplayName("overflow: LEGACY wraps, ANSI declines what Spark raises on, TRY nulls it")
@@ -725,6 +733,9 @@ public abstract class VarkaTypeConformance {
       }
       String at = f + " output " + o + " (" + oracle.sql(o) + ") over the fixture";
       requireDiscriminates(f, c, o, at, s);
+      if (type().isFloating()) {
+        continue;
+      }
       if (f.overflowing() && f.mode() == Mode.ANSI) {
         assertTrue(s.sawRaise, at + ": the fixture never overflows it");
       }

@@ -359,7 +359,7 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        || e instanceof Signum s && isFloating(s.child().dataType())) {
+        || (e instanceof Signum s && isFloating(s.child().dataType()))) {
       return Optional.empty();
     }
     String what = switch (e) {
