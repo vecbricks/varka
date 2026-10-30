@@ -759,7 +759,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `x + x2` | `floatingArithmetic` |  | the IEEE sum in every mode: an infinity or a NaN is an answer | vector |
 | `x - x2` | `floatingArithmetic` |  |  | vector |
 | `x * x2` | `floatingArithmetic` |  | no multiply and add is contracted into an FMA | vector |
-| `x / x2` | `floatingArithmetic` | `x IS NULL OR x2 IS NULL OR x2 <> 0.0D` | a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `x / x2` | `floatingArithmetic` | `CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END` | a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `x / 3.0D` | `floatingArithmetic` |  | a non-zero literal divisor has no zero test | vector |
 | `1.5D - x` | `floatingArithmetic` |  | a literal on the left | vector |
 | `try_divide(x, x2)` | `floatingArithmetic` |  | the legacy division: null on a zero divisor in every mode | per-lane: compare to mask, mask cast |

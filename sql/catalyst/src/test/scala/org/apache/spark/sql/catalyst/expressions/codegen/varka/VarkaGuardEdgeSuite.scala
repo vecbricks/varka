@@ -371,6 +371,45 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     }
   }
 
+  test("a guard inside the condition of an arm it sits under is unqualified, and its kernel " +
+      "verifies") {
+    // if (if (c0 < c3) c1 + c2 else c3 > c3) c1 + c2 else c3: the checked sum is used under an
+    // arm nested in the outer condition and under the outer then arm, so one of its chains is
+    // qualified by the very condition the sum is computed inside, before that condition's word
+    // exists. Found by the long-lane fuzzer's untaken-arm variant as a class that failed to
+    // verify; the guard is unqualified there, which the verdict reads too.
+    val sum = new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(1), new ColumnRef(2))
+    val inner = new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(3)), sum,
+      new ColumnRef(3))
+    val root = new IfElse(new Compare(CompareOp.GT, inner, new ColumnRef(3)), sum,
+      new ColumnRef(3))
+    val roots = Seq[VarkaVectorIR](root)
+    val o = options.withGuardUnderArm(true)
+    assert(VarkaLoopEmitter.guardsForTest(roots.asJava, 4, 0, o).get(sum).arms().isEmpty)
+    val none: Seq[Int => Boolean] = Seq.fill(4)((_: Int) => false)
+    val bit = VarkaFusedKernel.STATUS_INT_OVERFLOW
+    // Row 3 overflows the sum and takes neither arm reading it (c0 = c3): unqualified, its guard
+    // may fire; elsewhere nothing overflows and the batch is answered.
+    for ((label, overflow) <- Seq(("an overflow", true), ("no overflow", false))) {
+      val data = Array.tabulate(4, length) { (c, i) =>
+        c match {
+          case 1 => if (overflow && i == 3) Int.MaxValue.toLong else 1L
+          case _ => 2L
+        }
+      }
+      val verdict = VarkaGuardSpec.verdict(roots, 4, Array.empty, o, long = false,
+        rowsOf(data, none))
+      val name =
+        s"org.apache.spark.sql.varka.execution.VarkaGuardOwnCond${classCounter.incrementAndGet()}"
+      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 4, 0, null, null, o)
+      val st = VarkaKernelCheck.runEachBodyStatus(label, name, bytes, roots, 4, Array.empty,
+        VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false))
+      assert(st.forall(verdict.admits), s"$label: statuses $st, verdict $verdict")
+      assert(overflow || st.forall(_ == 0), s"$label: statuses $st")
+      assert(!overflow || verdict == Verdict(0, bit), s"$label: verdict $verdict")
+    }
+  }
+
   test("a guard above a FAIL lane that overflowed may fire on the wrapped value, and the kernel " +
       "names both reasons") {
     // `d - ym` at the one count whose negation overflows: `AddMonths(c0, IntNeg(FAIL, c1))`. The

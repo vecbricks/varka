@@ -3948,7 +3948,7 @@
     "casts" : [ ],
     "operands" : [ "Divide:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled" ],
-    "domain" : "x IS NULL OR x2 IS NULL OR x2 <> 0.0D",
+    "domain" : "CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END",
     "note" : "a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null",
     "verified" : "differential"
   }, {

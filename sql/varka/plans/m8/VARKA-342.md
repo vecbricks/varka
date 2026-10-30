@@ -395,11 +395,14 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   outputs in two groups is guarded in each by the chains that group emits, and the conditions of
   a guard's chains are emitted before the body's first output, since a shared node is computed at
   its first use. A single chain emits as before, and a column's stored-value guard keeps a single
-  chain only, so its lane-wise min and max stay. `VarkaGuardEdgeSuite` holds a shared checked
+  chain only, so its lane-wise min and max stay. A node inside the condition of an arm one of
+  its chains runs through is computed while that condition is, before its word exists, so it is
+  unqualified: the long-lane fuzzer's untaken-arm variant built that shape, a class that failed
+  to verify, and `VarkaGuardEdgeSuite` pins it. `VarkaGuardEdgeSuite` holds a shared checked
   add to the verdict and the kernel, and `VarkaFloatingLaneSuite` runs the two outputs in one
-  projection with no batch declined. In `emitted_bytes.json` no coverage row moved; at both widths
-  4 blocks of the int fuzz sequence, 21 of the long and 3 of the mixed moved, and the option arms'
-  digests over them, and those are exactly the blocks holding a shape with a guard whose
+  projection with no batch declined. In `emitted_bytes.json`, against master, no coverage row moved but
+  this row's own new ones; at both widths 4 blocks of the int fuzz sequence, 18 of the long and 3
+  of the mixed moved, and the option arms' digests over them, and those are exactly the blocks holding a shape with a guard whose
   qualification the walk changed, found by running the walk as it was beside the new one over
   the three sequences: no shape without a shared guarded node moved.
 - **The review's fixes (30 October 2026).** `VarkaGuardSpecs` gives the zero divisor its own

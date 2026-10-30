@@ -737,7 +737,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("x * x2", "no multiply and add is contracted into an FMA"),
       Row("x / x2", "a zero divisor of either sign raises under ANSI, so the batch declines and "
         + "the row engine raises; the legacy mode and try_divide answer null",
-        domain = Some("x IS NULL OR x2 IS NULL OR x2 <> 0.0D")),
+        domain = Some("CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END")),
       Row("x / 3.0D", "a non-zero literal divisor has no zero test"),
       Row("1.5D - x", "a literal on the left"),
       Row("try_divide(x, x2)", "the legacy division: null on a zero divisor in every mode"),

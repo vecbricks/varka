@@ -195,7 +195,7 @@ public final class VarkaExpressionHarness {
       Expected b = generated.get(i);
       boolean agree = a.error() != null
           ? b.error() != null && sameError(a.error(), b.error())
-          : b.error() == null && sameRow(a.row(), b.row(), types) == null;
+          : b.error() == null && sameRow(a.row(), b.row(), types, false) == null;
       if (!agree) {
         outcome.findings.add(context + ", row " + i + ": Spark's interpreted and generated "
             + "projections disagree (" + describe(a, types) + " against " + describe(b, types)
@@ -359,7 +359,7 @@ public final class VarkaExpressionHarness {
           try {
             for (int i = 0; i < batch.numRows(); i++) {
               compare(context, start + i, want.get(start + i), out.getRow(i), outTypes,
-                  outcome);
+                  twoUnlikeNaNs(batch, i), outcome);
             }
           } finally {
             evaluator.release(out);
@@ -522,7 +522,7 @@ public final class VarkaExpressionHarness {
   }
 
   private static void compare(String context, int row, @Nullable Expected expected,
-      InternalRow got, DataType[] types, Outcome outcome) {
+      InternalRow got, DataType[] types, boolean unfixedNaN, Outcome outcome) {
     if (expected == null) {
       return;
     }
@@ -531,18 +531,58 @@ public final class VarkaExpressionHarness {
           + "on: " + expected.error());
       return;
     }
-    String difference = sameRow(expected.row(), got, types);
+    String difference = sameRow(expected.row(), got, types, unfixedNaN);
     if (difference != null) {
       outcome.findings.add(context + ", row " + row + ": " + difference);
     }
   }
 
   /**
+   * Whether row {@code i} of {@code batch} holds two floating NaN inputs of different bits: the
+   * only rows where an operation over them has a NaN payload Java does not fix, the x86
+   * interpreter's add returning the right operand's and C2's commuted add either
+   * ({@code VARKA-342.md} 5.1), so the row engine and the kernel may differ in it.
+   */
+  private static boolean twoUnlikeNaNs(ColumnarBatch batch, int i) {
+    Long first = null;
+    for (int c = 0; c < batch.numCols(); c++) {
+      var v = batch.column(c);
+      if (v.isNullAt(i)) {
+        continue;
+      }
+      long bits;
+      if (v.dataType() instanceof DoubleType) {
+        double d = v.getDouble(i);
+        if (!Double.isNaN(d)) {
+          continue;
+        }
+        bits = Double.doubleToRawLongBits(d);
+      } else if (v.dataType() instanceof FloatType) {
+        float f = v.getFloat(i);
+        if (!Float.isNaN(f)) {
+          continue;
+        }
+        bits = Float.floatToRawIntBits(f);
+      } else {
+        continue;
+      }
+      if (first == null) {
+        first = bits;
+      } else if (first != bits) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Null when {@code want} and {@code got} hold the same value in every column, else what
    * differs: floating values by their raw bits, so a NaN's payload and a zero's sign count, as
-   * they do in {@code VarkaSparkOracle}.
+   * they do in {@code VarkaSparkOracle}; where {@code unfixedNaN}, the row's inputs hold two
+   * unlike NaNs ({@link #twoUnlikeNaNs}) and two NaN answers agree whatever their payloads.
    */
-  private static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types) {
+  private static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types,
+      boolean unfixedNaN) {
     for (int o = 0; o < types.length; o++) {
       boolean wantNull = want.isNullAt(o);
       boolean gotNull = got.isNullAt(o);
@@ -557,10 +597,12 @@ public final class VarkaExpressionHarness {
       boolean same;
       if (t instanceof DoubleType) {
         same = Double.doubleToRawLongBits(want.getDouble(o))
-            == Double.doubleToRawLongBits(got.getDouble(o));
+            == Double.doubleToRawLongBits(got.getDouble(o))
+            || unfixedNaN && Double.isNaN(want.getDouble(o)) && Double.isNaN(got.getDouble(o));
       } else if (t instanceof FloatType) {
         same = Float.floatToRawIntBits(want.getFloat(o))
-            == Float.floatToRawIntBits(got.getFloat(o));
+            == Float.floatToRawIntBits(got.getFloat(o))
+            || unfixedNaN && Float.isNaN(want.getFloat(o)) && Float.isNaN(got.getFloat(o));
       } else {
         same = Objects.equals(value(want, o, t), value(got, o, t));
       }

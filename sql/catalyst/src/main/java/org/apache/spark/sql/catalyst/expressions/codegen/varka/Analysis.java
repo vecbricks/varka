@@ -565,6 +565,27 @@ final class Analysis {
     for (VarkaVectorIR root : outputs) {
       assignArmChain(root, List.of());
     }
+    // A node inside the condition of an arm it is qualified by is computed while that condition
+    // is, before the condition's word exists, so its guard cannot read it: such a node is
+    // unqualified. Only a node of two chains or more is one: a chain through arms nested in the
+    // condition, and one under the IfElse's own arm, since a use in a condition starts its own.
+    Map<VarkaVectorIR, Set<VarkaVectorIR>> condNodes = new HashMap<>();
+    for (Map.Entry<VarkaVectorIR, List<List<ArmStep>>> e : armChains.entrySet()) {
+      VarkaVectorIR node = e.getKey();
+      boolean inOwnCondition = false;
+      for (List<ArmStep> chain : e.getValue()) {
+        for (ArmStep step : chain) {
+          inOwnCondition |= condNodes.computeIfAbsent(step.node().cond(), c -> {
+            Set<VarkaVectorIR> under = new HashSet<>();
+            collectReached(c, under);
+            return under;
+          }).contains(node);
+        }
+      }
+      if (inOwnCondition) {
+        e.setValue(List.of());
+      }
+    }
   }
 
   private void assignArmChain(VarkaVectorIR node, List<ArmStep> chain) {

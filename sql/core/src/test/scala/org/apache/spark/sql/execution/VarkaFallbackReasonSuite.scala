@@ -153,9 +153,10 @@ class VarkaFallbackReasonSuite extends QueryTest with VarkaSharedSessions with V
 
   test("an ANSI division by a zero divisor is counted under divide-by-zero") {
     // The division sits on the right of an AND whose left rejects the zero divisors, so Spark
-    // never evaluates it there and answers; the kernel computes every lane, its guard sees the
-    // live zero divisor, and the batch declines with STATUS_DIVIDE_BY_ZERO. Catches the bit
-    // left out of the accounting's names, which would count the batch as unrecognised.
+    // never evaluates it there and answers; the kernel computes every lane, and its guard, in a
+    // condition and so qualified by no arm, sees the live zero divisor: the batch declines with
+    // STATUS_DIVIDE_BY_ZERO (m9/SCOPE.md item 96). Catches the bit left out of the accounting's
+    // names, which would count the batch as unrecognised.
     for (s <- Seq(spark, varkaSpark)) {
       s.createDataFrame(Seq((1.0, 0.0), (6.0, 2.0), (-3.0, -0.0), (5.0, 4.0)))
         .toDF("x1", "x2").createOrReplaceTempView("varka_divisors")
@@ -163,7 +164,8 @@ class VarkaFallbackReasonSuite extends QueryTest with VarkaSharedSessions with V
     }
     withAnsi(true) {
       val node = checkVarkaAnswerAndFallbackReason(
-        "SELECT x2 <> 0.0D AND x1 / x2 > 1.0D AS v FROM varka_divisors", "divide-by-zero")
+        "SELECT IF(x2 <> 0.0D AND x1 / x2 > 1.0D, 1.0D, 0.0D) AS v FROM varka_divisors",
+        "divide-by-zero")
       val counts = VarkaFallbackReasons.counts(node).asScala
       assert(counts(VarkaFallbackAccounting.UNRECOGNISED) === 0L, counts)
     }

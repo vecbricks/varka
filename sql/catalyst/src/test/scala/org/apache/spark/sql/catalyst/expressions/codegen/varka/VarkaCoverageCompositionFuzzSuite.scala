@@ -262,22 +262,34 @@ class VarkaCoverageCompositionFuzzSuite
    * type: Spark's special values - NaN, both zeros, both infinities, the smallest subnormal and
    * the extremes - and NaNs of other payloads and of both signs, which `CAST('NaN' ...)` cannot
    * make and on which a pick that returned the wrong one of two NaNs would show, beside an
-   * arbitrary pattern and an ordinary value. The same at every attempt: no guard reads a
-   * floating value, so there is nothing to draw nearer zero.
+   * arbitrary pattern and an ordinary value. The one guard that reads a floating value is an
+   * ANSI division's zero divisor (VARKA-342), so the last attempt, `scale` 2, draws `1.5` in
+   * place of either zero, and no guard declines it; the earlier attempts keep both zeros.
    */
-  private def floatingInput(dataType: DataType, rnd: Random): Option[Long] = dataType match {
+  private def floatingInput(dataType: DataType, rnd: Random, scale: Int): Option[Long] =
+      dataType match {
     case DoubleType =>
       val specials = Seq(java.lang.Double.NaN, -0.0, 0.0, Double.PositiveInfinity,
         Double.NegativeInfinity, java.lang.Double.MIN_VALUE, Double.MaxValue, Double.MinValue,
         1.5, -2.5).map(java.lang.Double.doubleToRawLongBits) ++
         Seq(0x7ff8000000000001L, 0xfff8000000000000L, 0x7ff0000000000001L, rnd.nextLong())
-      Some(specials(rnd.nextInt(specials.size)))
+      val bits = specials(rnd.nextInt(specials.size))
+      Some(if (scale == 2 && (bits == 0L || bits == Long.MinValue)) {
+        java.lang.Double.doubleToRawLongBits(1.5)
+      } else {
+        bits
+      })
     case FloatType =>
       val specials = Seq(Float.NaN, -0.0f, 0.0f, Float.PositiveInfinity,
         Float.NegativeInfinity, java.lang.Float.MIN_VALUE, Float.MaxValue, Float.MinValue,
         1.5f, -2.5f).map(java.lang.Float.floatToRawIntBits) ++
         Seq(0x7fc00001, 0xffc00000, 0x7f800001, rnd.nextInt())
-      Some(specials(rnd.nextInt(specials.size)).toLong)
+      val bits = specials(rnd.nextInt(specials.size))
+      Some((if (scale == 2 && (bits == 0 || bits == Int.MinValue)) {
+        java.lang.Float.floatToRawIntBits(1.5f)
+      } else {
+        bits
+      }).toLong)
     case _ => None
   }
 
@@ -328,14 +340,15 @@ class VarkaCoverageCompositionFuzzSuite
     }
     val forceMasked = !poisoned && length > 1 && rnd.nextBoolean()
     def intValue(i: Int, scale: Int): Int =
-      floatingInput(inputs(plan.inputOrdinals.get(i)).dataType, rnd).map(_.toInt)
+      floatingInput(inputs(plan.inputOrdinals.get(i)).dataType, rnd, scale).map(_.toInt)
         .getOrElse(intInput(plan, i, scale, rnd))
     val roots = plan.outputs.asScala.toSeq
     // The long harness at every 64-bit lane: a DOUBLE's rows and literals are its bits.
     def attempt(scale: Int): Boolean = if (plan.lane(opts).bits() == java.lang.Long.SIZE) {
       val data = Array.tabulate(numInputs) { i =>
         val dataType = inputs(plan.inputOrdinals.get(i)).dataType
-        Array.fill(length)(floatingInput(dataType, rnd).getOrElse(drawLong(rnd, dataType, scale)))
+        Array.fill(length)(floatingInput(dataType, rnd, scale)
+          .getOrElse(drawLong(rnd, dataType, scale)))
       }
       val lits = plan.longLiterals.asScala.map(_.longValue).toArray
       // A kernel of both lanes (VARKA-28) reads the int table beside the long one.
@@ -645,7 +658,7 @@ class VarkaCoverageCompositionFuzzSuite
       else plan.literals.asScala.map(_.longValue).toArray
     def value(i: Int, scale: Int): Long = {
       val dataType = columns(plan.inputOrdinals.get(i)).dataType
-      floatingInput(dataType, rnd).getOrElse(
+      floatingInput(dataType, rnd, scale).getOrElse(
         if (isLong) drawLong(rnd, dataType, scale) else intInput(plan, i, scale, rnd))
     }
     // The null flags the histories run: none (the other body's run, which reads every value),
