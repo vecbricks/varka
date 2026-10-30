@@ -559,7 +559,8 @@ final class Analysis {
    * <p>A condition's subtree is entered with the empty chain, never the enclosing one: an
    * {@code IfElse} computes its condition on every lane it is itself computed on, so a guard
    * inside a condition must stay unqualified. That is 3.2's rule and it falls out here rather
-   * than being checked at the guard.
+   * than being checked at the guard. A pass after the walk then unqualifies a node that sits
+   * inside the condition of an arm one of its chains runs through.
    */
   void collectArmContexts(List<VarkaVectorIR> outputs) {
     for (VarkaVectorIR root : outputs) {

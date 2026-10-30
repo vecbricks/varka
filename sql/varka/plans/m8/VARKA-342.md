@@ -394,7 +394,8 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   dropped), so the guard fires only where some arm reading the node is live. A node shared by
   outputs in two groups is guarded in each by the chains that group emits, and the conditions of
   a guard's chains are emitted before the body's first output, since a shared node is computed at
-  its first use. A single chain emits as before, and a column's stored-value guard keeps a single
+  its first use: in `VarkaGuardEdgeSuite`'s two-output shape the shared sum is reached inside the
+  first output, before the second output's condition, whose word the guard reads. A single chain emits as before, and a column's stored-value guard keeps a single
   chain only, so its lane-wise min and max stay. A node inside the condition of an arm one of
   its chains runs through is computed while that condition is, before its word exists, so it is
   unqualified: the long-lane fuzzer's untaken-arm variant built that shape, a class that failed
