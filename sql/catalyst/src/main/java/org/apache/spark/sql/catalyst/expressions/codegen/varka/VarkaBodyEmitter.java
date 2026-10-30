@@ -27,6 +27,7 @@ import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -1139,6 +1140,12 @@ final class VarkaBodyEmitter {
     s.emittedUnshared.clear();
     s.emittedFragments.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
+    var roots = new ArrayList<VarkaVectorIR>();
+    for (int o : outputIdx) {
+      roots.add(outputs.get(o));
+    }
+    s.reach = Analysis.reachOf(roots);
+    emitArmConditionsFirst(cb, dense, analysis, s, computed);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       if (root instanceof Cond cond) {
@@ -1198,6 +1205,34 @@ final class VarkaBodyEmitter {
       }
       if (!validityWritten && !wordKnownEarly) {
         emitRootValidityOr(cb, dense, analysis, s, o, root);
+      }
+    }
+  }
+
+  /**
+   * Emits, ahead of the body's outputs, the conditions of every arm chain a guard in this body is
+   * qualified by where it has several ({@link Analysis#armChainsIn}). A node shared by two
+   * outputs is computed at its first use, inside the first output's subtree, and its guard ANDs
+   * the OR of its chains there, so the second output's condition must already be in its slot.
+   * {@code emitCond} memoises through {@code computed}, so the output that owns the condition
+   * reads it back rather than computing it again. A guard with one chain sits under that chain's
+   * own conditions, which its {@code IfElse} emits first, and no shape without a guard of several
+   * chains emits anything here.
+   */
+  private static void emitArmConditionsFirst(CodeBuilder cb, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    for (VarkaVectorIR node : analysis.topoOrder) {
+      if (!analysis.refusals.containsKey(node) || !s.reach.contains(node)) {
+        continue;
+      }
+      List<List<Analysis.ArmStep>> chains = analysis.armChainsIn(node, s.reach);
+      if (chains.size() < 2) {
+        continue;
+      }
+      for (List<Analysis.ArmStep> chain : chains) {
+        for (Analysis.ArmStep step : chain) {
+          emitCond(cb, step.node().cond(), dense, analysis, s, computed);
+        }
       }
     }
   }

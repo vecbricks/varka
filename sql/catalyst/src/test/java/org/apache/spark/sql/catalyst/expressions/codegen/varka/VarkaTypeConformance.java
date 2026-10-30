@@ -642,6 +642,10 @@ public abstract class VarkaTypeConformance {
                 c.longLits(), c.lits(), b, raises, answers(oracle), CallHook.NONE)
             : VarkaKernelChecks.runLoadedNarrow(ctx, loaded.kernel(), c.roots(),
                 c.inputs().size(), c.lits(), intBatch(b), raises, answers(oracle), CallHook.NONE);
+        if (type().isFloating() && f.overflowing()) {
+          assertEquals(0, status, ctx + ": the kernel declined a floating overflow, which Spark "
+              + "answers");
+        }
         assertEquals(raises, status != 0, ctx + ": the kernel " + (status != 0 ? "declined"
             : "answered") + " a batch on which Spark " + (raises ? "raises" : "does not raise"));
         if (status == 0) {
@@ -667,10 +671,25 @@ public abstract class VarkaTypeConformance {
     boolean sawNull;
     boolean sawNullFromValid;
     boolean sawRaise;
+    /** The raw bits of every value seen, for a floating type's infinity test. */
+    final List<Long> values = new ArrayList<>();
+
+    /** Whether a value seen is an infinity of {@code type}, a floating type's bits read back. */
+    boolean sawInfinity(ConformanceType type) {
+      boolean isDouble = type.spark().equals(DataTypes.DoubleType);
+      for (long v : values) {
+        if (isDouble ? Double.isInfinite(Double.longBitsToDouble(v))
+            : Float.isInfinite(Float.intBitsToFloat((int) v))) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     void see(VarkaSparkOracle.Answer answer, boolean bothValid) {
       if (answer instanceof VarkaSparkOracle.Value v) {
         sawValue = true;
+        values.add(v.v());
         sawTrue |= v.v() == 1L;
         sawFalse |= v.v() == 0L;
       } else if (answer instanceof VarkaSparkOracle.Raised) {
@@ -734,6 +753,13 @@ public abstract class VarkaTypeConformance {
       String at = f + " output " + o + " (" + oracle.sql(o) + ") over the fixture";
       requireDiscriminates(f, c, o, at, s);
       if (type().isFloating()) {
+        // A floating form overflows to an infinity, which Spark answers in every mode: some row
+        // reaches one, none raises, and none nulls from valid inputs.
+        if (f.overflowing()) {
+          assertTrue(s.sawInfinity(type()), at + ": the fixture never overflows it to an infinity");
+          assertTrue(!s.sawRaise, at + ": Spark raises on a floating overflow");
+          assertTrue(!s.sawNullFromValid, at + ": Spark nulls a floating overflow");
+        }
         continue;
       }
       if (f.overflowing() && f.mode() == Mode.ANSI) {

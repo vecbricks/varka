@@ -167,6 +167,11 @@ final class Slots {
   final Set<VarkaVectorIR> ownCond = new HashSet<>();
   /** Per condition node, dense body: the single mask local. */
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
+  /**
+   * The nodes this body reaches from its roots, set by {@code VarkaBodyEmitter} before it emits
+   * them: which arm chains of a guard this body can qualify it by ({@link Analysis#armChainsIn}).
+   */
+  Set<VarkaVectorIR> reach;
   /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */

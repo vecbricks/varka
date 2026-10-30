@@ -191,15 +191,30 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // VARKA-304. Catches: a reason's bit shared with another or with the evaluator's own (a log
     // line and a count could not tell them apart), and a count that misses a bit of a status
     // naming several reasons, which a method of two reasons returns by default.
-    val kernelBits = Seq(VarkaFusedKernel.STATUS_DAY_PRODUCER, VarkaFusedKernel.STATUS_MONTH_COUNT,
-      VarkaFusedKernel.STATUS_MAKE_DATE, VarkaFusedKernel.STATUS_INT_OVERFLOW,
-      VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE)
-    val evaluatorBits = Seq(VarkaKernelRunner.STATUS_INPUT_BOUND,
-      VarkaKernelRunner.STATUS_DERIVED_INPUT, VarkaKernelRunner.STATUS_FORCED)
+    // Every STATUS_ constant, read by reflection rather than listed, so that a bit a change adds
+    // is checked the day it lands, and two branches that each take the next free bit collide here.
+    def statusBits(c: Class[_]): Seq[(String, Int)] = c.getFields.toSeq
+      .filter(f => f.getName.startsWith("STATUS_") && f.getType == classOf[Int] &&
+        java.lang.reflect.Modifier.isStatic(f.getModifiers))
+      .map(f => f.getName -> f.getInt(null)).sortBy(_._2)
+    val kernelNamed = statusBits(classOf[VarkaFusedKernel])
+    val evaluatorNamed = statusBits(classOf[VarkaKernelRunner])
+    val kernelBits = kernelNamed.map(_._2)
+    val evaluatorBits = evaluatorNamed.map(_._2)
+    assert(kernelNamed.exists(_._1 == "STATUS_DIVIDE_BY_ZERO") && evaluatorBits.size == 3,
+      (kernelNamed, evaluatorNamed))
     val bits = kernelBits ++ evaluatorBits
-    assert(bits.forall(b => Integer.bitCount(b) == 1), bits)
-    assert(bits.distinct.size === bits.size, bits)
-    assert(kernelBits.max < evaluatorBits.min, bits)
+    val named = kernelNamed ++ evaluatorNamed
+    assert(bits.forall(b => Integer.bitCount(b) == 1), named)
+    for (Seq((n1, b1), (n2, b2)) <- named.combinations(2)) {
+      assert(b1 != b2, s"$n1 and $n2 share the bit $b1")
+    }
+    assert(kernelBits.max < evaluatorBits.min, named)
+    // The accounting names every bit, so none is counted as unrecognised.
+    for ((n, b) <- named) {
+      assert(!VarkaFallbackAccounting.describeStatus(b).startsWith("0x"),
+        s"$n has no name in the fallback accounting")
+    }
 
     val accounting = new VarkaFallbackAccounting(
       new VarkaFallbackAccounting.Counters(null, null, null, null, null), () => "kernel",

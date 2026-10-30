@@ -33,6 +33,8 @@ import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFloatingFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -47,7 +49,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mat
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DataTypes;
 
 /**
  * The floating arithmetic family (VARKA-342): Spark's {@code +}, {@code -}, {@code *},
@@ -90,7 +91,7 @@ final class VarkaFloatingCompiler {
           literals, sink);
       case Divide d when l == LaneType.DOUBLE -> () -> divide(d, inputs, literals, sink);
       case UnaryMinus n -> () -> operand(n.child(), l, inputs, literals, sink)
-          .map(x -> new IntNeg(Overflow.WRAP, x));
+          .map(x -> negate(x, l, literals, sink));
       case Abs a -> () -> operand(a.child(), l, inputs, literals, sink)
           .map(x -> new IntNeg(Overflow.WRAP, x, true));
       case Sqrt q when l == LaneType.DOUBLE -> () -> operand(q.child(), l, inputs, literals, sink)
@@ -98,7 +99,7 @@ final class VarkaFloatingCompiler {
       // `Math.toDegrees` and `Math.toRadians` are one multiply by a private constant, so the
       // constant is read from the JDK's own function at 1.0 rather than retyped: the product is
       // then the function's bits on every input, which a test pins against the JDK.
-      case ToDegrees t when l == LaneType.DOUBLE -> () -> scale(t.child(), Math.toDegrees(1.0),
+      case ToDegrees t when l == LaneType.DOUBLE -> () -> scale(t.child(), degreesPerRadian(),
           inputs, literals, sink);
       case ToRadians t when l == LaneType.DOUBLE -> () -> scale(t.child(), Math.toRadians(1.0),
           inputs, literals, sink);
@@ -110,13 +111,7 @@ final class VarkaFloatingCompiler {
 
   /** The floating lane of {@code t}, or empty for any other type. */
   static Optional<LaneType> floatingLane(DataType t) {
-    if (DataTypes.DoubleType.equals(t)) {
-      return Optional.of(LaneType.DOUBLE);
-    }
-    if (DataTypes.FloatType.equals(t)) {
-      return Optional.of(LaneType.FLOAT);
-    }
-    return Optional.empty();
+    return VarkaTypes.lane(t).filter(LaneType::isFloating);
   }
 
   /**
@@ -169,6 +164,29 @@ final class VarkaFloatingCompiler {
     return binary(IntOp.DIV, mode, d.left(), d.right(), LaneType.DOUBLE, inputs, literals, sink);
   }
 
+  /**
+   * {@code -x}: the sign bit flipped, so {@code 0.0} answers {@code -0.0}. Under the planted
+   * fault {@link VarkaFloatingFault#NEGATION_AS_SUBTRACTION}, {@code 0.0 - x} instead.
+   */
+  private static VarkaVectorIR negate(VarkaVectorIR x, LaneType lane, VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (VarkaFloatingFault.planted() != VarkaFloatingFault.NEGATION_AS_SUBTRACTION) {
+      return new IntNeg(Overflow.WRAP, x);
+    }
+    VarkaVectorIR zero = lane == LaneType.DOUBLE ? doubleSlot(0.0, sink)
+        : VarkaNodeCompiler.slot(Float.floatToRawIntBits(0.0f), LaneType.FLOAT, literals);
+    return new IntArith(IntOp.SUB, Overflow.WRAP, zero, x);
+  }
+
+  /**
+   * {@code Math.toDegrees(1.0)}, the factor {@code degrees} multiplies by; under the planted
+   * fault {@link VarkaFloatingFault#DEGREES_ROUNDED}, that constant rounded to nine digits.
+   */
+  private static double degreesPerRadian() {
+    return VarkaFloatingFault.planted() == VarkaFloatingFault.DEGREES_ROUNDED ? 57.2957795
+        : Math.toDegrees(1.0);
+  }
+
   /** {@code x * k}, {@code k} a double constant. */
   private static Optional<VarkaVectorIR> scale(
       Expression child, double k, VarkaSlotTable inputs, VarkaSlotTable literals,
@@ -198,6 +216,6 @@ final class VarkaFloatingCompiler {
   }
 
   private static VarkaVectorIR doubleSlot(double v, DeclineSink sink) {
-    return sink.longSlot(Double.doubleToRawLongBits(v), LaneType.DOUBLE);
+    return VarkaNodeCompiler.doubleSlot(v, sink);
   }
 }

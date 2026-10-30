@@ -425,17 +425,24 @@ final class Analysis {
   }
 
   /**
-   * for each node, the chain of {@code IfElse} arms every one of its uses sits under, innermost
-   * last - or the empty list where its uses do not agree on one, which includes a use outside any
-   * arm and a use in a condition. A guard on a node with a non-empty chain condemns the batch
-   * only on the lanes that chain selects; a guard on a node with the empty chain condemns as it
-   * always has.
+   * for each node, the chains of {@code IfElse} arms its uses sit under, each innermost last - or
+   * the empty list where some use sits under no arm, which includes a use outside any arm and a
+   * use in a condition. A guard on a node with chains condemns the batch only on the lanes some
+   * chain selects, the OR of each chain's AND; a guard on a node with no chain condemns as it
+   * always has. A chain whose steps include another's selects a subset of its lanes and is not
+   * kept, and past {@link #MAX_ARM_CHAINS} chains the node is unqualified.
    *
    * <p>Empty rather than absent is the unqualified answer, and the two are different: absent
    * means the walk has not reached the node. {@link #collectArmContexts} fills it once every
-   * root is analyzed, and only {@link #armChainOf} reads it.
+   * root is analyzed, and only {@link #armChainsOf} reads it.
    */
-  final Map<VarkaVectorIR, List<ArmStep>> armChain = new HashMap<>();
+  final Map<VarkaVectorIR, List<List<ArmStep>>> armChains = new HashMap<>();
+
+  /**
+   * The most arm chains a guard is qualified by: each is a few mask operations more in the body
+   * a guard sits in, so a node used under more arms than this is guarded unqualified.
+   */
+  static final int MAX_ARM_CHAINS = 4;
 
   /**
    * per value node, which word its validity is - see {@link WordOwner}. Filled by
@@ -532,17 +539,22 @@ final class Analysis {
   }
 
   /**
-   * The context walk: assigns every node the arm chain its uses agree on, by the rule in
-   * {@code VARKA-79.md} 3.3 - narrow only where every use sits under one and the same
-   * innermost arm chain, and keep the unqualified guard for anything else.
+   * The context walk: assigns every node the arm chains its uses sit under, by the rule in
+   * {@code VARKA-79.md} 3.3 widened to several chains: a guard condemns only where some arm that
+   * uses its node is live, and stays unqualified where a use sits under no arm.
    *
    * <p>It is its own walk rather than a stack in {@link #analyze}, because that one memoises
    * on {@code analyzed} and returns on a repeated node without descending: a node used twice
-   * would have its subtree's context recorded from the first use only. Here a node whose
-   * recorded chain disagrees with the chain it is reached by is demoted to the empty list and
-   * the demotion is pushed down its subtree, so a shared subtree under two different arms
-   * ends unqualified all the way down. That terminates because a node's state only ever moves
-   * unvisited -&gt; a chain -&gt; empty, so each is rewritten at most twice.
+   * would have its subtree's context recorded from the first use only. Here a node reached by a
+   * chain it does not yet cover takes the chain and pushes it down its subtree; one reached with
+   * no chain, or past {@link #MAX_ARM_CHAINS}, is demoted to the empty list and the demotion is
+   * pushed down. That terminates because a node's covered lanes only grow, from unvisited through
+   * its chains to empty, and the chains are drawn from the finitely many arm paths of the DAG.
+   *
+   * <p>A two-output shape that shares a division under arms of different conditions, as in
+   * {@code IF(y = 0, 0, x / y)} beside {@code CASE WHEN y <> 0 THEN x / y ELSE x END}, keeps
+   * both arms: with the one chain the walk once kept, the node fell to the empty list and its
+   * guard condemned every live zero divisor, every batch of such data declining.
    *
    * <p>A condition's subtree is entered with the empty chain, never the enclosing one: an
    * {@code IfElse} computes its condition on every lane it is itself computed on, so a guard
@@ -556,21 +568,39 @@ final class Analysis {
   }
 
   private void assignArmChain(VarkaVectorIR node, List<ArmStep> chain) {
-    List<ArmStep> existing = armChain.get(node);
-    if (existing != null) {
-      if (existing.isEmpty() || existing.equals(chain)) {
-        return;
-      }
-      chain = List.of();
+    List<List<ArmStep>> existing = armChains.get(node);
+    if (existing != null && existing.isEmpty()) {
+      return;
     }
-    armChain.put(node, chain);
+    List<List<ArmStep>> next;
+    if (chain.isEmpty()) {
+      next = List.of();
+    } else if (existing == null) {
+      next = List.of(chain);
+    } else {
+      for (List<ArmStep> had : existing) {
+        if (chain.containsAll(had)) {
+          return;
+        }
+      }
+      var grown = new ArrayList<List<ArmStep>>();
+      for (List<ArmStep> had : existing) {
+        if (!had.containsAll(chain)) {
+          grown.add(had);
+        }
+      }
+      grown.add(chain);
+      next = grown.size() > MAX_ARM_CHAINS ? List.of() : List.copyOf(grown);
+    }
+    armChains.put(node, next);
+    List<ArmStep> pushed = next.isEmpty() ? List.of() : chain;
     if (node instanceof IfElse n) {
       assignArmChain(n.cond(), List.of());
-      assignArmChain(n.thenNode(), extend(chain, n, true));
-      assignArmChain(n.elseNode(), extend(chain, n, false));
+      assignArmChain(n.thenNode(), extend(pushed, n, true));
+      assignArmChain(n.elseNode(), extend(pushed, n, false));
     } else {
       for (VarkaVectorIR child : childrenOf(node)) {
-        assignArmChain(child, chain);
+        assignArmChain(child, pushed);
       }
     }
   }
@@ -585,16 +615,54 @@ final class Analysis {
   }
 
   /**
-   * The arm chain to qualify {@code node}'s guard by: empty where the guard stays
+   * The arm chains to qualify {@code node}'s guard by, ORed: empty where the guard stays
    * unqualified. Behind {@link VarkaEmitOptions#guardUnderArm} so the change is measurable
-   * against its own absence, the way every other guard decision here is.
+   * against its own absence, the way every other guard decision here is. A guard over a column's
+   * stored values keeps a single chain only: with several it stays unqualified, so that a loop
+   * keeps it as the lane-wise min and max of {@link #accumulatesRange}.
    */
-  List<ArmStep> armChainOf(VarkaVectorIR node) {
+  List<List<ArmStep>> armChainsOf(VarkaVectorIR node) {
     if (!options.guardUnderArm()) {
       return List.of();
     }
-    List<ArmStep> chain = armChain.get(node);
-    return chain == null ? List.of() : chain;
+    List<List<ArmStep>> chains = armChains.get(node);
+    if (chains == null || (chains.size() > 1 && guardsStoredValues(node))) {
+      return List.of();
+    }
+    return chains;
+  }
+
+  /**
+   * {@link #armChainsOf} in one body: the chains whose arms the body emits, {@code reach} being
+   * the nodes it reaches from its roots. A node shared by outputs of two groups is computed and
+   * guarded in each, and a chain through the other group's arms has no condition in this body;
+   * that group's own guard condemns there, so the kernel's status still ORs every chain.
+   */
+  List<List<ArmStep>> armChainsIn(VarkaVectorIR node, Set<VarkaVectorIR> reach) {
+    List<List<ArmStep>> chains = armChainsOf(node);
+    if (chains.size() < 2 || reach == null) {
+      return chains;
+    }
+    var kept = new ArrayList<List<ArmStep>>();
+    for (List<ArmStep> chain : chains) {
+      boolean emitted = true;
+      for (ArmStep step : chain) {
+        emitted &= reach.contains(step.node());
+      }
+      if (emitted) {
+        kept.add(chain);
+      }
+    }
+    return List.copyOf(kept);
+  }
+
+  /** The nodes reached from {@code roots}, each once: what a body over them emits. */
+  static Set<VarkaVectorIR> reachOf(List<VarkaVectorIR> roots) {
+    Set<VarkaVectorIR> reach = new HashSet<>();
+    for (VarkaVectorIR root : roots) {
+      collectReached(root, reach);
+    }
+    return reach;
   }
 
   /**
@@ -630,7 +698,7 @@ final class Analysis {
     // Not at the int lane of a kernel driven at the long one: the accumulators are the driving
     // lane's vectors, and an int vector's upper lanes, which are not the group's rows, would
     // reach the min.
-    return loop && guardsStoredValues(node) && armChainOf(node).isEmpty()
+    return loop && guardsStoredValues(node) && armChainsOf(node).isEmpty()
         && laneOf(node) == lane;
   }
 

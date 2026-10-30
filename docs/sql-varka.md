@@ -1276,7 +1276,7 @@ VARKA-22 extends the account to the SQL UI and to JDK Flight Recorder:
 * **Declines by reason, rows and time by path (VARKA-313).** Each refusal
   reason has its own metric, `numDeclinedBatches[<reason>]` (`day-producer`,
   `month-count`, `make-date`, `int-overflow`, `day-range`, `value-range`,
-  `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
+  `divide-by-zero`, `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
   bit no name covers). A reason reads as a count, 0 included, where every
   declined batch that named it named it exactly, and as "not reported" where
   a batch named it among others: under the default emit options a loop

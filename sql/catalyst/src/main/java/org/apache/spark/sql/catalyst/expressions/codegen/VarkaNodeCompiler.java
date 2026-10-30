@@ -74,7 +74,6 @@ import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
-import org.apache.spark.sql.catalyst.expressions.UnaryPositive;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
@@ -338,7 +337,8 @@ final class VarkaNodeCompiler {
    * The others order values - the comparisons, {@code <=>}, {@code greatest}, {@code least},
    * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
    * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
-   * the vector compare's or {@code max}'s. Arithmetic and the casts are rows of their own. So
+   * the vector compare's or {@code max}'s. The arithmetic the floating family lowers is named
+   * here too; the casts, the remainders and the interval forms by a floating factor are not. So
    * the list is of what is served, not of what is refused, and a node no one has thought of
    * declines. Both compile entries ask it before any arm claims, so no arm sees a floating
    * operand it was not written for. A {@link RuntimeReplaceable} passes, to be asked again as its
@@ -365,11 +365,11 @@ final class VarkaNodeCompiler {
     String what = switch (e) {
       case Cast _ -> "a cast to or from a floating type (row 343)";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
-      // The interval products and quotients by a floating factor, and signum over an interval.
       // The interval products and quotients by a floating factor, and signum over an interval,
-      // are row 342's step after row 343's conversions.
+      // are row 342's step after row 343's conversions. UnaryPositive is RuntimeReplaceable, so
+      // it never reaches this switch: it passes above and is asked again as its child.
       case Signum _, MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _,
-          DivideDTInterval _, BinaryArithmetic _, UnaryPositive _ ->
+          DivideDTInterval _, BinaryArithmetic _ ->
           "floating arithmetic (row 342)";
       default -> "an operation over floating values that no floating lowering serves";
     };
@@ -1165,10 +1165,15 @@ final class VarkaNodeCompiler {
   static LiteralSlot nanSlot(LaneType lane, VarkaSlotTable literals, DeclineSink sink) {
     return switch (lane) {
       case FLOAT -> slot(Float.floatToRawIntBits(Float.NaN), LaneType.FLOAT, literals);
-      case DOUBLE -> sink.longSlot(Double.doubleToRawLongBits(Double.NaN), LaneType.DOUBLE);
+      case DOUBLE -> doubleSlot(Double.NaN, sink);
       case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
           "no NaN on the integral lane " + lane);
     };
+  }
+
+  /** The literal slot of the double {@code v}, its raw bits on the {@code DOUBLE} lane. */
+  static LiteralSlot doubleSlot(double v, DeclineSink sink) {
+    return sink.longSlot(Double.doubleToRawLongBits(v), LaneType.DOUBLE);
   }
 
   /**

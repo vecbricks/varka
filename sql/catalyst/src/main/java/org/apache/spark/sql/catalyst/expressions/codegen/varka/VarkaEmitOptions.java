@@ -139,8 +139,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        condemns rather than producing a value the blend can discard, so without this a row the
  *        query never uses declines the batch it is in. Off, the guard condemns from the untaken
  *        arm as it did before arm qualification - the reference variant the A/B prices against, on
- *        {@link FloorMod7}'s precedent. It qualifies only where every use of the node sits under
- *        one and the same arm chain; see {@code Analysis.armChain}.
+ *        {@link FloorMod7}'s precedent. It qualifies by the OR of the arm chains the node's uses
+ *        sit under, and not where a use sits under no arm; see {@code Analysis.armChains}.
  * @param guardDayProducers whether a {@code date_add}/{@code date_sub} whose offset is a column,
  *        and whose result a calendar node reads, carries a per-lane check on that result against
  *        the range the civil-from-days lowering is exact over, declining the batch to

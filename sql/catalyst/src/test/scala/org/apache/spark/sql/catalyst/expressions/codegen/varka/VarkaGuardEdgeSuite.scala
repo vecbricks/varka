@@ -329,6 +329,48 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     }
   }
 
+  test("a guard shared by two outputs under arms of different conditions condemns only where " +
+      "an arm reading it is live") {
+    // a = if (c0 > c3) c1 + c2 else c3 and b = if (c0 < c3) c1 + c2 else c3 share the one checked
+    // sum, each under its own arm. Its guard is qualified by the OR of the two arms: a row with
+    // c0 = c3 takes neither, and its overflow condemns nothing; a row taking either arm declines.
+    // With the two chains collapsed to none, as the arm walk once did, the c0 = c3 row condemned
+    // the batch as well (VARKA-342.md 5.1): the same collapse the floating division met.
+    val sum = new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(1), new ColumnRef(2))
+    val a = new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new ColumnRef(3)), sum,
+      new ColumnRef(3))
+    val b = new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(3)), sum,
+      new ColumnRef(3))
+    val roots = Seq[VarkaVectorIR](a, b)
+    val bit = VarkaFusedKernel.STATUS_INT_OVERFLOW
+    val none: Seq[Int => Boolean] = Seq.fill(4)((_: Int) => false)
+    val o = options.withGuardUnderArm(true)
+    val chains = VarkaLoopEmitter.guardsForTest(roots.asJava, 4, 0, o).get(sum).arms()
+    assert(chains.size == 2, s"the shared sum's chains: $chains")
+    // Row 3 overflows the sum; c0 against c3 decides which arm, if either, reads it.
+    val cases = Seq(("neither arm", 2L, VarkaGuardSpec.Answer, 0),
+      ("a's arm", 9L, Verdict(bit, 0), bit), ("b's arm", -9L, Verdict(bit, 0), bit))
+    for ((label, c0, expected, status) <- cases) {
+      val data = Array.tabulate(4, length) { (c, i) =>
+        c match {
+          case 0 => if (i == 3) c0 else 2L
+          case 1 => if (i == 3) Int.MaxValue.toLong else 1L
+          case _ => if (c == 3) 2L else 1L
+        }
+      }
+      val verdict = VarkaGuardSpec.verdict(roots, 4, Array.empty, o, long = false,
+        rowsOf(data, none))
+      assert(verdict == expected, s"$label: verdict $verdict")
+      val name =
+        s"org.apache.spark.sql.varka.execution.VarkaGuardShared${classCounter.incrementAndGet()}"
+      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 4, 0, null, null, o)
+      val st = VarkaKernelCheck.runEachBodyStatus(label, name, bytes, roots, 4, Array.empty,
+        VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false))
+      assert(st.forall(_ == status), s"$label: statuses $st, the kernel should give $status")
+      assert(st.forall(verdict.admits), s"$label: statuses $st, verdict $verdict")
+    }
+  }
+
   test("a guard above a FAIL lane that overflowed may fire on the wrapped value, and the kernel " +
       "names both reasons") {
     // `d - ym` at the one count whose negation overflows: `AddMonths(c0, IntNeg(FAIL, c1))`. The

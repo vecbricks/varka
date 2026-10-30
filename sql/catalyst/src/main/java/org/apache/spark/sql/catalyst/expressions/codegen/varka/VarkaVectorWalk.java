@@ -24,6 +24,7 @@ import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
@@ -751,6 +752,10 @@ final class VarkaVectorWalk {
     if (!dense && s.ownWord.contains(n)) {
       emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
     }
+    boolean faulty = VarkaFloatingFault.planted() == VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY;
+    if (faulty) {
+      cb.dup();                                           // [q, y, y]
+    }
     cb.getstatic(VECTOR_OPERATORS, "EQ", VO_COMPARISON);
     if (lane == Lane.DOUBLE) {
       cb.loadConstant(0.0d);
@@ -758,6 +763,13 @@ final class VarkaVectorWalk {
       cb.loadConstant(0.0f);
     }
     cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+    if (faulty) {
+      // The planted fault: the zero test without -0.0, its sign bit's lanes taken out.
+      cb.swap();                                          // [q, eq, y]
+      cb.getstatic(VECTOR_OPERATORS, "IS_NEGATIVE", VO_TEST);
+      cb.invokevirtual(lane.vector, "test", VECTOR_TEST);
+      cb.invokevirtual(VECTOR_MASK, "andNot", MASK_BINARY);
+    }
     emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
   }
 
@@ -1183,7 +1195,7 @@ final class VarkaVectorWalk {
     if (reason != null) {
       analysis.reach(VarkaEmitMechanism.guard(reason));
     }
-    if (!analysis.armChainOf(node).isEmpty()) {
+    if (!analysis.armChainsIn(node, s.reach).isEmpty()) {
       analysis.reach(VarkaEmitMechanism.GUARD_UNDER_ARM);
     }
     if (s.guardAccByReason != null) {
@@ -1210,9 +1222,14 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * ANDs the condemning mask on the stack with the arms {@code node} sits under, where its uses
-   * agree on one chain of them. Nothing is emitted for the empty chain, which is what
-   * {@link VarkaEmitOptions#guardUnderArm} off gives every shape.
+   * ANDs the condemning mask on the stack with the arms {@code node} sits under: one chain's
+   * conditions ANDed, or, where its uses sit under several chains, each chain's AND ORed, so that
+   * the guard condemns only where some arm that uses the node is live. Nothing is emitted for no
+   * chain, which is what {@link VarkaEmitOptions#guardUnderArm} off gives every shape. A chain
+   * through arms this body does not emit is left to the body that does ({@link
+   * Analysis#armChainsIn}); the conditions of the chains kept are emitted before the body's first
+   * output ({@code VarkaBodyEmitter}), since a shared node is computed at its first use, which may
+   * precede another output's condition.
    *
    * <p>Polarity follows SQL's {@code CASE}, in which an <em>unknown</em> condition falls to
    * {@code ELSE}: the then arm's mask is the condition's known-true set and the else arm's is
@@ -1229,26 +1246,53 @@ final class VarkaVectorWalk {
    */
   private static void emitArmContext(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s) {
-    for (ArmStep step : analysis.armChainOf(node)) {
-      VarkaVectorIR cond = step.node().cond();
-      if (dense) {
-        cb.aload(s.condMask.get(cond));
-        if (analysis.laneOf(cond) != analysis.lane) {
-          emitToDrivingLane(cb, s);
-        }
-        if (!step.thenBranch()) {
-          cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
-        }
-      } else {
-        cb.aload(s.species);
-        cb.lload(s.kt.get(cond));
-        if (!step.thenBranch()) {
-          cb.loadConstant(-1L);
-          cb.lxor();
-        }
-        emitMaskOfWord(cb, analysis);
+    List<List<ArmStep>> chains = analysis.armChainsIn(node, s.reach);
+    if (chains.size() == 1) {
+      // One chain: each condition ANDed straight into the condemning mask.
+      for (ArmStep step : chains.get(0)) {
+        emitArmStep(cb, step, dense, analysis, s);
+        cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
       }
-      cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+      return;
+    }
+    if (chains.isEmpty()) {
+      return;
+    }
+    for (int k = 0; k < chains.size(); k++) {
+      List<ArmStep> chain = chains.get(k);
+      for (int i = 0; i < chain.size(); i++) {
+        emitArmStep(cb, chain.get(i), dense, analysis, s);
+        if (i > 0) {
+          cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+        }
+      }
+      if (k > 0) {
+        cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+      }
+    }
+    cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+  }
+
+  /** {@code [] -> [mask]}: the lanes one arm step selects, at the driving lane. */
+  private static void emitArmStep(CodeBuilder cb, ArmStep step, boolean dense, Analysis analysis,
+      Slots s) {
+    VarkaVectorIR cond = step.node().cond();
+    if (dense) {
+      cb.aload(s.condMask.get(cond));
+      if (analysis.laneOf(cond) != analysis.lane) {
+        emitToDrivingLane(cb, s);
+      }
+      if (!step.thenBranch()) {
+        cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
+      }
+    } else {
+      cb.aload(s.species);
+      cb.lload(s.kt.get(cond));
+      if (!step.thenBranch()) {
+        cb.loadConstant(-1L);
+        cb.lxor();
+      }
+      emitMaskOfWord(cb, analysis);
     }
   }
 
