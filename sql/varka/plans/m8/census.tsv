@@ -94,10 +94,10 @@ width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	se
 /	Divide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double		double	semantics	342	zero divisor null or error; decimal division is out of milestone 8
 div	IntegralDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	byte,short,int,bigint,ym,dt	bigint		byte,short	semantics	30,104,103	zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,349,363	integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,103,342,349,360	overflow gives null
+try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double		double	semantics	342	zero divisor gives null; decimal division is out of milestone 8
 try_mod	TryMod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,363	floating by the one-FMA remainder (346)
-try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,103,342,349,360	overflow gives null
+try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null
 unhex	Unhex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 randstr	RandStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
@@ -609,13 +609,13 @@ datetime_sub	DatetimeSub	implicit: datetime	in		date,ntz,ym,dt	date,ntz	date,ntz
 ntz_plus_dt	TimestampAddInterval	implicit: datetime	in		ntz,dt	ntz	ntz,dt	ntz	done	339	UTC, so plain arithmetic; exact or raise
 ntz_plus_ym	TimestampAddYMInterval	implicit: datetime	in		ntz,ym	ntz		ntz	semantics	339	calendar months on the date part
 timestampadd	TimestampAdd	implicit: datetime	in		bigint,ntz	ntz		ntz	semantics	339	units up to a week are arithmetic, months and years calendar
-ym_times_num	MultiplyYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym	int,ym	byte,short,float,double,dec	semantics	103,329,342,349	fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions
-dt_times_num	MultiplyDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,349	checked multiply; HALF_UP from fractions
+ym_times_num	MultiplyYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym	int,ym	byte,short,float,double,dec	semantics	103,329,342,349	fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a)
+dt_times_num	MultiplyDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 ym_div_num	DivideYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym		byte,short,float,double,dec	semantics	89,342,349	HALF_UP division
-dt_div_num	DivideDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,349	HALF_UP division
+dt_div_num	DivideDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years	ExtractANSIIntervalYears	implicit: interval	in		ym	int	ym		done		
 extract_ym_months	ExtractANSIIntervalMonths	implicit: interval	in		ym	byte		byte	plumbing	329	matched today only to decline: its result is a byte
-extract_dt_days	ExtractANSIIntervalDays	implicit: interval	in		dt	int			plumbing	103	fused today only inside date + CAST(i AS INTERVAL DAY)
+extract_dt_days	ExtractANSIIntervalDays	implicit: interval	in		dt	int			plumbing	103	fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
 extract_dt_hours	ExtractANSIIntervalHours	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
 extract_dt_minutes	ExtractANSIIntervalMinutes	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
 extract_dt_seconds	ExtractANSIIntervalSeconds	implicit: interval	in		dt	dec		dec	plumbing	103,157	a DECIMAL(8,6) result
@@ -623,6 +623,6 @@ check_overflow	CheckOverflow	implicit: decimal internals	in		dec	dec		dec	semant
 make_decimal	MakeDecimal	implicit: decimal internals	in		bigint	dec		dec	plumbing	349	a relabel of an unscaled long
 unscaled_value	UnscaledValue	implicit: decimal internals	in		dec	bigint		dec	plumbing	349	a relabel to the unscaled long
 known_not_null	KnownNotNull	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	plumbing	333	a relabel the optimizer adds
-known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization
-normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7)
+known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
+normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 try_eval	TryEval	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	330,342,349	the try_ functions' wrapper: every error raised anywhere in its subtree becomes null

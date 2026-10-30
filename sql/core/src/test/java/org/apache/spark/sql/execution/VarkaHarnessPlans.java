@@ -95,6 +95,17 @@ public final class VarkaHarnessPlans {
     return OPTIMIZER.execute(analyzed);
   }
 
+  /**
+   * What {@code plan} plans for {@code text} over {@code columns}, through this JVM's
+   * {@link VarkaHarnessStore} where it has one: taken from the defaults' run under a
+   * configuration, written by the defaults' run.
+   */
+  private static <T> T stored(String kind, String text, Seq<Attribute> columns,
+      java.util.function.Function<Seq<Attribute>, T> plan) {
+    VarkaHarnessStore store = VarkaHarnessStore.current();
+    return store == null ? plan.apply(columns) : store.plan(kind, text, columns, plan);
+  }
+
   /** {@code sql}'s rows, evaluated by Catalyst to the relation the query folds to. */
   public static Fixture fixture(String sql) {
     LogicalPlan plan = optimize(CatalystSqlParser$.MODULE$.parsePlan(sql));
@@ -138,6 +149,10 @@ public final class VarkaHarnessPlans {
    * {@code columns}, resolved and optimized: the plan a session builds over its cached view.
    */
   public static Query query(String sql, Seq<Attribute> columns) {
+    return stored("query", sql, columns, c -> planQuery(sql, c));
+  }
+
+  private static Query planQuery(String sql, Seq<Attribute> columns) {
     LogicalPlan parsed = CatalystSqlParser$.MODULE$.parsePlan(sql);
     LogicalPlan scanned = parsed.transformUp(new scala.runtime.AbstractPartialFunction<>() {
       @Override
@@ -175,6 +190,10 @@ public final class VarkaHarnessPlans {
    * the projection list Varka's projection evaluator compiles.
    */
   public static Seq<NamedExpression> projection(String expression, Seq<Attribute> columns) {
+    return stored("projection", expression, columns, c -> planProjection(expression, c));
+  }
+
+  private static Seq<NamedExpression> planProjection(String expression, Seq<Attribute> columns) {
     Expression parsed = CatalystSqlParser$.MODULE$.parseExpression(expression);
     NamedExpression alias = VarkaSqlResolve.named(parsed, "v");
     var list = CollectionConverters.asScala(List.of(alias)).toList();
@@ -212,6 +231,15 @@ public final class VarkaHarnessPlans {
    * whose planning raises.
    */
   static List<Seq<NamedExpression>> together(List<String> expressions, Seq<Attribute> columns) {
+    var text = new StringBuilder();
+    for (String e : expressions) {
+      text.append(e.length()).append(':').append(e).append(';');
+    }
+    return stored("together", text.toString(), columns, c -> planTogether(expressions, c));
+  }
+
+  private static List<Seq<NamedExpression>> planTogether(List<String> expressions,
+      Seq<Attribute> columns) {
     var out = new ArrayList<Seq<NamedExpression>>(
         Collections.nCopies(expressions.size(), null));
     together(expressions, 0, expressions.size(), columns, out);
@@ -305,6 +333,10 @@ public final class VarkaHarnessPlans {
    * it.
    */
   public static Expression condition(String predicate, Seq<Attribute> columns) {
+    return stored("condition", predicate, columns, c -> planCondition(predicate, c));
+  }
+
+  private static Expression planCondition(String predicate, Seq<Attribute> columns) {
     Expression parsed = CatalystSqlParser$.MODULE$.parseExpression(predicate);
     LogicalPlan plan = optimize(new Filter(parsed, new VarkaHarnessScan(columns)));
     if (plan instanceof Filter f && f.child() instanceof VarkaHarnessScan) {

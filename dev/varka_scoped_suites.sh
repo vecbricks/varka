@@ -107,6 +107,12 @@ reach=()
 if [ -n "${VARKA_REACH_RECORD:-}" ]; then
   reach=(--jvm-arg "-Dvarka.matrix.reachRecord=$VARKA_REACH_RECORD")
 fi
+# With VARKA_HARNESS_STORE naming a directory, the expression harness's JVMs write their plans
+# and Spark's answers there (VarkaHarnessStore), for the same option matrix's configurations to
+# read instead of planning and computing them again.
+if [ -n "${VARKA_HARNESS_STORE:-}" ]; then
+  reach+=(--jvm-arg "-Dvarka.harness.store=$VARKA_HARNESS_STORE")
+fi
 "$matrix" --defaults --module "$module" --split 2 -j 2 --sbt-arg -Phive \
   --out target/varka-scoped --skip-suites "${timing:-@none}" "${only[@]}" "${extra[@]}" \
   "${reach[@]}"

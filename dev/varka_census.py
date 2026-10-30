@@ -765,6 +765,10 @@ def cast_proof(src, dst):
 
 def cast_rows(src, dst):
     lanes = {src, dst}
+    # The decimal and interval casts both ways, and the coarser day-time interval casts, are row
+    # 103's casts step (VARKA-103.md 8, settlement 5).
+    if lanes in ({"dec", "ym"}, {"dec", "dt"}) or (src, dst) == ("dt", "dt"):
+        return "103"
     if "dec" in lanes:
         if dst in ("byte", "short", "int"):
             return "350,364,365"

@@ -71,8 +71,8 @@ dec	bigint	yes	yes	yes	truncation	toward zero, exact; LEGACY keeps the low bits,
 dec	float	yes	yes	yes	rounding	BigDecimal.floatValue, rounded once: (long)(float) u == u and s <= 10 divided in float, never the double quotient narrowed; round-to-odd or the exact arm (366) past it	sampled regions and the fuzzer		350,364,366	
 dec	double	yes	yes	yes	rounding	BigDecimal.doubleValue: one division under the JDK's guard (scale 0, or (long)(double) u == u with 0 < s <= 22, Long.MAX_VALUE excluded); the exact arm (366) for the rest	sampled regions and the fuzzer		350,364,366	
 dec	dec	yes	yes	yes	rescale	scale up multiplies by 10^k; scale down rounds HALF_UP; overflow	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
-dec	ym	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
-dec	dt	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
+dec	ym	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
+dec	dt	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
 date	bool	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
 date	byte	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
 date	short	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
@@ -97,11 +97,11 @@ ym	byte	yes	yes	yes	unit division	truncating division by the end field's unit; n
 ym	short	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
 ym	int	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3
 ym	bigint	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
-ym	dec	yes	yes	yes	unit division	the month count divided to the end field's unit, truncating	exhaustion		350,364	
+ym	dec	yes	yes	yes	unit division	the month count divided to the end field's unit, truncating	exhaustion		103	
 ym	ym	yes	yes	yes	relabel or unit narrowing	MONTH end field keeps the count; YEAR divides by 12	exhaustion	LEGACY,ANSI,TRY	103,332	all
 dt	byte	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	short	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	int	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	bigint	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
-dt	dec	yes	yes	yes	unit division	to the end field's unit; a SECOND end keeps six decimals	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
-dt	dt	yes	yes	yes	relabel or unit narrowing	SECOND end field keeps the micros; coarser divides	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103,332	36 of 90
+dt	dec	yes	yes	yes	unit division	to the end field's unit; a SECOND end keeps six decimals	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
+dt	dt	yes	yes	yes	relabel or unit narrowing	SECOND end field keeps the micros; coarser divides	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103	36 of 90

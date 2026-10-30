@@ -752,7 +752,8 @@ settled. Point 9, where the library lives, was settled by the owner the same day
 from the list (2.2). Points 1, 6, 8 and 11 stay open.
 
 1. **Question 2, now the opt-in mode's only, and the owner's** (milestone plan 7, question 2;
-   10.3 item 1). **It does not block 356 to 358**: their default is exact, and a discrete
+   10.3 item 1). *Answered, the owner, 30 October 2026: (a) with a documented caveat, recorded in
+   the milestone plan's question 2.* **It does not block 356 to 358**: their default is exact, and a discrete
    consumer over an exact value is exact. In the opt-in mode the options are:
    (a) a discrete consumer over a `LIBRARY` node keeps the exact form (2.7 builds this now as the
    interim); evidence: it keeps every filter and integral result Spark's, and it is the kernel's
@@ -792,7 +793,8 @@ from the list (2.2). Points 1, 6, 8 and 11 stay open.
    least every measured line for its key. 367's probe gives a lower bound of the true maximum, so
    `VarkaMathContractSuite` fails whenever a committed measured line exceeds the contracted value
    (2.5, 3.4); raising the value is a dated entry with that line's witness.
-6. **Row wording to change under the 30 October decisions** (the lead's edits):
+6. **Row wording to change under the 30 October decisions** (the lead's edits). *Applied, the
+   lead, 30 October 2026, in the milestone plan's rows and sections listed below.*
    - **356**: "The trigonometric functions under the contract" becomes "exact by default, the
      opt-in contract as a second form": `sin`, `cos`, `tan` by `LANE_CALL` of `Math` and `sec`,
      `csc`, `cot` as `1 / LANE_CALL`; `asin`, `acos`, `atan`, `atan2` first by `LANE_CALL` of

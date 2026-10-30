@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
@@ -115,7 +116,22 @@ public final class VarkaExpressionHarness {
   }
 
   /** Spark's answer for one row: the projected row, or the error evaluating it raised. */
-  private record Expected(@Nullable InternalRow row, @Nullable Throwable error) {}
+  private record Expected(@Nullable InternalRow row, @Nullable Raised error) {}
+
+  /**
+   * An error Spark raised, as the checks read it: its class, its message, and how it prints,
+   * which is what a finding quotes.
+   */
+  private record Raised(String type, @Nullable String message, String text) {
+    static Raised of(Throwable e) {
+      return new Raised(e.getClass().getName(), e.getMessage(), e.toString());
+    }
+
+    @Override
+    public String toString() {
+      return text;
+    }
+  }
 
   /** Each row projected by {@code projection}, one at a time, so an error is the row's own. */
   private static List<Expected> project(UnsafeProjection projection, List<InternalRow> rows) {
@@ -124,22 +140,52 @@ public final class VarkaExpressionHarness {
       try {
         out.add(new Expected(projection.apply(row).copy(), null));
       } catch (RuntimeException e) {
-        out.add(new Expected(null, e));
+        out.add(new Expected(null, Raised.of(e)));
       }
     }
     return out;
   }
 
-  /**
-   * Spark's answers for {@code outputs} over {@code rows}, interpreted and generated, the
-   * generated one's where they agree and null for a row where they do not, which is reported.
-   */
-  private static List<Expected> spark(String context, List<Expression> outputs,
-      Seq<Attribute> columns, List<InternalRow> rows, DataType[] types, Outcome outcome) {
+  /** {@code outputs} bound to {@code columns}, as Spark's projections and the store read them. */
+  private static List<Expression> bound(List<Expression> outputs, Seq<Attribute> columns) {
     var bound = new ArrayList<Expression>(outputs.size());
     for (Expression e : outputs) {
       bound.add(VarkaSqlResolve.bind(e, columns));
     }
+    return bound;
+  }
+
+  /**
+   * Spark's answers for {@code bound} over {@code rows}, interpreted and generated, the
+   * generated one's where they agree and null for a row where they do not, which is reported.
+   * Under a configuration whose {@link VarkaHarnessStore} holds the defaults' answers to the
+   * same expressions over the same rows under the same settings, those are the answers, and
+   * Spark evaluates nothing; the defaults' run writes the answers it computed where the two
+   * projections agreed on every row.
+   */
+  private static List<Expected> spark(String context, List<Expression> bound,
+      Seq<Attribute> columns, List<InternalRow> rows, DataType[] types, Outcome outcome) {
+    VarkaHarnessStore store = VarkaHarnessStore.current();
+    String key = store == null ? null : VarkaHarnessStore.answerKey(bound, columns, rows);
+    if (store != null) {
+      byte[] stored = store.answer(key);
+      if (stored != null) {
+        return decodeAnswers(stored);
+      }
+    }
+    List<Expected> out = evaluate(context, bound, rows, types, outcome);
+    if (store != null && !out.contains(null)) {
+      byte[] encoded = encodeAnswers(out);
+      if (encoded != null) {
+        store.putAnswer(key, encoded);
+      }
+    }
+    return out;
+  }
+
+  /** {@link #spark}'s evaluation: both of Spark's projections, row by row. */
+  private static List<Expected> evaluate(String context, List<Expression> bound,
+      List<InternalRow> rows, DataType[] types, Outcome outcome) {
     Seq<Expression> exprs = CollectionConverters.asScala(bound).toList();
     List<Expected> interpreted = project(InterpretedUnsafeProjection.createProjection(exprs), rows);
     List<Expected> generated = project(GenerateUnsafeProjection.generate(exprs, false), rows);
@@ -169,9 +215,79 @@ public final class VarkaExpressionHarness {
    * projection can raise the same {@code ArithmeticException} as the interpreted one without its
    * "long overflow".
    */
-  private static boolean sameError(Throwable a, Throwable b) {
-    return a.getClass() == b.getClass() && (Objects.equals(a.getMessage(), b.getMessage())
-        || a.getMessage() == null || b.getMessage() == null);
+  private static boolean sameError(Raised a, Raised b) {
+    return a.type().equals(b.type()) && (Objects.equals(a.message(), b.message())
+        || a.message() == null || b.message() == null);
+  }
+
+  /**
+   * Spark's answers as the store keeps them: each row's {@code UnsafeRow} bytes, or the error's
+   * class, message and text; null for answers that are not all {@code UnsafeRow}s.
+   */
+  private static @Nullable byte[] encodeAnswers(List<Expected> answers) {
+    var bytes = new java.io.ByteArrayOutputStream();
+    try (var out = new java.io.DataOutputStream(bytes)) {
+      out.writeInt(answers.size());
+      for (Expected e : answers) {
+        if (e.error() != null) {
+          out.writeByte(1);
+          out.writeUTF(e.error().type());
+          writeString(out, e.error().message());
+          writeString(out, e.error().text());
+        } else if (e.row() instanceof UnsafeRow row) {
+          out.writeByte(0);
+          out.writeInt(row.numFields());
+          byte[] b = row.getBytes();
+          out.writeInt(b.length);
+          out.write(b);
+        } else {
+          return null;
+        }
+      }
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    return bytes.toByteArray();
+  }
+
+  private static List<Expected> decodeAnswers(byte[] stored) {
+    try (var in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(stored))) {
+      int n = in.readInt();
+      var out = new ArrayList<Expected>(n);
+      for (int i = 0; i < n; i++) {
+        if (in.readByte() == 1) {
+          String type = in.readUTF();
+          String message = readString(in);
+          out.add(new Expected(null, new Raised(type, message, readString(in))));
+        } else {
+          var row = new UnsafeRow(in.readInt());
+          byte[] b = in.readNBytes(in.readInt());
+          row.pointTo(b, b.length);
+          out.add(new Expected(row, null));
+        }
+      }
+      return out;
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+  }
+
+  /** A string that may be null or longer than {@code writeUTF} takes. */
+  private static void writeString(java.io.DataOutputStream out, @Nullable String s)
+      throws java.io.IOException {
+    if (s == null) {
+      out.writeInt(-1);
+    } else {
+      byte[] b = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      out.writeInt(b.length);
+      out.write(b);
+    }
+  }
+
+  private static @Nullable String readString(java.io.DataInputStream in)
+      throws java.io.IOException {
+    int n = in.readInt();
+    return n < 0 ? null : new String(in.readNBytes(n), java.nio.charset.StandardCharsets.UTF_8);
   }
 
   /** The two consumers a Varka projection has, as the exec nodes call the evaluator. */
@@ -206,7 +322,7 @@ public final class VarkaExpressionHarness {
       outputs.add((Expression) e);
     }
     DataType[] types = outputs.stream().map(Expression::dataType).toArray(DataType[]::new);
-    List<Expected> answers = spark(context, outputs, columns, all, types, outcome);
+    List<Expected> answers = spark(context, bound(outputs, columns), columns, all, types, outcome);
     // The outputs the evaluator's compile leaves to the row path, by the same compile.
     Optional<PartialVarkaProjection> partial = VarkaExpressionCompiler.compilePartial(
         projectList, columns, VarkaColumnarToRowExec$.MODULE$.currentEmitOptions());
@@ -289,7 +405,8 @@ public final class VarkaExpressionHarness {
     List<InternalRow> all = fixture.rows();
     int ridOrdinal = fixture.ordinal("rid");
     DataType[] types = {condition.dataType()};
-    List<Expected> expected = spark(context, List.of(condition), columns, all, types, outcome);
+    List<Expected> expected =
+        spark(context, bound(List.of(condition), columns), columns, all, types, outcome);
     for (int i = 0; i < all.size(); i++) {
       Expected e = expected.get(i);
       if (e != null && e.error() == null && !e.row().isNullAt(0) && e.row().getBoolean(0)) {

@@ -1,0 +1,135 @@
+# VARKA-369 admission arithmetic, from master at fa698652fd2 (30 October 2026)
+# Produced by a one-off Python script over sql/varka/coverage.json and integer
+# arithmetic; no JVM was started. Its text is at the end of this file.
+
+## The coverage table
+rows: 337; predicate rows: 164; projection rows: 173
+fixture columns the table names: 24:
+  d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2, y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2
+
+## The fixture geometry
+P partitions; partition k (0..P-1) holds m_k = base + k rows.
+A partition's rows are cut into batches of B rows; the last batch holds the rest.
+
+### nightly, aligned: P = 64, base 4096, B = 4096
+rows N = 264160; batches = 127; full batches = 64; short batches = 63
+short batch lengths: 1..63 (63 distinct)
+  L =  2: B mod L =  0; batch-length residues mod L: 2 of 2; fewest rows at a lane position: 132064
+  L =  4: B mod L =  0; batch-length residues mod L: 4 of 4; fewest rows at a lane position: 66016
+  L =  8: B mod L =  0; batch-length residues mod L: 8 of 8; fewest rows at a lane position: 32992
+  L = 16: B mod L =  0; batch-length residues mod L: 16 of 16; fewest rows at a lane position: 16480
+  L = 32: B mod L =  0; batch-length residues mod L: 32 of 32; fewest rows at a lane position: 8224
+  L = 64: B mod L =  0; batch-length residues mod L: 64 of 64; fewest rows at a lane position: 4096
+
+### nightly, unaligned: P = 64, base 4096, B = 4093
+rows N = 264160; batches = 128; full batches = 64; short batches = 64
+short batch lengths: 3..66 (64 distinct)
+  L =  2: B mod L =  1; batch-length residues mod L: 2 of 2; fewest rows at a lane position: 132032
+  L =  4: B mod L =  1; batch-length residues mod L: 4 of 4; fewest rows at a lane position: 66000
+  L =  8: B mod L =  5; batch-length residues mod L: 8 of 8; fewest rows at a lane position: 32952
+  L = 16: B mod L = 13; batch-length residues mod L: 16 of 16; fewest rows at a lane position: 16428
+  L = 32: B mod L = 29; batch-length residues mod L: 32 of 32; fewest rows at a lane position: 8166
+  L = 64: B mod L = 61; batch-length residues mod L: 64 of 64; fewest rows at a lane position: 4035
+
+### pull request: P = 65, base 67, B = 67
+rows N = 6435; batches = 129; full batches = 65; short batches = 64
+short batch lengths: 1..64 (64 distinct)
+  L =  2: B mod L =  1; batch-length residues mod L: 2 of 2; fewest rows at a lane position: 3169
+  L =  4: B mod L =  3; batch-length residues mod L: 4 of 4; fewest rows at a lane position: 1536
+  L =  8: B mod L =  3; batch-length residues mod L: 8 of 8; fewest rows at a lane position: 752
+  L = 16: B mod L =  3; batch-length residues mod L: 16 of 16; fewest rows at a lane position: 360
+  L = 32: B mod L =  3; batch-length residues mod L: 32 of 32; fewest rows at a lane position: 164
+  L = 64: B mod L =  3; batch-length residues mod L: 64 of 64; fewest rows at a lane position: 66
+
+### matrix axis: P = 65, base 67, B = 1
+rows N = 6435; batches = 6435; full batches = 6435; short batches = 0
+short batch lengths: none (0 distinct)
+  L =  2: B mod L =  1; batch-length residues mod L: 1 of 2; fewest rows at a lane position: 0
+  L =  4: B mod L =  1; batch-length residues mod L: 1 of 4; fewest rows at a lane position: 0
+  L =  8: B mod L =  1; batch-length residues mod L: 1 of 8; fewest rows at a lane position: 0
+  L = 16: B mod L =  1; batch-length residues mod L: 1 of 16; fewest rows at a lane position: 0
+  L = 32: B mod L =  1; batch-length residues mod L: 1 of 32; fewest rows at a lane position: 0
+  L = 64: B mod L =  1; batch-length residues mod L: 1 of 64; fewest rows at a lane position: 0
+
+### matrix axis: P = 65, base 67, B = 3
+rows N = 6435; batches = 2167; full batches = 2123; short batches = 44
+short batch lengths: 1..2 (2 distinct)
+  L =  2: B mod L =  1; batch-length residues mod L: 2 of 2; fewest rows at a lane position: 2145
+  L =  4: B mod L =  3; batch-length residues mod L: 3 of 4; fewest rows at a lane position: 0
+  L =  8: B mod L =  3; batch-length residues mod L: 3 of 8; fewest rows at a lane position: 0
+  L = 16: B mod L =  3; batch-length residues mod L: 3 of 16; fewest rows at a lane position: 0
+  L = 32: B mod L =  3; batch-length residues mod L: 3 of 32; fewest rows at a lane position: 0
+  L = 64: B mod L =  3; batch-length residues mod L: 3 of 64; fewest rows at a lane position: 0
+
+### matrix axis: P = 65, base 67, B = 17
+rows N = 6435; batches = 410; full batches = 349; short batches = 61
+short batch lengths: 1..16 (16 distinct)
+  L =  2: B mod L =  1; batch-length residues mod L: 2 of 2; fewest rows at a lane position: 3028
+  L =  4: B mod L =  1; batch-length residues mod L: 4 of 4; fewest rows at a lane position: 1499
+  L =  8: B mod L =  1; batch-length residues mod L: 8 of 8; fewest rows at a lane position: 735
+  L = 16: B mod L =  1; batch-length residues mod L: 16 of 16; fewest rows at a lane position: 353
+  L = 32: B mod L = 17; batch-length residues mod L: 17 of 32; fewest rows at a lane position: 0
+  L = 64: B mod L = 17; batch-length residues mod L: 17 of 64; fewest rows at a lane position: 0
+
+Lane counts by width (lanes = width / element bits): 128 bits: long 2, int 4, short 8,
+byte 16; 256 bits: 4, 8, 16, 32; 512 bits: 8, 16, 32, 64. A bitmap word is 64 rows.
+
+## The script
+
+    # Row 369's admission arithmetic: the coverage table's counts and the fixture geometry.
+    import json, subprocess, sys
+    root = sys.argv[1]
+    head = subprocess.check_output(
+        ["git", "-C", root, "rev-parse", "--short=11", "HEAD"]).decode().strip()
+    cov = json.load(open(f"{root}/sql/varka/coverage.json"))
+    rows = cov["expressions"]
+    forms = {}
+    for r in rows:
+        forms[r["form"]] = forms.get(r["form"], 0) + 1
+    print(f"# VARKA-369 admission arithmetic, from master at {head} (30 October 2026)")
+    print("# Produced by a one-off Python script over sql/varka/coverage.json and integer")
+    print("# arithmetic; no JVM was started. Its text is at the end of this file.")
+    print()
+    print("## The coverage table")
+    print(f"rows: {len(rows)}; predicate rows: {forms.get('predicate', 0)}; "
+          f"projection rows: {forms.get('projection', 0)}")
+    print(f"fixture columns the table names: {len(cov['columns'])}:")
+    print("  " + ", ".join(cov["columns"]))
+    print()
+    print("## The fixture geometry")
+    print("P partitions; partition k (0..P-1) holds m_k = base + k rows.")
+    print("A partition's rows are cut into batches of B rows; the last batch holds the rest.")
+    lanes = [2, 4, 8, 16, 32, 64]
+    def geometry(base, B, P):
+        batches = []
+        for k in range(P):
+            m = base + k
+            full, rest = divmod(m, B)
+            batches += [B] * full + ([rest] if rest else [])
+        return batches
+    configs = [("nightly, aligned", 4096, 4096, 64), ("nightly, unaligned", 4096, 4093, 64),
+               ("pull request", 67, 67, 65), ("matrix axis", 67, 1, 65),
+               ("matrix axis", 67, 3, 65), ("matrix axis", 67, 17, 65)]
+    for name, base, B, P in configs:
+        b = geometry(base, B, P)
+        n = sum(b)
+        tails = sorted(set(x for x in b if x != B))
+        print()
+        print(f"### {name}: P = {P}, base {base}, B = {B}")
+        print(f"rows N = {n}; batches = {len(b)}; full batches = {b.count(B)}; "
+              f"short batches = {len(b) - b.count(B)}")
+        span = f"{tails[0]}..{tails[-1]}" if tails else "none"
+        print(f"short batch lengths: {span} ({len(tails)} distinct)")
+        for L in lanes:
+            res = set(x % L for x in b)
+            least = min(sum(1 for x in b for j in range(x) if j % L == p) for p in range(L))
+            print(f"  L = {L:2d}: B mod L = {B % L:2d}; batch-length residues mod L: "
+                  f"{len(res)} of {L}; fewest rows at a lane position: {least}")
+    print()
+    print("Lane counts by width (lanes = width / element bits): 128 bits: long 2, int 4, short 8,")
+    print("byte 16; 256 bits: 4, 8, 16, 32; 512 bits: 8, 16, 32, 64. A bitmap word is 64 rows.")
+    print()
+    print("## The script")
+    print()
+    for line in open(__file__).read().splitlines():
+        print("    " + line)

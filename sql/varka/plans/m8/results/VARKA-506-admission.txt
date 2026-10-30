@@ -1,0 +1,289 @@
+VARKA-506: the admission spike, row 361's limb product in the printer's two forms
+(30 October 2026, laptop: AMD Ryzen AI 9 HX PRO 370, Linux 7.0.0-38-generic; laptop numbers).
+
+What it asks. Row 506's printer renders a lowered network into SMT over java.smt2. Row 361's
+64 by 64 to 128-bit product (VARKA-361.md 2.3, branch varka-360-361-plan) was written by hand
+in the form the printer would emit, every product of two non-constant limbs a free variable
+P in [0, (2^32 - 1)^2], and its check 4 split as the milestone plan's 2.8 says: 4a the ring
+identity and the range, 4b the carry network over the free products. Two renderings:
+
+  form A  each lowered step a define-fun over java.smt2's own operators (jlong.add, jlong.ushr,
+          jlong.shl, jlong.and.low, jlong.or.disjoint, jlong.shr), every wrap in place;
+  form B  the printer's word form: each step the unsigned reading of its long, a step whose
+          interval stays below 2^64 rendered exact with that claim an obligation check, a step
+          that can wrap keeping one reduction, each division or remainder by 2^32 a named
+          quotient pinned by its remainder's range (the README's advice for cvc5).
+
+The planted fault is VARKA-361.md 3.1's, QuestDB's a0 * m1 + a1 * m0: the middle column's two
+products summed in one word. Its witness with one negative operand, (818970913745787777,
+-37375742756067484), is results/VARKA-361-planted-carry.txt's (on branch varka-360-361-plan,
+being opened as a pull request; the citation resolves once it merges).
+
+Solvers: the pinned Z3 5.1.0 and cvc5 1.4.1, run from another worktree's target/varka-solvers/,
+the pinned download dev/varka_prove.sh --install both makes and checks, not from a laptop install
+(neither is on the laptop's PATH; this worktree has none installed).
+Commands, from the scratchpad, java.smt2 inserted as the README says:
+
+  sed '/^(set-logic/r sql/varka/proofs/java.smt2' a.smt2 > full.smt2
+  z3 -T:120 full.smt2
+  cvc5 --incremental --tlimit=120000 full.smt2
+  sed '/^(set-logic/r sql/varka/proofs/java.smt2' b.smt2 > fullb.smt2
+  z3 -T:90 fullb.smt2
+  cvc5 --incremental --produce-models --tlimit-per=60000 fullb.smt2
+
+Form A, verdicts (every expectation met but the timeout):
+
+  check                                                        z3        cvc5
+  4a ring identity, four limb products weighted = Xu * Yu      unsat     unsat
+  4a sign correction, X * Y from the unsigned patterns         unsat     unsat
+  obligation, lo's or is of disjoint bits                      unsat     unsat
+  4a range, the product of two longs within +-2^126            unsat     unsat
+  4b carry layer, rendered network = exact product             timeout   unsat
+  4b planted order differs from the exact product              (not     sat
+  4b planted order wrong at the one-negative witness            reached) sat
+  4b carry-free order right at the same witness                         unsat
+  wall, whole file                                             120.01 s  0.27 s
+                                                               (limit)
+
+Form B, verdicts (every expectation met under both solvers):
+
+  check                                                        z3        cvc5
+  obligation, t, u and h0 below 2^64, so rendered exact        unsat     unsat
+  4b carry layer, rendered network = exact product             unsat     unsat
+  obligation for the planted order, its sum can pass 2^64      sat       sat
+  4b planted order differs from the exact product              sat       sat
+  4b planted order wrong at the one-negative witness           sat       sat
+  4b carry-free order right at the same witness                unsat     unsat
+  4b planted order, both operands non-negative, products the
+     limbs' (row 361's finding: never live there)              unsat     unsat
+  wall, whole file                                             0.06 s    0.09 s
+
+Readings.
+1. Form A is what a naive printer emits, and Z3 does not decide its carry layer in two minutes;
+   form B decides every check under both solvers in a tenth of a second. The printer emits
+   form B: the word form, intervals for the no-wrap obligations, named quotients.
+2. The free-product sat model of the planted order is not realizable: cvc5 answered x = y = 0
+   with P1 = 4294967297 and P2 = 18446744065119617025, and Z3 x = -2^63, y = -2^63 + 1 with the
+   same P1 and P2 - limb products those operands do not have. A refutation by free products
+   alone shows the network is not exact for every product value, not that a query answers
+   wrong. So a planted fault's refutation also needs the check pinned at a real witness with
+   the products the limbs' own (sat), and its carry-free twin there (unsat).
+3. The ring identity, the sign correction and the range are nonlinear and still decided by
+   both solvers at 64 bits; row 362's sixteen products are not tried here.
+
+Files: form A (a.smt2) and form B (b.smt2) follow.
+
+--- a.smt2 ---
+(set-logic ALL)
+; VARKA-506 admission spike: row 361's 64 by 64 to 128-bit limb product as row 506's printer
+; would render it - one define-fun per lowered step over java.smt2's operators, every product of
+; two non-constant limbs a free variable P in [0, (2^32 - 1)^2] - against the exact product.
+; Written by hand in the printer's form; nothing here is rendered from code yet.
+
+; Two operators the decimal lowerings need that java.smt2 lacks, in the cases they are used:
+; m & y for a sign word m in {0, -1}, and the unsigned reading of a long.
+(define-fun jlong.and.sign ((m Int) (y Int)) Int (ite (= m (- 1)) y 0))
+(define-fun jlong.u ((x Int)) Int (mod x 18446744073709551616))
+
+(declare-const x Int) (declare-const y Int)
+(assert (and (jlong.in x) (jlong.in y)))
+(declare-const P0 Int) (declare-const P1 Int) (declare-const P2 Int) (declare-const P3 Int)
+(define-fun lim ((p Int)) Bool (and (<= 0 p) (<= p 18446744065119617025)))
+(assert (and (lim P0) (lim P1) (lim P2) (lim P3)))
+
+; the lowered steps, carry-free order (VARKA-361.md 2.3)
+(define-fun xl () Int (jlong.and.low x 4294967296))
+(define-fun xh () Int (jlong.ushr x 32))
+(define-fun yl () Int (jlong.and.low y 4294967296))
+(define-fun yh () Int (jlong.ushr y 32))
+(define-fun p0 () Int (jlong.wrap P0))
+(define-fun p1 () Int (jlong.wrap P1))
+(define-fun p2 () Int (jlong.wrap P2))
+(define-fun p3 () Int (jlong.wrap P3))
+(define-fun t () Int (jlong.add p1 (jlong.ushr p0 32)))
+(define-fun u () Int (jlong.add p2 (jlong.and.low t 4294967296)))
+(define-fun h0 () Int (jlong.add (jlong.add p3 (jlong.ushr t 32)) (jlong.ushr u 32)))
+(define-fun lo () Int (jlong.or.disjoint (jlong.and.low p0 4294967296) (jlong.shl u 32)))
+(define-fun sx () Int (jlong.shr x 63))
+(define-fun sy () Int (jlong.shr y 63))
+(define-fun hi () Int (jlong.sub (jlong.sub h0 (jlong.and.sign sx y)) (jlong.and.sign sy x)))
+(define-fun kernel () Int (+ (* hi 18446744073709551616) (jlong.u lo)))
+
+; the planted order (VARKA-361.md 3.1): the middle column's two products summed in one word
+(define-fun tq () Int (jlong.add (jlong.add p1 p2) (jlong.ushr p0 32)))
+(define-fun hq0 () Int (jlong.add p3 (jlong.ushr tq 32)))
+(define-fun loq () Int (jlong.or.disjoint (jlong.and.low p0 4294967296) (jlong.shl tq 32)))
+(define-fun hiq () Int (jlong.sub (jlong.sub hq0 (jlong.and.sign sx y)) (jlong.and.sign sy x)))
+(define-fun planted () Int (+ (* hiq 18446744073709551616) (jlong.u loq)))
+
+; the exact product by the ring identity's instance over the same free products, so the claim
+; stays linear: X * Y = Xu * Yu - 2^64 ([x < 0] Yu + [y < 0] Xu) + 2^128 [x < 0][y < 0]
+(define-fun E () Int
+  (+ P0 (* 4294967296 (+ P1 P2)) (* 18446744073709551616 P3)
+     (- (* 18446744073709551616 (+ (ite (< x 0) (jlong.u y) 0) (ite (< y 0) (jlong.u x) 0))))
+     (ite (and (< x 0) (< y 0)) 340282366920938463463374607431768211456 0)))
+
+(push)
+(echo "4a, the ring identity: the four limb products weighted are Xu * Yu: expect unsat")
+(declare-const a0 Int) (declare-const a1 Int) (declare-const b0 Int) (declare-const b1 Int)
+(assert (and (<= 0 a0) (< a0 4294967296) (<= 0 a1) (< a1 4294967296)))
+(assert (and (<= 0 b0) (< b0 4294967296) (<= 0 b1) (< b1 4294967296)))
+(assert (not (= (* (+ a0 (* 4294967296 a1)) (+ b0 (* 4294967296 b1)))
+                (+ (* a0 b0) (* 4294967296 (+ (* a1 b0) (* a0 b1)))
+                   (* 18446744073709551616 (* a1 b1))))))
+(check-sat)
+(pop)
+
+(push)
+(echo "4a, the sign correction: X * Y from the unsigned patterns: expect unsat")
+(assert (not (= (* x y)
+                (+ (* (jlong.u x) (jlong.u y))
+                   (- (* 18446744073709551616 (+ (ite (< x 0) (jlong.u y) 0)
+                                                 (ite (< y 0) (jlong.u x) 0))))
+                   (ite (and (< x 0) (< y 0)) 340282366920938463463374607431768211456 0)))))
+(check-sat)
+(pop)
+
+(push)
+(echo "obligation: lo's or is of disjoint bits (and.low below 2^32, the shift a multiple): expect unsat")
+(assert (not (and (= (mod (jlong.shl u 32) 4294967296) 0)
+                  (jlong.in (+ (jlong.and.low p0 4294967296) (jlong.shl u 32))))))
+(check-sat)
+(pop)
+
+(push)
+(echo "4a, the range: the product of two longs lies within [-2^126, 2^126]: expect unsat")
+(assert (not (and (<= (- 85070591730234615865843651857942052864) (* x y))
+                  (<= (* x y) 85070591730234615865843651857942052864))))
+(check-sat)
+(pop)
+
+(push)
+(echo "4b, the carry layer: the rendered network is the exact product: expect unsat")
+(assert (and (<= (- 85070591730234615865843651857942052864) E)
+             (<= E 85070591730234615865843651857942052864)))
+(assert (not (= kernel E)))
+(check-sat)
+(pop)
+
+(push)
+(echo "4b, the planted order: the rendered network differs from the exact product: expect sat")
+(assert (and (<= (- 85070591730234615865843651857942052864) E)
+             (<= E 85070591730234615865843651857942052864)))
+(assert (not (= planted E)))
+(check-sat)
+(pop)
+
+(push)
+(echo "4b, the planted order at results/VARKA-361-planted-carry.txt's one-negative witness, the products the limbs': expect sat")
+(assert (= x 818970913745787777)) (assert (= y (- 37375742756067484)))
+(assert (and (= P0 (* xl yl)) (= P1 (* xh yl)) (= P2 (* xl yh)) (= P3 (* xh yh))))
+(assert (not (= planted (* x y))))
+(check-sat)
+(pop)
+
+(push)
+(echo "4b, the carry-free order at the same witness: expect unsat")
+(assert (= x 818970913745787777)) (assert (= y (- 37375742756067484)))
+(assert (and (= P0 (* xl yl)) (= P1 (* xh yl)) (= P2 (* xl yh)) (= P3 (* xh yh))))
+(assert (not (= kernel (* x y))))
+(check-sat)
+(pop)
+
+--- b.smt2 ---
+(set-logic ALL)
+; VARKA-506 admission spike, form B: the same network in the printer's word form. Each step's
+; value is the unsigned reading of its long; a step whose interval, computed by the printer from
+; its operands' intervals, stays below 2^64 is rendered exact and its no-wrap claim becomes an
+; obligation check, and a step that can wrap keeps its reduction modulo 2^64. A division or
+; remainder by 2^32 is a named quotient pinned by its remainder's range.
+(define-fun W () Int 18446744073709551616)
+(define-fun H () Int 4294967296)
+(define-fun MM () Int 18446744065119617025)
+(declare-const x Int) (declare-const y Int)
+(assert (and (jlong.in x) (jlong.in y)))
+(define-fun xu () Int (ite (< x 0) (+ x W) x))
+(define-fun yu () Int (ite (< y 0) (+ y W) y))
+(declare-const P0 Int) (declare-const P1 Int) (declare-const P2 Int) (declare-const P3 Int)
+(assert (and (<= 0 P0 MM) (<= 0 P1 MM) (<= 0 P2 MM) (<= 0 P3 MM)))
+; p0 >>> 32 and p0 & M
+(declare-const q0 Int) (assert (and (<= 0 (- P0 (* H q0))) (< (- P0 (* H q0)) H)))
+(define-fun t () Int (+ P1 q0))
+(declare-const qt Int) (assert (and (<= 0 (- t (* H qt))) (< (- t (* H qt)) H)))
+(define-fun u () Int (+ P2 (- t (* H qt))))
+(declare-const qu Int) (assert (and (<= 0 (- u (* H qu))) (< (- u (* H qu)) H)))
+(define-fun h0 () Int (+ P3 qt qu))
+(define-fun lo () Int (+ (- P0 (* H q0)) (* H (- u (* H qu)))))
+(define-fun corr () Int (+ (ite (< x 0) yu 0) (ite (< y 0) xu 0)))
+; hi = h0 - corr modulo 2^64, read signed: one reduction, a named quotient
+(declare-const qh Int)
+(define-fun hiu () Int (- (- h0 corr) (* W qh)))
+(assert (and (<= 0 hiu) (< hiu W)))
+(define-fun his () Int (ite (>= hiu 9223372036854775808) (- hiu W) hiu))
+(define-fun kernel () Int (+ (* his W) lo))
+; planted: tq = p1 + p2 + (p0 >>> 32), which can pass 2^64, so it keeps its reduction
+(declare-const wq Int)
+(define-fun tq () Int (- (+ P1 P2 q0) (* W wq)))
+(assert (and (<= 0 tq) (< tq W)))
+(declare-const qtq Int) (assert (and (<= 0 (- tq (* H qtq))) (< (- tq (* H qtq)) H)))
+(define-fun hq0 () Int (+ P3 qtq))
+(define-fun loq () Int (+ (- P0 (* H q0)) (* H (- tq (* H qtq)))))
+(declare-const qhq Int)
+(define-fun hiqu () Int (- (- hq0 corr) (* W qhq)))
+(assert (and (<= 0 hiqu) (< hiqu W)))
+(define-fun hiqs () Int (ite (>= hiqu 9223372036854775808) (- hiqu W) hiqu))
+(define-fun planted () Int (+ (* hiqs W) loq))
+(define-fun E () Int
+  (+ P0 (* H (+ P1 P2)) (* W P3) (- (* W corr))
+     (ite (and (< x 0) (< y 0)) 340282366920938463463374607431768211456 0)))
+(define-fun inrange () Bool (and (<= (- 85070591730234615865843651857942052864) E)
+                                 (<= E 85070591730234615865843651857942052864)))
+(push)
+(echo "obligation: t, u and h0 stay below 2^64, so they are rendered exact: expect unsat")
+(assert (not (and (< t W) (< u W) (< h0 W))))
+(check-sat)
+(pop)
+(push)
+(echo "4b, the carry layer: the rendered network is the exact product: expect unsat")
+(assert inrange)
+(assert (not (= kernel E)))
+(check-sat)
+(pop)
+(push)
+(echo "obligation for the planted order: tq can pass 2^64, so it keeps its reduction: expect sat")
+(assert (>= (+ P1 P2 q0) W))
+(check-sat)
+(pop)
+(push)
+(echo "4b, the planted order differs from the exact product: expect sat")
+(assert inrange)
+(assert (not (= planted E)))
+(check-sat)
+(get-value (x y P1 P2))
+(pop)
+(push)
+(echo "4b at results/VARKA-361-planted-carry.txt's one-negative witness, the products the limbs': the planted order is wrong there: expect sat")
+(assert (= x 818970913745787777)) (assert (= y (- 37375742756067484)))
+(assert (and (= P0 (* (mod xu H) (mod yu H))) (= P1 (* (div xu H) (mod yu H)))
+             (= P2 (* (mod xu H) (div yu H))) (= P3 (* (div xu H) (div yu H)))))
+(assert (not (= planted (* x y))))
+(check-sat)
+(pop)
+(push)
+(echo "4b at the same witness: the carry-free order is right there: expect unsat")
+(assert (= x 818970913745787777)) (assert (= y (- 37375742756067484)))
+(assert (and (= P0 (* (mod xu H) (mod yu H))) (= P1 (* (div xu H) (mod yu H)))
+             (= P2 (* (mod xu H) (div yu H))) (= P3 (* (div xu H) (div yu H)))))
+(assert (not (= kernel (* x y))))
+(check-sat)
+(pop)
+(push)
+(echo "4b, the planted order with both operands non-negative and the products the limbs' (row 361's plan: never live there): expect unsat")
+(declare-const a0 Int) (declare-const a1 Int) (declare-const b0 Int) (declare-const b1 Int)
+(assert (and (<= 0 x) (<= 0 y)))
+(assert (and (= x (+ a0 (* H a1))) (<= 0 a0) (< a0 H) (= y (+ b0 (* H b1))) (<= 0 b0) (< b0 H)))
+(assert (and (= P0 (* a0 b0)) (= P1 (* a1 b0)) (= P2 (* a0 b1)) (= P3 (* a1 b1))))
+(assert inrange)
+(assert (not (= planted E)))
+(check-sat)
+(pop)

@@ -286,3 +286,51 @@ spark row path (varka off)                                                      
 varka on                                                                              755            774          11          2.6         377.5       1.0X
 
 
+================================================================================================
+time_to_seconds over TIME(6), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+time_to_seconds over TIME(6), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                       735            754          16          2.7         367.3       1.0X
+varka on                                                                         741            754           8          2.7         370.5       1.0X
+
+
+================================================================================================
+extract(SECOND) over TIME(6), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+extract(SECOND) over TIME(6), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                       377            387          10          5.3         188.7       1.0X
+varka on                                                                         366            374          12          5.5         183.1       1.0X
+
+
+================================================================================================
+time_to_seconds over TIME(6), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+time_to_seconds over TIME(6), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                  668            687          16          3.0         334.2       1.0X
+varka on                                                                                    672            682          10          3.0         336.0       1.0X
+
+
+================================================================================================
+extract(SECOND) over TIME(6), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+extract(SECOND) over TIME(6), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                  345            353           9          5.8         172.3       1.0X
+varka on                                                                                    339            357          22          5.9         169.7       1.0X
+
+

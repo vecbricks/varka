@@ -385,6 +385,13 @@ a computed NaN by NaN-ness (`SCOPE_STANDARD_MODE.md` 3.5): `rint`'s NaN is compu
 sign is the implementation's (item 0.10). None of them is under the contract of 2.7.1, and the
 configuration `spark.sql.codegen.varka.math.ulpContract.enabled` does not gate them.
 
+*30 October 2026, by the owner's word:* that configuration is an opt-in mode, off by default, since
+every math function is now bit-exact to Spark by default (`VARKA-345.md` 2.1, 2.6); it does not gate
+these functions in either state. Question 2 is answered (a) for that mode only, in the form
+`VARKA-345.md` 2.7 builds: a discrete consumer over a library node takes the function's exact form
+rather than declining, so a rounding node over a math function compiles as over any exact child, and
+this row's nodes still change in no byte.
+
 The milestone plan's question 2, still open, is about a contracted value *under* these functions:
 `floor(sin(x))` turns a one-step difference into a different `BIGINT`. Its option (a) would make
 a rounding node over a contracted child decline. Until 345 lands no contracted node exists, so
