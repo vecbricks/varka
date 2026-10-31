@@ -308,12 +308,27 @@ final class VarkaVectorWalk {
       }
       case GuardedRange n -> {
         // The day guard's twin at whichever lane the child is on, with the bounds the node
-        // carries. The value passes through; the word is the child's, except over a column's
-        // stored values, which a null row's lane is checked by too (Analysis.guardsStoredValues).
+        // carries. The value passes through. A FAIL guard's word is the child's, and over a
+        // column's stored values a null row's lane is checked too (Analysis.guardsStoredValues);
+        // a NULL guard's word is a copy of the child's, narrowed by the check.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         Integer guardTmp = s.guardTmp.get(node);
-        if (analysis.accumulatesRange(node, !s.epilogue)) {
+        if (n.mode() == Overflow.NULL) {
+          // The nulling guard: its own word is the child's, copied, with the lanes outside the
+          // bounds cleared by emitOverflowMask's NULL arm, which narrows the node's word in place.
+          if (guardTmp == null) {
+            // Refused by name: without its scratch the check would be dropped silently.
+            throw VarkaErrors.illegalState("a nulling range guard with no scratch planned: "
+                + node);
+          }
+          if (!dense && s.ownWord.contains(node)) {
+            loadWord(cb, s, s.wordRef.get(n.child()));
+            storeWord(cb, s, s.wordRef.get(node));
+          }
+          emitRangeMask(cb, node, guardTmp, analysis, n.lo(), n.hi());
+          emitOverflowMask(cb, Overflow.NULL, node, dense, analysis, s);
+        } else if (analysis.accumulatesRange(node, !s.epilogue)) {
           Integer acc = s.rangeAcc.get(new Slots.Bounds(n.lo(), n.hi()));
           if (acc == null) {
             // Refused by name: without its accumulators the guard would be dropped silently.
@@ -1030,9 +1045,10 @@ final class VarkaVectorWalk {
     // int MUL is declined by the compiler and, failing that, throws inside emitIntArith itself
     // before this method would ever see it. A checked narrow MUL is the exception: it is
     // driven at the int lane on either arm and arrives here through emitNarrowOverflowMask
-    // (VARKA-330), so op == MUL cannot be asserted at this site. A future refactor that unifies
-    // the overflow dispatch across IntArith and IntNeg has to keep all of these in view, not
-    // assume the shape of one implies the others.
+    // (VARKA-330), so op == MUL cannot be asserted at this site; nor can the node's type, since
+    // a NULL GuardedRange hands this arm the mask of its two range compares. A future refactor
+    // that unifies the overflow dispatch across IntArith, IntNeg and GuardedRange has to keep
+    // all of these in view, not assume the shape of one implies the others.
     //
     // "Refused" is a claim about this class, not about a running query: `VarkaKernelEvaluator`
     // catches an IllegalArgumentException out of `emit` as an emission failure and drops the
@@ -1132,6 +1148,18 @@ final class VarkaVectorWalk {
    */
   static void emitRangeGuard(CodeBuilder cb, VarkaVectorIR node, Integer word,
       int guardTmp, boolean dense, Analysis analysis, Slots s, long lo, long hi) {
+    emitRangeMask(cb, node, guardTmp, analysis, lo, hi);
+    emitGuardCollect(cb, node, word, dense, analysis, s);
+  }
+
+  /**
+   * {@code [v] -> [v, mask]}: the lanes of the value on the stack outside {@code [lo, hi]}, two
+   * compares and an OR over the value parked in {@code guardTmp}, the value left beneath the mask
+   * for the caller. {@link #emitRangeGuard} folds the mask into the batch's accumulator, and a
+   * {@code NULL} range guard clears those lanes from its own word instead.
+   */
+  private static void emitRangeMask(CodeBuilder cb, VarkaVectorIR node, int guardTmp,
+      Analysis analysis, long lo, long hi) {
     Lane lane = analysis.laneOf(node);
     cb.dup();
     cb.astore(guardTmp);
@@ -1144,7 +1172,6 @@ final class VarkaVectorWalk {
     lane.pushScalar(cb, hi);
     cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-    emitGuardCollect(cb, node, word, dense, analysis, s);
   }
 
   /**
@@ -1961,6 +1988,13 @@ final class VarkaVectorWalk {
         cb.lstore(s.kf.get(node));
       }
       case IsNotNull n -> {
+        if (n.child() instanceof DecimalColumn c) {
+          // The decimal leaf's load and slot check, its value dropped: Spark's IS NULL reads a
+          // valid row's value and raises on a slot outside the precision (VARKA-347), so the test
+          // checks the slots in both bodies, the dense one included, where every row is valid.
+          emitValue(cb, c, dense, analysis, s, computed);
+          cb.pop();
+        }
         line(cb, analysis, node);
         if (dense) {
           // The dense body ran because every referenced input is null-free and no node makes

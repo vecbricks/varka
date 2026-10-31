@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{Forwar
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
 
 /**
@@ -120,8 +120,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val f = AttributeReference("f", FloatType)()
   private val f2 = AttributeReference("f2", FloatType)()
 
+  // DECIMAL columns (VARKA-347), read from Arrow's sixteen-byte slots as unscaled longs on the
+  // long lane: two at precision 9 and two at 18, all of scale 2, so a comparison can be column
+  // against column at one precision and across the two, where type coercion widens the
+  // narrower column to DECIMAL(18, 2).
+  private val d9 = AttributeReference("d9", DecimalType(9, 2))()
+  private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
+  private val d18 = AttributeReference("d18", DecimalType(18, 2))()
+  private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
+
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
-    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2)
+    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -746,6 +755,33 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("FLOAT columns", predicates = true, floatingPredicates("f", "f2", "F", FloatType)),
     Family("FLOAT columns choosing values", predicates = false, floatingChoices("f", "f2")),
 
+    // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
+    // null tests): two values of one scale compare as their unscaled longs. Each kernel checks
+    // the slots it loads as Spark's column reader does, and declines a batch holding a valid
+    // slot outside the precision, where Spark raises; no value of the column's type is outside
+    // it, so the rows name no domain.
+    Family("DECIMAL columns", predicates = true, Seq(
+      Row("d9 < d9b", "two DECIMAL(9, 2) values compare as their unscaled longs"),
+      Row("d9 <= d9b"),
+      Row("d9 > d9b"),
+      Row("d9 >= d9b"),
+      Row("d9 = d9b"),
+      Row("d9 <> d9b", "the NOT of the equality"),
+      Row("d9 <=> d9b", "null-safe equality at the long lane"),
+      Row("d9 = 0.42", "the literal is cast to the column's DECIMAL(9, 2) and its unscaled "
+        + "long takes a slot in the long table"),
+      Row("d9 < d18", "type coercion casts d9 to DECIMAL(18, 2), which keeps every unscaled "
+        + "value: the cast is the column"),
+      Row("d18 < d18b"),
+      Row("d18 = d18b"),
+      Row("d18 <=> d18b"),
+      Row("d18 >= 123456789012.34", "a literal of fourteen digits"),
+      Row("d9 IS NULL", "a validity read; the slots are checked too, since Spark's null test "
+        + "reads a valid row's value and raises on a slot outside the precision"),
+      Row("d9 IS NOT NULL"),
+      Row("d18 IS NULL"),
+      Row("d18 IS NOT NULL"))),
+
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
       Row("time_diff('HOUR', t, t2)",
@@ -856,8 +892,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private def guardsOf(family: Family, row: Row): Seq[String] = {
     kernelsOf(family, row).flatMap { k =>
+      // A decimal leaf's slot check (VARKA-347) declines only a slot no value of the column's
+      // type can be - Spark's reader raises on it, and Spark's writer never writes one - so it
+      // has no domain inside the type to name, and is left out here.
       val refusals = VarkaLoopEmitter.guardsForTest(k.outputs, k.inputOrdinals.size,
         k.numLiterals, VarkaEmitOptions.DEFAULTS).asScala.values.map(_.reason.toString).toSeq
+        .filterNot(_ == "DECIMAL_SLOT")
       refusals ++ k.inputBounds.asScala.map(_ => "INPUT_BOUND")
     }.distinct.sorted
   }

@@ -27,7 +27,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * `VarkaVectorIR.withChildren` is the inverse of `childrenOf` (VARKA-277): rebuilding a node over
  * its own children gives the node back, for every node type any grammar can draw - the narrow
  * conversion draw included, whose target-carrying conversions a one-argument rebuild would
- * silently change (VARKA-329) - and a replacement that does not type is refused by the
+ * silently change (VARKA-329), and the nulling draw, whose guards a three-argument rebuild would
+ * make failing ones (VARKA-481) - and a replacement that does not type is refused by the
  * constructor and not accepted silently.
  */
 class VarkaWithChildrenSuite extends SparkFunSuite {
@@ -42,8 +43,10 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       val long = drawLongShape(shapeRandom(LONG_FUZZ_SEED, k))
       val mixed = drawMixedShape(shapeRandom(MIXED_FUZZ_SEED, k))
       val narrow = drawNarrowShape(shapeRandom(NARROW_FUZZ_SEED, k))
+      val nulling = drawNullingShape(shapeRandom(NULLING_FUZZ_SEED, k))
+      val nullingLong = drawNullingLongShape(shapeRandom(NULLING_FUZZ_SEED, k))
       val drawn = int.roots.asScala ++ long.roots.asScala ++ mixed.roots.asScala ++
-        narrow.roots.asScala
+        narrow.roots.asScala ++ nulling.roots.asScala ++ nullingLong.roots.asScala
       for (root <- drawn; node <- nodes(root)) {
         val rebuilt = VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*)
         assert(rebuilt == node, s"${VarkaVectorIR.canonical(node)} rebuilt as " +
@@ -123,6 +126,18 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val guarded = new GuardedRange(col, -5L, 9L)
     val swapped = VarkaVectorIR.withChildren(guarded, other)
     assert(swapped == new GuardedRange(other, -5L, 9L))
+    // A nulling guard stays one: a rebuild through the three-argument form would make it fail.
+    val nulling = new GuardedRange(col, -5L, 9L, Overflow.NULL)
+    assert(VarkaVectorIR.withChildren(nulling, other) ==
+      new GuardedRange(other, -5L, 9L, Overflow.NULL))
+    // And the two render apart, so they never share a kernel, a failing guard's rendering
+    // carrying no mode.
+    assert(VarkaVectorIR.canonical(guarded) === "(guardedRange col:0 -5 9)")
+    assert(VarkaVectorIR.canonical(nulling) === "(guardedRange:NULL col:0 -5 9)")
+    // The reproduction's parser reads each rendering back as the node it came from.
+    for (node <- Seq(guarded, nulling)) {
+      assert(VarkaCanonicalIr.parse(VarkaVectorIR.canonical(node)) == node)
+    }
     val compare = new Compare(CompareOp.LT, col, other)
     assert(VarkaVectorIR.withChildren(compare, other, col) ==
       new Compare(CompareOp.LT, other, col))

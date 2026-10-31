@@ -137,7 +137,9 @@ public final class VarkaCanonicalIr {
       case "guardedRange" -> {
         VarkaVectorIR child = node();
         long lo = number();
-        yield new GuardedRange(child, lo, number());
+        long hi = number();
+        yield new GuardedRange(child, lo, hi,
+            parts.length > 1 ? Overflow.valueOf(parts[1]) : Overflow.FAIL);
       }
       case "widen" -> new WidenLane(node(), lane(parts));
       case "narrow" -> new NarrowLane(node(), lane(parts));

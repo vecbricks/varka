@@ -878,6 +878,12 @@ final class Slots {
           if (guardScratch(analysis, node, families, mode == BodyMode.LOOP)) {
             s.guardTmp.put(node, slot++);
           }
+          // A NULL range guard registers no refusal, so guardScratch does not see it, and parks
+          // its value for the two compares all the same. Only such a node takes this slot, so no
+          // other emission's local numbering depends on it.
+          if (node instanceof GuardedRange g && g.mode() == Overflow.NULL) {
+            s.guardTmp.put(node, slot++);
+          }
           if (node instanceof DecimalColumn) {
             s.decimalTmp.put(node, new int[] {slot++, slot++});
           }
@@ -979,7 +985,11 @@ final class Slots {
       case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case ThursdayOf n -> s.wordRef.get(n.days());
       case GuardedDay n -> s.wordRef.get(n.days());
-      case GuardedRange n -> s.wordRef.get(n.child());
+      // A FAIL guard forwards its child's word; a NULL one clears lanes from a copy of it, so,
+      // like a NULL IntArith, it needs a slot of its own.
+      case GuardedRange n -> n.mode() == Overflow.NULL
+          ? Integer.MIN_VALUE
+          : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
@@ -1221,9 +1231,11 @@ final class Slots {
       // The one edge of this node the emission does not follow, or null.
       VarkaVectorIR skipped = null;
       if (node instanceof IsNotNull isNotNull
-          && (!isNotNull.overCondition() || dense)) {
+          && (!isNotNull.overCondition() || dense)
+          && !(isNotNull.child() instanceof DecimalColumn)) {
         // Over a column, widened or not, it reads the word, and over a condition in a dense body
         // it is constant true; only a masked body lowers a condition child, to read its masks.
+        // A decimal column is visited all the same, in both bodies, for its slot check.
         skipped = isNotNull.child();
       } else if (isChrono(node)) {
         VarkaVectorIR date = chronoChild(node);
@@ -1458,8 +1470,12 @@ final class Slots {
         // A guard over a column's stored values masks nothing, so it demands no word
         // (Analysis.guardsStoredValues).
         case GuardedDay g -> demand(analysis.wordOwner.get(g.days()));
+        // A NULL guard stores its own word - the child's with the out-of-range lanes cleared -
+        // so it is demanded whatever reads it, as a NULL IntArith's is.
         case GuardedRange g -> {
-          if (!Analysis.guardsStoredValues(g)) {
+          if (g.mode() == Overflow.NULL) {
+            demand(new WordOwner.Own(g));
+          } else if (!Analysis.guardsStoredValues(g)) {
             demand(analysis.wordOwner.get(g.child()));
           }
         }

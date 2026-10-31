@@ -40,20 +40,20 @@ zeroifnull|NUM|same||plumbing|333,359|rewritten to coalesce(a, 0)
 when|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,359,329|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
 between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no coverage row yet
 isnan|FLOAT|bool|float,double|done|341|
-isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329|a validity read; item 93 over a predicate
-isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329|a validity read; item 93 over a predicate
+isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 and|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 in|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|NaN equals NaN in Spark's IN
 not|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-<=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
-=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|Spark's NaN and -0.0 rules on floats
-==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|alias of =
->|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|Spark's NaN ordering on floats
->=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|Spark's NaN ordering on floats
-<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|Spark's NaN ordering on floats
-<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|Spark's NaN ordering on floats
+<=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN and -0.0 rules on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|alias of =; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+>=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 !|bool|bool||plumbing|331,27|alias of not
 abs|NUM,IVL|same|byte,short,ym|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
 greatest|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float

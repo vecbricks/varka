@@ -639,6 +639,44 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
     assert(failAdd.contains("loopDense0") && failAdd.contains("epilogueDense0"))
   }
 
+  test("a NULL range guard nulls the lanes outside its bounds, keeps the rest and every null, " +
+      "under each consumer, and forfeits the dense body") {
+    // try_cast's and try_multiply's guard: an out-of-range lane is a null, not a decline. The
+    // values run from -11 to 11 against [-5, 9], so both ends, one past each and values far
+    // outside meet the guard. Above it each consumer reads the nulled lane as any other null: a
+    // sum and a comparison are null there, a pick takes the other operand, a choice of the
+    // guarded arm is null, and a failing guard of the same bounds never fires, because a lane
+    // outside them is not live.
+    val a = new ColumnRef(0)
+    val b = new ColumnRef(1)
+    val guard = new GuardedRange(a, -5L, 9L, Overflow.NULL)
+    val roots = Seq[VarkaVectorIR](
+      guard,
+      new IntArith(IntOp.ADD, Overflow.WRAP, guard, b),
+      new Compare(CompareOp.LT, guard, b),
+      new Greatest(guard, b),
+      new IfElse(new Compare(CompareOp.LT, a, b), guard, b),
+      new GuardedRange(guard, -5L, 9L))
+    def data(c: Int, i: Int): Int = if (c == 0) i % 23 - 11 else (i * 7) % 5 - 2
+    checkMatrix(roots, 2, Array.empty[Int], Seq(1, 7, 8, 16, 17, 33, 64, 65, 129), combos(2),
+      data = data, ctx = "a NULL guard of [-5, 9] and its consumers")
+    // The oracle itself, on one lane each: inside at both ends, outside one past each, a null.
+    def ref(v: Int, isNull: Boolean = false): Option[Int] = {
+      val r = VarkaReference.value(guard, Array(v), Array(isNull), Array.empty[Int])
+      if (r.isPresent) Some(r.getAsInt) else None
+    }
+    assert(ref(-5) === Some(-5) && ref(9) === Some(9) && ref(0) === Some(0))
+    assert(ref(-6) === None && ref(10) === None && ref(Int.MinValue) === None)
+    assert(ref(3, isNull = true) === None)
+    // It registers no refusal, so it reports nothing, and like a NULL IntArith it nulls lanes
+    // whose input is valid, so the kernel has no dense body.
+    assert(VarkaLoopEmitter.guardsForTest(Seq[VarkaVectorIR](guard).asJava, 1, 0,
+      VarkaMatrix.base).isEmpty)
+    val names = methodNames(emitMulti(Seq[VarkaVectorIR](guard), 1, 0))
+    assert(!names.exists(isLoop(_, true)) && !names.contains("epilogueDense0"),
+      names.mkString(", "))
+  }
+
   test("the composite key's masked body is its dense twin's bytes", PinsDefaults) {
     // VARKA-63.md 6.1 prediction 6. `year(d) * 100 + month(d)` under WRAP has the word of
     // a single input, so VARKA-70's driver pass writes the whole output bitmap once per batch

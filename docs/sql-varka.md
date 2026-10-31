@@ -765,6 +765,28 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `if(f IS NULL, f2, f)` | `predicate`, `condition` |  |  | vector |
 | `coalesce(f, f2)` | `condition` |  |  | vector |
 
+#### DECIMAL columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 < d9b` | `predicate` |  | two DECIMAL(9, 2) values compare as their unscaled longs | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 > d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 >= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <> d9b` | `predicate` |  | the NOT of the equality | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <=> d9b` | `predicate` |  | null-safe equality at the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = 0.42` | `predicate` |  | the literal is cast to the column's DECIMAL(9, 2) and its unscaled long takes a slot in the long table | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 < d18` | `predicate` |  | type coercion casts d9 to DECIMAL(18, 2), which keeps every unscaled value: the cast is the column | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 < d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 = d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 <=> d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 >= 123456789012.34` | `predicate` |  | a literal of fourteen digits | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NULL` | `predicate` |  | a validity read; the slots are checked too, since Spark's null test reads a valid row's value and raises on a slot outside the precision | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -804,6 +826,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 86 | 17 | 0 | 1 | 0 | 68 |
+| `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
 | `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |

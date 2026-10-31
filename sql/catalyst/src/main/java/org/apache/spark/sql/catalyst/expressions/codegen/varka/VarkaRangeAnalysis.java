@@ -279,6 +279,8 @@ public final class VarkaRangeAnalysis {
       // column guarded by the column bound, VARKA-379) or as ints. The long lane is UNKNOWN
       // throughout, above, and its callers prove their bounds structurally (VARKA-102) or
       // through a guard like this one; the popcount's bound below is the int lane's alone.
+      // Under a NULL guard the bounds hold on live lanes only: a lane outside them is null and
+      // keeps its value, which a consumer's validity hides and a guard's word AND excludes.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
       // A sign extension keeps every value, so an int's range is its widening's, asked as an
       // int: what a long-lane consumer such as a division by a constant needs to know of its

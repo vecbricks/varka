@@ -272,11 +272,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   }
 
   private def drawInt(iteration: Int, drawSeed: Long = seed,
-      base: VarkaEmitOptions = VarkaMatrix.base): VarkaFuzzCase = {
+      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     // The shape itself comes from the shared draw, so this suite and the emitted-bytes oracle
     // run over one corpus; `rnd` is left where the lane values and null patterns below pick up.
-    val drawn = VarkaIrGrammar.drawShape(rnd)
+    // The nulling draw is the same grammar with nulling range guards among its guards.
+    val drawn =
+      if (nulling) VarkaIrGrammar.drawNullingShape(rnd) else VarkaIrGrammar.drawShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
     val (smallOrdinal, levelOrdinal) = (drawn.smallOrdinal, drawn.levelOrdinal)
@@ -323,9 +325,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * has to be caught reading it.
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
-      base: VarkaEmitOptions = VarkaMatrix.base): VarkaFuzzCase = {
+      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
-    val drawn = VarkaIrGrammar.drawLongShape(rnd)
+    val drawn =
+      if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd) else VarkaIrGrammar.drawLongShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
     val lits = Array.fill(numLiterals)(VarkaIrGrammar.within(rnd, longLiteralBound))
@@ -1315,6 +1318,56 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     reportReach(reach)
     reportSkipped()
+  }
+
+  // The nulling range guard (VARKA-481): its own draw at each lane, run against the reference
+  // evaluator, which spells a fired guard as a null. Not run through the variants, which redraw
+  // a case from the committed corpora's grammar.
+  private val nullingSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.NULLING_FUZZ_SEED)
+
+  test(s"random IR trees with nulling range guards match the reference evaluator, at the int " +
+      s"and long lanes (seed $nullingSeed, $iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "nulling-guard draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      for (k <- ks) {
+        runChecked(drawInt(k, nullingSeed, nulling = true))
+        runChecked(drawLong(k, nullingSeed, nulling = true))
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
+      "hold none") {
+    // Asserted rather than assumed, as the other generators' reach is: a guard is drawn in NULL
+    // mode at each lane, with its two ends drawn apart inside the child's bound - never the
+    // symmetric bound that contains it, which a failing guard takes - so that it fires, and the
+    // committed draws never hold one.
+    def nulling(roots: java.util.List[VarkaVectorIR]): Seq[GuardedRange] = {
+      def walk(n: VarkaVectorIR): Seq[GuardedRange] = (n match {
+        case g: GuardedRange if g.mode() == Overflow.NULL => Seq(g)
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
+      roots.asScala.toSeq.flatMap(walk)
+    }
+    val draws = 0 until 2000
+    val int = draws.flatMap(k => nulling(
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    val long = draws.flatMap(k => nulling(
+      VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    assert(int.exists(_.laneType() == LaneType.INT), "no int-lane nulling guard was drawn")
+    assert(long.exists(_.laneType() == LaneType.LONG), "no long-lane nulling guard was drawn")
+    assert((int ++ long).exists(g => g.lo() != -g.hi()),
+      "every nulling guard was drawn with the symmetric bound of its child")
+    val committed = draws.flatMap(k =>
+      nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
+        nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
   }
 
   test("the mixed-lane generator reaches both conversions, the calendar under a widening and a " +

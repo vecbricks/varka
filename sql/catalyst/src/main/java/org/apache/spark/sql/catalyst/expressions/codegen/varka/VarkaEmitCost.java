@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
 
 /**
@@ -119,7 +120,9 @@ final class VarkaEmitCost {
       case ConstDivide n -> name + '/' + n.laneType() + (n.divisor() < 0 ? "/neg" : "/pos");
       case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
       case BitCount n -> name + '/' + n.laneType();
-      case GuardedRange n -> name + '/' + n.laneType();
+      // A failing guard collects into the batch's status and a nulling one clears its own word:
+      // two lowerings, so the NULL mode is its own feature, the FAIL key unchanged beside it.
+      case GuardedRange n -> name + (n.mode() == Overflow.NULL ? "/NULL/" : "/") + n.laneType();
       case Compare n -> name + '/' + n.op() + '/' + n.laneType();
       case VarkaVectorIR.BoolColumn n -> name + '/' + n.lane();
       case VarkaVectorIR.CondConst n -> name + '/' + n.lane();

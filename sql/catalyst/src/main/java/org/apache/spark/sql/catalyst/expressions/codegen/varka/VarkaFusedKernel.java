@@ -86,9 +86,9 @@ public interface VarkaFusedKernel {
   int STATUS_DAY_RANGE = 1 << 4;
 
   /**
-   * A {@code GuardedRange}'s value outside the bounds it carries: a value the row engine throws
-   * on, or a date column's day outside the column bound the calendar lowering rests on
-   * (VARKA-379).
+   * A {@code FAIL} {@code GuardedRange}'s value outside the bounds it carries: a value the row
+   * engine throws on, or a date column's day outside the column bound the calendar lowering rests
+   * on (VARKA-379). A {@code NULL} one nulls the lane instead and reports nothing.
    */
   int STATUS_VALUE_RANGE = 1 << 5;
 

@@ -81,10 +81,12 @@ class VarkaCoverageCompositionFuzzSuite
   // engine by `VarkaCoverageDifferentialSuite` and to the reference by `VarkaEmitterBoolSuite`.
   private def projections =
     table.projections.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable))
+      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
+        || VarkaCoverageRows.readsDecimal(r.executable))
   private def predicates =
     table.predicates.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable))
+      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
+        || VarkaCoverageRows.readsDecimal(r.executable))
 
   private def resolve(sql: String): Expression = VarkaCoverageRows.resolve(sql, columns)
 

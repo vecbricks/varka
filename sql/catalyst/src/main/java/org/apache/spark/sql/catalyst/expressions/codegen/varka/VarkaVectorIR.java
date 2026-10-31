@@ -399,6 +399,15 @@ public sealed interface VarkaVectorIR
     return lane == LaneType.INT ? "" : ":" + lane.name().toLowerCase(Locale.ROOT);
   }
 
+  /**
+   * A range guard's mode in its rendering: none for {@code FAIL}, the form the three-argument
+   * constructor builds, the way {@link #laneTag} elides the int lane, so a failing guard's
+   * shape hash and class name do not depend on the mode.
+   */
+  private static String guardTag(GuardedRange n) {
+    return n.mode() == Overflow.FAIL ? "" : ":" + n.mode().name();
+  }
+
   /** The comparison a {@link Compare} node performs; lane math is signed integer ordering. */
   enum CompareOp { LT, LE, GT, GE, EQ }
 
@@ -598,13 +607,33 @@ public sealed interface VarkaVectorIR
    * <p>Like the day guard, the check is unconditional: the compiler admits the expression on
    * the strength of it, so an option that removed it would produce a wrong answer, not a
    * slower one.
+   *
+   * <p>{@code mode} says what an out-of-range live lane does, in {@link Overflow}'s terms:
+   * {@code FAIL} declines the batch, as above, and {@code NULL} - Spark's {@code TRY} - makes
+   * the lane null and lets the batch run on, so the node owns a validity word, the child's with
+   * the out-of-range lanes cleared, as a {@code NULL} {@link IntArith} does. A nulled lane
+   * keeps the child's value, which no consumer reads, so the bounds hold on live lanes only.
+   * There is no {@code WRAP} guard: a guard that let every value through would guard nothing.
+   * The mode is part of the node's identity, rendered by {@link #canonical}, so a failing and
+   * a nulling guard never share a kernel. The three-argument form is {@code FAIL}.
    */
-  record GuardedRange(VarkaVectorIR child, long lo, long hi) implements VarkaVectorIR {
+  record GuardedRange(VarkaVectorIR child, long lo, long hi, Overflow mode)
+      implements VarkaVectorIR {
     public GuardedRange {
       if (lo > hi) {
         throw VarkaErrors.illegalArgument("an empty range guards nothing: [" + lo + ", " + hi
             + "]");
       }
+      Objects.requireNonNull(mode, "mode");
+      if (mode == Overflow.WRAP) {
+        throw VarkaErrors.illegalArgument("a range guard fails or nulls; WRAP guards nothing: ["
+            + lo + ", " + hi + "]");
+      }
+    }
+
+    /** {@code child} guarded by {@code [lo, hi]}, the batch declined where a lane is outside. */
+    public GuardedRange(VarkaVectorIR child, long lo, long hi) {
+      this(child, lo, hi, Overflow.FAIL);
     }
   }
 
@@ -1580,8 +1609,8 @@ public sealed interface VarkaVectorIR
       case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange " + canonical(n.child()) + " " + n.lo() + " "
-          + n.hi() + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + canonical(n.child()) + " "
+          + n.lo() + " " + n.hi() + ")";
       case WidenLane n -> "(widen:" + n.target().name() + " " + canonical(n.child()) + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " " + canonical(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
@@ -1673,8 +1702,8 @@ public sealed interface VarkaVectorIR
       case SubDays n -> "(subDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + lineOf.applyAsInt(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange " + lineOf.applyAsInt(n.child()) + " " + n.lo()
-          + " " + n.hi() + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + lineOf.applyAsInt(n.child())
+          + " " + n.lo() + " " + n.hi() + ")";
       case WidenLane n -> "(widen:" + n.target().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " "
@@ -1839,7 +1868,7 @@ public sealed interface VarkaVectorIR
       case AddDays n -> new AddDays(children[0], children[1]);
       case SubDays n -> new SubDays(children[0], children[1]);
       case GuardedDay n -> new GuardedDay(children[0]);
-      case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi());
+      case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi(), n.mode());
       case WidenLane n -> new WidenLane(children[0], n.target());
       case NarrowLane n -> new NarrowLane(children[0], n.target());
       case DateDiff n -> new DateDiff(children[0], children[1]);

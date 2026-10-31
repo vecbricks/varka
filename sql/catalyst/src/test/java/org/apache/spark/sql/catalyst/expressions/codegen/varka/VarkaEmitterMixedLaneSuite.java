@@ -408,6 +408,20 @@ public final class VarkaEmitterMixedLaneSuite {
   }
 
   @Test
+  @DisplayName("an int-lane NULL guard in a kernel driven at the long lane nulls only the rows it "
+      + "flags")
+  void intNullGuardInLongKernel() {
+    // The nulling twin of the test above: an int value outside [-7, 2^20] is a null, widened and
+    // added to a long. The int mask holds twice the long lanes, its upper half rows past the
+    // group, which clear only word bits no row of the group reads. The int column's values hold
+    // both ends and values past each, the int extremes among them.
+    var guard = new GuardedRange(I, -7, 1 << 20, Overflow.NULL);
+    var sum = new IntArith(IntOp.ADD, Overflow.WRAP, widen(guard), L);
+    check("cast(i AS bigint) + l under a NULL guard of i", List.of(widen(guard), sum), 2,
+        new int[0], new long[0], VarkaEmitterMixedLaneSuite::value, false);
+  }
+
+  @Test
   @DisplayName("a conjunction of int comparisons over a narrowing, a calendar field and two dates "
       + "verifies and answers, its date column guarded by the column bound")
   void conjunctionWithCalendar() {

@@ -22,11 +22,6 @@ import java.util.Optional;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.SparkPlan;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * The baseline for {@code DECIMAL} before Varka has a lane for it (VARKA-377): Spark's row path
@@ -83,9 +78,13 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today both are the row path, so they should tie.
  *
- * <p>A baseline is only one while nothing fuses: each section checks, before it is timed, that the
- * Varka session's plan for it holds no Varka node, and fails the run when a lane row has started to
- * fuse it. The results file is then the record of the code before that row.
+ * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
+ * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
+ * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
+ * Row 347's reader fuses the comparison at precisions 9 and 18, whose two columns share a scale,
+ * so those four sections are listed and time a kernel on the varka on arm; no other section is.
+ * A row that starts to fuse a section lists it, so that its fusion cannot turn a baseline
+ * section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -98,8 +97,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
 
-  /** A section: its title and its query. */
-  record Section(String title, String query) {}
+  /** A section: its title, its query, and whether the Varka session fuses it today. */
+  record Section(String title, String query, boolean fuses) {}
 
   /**
    * A precision the class measures: the column type, the suffix of its columns, the largest
@@ -262,16 +261,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
         String type = p.type();
         out.add(new Section(type + " comparison, " + density,
-            "SELECT " + x + " FROM varka_decimal WHERE " + x + " < " + y));
+            "SELECT " + x + " FROM varka_decimal WHERE " + x + " < " + y,
+            p.precision() <= 18));
         out.add(new Section(type + " arithmetic chain, " + density,
-            "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_decimal"));
+            "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_decimal",
+            false));
         String castTo = p.castTo().orElseThrow(() -> new IllegalStateException(p.type()
             + " has no cast type, so its cast section has nothing to cast to"));
         out.add(new Section(type + " cast to " + castTo + ", " + density,
-            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal"));
+            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal", false));
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
-                + " END AS a FROM varka_decimal"));
+                + " END AS a FROM varka_decimal", false));
       }
     }
     for (String nulls : new String[] {"", "n"}) {
@@ -279,9 +280,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       String time = "TIME(" + TIME_PRECISION + ")";
       out.add(new Section("time_to_seconds over " + time + ", " + density,
-          "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal"));
+          "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal", false));
       out.add(new Section("extract(SECOND) over " + time + ", " + density,
-          "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal"));
+          "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", false));
     }
     for (Precision p : PAIR_PRECISIONS) {
       String digits = "9".repeat(p.scale());
@@ -294,28 +295,20 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String type = p.type();
         String from = " FROM varka_decimal WHERE ";
         out.add(new Section(type + " IN (c1, c2, c3) filter, " + density,
-            "SELECT " + x + from + x + " IN (" + literals + ")"));
+            "SELECT " + x + from + x + " IN (" + literals + ")", false));
         out.add(new Section(type + " <=> filter, " + density,
-            "SELECT " + x + from + x + " <=> " + y));
+            "SELECT " + x + from + x + " <=> " + y, false));
         out.add(new Section(type + " IS NULL filter, " + density,
-            "SELECT " + x + from + x + " IS NULL"));
+            "SELECT " + x + from + x + " IS NULL", false));
         out.add(new Section(type + " -x < y filter, " + density,
-            "SELECT " + x + from + "-" + x + " < " + y));
+            "SELECT " + x + from + "-" + x + " < " + y, false));
         out.add(new Section(type + " abs(x) < y filter, " + density,
-            "SELECT " + x + from + "abs(" + x + ") < " + y));
+            "SELECT " + x + from + "abs(" + x + ") < " + y, false));
         out.add(new Section(type + " x < y as a value, " + density,
-            "SELECT " + x + " < " + y + " AS a FROM varka_decimal"));
+            "SELECT " + x + " < " + y + " AS a FROM varka_decimal", false));
       }
     }
     return out;
-  }
-
-  /** Whether the session's plan for {@code query} holds a Varka node. */
-  static boolean fuses(SparkSession session, String query) {
-    return session.sql(query).queryExecution().executedPlan().find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
   }
 
   @Override
@@ -334,11 +327,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, "varka_decimal");
       }
       for (Section s : sections()) {
-        if (fuses(varka, s.query())) {
-          SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
-          throw new IllegalStateException(s.title() + " fuses, so it is no longer a baseline: "
-              + s.query() + "\n" + plan.treeString());
-        }
+        requireBaseline(varka, s.title(), s.query(), s.fuses());
       }
       for (Section s : sections()) {
         section(s.title(), () -> {

@@ -92,9 +92,13 @@ public final class VarkaReference {
       // notion of a declined batch, and a lane the guard would report is one the kernel does not
       // answer at all, so the differential never compares against it. The value passes through.
       case GuardedDay g -> value(g.days(), row, isNull, lits);
-      // A range guard changes no value; a lane outside it declines the batch, which the suites
-      // assert on the status rather than on a value this evaluator could spell.
-      case GuardedRange g -> value(g.child(), row, isNull, lits);
+      // A failing range guard changes no value; a lane outside it declines the batch, which the
+      // suites assert on the status rather than on a value this evaluator could spell. A nulling
+      // one is Spark's TRY: a value outside its bounds is a null.
+      case GuardedRange g -> {
+        var c = value(g.child(), row, isNull, lits);
+        yield c.isPresent() && nulls(g, c.getAsInt()) ? OptionalInt.empty() : c;
+      }
       // A conversion reads rows of the other lane: a narrowing to the int lane alone is a
       // long-lane shape, answered by `longValue`, and any tree that holds one by `mixedValue`.
       case NarrowLane n when !n.target().isNarrow() -> throw new IllegalArgumentException(
@@ -303,6 +307,11 @@ public final class VarkaReference {
         : OptionalInt.of((int) exact);
   }
 
+  /** Whether {@code g} nulls a lane holding {@code v}: a {@code NULL} guard, and outside. */
+  private static boolean nulls(GuardedRange g, long v) {
+    return g.mode() == Overflow.NULL && (v < g.lo() || v > g.hi());
+  }
+
   private static long laneMin(LaneType lane) {
     return switch (lane) {
       case BYTE -> Byte.MIN_VALUE;
@@ -454,7 +463,10 @@ public final class VarkaReference {
         var c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(c.getAsLong() / n.divisor());
       }
-      case GuardedRange g -> longValue(g.child(), row, isNull, lits);
+      case GuardedRange g -> {
+        var c = longValue(g.child(), row, isNull, lits);
+        yield c.isPresent() && nulls(g, c.getAsLong()) ? OptionalLong.empty() : c;
+      }
       // The narrowing is the kernel's store, not a value change: the reference answers the child
       // in full, so a value that does not fit an int shows as a difference from the store rather
       // than being truncated on both sides, which checks the bound the IR series narrows on. The

@@ -370,6 +370,140 @@ public final class VarkaDecimalLoadSuite {
     }, 0, new long[0], x -> x + x);
   }
 
+  // ------------------------------------------------------------------------------------------
+  // The first reader (VARKA-347 step 5): a comparison and a null test over the leaf
+  // ------------------------------------------------------------------------------------------
+
+  /** A condition's three answers for one row of the decimal column: true, false or unknown. */
+  private enum Truth { TRUE, FALSE, UNKNOWN }
+
+  /** What a condition answers for a row holding {@code unscaled}, or null. */
+  private interface RowTruth {
+    Truth of(long unscaled, boolean isNull);
+  }
+
+  /**
+   * The slot table over a condition: the kernel of {@code IfElse(cond, 1, 0)}, which stores 1
+   * where the condition is known true and 0 where it is false or unknown, always valid. The
+   * condition's leaf must decline a batch with a valid slot Spark's reader raises on whatever
+   * reads it, a null test included, and answer {@code truth} per row otherwise, in both bodies.
+   */
+  private static void conditionTable(String name, IntFunction<VarkaVectorIR.Cond> cond,
+      long[] literals, RowTruth truth) {
+    long[] lits = new long[literals.length + 2];
+    System.arraycopy(literals, 0, lits, 0, literals.length);
+    lits[literals.length] = 1L;
+    lits[literals.length + 1] = 0L;
+    int declined = 0;
+    for (int lanes : WIDTHS) {
+      for (int precision : PRECISIONS) {
+        VarkaVectorIR root = new VarkaVectorIR.IfElse(cond.apply(precision),
+            new LiteralSlot(literals.length, LaneType.LONG),
+            new LiteralSlot(literals.length + 1, LaneType.LONG));
+        VarkaFusedKernel k = kernel(List.of(root), lits.length, lanes).kernel();
+        for (int length : LENGTHS) {
+          for (boolean masked : new boolean[] {false, true}) {
+            String at = name + " at " + lanes + " long lanes, precision " + precision
+                + ", length " + length + (masked ? ", with nulls" : ", no null");
+            long seed = 17L * lanes + 5L * precision + length + (masked ? 1 : 0);
+            assertFalse(checkCondition(at, k, batch(length, precision, masked, seed),
+                precision, lits, truth), at + ": an in-precision batch must not decline");
+            for (int row : positions(length)) {
+              for (Slot slot : declining(precision)) {
+                Batch b = batch(length, precision, masked, seed);
+                b.slots()[row] = slot;
+                b.nulls()[row] = false;
+                String context = at + ", " + slot + " at row " + row;
+                assertTrue(checkCondition(context, k, b, precision, lits, truth),
+                    context + ": Spark's reader raises on the planted slot");
+                declined++;
+                b.nulls()[row] = true;
+                assertFalse(checkCondition(context + " under a null", k, b, precision, lits,
+                    truth), context + ": a null slot must not decline");
+              }
+            }
+          }
+        }
+      }
+    }
+    assertTrue(declined > 0, "the table planted no declining slot");
+  }
+
+  /** Runs a condition table's kernel over {@code b}; returns whether the batch declined. */
+  private static boolean checkCondition(String context, VarkaFusedKernel kernel, Batch b,
+      int precision, long[] literals, RowTruth truth) {
+    try (BufferAllocator allocator =
+        ArrowUtils.rootAllocator().newChildAllocator("varka-decimal-cond", 0, Long.MAX_VALUE);
+        DecimalVector v = vector(b, precision, allocator)) {
+      SparkReading expected = spark(v, precision);
+      KernelAnswer got = run(kernel, v, literals);
+      if (expected.raised()) {
+        assertEquals(VarkaFusedKernel.STATUS_DECIMAL_SLOT, got.status(),
+            () -> context + ": Spark's reader raises, so the kernel must decline");
+        return true;
+      }
+      assertEquals(0, got.status(), () -> context + ": Spark's reader reads every row");
+      for (int i = 0; i < b.length(); i++) {
+        int row = i;
+        long want = truth.of(expected.unscaled()[i], b.nulls()[i]) == Truth.TRUE ? 1L : 0L;
+        assertEquals(want, got.values()[0][i], () -> context + ": row " + row);
+      }
+      return false;
+    }
+  }
+
+  @Test
+  @DisplayName("a null test over the leaf reads the validity word and still checks the slots, as "
+      + "Spark's IS NULL reads a valid row's value")
+  void conditionTableOfTheNullTest() {
+    conditionTable("d IS NOT NULL",
+        precision -> new VarkaVectorIR.IsNotNull(new DecimalColumn(0, LaneType.LONG, precision)),
+        new long[0], (u, isNull) -> isNull ? Truth.FALSE : Truth.TRUE);
+    conditionTable("d IS NULL", precision -> new VarkaVectorIR.Not(
+        new VarkaVectorIR.IsNotNull(new DecimalColumn(0, LaneType.LONG, precision))),
+        new long[0], (u, isNull) -> isNull ? Truth.TRUE : Truth.FALSE);
+  }
+
+  @Test
+  @DisplayName("a comparison of the leaf with a literal is the unscaled long compare")
+  void conditionTableOfAComparison() {
+    conditionTable("d < 5", precision -> new VarkaVectorIR.Compare(VarkaVectorIR.CompareOp.LT,
+        new DecimalColumn(0, LaneType.LONG, precision), new LiteralSlot(0, LaneType.LONG)),
+        new long[] {5L}, (u, isNull) -> isNull ? Truth.UNKNOWN : u < 5 ? Truth.TRUE : Truth.FALSE);
+    conditionTable("d <=> 0", precision -> new VarkaVectorIR.NullSafeEqual(
+        new DecimalColumn(0, LaneType.LONG, precision), new LiteralSlot(0, LaneType.LONG)),
+        new long[] {0L}, (u, isNull) -> !isNull && u == 0 ? Truth.TRUE : Truth.FALSE);
+  }
+
+  @Test
+  @DisplayName("the slot check under an IfElse arm is not narrowed by the arm: a filter's code "
+      + "reads the column before the predicate")
+  void slotCheckIgnoresTheArm() {
+    // CASE WHEN i > 0 THEN d < 5 ELSE false END, with i never positive: the arm reading the leaf
+    // is never taken, and the batch with a bad valid slot declines all the same.
+    for (int lanes : WIDTHS) {
+      int precision = 9;
+      var d = new DecimalColumn(0, LaneType.LONG, precision);
+      VarkaVectorIR.Cond inArm = new VarkaVectorIR.Compare(VarkaVectorIR.CompareOp.LT, d,
+          new LiteralSlot(0, LaneType.LONG));
+      VarkaVectorIR.Cond taken = new VarkaVectorIR.Compare(VarkaVectorIR.CompareOp.GT,
+          new WidenLane(new ColumnRef(1, LaneType.INT)), new LiteralSlot(1, LaneType.LONG));
+      VarkaVectorIR root = new VarkaVectorIR.IfElse(taken,
+          new VarkaVectorIR.IfElse(inArm, new LiteralSlot(2, LaneType.LONG),
+              new LiteralSlot(1, LaneType.LONG)),
+          new LiteralSlot(1, LaneType.LONG));
+      VarkaFusedKernel k = kernel(List.of(root), 2, 3,
+          VarkaMatrixRuns.BASE.withLanesOverride(lanes)).kernel();
+      for (int length : LENGTHS) {
+        Batch b = batch(length, precision, false, 41L + length);
+        b.slots()[length - 1] = Slot.of(power(precision));
+        KernelAnswer got = runBatch(k, b, precision, new int[length], 1, new long[] {5L, 0L, 1L});
+        assertEquals(VarkaFusedKernel.STATUS_DECIMAL_SLOT, got.status(),
+            () -> "an untaken arm's bad slot at " + lanes + " long lanes, length " + length);
+      }
+    }
+  }
+
   /** {@code b} as a vector, read by the kernel; the vector is closed before the answer returns. */
   private static KernelAnswer runBatch(VarkaFusedKernel k, Batch b, int precision, int[] ints,
       int outputs, long[] literals) {

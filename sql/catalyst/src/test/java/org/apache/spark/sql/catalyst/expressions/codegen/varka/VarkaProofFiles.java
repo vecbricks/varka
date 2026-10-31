@@ -2475,6 +2475,12 @@ final class VarkaProofFiles {
    * checked narrow multiply is formed in the int lane on either arm
    * ({@code VarkaVectorIR.holdsCheckedNarrowMultiply}), so these checks are its proof too; the
    * lane width is read from {@link Lane#INT}, the lane the emitter forms it in.
+   *
+   * <p>A {@code NULL} range guard disposes of the same mask by clearing it from its word,
+   * {@code word & ~mask.toLong()}, and the file's last claim is that this keeps a lane valid
+   * exactly when it was valid and in range, over {@link #NULL_GUARD_LANES} lanes at once, with
+   * the word's bits past them unchanged. Its neighbours clear by the mask itself, and drop the
+   * word.
    */
   static String narrowRange() {
     var out = new StringBuilder(LICENSE);
@@ -2492,6 +2498,16 @@ final class VarkaProofFiles {
         ; compares to <= and >=, which is wrong at the end each names. A checked narrow multiply
         ; is formed in the int lane on either arm (VarkaVectorIR.holdsCheckedNarrowMultiply), so
         ; these checks cover it too.
+        ;
+        ; A NULL range guard clears the same mask from its validity word instead of declining
+        ; the batch, the word being one bit a lane:
+        ;
+        ;   word' = word & ~toLong(outside(r))
+        ;
+        ; The last claims: a lane is valid in word' exactly when it was valid in word and in
+        ; range, so an in-range lane stays valid, an out-of-range one becomes null and a null
+        ; stays null, and the bits past the lanes are the word's. The neighbours clear by the
+        ; mask itself, and drop the word.
         ;
         ; The logic is ALL because the file reasons over bit-vectors.
         """);
@@ -2531,7 +2547,64 @@ final class VarkaProofFiles {
               "(assert (not (= (or (bvslt r " + lo + ") (bvsge r " + hi + ")) " + outside
                   + ")))"));
     }
+    for (Lane lane : NARROW_LANES) {
+      String kind = lane.laneType.name().toLowerCase(Locale.ROOT);
+      List<String> decl = nullGuardDecl(lane);
+      check(out, "narrow_range: a NULL guard keeps a lane valid exactly when it was valid and in "
+          + "the " + kind + " range", "unsat", append(decl, "(assert (not "
+              + nullGuardClaim(lane, "(bvand word (bvnot mask))") + "))"));
+      check(out, "narrow_range: clearing by the mask itself is not the " + kind + " NULL guard",
+          "sat", append(decl, "(assert (not " + nullGuardClaim(lane, "(bvand word mask)") + "))"));
+      check(out, "narrow_range: the " + kind + " NULL guard without the word revives a null lane",
+          "sat", append(decl, "(assert (not " + nullGuardClaim(lane, "(bvnot mask)") + "))"));
+    }
     return out.toString();
+  }
+
+  /**
+   * The lanes {@code narrow_range.smt2}'s {@code NULL} guard claims cover at once: the int lanes
+   * of a 512-bit vector, the widest species, whose mask's {@code toLong} fills the low 16 bits
+   * of the word. The claim is per lane, so a narrower species is a prefix of it.
+   */
+  static final int NULL_GUARD_LANES = 16;
+
+  /**
+   * One lane value {@code r<i>} a lane, the word, and the mask {@code toLong} makes of the lanes
+   * outside {@code lane}'s range: bit {@code i} set where {@code r<i>} is outside, the bits past
+   * the lanes zero.
+   */
+  private static List<String> nullGuardDecl(Lane lane) {
+    int bits = Lane.INT.bits;
+    var decl = new ArrayList<String>();
+    decl.add("(declare-const word (_ BitVec 64))");
+    var mask = new StringBuilder();
+    for (int i = NULL_GUARD_LANES - 1; i >= 0; i--) {
+      decl.add("(declare-const r" + i + " (_ BitVec " + bits + "))");
+      mask.append(" (ite ").append(outside("r" + i, lane.mostNegative(), lane.mostPositive(), bits))
+          .append(" #b1 #b0)");
+    }
+    decl.add("(define-fun mask () (_ BitVec 64) ((_ zero_extend " + (64 - NULL_GUARD_LANES)
+        + ") (concat" + mask + ")))");
+    return decl;
+  }
+
+  /**
+   * The claim that {@code narrowed} keeps lane {@code i} valid exactly where {@code word} has it
+   * valid and {@code r<i>} is inside {@code lane}'s range, and leaves the bits past the lanes as
+   * {@code word} has them.
+   */
+  private static String nullGuardClaim(Lane lane, String narrowed) {
+    var claim = new StringBuilder("(and");
+    for (int i = 0; i < NULL_GUARD_LANES; i++) {
+      String bit = "((_ extract " + i + " " + i + ") ";
+      claim.append(" (= (= ").append(bit).append(narrowed).append(") #b1) (and (= ").append(bit)
+          .append("word) #b1) (not ")
+          .append(outside("r" + i, lane.mostNegative(), lane.mostPositive(), Lane.INT.bits))
+          .append(")))");
+    }
+    claim.append(" (= ((_ extract 63 ").append(NULL_GUARD_LANES).append(") ").append(narrowed)
+        .append(") ((_ extract 63 ").append(NULL_GUARD_LANES).append(") word)))");
+    return claim.toString();
   }
 
   /**

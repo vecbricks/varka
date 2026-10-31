@@ -409,11 +409,12 @@ public final class VarkaTypes {
       // lane, an emission choice for precision up to 9, joins the lanes when step 4 of the row
       // builds that arm: until then a decimal leaf refuses it, so no kernel loads one there.
       // The first operators over the leaf, its comparisons and null tests, are row 348's, which
-      // step 5 of VARKA-347 carries; until they land no query reads the column.
+      // step 5 of VARKA-347 carries (VarkaDecimalCompiler), so the reader is built and no row
+      // owes it.
       // The contract's ordering, choice and cast checks have no form before row 348.
       case DECIMAL -> new Info(id, "dec", "DECIMAL(10, 2)",
           new Admission.UpToPrecision(LaneType.LONG, VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION,
-              "359", Optional.of("348")),
+              "359", Optional.empty()),
           128, List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
           List.of(LaneType.LONG), new Conformance.Owed("Decimal", "348"));
       case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT), 32,

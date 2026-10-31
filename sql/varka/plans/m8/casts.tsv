@@ -70,7 +70,7 @@ dec	int	yes	yes	yes	truncation	toward zero; LEGACY exact, keeping the low bits; 
 dec	bigint	yes	yes	yes	truncation	toward zero, exact; LEGACY keeps the low bits, ANSI raises CAST_OVERFLOW	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
 dec	float	yes	yes	yes	rounding	BigDecimal.floatValue, rounded once: (long)(float) u == u and s <= 10 divided in float, never the double quotient narrowed; round-to-odd or the exact arm (366) past it	sampled regions and the fuzzer		350,364,366	
 dec	double	yes	yes	yes	rounding	BigDecimal.doubleValue: one division under the JDK's guard (scale 0, or (long)(double) u == u with 0 < s <= 22, Long.MAX_VALUE excluded); the exact arm (366) for the rest	sampled regions and the fuzzer		350,364,366	
-dec	dec	yes	yes	yes	rescale	scale up multiplies by 10^k; scale down rounds HALF_UP; overflow	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
+dec	dec	yes	yes	yes	rescale	scale up multiplies by 10^k; scale down rounds HALF_UP; overflow	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	context: only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42
 dec	ym	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
 dec	dt	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
 date	bool	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	

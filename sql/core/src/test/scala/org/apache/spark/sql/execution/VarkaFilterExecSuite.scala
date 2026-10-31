@@ -434,19 +434,19 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     assert(besideString.head === "(f > 5.0D): fused", besideString)
   }
 
-  test("a floating conjunct beside a decimal column no kernel reads still fuses") {
-    // `dbl > 1.5 AND dec > 1.0`: the registry gives a decimal of precision up to 18 the long
-    // lane, but while no operator over it is built no kernel reads it, so its conjunct goes to
-    // the row filter, as a string's does, and must not count as an integral read that would
-    // refuse the floating conjunct the kernel (VARKA-347).
+  test("a decimal conjunct joins the integral kernel, beside which a floating one stays with " +
+      "the row filter as beside a bigint") {
+    // `dbl > 1.5 AND dec > 1.0`: a decimal of precision up to 18 is read on the long lane by its
+    // comparisons (VARKA-347), so its conjunct fuses and counts as an integral read, and the
+    // floating conjunct goes to the row filter for the reason a bigint conjunct gives it. Before
+    // the reader the decimal was read by no kernel, and the floating conjunct kept the kernel.
     val dec = AttributeReference("dec", DecimalType(10, 2))()
     val decimalConjunct =
       GreaterThan(dec, Literal.create(new java.math.BigDecimal("1.00"), DecimalType(10, 2)))
     val lines = VarkaFusionReport.predicateLines(And(doubleResidual, decimalConjunct),
       withDouble :+ dec)
-    assert(lines.head === "(f > 5.0D): fused", lines)
-    assert(!lines(1).endsWith(": fused"), lines)
-    assert(lines(1).contains("no operator over a decimal is built yet"), lines)
+    assert(lines(1) === "(dec > 1.00BD): fused", lines)
+    assert(lines.head.contains("in a filter that also reads integral columns"), lines)
   }
 
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {

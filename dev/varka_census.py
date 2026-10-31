@@ -800,6 +800,7 @@ FUSED_MODES = ["legacy", "ansi", "try"]
 # bare leaves this list.
 CONTEXT_CASTS = {
     ("int", "dt"): "only as date_add's offset: d + CAST(i AS INTERVAL DAY)",
+    ("dec", "dec"): "only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42",
 }
 
 

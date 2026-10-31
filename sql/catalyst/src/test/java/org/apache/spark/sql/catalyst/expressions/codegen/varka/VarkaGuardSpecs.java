@@ -50,6 +50,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  *       guard's bit.</li>
  * </ul>
  *
+ * <p>A {@code NULL} range guard is not a guard here: it registers no refusal, so it is never
+ * read, and a lane it nulls is a null to {@link VarkaReference} as to the kernel, which a guard
+ * above it reads as any other null.
+ *
  * <p>A null is never a reason a batch must decline. One guard reads a null row all the same: an
  * int-lane {@code GuardedRange} over a bare column checks the column's stored values, null rows
  * included ({@code Analysis.guardsStoredValues}, VARKA-379 11), and the reference has no value for
