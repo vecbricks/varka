@@ -24,7 +24,8 @@
 #
 # The step lives here rather than in build_and_test.yml so that changing how the suites run is a
 # change to a Varka script, whose pull request runs the varka-scoped jobs it changes; a change to
-# the workflow runs Spark's module matrix instead (dev/varka_scope.py).
+# the workflow runs Spark's module matrix, and beside it only sql's varka-scoped jobs
+# (build_and_test.yml's precondition).
 #
 # The suites run through dev/varka_matrix.sh over two JVMs, the runner's four cores' worth, beside
 # a JVM of its own for each suite that runs alone (VarkaOwnJvm), two at a time, in

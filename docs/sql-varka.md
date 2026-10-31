@@ -557,6 +557,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `IF(b, l, l2)` | `condition` |  | the leaf is lifted to the long lane of the values | per-lane: blend, mask broadcast |
 | `CASE WHEN b THEN l ELSE l2 END` | `condition` |  | likewise, per branch | per-lane: blend, mask broadcast |
 
+#### Boolean outputs
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d2 > d` | `predicate` |  | a date comparison as a column, on the int lane; `d < d2` as an output | vector |
+| `l2 > l` | `predicate` |  | the long lane's comparison as a column | per-lane: compare to mask, mask cast |
+| `y2 > y1` | `predicate` |  | the byte lane's, at the narrow lane where every value is narrow | vector |
+| `NOT b2` | `predicate` |  | a boolean column negated: the pair swapped and written as two bitmaps | vector |
+| `b AND b2` | `predicate` |  | a connective: false where either is false, even beside an unknown | vector |
+| `(d < d2) OR b` | `predicate` |  | a comparison beside a boolean column on the lane they share | vector |
+| `l2 <=> l` | `predicate` |  | null-safe equality is never unknown, so its validity is all ones | per-lane: compare to mask, mask cast |
+| `CASE WHEN b THEN b2 END` | `predicate` |  | no ELSE: a null constant where b is not true, so the kernel is masked-only | vector |
+
 #### TINYINT columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -783,6 +796,28 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-f` | `floatingArithmetic` |  |  | vector |
 | `abs(f)` | `floatingArithmetic` |  |  | vector |
 
+#### DECIMAL columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 < d9b` | `predicate` |  | two DECIMAL(9, 2) values compare as their unscaled longs | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 > d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 >= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <> d9b` | `predicate` |  | the NOT of the equality | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <=> d9b` | `predicate` |  | null-safe equality at the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = 0.42` | `predicate` |  | the literal is cast to the column's DECIMAL(9, 2) and its unscaled long takes a slot in the long table | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 < d18` | `predicate` |  | type coercion casts d9 to DECIMAL(18, 2), which keeps every unscaled value: the cast is the column | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 < d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 = d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 <=> d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 >= 123456789012.34` | `predicate` |  | a literal of fourteen digits | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NULL` | `predicate` |  | a validity read; the slots are checked too, since Spark's null test reads a valid row's value and raises on a slot outside the precision | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -818,10 +853,11 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 44 | 0 | 2 | 0 | 2 | 40 |
-| `bool` | 19 | 0 | 0 | 10 | 0 | 9 |
-| `byte` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `date` | 84 | 17 | 0 | 1 | 0 | 66 |
+| `bigint` | 46 | 0 | 2 | 0 | 2 | 42 |
+| `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
+| `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
+| `date` | 86 | 17 | 0 | 1 | 0 | 68 |
+| `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
 | `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
@@ -1276,7 +1312,8 @@ VARKA-22 extends the account to the SQL UI and to JDK Flight Recorder:
 * **Declines by reason, rows and time by path (VARKA-313).** Each refusal
   reason has its own metric, `numDeclinedBatches[<reason>]` (`day-producer`,
   `month-count`, `make-date`, `int-overflow`, `day-range`, `value-range`,
-  `divide-by-zero`, `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
+  `decimal-slot`, `divide-by-zero`, `input-bound`, `derived-input`, `forced`, and
+  `unrecognised` for a status
   bit no name covers). A reason reads as a count, 0 included, where every
   declined batch that named it named it exactly, and as "not reported" where
   a batch named it among others: under the default emit options a loop

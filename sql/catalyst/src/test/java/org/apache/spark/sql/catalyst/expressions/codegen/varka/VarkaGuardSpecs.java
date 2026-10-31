@@ -50,6 +50,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  *       guard's bit.</li>
  * </ul>
  *
+ * <p>A {@code NULL} range guard is not a guard here: it registers no refusal, so it is never
+ * read, and a lane it nulls is a null to {@link VarkaReference} as to the kernel, which a guard
+ * above it reads as any other null.
+ *
  * <p>A null is never a reason a batch must decline. One guard reads a null row all the same: an
  * int-lane {@code GuardedRange} over a bare column checks the column's stored values, null rows
  * included ({@code Analysis.guardsStoredValues}, VARKA-379 11), and the reference has no value for
@@ -377,6 +381,10 @@ public final class VarkaGuardSpecs {
         }
         yield pair(g.lo(), g.hi());
       }
+      // The check reads the slots' high words, which a lane value does not carry: the slot table
+      // of VarkaDecimalLoadSuite is its oracle.
+      case DECIMAL_SLOT ->
+          throw new IllegalArgumentException("no guard spec for a decimal slot on " + node);
     };
     BigInteger lo = b[0];
     BigInteger hi = b[1];
@@ -441,10 +449,10 @@ public final class VarkaGuardSpecs {
       case GuardedRange n -> outside(values.value(n.child()), b);
       // No guard is placed on any other node; reaching one means the emitter placed a guard this
       // class does not know, which is the case to add.
-      case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
-          WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _, WidenLane _,
-          NarrowLane _ ->
+      case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
+          DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
+          BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _, BoolOutput _,
+          WidenLane _, NarrowLane _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

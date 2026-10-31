@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -43,6 +44,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfE
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -235,6 +237,8 @@ public final class VarkaRangeAnalysis {
       return VarkaValueRange.UNKNOWN;
     }
     return switch (node) {
+      // A long-lane leaf, answered UNKNOWN above; listed so that the switch stays exhaustive.
+      case DecimalColumn c -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on
       // the answer has the kernel check it per batch (`columns` names the column to it).
       case ColumnRef c -> {
@@ -276,6 +280,8 @@ public final class VarkaRangeAnalysis {
       // column guarded by the column bound, VARKA-379) or as ints. The long lane is UNKNOWN
       // throughout, above, and its callers prove their bounds structurally (VARKA-102) or
       // through a guard like this one; the popcount's bound below is the int lane's alone.
+      // Under a NULL guard the bounds hold on live lanes only: a lane outside them is null and
+      // keeps its value, which a consumer's validity hides and a guard's word AND excludes.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
       // A sign extension keeps every value, so an int's range is its widening's, asked as an
       // int: what a long-lane consumer such as a division by a constant needs to know of its
@@ -328,7 +334,8 @@ public final class VarkaRangeAnalysis {
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
-      // A condition has no value of its own.
+      // A condition has no value of its own, and a boolean output's bits are no lane value.
+      case BoolOutput b -> VarkaValueRange.UNKNOWN;
       case Cond c -> VarkaValueRange.UNKNOWN;
     };
   }

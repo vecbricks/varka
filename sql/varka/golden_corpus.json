@@ -936,9 +936,9 @@
       "statements" : 286,
       "selects" : 285,
       "rewritten" : 218,
-      "projection_fused" : 5,
+      "projection_fused" : 8,
       "projection_partial" : 0,
-      "projection_plain" : 154,
+      "projection_plain" : 151,
       "filter_fused" : 84,
       "filter_partial" : 52,
       "errors" : 67,
@@ -3162,7 +3162,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT (c0 = c1)",
         "columns" : [ "interval day to hour", "interval hour to second" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "FUSED",
         "filter_outcome" : "agree"
@@ -3171,7 +3171,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT (c0 < c1)",
         "columns" : [ "interval year", "interval month" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "FUSED",
         "filter_outcome" : "agree"
@@ -3180,7 +3180,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT (c0 = c1)",
         "columns" : [ "interval year to month", "interval month" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "FUSED",
         "filter_outcome" : "agree"

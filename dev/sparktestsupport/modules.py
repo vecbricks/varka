@@ -182,6 +182,20 @@ def is_varka_scoped(filename: str) -> bool:
     return any(re.search(regex, filename) for regex in varka_scoped_regexes)
 
 
+def is_varka_doc(filename: str) -> bool:
+    """
+    Return whether a repository-relative path is one of the Varka documents the docs job checks
+    (`varka_docs_regexes`). `varka_change_scope` and `is_ignored_file` both ask this, so the two
+    cannot disagree on what a document is.
+
+    >>> is_varka_doc("sql/varka/plans/m8/PLAN.md")
+    True
+    >>> is_varka_doc("dev/varka_matrix.sh")
+    False
+    """
+    return any(re.match(r, filename) for r in varka_docs_regexes)
+
+
 def varka_change_scope(filenames) -> str:
     """
     Classify a change by its files, for the build's precondition: ``"spark"`` when any file
@@ -211,15 +225,10 @@ def varka_change_scope(filenames) -> str:
     >>> varka_change_scope([])
     'none'
     """
-
-    def is_doc(f):
-        return any(re.match(r, f) for r in varka_docs_regexes)
-
     live = [f for f in filenames if not is_ignored_file(f)]
-    if any(not (is_varka_scoped(f) or is_doc(f)) for f in live):
+    if any(not (is_varka_scoped(f) or is_varka_doc(f)) for f in live):
         return "spark"
-    code = [f for f in live if not is_doc(f)]
-    if code:
+    if any(not is_varka_doc(f) for f in live):
         return "scoped"
     return "docs" if live else "none"
 
@@ -264,7 +273,7 @@ def is_ignored_file(filename: str) -> bool:
     >>> is_ignored_file("xasfZyaml")
     False
     """
-    if any(re.match(p, filename) for p in varka_docs_regexes):
+    if is_varka_doc(filename):
         return False
     path = PurePath("/") / filename
     for pattern in ignored_file_patterns:

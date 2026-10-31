@@ -177,3 +177,4 @@ sql/varka/plans/m8/PLAN.md	11.1	row 329's G rows/s, rounded from the M rows/s ta
 sql/varka/plans/m8/VARKA-340.md	10.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
 sql/varka/plans/m8/VARKA-359.md	10.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
 sql/varka/skills/benchmarking.md	481.1	an in-run control's reading in VARKA-48's A/B runs, which were not committed
+docs/sql-varka.md	123456789012.34	not a measurement: a decimal literal in the coverage table's row `d18 >= 123456789012.34` (VARKA-347)

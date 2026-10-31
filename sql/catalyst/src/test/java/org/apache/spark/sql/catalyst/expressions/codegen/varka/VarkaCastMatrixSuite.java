@@ -153,21 +153,31 @@ public final class VarkaCastMatrixSuite {
 
   /**
    * Whether the compiler fuses {@code CAST(x AS to)} over a column {@code x} of type {@code from}
-   * in {@code mode}: a projection, or a predicate for a {@code BOOLEAN} target, whose output as a
-   * value waits on row 27 (the two agree on every other pair). Fused means the compiler returns
-   * a plan, so a cast lowered to the column's widening load (a narrow source to {@code INT}),
-   * with no cast node in the kernel, counts. The defaults' options, not the matrix's: the file
-   * records what production fuses.
+   * in {@code mode}: as a projection, and for a {@code BOOLEAN} target as a predicate too. Fused
+   * means the compiler returns a plan, so a cast lowered to the column's widening load (a narrow
+   * source to {@code INT}), with no cast node in the kernel, counts. The defaults' options, not
+   * the matrix's: the file records what production fuses.
+   *
+   * <p>A {@code BOOLEAN} target is one answer for both forms, since {@code VarkaTypeConformance}
+   * holds a cast's condition form and its value twin, the {@code BOOLEAN} output column, to the
+   * same line of the file. A projection root of that type compiles through the condition compiler
+   * a predicate does, so the two are expected to agree; a pair on which they differ fails here
+   * rather than being recorded as one of them.
    */
   private static boolean fuses(DataType from, DataType to, String mode) {
     var cols = castColumns(from);
     Expression e = castExpression(cols, to, mode);
+    var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
+    boolean value = VarkaExpressionCompiler.compile(entry, cols, VarkaEmitOptions.DEFAULTS)
+        .isPresent();
     if (to.equals(DataTypes.BooleanType)) {
       var p = VarkaExpressionCompiler.compilePredicate(e, cols, VarkaEmitOptions.DEFAULTS);
-      return p.isPresent() && p.get().residualConjuncts().isEmpty();
+      boolean predicate = p.isPresent() && p.get().residualConjuncts().isEmpty();
+      assertTrue(predicate == value, "CAST(" + from.sql() + " AS BOOLEAN) in " + mode + " fuses "
+          + (predicate ? "as a predicate only" : "as a projection only")
+          + ": the two forms share one line of " + FUSED_FILE);
     }
-    var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
-    return VarkaExpressionCompiler.compile(entry, cols, VarkaEmitOptions.DEFAULTS).isPresent();
+    return value;
   }
 
   /** The one column {@link #castExpression} casts, {@code x} of type {@code from}. */

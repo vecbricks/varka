@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.internal.SQLConf;
+import org.apache.spark.sql.types.BooleanType;
 import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
@@ -90,6 +91,20 @@ public final class VarkaAnsiForm {
   }
 
   /**
+   * The guard of an expression whose lane is its columns', a condition's: the first column off
+   * the int lane picks it.
+   */
+  private static String guardOfColumns(Expression value) {
+    for (Attribute a : CollectionConverters.asJava(value.references().toSeq())) {
+      String g = guardOf(a.dataType());
+      if (!g.equals("rid")) {
+        return g;
+      }
+    }
+    return "rid";
+  }
+
+  /**
    * A value of the extremes fixture of {@code t}'s type that never raises, to stand beside an
    * expression of that type in a CASE ({@code caseArm}) or ahead of it in a COALESCE: a column,
    * non-null on both rows. Varka compiles a bare int column as no value, so the int CASE's other
@@ -118,6 +133,9 @@ public final class VarkaAnsiForm {
       return Optional.of("t2");
     } else if (t instanceof DayTimeIntervalType) {
       return Optional.of("dt2");
+    } else if (t instanceof BooleanType) {
+      // A boolean output (VARKA-27): the fixture's second boolean column.
+      return Optional.of("b2");
     } else if (t instanceof YearMonthIntervalType ym) {
       if (ym.startField() == ym.endField()) {
         return Optional.of(ym.startField() == YearMonthIntervalType.YEAR() ? "ymy" : "ymm");
@@ -170,20 +188,13 @@ public final class VarkaAnsiForm {
     Expression value = (Expression) CollectionConverters.asJava(
         VarkaHarnessPlans.remembered("(" + e + ")", values(), fixture.columns())).get(0);
     if (row.form().equals("predicate")) {
-      // The predicate's own columns: the first one off the int lane picks the guard.
-      String guard = "rid";
-      for (Attribute a : CollectionConverters.asJava(value.references().toSeq())) {
-        String g = guardOf(a.dataType());
-        if (!g.equals("rid")) {
-          guard = g;
-          break;
-        }
-      }
+      String guard = guardOfColumns(value);
       out.put(FALSE_AND, Optional.of(Written.filter(guard + " < 0 AND (" + e + ")")));
       out.put(TRUE_OR, Optional.of(Written.filter(guard + " >= 0 OR (" + e + ")")));
     } else {
       DataType t = value.dataType();
-      String guard = guardOf(t);
+      // A boolean output has no lane of its own: its condition takes its operands' (VARKA-27).
+      String guard = t instanceof BooleanType ? guardOfColumns(value) : guardOf(t);
       out.put(ALONE, Optional.of(Written.projection(e)));
       out.put(CASE_ARM, standIn(t, true).map(c ->
           Written.projection("CASE WHEN " + guard + " < 0 THEN " + e + " ELSE " + c + " END")));

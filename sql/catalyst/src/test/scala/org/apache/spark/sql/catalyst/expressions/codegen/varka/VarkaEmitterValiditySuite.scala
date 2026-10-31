@@ -271,6 +271,31 @@ class VarkaEmitterValiditySuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       === (0, 0))
   }
 
+  test("no boolean output has a pure word or is served by the bitmap pass") {
+    // m5/PLAN.md 2.1 and `VARKA-27.md` 2.1: a BoolOutput is not a Cond, so planBitmapPass's Cond
+    // skip does not reach it; its validity kt | kf is a function of its operands' values, and
+    // pureOf answers null for it, over a bare column too, whose own word is pure.
+    val d = new ColumnRef(0)
+    val d2 = new ColumnRef(1)
+    val b = new BoolColumn(0)
+    val b2 = new BoolColumn(1)
+    def counts(root: VarkaVectorIR, numInputs: Int): (Int, Int) = {
+      val c = VarkaLoopEmitter.bitmapPassCounts(Seq(root).asJava, numInputs, 0, bitmapOn)
+      (c(0), c(1))
+    }
+    val lt = new Compare(CompareOp.LT, d, d2)
+    for ((root, inputs) <- Seq[(VarkaVectorIR, Int)](
+        (new BoolOutput(lt), 2),
+        (new BoolOutput(new And(lt, new IsNotNull(d))), 2),
+        (new BoolOutput(new Or(b, b2)), 2),
+        (new BoolOutput(new Not(b)), 1),
+        (new BoolOutput(b), 1))) {
+      assert(counts(root, inputs) === (0, 0), VarkaVectorIR.canonical(root))
+    }
+    // The pass is on: the same column as a value is served.
+    assert(counts(new Year(d), 1) === (1, 0))
+  }
+
   test("the word-liveness invariant is armed, in both directions") {
     // misdescribeWordLiveness inverts the verdict on every word. year(d): its only word is
     // dead - the root is served and nothing else reads it - so the fault makes it live: stored

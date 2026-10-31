@@ -81,6 +81,10 @@ import org.apache.spark.sql.types.DataTypes;
  * register says it does not, or declines where it says it does, fails: the register has drifted
  * from the compiler.
  *
+ * <p>Every condition form also runs as a value: the same expression as a projection output, which
+ * the compiler writes as a {@code BOOLEAN} column (VARKA-27), held row by row to the same answers
+ * with true, false and null told apart.
+ *
  * <p>A type is read at the lane the type registry names for it, and a check runs at the lane its
  * kernel is driven at: the int lane's batches for a narrow, int-lane or condition type, the long
  * lane's 64-bit batches for a long-lane one, with both literal tables where a kernel converts
@@ -205,7 +209,10 @@ public abstract class VarkaTypeConformance {
   void roundTrip() {
     ConformanceType t = type();
     if (t.isBoolean()) {
-      run(List.of(value("x", null)));
+      // A bare column alone fuses nothing (it is forwarded), so the value a kernel stores is a
+      // choice that keeps every row of the column as it is but its nulls.
+      run(List.of(value("if(x IS NULL, true, x)", "if"), value("coalesce(x, false)",
+          "coalesce")));
     } else {
       run(List.of(value("if(x IS NULL, " + pick(0) + ", x)", "if"),
           value("coalesce(x, " + pick(1) + ")", "coalesce")));
@@ -358,8 +365,13 @@ public abstract class VarkaTypeConformance {
       return overflowing || (mode == Mode.ANSI && register != null && register.startsWith("cast:"));
     }
 
+    /** The same expression as a projection output: a condition's BOOLEAN column (VARKA-27). */
+    Form asValue() {
+      return new Form(sql, Kind.VALUE, register, mode, overflowing, values);
+    }
+
     @Override public String toString() {
-      return sql + " (" + mode + ")";
+      return sql + " (" + mode + (kind == Kind.VALUE ? ", value" : "") + ")";
     }
   }
 
@@ -378,13 +390,11 @@ public abstract class VarkaTypeConformance {
 
   /**
    * The rows that own a form the registers do not mark fused, or empty where they do. A value of
-   * type {@code BOOLEAN} is owed to row 27, which stores one, whatever its operator's entry says.
+   * type {@code BOOLEAN} is the condition's own entry: the compiler writes every condition it
+   * fuses as a boolean output (VARKA-27).
    */
   private Optional<String> owedTo(Form f, DataType result) {
     String census = type().census();
-    if (f.kind() == Kind.VALUE && result.equals(DataTypes.BooleanType)) {
-      return Optional.of("27 (a BOOLEAN output)");
-    }
     if (f.register() == null) {
       return Optional.empty();
     }
@@ -434,7 +444,18 @@ public abstract class VarkaTypeConformance {
    * Runs every form of a check: each that fuses is held to the reference and to Spark, each the
    * registers owe is required to decline. A check with an owed form is cancelled naming them.
    */
-  private void run(List<Form> forms) {
+  private void run(List<Form> conditionsAndValues) {
+    // Every condition form also runs as a value output, its BOOLEAN column written by the kernel
+    // (VARKA-27), under the same register entry: an operator the census marks fused for the
+    // type fuses as both. A bare column (no register) is forwarded as an output and fuses
+    // nothing alone, so it has no value twin.
+    var forms = new ArrayList<Form>();
+    for (Form f : conditionsAndValues) {
+      forms.add(f);
+      if (f.kind() == Kind.CONDITION && f.register() != null) {
+        forms.add(f.asValue());
+      }
+    }
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
     for (Form f : forms) {
@@ -722,10 +743,14 @@ public abstract class VarkaTypeConformance {
    * where Spark's expression is null-intolerant, null on another.
    */
   private static void requireDiscriminates(Form f, Compiled c, int o, String at, Seen s) {
-    if (f.kind() == Kind.CONDITION) {
+    // A BOOLEAN value is held to both rules: true and false on some rows, and null where its
+    // expression is null-intolerant.
+    boolean booleanValue = c.outputs().get(o).dataType().equals(DataTypes.BooleanType);
+    if (f.kind() == Kind.CONDITION || booleanValue) {
       assertTrue(s.sawTrue && s.sawFalse, at + ": the rows never make it "
           + (s.sawTrue ? "false" : "true") + ", so a constant kernel would pass");
-    } else {
+    }
+    if (f.kind() == Kind.VALUE) {
       assertTrue(s.sawValue, at + ": the rows never give it a value");
       // A null-intolerant expression is null exactly where an input is; one that can mask a
       // null (IF, coalesce) need not be null anywhere, and so is not asked to be.

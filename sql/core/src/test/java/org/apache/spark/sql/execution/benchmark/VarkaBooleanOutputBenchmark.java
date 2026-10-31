@@ -18,14 +18,11 @@ package org.apache.spark.sql.execution.benchmark;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.execution.SparkPlan;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * Boolean expressions as projection outputs (VARKA-27): {@code SELECT d < d2 AS c} rather than
@@ -175,14 +172,6 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
     return out;
   }
 
-  /** Whether the session's plan for {@code query} holds a Varka node. */
-  static boolean fuses(SparkSession session, String query) {
-    return session.sql(query).queryExecution().executedPlan().find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
-  }
-
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
     stopLeftoverSessions();
@@ -198,9 +187,12 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, "varka_boolean");
       }
       for (Section s : sections()) {
-        boolean fused = fuses(varka, s.query());
-        if (fused != s.control()) {
-          SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
+        Optional<SparkPlan> fused = fusedPlan(varka, s.query());
+        if (fused.isPresent() != s.control()) {
+          // A control that did not fuse comes back with no plan; planning it again for the
+          // message costs nothing on a run that is about to fail.
+          SparkPlan plan =
+              fused.orElseGet(() -> varka.sql(s.query()).queryExecution().executedPlan());
           String why = s.control() ? " is a filter control that does not fuse, so its varka on "
               + "arm is not Varka's filter: " : " fuses, so it is no longer a baseline: ";
           throw new IllegalStateException(s.title() + why + s.query() + "\n" + plan.treeString());

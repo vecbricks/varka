@@ -156,6 +156,34 @@ class VarkaReproductionEndToEndSuite
     assertReplays(file)
   }
 
+  test("a decimal column's short mapping fails in its kernel and writes a file of its slots, " +
+      "which replays to it") {
+    // A filter over one decimal column: its kernel writes a selection bitmap and maps no data
+    // output, so the decimal column's sixteen-byte slots are the only data segment, and a
+    // mapping four bytes short can fail only there (VARKA-347).
+    val decimals = "varka_reproduction_decimals"
+    for (session <- Seq(spark, varkaSpark)) {
+      session.range(0, 1000)
+        .selectExpr("IF(id % 2 = 1, NULL, CAST(id AS DECIMAL(9, 2))) AS m")
+        .createOrReplaceTempView(decimals)
+      session.catalog.cacheTable(decimals)
+    }
+    val filter = s"SELECT m FROM $decimals WHERE m > 400.50"
+    val expected = spark.sql(filter).collect().toSeq
+    val (file, _) = reproduced {
+      withOptions(_.withMisdescribeDataBytes(-4)) {
+        withFailureDeclared(checkAnswer(varkaSpark.sql(filter), expected))
+      }
+    }
+    assert(file.signature().kind() === "IndexOutOfBoundsException", file.signature())
+    assert(file.options().contains("misdescribeDataBytes=-4"), file.options())
+    val call = file.call()
+    assert(call != null && call.omitted() == null && call.selectionBitmaps(), call)
+    assert(call.inputs().size() === 1)
+    assert(call.inputs().get(0).data().length === call.rows() * 16, call.inputs().get(0))
+    assertReplays(file)
+  }
+
   test("a kernel that fails to link writes a file that replays to the NoSuchMethodError") {
     cacheView()
     val expected = spark.sql(query).collect().toSeq

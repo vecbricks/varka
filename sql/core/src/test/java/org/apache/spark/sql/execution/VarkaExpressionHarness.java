@@ -581,7 +581,7 @@ public final class VarkaExpressionHarness {
    * they do in {@code VarkaSparkOracle}; where {@code unfixedNaN}, the row's inputs hold two
    * unlike NaNs ({@link #twoUnlikeNaNs}) and two NaN answers agree whatever their payloads.
    */
-  private static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types,
+  static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types,
       boolean unfixedNaN) {
     for (int o = 0; o < types.length; o++) {
       boolean wantNull = want.isNullAt(o);

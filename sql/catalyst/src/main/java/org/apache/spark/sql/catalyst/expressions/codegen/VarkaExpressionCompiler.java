@@ -58,6 +58,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.package$;
@@ -910,9 +911,11 @@ public final class VarkaExpressionCompiler {
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);
     List<Expression> conjuncts = conjuncts(condition);
-    // Whether any conjunct reads a column that an integral lane reads, which decides whether a
-    // floating conjunct can share the kernel (VarkaKernelPlan.floatingConjunctRefusal). A column
-    // no lane reads, a string say, puts its conjunct on the row path and so does not count.
+    // Whether any conjunct reads a column a kernel reads on an integral lane, which decides
+    // whether a floating conjunct can share the kernel (VarkaKernelPlan.floatingConjunctRefusal).
+    // The registry's `lane(DataType)` is the one answer: a column no kernel reads today - a
+    // string, or a type whose lane exists before any operator over it compiles - puts its
+    // conjunct on the row path and so does not count.
     boolean readsIntegral = false;
     for (Attribute a : CollectionConverters.asJava(condition.references().toSeq())) {
       readsIntegral |= VarkaTypes.lane(a.dataType()).filter(l -> !l.isFloating()).isPresent();
@@ -1175,13 +1178,22 @@ public final class VarkaExpressionCompiler {
   /**
    * An output root: {@code VarkaNodeCompiler.compileNode} over the expression, or over its
    * replacement where it is a {@code RuntimeReplaceable}.
+   *
+   * <p>A {@code BOOLEAN} root is compiled as a condition and written as a {@link BoolOutput}
+   * (`VARKA-27.md` 2.3), so every predicate a filter fuses is also an output, with the
+   * condition's own decline reason where it does not. A bare boolean column never reaches here:
+   * {@code classify} forwards it first.
    */
   private static Optional<VarkaVectorIR> compileRoot(
       Expression expr, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    return switch (expr) {
-      case RuntimeReplaceable r -> compileRoot(r.replacement(), inputs, literals, sink);
-      default -> VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
-    };
+    if (expr instanceof RuntimeReplaceable r) {
+      return compileRoot(r.replacement(), inputs, literals, sink);
+    }
+    if (expr.dataType().equals(DataTypes.BooleanType)) {
+      return VarkaConditionCompiler.compileCond(expr, inputs, literals, sink)
+          .map(BoolOutput::new);
+    }
+    return VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
   }
 
   /**

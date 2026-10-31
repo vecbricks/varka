@@ -29,12 +29,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Col
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
 
 /**
@@ -111,6 +113,7 @@ final class VarkaEmitCost {
     String name = node.getClass().getSimpleName();
     return switch (node) {
       case ColumnRef n -> name + '/' + n.lane();
+      case DecimalColumn n -> name + '/' + n.lane();
       case LiteralSlot n -> name + '/' + n.lane();
       case IntArith n -> name + '/' + n.op() + '/' + n.mode() + '/' + n.laneType();
       case IntNeg n -> name + (n.abs() ? "/abs/" : "/") + n.mode() + '/' + n.laneType();
@@ -118,11 +121,14 @@ final class VarkaEmitCost {
       case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
       case BitCount n -> name + '/' + n.laneType();
       case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
-      case GuardedRange n -> name + '/' + n.laneType();
+      // A failing guard collects into the batch's status and a nulling one clears its own word:
+      // two lowerings, so the NULL mode is its own feature, the FAIL key unchanged beside it.
+      case GuardedRange n -> name + (n.mode() == Overflow.NULL ? "/NULL/" : "/") + n.laneType();
       case Compare n -> name + '/' + n.op() + '/' + n.laneType();
       case VarkaVectorIR.BoolColumn n -> name + '/' + n.lane();
       case VarkaVectorIR.CondConst n -> name + '/' + n.lane();
       case VarkaVectorIR.CondValue n -> name + '/' + n.lane();
+      case VarkaVectorIR.BoolOutput n -> name + '/' + n.laneType();
       case VarkaVectorIR.BoolCompare n -> name + '/' + n.op() + '/' + n.laneType();
       case VarkaVectorIR.IsNotNull n when n.overCondition() ->
           name + "/cond/" + n.laneType();

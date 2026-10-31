@@ -25,6 +25,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.ToIntFunction;
 
+import org.apache.spark.sql.types.Decimal;
+
 /**
  * The vector IR a fused Varka loop is emitted from. A node is a value over
  * int32 lanes; {@link VarkaLoopEmitter} walks a tree of them post-order, leaving intermediates on
@@ -55,11 +57,11 @@ import java.util.function.ToIntFunction;
  * and means a selection bitmap - see {@link Cond} for the null rule there.
  */
 public sealed interface VarkaVectorIR
-    permits VarkaVectorIR.ColumnRef, VarkaVectorIR.LiteralSlot,
+    permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.LiteralSlot,
             VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff,
-            VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.Greatest,
-            VarkaVectorIR.Least, VarkaVectorIR.DayOfWeek, VarkaVectorIR.WeekDay,
-            VarkaVectorIR.DayOfWeekIso,
+            VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.BoolOutput,
+            VarkaVectorIR.Greatest, VarkaVectorIR.Least, VarkaVectorIR.DayOfWeek,
+            VarkaVectorIR.WeekDay, VarkaVectorIR.DayOfWeekIso,
             VarkaVectorIR.NextDay, VarkaVectorIR.ThursdayOf, VarkaVectorIR.Chrono,
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
@@ -139,6 +141,7 @@ public sealed interface VarkaVectorIR
   default LaneType laneType() {
     return switch (this) {
       case ColumnRef n -> n.lane();
+      case DecimalColumn n -> n.lane();
       case LiteralSlot n -> n.lane();
       case IntArith n -> n.left().laneType();
       case IntNeg n -> n.child().laneType();
@@ -151,6 +154,7 @@ public sealed interface VarkaVectorIR
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
       case CondValue n -> n.lane();
+      case BoolOutput n -> n.cond().laneType();
       case Compare n -> n.left().laneType();
       case NullSafeEqual n -> n.left().laneType();
       case BoolColumn n -> n.lane();
@@ -194,16 +198,19 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * The input ordinal a leaf reads, or -1 for a node that is not an input leaf: a {@link ColumnRef}
-   * or a {@link BoolColumn}. Every place that asks "which column does this node read" goes through
-   * here, so a third kind of input leaf is added in one place.
+   * The input ordinal a leaf reads, or -1 for a node that is not an input leaf: a
+   * {@link ColumnRef}, a {@link DecimalColumn} or a {@link BoolColumn}. Every place that asks
+   * "which column does this node read" goes through here, so a new kind of input leaf is added in
+   * one place.
    */
   static int inputOrdinal(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef c -> c.ordinal();
+      case DecimalColumn c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
-          BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, Compare _,
+          BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _,
+          Compare _,
           NullSafeEqual _, CondConst _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -211,6 +218,18 @@ public sealed interface VarkaVectorIR
           AddMonths _, MakeDate _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
           LastDay _, TruncDate _, TruncDateDynamic _, WeekOfYear _ -> -1;
     };
+  }
+
+  /**
+   * Whether an output root writes bitmaps rather than a lane value a row: a {@link Cond} root,
+   * a filter's selection bitmap, and a {@link BoolOutput} root, a {@code BitVector}'s two. Such a
+   * root has no stored width, maps no lane-width data segment, stores nothing under the
+   * epilogue's bounds mask, has no pure validity word for the bitmap pass to serve, and is never
+   * answered by the all-null shortcut. Every place that asks one of those questions of a root
+   * asks it here, so a third bitmap root is added in one place.
+   */
+  static boolean writesBitmaps(VarkaVectorIR root) {
+    return root instanceof Cond || root instanceof BoolOutput;
   }
 
   /**
@@ -267,14 +286,14 @@ public sealed interface VarkaVectorIR
           lanes.add(c.laneType());
         }
       }
-      case LiteralSlot _, BoolColumn _, CondConst _ -> { }
+      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _ -> { }
       case WidenLane _, NarrowLane _, AddDays _, SubDays _, AddMonths _, MakeDate _,
           IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _,
-          DateDiff _, Greatest _, Least _, IfElse _, CondValue _, DayOfWeek _, WeekDay _,
-          DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
-          LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _, BitOp _, BitCount _,
-          MathUnary _, Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-          And _, Or _, Not _, InRanges _ -> {
+          DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
+          WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
+          DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
+          BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolCompare _, CondIf _,
+          BoolNullSafeEq _, And _, Or _, Not _, InRanges _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -310,12 +329,12 @@ public sealed interface VarkaVectorIR
           && needsNarrowSpecies(c, seen);
       case ColumnRef c -> c.laneType().isNarrow();
       case LiteralSlot l -> l.laneType().isNarrow();
-      case BoolColumn _, CondConst _ -> false;
+      case BoolColumn _, CondConst _, DecimalColumn _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, AddDays _, SubDays _, AddMonths _, MakeDate _, IntArith _, IntNeg _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
-          Least _, IfElse _, CondValue _, DayOfWeek _, WeekDay _, DayOfWeekIso _, ThursdayOf _,
-          Year _,
+          Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
+          ThursdayOf _, Year _,
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Compare _,
           NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
@@ -381,6 +400,15 @@ public sealed interface VarkaVectorIR
    */
   private static String laneTag(LaneType lane) {
     return lane == LaneType.INT ? "" : ":" + lane.name().toLowerCase(Locale.ROOT);
+  }
+
+  /**
+   * A range guard's mode in its rendering: none for {@code FAIL}, the form the three-argument
+   * constructor builds, the way {@link #laneTag} elides the int lane, so a failing guard's
+   * shape hash and class name do not depend on the mode.
+   */
+  private static String guardTag(GuardedRange n) {
+    return n.mode() == Overflow.FAIL ? "" : ":" + n.mode().name();
   }
 
   /** The comparison a {@link Compare} node performs; lane math is signed integer ordering. */
@@ -467,6 +495,54 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * A {@code DECIMAL(p, s)} column with {@code p <= 18}, read as its unscaled values on the long
+   * lane (VARKA-347). Arrow holds every decimal in a sixteen-byte slot, the low word first and its
+   * sign extension next, so the leaf loads two vectors of slots per lane group and keeps the low
+   * words. The scale is not here: the values are unscaled, and the nodes above carry the scale.
+   *
+   * <p>The leaf also checks every valid slot, because Spark's column reader
+   * ({@code ArrowColumnVector}'s decimal accessor) raises on one that does not hold a value of the
+   * type: a high word that is not the low word's sign (the value is then at least 2^63 in
+   * magnitude), or a low word with more than {@code precision} digits. A batch with such a slot
+   * declines with {@code STATUS_DECIMAL_SLOT}, and the row engine raises the same error on the
+   * same row. A null slot is never read by Spark, so whatever it holds never declines. The check
+   * is part of the leaf rather than a node above it because without it the leaf would compute
+   * where Spark raises, and it is unconditional, as {@link GuardedRange}'s is.
+   *
+   * <p>It renders as {@code dec:} with the ordinal, the lane and the precision, so it shares no
+   * kernel with a {@code BIGINT} {@link ColumnRef} of the same ordinal, and two precisions, whose
+   * bounds are constants in the code, take two classes.
+   */
+  record DecimalColumn(int ordinal, LaneType lane, int precision) implements VarkaVectorIR {
+    /**
+     * The widest precision whose unscaled values fit a long, {@code 10^18 - 1 < 2^63}: Spark's own
+     * {@code Decimal.MAX_LONG_DIGITS}, the precision up to which its readers and writers keep an
+     * unscaled long.
+     */
+    public static final int MAX_LONG_PRECISION = Decimal.MAX_LONG_DIGITS();
+
+    public DecimalColumn {
+      Objects.requireNonNull(lane, "lane");
+      if (lane != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("a decimal column is read on the long lane, not "
+            + lane);
+      }
+      if (precision < 1 || precision > MAX_LONG_PRECISION) {
+        throw VarkaErrors.illegalArgument("a decimal column on the long lane has a precision "
+            + "from 1 to " + MAX_LONG_PRECISION + ", not " + precision);
+      }
+    }
+
+    /**
+     * The largest unscaled value of the precision, {@code 10^precision - 1}, from Spark's own
+     * table of powers; its negation is the smallest.
+     */
+    public long bound() {
+      return Decimal.POW_10()[precision] - 1L;
+    }
+  }
+
+  /**
    * The runtime scalar argument at {@code index}, broadcast into every lane once per call,
    * outside the loop, into a lane of {@code lane}'s width.
    *
@@ -544,13 +620,33 @@ public sealed interface VarkaVectorIR
    * <p>Like the day guard, the check is unconditional: the compiler admits the expression on
    * the strength of it, so an option that removed it would produce a wrong answer, not a
    * slower one.
+   *
+   * <p>{@code mode} says what an out-of-range live lane does, in {@link Overflow}'s terms:
+   * {@code FAIL} declines the batch, as above, and {@code NULL} - Spark's {@code TRY} - makes
+   * the lane null and lets the batch run on, so the node owns a validity word, the child's with
+   * the out-of-range lanes cleared, as a {@code NULL} {@link IntArith} does. A nulled lane
+   * keeps the child's value, which no consumer reads, so the bounds hold on live lanes only.
+   * There is no {@code WRAP} guard: a guard that let every value through would guard nothing.
+   * The mode is part of the node's identity, rendered by {@link #canonical}, so a failing and
+   * a nulling guard never share a kernel. The three-argument form is {@code FAIL}.
    */
-  record GuardedRange(VarkaVectorIR child, long lo, long hi) implements VarkaVectorIR {
+  record GuardedRange(VarkaVectorIR child, long lo, long hi, Overflow mode)
+      implements VarkaVectorIR {
     public GuardedRange {
       if (lo > hi) {
         throw VarkaErrors.illegalArgument("an empty range guards nothing: [" + lo + ", " + hi
             + "]");
       }
+      Objects.requireNonNull(mode, "mode");
+      if (mode == Overflow.WRAP) {
+        throw VarkaErrors.illegalArgument("a range guard fails or nulls; WRAP guards nothing: ["
+            + lo + ", " + hi + "]");
+      }
+    }
+
+    /** {@code child} guarded by {@code [lo, hi]}, the batch declined where a lane is outside. */
+    public GuardedRange(VarkaVectorIR child, long lo, long hi) {
+      this(child, lo, hi, Overflow.FAIL);
     }
   }
 
@@ -1296,6 +1392,18 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * A condition as a {@code BOOLEAN} output column, a root only (`VARKA-27.md` 2.1): the output
+   * is an Arrow {@code BitVector} whose data bit is set where {@code cond} is known true and
+   * whose validity bit is set where it is known, true or false, so an unknown row is null, as
+   * Spark's three-valued answer has it. Its two bitmaps are the condition's known-true word
+   * {@code kt} and the known word {@code kt | kf}, written a lane group or a word at a time as a
+   * filter root writes its selection bitmap. It is not a {@link Cond}, so it does not hash like
+   * the filter root over the same condition, which writes one bitmap where this writes two; and
+   * {@code Analysis} refuses it anywhere but a root. Its lane is its condition's.
+   */
+  record BoolOutput(Cond cond) implements VarkaVectorIR { }
+
+  /**
    * Spark's null-skipping {@code greatest} over two operands: null only where both
    * inputs are null; where one side is null the other's value is taken, so the lane math is a
    * substitute-then-max.
@@ -1558,12 +1666,13 @@ public sealed interface VarkaVectorIR
   static String canonical(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
+      case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
       case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange " + canonical(n.child()) + " " + n.lo() + " "
-          + n.hi() + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + canonical(n.child()) + " "
+          + n.lo() + " " + n.hi() + ")";
       case WidenLane n -> "(widen:" + n.target().name() + " " + canonical(n.child()) + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " " + canonical(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
@@ -1588,6 +1697,7 @@ public sealed interface VarkaVectorIR
       case IfElse n -> "(if " + canonical(n.cond()) + " " + canonical(n.thenNode()) + " "
           + canonical(n.elseNode()) + ")";
       case CondValue n -> "(condValue " + canonical(n.cond()) + ")";
+      case BoolOutput n -> "(bool-out " + canonical(n.cond()) + ")";
       case Greatest n -> "(greatest " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Least n -> "(least " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case DayOfWeek n -> "(dayOfWeek " + canonical(n.days()) + ")";
@@ -1648,14 +1758,15 @@ public sealed interface VarkaVectorIR
   static String canonicalShallow(VarkaVectorIR node, ToIntFunction<VarkaVectorIR> lineOf) {
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
+      case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
       case AddDays n -> "(addDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
       case SubDays n -> "(subDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + lineOf.applyAsInt(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange " + lineOf.applyAsInt(n.child()) + " " + n.lo()
-          + " " + n.hi() + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + lineOf.applyAsInt(n.child())
+          + " " + n.lo() + " " + n.hi() + ")";
       case WidenLane n -> "(widen:" + n.target().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " "
@@ -1685,6 +1796,7 @@ public sealed interface VarkaVectorIR
       case IfElse n -> "(if " + lineOf.applyAsInt(n.cond()) + " "
           + lineOf.applyAsInt(n.thenNode()) + " " + lineOf.applyAsInt(n.elseNode()) + ")";
       case CondValue n -> "(condValue " + lineOf.applyAsInt(n.cond()) + ")";
+      case BoolOutput n -> "(bool-out " + lineOf.applyAsInt(n.cond()) + ")";
       case Greatest n -> "(greatest " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
       case Least n -> "(least " + lineOf.applyAsInt(n.left()) + " "
@@ -1743,6 +1855,7 @@ public sealed interface VarkaVectorIR
   static VarkaVectorIR[] childrenOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef c -> new VarkaVectorIR[0];
+      case DecimalColumn c -> new VarkaVectorIR[0];
       case LiteralSlot l -> new VarkaVectorIR[0];
       case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
@@ -1771,6 +1884,7 @@ public sealed interface VarkaVectorIR
       case Least n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IfElse n -> new VarkaVectorIR[] {n.cond(), n.thenNode(), n.elseNode()};
       case CondValue n -> new VarkaVectorIR[] {n.cond()};
+      case BoolOutput n -> new VarkaVectorIR[] {n.cond()};
       case Compare n -> new VarkaVectorIR[] {n.left(), n.right()};
       case NullSafeEqual n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BoolColumn n -> new VarkaVectorIR[0];
@@ -1814,11 +1928,12 @@ public sealed interface VarkaVectorIR
     }
     return switch (node) {
       case ColumnRef n -> n;
+      case DecimalColumn n -> n;
       case LiteralSlot n -> n;
       case AddDays n -> new AddDays(children[0], children[1]);
       case SubDays n -> new SubDays(children[0], children[1]);
       case GuardedDay n -> new GuardedDay(children[0]);
-      case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi());
+      case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi(), n.mode());
       case WidenLane n -> new WidenLane(children[0], n.target());
       case NarrowLane n -> new NarrowLane(children[0], n.target());
       case DateDiff n -> new DateDiff(children[0], children[1]);
@@ -1842,6 +1957,7 @@ public sealed interface VarkaVectorIR
       case Least n -> new Least(children[0], children[1]);
       case IfElse n -> new IfElse(asCond(children[0]), children[1], children[2]);
       case CondValue n -> new CondValue(asCond(children[0]), n.lane());
+      case BoolOutput n -> new BoolOutput(asCond(children[0]));
       case Compare n -> new Compare(n.op(), children[0], children[1]);
       case NullSafeEqual n -> new NullSafeEqual(children[0], children[1]);
       case BoolColumn n -> n;

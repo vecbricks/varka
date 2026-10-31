@@ -78,7 +78,10 @@ object VarkaArrowSource {
     // usually the shape's only one. Off, the kernels run before C2 compiles them.
     .set("spark.sql.codegen.varka.warmup.enabled", "false")
 
-  /** Whether a relation has a column a Varka kernel can read. */
+  /**
+   * Whether a relation has a column a Varka kernel can read: a type on a lane, a decimal of
+   * precision up to 18 among them, whose comparisons and null tests fuse (VARKA-347).
+   */
   def varkaTyped(plan: LogicalPlan): Boolean =
     plan.output.exists(a => VarkaTypes.lane(a.dataType).isPresent)
 

@@ -72,6 +72,7 @@ import org.apache.spark.sql.execution.varka.VarkaKernelRunner;
 import org.apache.spark.sql.execution.varka.VarkaKernelScratch;
 import org.apache.spark.sql.execution.varka.VarkaWarmupGate;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -192,6 +193,8 @@ public abstract class VarkaEvaluatorBase {
   private CompiledVarkaProjection plan;
   private int[] inputOrdinals;
   private boolean[] derivedInput;
+  /** Each kernel input's decimal scale, or -1 for an input that is not a decimal. */
+  private int[] decimalScale;
   private DataType[] outputTypes;
 
   private boolean runnerResolved;
@@ -299,9 +302,14 @@ public abstract class VarkaEvaluatorBase {
         List<Integer> ordinals = plan.inputOrdinals();
         inputOrdinals = new int[ordinals.size()];
         derivedInput = new boolean[ordinals.size()];
+        decimalScale = new int[ordinals.size()];
         for (int i = 0; i < inputOrdinals.length; i++) {
           inputOrdinals[i] = ordinals.get(i);
           derivedInput[i] = plan.derivedAt(i).isPresent();
+          // The scale the batch's decimal field must carry (VARKA-347), from the child's own
+          // attribute, which is the column the kernel input reads.
+          decimalScale[i] = childOutput.apply(inputOrdinals[i]).dataType() instanceof DecimalType d
+              ? d.scale() : -1;
         }
         outputTypes = plan.outputTypes().toArray(new DataType[0]);
       }
@@ -584,12 +592,16 @@ public abstract class VarkaEvaluatorBase {
         columns[o] = new VarkaOwnedArrowColumnVector(vector);
         owned.add(columns[o]);
         kernel.dstData[o] = vector.getDataBuffer().memoryAddress();
-        kernel.dstWidth[o] = vector.getTypeWidth();
+        // A boolean output's BitVector has a type width of 0, which means a selection bitmap
+        // with no data; its data is a bitmap of whole words, which the marker says (VARKA-27).
+        kernel.dstWidth[o] = vector instanceof BitVector
+            ? VarkaReproduction.KernelCall.BIT_OUTPUT : vector.getTypeWidth();
         kernel.dstValidity[o] = vector.getValidityBuffer().memoryAddress();
         if (VarkaMemorySanitizer.ENABLED) {
-          // The kernel's own bytes: len values, and the validity bitmap to its last whole word.
+          // The kernel's own bytes: len values (a bit output's bitmap to its last whole word),
+          // and the validity bitmap to its last whole word.
           VarkaMemorySanitizer.guard("output data", o, vector.getDataBuffer(),
-              (long) len * vector.getTypeWidth());
+              VarkaReproduction.KernelCall.outputDataBytes(kernel.dstWidth[o], len));
           VarkaMemorySanitizer.guard("output validity", o, vector.getValidityBuffer(),
               ((len + 63) / 64) * 8L);
         }
@@ -902,7 +914,8 @@ public abstract class VarkaEvaluatorBase {
    * batch's rows, no more - or a boolean column's {@code BitVector}, or, for an input the
    * evaluator derives, an Arrow {@code VarCharVector} of the same row count, the one string vector
    * the Arrow cache produces and the derived leaf reads; the large and view string vectors refuse
-   * the batch like any other column type.
+   * the batch like any other column type. A decimal column's field must also say 128 bits and the
+   * column's scale ({@link VarkaLaneArrow#decimalFieldMatches}).
    *
    * <p>The row count matters because the kernel takes a null count for the rows it is given, while
    * a vector's null count covers all {@code valueCount} of its rows. A vector longer than the
@@ -928,6 +941,7 @@ public abstract class VarkaEvaluatorBase {
         case VarCharVector v -> derivedInput[i] && v.getValueCount() == rows;
         case BitVector v -> !derivedInput[i] && v.getValueCount() == rows;
         default -> !derivedInput[i] && VarkaLaneArrow.reads(vector)
+            && VarkaLaneArrow.decimalFieldMatches(vector, decimalScale[i])
             && vector.getValueCount() == rows;
       };
       if (!ok) {

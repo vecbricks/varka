@@ -372,8 +372,26 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  test("a NULL long-lane range guard nulls the lanes outside its bounds and answers the batch, " +
+      "at both widths") {
+    // The decline above, as a null: the same compares, the lanes they flag cleared from the
+    // guard's own word. The values put both ends, one past each and both extremes on lanes of
+    // every group and tail; a sum over the guard is null where the guard nulled its lane.
+    val col = new ColumnRef(0, LaneType.LONG)
+    val col1 = new ColumnRef(1, LaneType.LONG)
+    val bound = 1L << 40
+    val guard = new GuardedRange(col, -bound, bound, Overflow.NULL)
+    val vs = Array(-bound - 1, -bound, 0L, bound, bound + 1, Long.MinValue, Long.MaxValue, 7L, -3L)
+    def values(c: Int, i: Int): Long = if (c == 0) vs((i * 5 + 1) % vs.length) else i.toLong
+    val roots = Seq[VarkaVectorIR](guard, new IntArith(IntOp.ADD, Overflow.WRAP, guard, col1))
+    for (lanes <- Seq(2, 8)) {
+      checkLongMatrix(roots, 2, Array.empty[Long], Seq(1, 7, 9, 17, 64, 129), combos(2), values,
+        "a NULL long guard", Some(lanes))
+    }
+  }
+
   test("a range guard at the int lane refuses bounds an int cannot hold, and an empty range " +
-      "is refused where it is built") {
+      "and a wrapping guard are refused where they are built") {
     val col = new ColumnRef(0, LaneType.INT)
     val wide = intercept[IllegalArgumentException](
       emitMulti(Seq(new GuardedRange(col, 0L, 1L << 40)), 1, 0))
@@ -384,5 +402,8 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     assert(low.getMessage.contains("needs int bounds"), low.getMessage)
     val empty = intercept[IllegalArgumentException](new GuardedRange(col, 5L, 4L))
     assert(empty.getMessage.contains("empty range"), empty.getMessage)
+    // A guard fails or nulls: one that wrapped would let every value through.
+    val wrap = intercept[IllegalArgumentException](new GuardedRange(col, 0L, 4L, Overflow.WRAP))
+    assert(wrap.getMessage.contains("WRAP guards nothing"), wrap.getMessage)
   }
 }

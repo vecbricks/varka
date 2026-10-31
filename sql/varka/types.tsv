@@ -1,13 +1,13 @@
 # Written by VarkaTypesSuite from VarkaTypes (VARKA-494); regenerate with VARKA_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaTypesSuite'
 id	spark	census	sql	admission	lane	row	storage_bits	lanes	conformance	conformance_row
-BOOLEAN	BooleanType	bool	BOOLEAN	as_condition	-	27	1	-	Boolean	-
+BOOLEAN	BooleanType	bool	BOOLEAN	as_condition	-	332	1	-	Boolean	-
 BYTE	ByteType	byte	TINYINT	on_lane	BYTE	-	8	BYTE,INT	TinyInt	-
 SHORT	ShortType	short	SMALLINT	on_lane	SHORT	-	16	SHORT,INT	SmallInt	-
 INT	IntegerType	int	INT	on_lane	INT	-	32	INT	Int	-
 LONG	LongType	bigint	BIGINT	on_lane	LONG	-	64	LONG	BigInt	-
 FLOAT	FloatType	float	FLOAT	on_lane	FLOAT	-	32	FLOAT	Float	-
 DOUBLE	DoubleType	double	DOUBLE	on_lane	DOUBLE	-	64	DOUBLE	Double	-
-DECIMAL	DecimalType	dec	DECIMAL(10, 2)	owed	-	347	128	-	-	-
+DECIMAL	DecimalType	dec	DECIMAL(10, 2)	up_to_precision	LONG	359	128	LONG	Decimal	348
 DATE	DateType	date	DATE	on_lane	INT	-	32	INT	Date	-
 TIMESTAMP_NTZ	TimestampNTZType	ntz	TIMESTAMP_NTZ	on_lane	LONG	-	64	LONG	TimestampNtz	-
 TIME	TimeType	time	TIME	on_lane	LONG	-	64	LONG	Time	-

@@ -135,7 +135,8 @@ object VarkaSparkFuzz {
     new ObjectMapper().readTree(file).get("expressions").elements().asScala.toSeq.map { e =>
       CoverageRow(e.get("sql").asText(), e.get("executable").asText(), e.get("form").asText())
     }.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable))
+      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
+        || VarkaCoverageRows.readsDecimal(r.executable))
 
   /** The families the coverage table names, which the expected-errors list's rows cite. */
   def coverageFamilies(file: java.io.File): Set[String] =

@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -29,6 +30,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -39,8 +41,11 @@ import org.junit.jupiter.api.Test;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Admission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Conformance;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Info;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
 /**
@@ -81,12 +86,14 @@ public final class VarkaTypesSuite {
     for (Info i : VarkaTypes.all()) {
       String admission = switch (i.admission()) {
         case Admission.OnLane on -> "on_lane";
+        case Admission.UpToPrecision up -> "up_to_precision";
         case Admission.AsCondition c -> "as_condition";
         case Admission.Owed o -> "owed";
         case Admission.Declined d -> "declined";
       };
       String row = switch (i.admission()) {
         case Admission.OnLane on -> null;
+        case Admission.UpToPrecision up -> up.widerRow();
         case Admission.AsCondition c -> c.valuesRow();
         case Admission.Owed o -> o.row();
         case Admission.Declined d -> null;
@@ -165,17 +172,66 @@ public final class VarkaTypesSuite {
   @Test
   @DisplayName("a column of an owed, declined or condition-only type declines naming its type")
   void declineNamesTheType() {
-    assertEquals("a decimal(10,2) column: the DECIMAL lane is row 347's",
-        VarkaTypes.declineReason(DataTypes.createDecimalType(10, 2)).orElseThrow());
     assertEquals("a timestamp column: its arithmetic is in the session time zone, which is not "
         + "lane arithmetic", VarkaTypes.declineReason(DataTypes.TimestampType).orElseThrow());
-    assertEquals("a boolean column read as a value, which row 27 builds; it is read as a "
+    assertEquals("a boolean column read as a value, which row 332 builds; it is read as a "
         + "condition", VarkaTypes.declineReason(DataTypes.BooleanType).orElseThrow());
     assertTrue(VarkaTypes.declineReason(DataTypes.IntegerType).isEmpty());
     assertTrue(VarkaTypes.declineReason(DataTypes.DoubleType).isEmpty());
     assertTrue(VarkaTypes.declineReason(DataTypes.FloatType).isEmpty());
     assertTrue(VarkaTypes.declineReason(DataTypes.TimestampNTZType).isEmpty());
     assertTrue(VarkaTypes.declineReason(DataTypes.StringType).isEmpty());
+  }
+
+  @Test
+  @DisplayName("a decimal has the long lane up to precision 18 with a scale of zero or more, is "
+      + "read on it once its reader lands, and declines naming row 359 above it and the decision "
+      + "for a negative scale")
+  void decimalLaneReadsThePrecision() {
+    var up = (Admission.UpToPrecision) VarkaTypes.info(VarkaTypeId.DECIMAL).admission();
+    // The same admission with its reader landed: the one component the reader empties.
+    var landed = new Admission.UpToPrecision(up.lane(), up.maxPrecision(), up.widerRow(),
+        Optional.empty());
+    for (int p = 1; p <= 18; p++) {
+      for (int s : new int[] {0, p / 2, p}) {
+        DecimalType d = DataTypes.createDecimalType(p, s);
+        assertTrue(up.admits(d) && landed.reads(d), d.sql());
+        // While a row owes the reader, no kernel reads the column: every consumer asks
+        // `lane(DataType)`, which answers empty with the row named.
+        assertEquals(up.readerRow().isEmpty(), up.reads(d), d.sql());
+        if (up.readerRow().isPresent()) {
+          assertTrue(VarkaTypes.lane(d).isEmpty(), d.sql());
+          assertEquals("a " + d.simpleString() + " column: no operator over a decimal is built "
+              + "yet, row " + up.readerRow().get() + "'s",
+              VarkaTypes.declineReason(d).orElseThrow(), d.sql());
+        } else {
+          assertEquals(LaneType.LONG, VarkaTypes.lane(d).orElse(null), d.sql());
+          assertTrue(VarkaTypes.declineReason(d).isEmpty(), d.sql());
+        }
+      }
+    }
+    assertFalse(landed.reads(DataTypes.createDecimalType(19, 0)));
+    DecimalType wide = DataTypes.createDecimalType(30, 4);
+    assertTrue(VarkaTypes.lane(wide).isEmpty());
+    assertTrue(VarkaTypes.lane(DataTypes.createDecimalType(19, 0)).isEmpty());
+    assertEquals("a decimal(30,4) column: precision above 18 is row 359's",
+        VarkaTypes.declineReason(wide).orElseThrow());
+    // A negative scale exists only under Spark's legacy flag, which the type's constructor reads.
+    SQLConf conf = SQLConf.get();
+    String legacy = SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED().key();
+    DecimalType negative;
+    conf.setConfString(legacy, "true");
+    try {
+      negative = new DecimalType(10, -2);
+    } finally {
+      conf.unsetConf(legacy);
+    }
+    assertTrue(VarkaTypes.lane(negative).isEmpty());
+    assertEquals("a decimal(10,-2) column: a negative scale is declined everywhere (the "
+        + "milestone plan's 2.8)", VarkaTypes.declineReason(negative).orElseThrow());
+    // The id-level answer, which carries no precision and asks for no reader, is the lane the
+    // admitted ones have.
+    assertEquals(LaneType.LONG, VarkaTypes.info(VarkaTypeId.DECIMAL).lane().orElse(null));
   }
 
   @Test

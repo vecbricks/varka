@@ -74,6 +74,9 @@ OWED = {
     ("benchmark", "FLOAT"): "row 341 (the floating lanes, after their split)",
     ("fuzz grammar", "DOUBLE"): "row 341 (the floating lanes, after their split)",
     ("benchmark", "DOUBLE"): "row 341 (the floating lanes, after their split)",
+    # A decimal pair counts fused only when it fuses at every precision up to 38 (m8/PLAN.md 2.8),
+    # so the comparisons and null tests row 347 fuses up to precision 18 are a note, not a claim.
+    ("census", "DecimalType"): "row 359 (a decimal pair fused at every precision, PLAN.md 2.8)",
 }
 
 
@@ -106,10 +109,11 @@ def vector_classes():
 
 def spark_types():
     """Each lane's Spark types: the type registry's entries read on a lane, from its committed
-    table (`sql/varka/types.tsv`, written by `VarkaTypesSuite` from `VarkaTypes`)."""
+    table (`sql/varka/types.tsv`, written by `VarkaTypesSuite` from `VarkaTypes`). A decimal is
+    read on its lane up to a precision (`up_to_precision`), and is checked there like the rest."""
     out = {}
     for row in types_rows():
-        if row["admission"] == "on_lane":
+        if row["admission"] in ("on_lane", "up_to_precision"):
             out.setdefault(row["lane"], []).extend(row["spark"].split(","))
     return out
 

@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolCompare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -45,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -135,6 +137,13 @@ public final class VarkaIrGrammar {
    * withChildren and round-trip tests draw the same narrow conversions on every run.
    */
   public static final long NARROW_FUZZ_SEED = 20261023L;
+
+  /**
+   * The seed of {@link #drawNullingShape} and {@link #drawNullingLongShape}, a sequence of its
+   * own for the reason {@link #NARROW_FUZZ_SEED} gives. {@code VarkaIrFuzzSuite} runs it against
+   * the reference evaluator; nothing pins its bytes.
+   */
+  public static final long NULLING_FUZZ_SEED = 20261030L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -246,6 +255,9 @@ public final class VarkaIrGrammar {
   public static Bounds boundsOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef _ -> new Bounds(COLUMN_BOUND, 0L);
+      // The grammar draws no decimal column (VARKA-347's own sequence is a later step's).
+      case DecimalColumn _ ->
+          throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
@@ -312,6 +324,8 @@ public final class VarkaIrGrammar {
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
+      // A root of two bitmaps: no magnitude, only the producers its condition may hold.
+      case BoolOutput n -> new Bounds(1L, guard(n.cond()));
       // The dynamic form moves the date down like the literal one, whatever the level; the
       // level column contributes no day magnitude of its own, only whatever guarded producer
       // might sit under it, which `guard` picks up.
@@ -386,6 +400,18 @@ public final class VarkaIrGrammar {
     return (int) within(rnd, bound);
   }
 
+  /**
+   * A {@code NULL} range guard over {@code a}, whose values lie within {@code bound}: each end
+   * drawn from {@code [0, bound]} on its own side of zero, so the range holds zero and often
+   * excludes some of the child's values, which the guard nulls and the reference answers as
+   * nulls. The bound is the child's, since a nulled lane keeps its value.
+   */
+  static Gen nullingGuard(Random rnd, Gen a, long bound) {
+    long hi = Math.floorMod(rnd.nextLong(), bound + 1);
+    long lo = -Math.floorMod(rnd.nextLong(), bound + 1);
+    return new Gen(new GuardedRange(a.node(), lo, hi, Overflow.NULL), a.bound());
+  }
+
   /** {@code roots} without repeats, each kept where it first appears. */
   private static List<VarkaVectorIR> distinct(List<VarkaVectorIR> roots) {
     return List.copyOf(new LinkedHashSet<>(roots));
@@ -397,6 +423,19 @@ public final class VarkaIrGrammar {
    * lane values and null patterns picks up.
    */
   public static Drawn drawShape(Random rnd) {
+    return drawShape(rnd, false);
+  }
+
+  /**
+   * {@link #drawShape} with nulling range guards among its guards ({@link #nullingGuard}), from
+   * {@link #NULLING_FUZZ_SEED}: a draw of its own, so that the committed corpora, which
+   * {@code emitted_bytes.json} and the cost tables pin, do not depend on it.
+   */
+  public static Drawn drawNullingShape(Random rnd) {
+    return drawShape(rnd, true);
+  }
+
+  private static Drawn drawShape(Random rnd, boolean nullingGuards) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     // The last input, when there is more than one, holds month-count-magnitude values so a
@@ -406,7 +445,8 @@ public final class VarkaIrGrammar {
     // The second special column, and only when there are three: with two, taking one for
     // trunc levels would leave a single day column and starve every other arm.
     int levelOrdinal = numInputs > 2 ? numInputs - 2 : -1;
-    var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal);
+    var shapes = new Shapes(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal,
+        nullingGuards);
     int depth = 1 + rnd.nextInt(4);
     // Either a projection of value roots or one selection root: the two kinds of kernel
     // production emits, never mixed in one class.
@@ -548,15 +588,23 @@ public final class VarkaIrGrammar {
     private final int numLiterals;
     private final int smallOrdinal;
     private final int levelOrdinal;
+    private final boolean nullingGuards;
     private int budget = 20;
 
     public Shapes(Random rnd, int numInputs, int numLiterals, int smallOrdinal,
         int levelOrdinal) {
+      this(rnd, numInputs, numLiterals, smallOrdinal, levelOrdinal, false);
+    }
+
+    /** With {@code nullingGuards}, the range guard is a nulling one a third of the time. */
+    public Shapes(Random rnd, int numInputs, int numLiterals, int smallOrdinal,
+        int levelOrdinal, boolean nullingGuards) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.smallOrdinal = smallOrdinal;
       this.levelOrdinal = levelOrdinal;
+      this.nullingGuards = nullingGuards;
     }
 
     /**
@@ -767,6 +815,12 @@ public final class VarkaIrGrammar {
           boolean wide = a.bound() > Integer.MAX_VALUE;
           long bound = wide ? Integer.MAX_VALUE : a.bound();
           long lo = wide ? Integer.MIN_VALUE : -bound;
+          // In the nulling draw, one in three is the nulling guard, whose firing the reference
+          // spells as a null, so its bounds are drawn inside the child's and some lanes fall
+          // outside them. The committed draws take nothing more from the generator here.
+          if (nullingGuards && rnd.nextInt(3) == 0) {
+            return nullingGuard(rnd, a, bound);
+          }
           return new Gen(new GuardedRange(a.node(), lo, bound), a.bound());
         }
         case 24: {
@@ -936,9 +990,18 @@ public final class VarkaIrGrammar {
 
   /** {@link #drawShape}'s twin at the long lane, shared by the fuzzer and the bytes oracle. */
   public static DrawnLong drawLongShape(Random rnd) {
+    return drawLongShape(rnd, false);
+  }
+
+  /** {@link #drawNullingShape}'s twin at the long lane. */
+  public static DrawnLong drawNullingLongShape(Random rnd) {
+    return drawLongShape(rnd, true);
+  }
+
+  private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new LongShapes(rnd, numInputs, numLiterals);
+    var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards);
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -997,12 +1060,19 @@ public final class VarkaIrGrammar {
     private final Random rnd;
     private final int numInputs;
     private final int numLiterals;
+    private final boolean nullingGuards;
     private int budget = 20;
 
     public LongShapes(Random rnd, int numInputs, int numLiterals) {
+      this(rnd, numInputs, numLiterals, false);
+    }
+
+    /** With {@code nullingGuards}, the range guard is a nulling one a third of the time. */
+    public LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
+      this.nullingGuards = nullingGuards;
     }
 
     private static boolean saturated(long bound) {
@@ -1079,6 +1149,10 @@ public final class VarkaIrGrammar {
           if (saturated(a.bound())) {
             return new Gen(new GuardedRange(a.node(), Long.MIN_VALUE, Long.MAX_VALUE),
                 a.bound());
+          }
+          // The nulling guard one time in three in the nulling draw, as at the int lane.
+          if (nullingGuards && rnd.nextInt(3) == 0) {
+            return nullingGuard(rnd, a, a.bound());
           }
           return new Gen(new GuardedRange(a.node(), -a.bound(), a.bound()), a.bound());
         }

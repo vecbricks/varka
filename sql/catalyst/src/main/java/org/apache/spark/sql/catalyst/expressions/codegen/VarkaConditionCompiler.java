@@ -1078,6 +1078,11 @@ final class VarkaConditionCompiler {
     if (child.dataType().equals(DataTypes.BooleanType)) {
       return compileCond(child, inputs, literals, sink).map(VarkaVectorIR.IsNotNull::new);
     }
+    // A decimal column's null test reads its word, over the decimal leaf (VARKA-347).
+    if (VarkaDecimalCompiler.isDecimal(child)) {
+      return VarkaDecimalCompiler.nullTested(whole, child, inputs, sink)
+          .map(VarkaVectorIR.IsNotNull::new);
+    }
     Optional<VarkaVectorIR> compiled;
     if (child instanceof BoundReference br && br.dataType().equals(DataTypes.IntegerType)) {
       compiled = Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.INT));
@@ -1287,6 +1292,12 @@ final class VarkaConditionCompiler {
           .flatMap(both -> meetAll(cmp, sink, both))
           .map(both -> new VarkaVectorIR.BoolCompare(op, both.get(0), both.get(1)));
     }
+    // Two decimals of one scale compare as their unscaled longs (VARKA-347), read by the
+    // decimal leaf rather than by compileNode, which declines a decimal in a value position.
+    if (VarkaDecimalCompiler.isDecimal(cmp.left())) {
+      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, sink)
+          .map(both -> new Compare(op, both.get(0), both.get(1)));
+    }
     Optional<VarkaVectorIR> left = operand(cmp.left(), inputs, literals, sink);
     if (left.isEmpty()) {
       return Optional.empty();
@@ -1340,6 +1351,11 @@ final class VarkaConditionCompiler {
       }
       Cond known = expected ? p.get() : new VarkaVectorIR.Not(p.get());
       return Optional.of(new VarkaVectorIR.And(known, new VarkaVectorIR.IsNotNull(known)));
+    }
+    // Two decimals of one scale, as compare takes them (VARKA-347).
+    if (VarkaDecimalCompiler.isDecimal(n.left())) {
+      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, sink)
+          .map(both -> new VarkaVectorIR.NullSafeEqual(both.get(0), both.get(1)));
     }
     Optional<VarkaVectorIR> left = operand(n.left(), inputs, literals, sink);
     if (left.isEmpty()) {

@@ -287,7 +287,10 @@ form.
 Boolean casts and `CAST(p AS INT)` as an output (332), `bit_count(bool)` (335b), the floating
 conditions (341), the fuzzers' boolean reach (352), the per-word default at four lanes
 (VARKA-92, `m9/SCOPE.md` item 39), and lifting an int condition onto a long kernel's lane instead
-of a kernel of its own.
+of a kernel of its own. Also out: the cost model's price of a `BoolOutput` root's store.
+`VarkaEmitCost.Tally.output` prices it as a value root's store at its lane, not as a selection
+bitmap's or as two bitmaps, and stays so until the model's refit reprices it with the node's own
+price, which the price table lists as awaiting that refit (11); no number of the model moves here.
 
 ## 7. Declines that stay
 
@@ -329,3 +332,237 @@ existing shape; and the PR build and the option matrix pass.
 ## 10. Outcome
 
 (Written when the work lands.)
+
+## 11. Step 3 as built (27 October 2026)
+
+Sections 2.1, 2.2 and 2.5 with IR-level tests; nothing fuses from SQL until step 4's compiler arm.
+
+**Built.** `BoolOutput(Cond cond)` in `VarkaVectorIR`, its lane its condition's, canonical form
+`(bool-out <cond>)`, in every sealed switch of `VARKA-460.md` 5's list and the seven test lists of
+node types (the fuzzers' reach leaves it out with the other boolean nodes until row 352, the
+price table lists it as awaiting the refit, and its budget weight is the connectives' floor of 1).
+`Analysis` analyzes it as `CondValue`, so a `CondConst(NULL)` under it keeps the kernel
+masked-only; `pureOf` answers null for it, stated in `planBitmapPass`'s javadoc; and a
+`BoolOutput` below a root is refused in the operand check. The write is
+`VarkaBodyEmitter.emitBoolOutput`: the data bitmap gets `toLong` of the condition's mask in the
+dense body and `kt` in the masked one, through the same per-group or per-word writer as the
+validity (a second accumulator, `Slots.dataAcc`, planned after every validity accumulator and only
+for a `BoolOutput` root, zeroed before the loop for the verifier as the validity's are). The
+validity follows the value roots' rule as section 2.2's table has it: all ones in the dense body,
+by the driver under `denseValidityOnce` or per group without it, and in the masked body the node's
+own word `kt | kf`, stored as `CondValue`'s is. The all-null shortcut excludes the root outright.
+At the runner sites, `VarkaLaneArrow.of(BOOLEAN)` is a `BitVector` with `VarkaLaneArrowSuite`'s
+exemption, `runKernel` records `KernelCall.BIT_OUTPUT` (-1) as a bit vector's width,
+`KernelCall.outputDataBytes` sizes a bit output's data at whole words for the sanitizer's guard,
+the cross-body check's allocation and `VarkaReplay`, and the cross-body compare reads a bit
+output's data bit by bit where the validity is set. The kernel contract's javadoc gains the
+boolean output, and `VarkaTypes` names row 332 as the row that reads a boolean as a value
+(`types.tsv` regenerated).
+
+**Departures from the plan.**
+
+1. *The driver's zero of the data bitmap.* The default driver is the table driver
+   (`driverOutputTable`), whose plan (`VarkaVectorSupport.prepareOutputValidity`) prepares
+   validity only and is handed no data addresses. Rather than a new plan step, which would widen
+   that call in every kernel and move the engine's step set and its pinned equality with the
+   emitter's, the table driver makes one more call after the plan's,
+   `VarkaVectorSupport.zeroBitOutputData`, which zeroes each `BoolOutput`'s data bitmap to its
+   last whole word from a string constant of their ordinals. It is one call at any count of
+   boolean outputs, so the table driver's size stays its calls' (`VARKA-190.md` 10); a zero
+   unrolled per output, about 22 bytes each, would have grown it with the outputs, and
+   `splitDriver` moves only the group calls. The unrolled driver zeroes it where it maps the
+   segment, as it does each validity. Neither form is emitted for a kernel without a boolean
+   output, so no existing shape's bytes change.
+2. *The data segment* is mapped at whole words under both writers, not only under
+   `validityByWord`: the per-group writer stays inside it, and Arrow's `BitVector` holds the whole
+   last word at every length (item 0.5).
+3. *The narrow lanes.* The plan's tests name the int and long lanes; the emitter suite also runs
+   `BYTE` and `SHORT` conditions as outputs, which pass with no change, so the node is not refused
+   at a narrow lane as `CondValue` is.
+4. *The projection's width check* (`CompiledVarkaProjection`) refuses a `BoolOutput` root whose
+   Spark type is not `BOOLEAN`, beside its check of value roots' widths.
+5. *The planted data bit of 3.6* is planted in the compare itself: the cross-body compare is now
+   the static `VarkaKernelRunner.compareBodies`, and `VarkaEvaluatorComponentsSuite` hands it two
+   bodies' bitmaps that differ in one data bit on a valid row of a null-free batch, and in one under
+   a null row, which passes. Planting it through a kernel would need a second emission that
+   disagrees with the first and `-Dvarka.checkBothBodies` at the JVM's start.
+6. *A finding outside the step.* `VarkaCanonicalIr`, the reproduction's IR parser, reads no
+   boolean-column leaf and none of the boolean nodes of row 331 (`BoolColumn`, `CondConst`,
+   `BoolCompare`, `CondIf`, `BoolNullSafeEq`), so a reproduction file of a kernel over a boolean
+   column does not replay. The round trip of `BoolOutput` is tested over comparisons and a null
+   test. The owner made the parser's boolean leaves and nodes a row of their own, 502, with the
+   decimal leaf of row 347.
+7. *Test gaps for step 4.* The review of this step found three paths no test reaches, which step
+   4's tests are to cover:
+   - no `runKernel` with a `BOOLEAN` output, so the evaluator's assignment of `BIT_OUTPUT` as the
+     width of a `BitVector` output (`VarkaEvaluatorBase`) and `-Dvarka.checkBothBodies` over a
+     bit output run in no test; the compare is tested only as a static call (departure 5);
+   - no sweep of `validityByWord` with `denseValidityOnce(false)`, the word writer with the dense
+     validity written per group;
+   - no `BoolOutput` over a kernel that converts lanes, whose epilogue is `emitMixedEpilogue`.
+
+**Tests.** `VarkaEmitterBoolSuite` gained six tests: every boolean form (`AND`, `OR`, `NOT`, the
+five comparisons, `<=>`, `IF`, `coalesce`, `IS NULL`, `IS NOT NULL`, the constants, and value
+comparisons over `CondValue`) as outputs over every leaf state, dense and masked, at four lanes,
+eight and the default width, each under four writers (per group, per word, the unrolled driver
+with the per-group dense validity, the unrolled driver per word), on the int, long, byte and short
+lanes; boolean outputs beside value outputs in one kernel; the all-null cases of 2.2 each alone in
+its kernel (`b0 OR b1` and `b0 AND b1` with `b0` null throughout, `b IS NULL`, `b <=> b2` with one
+and with both null throughout, `CondConst(TRUE)`); and `CondConst(NULL)` keeping the kernel
+masked-only, with the refusal below a root. Each row's data bit is held to the known-true answer
+and its validity bit to the known one, by `VarkaReference.cond`, which the suite's first test holds
+to Spark's `eval` (now with `IS NULL`). Two planted faults each fail five or six of them: the masked
+validity as `kt` alone, and the driver's zero of the data bitmap left out. 3.2:
+`VarkaEmitterValiditySuite` asserts that no `BoolOutput` over a comparison, `AND`, `OR`, `NOT` or a
+bare column is served by the bitmap pass. 3.6's runner parts: the compare above, and
+`VarkaReproductionSuite` replays a bit output of 100 rows from its file's text, the marker read
+back as -1 and the data allocated at two whole words.
+
+**Measured.** The six emitter tests take 9.7 s in the defaults gate, inside 4.4's "under 10 s
+more" for the emitter suite. The catalyst defaults gate (`dev/varka_matrix.sh --defaults --module
+catalyst`, sanitizer on) passes, 911 tests with none failed; `VarkaLaneArrowSuite`,
+`VarkaEvaluatorComponentsSuite` and `VarkaKernelEvaluatorSuite` pass in sql/core.
+`emitted_bytes.json` is unchanged, so no existing shape's bytes moved (3.7; prediction 4.1's
+first half), and `coverage.json` and `width_audit.json` are untouched, as nothing compiles to the
+node yet.
+
+**The review of step 3 (30 October 2026).** It corrects departure 4: the width check held one way
+only, so a `TINYINT` value root typed `BOOLEAN` passed the width compare, was handed a `BitVector`
+with the bit-output width and stored a byte a row past the data bitmap, and a filter's `Cond` root
+typed `BOOLEAN` in a projection would write only the validity. `CompiledVarkaProjection` now
+refuses a root that writes bitmaps (`VarkaVectorIR.writesBitmaps`: a `Cond` or a `BoolOutput`)
+unless its type is `BOOLEAN`, and a value root typed `BOOLEAN`; the filter's kernel is the same
+record with `Cond` roots typed `BOOLEAN`, so `PartialVarkaProjection` refuses a bare `Cond` root
+in any of a projection's kernels. `VarkaEmitterBoolSuite` builds each wrong shape and shows it
+refused. The same predicate replaces the copies of the rule in the all-null shortcut, the
+epilogue's bounds-mask count, the output segment mapping and `planBitmapPass`, which skips a
+`BoolOutput` root by it rather than through its null pure word. `zeroBitOutputData` refuses an
+ordinal past the destinations by name; the cross-body compare takes each body's buffers as a
+record; `VarkaLaneArrow` keeps one table. The cost model's price of the root's store stays out of
+the row (6). `emitted_bytes.json` is unchanged.
+
+## 12. Step 4 as built (27 October 2026)
+
+Sections 2.3 and 3.3 to 3.5, with the three test gaps of 11's departure 7.
+
+**Built.** `VarkaExpressionCompiler.compileRoot` compiles a `BooleanType` root through
+`VarkaConditionCompiler.compileCond` and wraps it in `BoolOutput`; a declined condition declines
+the entry with the condition's own reason, and the lane rule is the existing one (an int condition
+beside long values plans alone and takes a kernel of its own, a long one shares their kernel; both
+tested in `VarkaExpressionCompilerSuite`, whose assertion that `d < d2` as an output compiles to
+nothing now asserts the `BoolOutput`). A bare boolean column is still forwarded before the arm.
+
+*Coverage.* A family "Boolean outputs" of eight projection rows: `d2 > d`, `l2 > l`, `y2 > y1`,
+`NOT b2`, `b AND b2`, `(d < d2) OR b`, `l2 <=> l` and `CASE WHEN b THEN b2 END` (the CASE without
+ELSE fuses: the condition family already builds its null constant). The three over boolean columns
+are verified by `VarkaEmitterBoolSuite`'s sweep of boolean outputs, the rest differentially.
+`VarkaCoverageSuite` gains a test that compiles every predicate row as a projection entry and
+requires a `BoolOutput` of type `BOOLEAN`, or, for the bare column `b`, no fused entry: all 136
+predicate rows pass.
+
+*The differential.* `VarkaCoverageDifferentialSuite` runs each predicate row as
+`SELECT rid, (p) AS c` on its three fixtures, under the partition oracle's rule exclusions (the
+null-safe set for a null-safe row), through the row consumer and the columnar one (a cached view
+over the query, whose Arrow cache stores the kernel's `BitVector`), and compares the rows with
+Spark's, a true, a false and a null each its own value. A kernel must serve the whole projection,
+except for the bare column `b`, which must run on Spark's projection, and an output Spark's
+optimizer folded to a constant. A planted test holds the comparison to a null answered as false.
+The eight new rows also run the per-row test and the ANSI form, for which a `BOOLEAN` stand-in
+(`b2`) and a long guard for a condition over long columns were added.
+
+*Conformance.* The rule that owed every `BOOLEAN` value to this row is gone; the `BOOLEAN` round
+trip is `if(x IS NULL, true, x)` and `coalesce(x, false)`, and passes; and every condition form
+with a register entry also runs as a value, under the same entry, so a value over an operator the
+census marks fused must fuse, and one it owes must decline. All four conformance suites pass with
+the twins; their only cancelled checks are the cast rows owed to rows 28, 103, 332, 340, 343,
+350 and 364, as before, now also listing the value twins. A boolean value is held to both fixture
+rules (true and false somewhere, null where null-intolerant). For this `VarkaKernelChecks` learned
+the `BoolOutput` root: its data is a bitmap of whole words pre-filled with stale bits the driver
+must zero, registered with the sanitizer at whole words (`BIT_STRIDE`), compared row by row with the
+data bit as the known-true answer and the validity as the known one, held to zero past the last
+row, and folded into the answer digest. Inverting the data compare fails six tests of
+`VarkaBooleanConformanceSuite` and `VarkaEmitterMixedLaneSuite`.
+
+*The test gaps of 11's departure 7.*
+- `VarkaKernelEvaluatorSuite` runs three boolean outputs (`i > 11`, `d IS NULL`, `i <=> 13`)
+  through the evaluator's `runKernel` over four rows with nulls, asserts each output is a
+  `BitVector` and each `dstWidth` is `BIT_OUTPUT`, and reads Spark's answers back;
+  `VarkaMemorySanitizerEndToEndSuite` runs `b AND b2`, `(i > 50) OR b` and `b <=> b2` over 100
+  rows under the sanitizer (3.6's end to end at a length not a multiple of 64). Both, and the
+  differential, run under `-Dvarka.checkBothBodies` and the sanitizer in the defaults gate below,
+  which puts both flags on every JVM; that is where a bit output's both-bodies check runs. The
+  check is exercised there, not asserted: no test counts that the compare ran.
+- `VarkaEmitterBoolSuite`'s writers gain a fifth, `validityByWord` with
+  `denseValidityOnce(false)`.
+- `VarkaEmitterMixedLaneSuite` runs boolean outputs in kernels of both lanes, whose epilogue is
+  `emitMixedEpilogue`: `i < l`, `i < l OR i2 IS NOT NULL`, `CAST(l AS INT) = i` (an int-lane
+  condition driven at the long lane) and `i < l` beside a CASE over it, under four writers, at
+  both widths, every length and null pattern.
+
+**Generated files**, in `ADDING_AN_EXPRESSION.md`'s order on this branch's base: `coverage.json`
+and `docs/sql-varka.md` add the eight rows; `emitted_bytes.json` adds their entries at both
+widths with no existing entry changed, and its `option_arms` digests move, as each is one digest
+over every shape, the new ones included (prediction 4.1); `width_audit.json` adds the rows, the
+long ones at 128 bits with the long `toLong`'s refusal item 0.11 named; the coverage table was then
+regenerated over the audit. `golden_corpus.json` moves three statements of its interval file
+from a plain projection to a fused one (`INTERVAL '1 02' DAY TO HOUR = INTERVAL '02:10:55' HOUR
+TO SECOND` and two like it, comparisons as outputs), each answering as Spark does.
+`emit_cost_audit.json`, the operator census and `census.tsv` did not move. Rows 485 and 341
+land coverage rows on master; the files are regenerated again after they merge.
+
+**Departures from the plan.**
+
+1. *The documented rows' spellings.* The generated files key a row by its SQL, so a projection row
+   cannot repeat a predicate row's text: `d < d2`, `l < l2`, `y1 < y2`, `NOT b` and `l <=> l2` are
+   spelled `d2 > d`, `l2 > l`, `y2 > y1`, `NOT b2` and `l2 <=> l`, the same forms over the same
+   lanes.
+2. *The differential's optimizer.* The output form runs under the partition oracle's exclusions
+   only, not also under the default optimizer, so that each row reaches Varka as written; the
+   default optimizer's rewrites of these rows are already the per-row predicate tests' inputs.
+3. *The guard of the ANSI form.* A boolean projection row has no lane of its own, so its guard is
+   `lrid` where its condition reads a long-lane column, rather than by the result type alone.
+
+**Measured.** The defaults gate (`dev/varka_matrix.sh --defaults --split 4`, the sanitizer and
+`-Dvarka.checkBothBodies` on every JVM) ran 2468 tests over both modules with one failure, the
+golden corpus before its regeneration, which then passes. Every one of the 136 predicate rows
+answers as Spark does as a boolean output, row for row on every fixture under both consumers, with
+a kernel serving it but for the bare column `b`, which runs on Spark's projection. The
+exemption for an output Spark folds to a constant never fires under the exclusions: run once with
+it removed, all 136 tests pass. The 136 output
+tests take 28.3 s, against prediction 4.4's 60 s for 123: a ratio of 0.47, since each test's
+queries are small and the fixtures stay cached across them.
+
+## 13. Steps 3 and 4 brought up to master (30 October 2026)
+
+Both branches took master by merge commits, 93 commits on from their base. What moved under
+them, and where 11 and 12 now read differently:
+
+- *The differential's output test is below the session.* Master moved every coverage row's
+  answers from `VarkaCoverageDifferentialSuite` into `VarkaCoverageHarnessSuite` (VARKA-509) and
+  lints a suite that checks rows through a session (VARKA-529), so 12's every-predicate-row test
+  is now that suite's `booleanOutputs`: each predicate row as `SELECT rid, (p) AS c`, planned by
+  the harness under the same rule exclusions, served through both consumers, its rows held to
+  Spark's with a null kept apart from a false, a kernel required to answer with no output left
+  to the row path, and the bare column `b` required to fuse nothing. The planted check holds
+  the harness's row comparison to a null answered as false. The ANSI form's `BOOLEAN` stand-in
+  (`b2`) and its guard moved with it to `VarkaAnsiForm`; the guard of a boolean output is now
+  picked by the condition's columns as a predicate's is, so a long condition takes `lrid` and
+  a floating one `xrid` or `frid`.
+- *More predicate rows.* Row 341's floating rows bring the table to 164 predicate rows, and all
+  164 answer as Spark does as boolean outputs, the floating conditions included, with a kernel
+  serving each but `b`.
+- *The conformance contract* now holds each form's discrimination over the batches the kernel
+  answered as well as over the fixture; a `BOOLEAN` value is held to both rules in both places.
+- *Generated files*, regenerated after the merge in `ADDING_AN_EXPRESSION.md`'s order with the
+  same result as 12: the eight rows added to `coverage.json`, `docs/sql-varka.md`,
+  `emitted_bytes.json` (no existing entry changed, the `option_arms` digests moved) and
+  `width_audit.json` (the two long rows refused at 128 bits), and the same three interval
+  comparisons of `golden_corpus.json` moved from a plain projection to a fused one.
+
+**Checked** on the laptop: the catalyst defaults gate (`dev/varka_matrix.sh --defaults --module
+catalyst --split 4`, the sanitizer on, and on step 4 `-Dvarka.checkBothBodies` too) passes on
+both branches, 972
+tests on step 3 and 977 on step 4 with none failed; on step 4 the sql suites the change reaches
+(the coverage harness and differential, the expression harness suites, the evaluator, sanitizer,
+lane, golden corpus suites) pass, 1409 tests with none failed; on step 3 the sql suites of 11
+with `VarkaMemorySanitizerEndToEndSuite`, and the engine's `VarkaVectorSupportOutputPlanTest` pass.
