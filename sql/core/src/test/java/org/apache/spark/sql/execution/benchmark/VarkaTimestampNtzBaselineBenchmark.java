@@ -33,15 +33,17 @@ import org.apache.spark.sql.VarkaBenchmark;
  * ({@code CASE WHEN ntz < ntz2 THEN ntz ELSE ntz2 END}), each with no nulls and with one row in ten
  * null. Each has two arms, named so the labels survive the lane landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Where a section is listed as fusing, the {@code varka on} arm times a kernel.
+ * session with it. Where a section fuses, the {@code varka on} arm times a kernel.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
- * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
- * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
- * The comparison, the cast and the choice are listed, since the {@code TIMESTAMP_NTZ} lane fuses
- * them (VARKA-338), and the results file notes each of them as fusing; the arithmetic chain is
- * still the row path in both arms. A row that starts to fuse another section lists it, so that
- * its fusion cannot turn a baseline section into a fused one unnoticed.
+ * each section's plan on the Varka session against the section's {@link Fusion} class, the
+ * record of how much of it a row has fused, and fails when the plan's class differs
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). The
+ * comparison, the cast and the choice are {@code WHOLE}, since the {@code TIMESTAMP_NTZ} lane
+ * fuses them (VARKA-338), and the results file notes each of them as fusing; the arithmetic
+ * chain is {@code NONE}, still the row path in both arms. A row that fuses more of a section
+ * sets its new class, so that its fusion cannot turn a baseline section into a fused one
+ * unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -54,8 +56,11 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
 
-  /** A section: its title, its query, and whether the Varka session fuses it today. */
-  record Section(String title, String query, boolean fuses) {}
+  /**
+   * A section: its title, its query, and how much of it the Varka session fuses today, the
+   * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before timing.
+   */
+  record Section(String title, String query, Fusion fusion) {}
 
   /**
    * The table: {@code ntz}, {@code ntz2} and {@code ntz3} with no null, spread over ten years from
@@ -90,15 +95,15 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String c = "ntz3" + nulls;
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       out.add(new Section("TIMESTAMP_NTZ comparison, " + density,
-          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, true));
+          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
           "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
-          false));
+          Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ cast to DATE, " + density,
-          "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", true));
+          "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ choice, " + density,
           "SELECT CASE WHEN " + a + " < " + b + " THEN " + a + " ELSE " + b
-              + " END AS v FROM varka_ntz", true));
+              + " END AS v FROM varka_ntz", Fusion.WHOLE));
     }
     return out;
   }
@@ -118,7 +123,7 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, "varka_ntz");
       }
       for (Section s : sections()) {
-        requireBaseline(varka, s.title(), s.query(), s.fuses());
+        requireBaseline(varka, s.title(), s.query(), s.fusion());
       }
       for (Section s : sections()) {
         section(s.title(), () -> {

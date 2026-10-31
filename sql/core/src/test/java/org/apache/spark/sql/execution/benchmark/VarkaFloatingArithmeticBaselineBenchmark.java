@@ -43,10 +43,12 @@ import org.apache.spark.sql.internal.SQLConf;
  * session with it. Today both are the row path, so they should tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
- * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
- * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not;
- * the results file notes each section that fuses. No section is listed today. A row that fuses a
- * section lists it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
+ * each section's plan on the Varka session against the section's {@link Fusion} class, the
+ * record of how much of it a row has fused, and fails when the plan's class differs
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
+ * results file notes the class of each section that fuses. Every section is {@code NONE} today.
+ * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
+ * baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -54,7 +56,7 @@ import org.apache.spark.sql.internal.SQLConf;
  *     -f expected-cpu="AMD EPYC 7763"
  *   (and again with -f extra-java-options=-XX:MaxVectorSize=16 for the 128-bit companion)
  * </pre>
- * The run that measures a row which fuses unlisted sections against the committed files lifts
+ * The run that measures a row which changes a section's class against the committed files lifts
  * the check with {@link VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY}, still noting every section
  * that fuses:
  * <pre>
@@ -74,10 +76,11 @@ public class VarkaFloatingArithmeticBaselineBenchmark extends VarkaSqlBenchmarkB
 
   /**
    * A section: its title, its query, the SQL settings it runs under on both sessions, empty for a
-   * form whose answer does not depend on the mode, and whether the Varka session fuses it, which
-   * the run checks before it times anything.
+   * form whose answer does not depend on the mode, and how much of it the Varka session fuses
+   * today, the {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before
+   * timing.
    */
-  record Section(String title, String query, Map<String, String> conf, boolean fuses) {}
+  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
 
   /**
    * The table: {@code x} and {@code y} as doubles, {@code ym} a year-month and {@code dt} a
@@ -129,24 +132,24 @@ public class VarkaFloatingArithmeticBaselineBenchmark extends VarkaSqlBenchmarkB
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("DOUBLE x / y, LEGACY" + density,
-          "SELECT " + x + " / " + y + from, legacy, false));
+          "SELECT " + x + " / " + y + from, legacy, Fusion.NONE));
       out.add(new Section("DOUBLE x / y, ANSI" + density,
-          "SELECT " + x + " / " + y + from, ansi, false));
+          "SELECT " + x + " / " + y + from, ansi, Fusion.NONE));
       out.add(new Section("DOUBLE x / 3.0D" + density,
-          "SELECT " + x + " / 3.0D" + from, Map.of(), false));
+          "SELECT " + x + " / 3.0D" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE try_divide(x, y)" + density,
-          "SELECT try_divide(" + x + ", " + y + ")" + from, Map.of(), false));
+          "SELECT try_divide(" + x + ", " + y + ")" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE sqrt(abs(x))" + density,
-          "SELECT sqrt(abs(" + x + "))" + from, Map.of(), false));
-      out.add(new Section("DOUBLE -x" + density, "SELECT -" + x + from, Map.of(), false));
+          "SELECT sqrt(abs(" + x + "))" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("DOUBLE -x" + density, "SELECT -" + x + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE signum(x)" + density,
-          "SELECT signum(" + x + ")" + from, Map.of(), false));
+          "SELECT signum(" + x + ")" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE degrees(x)" + density,
-          "SELECT degrees(" + x + ")" + from, Map.of(), false));
+          "SELECT degrees(" + x + ")" + from, Map.of(), Fusion.NONE));
       out.add(new Section("year-month interval ym * x" + density,
-          "SELECT " + ym + " * " + x + from, Map.of(), false));
+          "SELECT " + ym + " * " + x + from, Map.of(), Fusion.NONE));
       out.add(new Section("day-time interval dt / x" + density,
-          "SELECT " + dt + " / " + x + from, Map.of(), false));
+          "SELECT " + dt + " / " + x + from, Map.of(), Fusion.NONE));
     }
     return out;
   }
@@ -166,7 +169,7 @@ public class VarkaFloatingArithmeticBaselineBenchmark extends VarkaSqlBenchmarkB
         VarkaArrowSessions.cache(session, VIEW);
       }
       for (Section s : sections()) {
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fuses()));
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
       for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),

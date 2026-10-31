@@ -419,35 +419,6 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   }
 
   /**
-   * Checks that {@code varka} fuses {@code query} exactly when the section says it does, and
-   * notes each section that fuses in the results file. {@code fuses} is the section's entry in
-   * its class's list of expected fusers: a section a row has fused is listed by that row, so a
-   * later row that starts to fuse an unlisted section fails the run rather than timing a kernel
-   * under the label of the row path. A listed section that no longer fuses fails too, since the
-   * list would then misstate the file. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts
-   * both checks for the run that measures a row, and every section that fuses is still noted.
-   * A section counts as fusing when its plan holds any Varka node, whatever a row operator above
-   * it still evaluates; a class that needs to tell those apart states a {@link Fusion} instead.
-   */
-  protected final void requireBaseline(
-      SparkSession varka, String title, String query, boolean fuses) {
-    Optional<SparkPlan> plan = fusedPlan(varka, query);
-    if (fuseCheck()) {
-      if (plan.isPresent() && !fuses) {
-        throw new IllegalStateException(title + " fuses, so it is no longer a baseline; a row "
-            + "that fuses it lists it as fusing: " + query + "\n" + plan.get().treeString());
-      }
-      if (plan.isEmpty() && fuses) {
-        throw new IllegalStateException(title + " is listed as fusing but runs on the row "
-            + "path: " + query);
-      }
-    }
-    if (plan.isPresent()) {
-      note(title + ": fuses on the varka on arm, so it times a kernel there, not the row path");
-    }
-  }
-
-  /**
    * Checks that {@code varka} fuses {@code query} as much as {@code expected} says, the
    * section's {@link Fusion} class, and notes in the results file each section that fuses and
    * how. A row that changes how a section fuses, from nothing to its null tests or from its

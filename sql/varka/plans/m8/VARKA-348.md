@@ -496,5 +496,20 @@ the check whatever the section expects. The decimal class states a class for eac
 sections, from the probe's plans: 12 `WHOLE` (the four equal-scale comparisons at precisions 9
 and 18 that row 347 fused, and the eight above), 18 `NULL_TESTS` and 58 `NONE`. The run fails
 when a plan's class differs from the section's, so 348a moves the eighteen to `WHOLE` as it
-fuses them, and the results file notes the class of each section that fuses. The other baseline
-classes keep their boolean flags, which mean any Varka node as before.
+fuses them, and the results file notes the class of each section that fuses.
+
+**The fuse check after review.** A row operator is now every operator outside Varka except a
+leaf (the cached scan), an exchange, a transition between columns and rows, the whole-stage
+codegen node and its input adapter, and a `ProjectExec` that only passes columns through or
+renames them; so an aggregate, a sort, a window, an expand, a generate or a join above a Varka
+node takes a plan out of `WHOLE`, and an operator nobody listed fails the check rather than
+reading as fused. A fourth class, `PARTIAL`, is a plan with no row operator but a Varka
+projection that leaves an entry to its per-row fallback: the check compiles the projection again
+as the node does, since the node keeps its classification private, and finds the entries its
+kernel declined. No baseline section is `PARTIAL` today. A batch the kernel cannot serve and
+hands to the row path is decided when the plan runs, so no plan class shows it. The floating,
+floating arithmetic and both `TIMESTAMP_NTZ` baselines now state a class per section too, the
+boolean overload is gone, and a probe on an Arrow-cached Varka session found each of their
+sections where its flag had it: the sections flagged as fusing are `WHOLE` and the rest `NONE`,
+so none of them hid a null-test fusion. `VarkaDecimalBaselineQueriesSuite` asserts each
+section's class in every build under the emitter's default options.
