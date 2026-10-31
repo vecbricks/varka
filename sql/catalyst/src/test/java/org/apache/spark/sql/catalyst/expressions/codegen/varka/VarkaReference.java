@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.IntBinaryOperator;
@@ -603,11 +604,12 @@ public final class VarkaReference {
   }
 
   /**
-   * A floating {@code IntArith} at the {@code FLOAT} lane: Java's float operators, which are
-   * Spark's, over the operands' bits. A division's zero divisor, {@code y == 0.0} at both zeros
-   * and never at NaN, is a null under {@code NULL} and {@code FAIL} alike, as an integral
-   * overflow is here: a {@code FAIL} lane is one whose batch the kernel declines, which no value
-   * of this evaluator spells. Under {@code WRAP} the division has no test.
+   * A floating {@code IntArith} at the {@code FLOAT} lane, by {@link #floatingArith} on the
+   * operands widened to double and its result rounded back to float. That is bit for bit Java's
+   * float operator, which is Spark's: a double carries more than twice a float's 24 bits plus
+   * two, so rounding the double result again to float gives the correctly rounded float result
+   * for each of the four operators (Figueroa's double-rounding bound), and widening and
+   * narrowing keep a NaN's payload.
    */
   private static OptionalInt floatArith(IntArith n, int[] row, boolean[] isNull, int[] lits) {
     var l = value(n.left(), row, isNull, lits);
@@ -618,20 +620,14 @@ public final class VarkaReference {
     if (r.isEmpty()) {
       return r;
     }
-    float a = Float.intBitsToFloat(l.getAsInt());
-    float b = Float.intBitsToFloat(r.getAsInt());
-    if (n.op() == IntOp.DIV && n.mode() != Overflow.WRAP && b == 0.0f) {
-      return OptionalInt.empty();
-    }
-    return OptionalInt.of(Float.floatToRawIntBits(switch (n.op()) {
-      case ADD -> a + b;
-      case SUB -> a - b;
-      case MUL -> a * b;
-      case DIV -> a / b;
-    }));
+    var v = floatingArith(n, Float.intBitsToFloat(l.getAsInt()),
+        Float.intBitsToFloat(r.getAsInt()));
+    return v.isEmpty()
+        ? OptionalInt.empty()
+        : OptionalInt.of(Float.floatToRawIntBits((float) v.getAsDouble()));
   }
 
-  /** {@link #floatArith} at the {@code DOUBLE} lane. */
+  /** A floating {@code IntArith} at the {@code DOUBLE} lane, by {@link #floatingArith}. */
   private static OptionalLong doubleArith(IntArith n, long[] row, boolean[] isNull, long[] lits) {
     var l = longValue(n.left(), row, isNull, lits);
     if (l.isEmpty()) {
@@ -641,17 +637,30 @@ public final class VarkaReference {
     if (r.isEmpty()) {
       return r;
     }
-    double a = Double.longBitsToDouble(l.getAsLong());
-    double b = Double.longBitsToDouble(r.getAsLong());
+    var v = floatingArith(n, Double.longBitsToDouble(l.getAsLong()),
+        Double.longBitsToDouble(r.getAsLong()));
+    return v.isEmpty()
+        ? OptionalLong.empty()
+        : OptionalLong.of(Double.doubleToRawLongBits(v.getAsDouble()));
+  }
+
+  /**
+   * Both floating lanes' {@code IntArith} over two non-null operands: Java's double operators,
+   * which are Spark's. A division's zero divisor, {@code b == 0.0} at both zeros and never at
+   * NaN, is a null under {@code NULL} and {@code FAIL} alike, as an integral overflow is here: a
+   * {@code FAIL} lane is one whose batch the kernel declines, which no value of this evaluator
+   * spells. Under {@code WRAP} the division has no test.
+   */
+  private static OptionalDouble floatingArith(IntArith n, double a, double b) {
     if (n.op() == IntOp.DIV && n.mode() != Overflow.WRAP && b == 0.0) {
-      return OptionalLong.empty();
+      return OptionalDouble.empty();
     }
-    return OptionalLong.of(Double.doubleToRawLongBits(switch (n.op()) {
+    return OptionalDouble.of(switch (n.op()) {
       case ADD -> a + b;
       case SUB -> a - b;
       case MUL -> a * b;
       case DIV -> a / b;
-    }));
+    });
   }
 
   /** {@code fn} as {@code java.lang.Math} computes it, which is Spark's definition. */
