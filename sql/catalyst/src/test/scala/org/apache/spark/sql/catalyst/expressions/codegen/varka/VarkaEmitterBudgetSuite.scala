@@ -404,8 +404,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       val loads = if (root.isInstanceOf[IsNotNull]) 0
         else inputs - all.collect { case b: BoolColumn => b.ordinal }.size
       // The decimal store's two interleaves are built once a body, in its prologue, and are paid
-      // as a leaf's load is, by no weight: per part an iota (zero, addIndex), its half, its
-      // parity times the lane count and their sum, the second part's offset, and under
+      // as a leaf's load is, by no weight: per part an iota (zero, addIndex), the second part's
+      // offset, its half, its parity times the lane count and their sum, and under
       // REARRANGE the conversion to a shuffle (VarkaBodyEmitter.emitDecimalZip).
       val zip = if (!all.exists(_.isInstanceOf[WidenDecimal])) 0
         else 2 * 6 + 1 + (if (options.decimalStore() == DecimalStore.REARRANGE) 2 else 0)

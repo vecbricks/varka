@@ -281,9 +281,12 @@ final class VarkaBodyEmitter {
 
   /**
    * The decimal store's two interleaves, once a body ({@code Slots#decimalZip}): for part
-   * {@code k} the index vector whose lane {@code i} is {@code i / 2 + (i % 2) * n + k * n / 2},
-   * {@code n} the long lane count, which picks lane {@code i / 2 + k * n / 2} of the words on the
-   * even lanes and of their sign extensions, past the first vector, on the odd ones. Under
+   * {@code k} the index vector whose lane {@code i} is {@code L / 2 + (L % 2) * n}, with
+   * {@code L = k * n + i} the long's place among the group's {@code 2n} longs of slots and
+   * {@code n} the long lane count. It picks the word of row {@code L / 2} on an even {@code L}
+   * and, past the first vector, that row's sign extension on an odd one. At an even {@code n} it
+   * is {@code i / 2 + (i % 2) * n + k * n / 2}; at one long lane only the general form holds, as
+   * part 1's single long is row 0's high word, not its low one. Under
    * {@code REARRANGE} it is converted to a shuffle, whose indices past {@code n} select from the
    * second vector of the two-vector {@code rearrange}; under {@code SELECT_FROM} it is the
    * two-vector {@code selectFrom}'s index vector as it is.
@@ -303,20 +306,20 @@ final class VarkaBodyEmitter {
       cb.invokestatic(LONG_VECTOR, "zero", LONG_ZERO);
       cb.iconst_1();
       cb.invokevirtual(LONG_VECTOR, "addIndex", LONG_ADD_INDEX);   // [iota]
+      if (part == 1) {
+        emitLongLaneCount(cb, analysis, s);
+        cb.invokevirtual(LONG_VECTOR, "add", LONG_SCALAR);         // [L = iota + n]
+      }
       cb.dup();
       cb.getstatic(VECTOR_OPERATORS, "LSHR", VO_BINARY);
       cb.loadConstant(1L);
       cb.invokevirtual(LONG_VECTOR, "lanewise", LONG_LANEWISE_BINARY);
-      cb.swap();                                                  // [iota >>> 1, iota]
+      cb.swap();                                                  // [L >>> 1, L]
       cb.loadConstant(1L);
       cb.invokevirtual(LONG_VECTOR, "and", LONG_SCALAR);
-      emitLongLaneCount(cb, analysis, s, false);
-      cb.invokevirtual(LONG_VECTOR, "mul", LONG_SCALAR);           // [iota >>> 1, (iota & 1) * n]
+      emitLongLaneCount(cb, analysis, s);
+      cb.invokevirtual(LONG_VECTOR, "mul", LONG_SCALAR);           // [L >>> 1, (L & 1) * n]
       cb.invokevirtual(LONG_VECTOR, "add", LONG_VV);
-      if (part == 1) {
-        emitLongLaneCount(cb, analysis, s, true);
-        cb.invokevirtual(LONG_VECTOR, "add", LONG_SCALAR);
-      }
       if (analysis.options.decimalStore() == VarkaEmitOptions.DecimalStore.REARRANGE) {
         cb.invokevirtual(LONG_VECTOR, "toShuffle", TO_SHUFFLE);
       }
@@ -325,21 +328,16 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * The long lane count {@code n} as a long, or {@code n / 2} when {@code half}: the baked
-   * constant, or the species' length where none is baked.
+   * The long lane count {@code n} as a long: the baked constant, or the species' length where
+   * none is baked.
    */
-  private static void emitLongLaneCount(CodeBuilder cb, Analysis analysis, Slots s,
-      boolean half) {
+  private static void emitLongLaneCount(CodeBuilder cb, Analysis analysis, Slots s) {
     if (analysis.lanes != 0) {
-      cb.loadConstant(half ? analysis.lanes / 2L : (long) analysis.lanes);
+      cb.loadConstant((long) analysis.lanes);
       return;
     }
     cb.aload(s.species);
     cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
-    if (half) {
-      cb.iconst_1();
-      cb.ishr();
-    }
     cb.i2l();
   }
 

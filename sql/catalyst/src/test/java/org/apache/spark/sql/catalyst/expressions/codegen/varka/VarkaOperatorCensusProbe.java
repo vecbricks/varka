@@ -821,14 +821,14 @@ public final class VarkaOperatorCensusProbe {
 
     /**
      * The zip's index vector of {@code part} built lanewise, without the lambda {@code makeZip}
-     * fills its indices through: lane {@code i} is {@code i / 2 + (i % 2) * n + part * n / 2}.
+     * fills its indices through, as the emitter's prologue builds it: lane {@code i} is
+     * {@code L / 2 + (L % 2) * n} with {@code L = part * n + i}.
      */
     static LongVector zipIndex(int part) {
       int n = LS.length();
-      var iota = LongVector.zero(LS).addIndex(1);
-      return iota.lanewise(VectorOperators.LSHR, 1)
-          .add(iota.and(1L).mul(n))
-          .add((long) part * (n / 2));
+      var at = LongVector.zero(LS).addIndex(1).add((long) part * n);
+      return at.lanewise(VectorOperators.LSHR, 1)
+          .add(at.and(1L).mul(n));
     }
   }
 

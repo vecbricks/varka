@@ -40,6 +40,8 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.stream.IntStream;
 
+import jdk.incubator.vector.LongVector;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.DecimalVector;
 import org.junit.jupiter.api.DisplayName;
@@ -71,14 +73,31 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector;
  * word's {@code -1} is exercised; and {@code Decimal.equals} compares by value, so only the byte
  * comparison sees a wrong high word as anything but an error.
  *
- * <p>Every case runs at two, four and eight long lanes, in the dense body (no null) and the masked
- * one (nulls on every third row), under both arms of {@code decimalStore}. In a JVM of its own:
- * the widths are three species of the long lane, which the shared JVM refuses (VARKA-246).
+ * <p>Every case runs at two, four and eight long lanes, baked, and at the preferred species, which
+ * {@code lanesOverride=1} gives since no width is baked for one long lane ({@code
+ * Lane.emitLanes}): eight lanes on an AVX-512 host and one in {@link
+ * VarkaDecimalStoreOneLaneSuite}'s JVM, where the interleave's index has no second half to step
+ * into. Each runs in the dense body (no null) and the masked one (nulls on every third row),
+ * under both arms of {@code decimalStore}. In a JVM of its own: the widths are several species of
+ * the long lane, which the shared JVM refuses (VARKA-246).
  */
 @VarkaSuite(ownJvm = true)
-public final class VarkaDecimalStoreSuite {
+public class VarkaDecimalStoreSuite {
 
-  private static final int[] WIDTHS = {2, 4, 8};
+  /** The lane overrides the tables run at; 1 bakes none, so it is the preferred species. */
+  private static final int[] WIDTHS = {1, 2, 4, 8};
+
+  /** The lane overrides this class's tables run at. */
+  int[] widths() {
+    return WIDTHS;
+  }
+
+  /** A width as a case names it: the baked lane count, or the preferred species' for 1. */
+  static String label(int lanes) {
+    return lanes == 1
+        ? "the preferred species' " + LongVector.SPECIES_PREFERRED.length() + " long lanes"
+        : lanes + " long lanes";
+  }
   /** As the load's table: under one group, a last row in the epilogue at every width, none. */
   private static final int[] LENGTHS = {1, 3, 37, 64};
   private static final long MAX = 999_999_999_999_999_999L;
@@ -261,13 +280,13 @@ public final class VarkaDecimalStoreSuite {
   void storeTable() {
     var roots = List.<VarkaVectorIR>of(new WidenDecimal(new ColumnRef(0, LaneType.LONG)));
     int planted = 0;
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       for (DecimalStore arm : DecimalStore.values()) {
         VarkaFusedKernel k = kernel(roots, 1, 0, options(lanes, arm));
         for (int length : LENGTHS) {
           for (boolean masked : new boolean[] {false, true}) {
-            String at = String.format(Locale.ROOT, "%s at %d long lanes, length %d, %s", arm,
-                lanes, length, masked ? "with nulls" : "no null");
+            String at = String.format(Locale.ROOT, "%s at %s, length %d, %s", arm,
+                label(lanes), length, masked ? "with nulls" : "no null");
             long seed = 31L * lanes + length + (masked ? 1 : 0) + 7L * arm.ordinal();
             Batch b = batch(length, 1, masked, seed);
             check(at, k, b, null, new long[0], column0(b));
@@ -294,7 +313,7 @@ public final class VarkaDecimalStoreSuite {
     var roots = List.<VarkaVectorIR>of(new WidenDecimal(new IntArith(IntOp.SUB, Overflow.WRAP,
         new ColumnRef(0, LaneType.LONG), new LiteralSlot(0, LaneType.LONG))));
     long[] literals = {123_456_789L};
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       for (DecimalStore arm : DecimalStore.values()) {
         VarkaFusedKernel k = kernel(roots, 1, 1, options(lanes, arm));
         for (int length : LENGTHS) {
@@ -308,7 +327,7 @@ public final class VarkaDecimalStoreSuite {
             for (int i = 0; i < length; i++) {
               expected[0][i] = b.columns()[0][i] - literals[0];
             }
-            check(arm + " at " + lanes + " lanes, length " + length + ", masked " + masked, k,
+            check(arm + " at " + label(lanes) + ", length " + length + ", masked " + masked, k,
                 b, null, literals, expected);
           }
         }
@@ -323,7 +342,7 @@ public final class VarkaDecimalStoreSuite {
     var roots = List.<VarkaVectorIR>of(new WidenDecimal(new IntArith(IntOp.ADD, Overflow.WRAP,
         new ColumnRef(0, LaneType.LONG), new WidenLane(new ColumnRef(1), LaneType.LONG))));
     boolean[] intColumns = {false, true};
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       for (DecimalStore arm : DecimalStore.values()) {
         var options = options(lanes, arm);
         assertTrue(VarkaKernelPlan.of(roots, options).mixed(), "not a mixed kernel");
@@ -337,7 +356,7 @@ public final class VarkaDecimalStoreSuite {
               b.columns()[1][i] = (int) b.columns()[1][i];
               expected[0][i] = b.columns()[0][i] + b.columns()[1][i];
             }
-            check(arm + " at " + lanes + " lanes, length " + length + ", masked " + masked, k,
+            check(arm + " at " + label(lanes) + ", length " + length + ", masked " + masked, k,
                 b, intColumns, new long[0], expected);
           }
         }
@@ -358,7 +377,7 @@ public final class VarkaDecimalStoreSuite {
           new LiteralSlot(o, LaneType.LONG))));
       literals[o] = 1000L * (o + 1) - 3500L;
     }
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       for (DecimalStore arm : DecimalStore.values()) {
         var whole = options(lanes, arm).withSeveralKernels(false);
         // Halfway between the longest method of one output's class and of the six outputs'
@@ -388,7 +407,7 @@ public final class VarkaDecimalStoreSuite {
                 expected[o][i] = b.columns()[0][i] + literals[o];
               }
             }
-            check(arm + " at " + lanes + " lanes, length " + length + ", masked " + masked, k,
+            check(arm + " at " + label(lanes) + ", length " + length + ", masked " + masked, k,
                 b, null, literals, expected);
           }
         }
@@ -452,7 +471,7 @@ public final class VarkaDecimalStoreSuite {
     // A whole number of lane groups at every width: the dense loop's last stores end at the
     // batch's last byte, which a short mapping cuts.
     int length = 64;
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       Batch b = batch(length, 1, false, lanes);
       long[][] expected = {new long[length]};
       java.util.Arrays.fill(expected[0], literals[0]);
@@ -503,12 +522,12 @@ public final class VarkaDecimalStoreSuite {
     assumeTrue(System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux"),
         "the guard page maps memory through Linux's mmap");
     var roots = List.<VarkaVectorIR>of(new WidenDecimal(new ColumnRef(0, LaneType.LONG)));
-    for (int lanes : WIDTHS) {
+    for (int lanes : widths()) {
       for (DecimalStore arm : DecimalStore.values()) {
         VarkaFusedKernel k = kernel(roots, 1, 0, options(lanes, arm));
         for (int length : LENGTHS) {
           for (boolean masked : new boolean[] {false, true}) {
-            String at = arm + " at " + lanes + " lanes, length " + length + ", masked " + masked;
+            String at = arm + " at " + label(lanes) + ", length " + length + ", masked " + masked;
             Batch b = batch(length, 1, masked, 41L * lanes + length);
             long slots = length * SLOT;
             long mapped = (slots + PAGE - 1) / PAGE * PAGE;
