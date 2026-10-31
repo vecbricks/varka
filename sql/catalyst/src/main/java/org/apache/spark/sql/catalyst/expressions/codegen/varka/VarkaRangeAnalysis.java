@@ -62,6 +62,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -238,6 +239,8 @@ public final class VarkaRangeAnalysis {
     return switch (node) {
       // A long-lane leaf, answered UNKNOWN above; listed so that the switch stays exhaustive.
       case DecimalColumn c -> VarkaValueRange.UNKNOWN;
+      // A long-lane root, answered UNKNOWN above for the same reason.
+      case WidenDecimal n -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on
       // the answer has the kernel check it per batch (`columns` names the column to it).
       case ColumnRef c -> {

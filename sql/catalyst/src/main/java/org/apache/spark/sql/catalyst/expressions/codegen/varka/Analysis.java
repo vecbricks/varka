@@ -81,6 +81,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -726,6 +727,7 @@ final class Analysis {
         case LiteralSlot n -> { }
         case WidenLane n -> { }
         case NarrowLane n -> { }
+        case WidenDecimal n -> { }
         case NextDay n -> { }
         case TruncDateDynamic n -> { }
         case DateDiff n -> { }
@@ -838,8 +840,9 @@ final class Analysis {
       // error here, so its author decides whether its value commutes with the reduction - a
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _, AddDays _,
-          SubDays _, AddMonths _, MakeDate _, GuardedDay _, GuardedRange _, NextDay _,
+      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _,
+          WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
+          GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
@@ -1128,6 +1131,7 @@ final class Analysis {
           : wordOwner.get(n.child());
       case WidenLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
+      case WidenDecimal n -> wordOwner.get(n.child());
       case Year n -> wordOwner.get(n.days());
       case Month n -> wordOwner.get(n.days());
       case DayOfMonth n -> wordOwner.get(n.days());
@@ -1189,6 +1193,7 @@ final class Analysis {
       case GuardedRange n -> n.mode() == Overflow.NULL ? null : pureWord.get(n.child());
       case WidenLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
+      case WidenDecimal n -> pureWord.get(n.child());
       case Year n -> pureWord.get(n.days());
       case Month n -> pureWord.get(n.days());
       case DayOfMonth n -> pureWord.get(n.days());
@@ -1351,6 +1356,16 @@ final class Analysis {
       // The conversions: the child's value in the other lane, and the child's validity.
       case WidenLane n -> analyzeOp(node, false, n.child());
       case NarrowLane n -> analyzeOp(node, false, n.child());
+      // The decimal store interleaves long lanes into sixteen-byte slots: the root's value is its
+      // child's, its validity the child's, and the kernel must be driven at the long lane, as a
+      // decimal column's load must (VarkaVectorWalk.emitDecimalLoad).
+      case WidenDecimal n -> {
+        if (lane != Lane.LONG) {
+          throw VarkaErrors.illegalArgument("a decimal output in a " + lane.laneType
+              + " emission: the store interleaves long lanes");
+        }
+        analyzeOp(node, false, n.child());
+      }
       case GuardedRange n -> {
         // At a narrow or the int lane the bounds have to be what the lane can compare against;
         // the long lane holds any bound. Refused here, where the tree is, rather than at the
@@ -1568,6 +1583,12 @@ final class Analysis {
       // A boolean output writes the output's two bitmaps itself, so it is a root or nothing.
       if (child instanceof BoolOutput) {
         throw VarkaErrors.illegalArgument("a boolean output below a root, under "
+            + node.getClass().getSimpleName() + ": " + child);
+      }
+      // Nor is a decimal output anything but a root: no operator over a decimal value consumes
+      // it yet, and its store is the root's (VARKA-157 2.1).
+      if (child instanceof WidenDecimal) {
+        throw VarkaErrors.illegalArgument("a decimal output below a root, under "
             + node.getClass().getSimpleName() + ": " + child);
       }
       analyze(child);

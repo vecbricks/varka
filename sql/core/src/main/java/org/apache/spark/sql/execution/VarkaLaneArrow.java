@@ -37,9 +37,12 @@ import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -119,9 +122,10 @@ final class VarkaLaneArrow {
       case FLOAT -> new Vector(id, Float4Vector.class, VarkaLaneArrow::fromField);
       case DOUBLE -> new Vector(id, Float8Vector.class, VarkaLaneArrow::fromField);
       // Sixteen bytes a row at every precision, read on the long lane up to precision 18
-      // (VARKA-347) once the field passes decimalFieldMatches. Not written: a decimal output is
-      // row 157's store, so the entry builds no destination.
-      case DECIMAL -> new Vector(id, DecimalVector.class, null);
+      // (VARKA-347) once the field passes decimalFieldMatches, and written there by the decimal
+      // store (VARKA-157) into a vector built from Spark's own field, so ArrowColumnVector picks
+      // its decimal accessor by the vector's precision and the cache sees its writer's field.
+      case DECIMAL -> new Vector(id, DecimalVector.class, VarkaLaneArrow::decimalFromField);
       // Read by no lane - a boolean column is two bitmaps, admitted by name in isArrowBacked -
       // but written: a boolean output's data bitmap holds the known-true rows and its validity
       // the known ones (VARKA-27), the only vector Spark's ArrowColumnVector reads a BOOLEAN from.
@@ -135,6 +139,23 @@ final class VarkaLaneArrow {
   private static ValueVector fromField(String name, DataType type, BufferAllocator allocator) {
     return ArrowUtils.toArrowField(name, type, true, null, false, Metadata.empty(), false)
         .createVector(allocator);
+  }
+
+  /**
+   * A decimal output's destination, from Spark's field as {@link #fromField} builds the long
+   * lane's: {@code Decimal(p, s, 128)}. The store writes a long and its sign extension into each
+   * slot, so only a precision a long holds can be written; a wider one is row 359's two-word
+   * store, and is refused with that reason rather than given a vector the kernel would fill
+   * wrongly.
+   */
+  private static ValueVector decimalFromField(String name, DataType type,
+      BufferAllocator allocator) {
+    DecimalType decimal = (DecimalType) type;
+    if (decimal.precision() > Decimal.MAX_LONG_DIGITS()) {
+      throw VarkaErrors.illegalArgument("a decimal output of precision " + decimal.precision()
+          + " is wider than a long; its store is row 359's");
+    }
+    return fromField(name, type, allocator);
   }
 
   /** Every type's vector, in the id's order, built once: the admission reads it on every batch. */
@@ -187,7 +208,7 @@ final class VarkaLaneArrow {
 
   /**
    * An empty destination vector for an output of {@code dataType}, or null where no lane stores
-   * the type - a decimal output, which is row 157's.
+   * the type; a decimal wider than a long is refused by its allocator.
    */
   static @Nullable ValueVector allocate(String name, DataType dataType,
       BufferAllocator allocator) {

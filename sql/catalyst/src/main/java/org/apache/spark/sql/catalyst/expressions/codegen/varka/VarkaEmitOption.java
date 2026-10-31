@@ -29,6 +29,7 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Builder;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
@@ -99,7 +100,7 @@ public sealed interface VarkaEmitOption
   }
 
   /** How an option reaches {@code canonical()}. */
-  sealed interface Rendering permits Positional, FlagTag, CountTag {}
+  sealed interface Rendering permits Positional, FlagTag, CountTag, ChoiceTag {}
 
   /** Rendered by position, always: the first 26 options, which predate the tags. */
   record Positional() implements Rendering {}
@@ -109,6 +110,9 @@ public sealed interface VarkaEmitOption
 
   /** A count shown as {@code |prefix<value>} when off its default, and not at all otherwise. */
   record CountTag(String prefix) implements Rendering {}
+
+  /** A choice shown as {@code |prefix<constant>} when off its default, and not at all otherwise. */
+  record ChoiceTag(String prefix) implements Rendering {}
 
   /** One arm of the bytes suite's inventory: its label and the change it makes to a value. */
   record Arm(String name, UnaryOperator<VarkaEmitOptions> apply) {}
@@ -170,7 +174,7 @@ public sealed interface VarkaEmitOption
       implements VarkaEmitOption {
 
     public Flag {
-      if (rendering instanceof CountTag) {
+      if (rendering instanceof CountTag || rendering instanceof ChoiceTag) {
         throw VarkaErrors.illegalArgument(name + ": a flag renders by position or as a flag tag");
       }
       Objects.requireNonNull(subject, "subject");
@@ -224,7 +228,7 @@ public sealed interface VarkaEmitOption
       List<Integer> auditValues) implements VarkaEmitOption {
 
     public Count {
-      if (rendering instanceof FlagTag) {
+      if (rendering instanceof FlagTag || rendering instanceof ChoiceTag) {
         throw VarkaErrors.illegalArgument(
             name + ": a count renders by position or as a count tag");
       }
@@ -268,9 +272,27 @@ public sealed interface VarkaEmitOption
     }
   }
 
-  /** An enum option: one of {@code type}'s constants. Always rendered by position. */
+  /**
+   * An enum option: one of {@code type}'s constants. The three that predate the tags render by
+   * position; a later one renders as a {@link ChoiceTag}, so that adding it leaves every other
+   * variant's rendering as it was.
+   */
   record Choice<E extends Enum<E>>(String name, Reason reason, Class<E> type, E defaultValue,
-      Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set) implements VarkaEmitOption {
+      Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering)
+      implements VarkaEmitOption {
+
+    public Choice {
+      if (rendering instanceof FlagTag || rendering instanceof CountTag) {
+        throw VarkaErrors.illegalArgument(
+            name + ": a choice renders by position or as a choice tag");
+      }
+    }
+
+    /** A choice rendered by position, as the three that predate the tags are. */
+    public Choice(String name, Reason reason, Class<E> type, E defaultValue,
+        Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set) {
+      this(name, reason, type, defaultValue, get, set, POSITIONAL);
+    }
 
     public E value(VarkaEmitOptions options) {
       return get.apply(options);
@@ -306,11 +328,6 @@ public sealed interface VarkaEmitOption
     }
 
     @Override
-    public Rendering rendering() {
-      return POSITIONAL;
-    }
-
-    @Override
     public void applyDefault(Builder builder) {
       set.accept(builder, defaultValue);
     }
@@ -322,7 +339,8 @@ public sealed interface VarkaEmitOption
 
     @Override
     public String tag(VarkaEmitOptions options) {
-      return "";
+      return rendering instanceof ChoiceTag(String prefix) && value(options) != defaultValue
+          ? "|" + prefix + value(options) : "";
     }
 
     @Override
@@ -479,7 +497,13 @@ public sealed interface VarkaEmitOption
       // for the JDKs that fix the rule (VARKA-491). Its tag keeps the default's rendering empty.
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
-          new FlagTag("fromLongMasks", true)));
+          new FlagTag("fromLongMasks", true)),
+      // A machine choice: which of the decimal store's two interleaves is native depends on the
+      // host (`VARKA-157.md` 2.2), so the losing arm stays behind the option. Its tag keeps the
+      // default's rendering empty.
+      new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
+          VarkaEmitOptions::decimalStore, Builder::decimalStore,
+          new ChoiceTag("decimalStore=")));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

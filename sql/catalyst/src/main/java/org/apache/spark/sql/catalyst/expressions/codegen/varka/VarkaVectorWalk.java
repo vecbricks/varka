@@ -78,6 +78,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -305,6 +306,12 @@ final class VarkaVectorWalk {
             emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
           }
         }
+      }
+      case WidenDecimal n -> {
+        // The value is the child's; the root's store widens it into the slots
+        // (VarkaBodyEmitter.emitDecimalStore). The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
       }
       case GuardedRange n -> {
         // The day guard's twin at whichever lane the child is on, with the bounds the node
