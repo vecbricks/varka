@@ -383,8 +383,11 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   descends from such a node (`unfixedNaN`): a floating `IntArith` over two unlike NaNs, or a
   negation, square root or pick that passes its payload on. An operation over one NaN operand
   returns it, quieted, on every tier, and is compared bit for bit, as are the picks, negation and
-  `abs` everywhere else. `VarkaEmitterFloatingArithSuite` and `VarkaFloatingLaneSuite` hold their
-  own comparisons to the same line: a row or column of two unlike NaN inputs alone.
+  `abs` everywhere else. `VarkaExpressionHarness` holds a kernel to Spark's projection by the
+  same rule, per output and on the Catalyst expression; it once excused every output of a row
+  with two unlike NaN inputs, a wrong pick among them. `VarkaEmitterFloatingArithSuite` and
+  `VarkaFloatingLaneSuite` hold their own comparisons to the same line: a row or column of two
+  unlike NaN inputs alone.
 - **A shared guarded node keeps every arm it sits under.** Under ANSI, `IF(x2 = 0.0D, 0.0D, x1 /
   x2)` and `CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END` each fuse over batches holding zero
   divisors, but the two in one projection declined every batch of `VarkaFloatingLaneSuite`'s pairs

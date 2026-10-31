@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.IntPredicate;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
@@ -32,10 +33,12 @@ import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.BinaryArithmetic;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
@@ -195,7 +198,7 @@ public final class VarkaExpressionHarness {
       Expected b = generated.get(i);
       boolean agree = a.error() != null
           ? b.error() != null && sameError(a.error(), b.error())
-          : b.error() == null && sameRow(a.row(), b.row(), types, false) == null;
+          : b.error() == null && sameRow(a.row(), b.row(), types, null) == null;
       if (!agree) {
         outcome.findings.add(context + ", row " + i + ": Spark's interpreted and generated "
             + "projections disagree (" + describe(a, types) + " against " + describe(b, types)
@@ -322,7 +325,8 @@ public final class VarkaExpressionHarness {
       outputs.add((Expression) e);
     }
     DataType[] types = outputs.stream().map(Expression::dataType).toArray(DataType[]::new);
-    List<Expected> answers = spark(context, bound(outputs, columns), columns, all, types, outcome);
+    List<Expression> boundOutputs = bound(outputs, columns);
+    List<Expected> answers = spark(context, boundOutputs, columns, all, types, outcome);
     // The outputs the evaluator's compile leaves to the row path, by the same compile.
     Optional<PartialVarkaProjection> partial = VarkaExpressionCompiler.compilePartial(
         projectList, columns, VarkaColumnarToRowExec$.MODULE$.currentEmitOptions());
@@ -331,8 +335,11 @@ public final class VarkaExpressionHarness {
         .orElse(outputs.size());
     List<Expected> expected = answers;
     DataType[] compared = types;
+    // The projection position of each compared column.
+    int[] positions = java.util.stream.IntStream.range(0, types.length).toArray();
     if (consumer == Consumer.ROWS && partial.isPresent()) {
       int[] kept = kernelColumns(partial.get());
+      positions = kept;
       compared = new DataType[kept.length];
       for (int k = 0; k < kept.length; k++) {
         compared[k] = types[kept[k]];
@@ -345,6 +352,7 @@ public final class VarkaExpressionHarness {
     }
     DataType[] outTypes = compared;
     List<Expected> want = expected;
+    int[] comparedAt = positions;
     VarkaCacheBatches.inTask(() -> {
       var evaluator =
           new VarkaKernelEvaluator(projectList, columns, false, "VarkaExpressionHarness");
@@ -358,8 +366,9 @@ public final class VarkaExpressionHarness {
         if (out != null) {
           try {
             for (int i = 0; i < batch.numRows(); i++) {
+              InternalRow input = all.get(start + i);
               compare(context, start + i, want.get(start + i), out.getRow(i), outTypes,
-                  twoUnlikeNaNs(batch, i), outcome);
+                  o -> unfixedNaN(boundOutputs.get(comparedAt[o]), input), outcome);
             }
           } finally {
             evaluator.release(out);
@@ -522,7 +531,7 @@ public final class VarkaExpressionHarness {
   }
 
   private static void compare(String context, int row, @Nullable Expected expected,
-      InternalRow got, DataType[] types, boolean unfixedNaN, Outcome outcome) {
+      InternalRow got, DataType[] types, IntPredicate unfixedNaN, Outcome outcome) {
     if (expected == null) {
       return;
     }
@@ -538,37 +547,45 @@ public final class VarkaExpressionHarness {
   }
 
   /**
-   * Whether row {@code i} of {@code batch} holds two floating NaN inputs of different bits: the
-   * only rows where an operation over them has a NaN payload Java does not fix, the x86
-   * interpreter's add returning the right operand's and C2's commuted add either
-   * ({@code VARKA-342.md} 5.1), so the row engine and the kernel may differ in it.
+   * Whether {@code e}'s value on {@code row} (a fixture row, which {@code e} is bound to) is a NaN
+   * whose payload Java leaves open, so that the row engine and the kernel may each return a
+   * different one: a NaN made by a two-operand floating arithmetic from two NaN operands of
+   * different bits, or passed on from one. The x86 interpreter's add returns the right operand's
+   * payload and C2's commuted add either ({@code VARKA-342.md} 5.1). Structured on the expression
+   * as the kernel checks' {@code VarkaKernelChecks.unfixedNaN} is on the IR: an arithmetic over
+   * one NaN operand returns that NaN, so its payload is fixed by the operand's; a node of one
+   * child (a negation, an {@code abs}, a square root, a cast) passes its child's on; any other
+   * node passes on the payload of a floating child whose value it returns unchanged. So a pick
+   * between two column NaNs - {@code greatest}, {@code coalesce}, a {@code CASE} - is held to
+   * Spark's bits. A subexpression that raises on the row decides nothing.
    */
-  private static boolean twoUnlikeNaNs(ColumnarBatch batch, int i) {
-    Long first = null;
-    for (int c = 0; c < batch.numCols(); c++) {
-      var v = batch.column(c);
-      if (v.isNullAt(i)) {
-        continue;
+  static boolean unfixedNaN(Expression e, InternalRow row) {
+    DataType t = e.dataType();
+    if (!(t instanceof DoubleType) && !(t instanceof FloatType)) {
+      return false;
+    }
+    if (e instanceof RuntimeReplaceable r) {
+      return unfixedNaN(r.replacement(), row);
+    }
+    if (e instanceof BinaryArithmetic a) {
+      Long l = nanBits(a.left(), row);
+      Long r = nanBits(a.right(), row);
+      if (l != null && r != null) {
+        return !l.equals(r) || unfixedNaN(a.left(), row) || unfixedNaN(a.right(), row);
       }
-      long bits;
-      if (v.dataType() instanceof DoubleType) {
-        double d = v.getDouble(i);
-        if (!Double.isNaN(d)) {
-          continue;
-        }
-        bits = Double.doubleToRawLongBits(d);
-      } else if (v.dataType() instanceof FloatType) {
-        float f = v.getFloat(i);
-        if (!Float.isNaN(f)) {
-          continue;
-        }
-        bits = Float.floatToRawIntBits(f);
-      } else {
-        continue;
-      }
-      if (first == null) {
-        first = bits;
-      } else if (first != bits) {
+      return l != null ? unfixedNaN(a.left(), row) : r != null && unfixedNaN(a.right(), row);
+    }
+    List<Expression> children = CollectionConverters.asJava(e.children());
+    if (children.size() == 1) {
+      return unfixedNaN(children.get(0), row);
+    }
+    Long v = nanBits(e, row);
+    if (v == null) {
+      return false;
+    }
+    for (Expression child : children) {
+      if (child.dataType().equals(t) && v.equals(nanBits(child, row))
+          && unfixedNaN(child, row)) {
         return true;
       }
     }
@@ -576,13 +593,34 @@ public final class VarkaExpressionHarness {
   }
 
   /**
+   * The raw bits of {@code e}'s floating value on {@code row} where it is a NaN; null where it is
+   * not, is null, is not floating or raises.
+   */
+  private static @Nullable Long nanBits(Expression e, InternalRow row) {
+    Object v;
+    try {
+      v = e.eval(row);
+    } catch (RuntimeException ex) {
+      return null;
+    }
+    if (v instanceof Double d && d.isNaN()) {
+      return Double.doubleToRawLongBits(d);
+    }
+    if (v instanceof Float f && f.isNaN()) {
+      return (long) Float.floatToRawIntBits(f);
+    }
+    return null;
+  }
+
+  /**
    * Null when {@code want} and {@code got} hold the same value in every column, else what
    * differs: floating values by their raw bits, so a NaN's payload and a zero's sign count, as
-   * they do in {@code VarkaSparkOracle}; where {@code unfixedNaN}, the row's inputs hold two
-   * unlike NaNs ({@link #twoUnlikeNaNs}) and two NaN answers agree whatever their payloads.
+   * they do in {@code VarkaSparkOracle}. Two NaN answers in column {@code o} agree whatever
+   * their payloads only where {@code unfixedNaN} holds for {@code o}, whose payload Java leaves
+   * open ({@link #unfixedNaN}); a null {@code unfixedNaN} relaxes no column.
    */
   static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types,
-      boolean unfixedNaN) {
+      @Nullable IntPredicate unfixedNaN) {
     for (int o = 0; o < types.length; o++) {
       boolean wantNull = want.isNullAt(o);
       boolean gotNull = got.isNullAt(o);
@@ -598,11 +636,13 @@ public final class VarkaExpressionHarness {
       if (t instanceof DoubleType) {
         same = Double.doubleToRawLongBits(want.getDouble(o))
             == Double.doubleToRawLongBits(got.getDouble(o))
-            || unfixedNaN && Double.isNaN(want.getDouble(o)) && Double.isNaN(got.getDouble(o));
+            || Double.isNaN(want.getDouble(o)) && Double.isNaN(got.getDouble(o))
+            && unfixedNaN != null && unfixedNaN.test(o);
       } else if (t instanceof FloatType) {
         same = Float.floatToRawIntBits(want.getFloat(o))
             == Float.floatToRawIntBits(got.getFloat(o))
-            || unfixedNaN && Float.isNaN(want.getFloat(o)) && Float.isNaN(got.getFloat(o));
+            || Float.isNaN(want.getFloat(o)) && Float.isNaN(got.getFloat(o))
+            && unfixedNaN != null && unfixedNaN.test(o);
       } else {
         same = Objects.equals(value(want, o, t), value(got, o, t));
       }
