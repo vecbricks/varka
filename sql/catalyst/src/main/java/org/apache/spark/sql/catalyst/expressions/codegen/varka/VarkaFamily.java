@@ -69,7 +69,12 @@ public enum VarkaFamily {
   INT_ARITHMETIC("int arithmetic", "intArithmetic", "+, -, * and unary minus over int,"
       + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
-      + " widened to int");
+      + " widened to int"),
+  /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
+  INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
+      + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
+      + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
+      + " to smallint or bigint, a number cast to boolean and a boolean cast to a number");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

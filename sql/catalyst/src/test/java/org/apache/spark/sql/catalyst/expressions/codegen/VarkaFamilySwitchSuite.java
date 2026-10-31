@@ -239,6 +239,7 @@ public final class VarkaFamilySwitchSuite {
     var casts = EnumSet.noneOf(VarkaFamily.class);
     var claimers = new ArrayList<>(VarkaNodeCompiler.families());
     claimers.add(VarkaNodeCompiler.predicates());
+    claimers.add(VarkaNodeCompiler.castConditions());
     var sink = new DeclineSink(columns, true);
     var stack = new ArrayList<Expression>(List.of(bound));
     while (!stack.isEmpty()) {

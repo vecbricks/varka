@@ -678,6 +678,49 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CASE WHEN i < l THEN i ELSE l END",
         "the widened int in a condition and in a branch of a long-valued conditional"))),
 
+    // The integral and boolean casts (VARKA-332): each form once, each naming how it is
+    // verified - the exhaustive suite (VarkaEmitterIntegralCastSuite), a casts.smt2 section, or
+    // the differential (`VARKA-332.md` 3.5).
+    Family("Integral casts", predicates = false, Seq(
+      Row("CAST(y1 AS SMALLINT)", "a sign extension at the int lane, no instruction; every byte "
+        + "value in the exhaustive suite"),
+      Row("CAST(y1 AS BIGINT)", "the byte column loaded at the long width, widened in the int "
+        + "species and converted with I2L; exhaustive"),
+      Row("CAST(s1 AS BIGINT)", "the short twin; exhaustive"),
+      Row("CAST(s1 AS TINYINT)", "the low byte under the legacy mode; under ANSI a value past "
+        + "the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive",
+        domain = Some(s"s1 BETWEEN ${Byte.MinValue} AND ${Byte.MaxValue}")),
+      Row("CAST(i AS TINYINT)", "the int narrowed at its store; checked under ANSI; the "
+        + "wrap and the range compare proven in casts.smt2",
+        domain = Some(s"i BETWEEN ${Byte.MinValue} AND ${Byte.MaxValue}")),
+      Row("CAST(i AS SMALLINT)", "the short twin; casts.smt2",
+        domain = Some(s"i BETWEEN ${Short.MinValue} AND ${Short.MaxValue}")),
+      Row("CAST(l AS TINYINT)", "the bigint narrowed at its store, L2I and the byte store; "
+        + "checked under ANSI; casts.smt2",
+        domain = Some(s"l BETWEEN ${Byte.MinValue} AND ${Byte.MaxValue}")),
+      Row("CAST(l AS SMALLINT)", "the short twin; casts.smt2",
+        domain = Some(s"l BETWEEN ${Short.MinValue} AND ${Short.MaxValue}")),
+      Row("CAST(b AS TINYINT)", "1 where true, 0 where false, null where null, in the byte lane "
+        + "under the native arm; every leaf state in the exhaustive suite"),
+      Row("CAST(b AS SMALLINT)", "the short twin; exhaustive"),
+      Row("CAST(b AS INT)", "the int lane; exhaustive"),
+      Row("CAST(b AS BIGINT)", "the long lane; exhaustive"),
+      Row("greatest(y1, l)", "type coercion widens the byte, loaded at the long width, to "
+        + "meet the bigint; differential"),
+      Row("CAST(i + 1 AS TINYINT)", "a computed int narrowed, the add checked under ANSI as "
+        + "any int add is; differential",
+        domain = Some(s"i BETWEEN ${Byte.MinValue - 1} AND ${Byte.MaxValue - 1}")),
+      Row("CAST(i < 5 AS TINYINT)", "a comparison's value at the int lane, narrowed: a 0 or a 1 "
+        + "needs no wrap; differential"))),
+
+    Family("Integral cast predicates", predicates = true, Seq(
+      Row("CAST(y1 AS BOOLEAN)", "x != 0, which cannot fail; exhaustive"),
+      Row("CAST(s1 AS BOOLEAN)", "exhaustive"),
+      Row("CAST(i AS BOOLEAN)", "differential"),
+      Row("CAST(l AS BOOLEAN)", "the long lane's compare; differential"),
+      Row("s1 < l", "the short widened to the long lane by type coercion, loaded at the long "
+        + "width; differential"))),
+
     Family("Width conversion predicates", predicates = true, Seq(
       Row("i < l", "an int against a bigint compares in the long lane, the int widened"),
       Row("l = i"),

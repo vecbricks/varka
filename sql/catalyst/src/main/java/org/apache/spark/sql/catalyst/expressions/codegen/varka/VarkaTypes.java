@@ -336,6 +336,40 @@ public final class VarkaTypes {
   }
 
   /**
+   * The values an integral type holds, inclusive: what a cast to it keeps under {@code ANSI}, so
+   * the bounds of the range guard a narrowing builds (VARKA-332), and what rows 343 and 350 read
+   * for their own narrow targets.
+   */
+  public record IntegralRange(long min, long max) {
+    public IntegralRange {
+      if (min > max) {
+        throw VarkaErrors.illegalArgument("an empty integral range: [" + min + ", " + max + "]");
+      }
+    }
+
+    /** Whether {@code other}'s every value is one of this range's. */
+    public boolean contains(IntegralRange other) {
+      return min <= other.min && other.max <= max;
+    }
+  }
+
+  /**
+   * The range of the integral type a column on {@code lane} holds: {@code TINYINT},
+   * {@code SMALLINT}, {@code INT} or {@code BIGINT}, the type's {@code MIN_VALUE} and
+   * {@code MAX_VALUE}. A floating lane has none.
+   */
+  public static IntegralRange integralRange(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> new IntegralRange(Byte.MIN_VALUE, Byte.MAX_VALUE);
+      case SHORT -> new IntegralRange(Short.MIN_VALUE, Short.MAX_VALUE);
+      case INT -> new IntegralRange(Integer.MIN_VALUE, Integer.MAX_VALUE);
+      case LONG -> new IntegralRange(Long.MIN_VALUE, Long.MAX_VALUE);
+      case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("the " + lane
+          + " lane holds no integral range");
+    };
+  }
+
+  /**
    * Why a column of {@code dataType} is not read as values, naming the type, for a type the table
    * holds that no lane reads: the row that builds an owed one, the decision for a declined one.
    * Empty for a type a lane reads and for a type the table does not hold, whose column keeps the

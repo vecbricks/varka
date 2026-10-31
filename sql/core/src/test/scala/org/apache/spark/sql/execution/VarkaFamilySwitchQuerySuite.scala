@@ -62,7 +62,8 @@ class VarkaFamilySwitchQuerySuite
     // The comparison in a conditional's condition is the predicate family's, wherever it sits.
     VarkaFamily.PREDICATE ->
       "SELECT if(d > DATE'2000-01-01', d, DATE'2000-01-01') AS a, year(d) AS b",
-    VarkaFamily.TIME -> "SELECT hour(t) AS a, year(d) AS b")
+    VarkaFamily.TIME -> "SELECT hour(t) AS a, year(d) AS b",
+    VarkaFamily.INTEGRAL_CAST -> "SELECT CAST(i AS TINYINT) AS a, year(d) AS b")
 
   test("each family switched off runs its entry on the row engine, named in the verbose " +
       "EXPLAIN, while the other entry fuses") {

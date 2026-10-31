@@ -129,6 +129,11 @@ public final class VarkaKernelPlan {
       for (VarkaVectorIR node : nodes) {
         mixed |= node.laneType() == LaneType.INT && !storeNarrowings.contains(node);
       }
+      // A narrow column loaded at the long width fills the int species of the long species'
+      // width, as an int column does, so the kernel converts between lanes (VARKA-332).
+      for (VarkaVectorIR root : roots) {
+        mixed |= !VarkaVectorIR.narrowValuesIn(root).isEmpty();
+      }
     }
     return new VarkaKernelPlan(Optional.empty(), drive, lanes, mixed, Set.copyOf(storeNarrowings),
         Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes));
@@ -297,10 +302,11 @@ public final class VarkaKernelPlan {
         continue;
       }
       if (drive == LaneType.LONG) {
-        // Analysis admits no narrow value in a long-lane emission, so the entry declines here
-        // rather than failing at emit.
-        return Optional.of(new Refusal(Kind.NARROW,
-            "a narrow value under a bigint kernel has no lowering"));
+        Optional<Refusal> atLong = longNarrowRefusal(root, options);
+        if (atLong.isPresent()) {
+          return atLong;
+        }
+        continue;
       }
       int intLanes = Lane.emitLanes(options, Lane.INT);
       if (intLanes == 0) {
@@ -315,6 +321,77 @@ public final class VarkaKernelPlan {
       }
     }
     return Optional.empty();
+  }
+
+  /**
+   * Why a kernel driven at the long lane cannot lower the narrow values of {@code root}
+   * (`VARKA-332.md` 2.5). Two forms have a lowering: a {@code TINYINT} or {@code SMALLINT} column
+   * widened to the long lane - the narrow load at the long width, which reads the column into the
+   * int species of the long species' width, low half, and converts it with {@code I2L} - and a
+   * long value narrowed to a narrow type at a root nothing else reads, which converts with
+   * {@code L2I} and stores through the narrow species. Any other narrow value under a long kernel
+   * - narrow arithmetic beside a bigint, a narrowed long read by another node - has none and
+   * declines. The load reads as many narrow lanes as the int species has, twice the long lanes,
+   * where the Vector API has that species: a byte column at two long lanes would need a 32-bit
+   * species, and the part form of the int-driven load is not built at the long width, so it
+   * declines, as a width with no baked lane count does.
+   */
+  private static Optional<Refusal> longNarrowRefusal(VarkaVectorIR root,
+      VarkaEmitOptions options) {
+    if (!loweredAtLong(root)) {
+      return Optional.of(new Refusal(Kind.NARROW,
+          "a narrow value under a bigint kernel has no lowering"));
+    }
+    int longLanes = Lane.emitLanes(options, Lane.LONG);
+    Set<LaneType> loads = VarkaVectorIR.narrowValuesIn(root);
+    if (longLanes == 0 && !loads.isEmpty()) {
+      return Optional.of(new Refusal(Kind.NARROW,
+          "a narrow column needs a baked lane count to be widened to the long lane"));
+    }
+    for (LaneType type : loads) {
+      if (Lane.widenLanes(2 * longLanes, Lane.of(type)) != 2 * longLanes) {
+        return Optional.of(new Refusal(Kind.NARROW, "a " + type + " column has no load at "
+            + longLanes + " long lanes"));
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Whether every narrow node of {@code root} is one of the two forms a long kernel lowers: a
+   * narrow column read by a widening to the long lane or by a null test, or a narrowing of a long
+   * value to a narrow type at the root.
+   */
+  private static boolean loweredAtLong(VarkaVectorIR root) {
+    if (root.laneType().isNarrow() && !isLongNarrowing(root)) {
+      return false;
+    }
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(List.of(root));
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (!seen.add(node)) {
+        continue;
+      }
+      for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+        if (child.laneType().isNarrow()) {
+          boolean read = child instanceof VarkaVectorIR.ColumnRef
+              && (node instanceof VarkaVectorIR.IsNotNull
+                  || (node instanceof WidenLane w && w.target() == LaneType.LONG));
+          if (!read) {
+            return false;
+          }
+        }
+        todo.push(child);
+      }
+    }
+    return true;
+  }
+
+  /** Whether {@code node} narrows a long value to a narrow type. */
+  private static boolean isLongNarrowing(VarkaVectorIR node) {
+    return node instanceof NarrowLane n && n.target().isNarrow()
+        && n.child().laneType() == LaneType.LONG;
   }
 
   /**
@@ -451,14 +528,15 @@ public final class VarkaKernelPlan {
   /**
    * The lane {@code node}'s value is emitted in: the drive lane for every node of a single-lane
    * kernel, and in a kernel that converts between lanes the node's own, a narrowing at its store
-   * excepted.
+   * excepted. A narrow column there is loaded widened into the int species, so its value is
+   * emitted at the int lane (VARKA-332).
    */
   Lane laneOf(VarkaVectorIR node) {
     requireEmittable();
     if (!mixed || storeNarrowings.contains(node)) {
       return lane;
     }
-    return Lane.of(node.laneType());
+    return node.laneType().isNarrow() ? Lane.INT : Lane.of(node.laneType());
   }
 
   /** The lane input {@code ordinal} is read at, which sizes its data segment. */

@@ -553,9 +553,16 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       for (lanes <- widths) {
         def emitted(i: Int): Either[String, Array[Byte]] = {
           val (roots, numInputs, numLiterals) = corpus(i)
+          val options = emitOptions(roots, lanes, identity)
+          // A width the plan refuses - a byte column at two long lanes (VARKA-332) - is a
+          // decline, as the hash records it, and the compiler never hands such roots over.
+          val refusal = VarkaKernelPlan.refusalOf(roots.asJava, options)
+          if (refusal.isPresent) {
+            return Left(refusal.get())
+          }
           try {
             Right(VarkaLoopEmitter.emit(className, roots.asJava, numInputs, numLiterals, null,
-              null, emitOptions(roots, lanes, identity)))
+              null, options))
           } catch {
             case d: VarkaEmitDeclined => Left(d.getMessage)
           }

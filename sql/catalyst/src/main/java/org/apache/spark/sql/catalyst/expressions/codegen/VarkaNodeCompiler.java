@@ -201,8 +201,9 @@ final class VarkaNodeCompiler {
 
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
-   * picks. The int arithmetic comes after the calendar family so that the {@code Add(WeekDay, 1)}
-   * shape keeps its dedicated node, and its guard says so as well.
+   * picks, then the integral casts row 28's arms do not hold. The int arithmetic comes after the
+   * calendar family so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its
+   * guard says so as well.
    */
   private static final List<Family> FAMILIES = List.of(
       new Family("date leaves", VarkaNodeCompiler::leafArm),
@@ -210,7 +211,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.INTERVAL, VarkaIntervalCompiler::arm),
       new Family(VarkaFamily.TIME, VarkaTimeCompiler::arm),
       new Family(VarkaFamily.CONDITION, VarkaConditionCompiler::arm),
-      new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm));
+      new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
+      new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -222,6 +224,18 @@ final class VarkaNodeCompiler {
   private static final Family PREDICATES = new Family(VarkaFamily.PREDICATE,
       (e, inputs, literals, sink) -> {
         var arm = VarkaConditionCompiler.condArm(e, inputs, literals, sink);
+        return arm == null ? null : () -> arm.get().map(cond -> cond);
+      });
+
+  /**
+   * The integral cast family's condition claim, which is not a link of the chain either: a cast of
+   * a number to {@code BOOLEAN} is a condition, reached through
+   * {@code VarkaConditionCompiler.compileCond} as a comparison is, under the cast family's switch
+   * (VARKA-332). It is here beside {@link #PREDICATES} for the same suites.
+   */
+  private static final Family CAST_CONDITIONS = new Family("integral cast conditions",
+      VarkaFamily.INTEGRAL_CAST, (e, inputs, literals, sink) -> {
+        var arm = VarkaIntegralCastCompiler.condArm(e, inputs, literals, sink);
         return arm == null ? null : () -> arm.get().map(cond -> cond);
       });
 
@@ -384,6 +398,11 @@ final class VarkaNodeCompiler {
   /** The predicate family's claim, which the chain does not dispatch to, for the same suites. */
   static Family predicates() {
     return PREDICATES;
+  }
+
+  /** The integral cast family's condition claim, which the chain does not dispatch to either. */
+  static Family castConditions() {
+    return CAST_CONDITIONS;
   }
 
   /** The names of the families of {@code chain} that claim {@code expr}, in chain order. */

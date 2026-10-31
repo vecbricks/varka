@@ -1313,14 +1313,15 @@ public sealed interface VarkaVectorIR
    * 1 where {@code cond} is known true, 0 where it is known false, and null where it is unknown,
    * so its validity word is {@code kt | kf}. Not {@code IF(c, 1, 0)}, which takes the ELSE arm
    * under an unknown condition and answers 0. The emitted form is a broadcast 0 with 1 added
-   * under the known-true mask (`VARKA-460.md` 5). The int and long lanes only: a narrow one is
-   * refused until a row that needs it (a cast to TINYINT or SMALLINT) tests its lowering.
+   * under the known-true mask (`VARKA-460.md` 5). At a narrow lane it is
+   * {@code CAST(b AS TINYINT)} or {@code SMALLINT} (VARKA-332): the same two operations at the int
+   * lane under the widened arm, and at the narrow lane itself under the native one. A floating
+   * lane has no such value.
    */
   record CondValue(Cond cond, LaneType lane) implements VarkaVectorIR {
     public CondValue {
-      if (lane.isNarrow()) {
-        throw VarkaErrors.illegalArgument("CondValue at the narrow lane " + lane
-            + " is untested");
+      if (lane.isFloating()) {
+        throw VarkaErrors.illegalArgument("CondValue at the floating lane " + lane);
       }
       if (cond.laneType() != lane) {
         throw VarkaErrors.illegalArgument(
