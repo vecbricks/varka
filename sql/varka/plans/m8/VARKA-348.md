@@ -470,8 +470,9 @@ columns' types, the 88 result types, that the rescaled comparisons' common types
 `DECIMAL(11, 4)`, both sides cast, and `DECIMAL(18, 4)`, only `w18` cast, that 349's three
 filters compare at `DECIMAL(10, 2)`, `DECIMAL(12, 4)` and `DECIMAL(18, 4)`, that none of the
 eight `IN` filters casts its column, and that no arithmetic operand of a filter over the columns
-with no null answers a null, and runs every section on both sessions. 349's projections are its arithmetic as decimal values (`x + y`, `x - w`,
-`x8 * y`), the forms its prediction 2 times after 157.
+with no null answers a null, and runs every section on both sessions. 349's projections are its
+arithmetic as decimal values (`x + y`, `x - w`, `x8 * y`), the forms its prediction 2 times after
+157.
 
 **What the probe found.** Each section's `fuses` flag is set from a plan of it on an Arrow-cached
 Varka session. Of the 36, eight fuse whole on the unchanged code: `x <=> y` at both precisions,
