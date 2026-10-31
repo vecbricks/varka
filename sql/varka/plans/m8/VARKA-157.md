@@ -471,9 +471,12 @@ for: the canonical parser reads only `(head child...)`.*
   (`REARRANGE`, the default, and `SELECT_FROM`), `Reason.MACHINE`, renders as a new
   `ChoiceTag`, `|decimalStore=SELECT_FROM`, so that the defaults' rendering and every existing
   variant's are unchanged (a `Choice` rendered by position would have changed every variant's).
-  Its entry names `WidenDecimal` as the one node kind that reads it (`VarkaEmitOption.readOnlyBy`),
-  and `VarkaEmitOption.drawn()` leaves such an option out of the general fuzz draws, the
-  steering's mutations and the option matrix's configurations.
+  Its entry names `WidenDecimal` as the one node kind that reads it (`VarkaEmitOption.readOnlyBy`,
+  a `Choice` component that the interface's static `readOnlyBy(option)` answers for every option),
+  and the static `VarkaEmitOption.drawnInGeneral` leaves such an option out of the general fuzz
+  draws and the option matrix's configurations. The steering's mutations redraw it for a case
+  whose shape holds a `WidenDecimal`, after the general options, so a case without one mutates
+  exactly as before (`VarkaSteering.mutable`).
 - **The segment.** `emitOutputSegments` maps a `WidenDecimal` root at `length * 16` bytes, tested
   before the narrowed branch, through `loadDecimalSegment`, which the mapping fault injector
   moves. The epilogue's two stores are masked by `indexInRange(0, 2 * lanes)` and
@@ -556,12 +559,12 @@ for: the canonical parser reads only `(head child...)`.*
 - **The fuzzer draws `decimalStore` in the decimal sequence only.** Drawn in `randomOptions`, it
   shifted every later draw of the committed seeds and moved the named draws of VARKA-323's
   variant test, for an option no shape of theirs reads. The exclusion is the option's own
-  attribute (`readOnlyBy`), which the general draws, `VarkaSteering` and the option matrix all
-  read through `drawn()`; the decimal sequence draws the options `WidenDecimal` alone reads after
+  attribute (`readOnlyBy`), which the general draws and the option matrix read through
+  `drawnInGeneral`, and `VarkaSteering` per case; the decimal sequence draws the options `WidenDecimal` alone reads after
   the rest, both arms of `decimalStore` among its draws.
 - **`emitted_bytes.json` is unchanged**, not moved as 3 item 7 predicted: no coverage row and no
   shape of the committed fuzz sequences stores a decimal yet, so no digest moves, and `decimalStore`
-  reaches no configuration (`VarkaMatrixRuns.configurations` skips an option `drawn()` leaves out;
+  reaches no configuration (`VarkaMatrixRuns.configurations` skips an option `drawnInGeneral` leaves out;
   the first build of the branch had added `decimalStore=SELECT_FROM`, a matrix configuration
   rerunning every suite for no kernel they emit), so it has no pinned arm. The shared slot
   addressing leaves the decimal load's digests, its coverage rows', unchanged. The store's bytes

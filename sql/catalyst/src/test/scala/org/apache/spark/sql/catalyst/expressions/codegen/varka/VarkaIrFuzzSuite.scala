@@ -1414,6 +1414,21 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(general === Set(VarkaMatrix.base.decimalStore()))
   }
 
+  test("steering can change decimalStore in a case holding a decimal output, and only there") {
+    // Catches: the steering's options taken from the general draws alone, so a mutant of a
+    // decimal case never changes its store; or the store offered for every case, which would
+    // shift every general case's steered sequence for an option none of their shapes reads.
+    val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
+      .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
+    assert(VarkaSteering.mutable(drawLong(0)).asScala.toSeq === inGeneral)
+    val decimal = drawLong(0, decimalSeed, decimal = true)
+    assert(VarkaSteering.mutable(decimal).asScala.toSeq === inGeneral ++ decimalOptions)
+    val rnd = new Random(decimalSeed)
+    assert((0 until 2000).exists(k => VarkaSteering.mutate(decimal, rnd, k).options
+      .decimalStore() != decimal.options.decimalStore()),
+      "no mutation of a decimal case changed decimalStore")
+  }
+
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
       "hold none") {
     // Asserted rather than assumed, as the other generators' reach is: a guard is drawn in NULL
