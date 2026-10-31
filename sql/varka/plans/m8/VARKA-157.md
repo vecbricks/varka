@@ -463,28 +463,43 @@ for: the canonical parser reads only `(head child...)`.*
   (`REARRANGE`, the default, and `SELECT_FROM`), `Reason.MACHINE`, renders as a new
   `ChoiceTag`, `|decimalStore=SELECT_FROM`, so that the defaults' rendering and every existing
   variant's are unchanged (a `Choice` rendered by position would have changed every variant's).
+  Its entry names `WidenDecimal` as the one node kind that reads it (`VarkaEmitOption.readOnlyBy`),
+  and `VarkaEmitOption.drawn()` leaves such an option out of the general fuzz draws, the
+  steering's mutations and the option matrix's configurations.
 - **The segment.** `emitOutputSegments` maps a `WidenDecimal` root at `length * 16` bytes, tested
   before the narrowed branch, through `loadDecimalSegment`, which the mapping fault injector
   moves. The epilogue's two stores are masked by `indexInRange(0, 2 * lanes)` and
-  `indexInRange(n, 2 * lanes)`; a mixed kernel stores in its long groups.
-- **The allocator.** `VarkaLaneArrow.of(DECIMAL)` builds the destination from Spark's field
-  (`Decimal(p, s, 128)`) and refuses a precision above 18 naming row 359; `VarkaLaneArrowSuite`
-  holds both.
+  `indexInRange(n, 2 * lanes)`; a mixed kernel stores in its long groups. The slot addressing,
+  offset and masks of a slot half are `VarkaVectorWalk.emitDecimalSlotHalf`, which the decimal
+  load calls too. The interleave's index for part `k` is `L / 2 + (L % 2) * n` with
+  `L = k * n + i`; the first form built, `i / 2 + (i % 2) * n + k * n / 2`, holds only at an even
+  lane count and stored `(v, v)` at one long lane.
+- **The admission and the allocator.** `VarkaTypes.decimalOutputDeclineReason` refuses a decimal
+  output above precision 18, naming row 359 from the DECIMAL entry's `UpToPrecision`, or of a
+  negative scale, and `VarkaDecimalCompiler.outputRoot`, which wraps a decimal-valued output root
+  in `WidenDecimal`, declines with it, so such a shape never fuses. No lowering builds a
+  decimal-valued root yet: 157b's producers call `outputRoot`, and until then
+  `VarkaExpressionCompilerSuite` is its caller. `VarkaLaneArrow.of(DECIMAL)` builds the
+  destination from Spark's field (`Decimal(p, s, 128)`) and asks the same reason again, as an
+  assertion (an `IllegalStateException`); `VarkaLaneArrowSuite` holds both.
 - **Warm-up and budget.** The template warm-up's long block builds the lanewise zip, the
   two-vector `rearrange` under it, the two-vector `selectFrom` and the two stores, whole and
   masked; `VarkaWarmupReachSuite` reads the decimal draw's kernels as part of its corpus. The
   budget weight is 4 (the sign shift, the two interleaves, the second store), held by
   `VarkaEmitterBudgetSuite`, which counts the prologue's zip as overhead, as a leaf's load is. The
   cost feature `WidenDecimal` is on row 352's awaiting-refit list in `VarkaEmitCostSuite`.
-- **The store table and the guard page.** `VarkaDecimalStoreSuite` (`ownJvm`): `WidenDecimal`
-  over a long column at 2, 4 and 8 lanes, lengths 1, 3, 37 and 64, both bodies, both arms, with
-  0, -1, `10^18 - 1`, `-(10^18 - 1)`, 1, -10 and random values of both signs planted at the first
-  group, a middle one and the last row; each valid slot equals `DecimalVector.set(int, long)`'s
-  bytes and reads back through `ArrowColumnVector.getDecimal` as `Decimal(u, 18, 0)`. Beside it
-  the store over arithmetic, `mixedLanesBesideTheStore`, `perGroupBodiesUnderTheBudget` (six
-  outputs split by the byte budget, each loop body building its two zips), the refusals, the
-  mapping fault injector, short and, under the sanitizer, long, and `guardPage`: the slots end on
-  an `mmap`ed page whose successor is `PROT_NONE`. A store with a wrong high word fails five of the
+- **The store table and the guard page.** `VarkaDecimalStoreSuite` (`ownJvm`): `WidenDecimal` over a
+  long column at 2, 4 and 8 lanes and at the preferred species (`lanesOverride=1`, which bakes no
+  width), and `VarkaDecimalStoreOneLaneSuite` runs the same tables in a JVM under
+  `-XX:MaxVectorSize=8`, where that species is one long lane (six of its tests failed on the first
+  index form, a slot read back as `(-42, -42)`); lengths 1, 3, 37 and 64, both bodies, both arms,
+  with 0, -1, `10^18 - 1`, `-(10^18 - 1)`, 1, -10 and random values of both signs planted at the
+  first group, a middle one and the last row; each valid slot equals `DecimalVector.set(int,
+  long)`'s bytes and reads back through `ArrowColumnVector.getDecimal` as `Decimal(u, 18, 0)`.
+  Beside it the store over arithmetic, `mixedLanesBesideTheStore`, `perGroupBodiesUnderTheBudget`
+  (six outputs split by the byte budget, each loop body building its two zips), the refusals, the
+  mapping fault injector, short and, under the sanitizer, long, and `guardPage`: the slots end on an
+  `mmap`ed page whose successor is `PROT_NONE`. A store with a wrong high word fails five of the
   seven tests (a planted `lo >> 1`).
 - **The fuzz sequence.** `VarkaIrGrammar.drawDecimalShape` on `DECIMAL_FUZZ_SEED`: a decimal root,
   over a long tree under a nulling guard of `+-(10^18 - 1)` where its bound does not fit, beside
@@ -528,11 +543,17 @@ for: the canonical parser reads only `(head child...)`.*
   whose root is in hand where it is read, and would cap the outputs at 64.
 - **The fuzzer draws `decimalStore` in the decimal sequence only.** Drawn in `randomOptions`, it
   shifted every later draw of the committed seeds and moved the named draws of VARKA-323's
-  variant test, for an option no shape of theirs reads.
+  variant test, for an option no shape of theirs reads. The exclusion is the option's own
+  attribute (`readOnlyBy`), which the general draws, `VarkaSteering` and the option matrix all
+  read through `drawn()`; the decimal sequence draws the options `WidenDecimal` alone reads after
+  the rest, both arms of `decimalStore` among its draws.
 - **`emitted_bytes.json` is unchanged**, not moved as 3 item 7 predicted: no coverage row and no
-  shape of the committed fuzz sequences stores a decimal yet, so no digest moves, and
-  `decimalStore` reaches no configuration, so it has no pinned arm. The store's bytes reach the
-  oracle with 157b's coverage rows.
+  shape of the committed fuzz sequences stores a decimal yet, so no digest moves, and `decimalStore`
+  reaches no configuration (`VarkaMatrixRuns.configurations` skips an option `drawn()` leaves out;
+  the first build of the branch had added `decimalStore=SELECT_FROM`, a matrix configuration
+  rerunning every suite for no kernel they emit), so it has no pinned arm. The shared slot
+  addressing leaves the decimal load's digests, its coverage rows', unchanged. The store's bytes
+  reach the oracle with 157b's coverage rows.
 - **The budget suite counts the prologue's zip as overhead**, not as weight: it is built once a
   body, whatever the number of decimal roots.
 
