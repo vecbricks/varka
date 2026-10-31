@@ -37,8 +37,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * two modes compare over the same values; then {@code CAST(l AS SMALLINT)} under LEGACY,
  * which wraps, {@code CAST(y AS BIGINT)} from a {@code TINYINT} (the narrow value under a long
  * kernel of {@code VARKA-332.md} 2.5, not a year-month interval), {@code CAST(b AS INT)} from a
- * {@code BOOLEAN}, {@code CAST(i AS BOOLEAN)} as a filter's condition (under {@code coalesce}
- * over the column with nulls, as below), {@code CAST(m AS INTERVAL YEAR)}, which raises past
+ * {@code BOOLEAN}, {@code CAST(i AS BOOLEAN)} as a filter's condition (with constraint
+ * propagation off, as below), {@code CAST(m AS INTERVAL YEAR)}, which raises past
  * {@code +-178956970} in every mode, so it reads a column inside that range, and
  * {@code CAST(dt AS BIGINT)}, the whole seconds of a day-time interval, each with no nulls and
  * with one row in ten null. The casts other than the
@@ -56,18 +56,16 @@ import org.apache.spark.sql.internal.SQLConf;
  * the results file notes each section that fuses. Only the control is listed. A row that fuses a
  * section lists it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
  *
- * <p>The filter's two densities time different conditions. Over {@code i_n}, the column with
- * nulls, the condition is {@code coalesce(CAST(i_n AS BOOLEAN), false)}: from the bare cast the
- * optimizer infers {@code i_n IS NOT NULL}, since the cast is null-intolerant, and that conjunct
- * alone fuses into a {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would
- * put a Varka node in the plan while the cast declines, so the check could not see the row start
- * fusing the cast itself. {@code coalesce} is not null-intolerant, so nothing is inferred, and it
- * keeps the same rows, a null cast being false. Over {@code i}, which is not nullable, the
- * condition is the bare {@code CAST(i AS BOOLEAN)}: no {@code IS NOT NULL} is inferred for a
- * column that cannot be null, and the optimizer would drop a {@code coalesce} there anyway, its
- * first argument never being null. No form keeps one condition at both densities, since the
- * same holds for {@code <=> true}, which becomes the bare cast over a column that cannot be
- * null. Each section's {@code fuses} flag is the one a probe of its plan found.
+ * <p>The filter times the bare {@code WHERE CAST(i AS BOOLEAN)} at both densities, under
+ * {@code spark.sql.constraintPropagation.enabled=false} on both sessions. With constraint
+ * propagation on, the optimizer infers {@code i_n IS NOT NULL} from the cast over {@code i_n},
+ * the column with nulls, since the cast is null-intolerant, and that conjunct alone fuses into a
+ * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
+ * the plan while the cast declines, so the check could not see the row start fusing the cast
+ * itself. Over {@code i}, which is not nullable, nothing is inferred either way. The setting
+ * changes only that inference, so both arms at both densities still time Spark's own plan of the
+ * bare cast, and the two densities time one condition. Each section's {@code fuses} flag is the
+ * one a probe of its plan found.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -94,9 +92,10 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final String VIEW = "varka_integral_cast";
 
   /**
-   * A section: its title, its query, the SQL settings it runs under on both sessions, empty for a
-   * cast whose answer does not depend on them, and whether the Varka session fuses it, which the
-   * run checks before it times anything.
+   * A section: its title, its query, the SQL settings it runs under on both sessions (a narrowing's
+   * mode, or the filter's constraint propagation), empty for a cast whose answer and plan do not
+   * depend on them, and whether the Varka session fuses it, which the run checks before it times
+   * anything.
    */
   record Section(String title, String query, Map<String, String> conf, boolean fuses) {}
 
@@ -176,6 +175,8 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
     List<Section> out = new ArrayList<>();
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
+    Map<String, String> noConstraints =
+        Map.of(SQLConf.CONSTRAINT_PROPAGATION_ENABLED().key(), "false");
     for (String nulls : new String[] {"", "_n"}) {
       String i = "i" + nulls;
       String j = "j" + nulls;
@@ -201,12 +202,9 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT CAST(" + y + " AS BIGINT)" + from, Map.of(), false));
       out.add(new Section("BOOLEAN CAST(b AS INT)" + density,
           "SELECT CAST(" + b + " AS INT)" + from, Map.of(), false));
-      // Over i, which is not nullable, the bare cast; over i_n, the cast under coalesce, so that
-      // no IS NOT NULL is inferred (see the class javadoc).
-      String condition = nulls.isEmpty()
-          ? "CAST(i AS BOOLEAN)" : "coalesce(CAST(i_n AS BOOLEAN), false)";
-      out.add(new Section("INT filter " + condition.replace("i_n", "i") + density,
-          "SELECT " + i + from + " WHERE " + condition, Map.of(), false));
+      // The bare cast at both densities, with no IS NOT NULL inferred (see the class javadoc).
+      out.add(new Section("INT filter CAST(i AS BOOLEAN)" + density,
+          "SELECT " + i + from + " WHERE CAST(" + i + " AS BOOLEAN)", noConstraints, false));
       out.add(new Section("INT CAST(m AS INTERVAL YEAR)" + density,
           "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), false));
       out.add(new Section("INTERVAL DAY TO SECOND CAST(dt AS BIGINT)" + density,
