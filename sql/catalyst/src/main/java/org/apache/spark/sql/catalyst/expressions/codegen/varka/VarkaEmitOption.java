@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.ObjIntConsumer;
@@ -33,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * One option of {@link VarkaEmitOptions} as the options table holds it: its name, why it exists,
@@ -93,7 +95,10 @@ public sealed interface VarkaEmitOption
      */
     MISCOMPILED;
 
-    /** Whether the fuzzer, its steering and the option matrix vary an option of this reason. */
+    /**
+     * Whether the fuzzer, its steering and the option matrix may vary an option of this reason;
+     * {@link VarkaEmitOption#drawn()} asks this and whether the option is shape-specific.
+     */
     public boolean drawn() {
       return this != FAULT_INJECTOR && this != MISCOMPILED;
     }
@@ -155,6 +160,27 @@ public sealed interface VarkaEmitOption
   Reason reason();
 
   Rendering rendering();
+
+  /**
+   * The one node kind whose emission reads this option, for an option no other emission reads,
+   * or empty for an option of the emission in general. Such an option changes no kernel without
+   * that node, so varying it over shapes that lack one tests nothing and, in the fuzzer, shifts
+   * every later draw of a committed seed: {@link #drawn()} leaves it out of the general draws,
+   * the steering and the option matrix, and the sequence whose shapes hold the node draws it
+   * ({@code VarkaIrFuzzSuite}'s decimal draw for {@code decimalStore}).
+   */
+  default Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
+    return Optional.empty();
+  }
+
+  /**
+   * Whether the fuzzer's general draws, its steering and the option matrix vary this option: its
+   * reason is drawn ({@link Reason#drawn()}) and it is not read by one node kind alone
+   * ({@link #readOnlyBy()}).
+   */
+  default boolean drawn() {
+    return reason().drawn() && readOnlyBy().isEmpty();
+  }
 
   /** Sets this option's default on a builder. */
   void applyDefault(Builder builder);
@@ -275,23 +301,25 @@ public sealed interface VarkaEmitOption
   /**
    * An enum option: one of {@code type}'s constants. The three that predate the tags render by
    * position; a later one renders as a {@link ChoiceTag}, so that adding it leaves every other
-   * variant's rendering as it was.
+   * variant's rendering as it was. {@code readOnlyBy} names the node kind whose emission alone
+   * reads it, if one does ({@link VarkaEmitOption#readOnlyBy()}).
    */
   record Choice<E extends Enum<E>>(String name, Reason reason, Class<E> type, E defaultValue,
-      Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering)
-      implements VarkaEmitOption {
+      Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering,
+      Optional<Class<? extends VarkaVectorIR>> readOnlyBy) implements VarkaEmitOption {
 
     public Choice {
       if (rendering instanceof FlagTag || rendering instanceof CountTag) {
         throw VarkaErrors.illegalArgument(
             name + ": a choice renders by position or as a choice tag");
       }
+      Objects.requireNonNull(readOnlyBy, "readOnlyBy");
     }
 
     /** A choice rendered by position, as the three that predate the tags are. */
     public Choice(String name, Reason reason, Class<E> type, E defaultValue,
         Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set) {
-      this(name, reason, type, defaultValue, get, set, POSITIONAL);
+      this(name, reason, type, defaultValue, get, set, POSITIONAL, Optional.empty());
     }
 
     public E value(VarkaEmitOptions options) {
@@ -500,10 +528,10 @@ public sealed interface VarkaEmitOption
           new FlagTag("fromLongMasks", true)),
       // A machine choice: which of the decimal store's two interleaves is native depends on the
       // host (`VARKA-157.md` 2.2), so the losing arm stays behind the option. Its tag keeps the
-      // default's rendering empty.
+      // default's rendering empty. Only a WidenDecimal root's store reads it.
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
-          new ChoiceTag("decimalStore=")));
+          new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

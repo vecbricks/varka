@@ -50,7 +50,7 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     val named = VarkaMatrix.configurations.filterNot(_.startsWith(VarkaMatrix.ARROW_BATCH_SIZE))
       .map(_.split(",").last.takeWhile(_ != '=')).toSet
     val expected = VarkaEmitOption.TABLE.asScala
-      .filter(_.reason.drawn).map(_.name).toSet
+      .filter(_.drawn).map(_.name).toSet
     assert(named === expected)
     assert(VarkaMatrix.configurations.contains("lanesOverride=4"))
     assert(VarkaMatrix.configurations.contains("division=DOUBLE_DIV"))

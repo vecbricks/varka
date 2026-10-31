@@ -123,6 +123,12 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(table.filter(_.reason == Reason.MISCOMPILED).map(_.name) === Seq("fromLongMasks"))
     assert(Reason.values.filterNot(_.drawn).toSet ===
       Set(Reason.FAULT_INJECTOR, Reason.MISCOMPILED))
+    // One option is read by one node kind alone, so the general draws, the steering and the
+    // option matrix leave it out whatever its reason (VARKA-157).
+    assert(table.filter(_.readOnlyBy.isPresent).map(o => o.name -> o.readOnlyBy.get) ===
+      Seq("decimalStore" -> classOf[VarkaVectorIR.WidenDecimal]))
+    assert(reasonOf("decimalStore") === Reason.MACHINE)
+    assert(!VarkaEmitOption.named("decimalStore").drawn)
   }
 
   test("an option is found by name, and an enum constant by its name or not at all") {

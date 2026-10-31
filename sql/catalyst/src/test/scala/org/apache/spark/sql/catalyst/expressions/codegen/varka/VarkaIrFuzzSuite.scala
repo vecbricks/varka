@@ -134,36 +134,42 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val matrixReach = new VarkaReach.Tally
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
-  /**
-   * The option only a decimal output reads (VARKA-157). It is drawn by the decimal sequence alone
-   * (`drawLong` with `decimal`): no shape of the other sequences holds a decimal output, so a draw
-   * of it there would change no kernel and shift every later draw of the committed seeds.
-   */
-  private val decimalStore = VarkaEmitOption.named("decimalStore")
-    .asInstanceOf[VarkaEmitOption.Choice[VarkaEmitOptions.DecimalStore]]
-
   /** The options `randomOptions` draws, in the order it draws them. */
   private val fuzzedOptions = VarkaEmitOption.TABLE.asScala.toSeq
-    .filter(_.reason.drawn)
-    .filterNot(_ == decimalStore)
+    .filter(_.drawn)
     .sortBy(o => "with" + o.name.head.toUpper + o.name.tail)
 
   /**
+   * The options only a decimal output's store reads (VARKA-157), in table order: `decimalStore`.
+   * The general draws leave them out (`VarkaEmitOption.readOnlyBy`), since no shape of the other
+   * sequences holds a decimal output, so the decimal sequence (`drawLong` with `decimal`) draws
+   * them after the rest.
+   */
+  private val decimalOptions = VarkaEmitOption.TABLE.asScala.toSeq
+    .filter(o => o.reason.drawn && o.readOnlyBy.toScala.contains(classOf[WidenDecimal]))
+
+  /**
    * A random variant of the options record, drawn from the options table: every option but the
-   * fault injectors and the miscompiled forms (`Reason.drawn`), in the order of their `with*`
-   * setters' names, a boolean as a coin, an enum as one of its constants, and an int one time in
-   * five from the values its table entry lists - a lanes override from the powers of two, the AVX
-   * level from the levels either side of 3 where the 64-bit division changes lowering, the method
-   * byte budget from off, the HotSpot limit and the smaller budgets that bring the size machinery
-   * down to the widths drawn here (VARKA-238), and the other budgets from small values. The order
+   * fault injectors, the miscompiled forms and those one node kind alone reads
+   * (`VarkaEmitOption.drawn`), in the order of their `with*` setters' names, a boolean as a
+   * coin, an enum as one of its constants, and an int one time in five from the values its table
+   * entry lists - a lanes override from the powers of two, the AVX level from the levels either
+   * side of 3 where the 64-bit division changes lowering, the method byte budget from off, the
+   * HotSpot limit and the smaller budgets that bring the size machinery down to the widths drawn
+   * here (VARKA-238), and the other budgets from small values. The order
    * is fixed so that a seed recorded in a failure keeps drawing the same options. The draw is laid
    * over `base`, the matrix's options for every draw but the one that asks what the defaults run
    * drew: an option drawn by its coin is the same over either base, so under a flag or an enum's
    * configuration a draw has the defaults run's options exactly (VARKA-507).
    */
-  private def randomOptions(rnd: Random, base: VarkaEmitOptions): VarkaEmitOptions = {
+  private def randomOptions(rnd: Random, base: VarkaEmitOptions): VarkaEmitOptions =
+    drawOptions(rnd, base, fuzzedOptions)
+
+  /** `options` drawn over `base` in their order, each as `randomOptions` draws it. */
+  private def drawOptions(rnd: Random, base: VarkaEmitOptions,
+      options: Seq[VarkaEmitOption]): VarkaEmitOptions = {
     var opts = base
-    for (option <- fuzzedOptions) {
+    for (option <- options) {
       option match {
         case flag: VarkaEmitOption.Flag => opts = flag.`with`(opts, rnd.nextBoolean())
         case choice: VarkaEmitOption.Choice[_] =>
@@ -349,8 +355,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val drawnOptions = randomOptions(rnd, base)
-    val options = if (!decimal) drawnOptions
-      else decimalStore.withIndex(drawnOptions, rnd.nextInt(decimalStore.constants.size))
+    val options = if (!decimal) drawnOptions else drawOptions(rnd, drawnOptions, decimalOptions)
     val data =
       Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
 
@@ -1393,6 +1398,19 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val committed = draws.flatMap(k =>
       decimals(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a decimal output: ${committed.headOption}")
+  }
+
+  test("the decimal draw varies both arms of decimalStore, and the general draws never move it") {
+    // Catches: the option left out of the decimal sequence with the general draws, so the
+    // SELECT_FROM arm is never fuzzed; or drawn by the general draws again, which would shift
+    // every later draw of the committed seeds for a store none of their shapes holds.
+    assert(decimalOptions.map(_.name) === Seq("decimalStore"))
+    assert(!fuzzedOptions.exists(_.readOnlyBy.isPresent))
+    val arms = (0 until 64).map(k => drawLong(k, decimalSeed, decimal = true).options
+      .decimalStore()).toSet
+    assert(arms === VarkaEmitOptions.DecimalStore.values.toSet)
+    val general = (0 until 64).map(k => drawLong(k).options.decimalStore()).toSet
+    assert(general === Set(VarkaEmitOptions.DEFAULTS.decimalStore()))
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
