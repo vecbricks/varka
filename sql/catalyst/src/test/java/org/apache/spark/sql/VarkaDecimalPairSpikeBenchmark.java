@@ -114,16 +114,24 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  *
  * <p>Run it with {@code -XX:CompileCommand=dontinline,<this class>::loop*} so that each loop is a
  * compile unit of its own, at {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the
- * three widths; the run refuses to start without that command. {@code -Dvarka.pair.forms=p,a,s}
- * (a subset) and {@code -Dvarka.pair.rungs=l2,l3,pastl3} (a subset) narrow a run; {@code
- * -Dvarka.bench.only} narrows it to the arms whose label holds a string. Each is for
- * investigation only, refused when {@code SPARK_GENERATE_BENCHMARK_FILES} would write the results
- * file, and a selection that leaves no arm fails the run.
+ * three widths. The run refuses to start without that command, and it accepts only that
+ * spelling: {@code -XX:CompileCommand=dontinline,} and the class with its loops, the class
+ * dotted or slashed and the method after {@code ::} or a dot. A {@code dontinline} of another
+ * pattern is refused, and so is any other way HotSpot would also take the command, such as a
+ * {@code CompileCommandFile} or a space in place of the comma.
+ *
+ * <p>{@code -Dvarka.pair.forms=p,a,s} (a subset) and {@code -Dvarka.pair.rungs=l2,l3,pastl3} (a
+ * subset) narrow a run; {@code -Dvarka.bench.only} narrows it to the arms whose label holds a
+ * string. Each is for investigation only. The two properties are refused whenever either is set
+ * while {@code SPARK_GENERATE_BENCHMARK_FILES} would write the results file, even when it lists
+ * every form or every rung, so a results file is only written by a run that sets neither. A
+ * selection that leaves no arm fails the run.
  *
  * <pre>
- *   build/sbt 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=32", "-XX:CompileCommand=\
- *     dontinline,org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark::loop*")' \
- *     'catalyst/Test/runMain org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark'
+ *   build/sbt 'project catalyst' 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=32",
+ *       "-XX:CompileCommand=dontinline," +
+ *       "org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark::loop*")' \
+ *     'Test/runMain org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark'
  * </pre>
  */
 public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
@@ -152,7 +160,18 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
    * of 32 (80 in all); one output for each operation that stores, reused by its arms, 16 bytes a
    * row for each of the four that store slots and 32 for PRODUCT (96); and the {@code BigInteger}
    * answer of each of those four, 16 bytes a row each (64). The outputs and answers live until
-   * the rung's cases have run, so at 4194304 rows the rung holds 960 MB.
+   * the rung's cases have run, so at 4194304 rows the rung holds 960 MB. Arena memory counts
+   * against {@code -XX:MaxDirectMemorySize}, which defaults to the heap's maximum, {@code -Xmx}.
+   *
+   * <p>The heap separately holds the rung's values as {@code BigInteger}s, the arrays {@code xs},
+   * {@code ys} and {@code wilds}. A {@code y} is {@code x}'s own object one row in eight and a
+   * {@code wild} fifteen in sixteen, so a row has about two objects of some 40 bytes with a
+   * magnitude array of up to 32, and three references: about 650 MB at the pastl3 rung, an
+   * estimate from the objects' layout under compressed references, not a measurement. The rungs
+   * run one after another, each in an arena closed before the next, so that rung is the peak.
+   * The catalyst test fork that {@code Test/runMain} starts runs at {@code -Xmx4g} (the build's
+   * {@code HEAP_SIZE} default) with no {@code MaxDirectMemorySize} set, so it has 4 GB of heap
+   * and 4 GB of direct memory, room for both.
    */
   private static final List<Rung> LADDER = List.of(
       new Rung("l2", 4096, "in L2, 256 KB"),
@@ -161,6 +180,10 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   private static final String RUNGS_PROPERTY = "varka.pair.rungs";
   private static final String FORMS_PROPERTY = "varka.pair.forms";
+
+  /** The compile command that keeps every loop of this class a compile unit of its own. */
+  static final String DONTINLINE_LOOPS = "-XX:CompileCommand=dontinline,"
+      + VarkaDecimalPairSpikeBenchmark.class.getName() + "::loop*";
 
   /** Rows a timed iteration covers, so that one is long enough for a millisecond clock. */
   private static final long ROWS_PER_ITERATION = 1L << 24;
@@ -1026,16 +1049,21 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   /**
    * Row {@code i}'s {@code y}: {@code x} itself one row in eight, its high word with another low
-   * word one in eight, and otherwise independent. The other low word is drawn on the side of
-   * {@code x}'s that is toward zero, at most it for a positive {@code x} and at least it for a
-   * negative one, so {@code |y| <= |x|} and {@code y} stays within {@code DECIMAL(38)} even when
-   * {@code x} is an extreme.
+   * word one in eight, and otherwise independent. The other low word is random, so it lies above
+   * {@code x}'s or below it at either sign, and {@code x < y} on those rows is decided by the low
+   * words both ways. Only when that would take {@code y} out of {@code DECIMAL(38)}, which needs
+   * an {@code x} in an extreme's high word, is it drawn on the side of {@code x}'s toward zero
+   * instead: at most it for a positive {@code x}, at least it for a negative one.
    */
   private static BigInteger columnY(int i, BigInteger x, Random r) {
     return switch (i % 8) {
       case 0 -> x;
       case 1 -> {
         BigInteger high = x.shiftRight(64).shiftLeft(64);
+        BigInteger random = high.add(new BigInteger(64, r));
+        if (random.abs().compareTo(TEN38) < 0) {
+          yield random;
+        }
         BigInteger low = x.subtract(high);
         BigInteger room = x.signum() < 0 ? TWO64.subtract(low) : low.add(BigInteger.ONE);
         BigInteger step = new BigInteger(64, r).mod(room);
@@ -1285,10 +1313,6 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     require(dontInline, "no " + DONTINLINE_LOOPS + " is set, so a loop may be inlined into the"
         + " drive and show no code of its own in the code list");
   }
-
-  /** The compile command that keeps every loop of this class a compile unit of its own. */
-  static final String DONTINLINE_LOOPS = "-XX:CompileCommand=dontinline,"
-      + VarkaDecimalPairSpikeBenchmark.class.getName() + "::loop*";
 
   /**
    * Whether the JVM argument {@code arg} is {@link #DONTINLINE_LOOPS}, with the class named in

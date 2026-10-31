@@ -81,6 +81,9 @@ public final class VarkaDecimalPairSpikeSuite {
       int lt = 0;
       int equal = 0;
       int sameHigh = 0;
+      // Rows where y has x's high word only, by x's sign (0 at or above zero, 1 below) and then
+      // by whether x < y, so the low words decide the comparison both ways at both signs.
+      int[][] sameHighBySignAndLt = new int[2][2];
       int overflow = 0;
       int lowZeroNegative = 0;
       int ties = 0;
@@ -94,7 +97,10 @@ public final class VarkaDecimalPairSpikeSuite {
         wild += d.wilds()[i].abs().compareTo(bound) >= 0 ? 1 : 0;
         lt += x.compareTo(y) < 0 ? 1 : 0;
         equal += x.equals(y) ? 1 : 0;
-        sameHigh += !x.equals(y) && x.shiftRight(64).equals(y.shiftRight(64)) ? 1 : 0;
+        if (!x.equals(y) && x.shiftRight(64).equals(y.shiftRight(64))) {
+          sameHigh++;
+          sameHighBySignAndLt[x.signum() < 0 ? 1 : 0][x.compareTo(y) < 0 ? 1 : 0]++;
+        }
         overflow += x.multiply(y).abs().compareTo(bound) >= 0 ? 1 : 0;
         lowZeroNegative += x.signum() < 0 && x.longValue() == 0 ? 1 : 0;
         ties += x.abs().mod(tenK).equals(half) ? 1 : 0;
@@ -103,6 +109,12 @@ public final class VarkaDecimalPairSpikeSuite {
       assertTrue(lt > n / 4 && lt < 3 * n / 4, lt + " rows with x < y");
       assertTrue(equal > n / 16, equal + " rows with x = y");
       assertTrue(sameHigh > n / 16, sameHigh + " rows where y has x's high word only");
+      for (int sign = 0; sign < 2; sign++) {
+        for (int less = 0; less < 2; less++) {
+          assertTrue(sameHighBySignAndLt[sign][less] > 0, "no row where y has x's high word only,"
+              + " x " + (sign == 0 ? ">= 0" : "< 0") + " and x < y " + (less == 1));
+        }
+      }
       assertTrue(overflow > n / 4 && overflow < 3 * n / 4, overflow + " products past 10^38");
       assertTrue(lowZeroNegative > 0, "no negative value with a zero low word");
       assertTrue(ties > n / 97, ties + " HALF_UP ties");
