@@ -422,6 +422,14 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   cells and the guard verdict), negation built as `0.0 - x`, `+0.0` where Spark answers `-0.0`
   (the bit-for-bit check against Spark, at both kinds), and `degrees` multiplying by the
   constant rounded to nine digits (the check against Spark).
+- **The baselines' fuse lists (31 October 2026, on merging master).** Step 1's check refuses a
+  baseline run in which an unlisted section fuses, so this step lists what it fuses, read from
+  each section's plan on the Varka session (`VarkaSqlBenchmarkBase.fusedPlan`) rather than from
+  the coverage table: in `VarkaFloatingArithmeticBaselineBenchmark` the sixteen `DOUBLE`
+  sections, the division in both modes, `x / 3.0D`, `try_divide`, `sqrt(abs(x))`, `-x`,
+  `signum` and `degrees` at both densities, the four interval sections staying the row path
+  until step 4; in `VarkaFloatingBaselineBenchmark` the four arithmetic chains, beside the
+  comparisons and choices already listed, the casts staying the row path until 343.
 - **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
   lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
   `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2).
