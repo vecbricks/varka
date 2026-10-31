@@ -38,7 +38,6 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
-import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
@@ -194,11 +193,13 @@ public final class VarkaExpressionHarness {
     List<Expected> generated = project(GenerateUnsafeProjection.generate(exprs, false), rows);
     var out = new ArrayList<Expected>(rows.size());
     for (int i = 0; i < rows.size(); i++) {
+      int row = i;
       Expected a = interpreted.get(i);
       Expected b = generated.get(i);
       boolean agree = a.error() != null
           ? b.error() != null && sameError(a.error(), b.error())
-          : b.error() == null && sameRow(a.row(), b.row(), types, null) == null;
+          : b.error() == null && sameRow(a.row(), b.row(), types,
+              o -> unfixedNaN(bound.get(o), rows.get(row))) == null;
       if (!agree) {
         outcome.findings.add(context + ", row " + i + ": Spark's interpreted and generated "
             + "projections disagree (" + describe(a, types) + " against " + describe(b, types)
@@ -555,23 +556,26 @@ public final class VarkaExpressionHarness {
    * as the kernel checks' {@code VarkaKernelChecks.unfixedNaN} is on the IR: an arithmetic over
    * one NaN operand returns that NaN, so its payload is fixed by the operand's; a node of one
    * child (a negation, an {@code abs}, a square root, a cast) passes its child's on; any other
-   * node passes on the payload of a floating child whose value it returns unchanged. So a pick
+   * node is open where a floating child it may return - one whose value is a NaN - is. So a pick
    * between two column NaNs - {@code greatest}, {@code coalesce}, a {@code CASE} - is held to
-   * Spark's bits. A subexpression that raises on the row decides nothing.
+   * Spark's bits, and one that may return an open NaN is not.
+   *
+   * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
+   * tier, and an arithmetic over two NaNs compares the operands' bits only once neither is open,
+   * when each is a column's, a literal's or a NaN whose payload this rule fixes: the same on
+   * every tier too. Comparing the bits of a node's value with a child's, as this once did, read
+   * two evaluations of an open payload, which need not agree. A subexpression that raises on the
+   * row decides nothing.
    */
   static boolean unfixedNaN(Expression e, InternalRow row) {
-    DataType t = e.dataType();
-    if (!(t instanceof DoubleType) && !(t instanceof FloatType)) {
+    if (!isFloating(e.dataType())) {
       return false;
-    }
-    if (e instanceof RuntimeReplaceable r) {
-      return unfixedNaN(r.replacement(), row);
     }
     if (e instanceof BinaryArithmetic a) {
       Long l = nanBits(a.left(), row);
       Long r = nanBits(a.right(), row);
       if (l != null && r != null) {
-        return !l.equals(r) || unfixedNaN(a.left(), row) || unfixedNaN(a.right(), row);
+        return unfixedNaN(a.left(), row) || unfixedNaN(a.right(), row) || !l.equals(r);
       }
       return l != null ? unfixedNaN(a.left(), row) : r != null && unfixedNaN(a.right(), row);
     }
@@ -579,12 +583,8 @@ public final class VarkaExpressionHarness {
     if (children.size() == 1) {
       return unfixedNaN(children.get(0), row);
     }
-    Long v = nanBits(e, row);
-    if (v == null) {
-      return false;
-    }
     for (Expression child : children) {
-      if (child.dataType().equals(t) && v.equals(nanBits(child, row))
+      if (isFloating(child.dataType()) && nanBits(child, row) != null
           && unfixedNaN(child, row)) {
         return true;
       }
@@ -592,15 +592,22 @@ public final class VarkaExpressionHarness {
     return false;
   }
 
+  private static boolean isFloating(DataType t) {
+    return t instanceof DoubleType || t instanceof FloatType;
+  }
+
   /**
    * The raw bits of {@code e}'s floating value on {@code row} where it is a NaN; null where it is
-   * not, is null, is not floating or raises.
+   * not, is null, is not floating or raises. {@link #unfixedNaN} reads only whether a value is a
+   * NaN, and the bits of one whose payload it fixes. Raising covers Spark's own errors, the
+   * internal {@code SparkException} of an expression that cannot be evaluated among them, and
+   * the {@code AssertionError} of a {@code RuntimeReplaceable} evaluated over a row.
    */
   private static @Nullable Long nanBits(Expression e, InternalRow row) {
     Object v;
     try {
       v = e.eval(row);
-    } catch (RuntimeException ex) {
+    } catch (Exception | AssertionError ex) {
       return null;
     }
     if (v instanceof Double d && d.isNaN()) {

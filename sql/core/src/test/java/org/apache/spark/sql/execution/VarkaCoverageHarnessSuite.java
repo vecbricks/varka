@@ -42,9 +42,12 @@ import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
+import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
@@ -502,7 +505,9 @@ public final class VarkaCoverageHarnessSuite {
     // No kernel picks the wrong NaN on purpose, so the fault is planted in the answers: on a row
     // whose two doubles are NaNs of different bits, greatest(x, x2) must return Spark's one, bit
     // for bit, while x + x2, whose payload Java leaves open, may return either. The relaxation
-    // once covered every output of such a row, and so excused the wrong pick.
+    // once covered every output of such a row, and so excused the wrong pick. A CASE that returns
+    // x + x2 passes its open payload on, which the relaxation once decided by comparing the bits
+    // of two evaluations of that open payload, the CASE's and the sum's, which need not agree.
     double first = Double.longBitsToDouble(0x7ff8000000000001L);
     double second = Double.longBitsToDouble(0xfff8000000000000L);
     InternalRow input = new GenericInternalRow(new Object[] {first, second});
@@ -512,8 +517,13 @@ public final class VarkaCoverageHarnessSuite {
         new Greatest(CollectionConverters.asScala(List.of(x, x2)).toSeq()),
         new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(SQLConf.get())),
         new UnaryMinus(new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(SQLConf.get())),
-            false));
-    DataType[] types = {DataTypes.DoubleType, DataTypes.DoubleType, DataTypes.DoubleType};
+            false),
+        new CaseWhen(CollectionConverters.asScala(List.of(new Tuple2<Expression, Expression>(
+            new IsNotNull(x), new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(
+                SQLConf.get()))))).toSeq(),
+            scala.Option.apply(Literal.create(0.0d, DataTypes.DoubleType))));
+    DataType[] types =
+        {DataTypes.DoubleType, DataTypes.DoubleType, DataTypes.DoubleType, DataTypes.DoubleType};
     var spark = new Object[outputs.size()];
     var other = new Object[outputs.size()];
     for (int o = 0; o < outputs.size(); o++) {
@@ -528,6 +538,8 @@ public final class VarkaCoverageHarnessSuite {
     assertFalse(unfixed.test(0), "greatest(x, x2) of two column NaNs is excused");
     assertTrue(unfixed.test(1), "x + x2 of two unlike NaNs is held to a payload");
     assertTrue(unfixed.test(2), "-(x + x2) does not pass its child's open payload on");
+    assertTrue(unfixed.test(3),
+        "CASE WHEN x IS NOT NULL THEN x + x2 ELSE 0 END does not pass the sum's open payload on");
     InternalRow want = new GenericInternalRow(spark);
     for (int o = 0; o < outputs.size(); o++) {
       var got = spark.clone();
