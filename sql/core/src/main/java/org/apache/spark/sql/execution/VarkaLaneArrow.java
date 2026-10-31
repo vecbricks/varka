@@ -18,6 +18,7 @@ package org.apache.spark.sql.execution;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -41,7 +42,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.util.ArrowUtils;
@@ -144,16 +144,16 @@ final class VarkaLaneArrow {
   /**
    * A decimal output's destination, from Spark's field as {@link #fromField} builds the long
    * lane's: {@code Decimal(p, s, 128)}. The store writes a long and its sign extension into each
-   * slot, so only a precision a long holds can be written; a wider one is row 359's two-word
-   * store, and is refused with that reason rather than given a vector the kernel would fill
+   * slot, so only a precision a long holds can be written. The plan refuses a wider output
+   * before it fuses ({@code VarkaTypes.decimalOutputDeclineReason}, naming row 359); asked again
+   * here, it is an assertion that none got through, rather than a vector the kernel would fill
    * wrongly.
    */
   private static ValueVector decimalFromField(String name, DataType type,
       BufferAllocator allocator) {
-    DecimalType decimal = (DecimalType) type;
-    if (decimal.precision() > Decimal.MAX_LONG_DIGITS()) {
-      throw VarkaErrors.illegalArgument("a decimal output of precision " + decimal.precision()
-          + " is wider than a long; its store is row 359's");
+    Optional<String> refused = VarkaTypes.decimalOutputDeclineReason((DecimalType) type);
+    if (refused.isPresent()) {
+      throw VarkaErrors.illegalState(refused.get() + ", and the plan admitted it");
     }
     return fromField(name, type, allocator);
   }

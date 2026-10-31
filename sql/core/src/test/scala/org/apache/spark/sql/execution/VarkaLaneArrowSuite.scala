@@ -89,7 +89,7 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
   }
 
   test("a decimal output of precision 18 or less is written to a vector of Spark's own field, " +
-      "and a wider one is refused") {
+      "and a wider one fails the allocator's assertion") {
     val allocator = new RootAllocator(Long.MaxValue)
     try {
       for ((p, s) <- Seq((1, 0), (10, 2), (18, 6))) {
@@ -104,9 +104,12 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
           vector.close()
         }
       }
-      val e = intercept[IllegalArgumentException](
+      // The plan refuses the wider output before it fuses (VarkaTypes'
+      // decimalOutputDeclineReason); the allocator asks again, as an assertion.
+      val e = intercept[IllegalStateException](
         VarkaLaneArrow.allocate("x", DecimalType(19, 2), allocator))
       assert(e.getMessage.contains("row 359"), e.getMessage)
+      assert(e.getMessage.contains("the plan admitted it"), e.getMessage)
     } finally {
       allocator.close()
     }

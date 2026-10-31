@@ -368,6 +368,34 @@ public final class VarkaTypes {
     });
   }
 
+  /**
+   * Why a kernel cannot store an output of {@code type}, or empty where the decimal store writes
+   * it: the plan-time admission of a {@code WidenDecimal} root against its output's type,
+   * which the compiler asks where it wraps a decimal-valued root
+   * ({@code VarkaDecimalCompiler.outputRoot}), so a shape the store would write wrongly never
+   * fuses. The store writes a long
+   * and its sign extension into each slot, so it takes the precisions a long holds, the
+   * admission's {@link Admission.UpToPrecision#admits}: a wider one is the two-word store of the
+   * row the table names ({@code widerRow}, 359), and a negative scale is declined everywhere.
+   * The reader's row does not matter here: the store needs no operator over a decimal column.
+   * The evaluator's allocator asks it again, as an assertion that no such output got through.
+   */
+  public static Optional<String> decimalOutputDeclineReason(DecimalType type) {
+    if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.UpToPrecision up)) {
+      throw VarkaErrors.illegalState("DECIMAL's admission is not by precision");
+    }
+    String output = "a " + type.simpleString() + " output";
+    if (type.scale() < 0) {
+      return Optional.of(output + ": a negative scale is declined everywhere (the milestone "
+          + "plan's 2.8)");
+    }
+    if (!up.admits(type)) {
+      return Optional.of(output + ": precision above " + up.maxPrecision() + " does not fit the "
+          + "long a slot's low word holds, and its two-word store is row " + up.widerRow() + "'s");
+    }
+    return Optional.empty();
+  }
+
   private static final Map<VarkaTypeId, Info> TABLE = table();
 
   private static Map<VarkaTypeId, Info> table() {
