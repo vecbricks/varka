@@ -1119,14 +1119,16 @@ final class VarkaBodyEmitter {
    * slot a row, the word {@code lo} and its sign extension {@code hi = lo >> 63} (VARKA-157 2.2).
    *
    * <p>A lane group of {@code n} rows is {@code 2n} longs of slots, so it is two vectors:
-   * {@code out0} holds rows {@code 0} to {@code n/2 - 1} as {@code (lo0, hi0, lo1, hi1, ...)} and
-   * is stored at the group's first slot, {@code i * 16}, and {@code out1} holds the rest, stored
-   * one vector further on. Each is taken by the prologue's interleave of its part
-   * ({@link #emitDecimalZip}): {@code lo.rearrange(Zk, hi)}, or under {@code SELECT_FROM}
-   * {@code Ik.selectFrom(lo, hi)}. Both stores are whole in the loop; in the epilogue they are
-   * masked to the {@code 2 * lanes} longs of the remaining rows, {@code indexInRange(0, 2 *
-   * lanes)} and {@code indexInRange(n, 2 * lanes)}, the decimal load's two masks, so neither
-   * writes past the batch. A null row is stored like a valid one; no reader reads its slot.
+   * {@code out0} holds the first {@code n} longs, {@code (lo0, hi0, lo1, hi1, ...)}, and is stored
+   * at the group's first slot, {@code i * 16}, and {@code out1} holds the rest, stored one vector
+   * further on; at one long lane they are row 0's low word and its high word. Each is taken by
+   * the prologue's interleave of its part ({@link #emitDecimalZip}): {@code lo.rearrange(Zk,
+   * hi)}, or under {@code SELECT_FROM} {@code Ik.selectFrom(lo, hi)}. Both stores are whole in
+   * the loop; in the epilogue they are masked to the {@code 2 * lanes} longs of the remaining
+   * rows, {@code indexInRange(0, 2 * lanes)} and {@code indexInRange(n, 2 * lanes)}, the decimal
+   * load's two masks from the one slot addressing both use
+   * ({@code VarkaVectorWalk.emitDecimalSlotHalf}), so neither writes past the batch. A null row
+   * is stored like a valid one; no reader reads its slot.
    */
   private static void emitDecimalStore(CodeBuilder cb, Analysis analysis, Slots s, int o,
       VarkaVectorIR root) {
@@ -1169,36 +1171,9 @@ final class VarkaBodyEmitter {
         cb.aload(hi);
         cb.invokevirtual(LONG_VECTOR, "rearrange", REARRANGE_TWO);
       }
-      cb.aload(s.dstSeg[o]);
-      cb.iload(s.iVar);
-      cb.i2l();
-      cb.loadConstant(VarkaVectorWalk.DECIMAL_SLOT_BYTES);
-      cb.lmul();
-      if (part == 1) {
-        cb.aload(s.species);
-        cb.invokeinterface(VECTOR_SPECIES, "vectorByteSize", SPECIES_LENGTH);
-        cb.i2l();
-        cb.ladd();
-      }
-      cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-      if (s.epilogue) {
-        // The longs of the remaining rows' slots this vector covers: from 0 in out0, from the
-        // vector's length in out1, up to 2 * lanes.
-        cb.aload(s.species);
-        if (part == 0) {
-          cb.loadConstant(0);
-        } else {
-          cb.aload(s.species);
-          cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
-        }
-        cb.iload(s.lanes);
-        cb.iconst_1();
-        cb.ishl();
-        cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
-        cb.invokevirtual(lane.vector, "intoMemorySegment", lane.intoMemorySegmentMasked);
-      } else {
-        cb.invokevirtual(lane.vector, "intoMemorySegment", lane.intoMemorySegmentDense);
-      }
+      VarkaVectorWalk.emitDecimalSlotHalf(cb, s, s.dstSeg[o], part);
+      cb.invokevirtual(lane.vector, "intoMemorySegment",
+          s.epilogue ? lane.intoMemorySegmentMasked : lane.intoMemorySegmentDense);
     }
   }
 
