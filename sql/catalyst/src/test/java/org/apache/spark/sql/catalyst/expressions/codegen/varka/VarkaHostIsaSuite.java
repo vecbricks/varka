@@ -20,8 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.util.List;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +45,9 @@ public final class VarkaHostIsaSuite {
     assertFalse(x86(WITH_DQ).conversionsFallBack());
     assertTrue(x86(AVX2_ONLY).conversionsFallBack());
     assertTrue(new VarkaHostIsa.Reading("x86_64", AVX2_ONLY, null).conversionsFallBack());
+    // Both of the names os.arch gives x86, and only those.
+    assertTrue(VarkaHostIsa.isX86("amd64") && VarkaHostIsa.isX86("x86_64"));
+    assertFalse(VarkaHostIsa.isX86("aarch64") || VarkaHostIsa.isX86(""));
   }
 
   @Test
@@ -77,15 +78,16 @@ public final class VarkaHostIsaSuite {
   @Test
   @DisplayName("a read that fails is an answer with its reason, not an error")
   void failedRead() {
-    var missing = VarkaHostIsa.read("org.apache.spark.NoSuchVectorSupport", "getCPUFeatures");
+    VarkaHostIsa.Reading missing =
+        VarkaHostIsa.read("org.apache.spark.NoSuchVectorSupport", "getCPUFeatures");
     assertFalse(missing.readable());
     assertFalse(missing.conversionsFallBack());
     assertTrue(missing.failure().contains("ClassNotFoundException"), missing.failure());
     // An accessible class without the method.
-    var noMethod = VarkaHostIsa.read("java.lang.Object", "getCPUFeatures");
+    VarkaHostIsa.Reading noMethod = VarkaHostIsa.read("java.lang.Object", "getCPUFeatures");
     assertFalse(noMethod.readable());
     // A method that returns something other than a string.
-    var notAString = VarkaHostIsa.read("java.lang.System", "nanoTime");
+    VarkaHostIsa.Reading notAString = VarkaHostIsa.read("java.lang.System", "nanoTime");
     assertFalse(notAString.readable());
     assertFalse(notAString.conversionsFallBack());
   }
@@ -93,8 +95,8 @@ public final class VarkaHostIsaSuite {
   @Test
   @DisplayName("on x86 the real read returns HotSpot's list, through the test JVM's export")
   void realRead() {
-    var host = VarkaHostIsa.host();
-    assumeTrue(List.of("amd64", "x86_64").contains(host.arch()),
+    VarkaHostIsa.Reading host = VarkaHostIsa.host();
+    assumeTrue(host.x86(),
         "the feature list is read only where the x86 matcher exists; this is " + host.arch());
     assertTrue(host.readable(), () -> "the feature query failed: " + host.failure()
         + "; the test JVM needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
