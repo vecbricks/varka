@@ -348,16 +348,9 @@ public final class VarkaTypes {
         case Admission.OnLane on -> Optional.empty();
         case Admission.UpToPrecision up -> {
           DecimalType d = (DecimalType) dataType;
-          if (d.scale() < 0) {
-            yield Optional.of(column + ": a negative scale is declined everywhere (the "
-                + "milestone plan's 2.8)");
-          }
-          if (!up.admits(d)) {
-            yield Optional.of(column + ": precision above " + up.maxPrecision() + " is row "
-                + up.widerRow() + "'s");
-          }
-          yield up.readerRow().map(row -> column + ": no operator over a decimal is built yet, "
-              + "row " + row + "'s");
+          Optional<String> unfit = unfitReason(up, d, column);
+          yield unfit.isPresent() ? unfit : up.readerRow().map(row -> column
+              + ": no operator over a decimal is built yet, row " + row + "'s");
         }
         case Admission.AsCondition c -> Optional.of(column + " read as a value, which row "
             + c.valuesRow() + " builds; it is read as a condition");
@@ -375,8 +368,9 @@ public final class VarkaTypes {
    * ({@code VarkaDecimalCompiler.outputRoot}), so a shape the store would write wrongly never
    * fuses. The store writes a long
    * and its sign extension into each slot, so it takes the precisions a long holds, the
-   * admission's {@link Admission.UpToPrecision#admits}: a wider one is the two-word store of the
-   * row the table names ({@code widerRow}, 359), and a negative scale is declined everywhere.
+   * admission's {@link Admission.UpToPrecision#admits}, and refuses the others in the words a
+   * column of the type is refused in ({@link #unfitReason}): a wider one is the two-word store of
+   * the row the table names ({@code widerRow}, 359), and a negative scale is declined everywhere.
    * The reader's row does not matter here: the store needs no operator over a decimal column.
    * The evaluator's allocator asks it again, as an assertion that no such output got through.
    */
@@ -384,14 +378,25 @@ public final class VarkaTypes {
     if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.UpToPrecision up)) {
       throw VarkaErrors.illegalState("DECIMAL's admission is not by precision");
     }
-    String output = "a " + type.simpleString() + " output";
+    return unfitReason(up, type, "a " + type.simpleString() + " output");
+  }
+
+  /**
+   * Why a value of {@code type} has not {@code up}'s lane, naming it as {@code noun} ("a
+   * decimal(30,4) column", "... output"), or empty where it fits: a negative scale, declined
+   * everywhere, or a precision above the lane's, which is {@code up.widerRow()}'s. The one
+   * wording of both for a column ({@link #declineReason}) and an output
+   * ({@link #decimalOutputDeclineReason}).
+   */
+  private static Optional<String> unfitReason(Admission.UpToPrecision up, DecimalType type,
+      String noun) {
     if (type.scale() < 0) {
-      return Optional.of(output + ": a negative scale is declined everywhere (the milestone "
-          + "plan's 2.8)");
+      return Optional.of(noun + ": a negative scale is declined everywhere (the milestone plan's "
+          + "2.8)");
     }
     if (!up.admits(type)) {
-      return Optional.of(output + ": precision above " + up.maxPrecision() + " does not fit the "
-          + "long a slot's low word holds, and its two-word store is row " + up.widerRow() + "'s");
+      return Optional.of(noun + ": precision above " + up.maxPrecision() + " is row "
+          + up.widerRow() + "'s");
     }
     return Optional.empty();
   }
