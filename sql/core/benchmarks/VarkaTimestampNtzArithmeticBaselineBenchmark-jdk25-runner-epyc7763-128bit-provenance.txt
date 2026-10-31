@@ -1,0 +1,11 @@
+benchmark:   *.VarkaTimestampNtzArithmeticBaselineBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/MaxGekk/spark/actions/runs/41134421479
+commit:      35d74425c70 (varka-339-baseline of MaxGekk/spark)
+date:        2026-10-30T22:12:21Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
+jdk:         OpenJDK Runtime Environment Zulu25.38+109-CA (build 25.0.5.0.3+1-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.2 / 90.1 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
