@@ -265,18 +265,20 @@ class VarkaCoverageCompositionFuzzSuite
    * the extremes - and NaNs of other payloads and of both signs, which `CAST('NaN' ...)` cannot
    * make and on which a pick that returned the wrong one of two NaNs would show, beside an
    * arbitrary pattern and an ordinary value. The one guard that reads a floating value is an
-   * ANSI division's zero divisor (VARKA-342), so the last attempt, `scale` 2, draws `1.5` in
-   * place of either zero, and no guard declines it; the earlier attempts keep both zeros.
+   * ANSI division's zero divisor (VARKA-342), so on the last attempt, `scale` 2, an input that
+   * feeds such a divisor, `divisor` (see `failDivisorInputs`), draws `1.5` in place of either
+   * zero, and no guard declines it; the earlier attempts, and every other input at each attempt,
+   * keep both zeros.
    */
-  private def floatingInput(dataType: DataType, rnd: Random, scale: Int): Option[Long] =
-      dataType match {
+  private def floatingInput(dataType: DataType, rnd: Random, scale: Int,
+      divisor: Boolean): Option[Long] = dataType match {
     case DoubleType =>
       val specials = Seq(java.lang.Double.NaN, -0.0, 0.0, Double.PositiveInfinity,
         Double.NegativeInfinity, java.lang.Double.MIN_VALUE, Double.MaxValue, Double.MinValue,
         1.5, -2.5).map(java.lang.Double.doubleToRawLongBits) ++
         Seq(0x7ff8000000000001L, 0xfff8000000000000L, 0x7ff0000000000001L, rnd.nextLong())
       val bits = specials(rnd.nextInt(specials.size))
-      Some(if (scale == 2 && (bits == 0L || bits == Long.MinValue)) {
+      Some(if (scale == 2 && divisor && (bits == 0L || bits == Long.MinValue)) {
         java.lang.Double.doubleToRawLongBits(1.5)
       } else {
         bits
@@ -287,12 +289,33 @@ class VarkaCoverageCompositionFuzzSuite
         1.5f, -2.5f).map(java.lang.Float.floatToRawIntBits) ++
         Seq(0x7fc00001, 0xffc00000, 0x7f800001, rnd.nextInt())
       val bits = specials(rnd.nextInt(specials.size))
-      Some((if (scale == 2 && (bits == 0 || bits == Int.MinValue)) {
+      Some((if (scale == 2 && divisor && (bits == 0 || bits == Int.MinValue)) {
         java.lang.Float.floatToRawIntBits(1.5f)
       } else {
         bits
       }).toLong)
     case _ => None
+  }
+
+  /**
+   * The input indices `roots` read inside the divisor of an ANSI floating division, an
+   * `IntArith` `DIV` under `FAIL`: the only inputs whose zero a guard declines (VARKA-342).
+   */
+  private def failDivisorInputs(roots: Seq[VarkaVectorIR]): Set[Int] = {
+    def reads(node: VarkaVectorIR): Set[Int] = node match {
+      case c: VarkaVectorIR.ColumnRef => Set(c.ordinal)
+      case _ => VarkaVectorIR.childrenOf(node).iterator.flatMap(reads).toSet
+    }
+    def walk(node: VarkaVectorIR): Set[Int] = {
+      val here = node match {
+        case a: VarkaVectorIR.IntArith
+            if a.op == VarkaVectorIR.IntOp.DIV && a.mode == VarkaVectorIR.Overflow.FAIL =>
+          reads(a.right)
+        case _ => Set.empty[Int]
+      }
+      here ++ VarkaVectorIR.childrenOf(node).iterator.flatMap(walk)
+    }
+    roots.iterator.flatMap(walk).toSet
   }
 
   /** Kernels compared row by row and batches drawn again after a decline, per lane. */
@@ -341,15 +364,16 @@ class VarkaCoverageCompositionFuzzSuite
       }
     }
     val forceMasked = !poisoned && length > 1 && rnd.nextBoolean()
-    def intValue(i: Int, scale: Int): Int =
-      floatingInput(inputs(plan.inputOrdinals.get(i)).dataType, rnd, scale).map(_.toInt)
-        .getOrElse(intInput(plan, i, scale, rnd))
     val roots = plan.outputs.asScala.toSeq
+    val divisors = failDivisorInputs(roots)
+    def intValue(i: Int, scale: Int): Int =
+      floatingInput(inputs(plan.inputOrdinals.get(i)).dataType, rnd, scale, divisors(i))
+        .map(_.toInt).getOrElse(intInput(plan, i, scale, rnd))
     // The long harness at every 64-bit lane: a DOUBLE's rows and literals are its bits.
     def attempt(scale: Int): Boolean = if (plan.lane(opts).bits() == java.lang.Long.SIZE) {
       val data = Array.tabulate(numInputs) { i =>
         val dataType = inputs(plan.inputOrdinals.get(i)).dataType
-        Array.fill(length)(floatingInput(dataType, rnd, scale)
+        Array.fill(length)(floatingInput(dataType, rnd, scale, divisors(i))
           .getOrElse(drawLong(rnd, dataType, scale)))
       }
       val lits = plan.longLiterals.asScala.map(_.longValue).toArray
@@ -658,9 +682,10 @@ class VarkaCoverageCompositionFuzzSuite
     val nulls = Array.fill(n)(Array.tabulate(length)(i => i % 5 != 4 && rnd.nextInt(3) == 0))
     val lits = if (isLong) plan.longLiterals.asScala.map(_.longValue).toArray
       else plan.literals.asScala.map(_.longValue).toArray
+    val divisors = failDivisorInputs(plan.outputs.asScala.toSeq)
     def value(i: Int, scale: Int): Long = {
       val dataType = columns(plan.inputOrdinals.get(i)).dataType
-      floatingInput(dataType, rnd, scale).getOrElse(
+      floatingInput(dataType, rnd, scale, divisors(i)).getOrElse(
         if (isLong) drawLong(rnd, dataType, scale) else intInput(plan, i, scale, rnd))
     }
     // The null flags the histories run: none (the other body's run, which reads every value),
