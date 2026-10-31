@@ -30,7 +30,7 @@ import org.apache.spark.sql.types._
  * answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-332 5). Each section runs under its own SQL settings, its mode where it has one. It
  * checks the answers only: whether a section fuses is the benchmark's own check, made when it is
- * timed, since row 332 is meant to start fusing these queries.
+ * timed, for VARKA-332 is meant to start fusing these queries.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -51,8 +51,9 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
   private val rows = 2000
 
   /** The result type of each cast, in the order `sections()` lists them for one density. */
-  private val resultTypes = Seq(ByteType, ByteType, ByteType, ShortType, LongType, IntegerType,
-    IntegerType, YearMonthIntervalType(YearMonthIntervalType.YEAR), LongType, LongType)
+  private val resultTypes = Seq(ByteType, ByteType, ByteType, ByteType, ShortType, LongType,
+    IntegerType, IntegerType, YearMonthIntervalType(YearMonthIntervalType.YEAR), LongType,
+    LongType)
 
   /** Runs `body` with the section's SQL settings on both sessions; a section has at most one. */
   private def withSettings(s: VarkaIntegralCastBaselineBenchmark.Section)(
@@ -115,10 +116,14 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
           s"""select count_if(cast(i as tinyint) <> i),
              |       count_if(cast(i as tinyint) <> ((i + 128) & 255) - 128),
              |       count_if(cast(l as smallint) <> l),
-             |       count_if(cast(l as smallint) <> ((l + 32768) & 65535) - 32768)
+             |       count_if(cast(l as smallint) <> ((l + 32768) & 65535) - 32768),
+             |       count_if(cast(k as tinyint) <> k),
+             |       count_if(cast(k as tinyint) <> ((k + 128) & 255) - 128)
              |from $view""".stripMargin).head()
         assert(legacy.getLong(0) > rows / 2 && legacy.getLong(1) === 0)
         assert(legacy.getLong(2) > rows / 2 && legacy.getLong(3) === 0)
+        // LEGACY's twin of the try_cast wraps exactly the rows the try_cast answers null for.
+        assert(legacy.getLong(4) === rows / 100 && legacy.getLong(5) === 0)
       }
 
       val sections = VarkaIntegralCastBaselineBenchmark.sections().asScala.toSeq

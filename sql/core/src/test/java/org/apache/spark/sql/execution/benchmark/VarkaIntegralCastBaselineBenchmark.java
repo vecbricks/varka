@@ -33,13 +33,15 @@ import org.apache.spark.sql.internal.SQLConf;
  * <p>The casts are {@code CAST(... AS TINYINT)} from an {@code INT} in the three modes: LEGACY
  * over {@code i}, the whole int range, which wraps, ANSI over {@code j}, inside the byte range,
  * since a value past it would raise and end the run, and {@code try_cast} over {@code k}, which
- * is past the range at one row in a hundred; then {@code CAST(l AS SMALLINT)} under LEGACY,
+ * is past the range at one row in a hundred, with LEGACY over {@code k} beside it, so that the
+ * two modes compare over the same values; then {@code CAST(l AS SMALLINT)} under LEGACY,
  * which wraps, {@code CAST(y AS BIGINT)} from a {@code TINYINT} (the narrow value under a long
  * kernel of {@code VARKA-332.md} 2.5, not a year-month interval), {@code CAST(b AS INT)} from a
- * {@code BOOLEAN}, {@code coalesce(CAST(i AS BOOLEAN), false)} as a filter's condition,
- * {@code CAST(m AS INTERVAL YEAR)}, which raises past {@code +-178956970} in every mode, so it
- * reads a column inside that range, and {@code CAST(dt AS BIGINT)}, the whole seconds of a
- * day-time interval, each with no nulls and with one row in ten null. The casts other than the
+ * {@code BOOLEAN}, {@code CAST(i AS BOOLEAN)} as a filter's condition (under {@code coalesce}
+ * over the column with nulls, as below), {@code CAST(m AS INTERVAL YEAR)}, which raises past
+ * {@code +-178956970} in every mode, so it reads a column inside that range, and
+ * {@code CAST(dt AS BIGINT)}, the whole seconds of a day-time interval, each with no nulls and
+ * with one row in ten null. The casts other than the
  * narrowings have one answer in every mode, and run in the session's default one. A control
  * section, {@code CAST(i AS BIGINT)}, fuses already and is listed so.
  *
@@ -51,15 +53,21 @@ import org.apache.spark.sql.internal.SQLConf;
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not;
- * the results file notes each section that fuses. Only the control is listed. The filter's
- * condition is the cast under {@code coalesce} rather than the bare cast: from a bare
- * {@code WHERE CAST(i AS BOOLEAN)} over the column with nulls the optimizer infers
- * {@code i IS NOT NULL}, since the cast is null-intolerant, and that conjunct alone fuses into a
- * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
- * the plan while the cast declines, so the check could not see the row start fusing the cast
- * itself. {@code coalesce} is not null-intolerant, so nothing is inferred, and it keeps the same
- * rows, a null cast being false. A row that fuses a section lists it, so that its fusion cannot
- * turn a baseline section into a fused one unnoticed.
+ * the results file notes each section that fuses. Only the control is listed. A row that fuses a
+ * section lists it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
+ *
+ * <p>The filter's two densities time different conditions. Over {@code i_n}, the column with
+ * nulls, the condition is {@code coalesce(CAST(i_n AS BOOLEAN), false)}: from the bare cast the
+ * optimizer infers {@code i_n IS NOT NULL}, since the cast is null-intolerant, and that conjunct
+ * alone fuses into a {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would
+ * put a Varka node in the plan while the cast declines, so the check could not see the row start
+ * fusing the cast itself. {@code coalesce} is not null-intolerant, so nothing is inferred, and it
+ * keeps the same rows, a null cast being false. Over {@code i}, which is not nullable, the
+ * condition is the bare {@code CAST(i AS BOOLEAN)}: no {@code IS NOT NULL} is inferred for a
+ * column that cannot be null, and the optimizer would drop a {@code coalesce} there anyway, its
+ * first argument never being null. No form keeps one condition at both densities, since the
+ * same holds for {@code <=> true}, which becomes the bare cast over a column that cannot be
+ * null. Each section's {@code fuses} flag is the one a probe of its plan found.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -110,8 +118,10 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *   <li>{@code k} is {@code j}'s form over {@code hash(id, 2)}, but one row in two hundred is
    *       moved past {@code 127}, up to {@code Integer.MAX_VALUE}, and another past {@code -128},
    *       down to {@code Integer.MIN_VALUE}: there {@code try_cast(k AS TINYINT)} answers null,
-   *       and Spark's TRY path raises and catches an exception per row, so the share is kept
-   *       to one in a hundred, as {@code VarkaFloatingCastBaselineBenchmark}'s {@code w} is.</li>
+   *       and Spark's TRY path raises and catches an exception per row out of range, so a large
+   *       share would time mostly exceptions; the share is kept to one in a hundred. LEGACY's
+   *       {@code CAST(k AS TINYINT)} reads the same column, so the {@code try_cast} has a twin
+   *       in another mode over the same values.</li>
    *   <li>{@code l} is {@code xxhash64(id)} shifted right by {@code id % 64}, so its magnitudes
    *       spread evenly over every bit length of the long: about one in four inside the short
    *       range, the rest past it, most of them past the int range too.</li>
@@ -131,14 +141,6 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * </ul>
    */
   static String tableSql(int rows) {
-    return tableSql("range(0, " + rows + ")");
-  }
-
-  /**
-   * {@link #tableSql(int)} over the ids of {@code ids}, a relation with a {@code BIGINT} column
-   * {@code id}.
-   */
-  static String tableSql(String ids) {
     return """
         select i, j, k, l, y, b, m, dt,
                case when id %% 10 = 1 then null else i end as i_n,
@@ -166,7 +168,7 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
                               else cast(cast(hash(id, 6) as decimal(18, 6))
                                         + pmod(hash(id, 7), 1000000) * 0.000001
                                         as decimal(18, 6)) end) as dt
-              from %s)""".formatted(ids);
+              from range(0, %d))""".formatted(rows);
   }
 
   /** Every section, in the order they run: each null density, then each cast. */
@@ -191,15 +193,20 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT CAST(" + j + " AS TINYINT)" + from, ansi, false));
       out.add(new Section("INT try_cast(k AS TINYINT)" + density,
           "SELECT try_cast(" + k + " AS TINYINT)" + from, Map.of(), false));
+      out.add(new Section("INT CAST(k AS TINYINT), LEGACY" + density,
+          "SELECT CAST(" + k + " AS TINYINT)" + from, legacy, false));
       out.add(new Section("BIGINT CAST(l AS SMALLINT), LEGACY" + density,
           "SELECT CAST(" + l + " AS SMALLINT)" + from, legacy, false));
       out.add(new Section("TINYINT CAST(y AS BIGINT)" + density,
           "SELECT CAST(" + y + " AS BIGINT)" + from, Map.of(), false));
       out.add(new Section("BOOLEAN CAST(b AS INT)" + density,
           "SELECT CAST(" + b + " AS INT)" + from, Map.of(), false));
-      out.add(new Section("INT filter coalesce(CAST(i AS BOOLEAN), false)" + density,
-          "SELECT " + i + from + " WHERE coalesce(CAST(" + i + " AS BOOLEAN), false)", Map.of(),
-          false));
+      // Over i, which is not nullable, the bare cast; over i_n, the cast under coalesce, so that
+      // no IS NOT NULL is inferred (see the class javadoc).
+      String condition = nulls.isEmpty()
+          ? "CAST(i AS BOOLEAN)" : "coalesce(CAST(i_n AS BOOLEAN), false)";
+      out.add(new Section("INT filter " + condition.replace("i_n", "i") + density,
+          "SELECT " + i + from + " WHERE " + condition, Map.of(), false));
       out.add(new Section("INT CAST(m AS INTERVAL YEAR)" + density,
           "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), false));
       out.add(new Section("INTERVAL DAY TO SECOND CAST(dt AS BIGINT)" + density,
