@@ -482,9 +482,17 @@ final class Slots {
     armChainsByNode.clear();
   }
 
-  /** Whether this body reaches {@code node} from its roots; see {@link #setReach}. */
+  /**
+   * Whether this body reaches {@code node} from its roots; see {@link #setReach}. A body emitted
+   * without it fails here rather than answering that it reaches nothing, which would skip its
+   * guards' arm conditions silently.
+   */
   boolean reaches(VarkaVectorIR node) {
-    return reach != null && reach.contains(node);
+    if (reach == null) {
+      throw VarkaErrors.illegalState("a body asked which nodes it reaches before "
+          + "Slots.setReach was called: VarkaBodyEmitter sets it before it emits a body");
+    }
+    return reach.contains(node);
   }
 
   /**

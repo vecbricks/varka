@@ -521,6 +521,17 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     }
   }
 
+  test("a body that asks what it reaches before its reach is set fails by name") {
+    // reaches() once answered false for every node when setReach had not run, so a body emitted
+    // without it skipped its guards' arm conditions with no error, and a guard of several chains
+    // read a mask local never stored.
+    val s = new Slots(1, 1)
+    val e = intercept[org.apache.spark.SparkIllegalStateException](s.reaches(new ColumnRef(0)))
+    assert(e.getMessage.contains("Slots.setReach"), e.getMessage)
+    s.setReach(java.util.Set.of[VarkaVectorIR](new ColumnRef(0)))
+    assert(s.reaches(new ColumnRef(0)) && !s.reaches(new ColumnRef(1)))
+  }
+
   test("a guard above a FAIL lane that overflowed may fire on the wrapped value, and the kernel " +
       "names both reasons") {
     // `d - ym` at the one count whose negation overflows: `AddMonths(c0, IntNeg(FAIL, c1))`. The
