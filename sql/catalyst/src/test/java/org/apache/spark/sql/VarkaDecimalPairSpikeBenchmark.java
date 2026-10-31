@@ -94,10 +94,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  * <p>The two arithmetic loops of P are long enough that C2 passes its parse-time node cutoff
  * for inlining ({@code NodeCountInliningCutoff}, 18000 nodes, a develop flag) partway through
  * them: a call to one of this class's helpers after that point is refused with that reason, stays
- * a call, and boxes every vector it passes, which ran the product at 53 to 67 ns a row on the
- * laptop against 3 for the scalar loop. So past their loads those loops call no helper of this
- * class; the Vector API's own methods are inlined late, under the live-node cutoff, and are not
- * refused. {@code -XX:CompileCommand=PrintInlining} shows it.
+ * a call, and boxes every vector it passes, so the loop runs many times slower than its
+ * operations. So past their loads those loops call no helper of this class; the Vector API's own
+ * methods are inlined late, under the live-node cutoff, and are not refused.
+ * {@code -XX:CompileCommand=PrintInlining} shows it.
  *
  * <p>Every loop's output is checked against {@code BigInteger} before it is timed, and again in
  * the compiled code after the drive. The columns hold every digit count from 1 to 38 at both
