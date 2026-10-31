@@ -534,6 +534,8 @@ bytes a row for the laptop.
 | decimal check | long | `dec_check_rearrange`, `dec_check_compress`, `dec_check_offset`, and the masked `dec_check_rearrange_masked`, `dec_check_offset_masked` | I | I | F | 347 |
 | long lanewise | long | `NE`, `GT`, `LT` | I | I | F | 347 |
 | long lanewise | long | `ASHR` | I | I | I | 347 |
+| long lanewise | long | `NEG`, `ABS` | I | I | I | 348 |
+| long lanewise | long | `MUL_broadcast` (`MUL` by a broadcast constant, a decimal rescale) | I | I | I | 348, 349 |
 | masks | byte | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
 | masks | int | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
 | masks | long | `fromLong`, `toLong` | I | I | F | 331, 375, 27 |
@@ -577,6 +579,12 @@ What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
   `SelectFromTwoVector`, C2 lowers it inside the intrinsic to two rearranges and a blend
   (`vectorIntrinsics.cpp`), so only the assembly tells the two apart. The segment cells' one
   allocation is the segment each call maps, under a tenth of a byte a row.
+* **The 64-bit decimal's negation, `abs` and rescale are intrinsic at every width on the laptop**
+  (VARKA-348 step 1, 31 October 2026): `NEG`, `ABS` and `MUL` by a broadcast constant on longs
+  read `I` with no allocation at 512, 256 and 128 bits. They make no mask, so the two-lane
+  fallback of the long compares does not reach them. The laptop has AVX-512, so these cells are
+  the ones `x86.ad` admits there (`evpabsq`, `vpmullq`); the EPYC 7763 has neither, and whether
+  its `ABS` falls back and its multiply is the emulation is the runner columns' to say.
 * **`POW` has no vector stub below 512 bits**: the loop never reaches `libraryBinaryOp`, so the
   Java fallback runs at 256 and 128 (40 and 56 bytes a row). The other math operators, `ATAN2` and `HYPOT` among them, reach
   their library calls at every width.
