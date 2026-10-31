@@ -153,6 +153,11 @@ final class VarkaEmitCostFit {
       }
       f.add("IsNotNull/cond/" + lane);
       for (IntOp op : IntOp.values()) {
+        // A lanewise divide is a floating lane's only (VARKA-342): the IR refuses it at the
+        // integral lanes priced here, so no group can hold it.
+        if (op == IntOp.DIV) {
+          continue;
+        }
         for (Overflow mode : Overflow.values()) {
           f.add("IntArith/" + op + "/" + mode + "/" + lane);
         }
