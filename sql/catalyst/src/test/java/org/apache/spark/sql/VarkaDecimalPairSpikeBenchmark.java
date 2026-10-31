@@ -91,6 +91,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  * The first four are timed in all three forms; the three arithmetic loops in P and S only, as
  * section 2.1 names them, since an adjacent-lane product has every limb product cross a lane.
  *
+ * <p>The two arithmetic loops of P are long enough that C2 passes its parse-time node cutoff
+ * for inlining ({@code NodeCountInliningCutoff}, 18000 nodes, a develop flag) partway through
+ * them: a call to one of this class's helpers after that point is refused with that reason, stays
+ * a call, and boxes every vector it passes, which ran the product at 53 to 67 ns a row on the
+ * laptop against 3 for the scalar loop. So past their loads those loops call no helper of this
+ * class; the Vector API's own methods are inlined late, under the live-node cutoff, and are not
+ * refused. {@code -XX:CompileCommand=PrintInlining} shows it.
+ *
  * <p>Every loop's output is checked against {@code BigInteger} before it is timed, and again in
  * the compiled code after the drive. The columns hold every digit count from 1 to 38 at both
  * signs, the extremes {@code +-(10^38 - 1)}, slots whose low word is zero (the negation's
@@ -539,8 +547,6 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       var y1 = yl.lanewise(VectorOperators.LSHR, 32);
       var y2 = yh.and(MASK32);
       var y3 = yh.lanewise(VectorOperators.LSHR, 32);
-      // Column c gets the low halves of the products x_i * y_j with i + j = c and the high
-      // halves of those with i + j = c - 1.
       var p00 = x0.mul(y0);
       var p01 = x0.mul(y1);
       var p10 = x1.mul(y0);
@@ -557,18 +563,49 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       var p23 = x2.mul(y3);
       var p32 = x3.mul(y2);
       var p33 = x3.mul(y3);
-      var c0 = p00.and(MASK32);
-      var c1 = p00.lanewise(VectorOperators.LSHR, 32).add(p01.and(MASK32)).add(p10.and(MASK32));
-      var c2 = hi32(p01).add(hi32(p10)).add(p02.and(MASK32)).add(p11.and(MASK32))
-          .add(p20.and(MASK32));
-      var c3 = hi32(p02).add(hi32(p11)).add(hi32(p20)).add(p03.and(MASK32))
-          .add(p12.and(MASK32)).add(p21.and(MASK32)).add(p30.and(MASK32));
-      var c4 = hi32(p03).add(hi32(p12)).add(hi32(p21)).add(hi32(p30)).add(p13.and(MASK32))
-          .add(p22.and(MASK32)).add(p31.and(MASK32));
-      var c5 = hi32(p13).add(hi32(p22)).add(hi32(p31)).add(p23.and(MASK32))
-          .add(p32.and(MASK32));
-      var c6 = hi32(p23).add(hi32(p32)).add(p33.and(MASK32));
-      var c7 = hi32(p33);
+      // The low and the high half of each limb product.
+      var l00 = p00.and(MASK32);
+      var h00 = p00.lanewise(VectorOperators.LSHR, 32);
+      var l01 = p01.and(MASK32);
+      var h01 = p01.lanewise(VectorOperators.LSHR, 32);
+      var l10 = p10.and(MASK32);
+      var h10 = p10.lanewise(VectorOperators.LSHR, 32);
+      var l02 = p02.and(MASK32);
+      var h02 = p02.lanewise(VectorOperators.LSHR, 32);
+      var l11 = p11.and(MASK32);
+      var h11 = p11.lanewise(VectorOperators.LSHR, 32);
+      var l20 = p20.and(MASK32);
+      var h20 = p20.lanewise(VectorOperators.LSHR, 32);
+      var l03 = p03.and(MASK32);
+      var h03 = p03.lanewise(VectorOperators.LSHR, 32);
+      var l12 = p12.and(MASK32);
+      var h12 = p12.lanewise(VectorOperators.LSHR, 32);
+      var l21 = p21.and(MASK32);
+      var h21 = p21.lanewise(VectorOperators.LSHR, 32);
+      var l30 = p30.and(MASK32);
+      var h30 = p30.lanewise(VectorOperators.LSHR, 32);
+      var l13 = p13.and(MASK32);
+      var h13 = p13.lanewise(VectorOperators.LSHR, 32);
+      var l22 = p22.and(MASK32);
+      var h22 = p22.lanewise(VectorOperators.LSHR, 32);
+      var l31 = p31.and(MASK32);
+      var h31 = p31.lanewise(VectorOperators.LSHR, 32);
+      var l23 = p23.and(MASK32);
+      var h23 = p23.lanewise(VectorOperators.LSHR, 32);
+      var l32 = p32.and(MASK32);
+      var h32 = p32.lanewise(VectorOperators.LSHR, 32);
+      var l33 = p33.and(MASK32);
+      var h33 = p33.lanewise(VectorOperators.LSHR, 32);
+      // Column c gets the low halves of the products x_i * y_j with i + j = c and the high
+      // halves of those with i + j = c - 1; the carries come after the signs.
+      var c0 = l00;
+      var c1 = h00.add(l01).add(l10);
+      var c2 = h01.add(h10).add(l02).add(l11).add(l20);
+      var c3 = h02.add(h11).add(h20).add(l03).add(l12).add(l21).add(l30);
+      var c4 = h03.add(h12).add(h21).add(h30).add(l13).add(l22).add(l31);
+      var c5 = h13.add(h22).add(h31).add(l23).add(l32);
+      var c6 = h23.add(h32).add(l33);
+      var c7 = h33;
       // The signs (362's TWOS): X * Y = Xu * Yu - 2^128 ([X < 0] Yu + [Y < 0] Xu) mod 2^256, and
       // -2^128 Yu is 2^128 (~Yu + 1), so the limbs of ~Yu under x's sign word, and a one, go to
       // columns 4 to 7, and the same for ~Xu under y's.
@@ -579,32 +616,29 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       var nxl = xl.not().and(sy);
       var nxh = xh.not().and(sy);
       c4 = c4.add(nyl.and(MASK32)).add(nxl.and(MASK32)).sub(sx).sub(sy);
-      c5 = c5.add(hi32(nyl)).add(hi32(nxl));
+      c5 = c5.add(nyl.lanewise(VectorOperators.LSHR, 32))
+          .add(nxl.lanewise(VectorOperators.LSHR, 32));
       c6 = c6.add(nyh.and(MASK32)).add(nxh.and(MASK32));
-      c7 = c7.add(hi32(nyh)).add(hi32(nxh));
+      c7 = c7.add(nyh.lanewise(VectorOperators.LSHR, 32))
+          .add(nxh.lanewise(VectorOperators.LSHR, 32));
       // The carries, once, low to high; the carry out of column 7 is past 2^256 and dropped.
-      c1 = c1.add(hi32(c0));
-      c2 = c2.add(hi32(c1));
-      c3 = c3.add(hi32(c2));
-      c4 = c4.add(hi32(c3));
-      c5 = c5.add(hi32(c4));
-      c6 = c6.add(hi32(c5));
-      c7 = c7.add(hi32(c6));
+      c1 = c1.add(c0.lanewise(VectorOperators.LSHR, 32));
+      c2 = c2.add(c1.lanewise(VectorOperators.LSHR, 32));
+      c3 = c3.add(c2.lanewise(VectorOperators.LSHR, 32));
+      c4 = c4.add(c3.lanewise(VectorOperators.LSHR, 32));
+      c5 = c5.add(c4.lanewise(VectorOperators.LSHR, 32));
+      c6 = c6.add(c5.lanewise(VectorOperators.LSHR, 32));
+      c7 = c7.add(c6.lanewise(VectorOperators.LSHR, 32));
+      // Each word from the low halves of two columns.
       long row = i * 8L;
-      words(c0, c1).intoMemorySegment(out, row, LE);
-      words(c2, c3).intoMemorySegment(out, column + row, LE);
-      words(c4, c5).intoMemorySegment(out, 2 * column + row, LE);
-      words(c6, c7).intoMemorySegment(out, 3 * column + row, LE);
+      c0.and(MASK32).or(c1.lanewise(VectorOperators.LSHL, 32)).intoMemorySegment(out, row, LE);
+      c2.and(MASK32).or(c3.lanewise(VectorOperators.LSHL, 32))
+          .intoMemorySegment(out, column + row, LE);
+      c4.and(MASK32).or(c5.lanewise(VectorOperators.LSHL, 32))
+          .intoMemorySegment(out, 2 * column + row, LE);
+      c6.and(MASK32).or(c7.lanewise(VectorOperators.LSHL, 32))
+          .intoMemorySegment(out, 3 * column + row, LE);
     }
-  }
-
-  private static LongVector hi32(LongVector v) {
-    return v.lanewise(VectorOperators.LSHR, 32);
-  }
-
-  /** A 64-bit word from the low halves of two columns. */
-  private static LongVector words(LongVector low, LongVector high) {
-    return low.and(MASK32).or(high.lanewise(VectorOperators.LSHL, 32));
   }
 
   static void loopProductS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
@@ -728,29 +762,66 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       var p23 = n2.mul(k3);
       var p32 = n3.mul(k2);
       var p33 = n3.mul(k3);
+      // The low and the high half of each limb product.
+      var l00 = p00.and(MASK32);
+      var h00 = p00.lanewise(VectorOperators.LSHR, 32);
+      var l01 = p01.and(MASK32);
+      var h01 = p01.lanewise(VectorOperators.LSHR, 32);
+      var l10 = p10.and(MASK32);
+      var h10 = p10.lanewise(VectorOperators.LSHR, 32);
+      var l02 = p02.and(MASK32);
+      var h02 = p02.lanewise(VectorOperators.LSHR, 32);
+      var l11 = p11.and(MASK32);
+      var h11 = p11.lanewise(VectorOperators.LSHR, 32);
+      var l20 = p20.and(MASK32);
+      var h20 = p20.lanewise(VectorOperators.LSHR, 32);
+      var l03 = p03.and(MASK32);
+      var h03 = p03.lanewise(VectorOperators.LSHR, 32);
+      var l12 = p12.and(MASK32);
+      var h12 = p12.lanewise(VectorOperators.LSHR, 32);
+      var l21 = p21.and(MASK32);
+      var h21 = p21.lanewise(VectorOperators.LSHR, 32);
+      var l30 = p30.and(MASK32);
+      var h30 = p30.lanewise(VectorOperators.LSHR, 32);
+      var l13 = p13.and(MASK32);
+      var h13 = p13.lanewise(VectorOperators.LSHR, 32);
+      var l22 = p22.and(MASK32);
+      var h22 = p22.lanewise(VectorOperators.LSHR, 32);
+      var l31 = p31.and(MASK32);
+      var h31 = p31.lanewise(VectorOperators.LSHR, 32);
+      var l23 = p23.and(MASK32);
+      var h23 = p23.lanewise(VectorOperators.LSHR, 32);
+      var l32 = p32.and(MASK32);
+      var h32 = p32.lanewise(VectorOperators.LSHR, 32);
+      var l33 = p33.and(MASK32);
+      var h33 = p33.lanewise(VectorOperators.LSHR, 32);
       // The low four columns are summed for their carries only.
-      var c0 = p00.and(MASK32);
-      var c1 = hi32(p00).add(p01.and(MASK32)).add(p10.and(MASK32)).add(hi32(c0));
-      var c2 = hi32(p01).add(hi32(p10)).add(p02.and(MASK32)).add(p11.and(MASK32))
-          .add(p20.and(MASK32)).add(hi32(c1));
-      var c3 = hi32(p02).add(hi32(p11)).add(hi32(p20)).add(p03.and(MASK32))
-          .add(p12.and(MASK32)).add(p21.and(MASK32)).add(p30.and(MASK32)).add(hi32(c2));
-      var c4 = hi32(p03).add(hi32(p12)).add(hi32(p21)).add(hi32(p30)).add(p13.and(MASK32))
-          .add(p22.and(MASK32)).add(p31.and(MASK32)).add(hi32(c3));
-      var c5 = hi32(p13).add(hi32(p22)).add(hi32(p31)).add(p23.and(MASK32))
-          .add(p32.and(MASK32)).add(hi32(c4));
-      var c6 = hi32(p23).add(hi32(p32)).add(p33.and(MASK32)).add(hi32(c5));
-      var c7 = hi32(p33).add(hi32(c6));
+      var c0 = l00;
+      var c1 = h00.add(l01).add(l10).add(c0.lanewise(VectorOperators.LSHR, 32));
+      var c2 = h01.add(h10).add(l02).add(l11).add(l20).add(c1.lanewise(VectorOperators.LSHR, 32));
+      var c3 = h02.add(h11).add(h20).add(l03).add(l12).add(l21).add(l30)
+          .add(c2.lanewise(VectorOperators.LSHR, 32));
+      var c4 = h03.add(h12).add(h21).add(h30).add(l13).add(l22).add(l31)
+          .add(c3.lanewise(VectorOperators.LSHR, 32));
+      var c5 = h13.add(h22).add(h31).add(l23).add(l32).add(c4.lanewise(VectorOperators.LSHR, 32));
+      var c6 = h23.add(h32).add(l33).add(c5.lanewise(VectorOperators.LSHR, 32));
+      var c7 = h33.add(c6.lanewise(VectorOperators.LSHR, 32));
       // q = the product >> 135 = (w3:w2) >> 7, then (q + 1) >>> 1.
-      var w2 = words(c4, c5);
-      var w3 = words(c6, c7);
+      var w2 = c4.and(MASK32).or(c5.lanewise(VectorOperators.LSHL, 32));
+      var w3 = c6.and(MASK32).or(c7.lanewise(VectorOperators.LSHL, 32));
       int drop = MAGIC_L - 128;
       var ql = w2.lanewise(VectorOperators.LSHR, drop)
           .or(w3.lanewise(VectorOperators.LSHL, 64 - drop)).add(1L);
-      var qh = w3.lanewise(VectorOperators.LSHR, drop).add(1L, ql.compare(VectorOperators.EQ, 0L));
+      var qh = w3.lanewise(VectorOperators.LSHR, drop)
+          .add(1L, ql.compare(VectorOperators.EQ, 0L));
       var hl = ql.lanewise(VectorOperators.LSHR, 1).or(qh.lanewise(VectorOperators.LSHL, 63));
       var hh = qh.lanewise(VectorOperators.LSHR, 1);
-      storePair(out, at, hl.blend(hl.neg(), negative), hh.blend(negHigh(hh, hl), negative));
+      // The sign put back and the pair stored, written out rather than through negHigh and
+      // storePair, as the class comment says.
+      var rl = hl.blend(hl.neg(), negative);
+      var rh = hh.blend(hh.neg().sub(1L, hl.compare(VectorOperators.NE, 0L)), negative);
+      rl.rearrange(ZIP1, rh).intoMemorySegment(out, at, LE);
+      rl.rearrange(ZIP2, rh).intoMemorySegment(out, at + VB, LE);
     }
   }
 
