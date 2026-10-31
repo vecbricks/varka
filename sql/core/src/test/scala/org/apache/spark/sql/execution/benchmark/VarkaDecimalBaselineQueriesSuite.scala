@@ -40,13 +40,21 @@ import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
  */
 class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
-  test("every section of the decimal baseline runs, and both sessions answer it alike") {
+  /** Runs `body` with the benchmark's table, at `rows` rows, cached on both sessions. */
+  private def withTable(rows: Int)(body: => Unit): Unit = {
     for (session <- Seq(spark, varkaSpark)) {
-      session.sql(VarkaDecimalBaselineBenchmark.tableSql(2000))
+      session.sql(VarkaDecimalBaselineBenchmark.tableSql(rows))
         .createOrReplaceTempView("varka_decimal")
       session.catalog.cacheTable("varka_decimal")
     }
-    try {
+    try body finally {
+      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_decimal"))
+    }
+  }
+
+  test("every section of the decimal baseline runs, and both sessions answer it alike") {
+    val rows = 2000
+    withTable(rows) {
       val expected = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         Seq("x", "y", "z").flatMap { role =>
           val name = role + p.suffix
@@ -140,23 +148,25 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         }
       } yield s.title -> e.sql
       assert(operands.size === 11)
+      // Each operand is projected and its values collected, one per row, rather than filtered
+      // on IS NULL: the optimizer folds that filter to false for an operand it takes as never
+      // null, and the check would then pass without evaluating the operand at all.
       for ((title, operand) <- operands) {
         withClue(s"$title: $operand") {
-          assert(spark.sql(s"SELECT $operand AS a FROM varka_decimal WHERE $operand IS NULL")
-            .count() === 0)
+          val values = spark.sql(s"SELECT $operand AS a FROM varka_decimal").collect()
+          assert(values.length === rows)
+          assert(!values.exists(_.isNullAt(0)))
         }
       }
       for (s <- sections) {
         withClue(s.title) {
-          val answer = spark.sql(s.query)
+          val answer = spark.sql(s.query).collect().toSeq
           checkAnswer(varkaSpark.sql(s.query), answer)
           if (s.title.endsWith("no nulls")) {
-            assert(answer.where(answer.columns.head + " IS NULL").count() === 0)
+            assert(!answer.exists(_.isNullAt(0)))
           }
         }
       }
-    } finally {
-      Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_decimal"))
     }
   }
 }
