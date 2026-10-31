@@ -231,7 +231,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
       // session's unknown leaves in place.
       val expected = if (host.conversionsFallBack()) 2 else VarkaEmitOptions.USE_AVX_UNKNOWN
       assert(emits.forall(_.useAVX === expected), s"$emits on a host reading $host")
-      if (System.getProperty("os.arch") == "amd64") {
+      if (host.x86()) {
         assert(host.readable(), s"the feature query failed on x86: ${host.failure()}")
       }
       for (field <- Seq("hour", "minute", "second")) checkBoth(s"$field(t)")
