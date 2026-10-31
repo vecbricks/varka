@@ -78,6 +78,11 @@ public final class VarkaHostIsa {
       return failure == null;
     }
 
+    /** Whether this JVM runs on x86, the one architecture whose matcher refuses the converts. */
+    public boolean x86() {
+      return isX86(arch);
+    }
+
     /**
      * Whether this JVM's 64-bit floating conversions fall back to Java: an x86 HotSpot whose
      * feature list was read and lacks AVX512DQ. Anything not known answers false, as an unknown
@@ -85,9 +90,14 @@ public final class VarkaHostIsa {
      * conversion, and a list that could not be read is no evidence against them.
      */
     public boolean conversionsFallBack() {
-      return X86.contains(arch) && readable() && !features.isEmpty()
+      return x86() && readable() && !features.isEmpty()
           && !hasFeature(features, DQ_FEATURE);
     }
+  }
+
+  /** Whether {@code arch}, an {@code os.arch} value, names x86, as HotSpot builds it for. */
+  public static boolean isX86(String arch) {
+    return X86.contains(arch);
   }
 
   /** Whether {@code feature} is one of the names in HotSpot's list, not a prefix of one. */

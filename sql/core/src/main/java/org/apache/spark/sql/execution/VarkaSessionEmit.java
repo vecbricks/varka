@@ -130,15 +130,18 @@ public record VarkaSessionEmit(
   /**
    * The level a session that asks for the host's gets: {@link #FALLBACK_LEVEL} where the host's
    * conversions fall back, {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise. A feature list
-   * that could not be read leaves the conversion form, as before this setting existed, and says
-   * so once in the driver's log, since nothing else would show that the host was never read.
+   * that could not be read leaves the emitter's default, as before this setting existed. On x86,
+   * the one architecture where the answer could have changed the level, that says so once in the
+   * driver's log, since nothing else would show that the host was never read.
    */
   static int resolve(VarkaHostIsa.Reading host) {
-    if (!host.readable() && UNREADABLE_LOGGED.compareAndSet(false, true)) {
-      LOG.warn("Varka could not read this JVM's CPU features (" + host.failure() + "), so a "
-          + "64-bit division keeps the conversion form, which falls back to Java on a CPU "
-          + "without AVX512DQ; the JVM needs "
-          + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
+    if (!host.readable() && host.x86() && UNREADABLE_LOGGED.compareAndSet(false, true)) {
+      LOG.warn("Varka could not read this JVM's CPU features (" + host.failure() + "), so "
+          + "spark.sql.codegen.varka.emit.useAVX=-2 keeps the emitter's default level: a 64-bit "
+          + "constant division keeps the conversion form, which falls back to Java on a CPU "
+          + "without AVX512DQ. The likely cause is a JVM started without "
+          + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
+          + "adds; an explicit level 2 selects the magic form without the read.");
     }
     return host.conversionsFallBack() ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
   }
@@ -146,6 +149,11 @@ public record VarkaSessionEmit(
   /** Plants the host {@link #of(SQLConf)} resolves from; null restores this JVM's own. */
   static void setHostForTesting(@Nullable VarkaHostIsa.Reading host) {
     hostForTesting = host;
+  }
+
+  /** Forgets that the unreadable-list warning was written, so a test can watch it written. */
+  static void resetUnreadableLoggedForTesting() {
+    UNREADABLE_LOGGED.set(false);
   }
 
   /** {@code base} with the session's settings laid over it, or {@code base} when none is set. */
