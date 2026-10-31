@@ -412,6 +412,13 @@ public final class VarkaDomains {
           findings.add(where + ": the domain excludes batches the verdict answers: "
               + render(verdicts));
         }
+        // But a partition whose every batch takes it declined nothing, so its guard went
+        // unexercised: the fixture owes it a row with every operand valid at each batch size.
+        if (partition.equals("outside") && !verdicts.isEmpty()
+            && verdicts.stream().allMatch(Verdict::shortcut)) {
+          findings.add(where + ": every batch outside the domain is answered by the all-null "
+              + "shortcut, so nothing outside was declined and the guard was not exercised");
+        }
         for (int b = 0; b < verdicts.size(); b++) {
           VarkaExpressionHarness.Batch batch = outcome.batches.get(b);
           Verdict v = verdicts.get(b);
