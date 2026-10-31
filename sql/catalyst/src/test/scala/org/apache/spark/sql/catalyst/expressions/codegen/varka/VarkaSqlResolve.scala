@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
-  BindReferences, Cast, Expression, Literal, NamedExpression}
+  BindReferences, Cast, DatetimeSub, Expression, Literal, NamedExpression, TimestampAddInterval}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType, StringType}
@@ -70,10 +70,14 @@ object VarkaSqlResolve {
    *
    * A string literal cast to `DOUBLE` or `FLOAT` is folded to its value, as Spark's optimizer
    * folds it before Varka sees a plan: it is how SQL writes NaN and the infinities, which have
-   * no literal of their own, and the compiler declines a floating cast. And a cast to its child's
-   * own type is its child, as the optimizer's `SimplifyCasts` makes it: the analyzer writes one
-   * over the datetime arithmetic it rewrites (`ntz + dt` arrives as
-   * `Cast(TimestampAddInterval(ntz, dt), TIMESTAMP_NTZ)`), and no plan Varka sees still holds it.
+   * no literal of their own, and the compiler declines a floating cast. And the cast the
+   * analyzer writes over the datetime arithmetic it rewrites is its child, as the optimizer's
+   * `SimplifyCasts` makes it: `ntz + dt` arrives as
+   * `Cast(TimestampAddInterval(ntz, dt), TIMESTAMP_NTZ)` and `ntz - dt` as
+   * `Cast(DatetimeSub(ntz, dt, TimestampAddInterval(ntz, -dt)), TIMESTAMP_NTZ)`
+   * (`BinaryArithmeticWithDatetimeResolver`), and no plan Varka sees still holds either cast.
+   * Only those two children are stripped: an identity cast a query writes itself stays, so that
+   * the compiler's own identity-cast arms remain reachable from SQL.
    */
   def resolve(e: Expression, columns: Seq[Attribute]): Expression = {
     val byName = columns.map(a => a.name -> a).toMap
@@ -89,7 +93,8 @@ object VarkaSqlResolve {
       case Project(Seq(a: Alias), _) => a.child.transformUp {
         case c @ Cast(Literal(_, StringType), DoubleType | FloatType, _, _) =>
           Literal.create(c.eval(), c.dataType)
-        case Cast(child, dataType, _, _) if child.dataType == dataType => child
+        case Cast(child @ (_: TimestampAddInterval | _: DatetimeSub), dataType, _, _)
+            if child.dataType == dataType => child
       }
       case other =>
         throw new IllegalArgumentException(

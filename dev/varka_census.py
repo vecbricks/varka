@@ -803,14 +803,11 @@ CONTEXT_CASTS = {
     ("dec", "dec"): "only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42",
 }
 
-# The pairs that fuse only from a form the coverage table has no column of, so that no row over
-# its columns can cast them as a plan does: the probe holds every form, and a row writing the cast
-# over a literal shows nothing, since the optimizer folds it. Each must still fuse in the probe;
-# one that a coverage row comes to cast leaves this list.
-UNSHOWN_CASTS = {
-    ("time", "time"): "only a widening from TIME(0) or TIME(3), and the table's TIME columns "
-    "are TIME(6)",
-}
+# The pairs that fuse only from a form no coverage row can write, neither over the table's columns
+# nor over a literal: the probe holds every form. A cast a row writes over a literal is shown, as
+# the tools' resolver keeps it, though a plan's optimizer would fold it. Each entry must still be
+# in the probe and fuse there; one that a coverage row comes to cast leaves this list.
+UNSHOWN_CASTS = {}
 
 
 def casts_fused(root=ROOT):
@@ -893,6 +890,9 @@ def cast_errors(cov, probe):
     for src, dst in CONTEXT_CASTS:
         if not any((src, dst) == (s, d) for s, d, _ in cast):
             errors.append(f"cast {src} to {dst} is in CONTEXT_CASTS and no coverage row casts it")
+    for src, dst in UNSHOWN_CASTS:
+        if (src, dst) not in probe:
+            errors.append(f"cast {src} to {dst} is in UNSHOWN_CASTS and the probe never emits it")
     return errors
 
 

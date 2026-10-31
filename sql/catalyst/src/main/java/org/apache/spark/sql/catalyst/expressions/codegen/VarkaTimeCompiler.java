@@ -220,11 +220,10 @@ final class VarkaTimeCompiler {
       // raises Spark's error on the row. The legacy CalendarInterval difference is a type no
       // kernel carries. A zoned TIMESTAMP is no lane's, so these arms ask for NTZ operands.
       case SubtractTimestamps s when VarkaTypes.isNtz(s.left().dataType())
-          && VarkaTypes.isNtz(s.right().dataType()) && !s.legacyInterval() ->
-          () -> ntzDifference(s, inputs, literals, sink);
-      case SubtractTimestamps s when VarkaTypes.isNtz(s.left().dataType())
           && VarkaTypes.isNtz(s.right().dataType()) ->
-          () -> sink.decline("legacy CalendarInterval subtraction of two timestamps", s);
+          () -> s.legacyInterval()
+              ? sink.decline("legacy CalendarInterval subtraction of two timestamps", s)
+              : ntzDifference(s, inputs, literals, sink);
       case TimestampAddInterval a when VarkaTypes.isNtz(a.start().dataType())
           && a.interval().dataType() instanceof DayTimeIntervalType ->
           () -> ntzPlusInterval(a, inputs, literals, sink);

@@ -117,9 +117,9 @@ public final class VarkaTimestampNtzArithmeticSuite {
   }
 
   private VarkaVectorIR root(String sql) {
-    Optional<CompiledVarkaProjection> p = compile(VarkaSqlResolve.parse(sql, columns()));
-    assertTrue(p.isPresent(), sql + " declined: " + declineOf(VarkaSqlResolve.parse(sql,
-        columns())));
+    Expression e = VarkaSqlResolve.parse(sql, columns());
+    Optional<CompiledVarkaProjection> p = compile(e);
+    assertTrue(p.isPresent(), () -> sql + " declined: " + declineOf(e));
     assertEquals(1, p.get().outputs().size(), sql);
     return p.get().outputs().get(0);
   }
@@ -150,7 +150,7 @@ public final class VarkaTimestampNtzArithmeticSuite {
     Expression minusHour = new TimestampAddInterval(ntz,
         Literal.create(-3_600_000_000L, DayTimeIntervalType.apply()), Option.apply("UTC"));
     Optional<CompiledVarkaProjection> p = compile(minusHour);
-    assertTrue(p.isPresent(), "ntz - INTERVAL '1' HOUR declined: " + declineOf(minusHour));
+    assertTrue(p.isPresent(), () -> "ntz - INTERVAL '1' HOUR declined: " + declineOf(minusHour));
     assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
         p.get().outputs().get(0));
   }
@@ -160,7 +160,8 @@ public final class VarkaTimestampNtzArithmeticSuite {
   void declines() {
     Expression legacy = new SubtractTimestamps(ntz, ntz2, true, Option.apply("UTC"));
     assertTrue(compile(legacy).isEmpty(), "the legacy difference fused");
-    assertTrue(declineOf(legacy).contains("legacy CalendarInterval"), declineOf(legacy));
+    String reason = declineOf(legacy);
+    assertTrue(reason.contains("legacy CalendarInterval"), reason);
     for (String zoned : List.of("ltz - ltz", "ltz + dt", "ltz - dt")) {
       if (compile(VarkaSqlResolve.parse(zoned, columns())).isPresent()) {
         fail(zoned + " fused over a zoned TIMESTAMP, which no lane carries");

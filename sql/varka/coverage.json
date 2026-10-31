@@ -2148,12 +2148,12 @@
     "executable" : "CAST(TIME'12:34:56.789' AS TIME(6)) = t",
     "family" : "Long-lane predicates",
     "form" : "predicate",
-    "catalyst" : [ "EqualTo" ],
-    "casts" : [ ],
-    "operands" : [ "EqualTo:time" ],
+    "catalyst" : [ "Cast", "EqualTo" ],
+    "casts" : [ "time>time:ansi" ],
+    "operands" : [ "Cast:time", "EqualTo:time" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; a widening from TIME(0) or TIME(3) fuses and a narrowing declines",
+    "note" : "a TIME literal is already TIME(6), so the cast keeps its precision and compiles to its operand, as a widening from TIME(0) or TIME(3) does (a plan's SimplifyCasts removes this one); a narrowing declines",
     "verified" : "differential"
   }, {
     "sql" : "(l > l2) IS NULL",
