@@ -167,19 +167,23 @@ public sealed interface VarkaEmitOption
    * that node, so varying it over shapes that lack one tests nothing and, in the fuzzer, shifts
    * every later draw of a committed seed: {@link #drawn()} leaves it out of the general draws,
    * the steering and the option matrix, and the sequence whose shapes hold the node draws it
-   * ({@code VarkaIrFuzzSuite}'s decimal draw for {@code decimalStore}).
+   * ({@code VarkaIrFuzzSuite}'s decimal draw for {@code decimalStore}). Only a {@link Choice}
+   * carries one so far.
    */
-  default Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
-    return Optional.empty();
-  }
+  Optional<Class<? extends VarkaVectorIR>> readOnlyBy();
 
   /**
    * Whether the fuzzer's general draws, its steering and the option matrix vary this option: its
    * reason is drawn ({@link Reason#drawn()}) and it is not read by one node kind alone
-   * ({@link #readOnlyBy()}).
+   * ({@link #readOnlyBy()}). Each record answers through {@link #drawnInGeneral}: the interface
+   * keeps no default method, so that initializing a record never initializes it first
+   * (Error Prone's {@code ClassInitializationDeadlock}).
    */
-  default boolean drawn() {
-    return reason().drawn() && readOnlyBy().isEmpty();
+  boolean drawn();
+
+  /** {@link #drawn()} for {@code option}. */
+  static boolean drawnInGeneral(VarkaEmitOption option) {
+    return option.reason().drawn() && option.readOnlyBy().isEmpty();
   }
 
   /** Sets this option's default on a builder. */
@@ -220,6 +224,16 @@ public sealed interface VarkaEmitOption
       var builder = options.toBuilder();
       set.accept(builder, value);
       return builder.build();
+    }
+
+    @Override
+    public Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean drawn() {
+      return VarkaEmitOption.drawnInGeneral(this);
     }
 
     @Override
@@ -270,6 +284,16 @@ public sealed interface VarkaEmitOption
       var builder = options.toBuilder();
       set.accept(builder, value);
       return builder.build();
+    }
+
+    @Override
+    public Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean drawn() {
+      return VarkaEmitOption.drawnInGeneral(this);
     }
 
     @Override
@@ -353,6 +377,11 @@ public sealed interface VarkaEmitOption
       }
       throw VarkaErrors.illegalArgument(
           name + " has no constant " + constant + "; it has " + constants());
+    }
+
+    @Override
+    public boolean drawn() {
+      return VarkaEmitOption.drawnInGeneral(this);
     }
 
     @Override
