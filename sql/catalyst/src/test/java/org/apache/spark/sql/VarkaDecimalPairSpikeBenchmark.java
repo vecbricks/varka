@@ -995,7 +995,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
    * a value whose low word is zero, a {@code HALF_UP} tie of the rescale, and otherwise any
    * digit count.
    */
-  private static BigInteger xValue(int i, Random r) {
+  private static BigInteger columnX(int i, Random r) {
     return switch (i % 97) {
       case 0 -> MAX38;
       case 1 -> MAX38.negate();
@@ -1011,7 +1011,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   /** Row {@code i}'s {@code y}: {@code x} itself one row in eight, its high word with another
    *  low word one in eight, and otherwise independent. */
-  private static BigInteger yValue(int i, BigInteger x, Random r) {
+  private static BigInteger columnY(int i, BigInteger x, Random r) {
     return switch (i % 8) {
       case 0 -> x;
       case 1 -> x.shiftRight(64).shiftLeft(64).add(BigInteger.valueOf(r.nextLong() >>> 1));
@@ -1020,7 +1020,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   }
 
   /** Row {@code i} of the wild column: one row in sixteen at or past {@code 10^38}. */
-  private static BigInteger wildValue(int i, BigInteger x, Random r) {
+  private static BigInteger columnWild(int i, BigInteger x, Random r) {
     if (i % 16 != 5) {
       return x;
     }
@@ -1056,9 +1056,9 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     var ys = new BigInteger[n];
     var wilds = new BigInteger[n];
     for (int i = 0; i < n; i++) {
-      xs[i] = xValue(i, r);
-      ys[i] = yValue(i, xs[i], r);
-      wilds[i] = wildValue(i, xs[i], r);
+      xs[i] = columnX(i, r);
+      ys[i] = columnY(i, xs[i], r);
+      wilds[i] = columnWild(i, xs[i], r);
       setSlot(x, i, xs[i]);
       setSlot(y, i, ys[i]);
       setSlot(wild, i, wilds[i]);
