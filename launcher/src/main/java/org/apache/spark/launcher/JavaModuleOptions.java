@@ -43,6 +43,8 @@ public class JavaModuleOptions {
       "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
       "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
       "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED",
+      // HotSpot's CPU feature list, which Varka reads to choose a conversion form (VARKA-538).
+      "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED",
       "-Dio.netty.tryReflectionSetAccessible=true",
       "-Dio.netty.allocator.type=pooled",
       "-Dio.netty.handler.ssl.defaultEndpointVerificationAlgorithm=NONE",

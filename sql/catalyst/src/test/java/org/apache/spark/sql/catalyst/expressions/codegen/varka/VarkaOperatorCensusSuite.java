@@ -304,8 +304,18 @@ public final class VarkaOperatorCensusSuite {
 
   /** The vector size in bytes the JVM settles on when asked for {@code requested}. */
   private static int effectiveBytes(int requested) throws IOException, InterruptedException {
-    var output = run(List.of(javaBin(), "-XX:MaxVectorSize=" + requested,
-        "-XX:+PrintFlagsFinal", "-version"));
+    return effectiveBytes(List.of("-XX:MaxVectorSize=" + requested));
+  }
+
+  /** The same, for a JVM started with {@code flags}, which name the vector size asked for. */
+  private static int effectiveBytes(List<String> flags)
+      throws IOException, InterruptedException {
+    var command = new ArrayList<String>();
+    command.add(javaBin());
+    command.addAll(flags);
+    command.add("-XX:+PrintFlagsFinal");
+    command.add("-version");
+    var output = run(command);
     for (String line : output) {
       var m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
       if (m.find()) {
@@ -323,6 +333,8 @@ public final class VarkaOperatorCensusSuite {
     command.add("--add-modules");
     command.add("jdk.incubator.vector");
     command.add("--enable-native-access=ALL-UNNAMED");
+    // VarkaHostIsa's feature query, which the host-fact test reads in the fork (VARKA-538).
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
     command.add("-XX:+UnlockDiagnosticVMOptions");
     command.add("-Xbatch");
     command.add("-XX:CompileCommand=quiet");
@@ -478,6 +490,95 @@ public final class VarkaOperatorCensusSuite {
         + String.join("\n  ", bimorphic));
   }
 
+  /**
+   * What a JVM started with {@code flags} says about its converts.
+   *
+   * @param fallsBack {@code VarkaHostIsa.conversionsFallBack()} in that JVM
+   * @param useAVX its {@code UseAVX} level, -1 where it has none
+   * @param features the feature list it was read from, empty where unread
+   */
+  record HostFact(boolean fallsBack, int useAVX, String features) { }
+
+  static HostFact hostFact(String... flags) throws IOException, InterruptedException {
+    var command = new ArrayList<String>();
+    command.add(javaBin());
+    command.add("--add-modules");
+    command.add("jdk.incubator.vector");
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
+    command.addAll(List.of(flags));
+    command.add("-cp");
+    command.add(classpath());
+    command.add(PROBE);
+    command.add(VarkaOperatorCensusProbe.HOST_ENTRY);
+    Boolean fallsBack = null;
+    int useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN;
+    String features = null;
+    for (String line : run(command)) {
+      String f = after(line, VarkaOperatorCensusProbe.FALLS_BACK_PREFIX);
+      String u = after(line, VarkaOperatorCensusProbe.USE_AVX_PREFIX);
+      String l = after(line, VarkaOperatorCensusProbe.FEATURES_PREFIX);
+      if (f != null) {
+        fallsBack = Boolean.parseBoolean(f.strip());
+      } else if (u != null) {
+        useAVX = Integer.parseInt(u.strip());
+      } else if (l != null) {
+        features = l.strip();
+      }
+    }
+    assertTrue(fallsBack != null && features != null, "the host probe printed no host fact");
+    return new HostFact(fallsBack, useAVX, features);
+  }
+
+  /** The cells whose verdict the host fact predicts: the 64-bit floating conversions. */
+  private static final List<String> DQ_CELLS = List.of("long.L2D", "double.D2L", "long.L2F");
+
+  /**
+   * Holds the host fact of a JVM under {@code flags} to the conversion cells measured under the
+   * same flags, at every width it runs: a fallback answer exactly where a cell reads F.
+   */
+  private static void holdHostFactToCells(String... flags) throws Exception {
+    var fact = hostFact(flags);
+    var widths = new TreeSet<Integer>();
+    for (int requested : WIDTHS_BYTES) {
+      var withSize = new ArrayList<>(List.of(flags));
+      withSize.add("-XX:MaxVectorSize=" + requested);
+      widths.add(effectiveBytes(withSize));
+    }
+    var disagree = new ArrayList<String>();
+    for (int bytes : widths) {
+      for (String cell : DQ_CELLS) {
+        var reading = fork(cell, bytes, flags);
+        if (reading.skipped() != null) {
+          continue;
+        }
+        boolean fellBack = reading.verdict() == Verdict.FALLBACK;
+        if (fellBack != fact.fallsBack()) {
+          disagree.add(bytes * 8 + " bits: " + cell + " reads " + reading.verdict().label
+              + " (" + reading.failed() + ")");
+        }
+      }
+    }
+    assertTrue(disagree.isEmpty(), "under " + List.of(flags) + " (UseAVX " + fact.useAVX()
+        + ") VarkaHostIsa answers fallsBack=" + fact.fallsBack() + " from [" + fact.features()
+        + "], and the census disagrees:\n  " + String.join("\n  ", disagree));
+  }
+
+  @Test
+  @DisplayName("the host fact agrees with the conversion cells at the host's own flags")
+  void hostFactAtHostFlags() throws Exception {
+    holdHostFactToCells();
+  }
+
+  @Test
+  @DisplayName("the host fact agrees with the conversion cells under -XX:UseAVX=2")
+  void hostFactUnderAvx2() throws Exception {
+    // HotSpot clears every AVX-512 feature below level 3, so on an AVX-512 host this is the
+    // fallback answer measured against real cells; on an AVX2 host it repeats the host's flags.
+    assumeTrue(System.getProperty("os.arch", "").matches("amd64|x86_64"),
+        "UseAVX is an x86 flag");
+    holdHostFactToCells("-XX:UseAVX=2");
+  }
+
   private static String cpuModel() {
     try {
       for (String line : Files.readAllLines(Path.of("/proc/cpuinfo"))) {
@@ -525,6 +626,11 @@ public final class VarkaOperatorCensusSuite {
     host.put("cpu", cpuModel());
     host.put("arch", System.getProperty("os.arch"));
     host.put("jdk", System.getProperty("java.runtime.version"));
+    // Why the conversion cells read as they do: the level and HotSpot's feature list, which
+    // VarkaHostIsa reads in the fork (VARKA-538).
+    var fact = hostFact();
+    host.put("use_avx", fact.useAVX());
+    host.put("features", fact.features());
     var doc = ordered();
     doc.put("generated_by", "VarkaOperatorCensusSuite; regenerate on the host named below with "
         + "VARKA_CENSUS_REGEN=true build/sbt 'catalyst/testOnly *VarkaOperatorCensusSuite'");

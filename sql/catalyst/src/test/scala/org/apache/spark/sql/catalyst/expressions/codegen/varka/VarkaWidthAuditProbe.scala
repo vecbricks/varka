@@ -51,6 +51,10 @@ object VarkaWidthAuditProbe {
   val PREFERRED_BITS_PREFIX = "VARKA_AUDIT_PREFERRED_BITS="
   /** The host's `UseAVX` as `VarkaEmitOptions.HOST_USE_AVX` reads it, -1 where there is no flag. */
   val USE_AVX_PREFIX = "VARKA_AUDIT_USE_AVX="
+  /** `VarkaHostIsa.conversionsFallBack()` in the probe's JVM: whether L2D and D2L fall back. */
+  val CONVERSIONS_FALL_BACK_PREFIX = "VARKA_AUDIT_CONVERSIONS_FALL_BACK="
+  /** HotSpot's feature list as `VarkaHostIsa` read it, for the log; empty where unread. */
+  val FEATURES_PREFIX = "VARKA_AUDIT_FEATURES="
   val SHAPE_BEGIN_PREFIX = "VARKA_AUDIT_SHAPE_BEGIN "
   val SHAPE_END_PREFIX = "VARKA_AUDIT_SHAPE_END "
   val SHAPE_NAME_END = " VARKA_AUDIT_NAME_END"
@@ -75,6 +79,8 @@ object VarkaWidthAuditProbe {
     // scalastyle:off println
     println(PREFERRED_BITS_PREFIX + IntVector.SPECIES_PREFERRED.vectorBitSize())
     println(USE_AVX_PREFIX + VarkaEmitOptions.HOST_USE_AVX)
+    println(CONVERSIONS_FALL_BACK_PREFIX + VarkaHostIsa.conversionsFallBack())
+    println(FEATURES_PREFIX + VarkaHostIsa.features())
     val entries: Seq[Entry] = VarkaWidthAuditShapes.all(new File(args(0)))
       .filter(s => args.length == 1 || s.name.contains(args(1)))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)

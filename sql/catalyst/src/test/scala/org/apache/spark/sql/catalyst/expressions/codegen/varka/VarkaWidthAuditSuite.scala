@@ -76,8 +76,9 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    * saw it, keyed by the same shape name. The two are different kinds of answer - a decline is
    * no lowering at all, a refusal is a per-lane fallback - and both are pinned (VARKA-329).
    */
-  private case class Census(preferredBits: Int, useAVX: Int, refusals: Map[String, Seq[String]],
-      declined: Map[String, String], unattributed: Seq[String])
+  private case class Census(preferredBits: Int, useAVX: Int, conversionsFallBack: Boolean,
+      refusals: Map[String, Seq[String]], declined: Map[String, String],
+      unattributed: Seq[String])
 
   private val cpuModel: String = {
     val info = new File("/proc/cpuinfo")
@@ -104,6 +105,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add("--add-modules")
     command.add("jdk.incubator.vector")
     command.add("--enable-native-access=ALL-UNNAMED")
+    // VarkaHostIsa's feature query, which keys the converts the invariant expects (VARKA-538).
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED")
     command.add("-XX:+UnlockDiagnosticVMOptions")
     command.add("-Xbatch")
     command.add("-XX:CompileCommand=quiet")
@@ -126,6 +129,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     var current: Option[String] = None
     var bits = -1
     var useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN
+    var fallsBack: Option[Boolean] = None
     var done = false
     val tail = mutable.Queue.empty[String]
     try {
@@ -138,6 +142,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         val trimmed = line.trim
         VarkaProbeOutput.longAfter(line, PREFERRED_BITS_PREFIX).foreach(b => bits = b.toInt)
         VarkaProbeOutput.longAfter(line, USE_AVX_PREFIX).foreach(u => useAVX = u.toInt)
+        VarkaProbeOutput.after(line, CONVERSIONS_FALL_BACK_PREFIX).foreach { v =>
+          fallsBack = Some(v.trim.startsWith("true"))
+        }
+        VarkaProbeOutput.after(line, FEATURES_PREFIX).foreach { f =>
+          logInfo(s"the audit probe's JVM reports the features: ${f.trim}")
+        }
         VarkaProbeOutput.between(line, SHAPE_BEGIN_PREFIX, SHAPE_NAME_END).foreach { name =>
           current = Some(name)
           refusals.getOrElseUpdate(name, mutable.LinkedHashSet.empty)
@@ -173,7 +183,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       s"the audit probe failed (exit ${process.exitValue()}); its last lines:\n" +
         tail.mkString("\n"))
     assert(bits > 0, "the audit probe never reported its preferred vector width")
-    Census(bits, useAVX, refusals.map { case (k, v) => k -> v.toSeq }.toMap,
+    assert(fallsBack.isDefined, "the audit probe never reported whether its converts fall back")
+    Census(bits, useAVX, fallsBack.get, refusals.map { case (k, v) => k -> v.toSeq }.toMap,
       declined.toMap, unattributed.toSeq)
   }
 
@@ -227,19 +238,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * The one refusal a host class is known to have at its own width, and the emitter already
-   * knows about: below AVX-512 there is no vector lowering of the 64-bit lane's conversions to
-   * and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
+   * knows about: without AVX512DQ there is no vector lowering of the 64-bit lane's conversions
+   * to and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
    * and the magic form of the division was built (`VARKA-88.md` 9.2). C2 prints it as a
    * lane cast of four 64-bit lanes: `op=cast#<n>/3 vlen2=4 etype2=double|long ismask=0`.
    * The audit's first CI run confirmed it from the runner pool's EPYC 7763 at 256 bits, in
    * every shape that carries a 64-bit constant division and nowhere else. The invariant
-   * expects it there rather than failing every AVX2 runner on a fact the design records;
-   * VARKA-121 owns what to do about it.
+   * expects it where the probe's JVM says its converts fall back - HotSpot's own feature list,
+   * read by `VarkaHostIsa` (VARKA-538) - rather than failing every AVX2 runner on a fact the
+   * design records.
    */
   private def knownBelowAvx512(census: Census, line: String): Boolean =
-    census.useAVX != VarkaEmitOptions.USE_AVX_UNKNOWN &&
-      // AVX-512 is level 3, the same reading `VarkaEmitOptions.convertsFallBack` makes.
-      census.useAVX < 3 &&
+    knownConversionRefusal(census.conversionsFallBack, line)
+
+  /** The rule of [[knownBelowAvx512]] over the host's answer alone, for its planted test. */
+  private def knownConversionRefusal(conversionsFallBack: Boolean, line: String): Boolean =
+    conversionsFallBack &&
       line.startsWith("not supported") && line.contains("op=cast#") &&
       line.contains("ismask=0") &&
       (line.contains("etype2=double") || line.contains("etype2=long"))
@@ -463,5 +477,19 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         (unexplained.map { case (name, reason) => s"  declined, not recorded: $name: $reason" } ++
           stale.map { case (name, reason) => s"  recorded, not declined: $name: $reason" })
           .mkString("\n"))
+  }
+
+  test("the converts' refusal is admitted only where the host says its converts fall back") {
+    // Test 3.5 of VARKA-538: the key is the host's answer, so a fallback host reported as
+    // converting must fail the preferred-width invariant on the L2D/D2L line, and a host that
+    // falls back must admit it, while any other refusal fails either way.
+    val l2d = "not supported: arity=1 op=cast#2/3 vlen2=4 etype2=double ismask=0"
+    val other = "not supported: arity=2 op=mul vlen=4 etype=long ismask=0"
+    assert(knownConversionRefusal(conversionsFallBack = true, l2d))
+    assert(!knownConversionRefusal(conversionsFallBack = false, l2d))
+    assert(!knownConversionRefusal(conversionsFallBack = true, other))
+    // The live probe and this JVM read the same flags, so they must agree on the answer.
+    assert(atPreferred.conversionsFallBack === VarkaHostIsa.conversionsFallBack(),
+      s"the probe's JVM and the suite's disagree on the converts (UseAVX ${atPreferred.useAVX})")
   }
 }
