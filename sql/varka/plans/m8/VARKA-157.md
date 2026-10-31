@@ -497,10 +497,14 @@ for: the canonical parser reads only `(head child...)`.*
   `VarkaEmitterBudgetSuite`, which counts the prologue's zip as overhead, as a leaf's load is. The
   cost feature `WidenDecimal` is on row 352's awaiting-refit list in `VarkaEmitCostSuite`.
 - **The store table and the guard page.** `VarkaDecimalStoreSuite` (`ownJvm`): `WidenDecimal` over a
-  long column at 2, 4 and 8 lanes and at the preferred species (`lanesOverride=1`, which bakes no
-  width), and `VarkaDecimalStoreOneLaneSuite` runs the same tables in a JVM under
+  long column at 2, 4 and 8 lanes, and `VarkaDecimalStoreOneLaneSuite` runs the same tables at the
+  preferred species (`lanesOverride=1`, which bakes no width) in a JVM under
   `-XX:MaxVectorSize=8`, where that species is one long lane (six of its tests failed on the first
-  index form, a slot read back as `(-42, -42)`); lengths 1, 3, 37 and 64, both bodies, both arms,
+  index form, a slot read back as `(-42, -42)`). The tables are `VarkaDecimalStoreTables`, which
+  both classes extend; the refusals, which no width changes, are the first class's alone, and the
+  host's preferred species is not run unbaked beside the baked width it equals. The decimal load
+  is split the same way: `VarkaDecimalLoadOneLaneSuite` runs `VarkaDecimalLoadTables` at one long
+  lane, and passed there on its first run, with no change to the load; lengths 1, 3, 37 and 64, both bodies, both arms,
   with 0, -1, `10^18 - 1`, `-(10^18 - 1)`, 1, -10 and random values of both signs planted at the
   first group, a middle one and the last row; each valid slot equals `DecimalVector.set(int,
   long)`'s bytes and reads back through `ArrowColumnVector.getDecimal` as `Decimal(u, 18, 0)`.

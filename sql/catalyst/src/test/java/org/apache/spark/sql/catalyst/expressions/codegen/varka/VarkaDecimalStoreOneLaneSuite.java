@@ -24,21 +24,24 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link VarkaDecimalStoreSuite}'s tables at one long lane: a JVM whose widest vector is 64 bits,
- * where the preferred species holds one long and the emitter bakes no width for it
- * ({@code Lane.emitLanes}). A lane group is then one slot, the low word in the first vector and
- * the high word in the second, so the interleave's index for the second vector must point past
- * the first one - a case no even lane count reaches. HotSpot sizes the preferred shape from
- * {@code MaxVectorSize} and falls back to 64 bits when a long vector does not fit it
- * ({@code VectorShape.getMaxVectorBitSize}), so the flag gives that species on every host.
+ * The decimal store's tables ({@link VarkaDecimalStoreTables}) at one long lane: a JVM whose
+ * widest vector is 64 bits, where the preferred species holds one long and the emitter bakes no
+ * width for it ({@code Lane.emitLanes}). A lane group is then one slot, the low word in the first
+ * vector and the high word in the second, so the interleave's index for the second vector must
+ * point past the first one - a case no even lane count reaches. HotSpot sizes the preferred shape
+ * from {@code MaxVectorSize} and falls back to 64 bits when a long vector does not fit it
+ * ({@code VectorShape.getMaxVectorBitSize}), so the flag gives that species on every host. The
+ * tests no width changes are {@link VarkaDecimalStoreSuite}'s alone.
  */
 @VarkaSuite(ownJvm = true, jvmFlags = {"-XX:MaxVectorSize=8"})
-public final class VarkaDecimalStoreOneLaneSuite extends VarkaDecimalStoreSuite {
+public final class VarkaDecimalStoreOneLaneSuite extends VarkaDecimalStoreTables {
+
+  private static final int[] WIDTHS = {1};
 
   /** Only the preferred species: a baked width would run as the Java fallback here. */
   @Override
   int[] widths() {
-    return new int[] {1};
+    return WIDTHS;
   }
 
   @Test
