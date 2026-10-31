@@ -560,22 +560,36 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     }
   }
 
+  /** Runs `body` with output `k` (from 0) forced to decline and nothing planted. */
+  private def withForcedOutput[T](k: Int)(body: => T): T = {
+    val previous = VarkaColumnarToRowExec.currentEmitOptions
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(previous.withForceResidualAt(k + 1))
+    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
+  }
+
   /**
-   * The first composition of the planted seed whose answer the planted rollback changes, with
-   * every output forced in turn, and the kind of the change; shared by the two tests below. The
-   * compositions are the coverage rows' alone (`drawRows`): a nested tree meets the planted
-   * rollback's branch without a force (VARKA-298.md 9), and these tests are about the force.
-   * A composition that disagrees without the planted rollback too is not the plant's change but
-   * the configuration's - with `checkIntOverflow` off a drawn overflow wraps where the row engine
-   * raises - so it is passed over: only the planted bug's own failure is counted.
+   * The first composition of the planted seed whose answer the planted rollback changes, the
+   * output whose force shows the change, and the kind of the change; shared by the two tests
+   * below. The compositions are the coverage rows' alone (`drawRows`): a nested tree meets the
+   * planted rollback's branch without a force (VARKA-298.md 9), and these tests are about the
+   * force. A composition may disagree without the plant too - with `checkIntOverflow` off a
+   * drawn overflow wraps where the row engine raises - so what is counted is the plant's own
+   * change: per forced output, a planted kind the same run without the plant does not show.
    */
-  private lazy val plantedFirst: Option[(Int, String)] =
+  private lazy val plantedFirst: Option[(Int, Int, String)] =
     (0 until 300).iterator.flatMap { it =>
-      val (c, planted) = withPlantedRollback() {
-        val c = rectify(drawRows(rows, plantedSeed, it))
-        (c, kindOf(c, partitions = false, c.outputs.indices))
+      val c = rectify(drawRows(rows, plantedSeed, it))
+      def planted(forces: Seq[Int]): Option[String] =
+        withPlantedRollback()(kindOf(c, partitions = false, forces))
+      // Every output forced at once first, the one run most compositions need.
+      if (planted(c.outputs.indices).isEmpty) {
+        None
+      } else {
+        c.outputs.indices.iterator.flatMap { k =>
+          planted(Seq(k)).filter(p => !kindOf(c, partitions = false, Seq(k)).contains(p))
+            .map((it, k, _))
+        }.nextOption()
       }
-      planted.filter(_ => kindOf(c, partitions = false, c.outputs.indices).isEmpty).map((it, _))
     }.nextOption()
 
   test("a forced output finds a rollback that truncates one input too far") {
@@ -583,8 +597,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     // (VARKA-296.md 2), and forcing every output of each composition does.
     val found = plantedFirst
     info(s"seed $plantedSeed: the planted rollback first changes an answer at composition " +
-      found.map(_._1).getOrElse("none of 300"))
-    assert(found.exists(_._2.startsWith("with an output forced to decline")), found)
+      found.map { case (it, k, _) => s"$it, output $k forced" }.getOrElse("none of 300"))
+    assert(found.exists(_._3.startsWith("with an output forced to decline")), found)
   }
 
   test("the warmed arm finds a planted kernel fault after the handover, not before it") {
@@ -592,23 +606,30 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     // with the warm-up on the runs on the row path must pass and the first run with a kernel
     // fail: the arm compares both sides of the switch, and keeps them apart.
     assume(VarkaKernelWarmup.canWarm(), "this JVM cannot warm kernels")
-    val it = plantedFirst.map(_._1)
+    val (it, k, _) = plantedFirst
       .getOrElse(fail(s"seed $plantedSeed: the planted rollback changed no answer in 300"))
     val c = rectify(drawRows(rows, plantedSeed, it))
-    val k = c.outputs.indices.find { k =>
-      withPlantedRollback()(kindOf(c, partitions = false, Seq(k))).isDefined
-    }.getOrElse(fail(s"composition $it: no single forced output changes an answer"))
-    VarkaShapeCache.invalidateAll()
-    val counts = new WarmedCounts
+    val later = laterData(c, new Random(plantedSeed), safe = true, wide = false)
     // Two seconds of deadline: the planted kernel's warm-up can wait one out, and a release hands
     // the shape to the kernel as a verdict does.
-    val found = withPlantedRollback(Some(k)) {
-      withWarmupDeadline(2) {
-        warmedDisagreement(c, laterData(c, new Random(plantedSeed), safe = true, wide = false),
-          counts)
-      }
+    def replay(planted: Boolean, counts: WarmedCounts): Option[String] = {
+      VarkaShapeCache.invalidateAll()
+      def run: Option[String] = withWarmupDeadline(2)(warmedDisagreement(c, later, counts))
+      if (planted) withPlantedRollback(Some(k))(run) else withForcedOutput(k)(run)
     }
-    info(s"composition $it, output $k forced: ${found.getOrElse("no disagreement")}")
+    // The same replay without the plant must agree, or what the planted one finds is not the
+    // plant's. With the overflow check off, one that agrees once the check is on is the
+    // configuration's wrap (as in the main test), and both replays then run with the check on.
+    val unplanted = replay(planted = false, new WarmedCounts)
+    val checked = unplanted.isDefined && overflowUnchecked
+    def underTest[T](body: => T): T = if (checked) withOverflowChecked(body) else body
+    val baseline = if (checked) underTest(replay(planted = false, new WarmedCounts)) else unplanted
+    assert(baseline.isEmpty, s"composition $it, output $k forced, without the plant: $baseline")
+    val counts = new WarmedCounts
+    val found = underTest(replay(planted = true, counts))
+    info(s"composition $it, output $k forced" +
+      (if (checked) ", with checkIntOverflow on" else "") +
+      s": ${found.getOrElse("no disagreement")}")
     // A shape that went to its kernel without a warm-up would pass the check below untested.
     assert(counts.rowPathRuns > 0, "no run took the row path while the kernel warmed")
     assert(found.exists(kind => kind.startsWith("after the handover to the kernel") ||
